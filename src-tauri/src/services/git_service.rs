@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use crate::models::git::{BranchInfo, FileChangeType, FileEntry, GitCommit, GitStatus};
+use crate::models::git::{BranchInfo, BranchInfo2, FileChangeType, FileEntry, GitCommit, GitStatus};
 
 #[derive(Debug, Default)]
 pub struct GitService;
@@ -32,10 +32,63 @@ impl GitService {
         Ok(())
     }
 
-    pub fn commit(path: impl AsRef<Path>, message: &str) -> Result<String, String> {
-        run_git(path.as_ref(), &["commit", "-m", message])
+    pub fn discard(path: impl AsRef<Path>, file: &str) -> Result<(), String> {
+        run_git(path.as_ref(), &["checkout", "--", file])?;
+        Ok(())
     }
 
+    pub fn stage_all(path: impl AsRef<Path>) -> Result<(), String> {
+        run_git(path.as_ref(), &["add", "--all"])?;
+        Ok(())
+    }
+
+    pub fn unstage_all(path: impl AsRef<Path>) -> Result<(), String> {
+        run_git(path.as_ref(), &["reset", "HEAD"])?;
+        Ok(())
+    }
+
+    pub fn pull(path: impl AsRef<Path>) -> Result<String, String> {
+        run_git(path.as_ref(), &["pull"])
+    }
+
+    pub fn push(path: impl AsRef<Path>) -> Result<String, String> {
+        run_git(path.as_ref(), &["push"])
+    }
+
+    pub fn fetch(path: impl AsRef<Path>) -> Result<String, String> {
+        run_git(path.as_ref(), &["fetch"])
+    }
+
+    pub fn branch_list(path: impl AsRef<Path>) -> Result<Vec<BranchInfo2>, String> {
+        let output = run_git(path.as_ref(), &["branch", "--list", "--format=%(HEAD)%00%(refname:short)%00%(upstream:short)%00%(objectname:short)"])?;
+        Ok(output
+            .split('\n')
+            .filter(|l| !l.is_empty())
+            .map(|line| {
+                let parts: Vec<&str> = line.split('\0').collect();
+                let is_current = parts.first().map(|h| *h == "*").unwrap_or(false);
+                BranchInfo2 {
+                    name: parts.get(1).unwrap_or(&"").to_string(),
+                    upstream: parts.get(2).filter(|s| !s.is_empty()).map(|s| s.to_string()),
+                    is_current,
+                }
+            })
+            .collect())
+    }
+
+    pub fn branch_create(path: impl AsRef<Path>, name: &str) -> Result<(), String> {
+        run_git(path.as_ref(), &["checkout", "-b", name])?;
+        Ok(())
+    }
+
+    pub fn branch_switch(path: impl AsRef<Path>, name: &str) -> Result<(), String> {
+        run_git(path.as_ref(), &["checkout", name])?;
+        Ok(())
+    }
+
+     pub fn commit(path: impl AsRef<Path>, message: &str) -> Result<String, String> {
+         run_git(path.as_ref(), &["commit", "-m", message])
+     }
     pub fn log(path: impl AsRef<Path>, limit: usize) -> Result<Vec<GitCommit>, String> {
         let format = "%H%x1f%h%x1f%s%x1f%an%x1f%ad";
         let output = run_git(path.as_ref(), &[

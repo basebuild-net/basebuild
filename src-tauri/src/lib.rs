@@ -8,7 +8,11 @@ use app_state::AppState;
 use commands::{
     app::app_version,
     config_packs::{create_user_config_pack, list_config_packs},
-    git::{git_add, git_commit, git_diff, git_log, git_reset, git_status},
+    git::{
+        git_add, git_branch_create, git_branch_list, git_branch_switch, git_commit, git_diff,
+        git_discard, git_fetch, git_log, git_pull, git_push, git_reset, git_stage_all,
+        git_status, git_unstage_all,
+    },
     omp::{omp_config_list, omp_debug_context, omp_stats, omp_status, omp_stream_command, omp_usage},
     projects::{
         create_project_basebuild_config, detect_project, list_recent_projects, remember_recent_project,
@@ -47,6 +51,15 @@ pub fn run() {
             git_diff,
             git_add,
             git_reset,
+            git_discard,
+            git_stage_all,
+            git_unstage_all,
+            git_pull,
+            git_push,
+            git_fetch,
+            git_branch_list,
+            git_branch_create,
+            git_branch_switch,
             git_commit,
             git_log,
             list_config_packs,

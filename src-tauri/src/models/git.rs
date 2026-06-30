@@ -50,3 +50,11 @@ pub struct GitCommit {
     pub author: String,
     pub date: String,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchInfo2 {
+    pub name: String,
+    pub upstream: Option<String>,
+    pub is_current: bool,
+}
