@@ -54,3 +54,15 @@ export async function startOmpStream(args: string[]): Promise<number> {
 export async function listenOmpEvents(handler: EventCallback<OmpStreamEvent>): Promise<UnlistenFn> {
   return listen<OmpStreamEvent>("omp://event", handler);
 }
+
+export async function ompStats(): Promise<unknown> {
+  return invoke<unknown>("omp_stats");
+}
+
+export async function ompUsage(): Promise<unknown> {
+  return invoke<unknown>("omp_usage");
+}
+
+export async function ompDebugContext(): Promise<{ stats: unknown; usage: unknown; config: unknown }> {
+  return invoke<{ stats: unknown; usage: unknown; config: unknown }>("omp_debug_context");
+}

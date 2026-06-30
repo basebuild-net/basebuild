@@ -40,3 +40,11 @@ export async function detectProject(path: string): Promise<ProjectDetection> {
 export async function createProjectBasebuildConfig(path: string): Promise<ProjectDetection> {
   return invoke<ProjectDetection>("create_project_basebuild_config", { path });
 }
+
+export async function removeRecentProject(path: string): Promise<void> {
+  return invoke("remove_recent_project", { path });
+}
+
+export async function revealInExplorer(path: string): Promise<void> {
+  return invoke("reveal_in_explorer", { path });
+}

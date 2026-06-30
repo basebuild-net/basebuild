@@ -1,75 +1,127 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  Bot,
+  Bug,
+  GitBranch,
+  RefreshCw,
+  Settings2,
+  TerminalSquare,
+  type LucideIcon,
+} from "lucide-react";
 
-import { primaryActivities, type ActivityId } from "../../state/activity";
 import { useOmpState } from "../../state/omp";
-import { ActivityRail } from "./ActivityRail";
-import { RightPanel } from "./RightPanel";
-import { WorkspacePanel } from "../layout/WorkspacePanel";
-import { createProjectBasebuildConfig, detectProject, pickProjectDirectory, rememberRecentProject, type ProjectDetection } from "../../lib/projects";
+import { ProjectSidebar, useProjectSidebar } from "./ProjectSidebar";
+import { ToolRail } from "./ToolRail";
+import { WorkspacePanel } from "./WorkspacePanel";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
+import { createProjectBasebuildConfig } from "../../lib/projects";
+
+export type ToolId = "terminal" | "omp" | "source" | "configs" | "updates" | "debug";
+
+type ToolItem = { id: ToolId; icon: LucideIcon; label: string; tooltip: string };
+
+const tools: ToolItem[] = [
+  { id: "terminal", icon: TerminalSquare, label: "Terminal", tooltip: "Integrated terminal (PowerShell/bash)" },
+  { id: "omp", icon: Bot, label: "OMP", tooltip: "OhMyPi session — providers, models, usage" },
+  { id: "source", icon: GitBranch, label: "Source", tooltip: "Git source control — stage, commit, diff, history" },
+  { id: "configs", icon: Settings2, label: "Configs", tooltip: "Config packs — discovery and creation" },
+  { id: "updates", icon: RefreshCw, label: "Updates", tooltip: "App updates and requirement checks" },
+  { id: "debug", icon: Bug, label: "Debug", tooltip: "Debug panel — app info, terminal sessions, OMP context" },
+];
 
 export function AppShell() {
-  const [activeActivity, setActiveActivity] = useState<ActivityId>("projects");
   const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null);
-  const [projectDetection, setProjectDetection] = useState<ProjectDetection | null>(null);
+  const [activeTool, setActiveTool] = useState<ToolId>("terminal");
   const [requirements, setRequirements] = useState<RequirementStatus[]>([]);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(false);
   const ompState = useOmpState();
+  const sidebar = useProjectSidebar(activeProjectPath);
 
   useEffect(() => {
     void refreshRequirements();
   }, []);
 
   async function refreshRequirements() {
-    setRequirements(await listRequirements());
+    try {
+      setRequirements(await listRequirements());
+    } catch {
+      // ignore
+    }
   }
 
-  async function handleOpenProject() {
-    const projectPath = await pickProjectDirectory();
-    if (projectPath) {
-      await rememberRecentProject(projectPath);
-      setProjectDetection(await detectProject(projectPath));
-      setActiveProjectPath(projectPath);
-      setActiveActivity("projects");
+  async function handleOpenFolder() {
+    const path = await sidebar.openFolder();
+    if (path) {
+      setActiveProjectPath(path);
+      setActiveTool("terminal");
+    }
+  }
+
+  async function handleSelectProject(path: string) {
+    await sidebar.selectProject(path);
+    setActiveProjectPath(path);
+    setActiveTool("terminal");
+  }
+
+  async function handleRemoveProject(path: string) {
+    await sidebar.removeProject(path);
+    if (path === activeProjectPath) {
+      setActiveProjectPath(null);
     }
   }
 
   async function handleCreateProjectConfig() {
-    if (!activeProjectPath) {
-      return;
+    if (!activeProjectPath) return;
+    await createProjectBasebuildConfig(activeProjectPath);
+    if (activeProjectPath) {
+      setActiveProjectPath(activeProjectPath);
     }
-    setProjectDetection(await createProjectBasebuildConfig(activeProjectPath));
   }
 
-  const activities = useMemo(() => {
-    const issueCount = requirements.filter((requirement) => requirement.severity !== "ok").length;
-    return primaryActivities.map((activity) =>
-      activity.id === "updates" && issueCount > 0 ? { ...activity, badge: issueCount } : activity,
-    );
-  }, [requirements]);
+  const toolBadge = useMemo(() => {
+    if (activeTool !== "updates") return undefined;
+    const issueCount = requirements.filter((r) => r.severity !== "ok").length;
+    return issueCount > 0 ? issueCount : undefined;
+  }, [activeTool, requirements]);
 
   return (
-    <main className="app-shell">
-      <ActivityRail
-        active={activeActivity}
-        items={activities}
-        onSelect={(activity) => {
-          if (activity === "updates") {
-            void refreshRequirements();
-          }
-          setActiveActivity(activity);
-        }}
+    <main
+      className="app-shell"
+      data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}
+      data-rail={railCollapsed ? "collapsed" : "expanded"}
+    >
+      <ProjectSidebar
+        activeProjectPath={activeProjectPath}
+        projects={sidebar.projects}
+        projectDetection={sidebar.projectDetection}
+        onSelectProject={handleSelectProject}
+        onOpenFolder={handleOpenFolder}
+        onRemoveProject={handleRemoveProject}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
       />
       <WorkspacePanel
-        active={activeActivity}
+        activeTool={activeTool}
         activeProjectPath={activeProjectPath}
-        projectDetection={projectDetection}
+        projectDetection={sidebar.projectDetection}
         requirements={requirements}
         ompState={ompState}
-        onOpenProject={handleOpenProject}
+        onOpenProject={handleOpenFolder}
         onCreateProjectConfig={handleCreateProjectConfig}
         onRefreshRequirements={refreshRequirements}
       />
-      <RightPanel />
+      <ToolRail
+        tools={tools}
+        activeTool={activeTool}
+        onSelectTool={(id) => {
+          if (id === "updates") void refreshRequirements();
+          setActiveTool(id);
+        }}
+        badge={toolBadge}
+        collapsed={railCollapsed}
+        onToggleCollapse={() => setRailCollapsed((v) => !v)}
+      />
     </main>
   );
 }

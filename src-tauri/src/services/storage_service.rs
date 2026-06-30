@@ -73,6 +73,14 @@ impl StorageService {
             .map_err(|error| format!("Failed to read recent project row: {error}"))
     }
 
+    pub fn remove_recent_project(path: &str) -> Result<(), String> {
+        let connection = Self::connect()?;
+        connection
+            .execute("DELETE FROM recent_projects WHERE path = ?1", params![path])
+            .map_err(|error| format!("Failed to remove recent project: {error}"))?;
+        Ok(())
+    }
+
     fn initialize(connection: &Connection) -> Result<(), String> {
         connection
             .execute_batch(

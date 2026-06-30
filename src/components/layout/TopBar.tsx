@@ -1,17 +1,13 @@
 type TopBarProps = {
   title: string;
-  eyebrow?: string;
   status?: string;
 };
 
-export function TopBar({ title, eyebrow = "Basebuild", status }: TopBarProps) {
+export function TopBar({ title, status }: TopBarProps) {
   return (
     <header className="top-bar">
-      <div>
-        <p className="eyebrow">{eyebrow}</p>
-        <h1>{title}</h1>
-      </div>
-      {status ? <span className="status-pill">{status}</span> : null}
+      <h1>{title}</h1>
+      {status ? <span className="status-pill" title={status}>{status}</span> : null}
     </header>
   );
 }

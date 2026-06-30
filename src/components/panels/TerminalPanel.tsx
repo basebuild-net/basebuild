@@ -5,34 +5,32 @@ import "@xterm/xterm/css/xterm.css";
 
 import { createTerminal, listenTerminalOutput, resizeTerminal, writeTerminal } from "../../lib/terminal";
 
-const defaultShell = typeof window !== "undefined" && window.navigator.platform.startsWith("Win")
-  ? "powershell.exe"
-  : "bash";
+const defaultShell =
+  typeof window !== "undefined" && window.navigator.platform.startsWith("Win") ? "powershell.exe" : "bash";
 
-export function TerminalPanel() {
+type TerminalPanelProps = {
+  cwd?: string | null;
+};
+
+export function TerminalPanel({ cwd }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const sessionIdRef = useRef<number | null>(null);
-  const [, forceRender] = useState(0);
-
-  function setSessionId(id: number | null) {
-    sessionIdRef.current = id;
-    forceRender((n) => n + 1);
-  }
+  const [connected, setConnected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let disposed = false;
 
     async function init() {
-      if (!containerRef.current) {
-        return;
-      }
+      if (!containerRef.current || disposed) return;
 
       const terminal = new Terminal({
         cursorBlink: true,
-        fontFamily: "JetBrains Mono, Cascadia Code, Consolas, monospace",
-        fontSize: 14,
+        fontFamily: "Cascadia Code, Consolas, monospace",
+        fontSize: 13,
         theme: {
           background: "#0a0a0c",
           foreground: "#e6e6e6",
@@ -53,58 +51,70 @@ export function TerminalPanel() {
       terminal.open(containerRef.current);
       fitAddon.fit();
 
+      if (disposed) {
+        terminal.dispose();
+        return;
+      }
+
       terminalRef.current = terminal;
       fitAddonRef.current = fitAddon;
 
-      terminal.onData((data) => {
-        const id = sessionIdRef.current;
-        if (id === null) {
-          return;
-        }
-        void writeTerminal(id, data);
-      });
+      // Buffer early output until session ID is known
+      const pendingOutput: Array<{ id: number; data: string } | { id: number; kind: "close" }> = [];
 
       const listener = await listenTerminalOutput((event) => {
-        if (event.payload.id !== sessionIdRef.current) {
-          return;
-        }
-        if (event.payload.kind === "data") {
-          terminal.write(event.payload.data);
-        } else if (event.payload.kind === "close") {
-          terminal.writeln("\r\n[terminal closed]");
+        const id = sessionIdRef.current;
+        if (id !== null && event.payload.id === id) {
+          if (event.payload.kind === "data") {
+            terminal.write(event.payload.data);
+          } else if (event.payload.kind === "close") {
+            terminal.writeln("\r\n[terminal closed]");
+          }
         }
       });
+      if (disposed) {
+        listener();
+        terminal.dispose();
+        return;
+      }
       unlisten = () => listener();
 
-      const session = await createTerminal(defaultShell);
-      setSessionId(session.id);
+      terminal.onData((data) => {
+        const id = sessionIdRef.current;
+        if (id !== null) void writeTerminal(id, data);
+      });
 
-      const dimensions = fitAddon.proposeDimensions();
-      if (dimensions) {
-        void resizeTerminal(session.id, dimensions.rows, dimensions.cols);
+      try {
+        const session = await createTerminal(defaultShell, cwd ?? undefined);
+        if (disposed) return;
+        sessionIdRef.current = session.id;
+        setConnected(true);
+
+        const dims = fitAddon.proposeDimensions();
+        if (dims) void resizeTerminal(session.id, dims.rows, dims.cols);
+      } catch (err) {
+        if (!disposed) setError(String(err));
       }
     }
 
     void init();
 
     return () => {
+      disposed = true;
       unlisten?.();
       terminalRef.current?.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, []);
+  }, [cwd]);
 
   useEffect(() => {
     function handleResize() {
       fitAddonRef.current?.fit();
-      const dimensions = fitAddonRef.current?.proposeDimensions();
+      const dims = fitAddonRef.current?.proposeDimensions();
       const id = sessionIdRef.current;
-      if (id !== null && dimensions) {
-        void resizeTerminal(id, dimensions.rows, dimensions.cols);
-      }
+      if (id !== null && dims) void resizeTerminal(id, dims.rows, dims.cols);
     }
-
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
@@ -112,9 +122,12 @@ export function TerminalPanel() {
   return (
     <div className="terminal-panel">
       <div className="terminal-toolbar">
-        <span className="terminal-shell">{defaultShell}</span>
-        <span className="terminal-status">{sessionIdRef.current !== null ? "Connected" : "Starting…"}</span>
+        <span className="text-muted text-sm">{defaultShell}</span>
+        <span className={`text-sm ${connected ? "text-ok" : "text-muted"}`}>
+          {error ? "Error" : connected ? "Connected" : "Starting…"}
+        </span>
       </div>
+      {error ? <div className="terminal-error">{error}</div> : null}
       <div className="terminal-viewport" ref={containerRef} />
     </div>
   );

@@ -2,8 +2,6 @@ import { useEffect, useState } from "react";
 
 import { gitAdd, gitCommit, gitDiff, gitLog, gitReset, gitStatus, type FileEntry, type GitCommit, type GitStatus } from "../../lib/git";
 
-export type ProjectPathProvider = () => string | null;
-
 export function SourcePanel({ projectPath }: { projectPath: string | null }) {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [diff, setDiff] = useState<string | null>(null);
@@ -13,161 +11,110 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
   const [tab, setTab] = useState<"workdir" | "history">("workdir");
 
   useEffect(() => {
-    if (!projectPath) {
-      return;
-    }
+    if (!projectPath) return;
     void refresh();
   }, [projectPath]);
 
   async function refresh() {
-    if (!projectPath) {
-      return;
-    }
-    const [newStatus, newCommits] = await Promise.all([gitStatus(projectPath), gitLog(projectPath)]);
-    setStatus(newStatus);
-    setCommits(newCommits);
+    if (!projectPath) return;
+    const [s, c] = await Promise.all([gitStatus(projectPath), gitLog(projectPath)]);
+    setStatus(s);
+    setCommits(c);
   }
 
   async function viewDiff(file: FileEntry) {
-    if (!projectPath) {
-      return;
-    }
+    if (!projectPath) return;
     setSelectedFile(file);
-    const patch = await gitDiff(projectPath, file.path, file.staged);
-    setDiff(patch);
+    setDiff(await gitDiff(projectPath, file.path, file.staged));
   }
 
   async function stage(file: FileEntry) {
-    if (!projectPath) {
-      return;
-    }
+    if (!projectPath) return;
     await gitAdd(projectPath, file.path);
     await refresh();
   }
 
   async function unstage(file: FileEntry) {
-    if (!projectPath) {
-      return;
-    }
+    if (!projectPath) return;
     await gitReset(projectPath, file.path);
     await refresh();
   }
 
   async function commit() {
-    if (!projectPath || !commitMessage.trim()) {
-      return;
-    }
-    if (!confirm("Commit staged changes?")) {
-      return;
-    }
+    if (!projectPath || !commitMessage.trim()) return;
+    if (!confirm("Commit staged changes?")) return;
     await gitCommit(projectPath, commitMessage);
     setCommitMessage("");
     await refresh();
   }
 
-  if (!projectPath) {
-    return <p className="source-empty">Open a project to see source control.</p>;
-  }
+  if (!projectPath) return <p className="text-muted">Open a project to see source control.</p>;
 
   return (
-    <div className="source-panel">
+    <div className="stack">
       <div className="source-tabs">
-        <button className={tab === "workdir" ? "is-active" : ""} onClick={() => setTab("workdir")} type="button">
-          Working directory
-        </button>
-        <button className={tab === "history" ? "is-active" : ""} onClick={() => setTab("history")} type="button">
-          History
-        </button>
+        <button className={`source-tab${tab === "workdir" ? " is-active" : ""}`} onClick={() => setTab("workdir")} type="button">Working dir</button>
+        <button className={`source-tab${tab === "history" ? " is-active" : ""}`} onClick={() => setTab("history")} type="button">History</button>
       </div>
 
       {tab === "workdir" ? (
         <>
           {status ? (
-            <div className="source-branch">
-              <span>{status.branch.branch}</span>
-              {status.branch.ahead > 0 ? <span className="branch-ahead">+{status.branch.ahead}</span> : null}
-              {status.branch.behind > 0 ? <span className="branch-behind">-{status.branch.behind}</span> : null}
+            <div className="row">
+              <span className="text-sm">{status.branch.branch}</span>
+              {status.branch.ahead > 0 ? <span className="text-sm text-ok">+{status.branch.ahead}</span> : null}
+              {status.branch.behind > 0 ? <span className="text-sm text-danger">-{status.branch.behind}</span> : null}
             </div>
           ) : null}
 
-          <div className="source-lists">
-            <FileList title="Staged" entries={status?.staged ?? []} onToggle={unstage} onView={viewDiff} actionLabel="-" />
-            <FileList title="Changes" entries={status?.unstaged ?? []} onToggle={stage} onView={viewDiff} actionLabel="+" />
-            <FileList title="Untracked" entries={status?.untracked ?? []} onToggle={stage} onView={viewDiff} actionLabel="+" />
-          </div>
+          <FileList title="Staged" entries={status?.staged ?? []} onToggle={unstage} onView={viewDiff} actionLabel="−" />
+          <FileList title="Changes" entries={status?.unstaged ?? []} onToggle={stage} onView={viewDiff} actionLabel="+" />
+          <FileList title="Untracked" entries={status?.untracked ?? []} onToggle={stage} onView={viewDiff} actionLabel="+" />
 
-          <div className="source-commit">
-            <input
-              className="source-input"
-              placeholder="Commit message"
-              type="text"
-              value={commitMessage}
-              onChange={(event) => setCommitMessage(event.target.value)}
-            />
-            <button className="primary-action" disabled={!status?.staged.length} onClick={() => void commit()} type="button">
-              Commit
-            </button>
+          <div className="row gap-sm">
+            <input className="input" placeholder="Commit message" type="text" value={commitMessage}
+              onChange={(e) => setCommitMessage(e.target.value)} />
+            <button className="btn btn-primary" disabled={!status?.staged.length} onClick={() => void commit()} type="button">Commit</button>
           </div>
 
           {diff && selectedFile ? (
-            <div className="source-diff">
-              <h4>{selectedFile.path}</h4>
-              <pre>{diff}</pre>
+            <div className="card">
+              <h4 className="text-sm text-muted" style={{ marginBottom: 8 }}>{selectedFile.path}</h4>
+              <pre className="pre">{diff}</pre>
             </div>
           ) : null}
         </>
       ) : (
-        <ul className="source-history">
-          {commits.map((commit) => (
-            <li className="source-commit-item" key={commit.hash}>
-              <span className="commit-hash">{commit.shortHash}</span>
-              <span className="commit-message">{commit.message}</span>
-              <span className="commit-meta">
-                {commit.author} · {commit.date}
-              </span>
-            </li>
+        <div className="stack-sm">
+          {commits.map((c) => (
+            <div className="source-commit-item" key={c.hash}>
+              <span className="commit-hash">{c.shortHash}</span>
+              <span className="commit-message">{c.message}</span>
+              <span className="commit-meta">{c.author} · {c.date}</span>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );
 }
 
-function FileList({
-  title,
-  entries,
-  onToggle,
-  onView,
-  actionLabel,
-}: {
-  title: string;
-  entries: FileEntry[];
-  onToggle: (entry: FileEntry) => void;
-  onView: (entry: FileEntry) => void;
-  actionLabel: string;
+function FileList({ title, entries, onToggle, onView, actionLabel }: {
+  title: string; entries: FileEntry[]; onToggle: (e: FileEntry) => void; onView: (e: FileEntry) => void; actionLabel: string;
 }) {
-  if (entries.length === 0) {
-    return null;
-  }
-
+  if (entries.length === 0) return null;
   return (
-    <div className="source-list">
-      <h4>
-        {title} ({entries.length})
-      </h4>
-      <ul>
+    <div>
+      <h4 className="text-sm text-muted" style={{ marginBottom: 6 }}>{title} ({entries.length})</h4>
+      <div className="stack-sm">
         {entries.map((entry) => (
-          <li className="source-file" key={entry.path}>
-            <button className="source-file-action" onClick={() => onToggle(entry)} type="button">
-              {actionLabel}
-            </button>
-            <button className="source-file-name" onClick={() => onView(entry)} type="button">
-              {entry.path}
-            </button>
+          <div className="source-file" key={entry.path}>
+            <button className="btn-icon btn-icon-sm" onClick={() => onToggle(entry)} type="button">{actionLabel}</button>
+            <button className="source-file-name" onClick={() => onView(entry)} type="button">{entry.path}</button>
             <span className="source-file-status">{entry.changeType}</span>
-          </li>
+          </div>
         ))}
-      </ul>
+      </div>
     </div>
   );
 }

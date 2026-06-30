@@ -1,70 +1,43 @@
 import { useEffect, useState } from "react";
-
 import { createUserConfigPack, listConfigPacks, type ConfigPack } from "../../lib/configPacks";
 
 export function ConfigPanel({ projectPath }: { projectPath: string | null }) {
   const [packs, setPacks] = useState<ConfigPack[]>([]);
   const [newName, setNewName] = useState("");
 
-  useEffect(() => {
-    void refresh();
-  }, [projectPath]);
+  useEffect(() => { void refresh(); }, [projectPath]);
 
-  async function refresh() {
-    const discovered = await listConfigPacks(projectPath ?? undefined);
-    setPacks(discovered);
-  }
+  async function refresh() { setPacks(await listConfigPacks(projectPath ?? undefined)); }
 
   async function create() {
-    if (!newName.trim()) {
-      return;
-    }
+    if (!newName.trim()) return;
     await createUserConfigPack(newName.trim());
     setNewName("");
     await refresh();
   }
 
   return (
-    <div className="config-panel">
-      <div className="config-create">
-        <input
-          className="config-input"
-          placeholder="New pack name"
-          type="text"
-          value={newName}
-          onChange={(event) => setNewName(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              void create();
-            }
-          }}
-        />
-        <button className="primary-action" onClick={() => void create()} type="button">
-          Create pack
-        </button>
+    <div className="stack">
+      <div className="row gap-sm">
+        <input className="input" placeholder="New pack name" type="text" value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") void create(); }} />
+        <button className="btn btn-primary" onClick={() => void create()} type="button">Create</button>
       </div>
-
-      <div className="config-list">
-        {packs.map((pack) => (
-          <article className="config-card" key={pack.manifest.id}>
-            <div className="config-card-header">
-              <h3>{pack.manifest.name}</h3>
-              <span className="config-version">v{pack.manifest.version}</span>
-            </div>
-            <p>{pack.manifest.description}</p>
-            <div className="config-meta">
-              <span className={`config-source is-${pack.manifest.source}`}>{pack.manifest.source}</span>
-              {pack.manifest.author ? <span>{pack.manifest.author}</span> : null}
-            </div>
-            <div className="config-prompts">
-              {pack.manifest.prompts.map((prompt) => (
-                <code key={prompt}>{prompt}</code>
-              ))}
-            </div>
-          </article>
-        ))}
-        {packs.length === 0 ? <p className="config-empty">No config packs found.</p> : null}
-      </div>
+      {packs.length === 0 ? <p className="text-muted">No config packs found.</p> : null}
+      {packs.map((pack) => (
+        <div className="config-card" key={pack.manifest.id}>
+          <div className="config-card-header">
+            <h3>{pack.manifest.name}</h3>
+            <span className="badge">v{pack.manifest.version}</span>
+          </div>
+          <p className="text-muted text-sm">{pack.manifest.description}</p>
+          <div className="row gap-sm" style={{ marginTop: 6 }}>
+            <span className="pill">{pack.manifest.source}</span>
+            {pack.manifest.author ? <span className="text-sm text-muted">{pack.manifest.author}</span> : null}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
