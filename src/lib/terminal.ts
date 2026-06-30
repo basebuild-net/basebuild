@@ -5,6 +5,11 @@ export type TerminalSession = {
   id: number;
   shell: string;
   cwd: string | null;
+  pid: number | null;
+  rows: number;
+  cols: number;
+  startedAt: number;
+  alive: boolean;
 };
 
 export type TerminalCloseEvent = {
@@ -38,4 +43,8 @@ export async function closeTerminal(id: number): Promise<void> {
 
 export async function listenTerminalOutput(handler: EventCallback<TerminalEvent>): Promise<UnlistenFn> {
   return listen<TerminalEvent>("terminal://output", handler);
+}
+
+export async function listTerminals(): Promise<TerminalSession[]> {
+  return invoke<TerminalSession[]>("list_terminals");
 }

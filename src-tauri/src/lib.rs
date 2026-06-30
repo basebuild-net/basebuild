@@ -4,6 +4,8 @@ mod events;
 mod models;
 mod services;
 
+use std::sync::Mutex;
+
 use app_state::AppState;
 use commands::{
     app::app_version,
@@ -19,16 +21,82 @@ use commands::{
         remove_recent_project, reveal_in_explorer,
     },
     requirements::list_requirements,
-    terminal::{close_terminal, create_terminal, resize_terminal, write_terminal},
+    terminal::{close_terminal, create_terminal, list_terminals, resize_terminal, write_terminal},
     updates::check_app_update,
 };
+
+pub struct CloseToTrayState {
+    pub force_exit: Mutex<bool>,
+}
+
+impl Default for CloseToTrayState {
+    fn default() -> Self {
+        Self {
+            force_exit: Mutex::new(false),
+        }
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
+        .manage(CloseToTrayState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .setup(|app| {
+            let tray_menu = tauri::menu::MenuBuilder::new(app)
+                .text("show", "Show Basebuild")
+                .separator()
+                .text("exit", "Exit")
+                .build()?;
+
+            let _tray_icon = tauri::tray::TrayIconBuilder::new()
+                .icon(tauri::image::Image::new(
+                    include_bytes!("../icons/icon.png"),
+                    512,
+                    512,
+                ))
+                .menu(&tray_menu)
+                .tooltip("Basebuild")
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        use tauri::Manager;
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "exit" => {
+                        use tauri::Manager;
+                        if let Some(state) = app.try_state::<CloseToTrayState>() {
+                            if let Ok(mut guard) = state.force_exit.lock() {
+                                *guard = true;
+                            }
+                        }
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .build(app)?;
+
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                use tauri::Manager;
+                let should_exit = window
+                    .app_handle()
+                    .try_state::<CloseToTrayState>()
+                    .and_then(|s| s.force_exit.lock().ok().map(|g| *g))
+                    .unwrap_or(false);
+
+                if !should_exit {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             app_version,
             remember_recent_project,
@@ -47,6 +115,7 @@ pub fn run() {
             write_terminal,
             resize_terminal,
             close_terminal,
+            list_terminals,
             git_status,
             git_diff,
             git_add,
@@ -65,6 +134,7 @@ pub fn run() {
             list_config_packs,
             create_user_config_pack,
             check_app_update,
+            list_requirements,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Basebuild");

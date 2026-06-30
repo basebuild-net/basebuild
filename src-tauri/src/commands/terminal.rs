@@ -2,7 +2,7 @@ use tauri::{AppHandle, State};
 
 use crate::{
     app_state::AppState,
-    models::terminal::TerminalSession,
+    models::terminal::{TerminalSession},
 };
 
 #[tauri::command]
@@ -45,4 +45,13 @@ pub fn close_terminal(state: State<AppState>, id: u64) -> Result<(), String> {
         .lock()
         .map_err(|_| "Terminal manager poisoned")?
         .close(id)
+}
+
+#[tauri::command]
+pub fn list_terminals(state: State<AppState>) -> Result<Vec<TerminalSession>, String> {
+    Ok(state
+        .terminals
+        .lock()
+        .map_err(|_| "Terminal manager poisoned")?
+        .list())
 }

@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
-import { Activity, DollarSign, Cpu, Settings } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Activity, DollarSign, Cpu, RefreshCw, Settings, TerminalSquare } from "lucide-react";
 
 import { appVersion } from "../../lib/app";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
 import { ompDebugContext, ompStatus, type OmpStatus } from "../../lib/omp";
+import { listTerminals, type TerminalSession } from "../../lib/terminal";
 
 type DebugData = {
   appVersion: string;
@@ -13,29 +14,66 @@ type DebugData = {
   context: { stats: unknown; usage: unknown; config: unknown } | null;
 };
 
+function formatTimestamp(ts: number): string {
+  if (!ts) return "—";
+  const date = new Date(ts * 1000);
+  return date.toLocaleTimeString();
+}
+
+function formatDuration(ts: number): string {
+  if (!ts) return "—";
+  const seconds = Math.floor(Date.now() / 1000 - ts);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
 export function DebugPanel() {
   const [data, setData] = useState<DebugData | null>(null);
+  const [terminals, setTerminals] = useState<TerminalSession[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const refreshTerminals = useCallback(async () => {
+    try {
+      setTerminals(await listTerminals());
+    } catch {
+      setTerminals([]);
+    }
+  }, []);
+
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [version, requirements, omp, terms] = await Promise.all([
+        appVersion(),
+        listRequirements(),
+        ompStatus(),
+        listTerminals(),
+      ]);
+      let context: { stats: unknown; usage: unknown; config: unknown } | null = null;
+      if (omp.installed) {
+        try { context = await ompDebugContext(); } catch { /* ignore */ }
+      }
+      setData({
+        appVersion: version,
+        platform: typeof navigator !== "undefined" ? navigator.platform : "unknown",
+        requirements, omp, context,
+      });
+      setTerminals(terms);
+    } catch (err) { setError(String(err)); }
+    finally { setLoading(false); }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const [version, requirements, omp] = await Promise.all([appVersion(), listRequirements(), ompStatus()]);
-        let context: { stats: unknown; usage: unknown; config: unknown } | null = null;
-        if (omp.installed) {
-          try { context = await ompDebugContext(); } catch { /* ignore */ }
-        }
-        if (!cancelled) setData({
-          appVersion: version,
-          platform: typeof navigator !== "undefined" ? navigator.platform : "unknown",
-          requirements, omp, context,
-        });
-      } catch (err) { if (!cancelled) setError(String(err)); }
-    }
-    void load();
-    return () => { cancelled = true; };
-  }, []);
+    void loadAll();
+    // Auto-refresh terminal list every 3 seconds
+    const interval = setInterval(() => void refreshTerminals(), 3000);
+    return () => clearInterval(interval);
+  }, [loadAll, refreshTerminals]);
 
   if (error) return <p className="text-danger">{error}</p>;
   if (!data) return <p className="text-muted">Loading…</p>;
@@ -46,11 +84,63 @@ export function DebugPanel() {
   return (
     <div className="stack">
       <div className="debug-section">
-        <h3>App</h3>
+        <div className="row-between">
+          <h3>App</h3>
+          <button
+            className="btn-icon btn-icon-sm"
+            title="Refresh debug data"
+            onClick={() => void loadAll()}
+            disabled={loading}
+            type="button"
+          >
+            <RefreshCw size={13} className={loading ? "spin" : ""} />
+          </button>
+        </div>
         <div className="debug-grid">
           <div className="debug-item"><span>Version</span><strong>{data.appVersion}</strong></div>
           <div className="debug-item"><span>Platform</span><strong>{data.platform}</strong></div>
         </div>
+      </div>
+
+      {/* Terminal sessions */}
+      <div className="debug-section">
+        <div className="row-between">
+          <h3>Terminal Sessions ({terminals.length})</h3>
+          <button
+            className="btn-icon btn-icon-sm"
+            title="Refresh terminals"
+            onClick={() => void refreshTerminals()}
+            type="button"
+          >
+            <RefreshCw size={13} />
+          </button>
+        </div>
+        {terminals.length === 0 ? (
+          <p className="text-muted text-sm pad">No active terminals.</p>
+        ) : (
+          <div className="terminal-debug-list">
+            {terminals.map((t) => (
+              <div className="terminal-debug-card" key={t.id}>
+                <div className="terminal-debug-card-header">
+                  <span className="terminal-debug-card-title">
+                    <TerminalSquare size={12} style={{ display: "inline", verticalAlign: "middle", marginRight: 4 }} />
+                    #{t.id} · {t.shell}
+                  </span>
+                  <span className={`terminal-debug-card-status ${t.alive ? "is-active" : "is-dead"}`}>
+                    {t.alive ? "Active" : "Dead"}
+                  </span>
+                </div>
+                <div className="terminal-debug-grid">
+                  <span>PID: {t.pid ?? "—"}</span>
+                  <span>Size: {t.rows}×{t.cols}</span>
+                  <span>Started: {formatTimestamp(t.startedAt)}</span>
+                  <span>Uptime: {formatDuration(t.startedAt)}</span>
+                  {t.cwd ? <span style={{ gridColumn: "span 2", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.cwd}>CWD: {t.cwd}</span> : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="debug-section">

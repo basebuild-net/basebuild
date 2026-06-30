@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default capability for the main Basebuild window",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open"]
+  "permissions": ["core:default", "dialog:allow-open", "core:window:allow-hide", "core:window:allow-show", "core:window:allow-set-focus"]
 }

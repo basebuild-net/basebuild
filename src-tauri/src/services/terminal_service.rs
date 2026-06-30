@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde_json::json;
@@ -10,15 +11,36 @@ use tauri::{AppHandle, Emitter};
 use crate::events::TERMINAL_OUTPUT;
 use crate::models::terminal::TerminalSession;
 
+struct PtySession {
+    master: Box<dyn MasterPty + Send>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    shell: String,
+    cwd: Option<String>,
+    pid: Option<u32>,
+    rows: u16,
+    cols: u16,
+    started_at: u64,
+}
+
+impl PtySession {
+    fn to_session(&self, id: u64, alive: bool) -> TerminalSession {
+        TerminalSession {
+            id,
+            shell: self.shell.clone(),
+            cwd: self.cwd.clone(),
+            pid: self.pid,
+            rows: self.rows,
+            cols: self.cols,
+            started_at: self.started_at,
+            alive,
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct TerminalManager {
     next_id: u64,
     sessions: HashMap<u64, PtySession>,
-}
-
-struct PtySession {
-    master: Box<dyn MasterPty + Send>,
-    writer: Arc<Mutex<Box<dyn Write + Send>>>,
 }
 
 impl TerminalManager {
@@ -31,11 +53,14 @@ impl TerminalManager {
         let id = self.next_id;
         self.next_id += 1;
 
+        let rows: u16 = 24;
+        let cols: u16 = 80;
+
         let pty_system = native_pty_system();
         let pair = pty_system
             .openpty(PtySize {
-                rows: 24,
-                cols: 80,
+                rows,
+                cols,
                 pixel_width: 0,
                 pixel_height: 0,
             })
@@ -46,10 +71,12 @@ impl TerminalManager {
             cmd.cwd(dir);
         }
 
-        let _child = pair
+        let child = pair
             .slave
             .spawn_command(cmd)
             .map_err(|error| format!("Failed to spawn shell: {error}"))?;
+
+        let pid = child.process_id();
 
         let writer = Arc::new(Mutex::new(
             pair.master
@@ -93,20 +120,26 @@ impl TerminalManager {
             }
         });
 
-        let master = pair.master;
-        self.sessions.insert(
-            id,
-            PtySession {
-                master,
-                writer,
-            },
-        );
+        let started_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
 
-        Ok(TerminalSession {
-            id,
+        let session = PtySession {
+            master: pair.master,
+            writer,
             shell: shell.to_string(),
             cwd: cwd.map(str::to_string),
-        })
+            pid,
+            rows,
+            cols,
+            started_at,
+        };
+
+        let session_info = session.to_session(id, true);
+        self.sessions.insert(id, session);
+
+        Ok(session_info)
     }
 
     pub fn write(&self, id: u64, data: &str) -> Result<(), String> {
@@ -114,6 +147,7 @@ impl TerminalManager {
             .sessions
             .get(&id)
             .ok_or("Terminal session not found")?;
+
         let mut writer = session
             .writer
             .lock()
@@ -127,11 +161,12 @@ impl TerminalManager {
         Ok(())
     }
 
-    pub fn resize(&self, id: u64, rows: u16, cols: u16) -> Result<(), String> {
+    pub fn resize(&mut self, id: u64, rows: u16, cols: u16) -> Result<(), String> {
         let session = self
             .sessions
-            .get(&id)
+            .get_mut(&id)
             .ok_or("Terminal session not found")?;
+
         session
             .master
             .resize(PtySize {
@@ -140,7 +175,11 @@ impl TerminalManager {
                 pixel_width: 0,
                 pixel_height: 0,
             })
-            .map_err(|error| format!("Failed to resize terminal: {error}"))
+            .map_err(|error| format!("Failed to resize terminal: {error}"))?;
+
+        session.rows = rows;
+        session.cols = cols;
+        Ok(())
     }
 
     pub fn close(&mut self, id: u64) -> Result<(), String> {
@@ -148,5 +187,12 @@ impl TerminalManager {
             .remove(&id)
             .ok_or("Terminal session not found")?;
         Ok(())
+    }
+
+    pub fn list(&self) -> Vec<TerminalSession> {
+        self.sessions
+            .iter()
+            .map(|(id, s)| s.to_session(*id, true))
+            .collect()
     }
 }
