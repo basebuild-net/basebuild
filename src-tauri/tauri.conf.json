@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Basebuild",
+  "version": "0.1.0",
+  "identifier": "net.basebuild.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Basebuild",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 640,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://updates.basebuild.app/manifest.json"],
+      "pubkey": "PLACEHOLDER_PUBLIC_KEY",
+      "windows": {
+        "installMode": "basicUi"
+      }
+    }
+  }
+}
