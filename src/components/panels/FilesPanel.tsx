@@ -10,9 +10,10 @@ function formatSize(bytes: number): string {
 
 type FilesPanelProps = {
   projectPath: string | null;
+  onOpenFile?: (path: string) => void;
 };
 
-export function FilesPanel({ projectPath }: FilesPanelProps) {
+export function FilesPanel({ projectPath, onOpenFile }: FilesPanelProps) {
   const [path, setPath] = useState<string | null>(null);
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +80,11 @@ export function FilesPanel({ projectPath }: FilesPanelProps) {
             type="button"
             title={entry.path}
             onClick={() => {
-              if (entry.isDir) setPath(entry.path);
+              if (entry.isDir) {
+                setPath(entry.path);
+              } else if (onOpenFile) {
+                onOpenFile(entry.path);
+              }
             }}
           >
             {entry.isDir ? <Folder size={12} /> : <FileCode size={12} />}

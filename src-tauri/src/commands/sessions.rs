@@ -24,8 +24,14 @@ pub fn delete_session(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn create_tab(session_id: String, kind: String, title: String, terminal_id: Option<u64>) -> Result<SessionTab, String> {
-    SessionService::create_tab(&session_id, TabKind::from_str(&kind), &title, terminal_id)
+pub fn create_tab(
+    session_id: String,
+    kind: String,
+    title: String,
+    terminal_id: Option<u64>,
+    file_path: Option<String>,
+) -> Result<SessionTab, String> {
+    SessionService::create_tab(&session_id, TabKind::from_str(&kind), &title, terminal_id, file_path.as_deref())
 }
 
 #[tauri::command]
@@ -41,4 +47,9 @@ pub fn delete_tab(id: String) -> Result<(), String> {
 #[tauri::command]
 pub fn update_tab_terminal(id: String, terminal_id: Option<u64>) -> Result<(), String> {
     SessionService::update_tab_terminal(&id, terminal_id)
+}
+
+#[tauri::command]
+pub fn update_tab_file_path(id: String, file_path: Option<String>) -> Result<(), String> {
+    SessionService::update_tab_file_path(&id, file_path.as_deref())
 }

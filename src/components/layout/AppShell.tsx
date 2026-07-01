@@ -23,6 +23,8 @@ import { SettingsModal } from "./SettingsModal";
 import { createTerminal } from "../../lib/terminal";
 import { TerminalPanel } from "../panels/TerminalPanel";
 import { DebugPanel } from "../panels/DebugPanel";
+import { FileViewer } from "../panels/FileViewer";
+import { ProjectSchematicTab } from "../panels/ProjectSchematicTab";
 import { SidePanel } from "./SidePanel";
 import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
 
@@ -268,8 +270,29 @@ export function AppShell() {
     },
   ], [activeProjectPath, handleOpenFolder, handleCreateSession, sidebarCollapsed, sideCollapsed, gridView]);
 
-  const terminalTabs = session.tabs.filter((t) => t.kind === "terminal");
-  const activeTerminalTab = terminalTabs.find((t) => t.id === session.activeTabId) ?? terminalTabs[0] ?? null;
+  const activeTab = session.tabs.find((t) => t.id === session.activeTabId) ?? null;
+
+  const handleCreateTab = useCallback(
+    async (kind: "terminal" | "empty") => {
+      if (!session.activeSessionId) return;
+      if (kind === "empty") {
+        await session.createTab("empty", "Schematic");
+        return;
+      }
+      await handleCreateTerminalTab();
+    },
+    [session, handleCreateTerminalTab],
+  );
+
+  const handleOpenFileInTab = useCallback(
+    async (filePath: string) => {
+      if (!session.activeSessionId) return;
+      const name = filePath.split(/[\\/]/).pop() ?? filePath;
+      await session.createTab("file", name, undefined, filePath);
+      setActiveTool("terminal");
+    },
+    [session],
+  );
 
   return (
     <div className="app-container">
@@ -317,7 +340,7 @@ export function AppShell() {
                 activeTabId={session.activeTabId}
                 onSelectTab={session.setActiveTabId}
                 onCloseTab={(id) => void session.removeTab(id)}
-                onCreateTerminal={() => void handleCreateTerminalTab()}
+                onCreateTab={(kind) => void handleCreateTab(kind)}
                 autoMode={autoMode}
                 autoCommit={autoCommit}
                 autoPr={autoPr}
@@ -343,29 +366,38 @@ export function AppShell() {
             ) : null}
 
             {activeTool === "terminal" && activeProjectPath ? (
-              gridView && terminalTabs.length > 1 ? (
-                <div className="terminal-grid" style={{ gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(terminalTabs.length))}, 1fr)` }}>
-                  {terminalTabs.map((tab) => (
-                    <div
-                      key={tab.id}
-                      className={`terminal-grid-cell${tab.id === session.activeTabId ? " is-active" : ""}`}
-                      onClick={() => session.setActiveTabId(tab.id)}
-                    >
-                      <div className="terminal-grid-cell-header">
-                        <TerminalSquare size={10} /> {tab.title}
-                      </div>
-                      <TerminalPanel terminalId={tab.terminalId} onOutput={handleTerminalOutput} />
-                    </div>
-                  ))}
-                </div>
-              ) : activeTerminalTab ? (
-                <TerminalPanel terminalId={activeTerminalTab.terminalId} onOutput={handleTerminalOutput} />
-              ) : (
+              !activeTab ? (
                 <div className="empty-state">
                   <TerminalSquare size={32} className="text-muted" />
-                  <h3>No terminals</h3>
-                  <p>Click + in the tab bar to create a new terminal.</p>
+                  <h3>No tab selected</h3>
+                  <p>Click + in the tab bar to create a new terminal or schematic tab.</p>
                 </div>
+              ) : activeTab.kind === "file" ? (
+                <FileViewer path={activeTab.filePath} />
+              ) : activeTab.kind === "empty" ? (
+                <ProjectSchematicTab projectPath={activeProjectPath} onOpenDescription={() => setDescriptionOpen(true)} />
+              ) : gridView && session.tabs.filter((t) => t.kind === "terminal").length > 1 ? (
+                (() => {
+                  const terminalTabs = session.tabs.filter((t) => t.kind === "terminal");
+                  return (
+                    <div className="terminal-grid" style={{ gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(terminalTabs.length))}, 1fr)` }}>
+                      {terminalTabs.map((tab) => (
+                        <div
+                          key={tab.id}
+                          className={`terminal-grid-cell${tab.id === session.activeTabId ? " is-active" : ""}`}
+                          onClick={() => session.setActiveTabId(tab.id)}
+                        >
+                          <div className="terminal-grid-cell-header">
+                            <TerminalSquare size={10} /> {tab.title}
+                          </div>
+                          <TerminalPanel terminalId={tab.terminalId} onOutput={handleTerminalOutput} />
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()
+              ) : (
+                <TerminalPanel terminalId={activeTab.terminalId} onOutput={handleTerminalOutput} />
               )
             ) : null}
 
@@ -377,6 +409,7 @@ export function AppShell() {
           sessionId={session.activeSessionId}
           collapsed={sideCollapsed}
           onToggleCollapse={() => setSideCollapsed((v) => !v)}
+          onOpenFile={handleOpenFileInTab}
           plans={plans}
           planCallbacks={{
             onCreatePlan: handleCreatePlan,

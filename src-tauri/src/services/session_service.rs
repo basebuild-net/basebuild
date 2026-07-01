@@ -89,19 +89,26 @@ impl SessionService {
 
     // ─── Tabs ───
 
-    pub fn create_tab(session_id: &str, kind: TabKind, title: &str, terminal_id: Option<u64>) -> DbResult<SessionTab> {
+    pub fn create_tab(
+        session_id: &str,
+        kind: TabKind,
+        title: &str,
+        terminal_id: Option<u64>,
+        file_path: Option<&str>,
+    ) -> DbResult<SessionTab> {
         let tab = SessionTab {
             id: gen_id(),
             session_id: session_id.to_string(),
             kind: kind.clone(),
             title: title.to_string(),
             terminal_id,
+            file_path: file_path.map(|s| s.to_string()),
             created_at: now(),
         };
         let conn = StorageService::connect()?;
         conn.execute(
-            "INSERT INTO session_tabs (id, session_id, kind, title, terminal_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![tab.id, tab.session_id, kind.as_str(), tab.title, tab.terminal_id, tab.created_at],
+            "INSERT INTO session_tabs (id, session_id, kind, title, terminal_id, file_path, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![tab.id, tab.session_id, kind.as_str(), tab.title, tab.terminal_id, tab.file_path, tab.created_at],
         ).map_err(|e| e.to_string())?;
         Self::touch_session(session_id)?;
         Ok(tab)
@@ -110,7 +117,7 @@ impl SessionService {
     pub fn list_tabs(session_id: &str) -> DbResult<Vec<SessionTab>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, kind, title, terminal_id, created_at FROM session_tabs WHERE session_id = ?1 ORDER BY created_at ASC",
+            "SELECT id, session_id, kind, title, terminal_id, file_path, created_at FROM session_tabs WHERE session_id = ?1 ORDER BY created_at ASC",
         ).map_err(|e| e.to_string())?;
         let rows = stmt.query_map(params![session_id], |row| {
             let kind_str: String = row.get(2)?;
@@ -120,7 +127,8 @@ impl SessionService {
                 kind: TabKind::from_str(&kind_str),
                 title: row.get(3)?,
                 terminal_id: row.get(4)?,
-                created_at: row.get(5)?,
+                file_path: row.get(5)?,
+                created_at: row.get(6)?,
             })
         }).map_err(|e| e.to_string())?;
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
@@ -141,6 +149,12 @@ impl SessionService {
     pub fn update_tab_terminal(id: &str, terminal_id: Option<u64>) -> DbResult<()> {
         let conn = StorageService::connect()?;
         conn.execute("UPDATE session_tabs SET terminal_id = ?1 WHERE id = ?2", params![terminal_id, id]).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn update_tab_file_path(id: &str, file_path: Option<&str>) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute("UPDATE session_tabs SET file_path = ?1 WHERE id = ?2", params![file_path, id]).map_err(|e| e.to_string())?;
         Ok(())
     }
 

@@ -101,9 +101,9 @@ export function useSessionState(projectPath: string | null, lastActiveSessionId?
   );
 
   const createTab = useCallback(
-    async (kind: TabKind, title: string, terminalId?: number) => {
+    async (kind: TabKind, title: string, terminalId?: number, filePath?: string) => {
       if (!activeSessionId) return null;
-      const tab = await createTabApi(activeSessionId, kind, title, terminalId);
+      const tab = await createTabApi(activeSessionId, kind, title, terminalId, filePath);
       await refreshTabs();
       setActiveTabId(tab.id);
       return tab;

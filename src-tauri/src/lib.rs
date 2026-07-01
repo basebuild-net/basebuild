@@ -10,7 +10,7 @@ use app_state::AppState;
 use commands::{
     app::app_version,
     config_packs::{create_user_config_pack, list_config_packs},
-    files::list_files,
+    files::{list_files, read_file},
     git::{
         git_add, git_branch_create, git_branch_list, git_branch_switch, git_commit, git_diff,
         git_discard, git_fetch, git_log, git_pull, git_push, git_reset, git_stage_all,
@@ -25,7 +25,10 @@ use commands::{
         remove_recent_project, reveal_in_explorer, set_last_active_session,
     },
     requirements::list_requirements,
-    sessions::{create_session, create_tab, delete_session, delete_tab, list_sessions, list_tabs, rename_session, update_tab_terminal},
+    sessions::{
+        create_session, create_tab, delete_session, delete_tab, list_sessions, list_tabs, rename_session,
+        update_tab_file_path, update_tab_terminal,
+    },
     skills::read_skill,
     terminal::{close_terminal, create_terminal, list_terminals, resize_terminal, write_terminal},
     updates::check_app_update,
@@ -109,6 +112,7 @@ pub fn run() {
             list_recent_projects,
             detect_project,
             list_files,
+            read_file,
             create_project_basebuild_config,
             remove_recent_project,
             set_last_active_session,
@@ -161,6 +165,7 @@ pub fn run() {
             list_tabs,
             delete_tab,
             update_tab_terminal,
+            update_tab_file_path,
             create_category,
             list_categories,
             delete_category,

@@ -21,6 +21,7 @@ type SidePanelProps = {
   sessionId: string | null;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  onOpenFile?: (path: string) => void;
   plans: {
     plans: Plan[];
     loading: boolean;
@@ -44,6 +45,7 @@ export function SidePanel({
   sessionId,
   collapsed,
   onToggleCollapse,
+  onOpenFile,
   plans,
   planCallbacks,
 }: SidePanelProps) {
@@ -119,7 +121,7 @@ export function SidePanel({
             showHeader={false}
           />
         ) : activeTab === "files" ? (
-          <FilesPanel projectPath={projectPath} />
+          <FilesPanel projectPath={projectPath} onOpenFile={onOpenFile} />
         ) : (
           <SourcePanel projectPath={projectPath} />
         )}

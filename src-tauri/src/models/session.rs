@@ -18,6 +18,7 @@ pub struct SessionTab {
     pub kind: TabKind,
     pub title: String,
     pub terminal_id: Option<u64>,
+    pub file_path: Option<String>,
     pub created_at: i64,
 }
 
@@ -26,26 +27,23 @@ pub struct SessionTab {
 #[serde(tag = "kind", content = "value")]
 pub enum TabKind {
     Terminal,
-    Omp,
-    Source,
-    Config,
+    Empty,
+    File,
 }
 
 impl TabKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             TabKind::Terminal => "terminal",
-            TabKind::Omp => "omp",
-            TabKind::Source => "source",
-            TabKind::Config => "config",
+            TabKind::Empty => "empty",
+            TabKind::File => "file",
         }
     }
 
     pub fn from_str(s: &str) -> Self {
         match s {
-            "omp" => TabKind::Omp,
-            "source" => TabKind::Source,
-            "config" => TabKind::Config,
+            "file" => TabKind::File,
+            "empty" => TabKind::Empty,
             _ => TabKind::Terminal,
         }
     }
