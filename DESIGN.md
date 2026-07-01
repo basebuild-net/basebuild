@@ -179,20 +179,22 @@ buttons at the top of each column.
 - **Center workspace:** Session header with title, compact tool tabs, and status
   pill. Below that are workspace tabs and the active tab view (terminal, file
   viewer, or project schematic).
-- **Right side panel (260px → 36px collapsed):** Tabbed panel with **Plans**,
-  **Files**, and **Source**. Plans show lanes and AI generation controls; Files
-  is a small project explorer; Source shows git status.
+- **Right side panel (260px → 36px collapsed):** Stacked accordion sections for
+  **Plans**, **Files**, and **Source**. Each section can be collapsed or
+  expanded; drag the handle to reorder them. Plans show lanes and AI
+  generation controls; Files is a small project explorer; Source shows git
+  status.
 
 ### Tool tabs
 
 Center tool selection is a compact tab bar inline with the session header:
-**Terminal / Debug**. Source control moved to the right side panel's `Source`
-tab. Workspace tabs are per-session and each has a `kind`: terminal, file, or
-empty (schematic view).
+**Terminal / Debug**. Source control lives in the right side panel's `Source`
+accordion section. Workspace tabs are per-session and each has a `kind`:
+terminal, file, or empty (schematic view).
 
 ### Plan panel
 
-The `Plans` tab inside the right panel exposes:
+The `Plans` section inside the right panel exposes:
 - Plan lanes grouped by status.
 - Generate / suggest / enhance AI actions.
 - Per-plan actions: focus, edit, open in terminal, copy reference.

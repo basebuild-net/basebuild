@@ -982,35 +982,41 @@ a { color: inherit; text-decoration: none; }
   display: flex; align-items: center; justify-content: space-between;
   height: 28px;
   border-bottom: 1px solid var(--bb-border);
-  padding: 0 4px 0 0;
+  padding: 0 6px;
+  flex-shrink: 0;
 }
-.side-tabs {
-  display: flex; align-items: center; gap: 1px;
+.side-panel-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.side-panel-actions { display: flex; align-items: center; gap: 2px; }
+.side-panel-accordion .side-panel-body {
+  flex: 1;
+  overflow: auto;
+  display: flex; flex-direction: column;
 }
-.side-tab {
-  display: flex; align-items: center; gap: 4px;
-  padding: 4px 8px;
-  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
-  color: var(--bb-muted);
+.side-section { border-bottom: 1px solid var(--bb-border); }
+.side-section.is-dragging { background: var(--bb-surface); opacity: 0.6; }
+.side-section-header {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; height: 28px; padding: 0 6px;
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--bb-text);
   background: transparent; border: none;
-  transition: all 0.08s;
+  text-align: left; cursor: pointer; user-select: none;
+  transition: all 0.06s;
 }
-.side-tab:hover { color: var(--bb-text); background: var(--bb-surface); }
-.side-tab.is-active { color: var(--bb-text); background: var(--bb-surface-high); border-bottom: 1px solid var(--bb-cta); }
-.side-tabs-collapsed {
-  display: flex; flex-direction: column; align-items: center;
-  gap: 6px; margin-top: 8px;
-}
-.side-tab-collapsed {
+.side-section-header:hover { background: var(--bb-surface); }
+.side-section-drag {
   display: flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px;
+  width: 12px; cursor: grab;
   color: var(--bb-muted);
-  background: transparent; border: none;
-  transition: all 0.08s;
 }
-.side-tab-collapsed:hover { color: var(--bb-text); background: var(--bb-surface); }
-.side-tab-collapsed.is-active { color: var(--bb-text); background: var(--bb-surface-high); border-left: 2px solid var(--bb-cta); }
-.side-panel-body { flex: 1; overflow: auto; }
+.side-section-drag:active { cursor: grabbing; }
+.side-section-label { flex: 1; }
+.side-section-header > svg:last-child { transition: transform 0.1s; }
+.side-section-header > svg:last-child.rotated { transform: rotate(180deg); }
+.side-section-body { display: flex; flex-direction: column; min-height: 0; }
+.app-shell[data-rail="collapsed"] .side-panel { width: 36px; min-width: 36px; }
+.app-shell[data-rail="collapsed"] .side-panel-body,
+.app-shell[data-rail="collapsed"] .side-panel-header { display: none; }
 
 /* ─── Plan panel (right side) ─── */
 .plan-panel {
