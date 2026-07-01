@@ -51,6 +51,26 @@ npm run tauri build
 
 The installer (NSIS) is written to `src-tauri/target/release/bundle/nsis/`.
 
+## Releasing
+
+Patch versions bump automatically from the current version (starting at `0.0.1`):
+
+```bash
+node scripts/bump-version.mjs
+```
+
+This updates `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`.
+Commit the result, tag it, and push:
+
+```bash
+git add .
+git commit -m "chore(release): bump version"
+git tag v0.0.2
+git push origin main v0.0.2
+```
+
+Only the patch component is bumped by default. To move to `0.1.0` or `1.0.0`, edit the version string manually before committing.
+
 ## Documentation
 
 - [`AGENTS.md`](./AGENTS.md) — agent guide, design system, and code conventions.
