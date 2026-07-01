@@ -98,6 +98,5 @@ jobs:
           releaseBody: "Download the installer below to update Basebuild."
           releaseDraft: false
           prerelease: false
-          includeUpdaterJson: true
-          updaterJsonKeepUniversal: true
+          updaterJsonPreferNsis: true
           args: "--target x86_64-pc-windows-msvc"
