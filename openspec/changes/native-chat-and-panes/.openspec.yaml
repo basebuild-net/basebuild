@@ -1,0 +1,5 @@
+version: "1.0"
+change: native-chat-and-panes
+title: "Native Chat and Draggable Panes"
+status: in-progress
+branch: feat/native-chat-and-panes
