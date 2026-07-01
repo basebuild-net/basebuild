@@ -16,8 +16,10 @@ import { generateSessionTitle } from "../../lib/skills";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import { MenuBar, type MenuConfig } from "./MenuBar";
 import { WindowControls } from "./WindowControls";
-import { SettingsModal } from "./SettingsModal";
-import { createTerminal } from "../../lib/terminal";
+ import { SettingsModal } from "./SettingsModal";
+import { FirstRunModal } from "./FirstRunModal";
+import { useFirstRun } from "../../state/first-run";
+ import { createTerminal } from "../../lib/terminal";
 import { TerminalPanel } from "../panels/TerminalPanel";
 import { DebugPanel } from "../panels/DebugPanel";
 import { FileViewer } from "../panels/FileViewer";
@@ -53,7 +55,8 @@ export function AppShell() {
   const [focusingPlan, setFocusingPlan] = useState<Plan | null>(null);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [descriptionOpen, setDescriptionOpen] = useState(false);
- const [chatDraft, setChatDraft] = useState<string | null>(null);
+ const firstRun = useFirstRun();
+  const [chatDraft, setChatDraft] = useState<string | null>(null);
  const [chatDraftTabId, setChatDraftTabId] = useState<string | null>(null);
   const [terminalOutputBuffer, setTerminalOutputBuffer] = useState("");
   const titleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -504,6 +507,11 @@ export function AppShell() {
         existingContent={schematic.content}
         onSave={schematic.write}
         onOpenFile={handleOpenSchematicFile}
+      />
+      <FirstRunModal
+        open={!firstRun.completed && !firstRun.loading}
+        onComplete={() => firstRun.complete()}
+        onSkip={() => firstRun.skip()}
       />
     </div>
   );

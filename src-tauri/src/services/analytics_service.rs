@@ -164,3 +164,60 @@ impl AnalyticsService {
         serde_json::to_string_pretty(&events).map_err(|e| e.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_consent_defaults_disabled() {
+        let consent = AnalyticsConsent::default();
+        assert!(!consent.collection_enabled, "collection must be disabled by default");
+        assert!(!consent.upload_enabled, "upload must be disabled by default");
+        assert!(consent.consented_at.is_none(), "consented_at must be None by default");
+    }
+
+    #[test]
+    fn test_permission_rules_conservative() {
+        let rules = crate::models::permission::PermissionRules::conservative();
+        assert!(!rules.allow_usage_analytics_collection, "analytics collection must be off in conservative defaults");
+        assert!(!rules.allow_usage_analytics_upload, "analytics upload must be off in conservative defaults");
+        assert!(!rules.allow_detailed_diagnostics, "detailed diagnostics must be off in conservative defaults");
+    }
+
+    #[test]
+    fn test_runtime_defaults_conservative() {
+        let defaults = crate::models::runtime::RuntimeDefaults::conservative();
+        assert!(!defaults.auto_send_generated_prompts, "auto-send must be off in conservative defaults");
+        assert_eq!(defaults.default_chat_profile_id.as_deref(), Some("omp"), "default chat profile must be OMP");
+        assert!(defaults.default_model.is_none(), "default model must be None in conservative defaults");
+    }
+
+    #[test]
+    fn test_analytics_event_name_taxonomy() {
+        assert_eq!(AnalyticsEventName::GenerateContextRequested.as_str(), "generate_context_requested");
+        assert_eq!(AnalyticsEventName::ChatDraftInjected.as_str(), "chat_draft_injected");
+        assert_eq!(AnalyticsEventName::AdapterStartFailed.as_str(), "adapter_start_failed");
+        assert_eq!(AnalyticsEventName::PermissionDecisionRecorded.as_str(), "permission_decision_recorded");
+        assert_eq!(AnalyticsEventName::Custom("custom_event".to_string()).as_str(), "custom_event");
+    }
+
+    #[test]
+    fn test_profile_capabilities_omp() {
+        let caps = crate::models::runtime::AgentCapability::omp_defaults();
+        assert!(caps.contains(&crate::models::runtime::AgentCapability::Chat));
+        assert!(caps.contains(&crate::models::runtime::AgentCapability::Skills));
+        assert!(caps.contains(&crate::models::runtime::AgentCapability::Providers));
+        assert!(caps.contains(&crate::models::runtime::AgentCapability::Commands));
+        assert!(caps.contains(&crate::models::runtime::AgentCapability::Info));
+        assert!(caps.contains(&crate::models::runtime::AgentCapability::Messages));
+    }
+
+    #[test]
+    fn test_runtime_profile_built_ins() {
+        let built_ins = crate::models::runtime::RuntimeProfile::built_ins();
+        assert_eq!(built_ins.len(), 2, "should have OMP + terminal built-ins");
+        assert!(built_ins.iter().any(|p| p.id == "omp"), "OMP profile must exist");
+        assert!(built_ins.iter().any(|p| p.id == "default-terminal"), "terminal profile must exist");
+    }
+}
