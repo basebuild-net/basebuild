@@ -1,7 +1,0 @@
-schema: spec-driven
-context: |
-  Basebuild App is a Windows-first Tauri desktop application for local developer workflows.
-  The repo owns the desktop app only: local UI, Rust desktop core, OMP RPC hosting,
-  terminal panes, source control, modular Basebuild config/prompt packs, and update-ready
-  local infrastructure. It should not implement basebuild.net login, cloud sync, D1 schemas,
-  or server backend behavior in this repo.
