@@ -8,10 +8,15 @@ use std::sync::Mutex;
 
 use app_state::AppState;
 use commands::{
-    agent::{agent_send, agent_start, agent_stop},
-    app::app_version,
+    agent::{agent_capabilities, agent_send, agent_start, agent_stop},
+     app::app_version,
+     analytics::{
+        analytics_event_count, delete_analytics_events, export_analytics_json,
+        get_analytics_consent, list_analytics_events, record_analytics_event,
+        set_analytics_consent,
+     },
     config_packs::{create_user_config_pack, list_config_packs},
-    files::{list_files, read_file},
+     files::{list_files, read_file},
     git::{
         git_add, git_branch_create, git_branch_list, git_branch_switch, git_commit, git_diff,
         git_discard, git_fetch, git_log, git_pull, git_push, git_reset, git_stage_all, git_status,
@@ -34,8 +39,14 @@ use commands::{
         reveal_in_explorer, set_last_active_session,
     },
     requirements::list_requirements,
-    schematic::{get_project_schematic, has_project_schematic, set_project_schematic},
-    sessions::{
+     schematic::{get_project_schematic, has_project_schematic, set_project_schematic},
+    settings::{
+        clear_audit_trail, delete_runtime_profile, get_permission_rules, get_runtime_defaults,
+        list_audit_trail, list_runtime_profiles, reset_permission_rules, reset_runtime_defaults,
+        set_permission_rules, set_runtime_defaults, upsert_runtime_profile,
+        validate_runtime_profile,
+    },
+     sessions::{
         create_session, create_tab, delete_session, delete_tab, list_sessions, list_tabs,
         rename_session, update_tab_file_path, update_tab_terminal,
     },
@@ -212,11 +223,31 @@ pub fn run() {
             list_ideas,
             update_idea_status,
             delete_idea,
-            agent_start,
-            agent_send,
-            agent_stop,
-            check_for_updates,
-            install_update,
+             agent_start,
+             agent_send,
+            agent_capabilities,
+             agent_stop,
+            list_runtime_profiles,
+            upsert_runtime_profile,
+            delete_runtime_profile,
+            validate_runtime_profile,
+            get_runtime_defaults,
+            set_runtime_defaults,
+            reset_runtime_defaults,
+            get_permission_rules,
+            set_permission_rules,
+            reset_permission_rules,
+            list_audit_trail,
+            clear_audit_trail,
+            get_analytics_consent,
+            set_analytics_consent,
+            list_analytics_events,
+            analytics_event_count,
+            delete_analytics_events,
+            export_analytics_json,
+            record_analytics_event,
+             check_for_updates,
+             install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Basebuild");

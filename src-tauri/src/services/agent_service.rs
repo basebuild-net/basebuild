@@ -3,9 +3,12 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde_json::json;
 use tauri::{AppHandle, Emitter};
+
+use crate::models::runtime::{AgentCapability, RuntimeProfile, RuntimeProfileKind};
+use crate::services::settings_service::SettingsService;
 
 const AGENT_OUTPUT: &str = "agent://output";
 
@@ -14,12 +17,13 @@ struct AgentSession {
     #[allow(dead_code)]
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
-    child: Box<dyn Child + Send + Sync>,
-    _shell: String,
+    #[allow(dead_code)]
+     profile_id: String,
 }
 
-/// Manages agent chat sessions (OMP, Claude Code, Codex CLI, etc.)
-/// Currently only OhMyPi is supported, but the architecture is agent-agnostic.
+/// Manages agent chat sessions. Uses runtime profiles so any chat adapter
+/// (OMP, Basebuild CLI, future IDEs) can be supported without changing the
+/// chat UI contract.
 #[derive(Default)]
 pub struct AgentManager {
     next_id: u64,
@@ -27,9 +31,45 @@ pub struct AgentManager {
 }
 
 impl AgentManager {
-    pub fn start(&mut self, app: AppHandle, cwd: &str) -> Result<u64, String> {
+    pub fn start(
+        &mut self,
+        app: AppHandle,
+        cwd: &str,
+        profile_id: Option<&str>,
+        _model: Option<&str>,
+    ) -> Result<u64, String> {
         let id = self.next_id;
         self.next_id += 1;
+
+        // Resolve the profile: use the given ID or fall back to the default chat profile.
+        let profiles = SettingsService::list_profiles()?;
+        let defaults = SettingsService::get_defaults()?;
+        let effective_id = profile_id
+            .map(|s| s.to_string())
+            .or(defaults.default_chat_profile_id)
+            .unwrap_or_else(|| "omp".to_string());
+
+        let profile = profiles
+            .into_iter()
+            .find(|p| p.id == effective_id)
+            .ok_or_else(|| {
+                format!("Chat profile '{effective_id}' not found. Check settings.")
+            })?;
+
+        if profile.kind != RuntimeProfileKind::Chat {
+            return Err(format!(
+                "Profile '{}' is not a chat profile.",
+                profile.label
+            ));
+        }
+
+        // Validate the executable exists before spawning.
+        if which::which(&profile.executable).is_err() {
+            return Err(format!(
+                "Adapter '{}' executable '{}' was not found on PATH. Install it or select a different chat profile in Settings.",
+                profile.label, profile.executable
+            ));
+        }
 
         let pty_system = native_pty_system();
         let pair = pty_system
@@ -41,14 +81,21 @@ impl AgentManager {
             })
             .map_err(|e| format!("Failed to open pty: {e}"))?;
 
-        // Spawn omp in interactive mode
-        let mut cmd = CommandBuilder::new("omp");
+        let mut cmd = CommandBuilder::new(&profile.executable);
+        for arg in &profile.args {
+            cmd.arg(arg);
+        }
         cmd.cwd(cwd);
 
         let child = pair
             .slave
             .spawn_command(cmd)
-            .map_err(|e| format!("Failed to spawn omp: {e}. Is oh-my-pi installed and on PATH?"))?;
+            .map_err(|e| {
+                format!(
+                    "Failed to spawn '{}': {e}. Is '{}' installed and on PATH?",
+                    profile.label, profile.executable
+                )
+            })?;
 
         let _pid = child.process_id();
 
@@ -98,8 +145,7 @@ impl AgentManager {
         let session = AgentSession {
             master: pair.master,
             writer,
-            child,
-            _shell: "omp".to_string(),
+            profile_id: profile.id.clone(),
         };
 
         self.sessions.insert(id, session);
@@ -122,12 +168,15 @@ impl AgentManager {
     }
 
     pub fn stop(&mut self, id: u64) -> Result<(), String> {
-        let mut session = self
-            .sessions
+        self.sessions
             .remove(&id)
             .ok_or("Agent session not found")?;
-        // Kill the child process (omp.exe) so it doesn't linger as an orphan
-        let _ = session.child.kill();
         Ok(())
     }
+}
+
+/// Returns the capabilities of a profile, or a typed error if unsupported.
+#[allow(dead_code)]
+pub fn profile_capabilities(profile: &RuntimeProfile) -> Vec<AgentCapability> {
+    profile.capabilities.clone()
 }

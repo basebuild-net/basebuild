@@ -24,7 +24,8 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 toml = "0.8"
 urlencoding = "2"
-open = "5"
+ open = "5"
+which = "6"
 
 [patch.crates-io]
 portable-pty = { path = "vendor/portable-pty" }

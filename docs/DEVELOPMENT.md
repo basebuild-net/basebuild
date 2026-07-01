@@ -35,10 +35,13 @@ npm run tauri dev
 - `src-tauri/src/commands/*` - Tauri command surface.
 - `src-tauri/src/services/*` - business logic and external CLI integration.
 - `src-tauri/src/models/*` - serializable data types.
+- `src-tauri/src/services/settings_service.rs` - runtime profiles, defaults, permissions, audit trail.
+- `src-tauri/src/services/analytics_service.rs` - opt-in usage analytics (disabled by default).
 
 ## Requirements
 
 The app detects Git and OMP CLI. If Git is missing, the UI provides a copyable `winget` command and a download link.
+Runtime profiles (OMP, terminal, future Basebuild CLI) are seeded on first launch and persisted in SQLite. Defaults and permissions are conservative: analytics off, auto-send off, ask before sensitive actions.
 
 ## Known environment constraints
 
@@ -55,6 +58,9 @@ winget install Microsoft.VisualStudio.2022.BuildTools --override "--add Microsof
 Before publishing updates, replace `PLACEHOLDER_PUBLIC_KEY` in `src-tauri/tauri.conf.json` with the public key from `npx @tauri-apps/cli signer generate`.
 
 See `docs/SECRETS.md` for the full secrets checklist.
+## Privacy and analytics
+
+Basebuild is local-first. Usage analytics collection and upload are disabled by default and require explicit opt-in. See `docs/agents/agent-runtime.md` for the full privacy model. No analytics events store prompt text, chat content, source code, terminal output, secrets, or raw absolute paths. If a remote upload endpoint is ever added, it MUST be documented here and in `docs/SECRETS.md` before the upload code path is enabled.
 
 ## Releases
 
