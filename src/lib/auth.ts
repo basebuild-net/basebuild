@@ -62,3 +62,8 @@ export async function authSignOut(): Promise<void> {
 export async function authGetToken(): Promise<string | null> {
   return invoke<string | null>("auth_get_token");
 }
+
+
+export async function syncRawUsageNative(): Promise<string> {
+  return invoke<string>("sync_raw_usage_native");
+}

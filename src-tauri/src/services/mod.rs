@@ -12,5 +12,6 @@ pub mod auth_service;
 pub mod settings_service;
  pub mod session_service;
  pub mod storage_paths;
- pub mod storage_service;
+pub mod storage_service;
  pub mod terminal_service;
+pub mod sync_service;

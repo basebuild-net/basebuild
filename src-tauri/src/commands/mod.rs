@@ -15,5 +15,6 @@ pub mod settings;
  pub mod skills;
  pub mod sessions;
  pub mod terminal;
+pub mod sync;
  pub mod updater;
 

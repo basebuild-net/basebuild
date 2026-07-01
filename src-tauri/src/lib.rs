@@ -55,8 +55,9 @@ use commands::{
         rename_session, update_tab_file_path, update_tab_terminal,
     },
     skills::read_skill,
-    terminal::{close_terminal, create_terminal, list_terminals, resize_terminal, write_terminal},
-    updater::{check_for_updates, install_update},
+     terminal::{close_terminal, create_terminal, list_terminals, resize_terminal, write_terminal},
+    sync::sync_raw_usage_native,
+     updater::{check_for_updates, install_update},
 };
 
 pub struct CloseToTrayState {
@@ -256,6 +257,7 @@ pub fn run() {
             auth_fetch_profile,
             auth_sign_out,
             auth_get_token,
+            sync_raw_usage_native,
              check_for_updates,
              install_update,
         ])
