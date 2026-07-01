@@ -13,25 +13,33 @@ use commands::{
     files::{list_files, read_file},
     git::{
         git_add, git_branch_create, git_branch_list, git_branch_switch, git_commit, git_diff,
-        git_discard, git_fetch, git_log, git_pull, git_push, git_reset, git_stage_all,
-        git_status, git_unstage_all,
+        git_discard, git_fetch, git_log, git_pull, git_push, git_reset, git_stage_all, git_status,
+        git_unstage_all,
     },
-    ideas::{create_category, create_idea, delete_category, delete_idea, list_categories, list_ideas, update_idea_status},
-    omp::{omp_config_list, omp_debug_context, omp_stats, omp_status, omp_stream_command, omp_usage},
-    plans::{create_plan, delete_plan, get_plan, list_plans, set_plan_context, set_plan_status, update_plan},
-    schematic::{get_project_schematic, has_project_schematic, set_project_schematic},
+    ideas::{
+        create_category, create_idea, delete_category, delete_idea, list_categories, list_ideas,
+        update_idea_status,
+    },
+    omp::{
+        omp_config_list, omp_debug_context, omp_stats, omp_status, omp_stream_command, omp_usage,
+    },
+    plans::{
+        create_plan, delete_plan, get_plan, list_plans, set_plan_context, set_plan_status,
+        update_plan,
+    },
     projects::{
-        create_project_basebuild_config, detect_project, list_recent_projects, remember_recent_project,
-        remove_recent_project, reveal_in_explorer, set_last_active_session,
+        create_project_basebuild_config, detect_project, list_recent_projects, pick_project_directory,
+        remember_recent_project, remove_recent_project, reveal_in_explorer,
+        set_last_active_session,
     },
     requirements::list_requirements,
+    schematic::{get_project_schematic, has_project_schematic, set_project_schematic},
     sessions::{
-        create_session, create_tab, delete_session, delete_tab, list_sessions, list_tabs, rename_session,
-        update_tab_file_path, update_tab_terminal,
+        create_session, create_tab, delete_session, delete_tab, list_sessions, list_tabs,
+        rename_session, update_tab_file_path, update_tab_terminal,
     },
     skills::read_skill,
     terminal::{close_terminal, create_terminal, list_terminals, resize_terminal, write_terminal},
-    updates::check_app_update,
 };
 
 pub struct CloseToTrayState {
@@ -111,6 +119,7 @@ pub fn run() {
             remember_recent_project,
             list_recent_projects,
             detect_project,
+            pick_project_directory,
             list_files,
             read_file,
             create_project_basebuild_config,

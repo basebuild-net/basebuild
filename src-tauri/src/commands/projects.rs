@@ -1,7 +1,26 @@
+use tauri_plugin_dialog::{DialogExt, FilePath};
+
 use crate::{
     models::{project::ProjectDetection, recent_project::RecentProject},
     services::{project_service::ProjectService, storage_service::StorageService},
 };
+
+#[tauri::command]
+pub async fn pick_project_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let handle = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_title("Open Basebuild project")
+            .set_directory(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+            .blocking_pick_folder()
+    });
+
+    let result = handle.await.map_err(|e| format!("Dialog task failed: {e}"))?;
+    Ok(result.and_then(|fp| match fp {
+        FilePath::Path(p) => Some(p.to_string_lossy().to_string()),
+        FilePath::Url(_) => None,
+    }))
+}
 
 #[tauri::command]
 pub fn remember_recent_project(path: String) -> Result<RecentProject, String> {
