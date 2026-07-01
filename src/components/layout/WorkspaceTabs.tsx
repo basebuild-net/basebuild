@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FileText, LayoutTemplate, Plus, TerminalSquare, X } from "lucide-react";
+import { FileText, LayoutTemplate, MessageSquare, Plus, TerminalSquare, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { SessionTab, TabKind } from "../../lib/sessions";
 
@@ -7,14 +7,14 @@ const kindIcons: Record<TabKind, LucideIcon> = {
   terminal: TerminalSquare,
   file: FileText,
   empty: LayoutTemplate,
+  chat: MessageSquare,
 };
-
 type WorkspaceTabsProps = {
   tabs: SessionTab[];
   activeTabId: string | null;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
-  onCreateTab: (kind: "terminal" | "empty") => void;
+  onCreateTab: (kind: "terminal" | "empty" | "chat") => void;
 };
 
 export function WorkspaceTabs({
@@ -63,6 +63,9 @@ export function WorkspaceTabs({
               </button>
               <button type="button" onClick={() => { onCreateTab("empty"); setMenuOpen(false); }}>
                 <LayoutTemplate size={12} /> Schematic
+              </button>
+              <button type="button" onClick={() => { onCreateTab("chat"); setMenuOpen(false); }}>
+                <MessageSquare size={12} /> Chat
               </button>
               <span className="add-menu-hint">Open a file from the Files panel</span>
             </div>

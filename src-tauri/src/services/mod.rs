@@ -1,3 +1,4 @@
+pub mod agent_service;
 pub mod config_pack_service;
 pub mod file_service;
 pub mod git_service;

@@ -120,7 +120,7 @@ export function ProjectSidebar({
             const isCollapsed = collapsedProjects.has(project.path);
             return (
               <div key={project.path} className="sidebar-project-group">
-                <div className={`sidebar-item${isActive ? " is-active" : ""}`}>
+                <div className={`sidebar-item${isActive ? " is-active" : ""}`} onContextMenu={(e) => { e.preventDefault(); setMenuPath(menuPath === project.path ? null : project.path); }}>
                   {/* Collapse chevron */}
                   <button
                     className="sidebar-chevron-btn"

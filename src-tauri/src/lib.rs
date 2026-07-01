@@ -8,6 +8,7 @@ use std::sync::Mutex;
 
 use app_state::AppState;
 use commands::{
+    agent::{agent_send, agent_start, agent_stop},
     app::app_version,
     config_packs::{create_user_config_pack, list_config_packs},
     files::{list_files, read_file},
@@ -58,6 +59,7 @@ impl Default for CloseToTrayState {
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
+        .manage(std::sync::Mutex::new(crate::services::agent_service::AgentManager::default()))
         .manage(CloseToTrayState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -182,6 +184,9 @@ pub fn run() {
             list_ideas,
             update_idea_status,
             delete_idea,
+            agent_start,
+            agent_send,
+            agent_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Basebuild");

@@ -29,6 +29,7 @@ pub enum TabKind {
     Terminal,
     Empty,
     File,
+    Chat,
 }
 
 impl TabKind {
@@ -37,6 +38,7 @@ impl TabKind {
             TabKind::Terminal => "terminal",
             TabKind::Empty => "empty",
             TabKind::File => "file",
+            TabKind::Chat => "chat",
         }
     }
 
@@ -44,6 +46,7 @@ impl TabKind {
         match s {
             "file" => TabKind::File,
             "empty" => TabKind::Empty,
+            "chat" => TabKind::Chat,
             _ => TabKind::Terminal,
         }
     }

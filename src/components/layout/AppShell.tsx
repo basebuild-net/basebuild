@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bug, TerminalSquare } from "lucide-react";
+import { Bug, MessageSquare, TerminalSquare } from "lucide-react";
 
 import { useSessionState } from "../../state/sessions";
 import { usePlans } from "../../state/plans";
@@ -22,12 +22,12 @@ import { TerminalPanel } from "../panels/TerminalPanel";
 import { DebugPanel } from "../panels/DebugPanel";
 import { FileViewer } from "../panels/FileViewer";
 import { ProjectSchematicTab } from "../panels/ProjectSchematicTab";
+import { ChatPanel } from "../panels/ChatPanel";
 import { SidePanel } from "./SidePanel";
 import { StatusBar } from "./StatusBar";
 import { LogPanel } from "./LogPanel";
 import { useLogs } from "../../state/log";
 import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
-
 export type ToolId = ToolTabId;
 
 const toolTabs: ToolTabItem[] = [
@@ -284,10 +284,15 @@ export function AppShell() {
   const activeTab = session.tabs.find((t) => t.id === session.activeTabId) ?? null;
 
   const handleCreateTab = useCallback(
-    async (kind: "terminal" | "empty") => {
+    async (kind: "terminal" | "empty" | "chat") => {
       if (!session.activeSessionId) return;
       if (kind === "empty") {
         await session.createTab("empty", "Schematic");
+        setActiveTool("terminal");
+        return;
+      }
+      if (kind === "chat") {
+        await session.createTab("chat", `Chat ${session.tabs.length + 1}`);
         setActiveTool("terminal");
         return;
       }
@@ -381,6 +386,8 @@ export function AppShell() {
                   <h3>No tab selected</h3>
                   <p>Click + in the tab bar to create a new terminal or schematic tab.</p>
                 </div>
+              ) : activeTab.kind === "chat" ? (
+                <ChatPanel projectPath={activeProjectPath} />
               ) : activeTab.kind === "file" ? (
                 <FileViewer path={activeTab.filePath} />
               ) : activeTab.kind === "empty" ? (
@@ -409,7 +416,6 @@ export function AppShell() {
                 <TerminalPanel terminalId={activeTab.terminalId} onOutput={handleTerminalOutput} />
               )
             ) : null}
-
             {activeTool === "debug" ? <DebugPanel /> : null}
           </div>
         </section>
