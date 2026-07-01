@@ -8,6 +8,12 @@ Basebuild's app shell is a three-column grid:
 3. **Right side panel** (260px → 36px collapsed) — stacked accordion sections
    for Plans, Files, and Source.
 
+
+The global taskbar sits above the shell. Its right side contains the update
+indicator, account control, settings, and window controls. The update indicator
+checks on startup and every 5 minutes; when an update is available it becomes a
+blue one-click download/install button next to the account avatar.
+
 ## Tab kinds
 
 Each workspace tab has a `kind`: `terminal`, `file`, `empty`, or `chat`.

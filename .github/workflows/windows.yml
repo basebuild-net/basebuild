@@ -103,6 +103,23 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Verify release version files
+        shell: bash
+        run: |
+          version="${{ inputs.version }}"
+          package_version="$(node -p "require('./package.json').version")"
+          tauri_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          cargo_version="$(grep -m1 '^version = ' src-tauri/Cargo.toml | cut -d '"' -f2)"
+          if [ "$package_version" != "$version" ] || [ "$tauri_version" != "$version" ] || [ "$cargo_version" != "$version" ]; then
+            echo "::error::Version mismatch. input=$version package=$package_version tauri=$tauri_version cargo=$cargo_version"
+            exit 1
+          fi
+          if ! node -e "const c=require('./src-tauri/tauri.conf.json'); if (c.bundle?.createUpdaterArtifacts !== true) process.exit(1)"; then
+            echo "::error::bundle.createUpdaterArtifacts must be true so latest.json and .sig assets are generated."
+            exit 1
+          fi
+
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v1
         env:
@@ -112,8 +129,26 @@ jobs:
         with:
           tagName: v${{ inputs.version }}
           releaseName: "Basebuild v${{ inputs.version }}"
-          releaseBody: "Download the installer below to update Basebuild."
+          releaseBody: "Download the installer below to update Basebuild. Includes signed updater metadata for in-app one-click updates."
           releaseDraft: true
           prerelease: false
           updaterJsonPreferNsis: true
           args: "--target x86_64-pc-windows-msvc"
+
+      - name: Verify updater release assets
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          tag="v${{ inputs.version }}"
+          assets="$(gh release view "$tag" --repo "${{ github.repository }}" --json assets --jq '.assets[].name')"
+          echo "$assets"
+          echo "$assets" | grep -Fx "latest.json" >/dev/null || {
+            echo "::error::latest.json was not uploaded; in-app updates will not work."
+            exit 1
+          }
+          echo "$assets" | grep -E '\.sig$' >/dev/null || {
+            echo "::error::No updater signature asset was uploaded; in-app updates will not be trusted."
+            exit 1
+          }

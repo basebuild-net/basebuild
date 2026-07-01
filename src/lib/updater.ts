@@ -3,7 +3,10 @@ import { invoke } from "@tauri-apps/api/core";
 export type UpdateInfo = {
   available: boolean;
   version: string | null;
+  currentVersion: string | null;
   notes: string | null;
+  date: string | null;
+  target: string | null;
   downloadUrl: string | null;
 };
 

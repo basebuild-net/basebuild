@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Check, Download, Lock, LogOut, RefreshCw, Settings2, Shield, Trash2, User, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
-import { checkForUpdates, installUpdate, type UpdateInfo } from "../../lib/updater";
+import { type UpdaterState } from "../../state/updater";
 import { appVersion } from "../../lib/app";
 import { authStartDeviceFlow, authPollDeviceFlow, type PollResult } from "../../lib/auth";
 import { useAccount, type AccountState } from "../../state/account";
@@ -35,17 +35,15 @@ type SettingsModalProps = {
   onClose: () => void;
   projectPath: string | null;
   account: AccountState;
+  updates: UpdaterState;
 };
 
 type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "about";
 
-export function SettingsModal({ open, onClose, projectPath, account }: SettingsModalProps) {
+export function SettingsModal({ open, onClose, projectPath, account, updates }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
   const [requirements, setRequirements] = useState<RequirementStatus[]>([]);
   const [loading, setLoading] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
-  const [updateLoading, setUpdateLoading] = useState(false);
-  const [installing, setInstalling] = useState(false);
   const [version, setVersion] = useState("");
 
   // Defaults state
@@ -118,28 +116,6 @@ export function SettingsModal({ open, onClose, projectPath, account }: SettingsM
     }
   }
 
-  async function checkUpdates() {
-    setUpdateLoading(true);
-    try {
-      const info = await checkForUpdates();
-      setUpdateInfo(info);
-    } catch (e) {
-      setUpdateInfo({ available: false, version: null, notes: `Error checking: ${e}`, downloadUrl: null });
-    } finally {
-      setUpdateLoading(false);
-    }
-  }
-
-  async function doInstall() {
-    setInstalling(true);
-    try {
-      await installUpdate();
-    } catch (e) {
-      setUpdateInfo({ available: false, version: null, notes: `Install failed: ${e}`, downloadUrl: null });
-    } finally {
-      setInstalling(false);
-    }
-  }
 
   async function saveDefaults(d: RuntimeDefaults) {
     try {
@@ -208,6 +184,9 @@ export function SettingsModal({ open, onClose, projectPath, account }: SettingsM
     { id: "about", label: "About", icon: Check },
   ];
 
+  const updateChecking = updates.status === "checking";
+  const updateInstalling = updates.status === "installing";
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
@@ -239,41 +218,45 @@ export function SettingsModal({ open, onClose, projectPath, account }: SettingsM
             {/* ─── Updates ─── */}
             {tab === "updates" ? (
               <div className="stack">
-                <div className="row gap-sm" style={{ marginBottom: 8 }}>
+                <div className="settings-section-header">
                   <h3>App Updates</h3>
                   <button
                     className="btn btn-sm"
                     type="button"
-                    title="Check for updates"
-                    onClick={() => void checkUpdates()}
-                    disabled={updateLoading}
+                    title="Check for updates now"
+                    onClick={() => void updates.checkNow()}
+                    disabled={updateChecking || updateInstalling}
                   >
-                    <RefreshCw size={12} className={updateLoading ? "spin" : ""} /> Check for updates
+                    <RefreshCw size={12} className={updateChecking ? "spin" : ""} /> Check for updates
                   </button>
                 </div>
-                {updateInfo?.available ? (
+                {updates.info?.available ? (
                   <div className="requirement-row is-ok">
                     <span className="requirement-badge is-ok">↓</span>
                     <div>
-                      <div className="requirement-name">Version {updateInfo.version} available</div>
-                      {updateInfo.notes ? <div className="requirement-detail text-muted text-sm">{updateInfo.notes}</div> : null}
+                      <div className="requirement-name">Version {updates.info.version} available</div>
+                      {updates.info.notes ? <div className="requirement-detail text-muted text-sm update-notes">{updates.info.notes}</div> : null}
+                      {updates.info.downloadUrl ? <div className="requirement-detail text-muted text-sm mono update-notes">{updates.info.downloadUrl}</div> : null}
                       <button
-                        className="btn btn-primary btn-sm"
+                        className="btn btn-update btn-sm update-action-row"
                         type="button"
-                        title="Download and install update"
-                        onClick={() => void doInstall()}
-                        disabled={installing}
-                        style={{ marginTop: 6 }}
+                        title="Download and install this update"
+                        onClick={() => void updates.install()}
+                        disabled={updateInstalling}
                       >
-                        <Download size={12} /> {installing ? "Installing…" : "Download and install"}
+                        <Download size={12} /> {updateInstalling ? "Installing…" : "One-click update"}
                       </button>
                     </div>
                   </div>
-                ) : updateInfo ? (
-                  <p className="text-muted text-sm">{updateInfo.notes ?? "You're on the latest version."}</p>
-                ) : null}
+                ) : updates.info ? (
+                  <p className={`text-sm${updates.status === "error" ? " text-danger" : " text-muted"}`}>
+                    {updates.error ?? updates.info.notes ?? "You're on the latest version."}
+                  </p>
+                ) : (
+                  <p className="text-muted text-sm">Checking for updates on startup and every 5 minutes.</p>
+                )}
 
-                <div className="row gap-sm" style={{ marginTop: 16, marginBottom: 8 }}>
+                <div className="settings-section-header settings-section-spacer">
                   <h3>Requirement Checks</h3>
                   <button
                     className="btn-icon btn-icon-sm"

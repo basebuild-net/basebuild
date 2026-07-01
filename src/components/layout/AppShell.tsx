@@ -18,10 +18,11 @@ import { WorkspaceTabs } from "./WorkspaceTabs";
 import { MenuBar, type MenuConfig } from "./MenuBar";
 import { WindowControls } from "./WindowControls";
 import { AccountButton } from "./AccountButton";
- import { SettingsModal } from "./SettingsModal";
+import { UpdateButton } from "./UpdateButton";
+import { SettingsModal } from "./SettingsModal";
 import { FirstRunModal } from "./FirstRunModal";
 import { useFirstRun } from "../../state/first-run";
- import { createTerminal } from "../../lib/terminal";
+import { createTerminal } from "../../lib/terminal";
 import { TerminalPanel } from "../panels/TerminalPanel";
 import { DebugPanel } from "../panels/DebugPanel";
 import { FileViewer } from "../panels/FileViewer";
@@ -32,6 +33,7 @@ import { StatusBar } from "./StatusBar";
 import { LogPanel } from "./LogPanel";
 import { useLogs } from "../../state/log";
 import { useAccount } from "../../state/account";
+import { useUpdater } from "../../state/updater";
 import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
 export type ToolId = ToolTabId;
 
@@ -70,6 +72,7 @@ export function AppShell() {
   const plans = usePlans(session.activeSessionId);
   const schematic = useProjectSchematic(activeProjectPath);
   const account = useAccount();
+  const updates = useUpdater();
 
   useEffect(() => {
     if (activeProjectPath && session.sessions.length === 0 && !session.activeSessionId) {
@@ -362,6 +365,7 @@ export function AppShell() {
       <header className="window-taskbar" data-tauri-drag-region>
         <MenuBar menus={menus} />
         <div className="window-taskbar-right">
+          <UpdateButton updates={updates} onOpenSettings={() => setSettingsOpen(true)} />
           <AccountButton account={account} onOpenSettings={() => setSettingsOpen(true)} />
           <button
             className="window-control-btn"
@@ -489,7 +493,7 @@ export function AppShell() {
       </main>
       <StatusBar onClick={() => setLogPanelOpen(true)} />
       <LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} />
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} account={account} />
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} account={account} updates={updates} />
       <EditPlanModal
         plan={editingPlan}
         open={!!editingPlan}

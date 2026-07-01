@@ -55,6 +55,7 @@ src-tauri/
 1. **One stylesheet only.** `src/styles/globals.css`. No CSS modules, no inline styles.
 2. **0px border radius.** No exceptions.
 3. **Tooltips on every interactive element.** Verify with `title=`.
+   App update install buttons are the only approved blue CTA (`#2563eb`).
 4. **Local-first.** No network calls that upload data unless explicitly specified.
 5. **No silent side effects.** Ask before destructive actions.
 6. **`type` over `interface`** for sidecar object shapes.

@@ -6,7 +6,8 @@ change. This document links to it and adds agent-specific rules.
 ## Core principles
 
 - **Pure black canvas** (`#000000`), pure white text (`#ffffff`), single orange
-  accent (`#ff5606`).
+  accent (`#ff5606`). Exception: app update install CTAs use blue (`#2563eb`)
+  so releases are visually distinct from normal actions.
 - **0px border radius everywhere.** No exceptions.
 - **No decorative borders.** Layer on whitespace, hover lifts, and uppercase
   typography.
@@ -26,10 +27,10 @@ change. This document links to it and adds agent-specific rules.
 
 ## Reusable classes
 
-Current classes include `.btn`, `.btn-primary`, `.btn-ghost`, `.btn-icon`,
-`.btn-icon-sm`, `.card`, `.badge`, `.pill`, `.input`, `.pre`, `.stack`,
-`.stack-sm`, `.row`, `.row-between`, `.text-muted`, `.text-sm`, `.text-ok`,
-`.text-danger`, `.mono`.
+Current classes include `.btn`, `.btn-primary`, `.btn-update`, `.btn-ghost`,
+`.btn-icon`, `.btn-icon-sm`, `.btn-sm`, `.card`, `.badge`, `.pill`, `.input`,
+`.pre`, `.stack`, `.stack-sm`, `.row`, `.row-between`, `.text-muted`,
+`.text-sm`, `.text-ok`, `.text-danger`, `.mono`, `.spin`.
 
 ## Component reuse
 

@@ -19,6 +19,8 @@
   --bb-negative: #f87171;
   --bb-warning: #facc15;
   --bb-info: #818cf8;
+  --bb-update: #2563eb;
+  --bb-update-hover: #3b82f6;
   --bb-font: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --bb-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --bb-sidebar-w: 220px;
@@ -156,6 +158,27 @@ html, body, #root {
 .account-dropdown-danger { color: var(--bb-negative); }
 .account-dropdown-danger:hover { background: rgba(248, 113, 113, 0.1); }
 .account-profile-row { align-items: center; }
+
+/* ─── Update button (taskbar) ─── */
+.update-taskbar-btn,
+.update-taskbar-status {
+  display: flex; align-items: center; gap: 5px;
+  height: 28px; padding: 0 8px;
+  font-size: 11px; font-weight: 600;
+  transition: background 0.06s, color 0.06s, opacity 0.06s;
+}
+.update-taskbar-btn {
+  background: var(--bb-update);
+  color: #fff;
+}
+.update-taskbar-btn:hover { background: var(--bb-update-hover); }
+.update-taskbar-btn:disabled { opacity: 0.65; cursor: wait; }
+.update-taskbar-status {
+  color: var(--bb-muted);
+  border: 1px solid transparent;
+}
+.update-taskbar-status:hover { background: var(--bb-surface); color: var(--bb-text); }
+.update-taskbar-status.is-error { color: var(--bb-negative); }
 
 .app-shell {
   display: grid;
@@ -396,6 +419,9 @@ a { color: inherit; text-decoration: none; }
 
 .btn-primary { background: var(--bb-cta); border-color: var(--bb-cta); color: #fff; font-weight: 600; }
 .btn-primary:hover { background: var(--bb-cta-hover); border-color: var(--bb-cta-hover); }
+.btn-update { background: var(--bb-update); border-color: var(--bb-update); color: #fff; font-weight: 600; }
+.btn-update:hover { background: var(--bb-update-hover); border-color: var(--bb-update-hover); }
+.btn-sm { padding: 3px 7px; font-size: 11px; }
 
 .btn-ghost { border-color: transparent; color: var(--bb-muted); }
 .btn-ghost:hover { background: var(--bb-surface); color: var(--bb-text); border-color: transparent; }
@@ -411,6 +437,8 @@ a { color: inherit; text-decoration: none; }
 .btn-icon:hover { background: var(--bb-surface); color: var(--bb-text); }
 .btn-icon:active { background: var(--bb-surface-high); }
 .btn-icon-sm { padding: 3px; }
+.spin { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ─── Primitives ─── */
 .card { padding: 8px 10px; background: transparent; border: 1px solid var(--bb-border); }
@@ -1026,6 +1054,10 @@ a { color: inherit; text-decoration: none; }
 .settings-tab:hover { background: var(--bb-surface); color: var(--bb-text); }
 .settings-tab.is-active { background: var(--bb-surface-high); color: var(--bb-text); border-left: 2px solid var(--bb-cta); }
 .settings-content { flex: 1; overflow: auto; padding: 12px; }
+.settings-section-header { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; }
+.settings-section-spacer { margin-top: 16px; }
+.update-notes { margin-top: 4px; word-break: break-word; }
+.update-action-row { margin-top: 6px; }
 
 /* Requirement rows */
 .requirement-row {

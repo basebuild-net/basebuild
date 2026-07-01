@@ -185,6 +185,11 @@ buttons at the top of each column.
   generation controls; Files is a small project explorer; Source shows git
   status.
 
+The global taskbar includes account controls and the update indicator. When an
+update is detected, the indicator becomes a compact blue (`#2563eb`) one-click
+download/install button beside the account avatar; this is the only non-orange
+CTA and is reserved for app updates.
+
 ### Tool tabs
 
 Center tool selection is a compact tab bar inline with the session header:
@@ -233,6 +238,8 @@ Same two-tone + orange system as the web:
 - **Negative (#f87171):** Destructive actions, deleted files, errors.
 - **Warning (#facc15):** Modified files, behind count.
 - **Info (#818cf8):** Untracked files, renamed files.
+- **Update blue (#2563eb → #3b82f6 hover):** App update availability and
+  one-click install CTA only.
 
 ## Typography
 

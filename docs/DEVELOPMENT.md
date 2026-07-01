@@ -77,14 +77,18 @@ Basebuild is local-first. Usage analytics collection and upload are disabled by 
 Releases are manual and draft-first. There is no automatic release on push or
 tag creation.
 
-1. Bump the version in `package.json`, `src-tauri/tauri.conf.json`, and
-   `src-tauri/Cargo.toml` in a dedicated `chore(release): bump version to X.Y.Z`
-   commit on `main`.
-2. Trigger the **CI / Release (Windows)** workflow via `workflow_dispatch`,
-   passing the version (e.g. `0.0.3`).
-3. The workflow builds the installer and creates a **GitHub draft release**. It
+1. Bump the version in `package.json`, `package-lock.json`,
+   `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` in a dedicated
+   `chore(release): bump version to X.Y.Z` commit on `main`.
+2. Keep `src-tauri/tauri.conf.json` `bundle.createUpdaterArtifacts` set to
+   `true`; without it the workflow will not upload `latest.json` or `.sig`
+   updater assets and in-app updates will fail.
+3. Trigger the **CI / Release (Windows)** workflow via `workflow_dispatch`,
+   passing the version (e.g. `0.0.5`). The workflow verifies the version files
+   match the input and fails if updater metadata/signature assets are missing.
+4. The workflow builds the installer and creates a **GitHub draft release**. It
    aborts if the target version is already published.
-4. Review the draft in the GitHub UI, write release notes, and click **Publish**.
+5. Review the draft in the GitHub UI, write release notes, and click **Publish**.
 
 Never re-release a published version. If a release is broken, ship a hotfix as
 the next version. See `AGENTS.md` "Release Discipline" for the full policy.

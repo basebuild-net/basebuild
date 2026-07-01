@@ -43,6 +43,7 @@ type E2eState = {
   nextPlanId: number;
   nextTerminalId: number;
   auth: { accessToken: string; expiresAt: string; scopes: string[]; user: { id: string; username: string; email: string; image: string | null; isAdmin: boolean; isEditor: boolean } | null } | null;
+  updateInstallCount: number;
 };
 
 const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState };
@@ -60,6 +61,7 @@ function state(): E2eState {
       nextPlanId: 1,
       nextTerminalId: 1,
       auth: null,
+      updateInstallCount: 0,
     };
   }
   return globalState.__BASEBUILD_E2E_STATE__;
@@ -196,6 +198,19 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return { stats: null, usage: null, config: null } as T;
     case "list_requirements":
       return [] as T;
+    case "check_for_updates":
+      return {
+        available: true,
+        version: "0.0.5",
+        currentVersion: "0.0.4",
+        notes: "E2E updater fixture",
+        date: "2026-07-01T14:30:00Z",
+        target: "windows-x86_64",
+        downloadUrl: "https://github.com/basebuild-net/basebuild/releases/download/v0.0.5/Basebuild_0.0.5_x64-setup.exe",
+      } as T;
+    case "install_update":
+      s.updateInstallCount += 1;
+      return undefined as T;
     case "auth_status":
       return s.auth as T;
     case "auth_sign_out":
