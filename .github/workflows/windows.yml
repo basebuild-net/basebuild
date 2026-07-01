@@ -75,8 +75,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
-          releaseName: "Basebuild ${{ github.ref_name }}"
+          releaseName: "Basebuild v${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}"
           releaseBody: "Download the installer below to update Basebuild."
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
+          updaterJsonPreferDraft: false
           args: "--target x86_64-pc-windows-msvc"

@@ -167,6 +167,24 @@ export function SettingsModal({ open, onClose, projectPath }: SettingsModalProps
                   Desktop application for managing OMP terminals, source control,
                   ideas, and plans.
                 </p>
+                <div className="row gap-sm" style={{ marginTop: 8 }}>
+                  <a
+                    className="btn btn-sm"
+                    href="https://github.com/basebuild-net/basebuild/issues/new?labels=bug&template=bug_report.md&title=Bug:"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Report a bug
+                  </a>
+                  <a
+                    className="btn btn-sm"
+                    href="https://github.com/basebuild-net/basebuild"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    GitHub
+                  </a>
+                </div>
               </div>
             ) : null}
           </div>

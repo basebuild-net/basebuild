@@ -58,6 +58,31 @@ impl Default for CloseToTrayState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Install panic hook to capture crash info and open a GitHub issue
+    std::panic::set_hook(Box::new(|info| {
+        let payload = info.payload();
+        let msg = if let Some(s) = payload.downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = payload.downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "Unknown panic".to_string()
+        };
+        let location = info.location().map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column())).unwrap_or_default();
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        let report = format!(
+            "## Crash Report\n\n**Message:** {msg}\n\n**Location:** {location}\n\n**Backtrace:**\n```\n{backtrace}\n```"
+        );
+        let title = format!("Crash: {msg}");
+        let url = format!(
+            "https://github.com/basebuild-net/basebuild/issues/new?title={}&body={}",
+            urlencoding::encode(&title),
+            urlencoding::encode(&report)
+        );
+        eprintln!("{report}");
+        let _ = open::that(&url);
+    }));
+
     tauri::Builder::default()
         .manage(AppState::default())
         .manage(std::sync::Mutex::new(crate::services::agent_service::AgentManager::default()))
