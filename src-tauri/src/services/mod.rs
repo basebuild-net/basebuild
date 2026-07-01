@@ -1,5 +1,6 @@
 pub mod analytics_service;
  pub mod agent_service;
+pub mod auth_service;
  pub mod config_pack_service;
  pub mod file_service;
  pub mod git_service;
@@ -11,5 +12,6 @@ pub mod analytics_service;
 pub mod settings_service;
  pub mod session_service;
  pub mod storage_paths;
- pub mod storage_service;
+pub mod storage_service;
  pub mod terminal_service;
+pub mod sync_service;

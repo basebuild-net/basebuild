@@ -1,9 +1,0 @@
-id: basebuild-ideas-plan-pipeline
-name: Basebuild Ideas and Plan Pipeline
-status: draft
-owner: basebuild-app
-priority: high
-created: 2026-07-01
-updated: 2026-07-01
-specs:
-  - plan-pipeline-ui
