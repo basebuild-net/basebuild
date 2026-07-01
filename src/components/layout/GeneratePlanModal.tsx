@@ -108,6 +108,7 @@ export function GeneratePlanModal({ open, onClose, onGenerate, onSuggest, onCrea
                     className={`plan-mode-card${isActive ? " is-active" : ""}`}
                     type="button"
                     onClick={() => setMode(m.id)}
+                    title={m.title}
                   >
                     <Icon size={14} />
                     <div className="plan-mode-info">

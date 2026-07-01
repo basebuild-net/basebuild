@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { AlertCircle, RefreshCw, Send } from "lucide-react";
+import { AlertCircle, RefreshCw, Send, StopCircle } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { agentStart, agentSend, agentStop } from "../../lib/agent";
 import { useLogs } from "../../state/log";
+
+const SEND_TIMEOUT_MS = 10_000;
 
 type ChatMessage = {
   role: "user" | "assistant" | "system";
@@ -23,8 +25,10 @@ export function ChatPanel({ projectPath, draftPrompt, onDraftConsumed, autoSendD
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [stuck, setStuck] = useState(false);
   const [agentId, setAgentId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const sendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const assistantBufferRef = useRef<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const { addLog } = useLogs();
@@ -128,17 +132,60 @@ export function ChatPanel({ projectPath, draftPrompt, onDraftConsumed, autoSendD
 
     setInput("");
     setLoading(true);
+    setStuck(false);
     assistantBufferRef.current = "";
     setMessages((prev) => [...prev, { role: "user", content: text }]);
+
+    // If the send doesn't complete or produce output within the timeout,
+    // flag it as stuck so the user can recover
+    if (sendTimerRef.current) clearTimeout(sendTimerRef.current);
+    sendTimerRef.current = setTimeout(() => {
+      setStuck(true);
+      setLoading(false);
+      addLog("error", "Agent send timed out", `No response after ${SEND_TIMEOUT_MS / 1000}s. The agent may be frozen.`);
+    }, SEND_TIMEOUT_MS);
 
     try {
       await agentSend(agentId, text);
     } catch (e) {
+      if (sendTimerRef.current) { clearTimeout(sendTimerRef.current); sendTimerRef.current = null; }
+      setStuck(false);
       addLog("error", "Failed to send message to agent", String(e));
       setMessages((prev) => [...prev, { role: "system", content: `Error: ${e}` }]);
       setLoading(false);
     }
   }, [input, agentId, loading, addLog]);
+
+  // Clear the stuck timer when output arrives
+  useEffect(() => {
+    if (!loading && sendTimerRef.current) {
+      clearTimeout(sendTimerRef.current);
+      sendTimerRef.current = null;
+    }
+  }, [loading]);
+
+  const handleStopAgent = useCallback(async () => {
+    if (sendTimerRef.current) { clearTimeout(sendTimerRef.current); sendTimerRef.current = null; }
+    setStuck(false);
+    setLoading(false);
+    if (agentId !== null) {
+      try { await agentStop(agentId); } catch { /* ignore */ }
+      setAgentId(null);
+    }
+    setMessages((prev) => [...prev, { role: "system", content: "Agent session stopped. Reloading..." }]);
+    // Restart after a brief delay
+    setTimeout(() => {
+      void (async () => {
+        try {
+          const id = await agentStart({ cwd: projectPath });
+          setAgentId(id);
+          setMessages([{ role: "system", content: "Agent session restarted." }]);
+        } catch (e) {
+          setError(String(e));
+        }
+      })();
+    }, 500);
+  }, [agentId, projectPath]);
 
   return (
     <div className="chat-panel">
@@ -150,6 +197,20 @@ export function ChatPanel({ projectPath, draftPrompt, onDraftConsumed, autoSendD
           </div>
         ))}
         {loading ? <div className="chat-loading">Agent is typing…</div> : null}
+        {stuck ? (
+          <div className="chat-stuck-bar">
+            <AlertCircle size={12} />
+            <span className="text-sm">Agent appears frozen. No response after {SEND_TIMEOUT_MS / 1000}s.</span>
+            <button
+              className="btn btn-sm"
+              type="button"
+              title="Stop and restart the agent session"
+              onClick={() => void handleStopAgent()}
+            >
+              <StopCircle size={12} /> Stop &amp; restart
+            </button>
+          </div>
+        ) : null}
       </div>
       {error ? (
         <div className="chat-error-bar">
@@ -170,14 +231,19 @@ export function ChatPanel({ projectPath, draftPrompt, onDraftConsumed, autoSendD
           className="input chat-input"
           placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            const el = e.target;
+            el.style.height = "auto";
+            el.style.height = Math.min(el.scrollHeight, 200) + "px";
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               void handleSend();
             }
           }}
-          rows={2}
+          rows={3}
           disabled={agentId === null}
           title="Chat input — type a message and press Enter to send"
         />

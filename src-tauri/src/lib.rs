@@ -4,7 +4,10 @@ mod events;
 mod models;
 mod services;
 
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
+use tauri::{AppHandle, Emitter};
+
+static APP_HANDLE: LazyLock<Mutex<Option<AppHandle>>> = LazyLock::new(|| Mutex::new(None));
 
 use app_state::AppState;
 use commands::{
@@ -87,7 +90,7 @@ pub fn run() {
         let location = info.location().map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column())).unwrap_or_default();
         let backtrace = std::backtrace::Backtrace::force_capture();
         let report = format!(
-            "## Crash Report\n\n**Message:** {msg}\n\n**Location:** {location}\n\n**Backtrace:**\n```\n{backtrace}\n```"
+            "## Rust Crash Report\n\n**Message:** {msg}\n\n**Location:** {location}\n\n**Backtrace:**\n```\n{backtrace}\n```"
         );
         let title = format!("Crash: {msg}");
         let url = format!(
@@ -96,6 +99,15 @@ pub fn run() {
             urlencoding::encode(&report)
         );
         eprintln!("{report}");
+
+        // Emit to the frontend so the ErrorBoundary can display the crash
+        if let Ok(handle) = APP_HANDLE.lock() {
+            if let Some(app) = handle.as_ref() {
+                let _ = app.emit("rust://panic", &report);
+            }
+        }
+
+
         let _ = open::that(&url);
     }));
 
@@ -106,6 +118,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            // Store handle so the panic hook can emit to the frontend
+            if let Ok(mut handle) = APP_HANDLE.lock() {
+                *handle = Some(app.handle().clone());
+            }
             let tray_menu = tauri::menu::MenuBuilder::new(app)
                 .text("show", "Show Basebuild")
                 .separator()
@@ -263,4 +279,18 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Basebuild");
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::models::session::TabKind;
+
+    #[test]
+    fn tab_kind_serializes_as_plain_string() {
+        let json = serde_json::to_string(&TabKind::Terminal).unwrap();
+        assert_eq!(json, "\"terminal\"", "TabKind must serialize as a plain string to match the frontend TabKind type");
+
+        let kind: TabKind = serde_json::from_str("\"chat\"").unwrap();
+        assert_eq!(kind, TabKind::Chat, "TabKind must deserialize from a plain string");
+    }
 }

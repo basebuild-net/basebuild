@@ -4,7 +4,8 @@ import { ConfigPanel } from "../panels/ConfigPanel";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
 import { checkForUpdates, installUpdate, type UpdateInfo } from "../../lib/updater";
 import { appVersion } from "../../lib/app";
-import { authStatus, authStartDeviceFlow, authPollDeviceFlow, authSignOut, authFetchProfile, type NativeProfile, type StoredAuth, type PollResult } from "../../lib/auth";
+import { authStartDeviceFlow, authPollDeviceFlow, type PollResult } from "../../lib/auth";
+import { useAccount, type AccountState } from "../../state/account";
 import {
   getRuntimeDefaults,
   setRuntimeDefaults,
@@ -33,11 +34,12 @@ type SettingsModalProps = {
   open: boolean;
   onClose: () => void;
   projectPath: string | null;
+  account: AccountState;
 };
 
 type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "about";
 
-export function SettingsModal({ open, onClose, projectPath }: SettingsModalProps) {
+export function SettingsModal({ open, onClose, projectPath, account }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
   const [requirements, setRequirements] = useState<RequirementStatus[]>([]);
   const [loading, setLoading] = useState(false);
@@ -527,7 +529,7 @@ export function SettingsModal({ open, onClose, projectPath }: SettingsModalProps
             {tab === "configs" ? <ConfigPanel projectPath={projectPath} /> : null}
 
             {/* ─── Account ─── */}
-            {tab === "account" ? <AccountPanel /> : null}
+            {tab === "account" ? <AccountPanel account={account} /> : null}
 
             {/* ─── About ─── */}
             {tab === "about" ? (
@@ -589,37 +591,11 @@ function PermissionSelect({ label, title, value, onChange }: {
 }
 
 
-function AccountPanel() {
-  const [auth, setAuth] = useState<StoredAuth | null>(null);
-  const [profile, setProfile] = useState<NativeProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+function AccountPanel({ account }: { account: AccountState }) {
   const [polling, setPolling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deviceCode, setDeviceCode] = useState<string | null>(null);
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const stored = await authStatus();
-        setAuth(stored);
-        if (stored?.user) {
-          setProfile(stored.user);
-        } else if (stored?.accessToken) {
-          try {
-            const p = await authFetchProfile();
-            setProfile(p);
-          } catch {
-            setProfile(null);
-          }
-        }
-      } catch {
-        // ignore
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
-
+  const [imgFailed, setImgFailed] = useState(false);
   async function signIn() {
     setError(null);
     setPolling(true);
@@ -637,13 +613,7 @@ function AccountPanel() {
           if (pollResult.status === "pending") {
             setTimeout(() => void tick(), (pollResult.interval + 1) * 1000);
           } else if (pollResult.status === "success") {
-            setAuth({
-              accessToken: pollResult.accessToken,
-              expiresAt: pollResult.expiresAt,
-              scopes: pollResult.scopes,
-              user: pollResult.user,
-            });
-            setProfile(pollResult.user);
+            await account.refresh();
             setPolling(false);
             setDeviceCode(null);
           } else if (pollResult.status === "denied") {
@@ -668,47 +638,38 @@ function AccountPanel() {
     }
   }
 
-  async function signOut() {
-    setError(null);
-    try {
-      await authSignOut();
-      setAuth(null);
-      setProfile(null);
-    } catch (e) {
-      setError(String(e));
-    }
-  }
 
-  if (loading) {
+  if (account.loading) {
     return <p className="text-muted">Loading account…</p>;
   }
 
-  if (profile) {
+  if (account.profile) {
     return (
       <div className="stack">
         <h3>Account</h3>
-        <div className="row gap-sm" style={{ alignItems: "center" }}>
-          {profile.image ? (
+        <div className="row gap-sm account-profile-row">
+          {account.profile.image && !imgFailed ? (
             <img
-              src={profile.image}
-              alt={profile.username}
-              style={{ width: 32, height: 32, borderRadius: 0 }}
+              src={account.profile.image}
+              alt={account.profile.username}
+              className="account-avatar"
+              onError={() => setImgFailed(true)}
             />
           ) : (
-            <div style={{ width: 32, height: 32, background: "var(--bb-surface)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>
-              {profile.username.slice(0, 2).toUpperCase()}
-            </div>
+            <span className="account-avatar account-avatar-placeholder">
+              {account.profile.username.slice(0, 2).toUpperCase()}
+            </span>
           )}
           <div>
-            <div className="text-sm">{profile.username}</div>
-            <div className="text-muted text-sm">{profile.email}</div>
+            <div className="text-sm">{account.profile.username}</div>
+            <div className="text-muted text-sm">{account.profile.email}</div>
           </div>
         </div>
         <button
           className="btn btn-sm"
           type="button"
           title="Sign out and revoke this device's token"
-          onClick={() => void signOut()}
+          onClick={() => void account.signOut()}
         >
           <LogOut size={12} /> Sign out
         </button>

@@ -30,26 +30,30 @@ export function WorkspaceTabs({
     <div className="workspace-tabs-container">
       <div className="workspace-tabs">
         {tabs.map((tab) => {
-          const Icon = kindIcons[tab.kind];
+          const Icon = kindIcons[tab.kind] ?? FileText;
           return (
-            <button
+            <div
               key={tab.id}
               className={`workspace-tab${tab.id === activeTabId ? " is-active" : ""}`}
-              type="button"
-              title={tab.title}
-              onClick={() => onSelectTab(tab.id)}
             >
-              <Icon size={12} />
-              <span>{tab.title}</span>
+              <button
+                className="workspace-tab-label"
+                type="button"
+                title={tab.title}
+                onClick={() => onSelectTab(tab.id)}
+              >
+                <Icon size={12} />
+                <span>{tab.title}</span>
+              </button>
               <button
                 className="btn-icon workspace-tab-close"
                 title="Close tab"
                 type="button"
-                onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id); }}
+                onClick={() => onCloseTab(tab.id)}
               >
                 <X size={11} />
               </button>
-            </button>
+            </div>
           );
         })}
         <div className="workspace-tab-actions">

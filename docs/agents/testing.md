@@ -7,8 +7,8 @@ on what changed.
 
 | Change type | Required verification |
 |---|---|
-| Rust backend | `cargo check`, `cargo test`, affected service tests |
 | TypeScript/React | `npx tsc --noEmit`, `npm run build` |
+| Browser workflow / regression | `npm run test:e2e` |
 | UI/CSS | Screenshot of the changed view in the running app |
 | Settings/permissions | Test default values, reset, and persistence |
 | Analytics | Test that collection and upload are disabled on fresh install |
@@ -21,6 +21,7 @@ on what changed.
 ```bash
 npx tsc --noEmit     # Type check
 npm run build        # Frontend build
+npm run test:e2e     # Playwright browser regression tests with mocked Tauri commands
 cargo check          # Rust check (run in src-tauri/)
 cargo test           # Rust tests (run in src-tauri/)
 ```
@@ -45,6 +46,8 @@ screenshot.
 - Run only tests you added or modified unless asked otherwise.
 - Rust tests for services: test the service methods directly, not through Tauri commands.
 - Frontend tests: test hooks and pure functions, not React component internals.
+- Browser workflow tests use Playwright against the Vite dev server with mocked
+  Tauri commands (`BASEBUILD_E2E=1`) so renderer crashes are visible in CI.
 
 ## What NOT to do
 

@@ -14,15 +14,18 @@
 npm install
 
 # Run the dev server and Tauri (requires Rust + Visual Studio C++ tools)
-npm run tauri dev
+dev.bat                 # Windows helper; detects port 1420 conflicts and keeps errors visible
+npm run tauri dev       # Direct command
+
 ```
 
 ## Scripts
 
 | Command | Purpose |
 |---|---|
-| `npm run dev` | Vite frontend only |
+| `npm run dev` | Vite frontend only on port 1420 |
 | `npm run tauri dev` | Tauri dev mode |
+| `dev.bat` | Windows launcher that checks port 1420, can stop stale listeners, and pauses on errors |
 | `npm run build` | Production frontend build |
 | `npm run tauri build` | Build Windows installer |
 
@@ -42,6 +45,13 @@ npm run tauri dev
 
 The app detects Git and OMP CLI. If Git is missing, the UI provides a copyable `winget` command and a download link.
 Runtime profiles (OMP, terminal, future Basebuild CLI) are seeded on first launch and persisted in SQLite. Defaults and permissions are conservative: analytics off, auto-send off, ask before sensitive actions.
+
+### Port 1420 conflicts
+
+Tauri dev mode runs Vite on port 1420. If that port is already in use,
+`dev.bat` detects the listener before startup, shows the owning PID/process,
+and asks whether to stop it before continuing. It also pauses after failures so
+the red error remains visible for copying.
 
 ## Known environment constraints
 

@@ -158,8 +158,10 @@ impl AgentManager {
             .writer
             .lock()
             .map_err(|e| format!("Failed to lock writer: {e}"))?;
+
+        let data = format!("{message}\n");
         writer
-            .write_all(format!("{message}\n").as_bytes())
+            .write_all(data.as_bytes())
             .map_err(|e| format!("Failed to write to agent: {e}"))?;
         writer
             .flush()

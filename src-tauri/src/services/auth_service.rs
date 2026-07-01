@@ -6,6 +6,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::services::storage_paths::StoragePathService;
+/// If `image` is a relative path like `/avatars/user.png`, prepend BASE_URL.
+fn absolutize_image(image: Option<&str>) -> Option<String> {
+    image.and_then(|s| {
+        if s.is_empty() { return None; }
+        if s.starts_with("http://") || s.starts_with("https://") { return Some(s.to_string()); }
+        if s.starts_with('/') { return Some(format!("{BASE_URL}{s}")); }
+        Some(format!("{BASE_URL}/{s}"))
+    })
+}
 
 const BASE_URL: &str = "https://basebuild.net";
 
@@ -196,7 +205,7 @@ impl AuthService {
             id: user_obj.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
             username: user_obj.get("username").and_then(|v| v.as_str()).unwrap_or("").to_string(),
             email: user_obj.get("email").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            image: user_obj.get("image").and_then(|v| v.as_str()).map(String::from),
+            image: absolutize_image(user_obj.get("image").and_then(|v| v.as_str())),
             is_admin: user_obj.get("isAdmin").and_then(|v| v.as_bool()).unwrap_or(false),
             is_editor: user_obj.get("isEditor").and_then(|v| v.as_bool()).unwrap_or(false),
         };
@@ -245,7 +254,7 @@ impl AuthService {
             id: parsed.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
             username: parsed.get("username").and_then(|v| v.as_str()).unwrap_or("").to_string(),
             email: parsed.get("email").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            image: parsed.get("image").and_then(|v| v.as_str()).map(String::from),
+            image: absolutize_image(parsed.get("image").and_then(|v| v.as_str())),
             is_admin: parsed.get("isAdmin").and_then(|v| v.as_bool()).unwrap_or(false),
             is_editor: parsed.get("isEditor").and_then(|v| v.as_bool()).unwrap_or(false),
         })

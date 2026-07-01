@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bug, MessageSquare, TerminalSquare } from "lucide-react";
+import { Settings2 } from "lucide-react";
 
 import { useSessionState } from "../../state/sessions";
 import { usePlans } from "../../state/plans";
@@ -16,6 +17,7 @@ import { generateSessionTitle } from "../../lib/skills";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import { MenuBar, type MenuConfig } from "./MenuBar";
 import { WindowControls } from "./WindowControls";
+import { AccountButton } from "./AccountButton";
  import { SettingsModal } from "./SettingsModal";
 import { FirstRunModal } from "./FirstRunModal";
 import { useFirstRun } from "../../state/first-run";
@@ -29,6 +31,7 @@ import { SidePanel } from "./SidePanel";
 import { StatusBar } from "./StatusBar";
 import { LogPanel } from "./LogPanel";
 import { useLogs } from "../../state/log";
+import { useAccount } from "../../state/account";
 import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
 export type ToolId = ToolTabId;
 
@@ -66,6 +69,7 @@ export function AppShell() {
   const session = useSessionState(activeProjectPath, activeProject?.lastActiveSessionId);
   const plans = usePlans(session.activeSessionId);
   const schematic = useProjectSchematic(activeProjectPath);
+  const account = useAccount();
 
   useEffect(() => {
     if (activeProjectPath && session.sessions.length === 0 && !session.activeSessionId) {
@@ -358,7 +362,15 @@ export function AppShell() {
       <header className="window-taskbar" data-tauri-drag-region>
         <MenuBar menus={menus} />
         <div className="window-taskbar-right">
-          <span className="window-taskbar-title" data-tauri-drag-region>Basebuild</span>
+          <AccountButton account={account} onOpenSettings={() => setSettingsOpen(true)} />
+          <button
+            className="window-control-btn"
+            type="button"
+            title="Settings"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Settings2 size={14} />
+          </button>
           <WindowControls />
         </div>
       </header>
@@ -477,7 +489,7 @@ export function AppShell() {
       </main>
       <StatusBar onClick={() => setLogPanelOpen(true)} />
       <LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} />
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} />
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} account={account} />
       <EditPlanModal
         plan={editingPlan}
         open={!!editingPlan}

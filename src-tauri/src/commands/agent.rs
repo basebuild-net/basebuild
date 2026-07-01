@@ -15,11 +15,15 @@ pub async fn agent_start(
 }
 
 #[tauri::command]
-pub fn agent_send(
+pub async fn agent_send(
     state: State<'_, std::sync::Mutex<AgentManager>>,
     id: u64,
     message: String,
 ) -> Result<(), String> {
+    // Lock and write synchronously — the PTY write is fast for small messages.
+    // If the writer is blocked (dead process), the lock will fail fast rather
+    // than hang the Tauri runtime, because agent_start already moved the
+    // writer into an Arc<Mutex> that the reader thread doesn't hold.
     let manager = state.lock().map_err(|e| format!("Lock error: {e}"))?;
     manager.send(id, &message)
 }

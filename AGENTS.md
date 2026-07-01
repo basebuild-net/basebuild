@@ -61,6 +61,7 @@ src-tauri/
 7. **Lib files are thin Tauri invoke wrappers only** — no React state logic.
 8. **One service per domain.** Commands validate input, call service, map errors.
 9. **Plan statuses are `snake_case`.** Lifecycle: `draft → openspec → waiting → in_progress → finished`.
+10. **Commit milestones.** Keep large changes in coherent, verified milestones. If the user has explicitly asked for commits, commit each completed milestone separately with a clear message. Otherwise, report suggested commit points but do not create commits silently.
 
 ## Development
 

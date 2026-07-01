@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   authStatus,
   authFetchProfile,
@@ -31,12 +32,10 @@ export function useAccount(): AccountState {
       if (stored?.user) {
         setProfile(stored.user);
       } else if (stored?.accessToken) {
-        // Token exists but no cached profile — fetch it
         try {
           const p = await authFetchProfile();
           setProfile(p);
         } catch {
-          // Token may be expired/revoked
           setProfile(null);
         }
       } else {
@@ -61,6 +60,13 @@ export function useAccount(): AccountState {
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  // Listen for auth-changed events from the backend (e.g. device flow completion)
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+    listen("auth://changed", () => { void refresh(); }).then((fn) => { unlisten = fn; }).catch(() => {});
+    return () => { unlisten?.(); };
   }, [refresh]);
 
   return { auth, profile, loading, error, refresh, signOut };

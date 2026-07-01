@@ -10,4 +10,5 @@ src-tauri/gen/
 .env.*
 .env.local
 openspec/
-screenshots/
+screenshots/test-results/
+playwright-report/
