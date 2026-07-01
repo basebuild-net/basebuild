@@ -3,6 +3,7 @@ pub mod config_packs;
 pub mod git;
 pub mod ideas;
 pub mod omp;
+pub mod plans;
 pub mod projects;
 pub mod requirements;
 pub mod sessions;

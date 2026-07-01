@@ -147,6 +147,27 @@ impl StorageService {
                 );
                 CREATE INDEX IF NOT EXISTS idx_ideas_session ON ideas(session_id);
                 CREATE INDEX IF NOT EXISTS idx_ideas_status ON ideas(status);
+
+                CREATE TABLE IF NOT EXISTS plans (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    session_id TEXT NOT NULL,
+                    reference_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    goal TEXT,
+                    status TEXT NOT NULL DEFAULT 'draft',
+                    priority INTEGER NOT NULL DEFAULT 50,
+                    tags TEXT NOT NULL DEFAULT '[]',
+                    ai_enhanced INTEGER NOT NULL DEFAULT 0,
+                    context TEXT,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    finished_at INTEGER,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_plans_session ON plans(session_id);
+                CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status);
+                CREATE INDEX IF NOT EXISTS idx_plans_reference ON plans(reference_id);
                 ",
             )
             .map_err(|error| format!("Failed to initialize Basebuild state database: {error}"))?;

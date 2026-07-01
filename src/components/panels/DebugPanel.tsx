@@ -5,6 +5,8 @@ import { appVersion } from "../../lib/app";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
 import { ompDebugContext, ompStatus, type OmpStatus } from "../../lib/omp";
 import { listTerminals, type TerminalSession } from "../../lib/terminal";
+import { OmpPanel } from "./OmpPanel";
+import { useOmpState } from "../../state/omp";
 
 type DebugData = {
   appVersion: string;
@@ -74,6 +76,8 @@ export function DebugPanel() {
     const interval = setInterval(() => void refreshTerminals(), 3000);
     return () => clearInterval(interval);
   }, [loadAll, refreshTerminals]);
+
+  const ompState = useOmpState();
 
   if (error) return <p className="text-danger">{error}</p>;
   if (!data) return <p className="text-muted">Loading…</p>;
@@ -193,6 +197,11 @@ export function DebugPanel() {
           <details><summary>Config JSON</summary><pre className="pre">{JSON.stringify(data.context.config, null, 2)}</pre></details>
         </div>
       ) : null}
+
+      <div className="debug-section">
+        <h3>OMP Console</h3>
+        <OmpPanel state={ompState} />
+      </div>
     </div>
   );
 }

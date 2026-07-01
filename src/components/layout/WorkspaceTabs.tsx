@@ -8,7 +8,6 @@ type WorkspaceTabsProps = {
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
   onCreateTerminal: () => void;
-  onCreateOmp: () => void;
   autoMode: AutoMode;
   autoCommit: boolean;
   autoPr: boolean;
@@ -28,7 +27,6 @@ export function WorkspaceTabs({
   onSelectTab,
   onCloseTab,
   onCreateTerminal,
-  onCreateOmp,
   autoMode,
   autoCommit,
   autoPr,
@@ -67,9 +65,6 @@ export function WorkspaceTabs({
         <div className="workspace-tab-actions">
           <button className="btn-icon btn-icon-sm" title="New terminal tab" type="button" onClick={onCreateTerminal}>
             <Plus size={13} />
-          </button>
-          <button className="btn-icon btn-icon-sm" title="New OMP tab" type="button" onClick={onCreateOmp}>
-            <TerminalSquare size={13} />
           </button>
         </div>
       </div>

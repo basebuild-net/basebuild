@@ -1,6 +1,7 @@
 pub mod config_pack_service;
 pub mod git_service;
 pub mod omp_service;
+pub mod plan_service;
 pub mod project_service;
 pub mod requirement_service;
 pub mod session_service;

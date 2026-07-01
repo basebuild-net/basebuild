@@ -2,6 +2,7 @@ pub mod config_pack;
 pub mod git;
 pub mod idea;
 pub mod omp;
+pub mod plan;
 pub mod project;
 pub mod recent_project;
 pub mod release;

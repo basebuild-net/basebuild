@@ -1,39 +1,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Bot,
   Bug,
   GitBranch,
-  Lightbulb,
   TerminalSquare,
-  type LucideIcon,
 } from "lucide-react";
 
-import { useOmpState } from "../../state/omp";
 import { useSessionState } from "../../state/sessions";
+import { usePlans } from "../../state/plans";
 import { ProjectSidebar, useProjectSidebar } from "./ProjectSidebar";
+import { PlanPanel } from "./PlanPanel";
+import { EditPlanModal } from "./EditPlanModal";
+import { FocusPlanModal } from "./FocusPlanModal";
+import { ToolTabs, type ToolTabId, type ToolTabItem } from "./ToolTabs";
 import { generateSessionTitle } from "../../lib/skills";
-import { ToolRail } from "./ToolRail";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import { MenuBar, type MenuConfig } from "./MenuBar";
 import { WindowControls } from "./WindowControls";
 import { SettingsModal } from "./SettingsModal";
 import { createTerminal } from "../../lib/terminal";
 import { TerminalPanel } from "../panels/TerminalPanel";
-import { OmpPanel } from "../panels/OmpPanel";
 import { SourcePanel } from "../panels/SourcePanel";
-import { IdeasPanel } from "../panels/IdeasPanel";
 import { DebugPanel } from "../panels/DebugPanel";
+import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
 
-export type ToolId = "terminal" | "omp" | "source" | "debug" | "ideas";
+export type ToolId = ToolTabId;
 
-type ToolItem = { id: ToolId; icon: LucideIcon; label: string; tooltip: string };
-
-const tools: ToolItem[] = [
-  { id: "terminal", icon: TerminalSquare, label: "Terminal", tooltip: "Integrated terminal — multiple tabs and grid view" },
-  { id: "omp", icon: Bot, label: "OMP", tooltip: "OhMyPi session — providers, models, usage" },
-  { id: "source", icon: GitBranch, label: "Source", tooltip: "Git source control — stage, commit, diff, history" },
-  { id: "ideas", icon: Lightbulb, label: "Ideas", tooltip: "Ideas and plans — generate, track, manage work" },
-  { id: "debug", icon: Bug, label: "Debug", tooltip: "Debug panel — app info, terminal sessions, OMP context" },
+const toolTabs: ToolTabItem[] = [
+  { id: "terminal", icon: TerminalSquare, label: "Terminal" },
+  { id: "source", icon: GitBranch, label: "Source" },
+  { id: "debug", icon: Bug, label: "Debug" },
 ];
 
 const DEFAULT_SHELL = () => {
@@ -45,7 +40,7 @@ export function AppShell() {
   const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<ToolId>("terminal");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [planCollapsed, setPlanCollapsed] = useState(false);
   const [gridView, setGridView] = useState(false);
   const [autoMode, setAutoMode] = useState<"none" | "steps" | "idea" | "combined">("none");
   const [autoCommit, setAutoCommit] = useState(false);
@@ -53,13 +48,15 @@ export function AppShell() {
   const [autoGroupPr, setAutoGroupPr] = useState(false);
   const [autoAgents, setAutoAgents] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
+  const [focusingPlan, setFocusingPlan] = useState<Plan | null>(null);
   const [terminalOutputBuffer, setTerminalOutputBuffer] = useState("");
   const titleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titlePendingRef = useRef(false);
-  const ompState = useOmpState();
   const sidebar = useProjectSidebar(activeProjectPath);
   const activeProject = sidebar.projects.find((p) => p.path === activeProjectPath);
   const session = useSessionState(activeProjectPath, activeProject?.lastActiveSessionId);
+  const plans = usePlans(session.activeSessionId);
 
   useEffect(() => {
     if (activeProjectPath && session.sessions.length === 0 && !session.activeSessionId) {
@@ -147,25 +144,53 @@ export function AppShell() {
     setTerminalOutputBuffer((prev) => (prev + data).slice(-2500));
   }, []);
 
-  const handleCreateOmpTab = useCallback(async () => {
+  const handleCreatePlan = useCallback(() => {
     if (!session.activeSessionId) return;
-    // Build OMP command with autonomous flags
-    const ompArgs: string[] = [];
-    if (autoMode === "steps") ompArgs.push("--auto-next-steps");
-    if (autoMode === "idea") ompArgs.push("--auto-next-idea");
-    if (autoMode === "combined") ompArgs.push("--auto-next-steps", "--auto-next-idea");
-    if (autoCommit) ompArgs.push("--auto-commit");
-    if (autoPr) ompArgs.push("--auto-pr");
-    if (autoGroupPr) ompArgs.push("--auto-group-pr");
-    if (autoAgents > 0) ompArgs.push("--auto-agents", String(autoAgents));
+    void plans.createPlan({
+      title: "New Plan",
+      description: "Describe this plan…",
+      status: "draft",
+      priority: 50,
+      tags: [],
+    });
+  }, [plans, session.activeSessionId]);
 
-    // Create terminal running OMP with autonomous flags
-    const shell = ompArgs.length > 0 ? `omp ${ompArgs.join(" ")}` : "omp";
-    const term = await createTerminal(shell, activeProjectPath ?? undefined);
-    const label = autoMode !== "none" ? `OMP (${autoMode})` : "OMP";
-    await session.createTab("omp", label, term.id);
-    setActiveTool("terminal");
-  }, [session, activeProjectPath, autoMode, autoCommit, autoPr, autoGroupPr, autoAgents]);
+  const handleGeneratePlans = useCallback(() => {
+    if (!session.activeSessionId) return;
+    void plans.createPlan({
+      title: `Plan from ${activeProjectPath?.split(/[/\\]/)?.pop() ?? "project"}`,
+      description: "Placeholder generated plan. Wire AI generation here.",
+      status: "draft",
+      priority: 60,
+      tags: ["generated"],
+    });
+  }, [plans, session.activeSessionId, activeProjectPath]);
+
+  const handleEditPlan = useCallback((plan: Plan) => {
+    setEditingPlan(plan);
+  }, []);
+
+  const handleSavePlan = useCallback(
+    (draft: NewPlan) => {
+      if (!editingPlan) return;
+      void plans.updatePlan(editingPlan.id, draft);
+      setEditingPlan(null);
+    },
+    [editingPlan, plans],
+  );
+
+  const handleFocusPlan = useCallback((plan: Plan) => {
+    setFocusingPlan(plan);
+  }, []);
+
+  const handleCopyReference = useCallback((refId: string) => {
+    void navigator.clipboard.writeText(`#${refId}`);
+  }, []);
+
+  const handleOpenPlanInTerminal = useCallback((plan: import("../../lib/plans").Plan) => {
+    void handleCreateTerminalTab();
+    void navigator.clipboard.writeText(`#${plan.referenceId} ${plan.title}\n${plan.description}`);
+  }, [handleCreateTerminalTab]);
 
   const menus: MenuConfig[] = useMemo(() => [
     {
@@ -187,7 +212,7 @@ export function AppShell() {
       label: "View",
       items: [
         { label: sidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar", onClick: () => setSidebarCollapsed((v) => !v) },
-        { label: railCollapsed ? "Expand Tool Rail" : "Collapse Tool Rail", onClick: () => setRailCollapsed((v) => !v) },
+        { label: planCollapsed ? "Expand Plans" : "Collapse Plans", onClick: () => setPlanCollapsed((v) => !v) },
         { separator: true },
         { label: gridView ? "Single Tab View" : "Grid View", onClick: () => setGridView((v) => !v) },
       ],
@@ -198,7 +223,7 @@ export function AppShell() {
         { label: "App Settings...", onClick: () => setSettingsOpen(true) },
       ],
     },
-  ], [activeProjectPath, handleOpenFolder, handleCreateSession, sidebarCollapsed, railCollapsed, gridView]);
+  ], [activeProjectPath, handleOpenFolder, handleCreateSession, sidebarCollapsed, planCollapsed, gridView]);
 
   const terminalTabs = session.tabs.filter((t) => t.kind === "terminal");
   const activeTerminalTab = terminalTabs.find((t) => t.id === session.activeTabId) ?? terminalTabs[0] ?? null;
@@ -218,7 +243,7 @@ export function AppShell() {
       <main
         className="app-shell"
         data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}
-        data-rail={railCollapsed ? "collapsed" : "expanded"}
+        data-rail={planCollapsed ? "collapsed" : "expanded"}
       >
         <ProjectSidebar
           activeProjectPath={activeProjectPath}
@@ -241,6 +266,7 @@ export function AppShell() {
             <>
               <div className="session-header">
                 <h1 className="session-title">{session.activeSession?.title ?? "Session"}</h1>
+                <ToolTabs tabs={toolTabs} activeTab={activeTool} onSelect={setActiveTool} />
                 <span className="status-pill" title={activeProjectPath}>{activeProjectPath}</span>
               </div>
               <WorkspaceTabs
@@ -249,7 +275,6 @@ export function AppShell() {
                 onSelectTab={session.setActiveTabId}
                 onCloseTab={(id) => void session.removeTab(id)}
                 onCreateTerminal={() => void handleCreateTerminalTab()}
-                onCreateOmp={() => void handleCreateOmpTab()}
                 autoMode={autoMode}
                 autoCommit={autoCommit}
                 autoPr={autoPr}
@@ -301,21 +326,42 @@ export function AppShell() {
               )
             ) : null}
 
-            {activeTool === "omp" ? <OmpPanel state={ompState} /> : null}
             {activeTool === "source" && activeProjectPath ? <SourcePanel projectPath={activeProjectPath} /> : null}
-            {activeTool === "ideas" ? <IdeasPanel sessionId={session.activeSessionId} /> : null}
             {activeTool === "debug" ? <DebugPanel /> : null}
           </div>
         </section>
-        <ToolRail
-          tools={tools}
-          activeTool={activeTool}
-          onSelectTool={setActiveTool}
-          collapsed={railCollapsed}
-          onToggleCollapse={() => setRailCollapsed((v) => !v)}
+        <PlanPanel
+          sessionId={session.activeSessionId}
+          plans={plans.plans}
+          loading={plans.loading}
+          collapsed={planCollapsed}
+          onToggleCollapse={() => setPlanCollapsed((v) => !v)}
+          onCreatePlan={handleCreatePlan}
+          onGeneratePlans={handleGeneratePlans}
+          onEditPlan={handleEditPlan}
+          onFocusPlan={handleFocusPlan}
+          onSetPlanStatus={plans.setPlanStatus}
+          onDeletePlan={plans.deletePlan}
+          onCopyReference={handleCopyReference}
+          onOpenInTerminal={handleOpenPlanInTerminal}
         />
       </main>
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} />
+      <EditPlanModal
+        plan={editingPlan}
+        open={!!editingPlan}
+        onClose={() => setEditingPlan(null)}
+        onSave={handleSavePlan}
+      />
+      <FocusPlanModal
+        plan={focusingPlan}
+        open={!!focusingPlan}
+        onClose={() => setFocusingPlan(null)}
+        onSetStatus={plans.setPlanStatus}
+        onCopyReference={handleCopyReference}
+        onOpenInTerminal={handleOpenPlanInTerminal}
+        onSetContext={(id, ctx: PlanFocusContext) => void plans.setPlanContext(id, ctx)}
+      />
     </div>
   );
 }

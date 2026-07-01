@@ -55,6 +55,9 @@ html, body, #root {
   border-bottom: 1px solid var(--bb-border);
   flex-shrink: 0;
   padding-right: 6px;
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
 }
 
 .window-taskbar-right {
@@ -65,11 +68,17 @@ html, body, #root {
 }
 
 .window-taskbar-title {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--bb-muted);
+  -webkit-app-region: drag;
+  app-region: drag;
 }
 
 /* Window controls (custom titlebar) */
@@ -655,6 +664,23 @@ a { color: inherit; text-decoration: none; }
 }
 .app-shell[data-sidebar="collapsed"] .sidebar-sessions { display: none; }
 
+/* ─── Tool tabs (center workspace switcher) ─── */
+.tool-tabs {
+  display: flex; align-items: center; gap: 2px;
+  border: 1px solid var(--bb-border); background: var(--bb-surface);
+  padding: 2px;
+  margin-right: auto;
+}
+.tool-tab {
+  display: flex; align-items: center; gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px; font-weight: 500; color: var(--bb-muted);
+  background: transparent; border: none;
+  transition: all 0.08s;
+}
+.tool-tab:hover { color: var(--bb-text); background: var(--bb-surface-high); }
+.tool-tab.is-active { color: var(--bb-text); background: var(--bb-cta); }
+
 /* ─── Workspace tabs ─── */
 .workspace-tabs {
   display: flex;
@@ -835,6 +861,13 @@ a { color: inherit; text-decoration: none; }
 .modal-header h2 { margin: 0; font-size: 13px; font-weight: 600; }
 .modal-body { display: flex; flex: 1; overflow: hidden; }
 .settings-modal { width: 640px; }
+.plan-modal { width: 520px; }
+.plan-modal .modal-body { flex-direction: column; overflow: auto; padding: 12px; }
+.modal-actions {
+  display: flex; justify-content: flex-end; gap: 6px;
+  margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--bb-border);
+}
+.flex-1 { flex: 1; }
 .settings-sidebar {
   width: 140px; flex-shrink: 0;
   border-right: 1px solid var(--bb-border);
@@ -870,3 +903,83 @@ a { color: inherit; text-decoration: none; }
 .requirement-badge.is-error { background: #e85d75; color: #fff; }
 .requirement-name { font-size: 12px; font-weight: 500; }
 .requirement-detail { font-size: 11px; margin-top: 2px; }
+
+/* ─── Plan panel (right side) ─── */
+.plan-panel {
+  display: flex; flex-direction: column;
+  width: 260px; min-width: 260px;
+  background: var(--bb-bg);
+  border-left: 1px solid var(--bb-border);
+  overflow: hidden;
+}
+.plan-panel-collapsed {
+  width: 36px; min-width: 36px; align-items: center; gap: 6px; padding-top: 8px;
+}
+.app-shell[data-rail="collapsed"] .plan-panel { width: 36px; min-width: 36px; }
+
+.plan-panel-header {
+  display: flex; align-items: center; gap: 2px;
+  height: 36px; padding: 0 6px;
+  border-bottom: 1px solid var(--bb-border);
+}
+.plan-panel-title { flex: 1; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.plan-panel-collapsed-count {
+  font-size: 10px; font-weight: 700; color: var(--bb-cta);
+  min-width: 18px; text-align: center;
+}
+
+.plan-panel-list {
+  flex: 1; overflow-y: auto; overflow-x: hidden;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 6px;
+}
+.plan-empty { display: flex; flex-direction: column; gap: 8px; padding: 8px; }
+
+.plan-lane { display: flex; flex-direction: column; gap: 3px; }
+.plan-lane-header {
+  display: flex; align-items: center; gap: 4px;
+  padding: 3px 4px;
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--bb-muted);
+}
+.plan-lane-label { flex: 1; }
+.plan-lane-count {
+  min-width: 16px; padding: 0 4px;
+  font-size: 9px; font-family: var(--bb-mono); text-align: center;
+  color: var(--bb-text); background: var(--bb-surface-high);
+}
+
+.plan-lane-cards { display: flex; flex-direction: column; gap: 3px; }
+
+.plan-card {
+  display: flex; align-items: center; gap: 4px;
+  padding: 1px 2px;
+  border: 1px solid var(--bb-border);
+  background: var(--bb-surface);
+  transition: all 0.08s;
+}
+.plan-card:hover { border-color: var(--bb-border-strong); background: var(--bb-surface-high); }
+.plan-card.is-active { border-left: 2px solid var(--bb-cta); }
+
+.plan-card-main {
+  flex: 1; display: flex; align-items: center; gap: 4px; padding: 4px 5px;
+  font-size: 11px; text-align: left; min-width: 0;
+}
+.plan-card-ref {
+  flex-shrink: 0; font-family: var(--bb-mono); font-size: 9px; color: var(--bb-cta);
+  background: color-mix(in srgb, var(--bb-cta) 12%, transparent);
+  padding: 1px 3px;
+}
+.plan-card-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-card-ai { flex-shrink: 0; color: var(--bb-cta); }
+
+.plan-card-actions {
+  display: flex; align-items: center; gap: 1px;
+  opacity: 0; transition: opacity 0.08s;
+}
+.plan-card:hover .plan-card-actions { opacity: 1; }
+.plan-card-menu-wrap { position: relative; }
+
+.app-shell[data-rail="collapsed"] .plan-panel-list,
+.app-shell[data-rail="collapsed"] .plan-panel-title,
+.app-shell[data-rail="collapsed"] .plan-panel-header .btn-icon:not(:last-child) { display: none; }
