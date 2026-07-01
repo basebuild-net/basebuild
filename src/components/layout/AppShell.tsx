@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Bug,
-  TerminalSquare,
-} from "lucide-react";
+import { Bug, TerminalSquare } from "lucide-react";
 
 import { useSessionState } from "../../state/sessions";
 import { usePlans } from "../../state/plans";
@@ -49,11 +46,6 @@ export function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sideCollapsed, setSideCollapsed] = useState(false);
   const [gridView, setGridView] = useState(false);
-  const [autoMode, setAutoMode] = useState<"none" | "steps" | "idea" | "combined">("none");
-  const [autoCommit, setAutoCommit] = useState(false);
-  const [autoPr, setAutoPr] = useState(false);
-  const [autoGroupPr, setAutoGroupPr] = useState(false);
-  const [autoAgents, setAutoAgents] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logPanelOpen, setLogPanelOpen] = useState(false);
   const { addLog } = useLogs();
@@ -178,16 +170,20 @@ export function AppShell() {
   }, [plans, session.activeSessionId]);
 
   const handleGenerateFromGoal = useCallback(
-    (goal: string) => {
+    (goal: string, contextFile?: string, contextContent?: string) => {
       if (!session.activeSessionId) return;
-      if (!schematic.exists) {
+      if (!schematic.exists && !contextContent) {
         setDescriptionOpen(true);
         return;
       }
-      // TODO: call OMP planner skill with goal + schematic context, parse JSON, create plans
+      // TODO: call OMP planner skill with goal + schematic context + file context, parse JSON, create plans
+      const descParts: string[] = [];
+      if (goal) descParts.push(goal);
+      if (contextContent) descParts.push(`Context from ${contextFile}:\n\n${contextContent.slice(0, 5000)}`);
+      if (schematic.content) descParts.push(`Schematic:\n\n${schematic.content}`);
       void plans.createPlan({
         title: `Plan from ${activeProjectPath?.split(/[/\\]/)?.pop() ?? "project"}`,
-        description: goal || `Generated plan. Schematic context:\n\n${schematic.content ?? "(no schematic)"}`,
+        description: descParts.join("\n\n---\n\n") || "Generated plan",
         goal: goal || null,
         status: "draft",
         priority: 60,
@@ -292,6 +288,7 @@ export function AppShell() {
       if (!session.activeSessionId) return;
       if (kind === "empty") {
         await session.createTab("empty", "Schematic");
+        setActiveTool("terminal");
         return;
       }
       await handleCreateTerminalTab();
@@ -302,6 +299,13 @@ export function AppShell() {
   const handleOpenFileInTab = useCallback(
     async (filePath: string) => {
       if (!session.activeSessionId) return;
+      // Reuse existing tab if file is already open
+      const existing = session.tabs.find((t) => t.kind === "file" && t.filePath === filePath);
+      if (existing) {
+        session.setActiveTabId(existing.id);
+        setActiveTool("terminal");
+        return;
+      }
       const name = filePath.split(/[\\/]/).pop() ?? filePath;
       await session.createTab("file", name, undefined, filePath);
       setActiveTool("terminal");
@@ -338,6 +342,7 @@ export function AppShell() {
           onSelectSession={session.selectSession}
           onCreateSession={handleCreateSession}
           onRenameSession={(id, title) => void session.renameSession(id, title)}
+          onDeleteSession={(id) => void session.removeSession(id)}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         />
@@ -356,17 +361,6 @@ export function AppShell() {
                 onSelectTab={session.setActiveTabId}
                 onCloseTab={(id) => void session.removeTab(id)}
                 onCreateTab={(kind) => void handleCreateTab(kind)}
-                autoMode={autoMode}
-                autoCommit={autoCommit}
-                autoPr={autoPr}
-                autoGroupPr={autoGroupPr}
-                autoAgents={autoAgents}
-                onModeChange={setAutoMode}
-                onCommitChange={setAutoCommit}
-                onPrChange={setAutoPr}
-                onGroupPrChange={setAutoGroupPr}
-                onAgentsChange={setAutoAgents}
-                onStop={() => setAutoMode("none")}
               />
             </>
           ) : null}

@@ -40,6 +40,7 @@ type ProjectSidebarProps = {
   onSelectSession: (id: string) => void;
   onCreateSession: () => void;
   onRenameSession: (id: string, title: string) => void;
+  onDeleteSession?: (id: string) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
 };
@@ -53,7 +54,6 @@ function formatTime(ts: number): string {
   if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
   return date.toLocaleDateString();
 }
-
 export function ProjectSidebar({
   activeProjectPath,
   activeSessionId,
@@ -66,6 +66,7 @@ export function ProjectSidebar({
   onSelectSession,
   onCreateSession,
   onRenameSession,
+  onDeleteSession,
   collapsed,
   onToggleCollapse,
 }: ProjectSidebarProps) {
@@ -74,7 +75,7 @@ export function ProjectSidebar({
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
   const [editingSession, setEditingSession] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
-
+  const [sessionMenu, setSessionMenu] = useState<string | null>(null);
   const visibleProjects = projects.filter((p) => !hiddenPaths.has(p.path));
 
   async function handleReveal(path: string) {
@@ -195,6 +196,11 @@ export function ProjectSidebar({
                       <div
                         key={s.id}
                         className={`sidebar-session${s.id === activeSessionId ? " is-active" : ""}`}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setSessionMenu(sessionMenu === s.id ? null : s.id);
+                        }}
                       >
                         {editingSession === s.id ? (
                           <input
@@ -245,6 +251,27 @@ export function ProjectSidebar({
                           >
                             <Pencil size={10} />
                           </button>
+                        ) : null}
+                        {sessionMenu === s.id ? (
+                          <div className="context-menu" onMouseLeave={() => setSessionMenu(null)}>
+                            <button className="menu-item" type="button" onClick={() => {
+                              setEditingSession(s.id);
+                              setEditValue(s.title);
+                              setSessionMenu(null);
+                            }}>
+                              <Pencil size={13} /> Rename
+                            </button>
+                            {onDeleteSession ? (
+                              <button className="menu-item menu-item-danger" type="button" onClick={() => {
+                                if (confirm(`Delete session "${s.title}"? This cannot be undone.`)) {
+                                  onDeleteSession(s.id);
+                                }
+                                setSessionMenu(null);
+                              }}>
+                                <X size={13} /> Delete
+                              </button>
+                            ) : null}
+                          </div>
                         ) : null}
                       </div>
                     ))}

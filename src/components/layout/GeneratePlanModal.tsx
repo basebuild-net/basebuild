@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Sparkles, X } from "lucide-react";
+import { FileText, Sparkles, X } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 
 type GeneratePlanModalProps = {
   open: boolean;
   onClose: () => void;
-  onGenerate: (goal: string) => void;
+  onGenerate: (goal: string, contextFile?: string, contextContent?: string) => void;
   onSuggest: (goal: string) => void;
   onCreateBlank: () => void;
   showSuggestMore?: boolean;
@@ -12,15 +13,44 @@ type GeneratePlanModalProps = {
 
 export function GeneratePlanModal({ open, onClose, onGenerate, onSuggest, onCreateBlank, showSuggestMore }: GeneratePlanModalProps) {
   const [goal, setGoal] = useState("");
+  const [contextFile, setContextFile] = useState<string | null>(null);
+  const [contextContent, setContextContent] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
   if (!open) return null;
 
-  function run(fn: (g: string) => void) {
+  async function selectFile() {
+    try {
+      const path = await invoke<string | null>("pick_project_directory");
+      if (!path) return;
+      const content = await invoke<string>("read_file", { path });
+      setContextFile(path);
+      setContextContent(content);
+      if (content.length > 50000) {
+        setWarning("File is large (>50KB) and may exceed context limits.");
+      } else {
+        setWarning(null);
+      }
+    } catch (e) {
+      setWarning(`Failed to read file: ${e}`);
+    }
+  }
+
+  function run(fn: (g: string, cf?: string, cc?: string) => void) {
     const g = goal.trim();
+    if (!g && !contextContent) {
+      setWarning("Enter a goal or select a context file before generating.");
+      return;
+    }
     setGoal("");
-    fn(g);
+    fn(g, contextFile ?? undefined, contextContent ?? undefined);
+    setContextFile(null);
+    setContextContent(null);
+    setWarning(null);
     onClose();
   }
+
+  const fileName = contextFile ? contextFile.split(/[\\/]/).pop() ?? contextFile : null;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -43,6 +73,25 @@ export function GeneratePlanModal({ open, onClose, onGenerate, onSuggest, onCrea
               placeholder="What should this project become? Basebuild will suggest scoped MVP plans."
             />
           </label>
+          <div className="stack-sm">
+            <span className="text-sm text-muted">Context</span>
+            <div className="row gap-sm">
+              <button className="btn btn-sm" type="button" onClick={() => void selectFile()} title="Select a file as context">
+                <FileText size={12} /> Select context file
+              </button>
+              {fileName ? (
+                <span className="text-sm mono" title={contextFile ?? ""}>
+                  {fileName}
+                  <button className="btn-icon btn-icon-sm" type="button" title="Remove context" onClick={() => { setContextFile(null); setContextContent(null); setWarning(null); }}>
+                    <X size={10} />
+                  </button>
+                </span>
+              ) : (
+                <span className="text-sm text-muted">No file selected</span>
+              )}
+            </div>
+          </div>
+          {warning ? <p className="text-sm text-danger">{warning}</p> : null}
           <div className="stack-sm">
             <span className="text-sm text-muted">Options</span>
             <div className="row">

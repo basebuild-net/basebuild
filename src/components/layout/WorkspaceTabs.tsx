@@ -2,7 +2,6 @@ import { useState } from "react";
 import { FileText, LayoutTemplate, Plus, TerminalSquare, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { SessionTab, TabKind } from "../../lib/sessions";
-import { AutonomousToolbar, type AutoMode } from "../terminal/AutonomousToolbar";
 
 const kindIcons: Record<TabKind, LucideIcon> = {
   terminal: TerminalSquare,
@@ -16,17 +15,6 @@ type WorkspaceTabsProps = {
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
   onCreateTab: (kind: "terminal" | "empty") => void;
-  autoMode: AutoMode;
-  autoCommit: boolean;
-  autoPr: boolean;
-  autoGroupPr: boolean;
-  autoAgents: number;
-  onModeChange: (mode: AutoMode) => void;
-  onCommitChange: (v: boolean) => void;
-  onPrChange: (v: boolean) => void;
-  onGroupPrChange: (v: boolean) => void;
-  onAgentsChange: (n: number) => void;
-  onStop: () => void;
 };
 
 export function WorkspaceTabs({
@@ -35,17 +23,6 @@ export function WorkspaceTabs({
   onSelectTab,
   onCloseTab,
   onCreateTab,
-  autoMode,
-  autoCommit,
-  autoPr,
-  autoGroupPr,
-  autoAgents,
-  onModeChange,
-  onCommitChange,
-  onPrChange,
-  onGroupPrChange,
-  onAgentsChange,
-  onStop,
 }: WorkspaceTabsProps) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -92,19 +69,6 @@ export function WorkspaceTabs({
           ) : null}
         </div>
       </div>
-      <AutonomousToolbar
-        autoMode={autoMode}
-        autoCommit={autoCommit}
-        autoPr={autoPr}
-        autoGroupPr={autoGroupPr}
-        autoAgents={autoAgents}
-        onModeChange={onModeChange}
-        onCommitChange={onCommitChange}
-        onPrChange={onPrChange}
-        onGroupPrChange={onGroupPrChange}
-        onAgentsChange={onAgentsChange}
-        onStop={onStop}
-      />
     </div>
   );
 }
