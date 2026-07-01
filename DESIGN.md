@@ -164,23 +164,38 @@ never costs clarity.
 
 ## Layout
 
-A three-column grid: left sidebar (projects), center workspace, right tool rail.
+A three-column grid: left sidebar, center workspace, right plan panel.
 **Both left and right columns are collapsible** to icon-only mode via toggle
 buttons at the top of each column.
 
 - **Left sidebar (220px → 36px collapsed):** Projects list with add/remove/reveal.
   Toggle button at top collapses to icon-only.
-- **Center workspace:** Top bar (title + status) + scrollable content area.
-- **Right tool rail (160px → 36px collapsed):** Tool buttons with labels, active
-  indicator bar (orange), badges. Toggle button at top collapses to icon-only.
+- **Center workspace:** Session header with title, compact tool tabs, and status
+  pill. Below that are workspace session tabs and the active tool view.
+- **Right plan panel (260px → 36px collapsed):** Plan lanes, idea generation,
+  and focus controls. This is the primary work surface for ideas and tasks.
+
+### Tool tabs
+
+Center tool selection is a compact tab bar inline with the session header:
+**Terminal / Source / Debug**. Active tab uses the orange accent background.
+These are not part of the collapsible right panel.
+
+### Plan panel
+
+The right panel is not a tab; it is always available. It exposes:
+- Plan lanes grouped by status.
+- Generate / suggest / enhance AI actions.
+- Per-plan actions: focus, edit, open in terminal, copy reference.
+- Collapse toggle at the panel header.
 
 ## Collapsible Columns
 
-At the top of both the left sidebar and right tool rail, a toggle button
+At the top of both the left sidebar and right plan panel, a toggle button
 (chevron icon) collapses the column to icon-only width (36px). The transition
 is a smooth width animation. In collapsed mode:
 - Text labels, badges, and secondary content are hidden.
-- Icons are centered.
+- Icons and top action rows remain visible.
 - Tooltips become essential — hovering shows the full label.
 
 The collapsed state is stored in React state (not persisted yet).

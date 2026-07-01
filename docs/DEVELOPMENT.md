@@ -28,8 +28,8 @@ npm run tauri dev
 
 ## Architecture
 
-- `src/components/layout/*` — shell components (rail, workspace, right panel).
-- `src/components/panels/*` — feature panels (OMP, Terminal, Source, Configs).
+- `src/components/layout/*` — shell components (sidebar, workspace, tool tabs, plan panel).
+- `src/components/panels/*` — feature panels (Terminal, Source, Debug).
 - `src/lib/*` — thin Tauri invoke helpers for each backend service.
 - `src/state/*` — React state hooks.
 - `src-tauri/src/commands/*` — Tauri command surface.
