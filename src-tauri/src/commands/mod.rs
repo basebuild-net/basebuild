@@ -1,5 +1,6 @@
  pub mod agent;
-pub mod analytics;
+pub mod auth;
+ pub mod analytics;
  pub mod app;
  pub mod config_packs;
  pub mod files;

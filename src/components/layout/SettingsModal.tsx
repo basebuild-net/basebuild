@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Check, Download, Lock, RefreshCw, Settings2, Shield, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, Download, Lock, LogOut, RefreshCw, Settings2, Shield, Trash2, User, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
 import { checkForUpdates, installUpdate, type UpdateInfo } from "../../lib/updater";
 import { appVersion } from "../../lib/app";
+import { authStatus, authStartDeviceFlow, authPollDeviceFlow, authSignOut, authFetchProfile, type NativeProfile, type StoredAuth, type PollResult } from "../../lib/auth";
 import {
   getRuntimeDefaults,
   setRuntimeDefaults,
@@ -34,7 +35,7 @@ type SettingsModalProps = {
   projectPath: string | null;
 };
 
-type Tab = "updates" | "defaults" | "permissions" | "privacy" | "configs" | "about";
+type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "about";
 
 export function SettingsModal({ open, onClose, projectPath }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
@@ -200,6 +201,7 @@ export function SettingsModal({ open, onClose, projectPath }: SettingsModalProps
     { id: "defaults", label: "Defaults", icon: Settings2 },
     { id: "permissions", label: "Permissions", icon: Lock },
     { id: "privacy", label: "Privacy", icon: Shield },
+    { id: "account", label: "Account", icon: User },
     { id: "configs", label: "Config Packs", icon: Settings2 },
     { id: "about", label: "About", icon: Check },
   ];
@@ -524,6 +526,9 @@ export function SettingsModal({ open, onClose, projectPath }: SettingsModalProps
             {/* ─── Config Packs ─── */}
             {tab === "configs" ? <ConfigPanel projectPath={projectPath} /> : null}
 
+            {/* ─── Account ─── */}
+            {tab === "account" ? <AccountPanel /> : null}
+
             {/* ─── About ─── */}
             {tab === "about" ? (
               <div className="stack">
@@ -580,5 +585,158 @@ function PermissionSelect({ label, title, value, onChange }: {
         <option value="deny">Deny automatically</option>
       </select>
     </label>
+  );
+}
+
+
+function AccountPanel() {
+  const [auth, setAuth] = useState<StoredAuth | null>(null);
+  const [profile, setProfile] = useState<NativeProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [polling, setPolling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [deviceCode, setDeviceCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const stored = await authStatus();
+        setAuth(stored);
+        if (stored?.user) {
+          setProfile(stored.user);
+        } else if (stored?.accessToken) {
+          try {
+            const p = await authFetchProfile();
+            setProfile(p);
+          } catch {
+            setProfile(null);
+          }
+        }
+      } catch {
+        // ignore
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  async function signIn() {
+    setError(null);
+    setPolling(true);
+    try {
+      const result = await authStartDeviceFlow({
+        clientName: "Basebuild Desktop",
+        platform: navigator.platform,
+      });
+      setDeviceCode(result.deviceCode);
+
+      // Poll until success, denial, or expiry
+      const tick = async () => {
+        try {
+          const pollResult = await authPollDeviceFlow(result.deviceCode);
+          if (pollResult.status === "pending") {
+            setTimeout(() => void tick(), (pollResult.interval + 1) * 1000);
+          } else if (pollResult.status === "success") {
+            setAuth({
+              accessToken: pollResult.accessToken,
+              expiresAt: pollResult.expiresAt,
+              scopes: pollResult.scopes,
+              user: pollResult.user,
+            });
+            setProfile(pollResult.user);
+            setPolling(false);
+            setDeviceCode(null);
+          } else if (pollResult.status === "denied") {
+            setError("Sign-in was denied.");
+            setPolling(false);
+            setDeviceCode(null);
+          } else {
+            setError("The sign-in code expired. Please try again.");
+            setPolling(false);
+            setDeviceCode(null);
+          }
+        } catch (e) {
+          setError(String(e));
+          setPolling(false);
+          setDeviceCode(null);
+        }
+      };
+      setTimeout(() => void tick(), (result.interval + 1) * 1000);
+    } catch (e) {
+      setError(String(e));
+      setPolling(false);
+    }
+  }
+
+  async function signOut() {
+    setError(null);
+    try {
+      await authSignOut();
+      setAuth(null);
+      setProfile(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  if (loading) {
+    return <p className="text-muted">Loading account…</p>;
+  }
+
+  if (profile) {
+    return (
+      <div className="stack">
+        <h3>Account</h3>
+        <div className="row gap-sm" style={{ alignItems: "center" }}>
+          {profile.image ? (
+            <img
+              src={profile.image}
+              alt={profile.username}
+              style={{ width: 32, height: 32, borderRadius: 0 }}
+            />
+          ) : (
+            <div style={{ width: 32, height: 32, background: "var(--bb-surface)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>
+              {profile.username.slice(0, 2).toUpperCase()}
+            </div>
+          )}
+          <div>
+            <div className="text-sm">{profile.username}</div>
+            <div className="text-muted text-sm">{profile.email}</div>
+          </div>
+        </div>
+        <button
+          className="btn btn-sm"
+          type="button"
+          title="Sign out and revoke this device's token"
+          onClick={() => void signOut()}
+        >
+          <LogOut size={12} /> Sign out
+        </button>
+        {error ? <p className="text-danger text-sm">{error}</p> : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="stack">
+      <h3>Account</h3>
+      <p className="text-muted text-sm">
+        Sign in with your basebuild.net account to sync usage through MCP
+        without creating an API key. The app works as a guest without signing in.
+      </p>
+      {polling ? (
+        <p className="text-muted text-sm">Waiting for browser approval… Check your browser to approve the sign-in.</p>
+      ) : (
+        <button
+          className="btn btn-primary"
+          type="button"
+          title="Open browser to sign in to basebuild.net"
+          onClick={() => void signIn()}
+        >
+          <User size={12} /> Sign in
+        </button>
+      )}
+      {error ? <p className="text-danger text-sm">{error}</p> : null}
+    </div>
   );
 }

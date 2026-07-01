@@ -10,6 +10,10 @@ use app_state::AppState;
 use commands::{
     agent::{agent_capabilities, agent_send, agent_start, agent_stop},
      app::app_version,
+    auth::{
+        auth_fetch_profile, auth_get_token, auth_poll_device_flow, auth_sign_out,
+        auth_start_device_flow, auth_status,
+    },
      analytics::{
         analytics_event_count, delete_analytics_events, export_analytics_json,
         get_analytics_consent, list_analytics_events, record_analytics_event,
@@ -246,6 +250,12 @@ pub fn run() {
             delete_analytics_events,
             export_analytics_json,
             record_analytics_event,
+            auth_status,
+            auth_start_device_flow,
+            auth_poll_device_flow,
+            auth_fetch_profile,
+            auth_sign_out,
+            auth_get_token,
              check_for_updates,
              install_update,
         ])
