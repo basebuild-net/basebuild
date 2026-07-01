@@ -149,7 +149,11 @@ export function SidePanel({
   const handleDragOver = useCallback(
     (e: React.DragEvent, index: number) => {
       e.preventDefault();
-      dragOverRef.current = index;
+      e.dataTransfer.dropEffect = "move";
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const midpoint = rect.top + rect.height / 2;
+      const insertIndex = e.clientY < midpoint ? index : index + 1;
+      dragOverRef.current = insertIndex;
     },
     [],
   );
@@ -162,10 +166,14 @@ export function SidePanel({
       if (!id || to === null) return;
       setOrder((prev) => {
         const from = prev.indexOf(id);
-        if (from === -1 || from === to) return prev;
+        if (from === -1) return prev;
+        let insert = to;
         const next = prev.slice();
         next.splice(from, 1);
-        next.splice(to, 0, id);
+        if (from < insert) insert -= 1;
+        if (insert < 0) insert = 0;
+        if (insert > next.length) insert = next.length;
+        next.splice(insert, 0, id);
         saveOrder(next);
         return next;
       });
@@ -240,6 +248,7 @@ export function SidePanel({
             key={id}
             className={`side-section${dragging === id ? " is-dragging" : ""}`}
             onDragOver={(e) => handleDragOver(e, index)}
+            onDrop={handleDrop}
           >
             <SectionHeader
               id={id}

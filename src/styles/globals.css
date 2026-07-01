@@ -533,7 +533,20 @@ a { color: inherit; text-decoration: none; }
 .source-file-row:hover { background: var(--bb-surface); }
 .source-file-row.is-selected { background: var(--bb-surface-high); }
 .source-file-row .row { opacity: 0; transition: opacity 0.06s; }
-.source-file-row:hover .row { opacity: 1; }
+.source-file-row:hover .row,
+.source-file-row.is-selected .row,
+.source-file-row:focus-within .row { opacity: 1; }
+
+.source-file-check {
+  display: flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; flex-shrink: 0;
+  cursor: pointer;
+}
+.source-file-check input[type="checkbox"] {
+  width: 12px; height: 12px;
+  accent-color: var(--bb-cta);
+  cursor: pointer;
+}
 .source-file-status { font-family: var(--bb-mono); font-size: 11px; font-weight: 700; width: 14px; text-align: center; flex-shrink: 0; }
 .source-file-status.is-modified { color: var(--bb-warning, #dcdcaa); }
 .source-file-status.is-added { color: var(--bb-positive, #4ec9b0); }

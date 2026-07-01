@@ -345,6 +345,8 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
                   key={`staged-${file.path}`}
                   file={file}
                   isSelected={selectedFile?.path === file.path}
+                  checked
+                  onToggle={() => void unstage(file)}
                   onView={() => void viewDiff(file)}
                   actions={[
                     { icon: Minus, title: "Unstage", onClick: () => void unstage(file) },
@@ -368,6 +370,8 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
                   key={`unstaged-${file.path}`}
                   file={file}
                   isSelected={selectedFile?.path === file.path}
+                  checked={false}
+                  onToggle={() => void stage(file)}
                   onView={() => void viewDiff(file)}
                   actions={[
                     { icon: Plus, title: "Stage", onClick: () => void stage(file) },
@@ -391,6 +395,8 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
                   key={`untracked-${file.path}`}
                   file={file}
                   isSelected={selectedFile?.path === file.path}
+                  checked={false}
+                  onToggle={() => void stage(file)}
                   onView={() => void viewDiff(file)}
                   actions={[
                     { icon: Plus, title: "Add", onClick: () => void stage(file) },
@@ -495,11 +501,15 @@ type FileAction = {
 function FileRow({
   file,
   isSelected,
+  checked,
+  onToggle,
   onView,
   actions,
 }: {
   file: FileEntry;
   isSelected: boolean;
+  checked: boolean;
+  onToggle: () => void;
   onView: () => void;
   actions: FileAction[];
 }) {
@@ -508,11 +518,23 @@ function FileRow({
   const dirPath = pathParts.length > 0 ? pathParts.join("/") + "/" : "";
 
   return (
-    <div className={`source-file-row${isSelected ? " is-selected" : ""}`} onClick={onView}>
+    <div className={`source-file-row${isSelected ? " is-selected" : ""}`}>
+      <label
+        className="source-file-check"
+        title={checked ? "Unstage" : "Stage"}
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onToggle}
+        />
+      </label>
       <span className={`source-file-status ${STATUS_CLASS[file.changeType]}`} title={file.changeType}>
         {STATUS_ICON[file.changeType]}
       </span>
-      <span className="source-file-name">
+      <span className="source-file-name" onClick={onView}>
         {dirPath ? <span className="source-file-path">{dirPath}</span> : null}
         {fileName}
       </span>
