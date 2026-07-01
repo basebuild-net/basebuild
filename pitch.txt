@@ -12,14 +12,10 @@ OhMyPi (OMP) is one of the most capable coding agents available today — it
 routes across every major model, runs skills, manages sessions, and ships a
 rich terminal UI. But it lives in a terminal. That means:
 
-  - Juggling multiple agent sessions is an exercise in tmux tabs and lost
-    context.
-  - Picking the right model for the right job means remembering which provider
-    you logged into and what's left in the budget.
-  - Going from a vague idea to an executed plan is a manual relay: you think,
-    you prompt, you copy tasks into a tracker, you prompt again.
-  - Watching what the agent actually did (tools, tokens, cost, drift) is a
-    scroll-back game.
+  - Juggling multiple sessions is an exercise in tmux tabs and lost context.
+  - Turning a big goal into scoped work means prompting, guessing, and
+    copy-pasting tasks into a tracker.
+  - Keeping track of what the agent should do next is a scroll-back game.
 
 The terminal is a great surface for an agent. It is a poor surface for
 managing one.
@@ -32,81 +28,77 @@ Basebuild is a cross-platform desktop application (Windows, macOS, Linux)
 that wraps OMP and turns it into a visual, end-to-end workflow.
 
 It is not a new agent. It is a control plane for the agent you already have.
+Basebuild gives the agent a persistent project context, a plan pipeline, and
+one-click ways to send work to the agent.
 
-Basebuild launches OMP in RPC mode and speaks its native JSONL protocol, so
-every capability OMP exposes becomes a first-class GUI element:
+The core workspace is three columns:
 
-  - Logged-in providers, available models, and live usage — surfaced in a
-    sidebar, not a slash command.
-  - Skills and plugins — browsable and one-click installable.
-  - Session trees, branches, and handoffs — visible as a graph, not a `--tree`.
-  - The agent's todo list — rendered as a real task column you can edit,
-    reorder, and queue.
-  - Source control — changes, diffs, commits, and history surfaced like a
-    focused VS Code Source Control tab.
+  - Projects on the left — sessions, files, and recent work.
+  - Workspace in the center — terminal and source control.
+  - Plans on the right — the single most important surface.
 
-And it adds the layer OMP doesn't have: an idea-to-execution pipeline that
-sits on top of the agent and drives it.
+Plans are the primary unit of work. A plan has a stable reference id, a title,
+a description, a priority, and a status that flows through
+`draft → openspec → waiting → in_progress → finished`. Plans can be created
+manually, enhanced by AI, or generated from a project goal.
 
 
 The workflow
 ------------
 
-  1. Generate ideas.
-     Click a button. Pick a model. Basebuild prompts the agent with a selected
-     Basebuild config: the built-in official prompt, a user-authored prompt, or
-     a downloaded/shared community prompt. The model returns categorized
-     suggestions. You pick one or more.
+  1. Set a goal.
+     Tell Basebuild what you want the project to become. This can be a one-line
+     final result or a loose brainstorm.
 
-  2. Turn ideas into plans.
-     Selected ideas become pending tasks. Click "Generate OpenSpec" and pick
-     a model (a stronger one is recommended). The agent produces a real
-     OpenSpec change — proposal, specs, design, tasks — checked into your
-     repo's openspec/ tree.
+  2. Generate plans.
+     Click "Generate Plans". Basebuild uses a skill-backed prompt with your goal
+     and the real project context to return a prioritized list of MVP plans.
+     Pick the ones you want and approve them into the draft lane.
 
-  3. Run.
-     Tick an "autorun" box and pick the execution model, or click "Run now."
-     Basebuild feeds the plan to the agent, watches the turn stream, and
-     advances the queue when each step completes. The task column updates in
-     real time as the agent works.
+  3. Suggest more.
+     Click "Suggest More Plans" to send the existing plans and goal back to the
+     model. It returns additional plans scoped to what is still missing.
 
-Throughout, you can open raw terminal panes for git, npm, and any other CLI —
-Basebuild is also a terminal multiplexer. OMP sessions get the rich GUI;
-everything else gets a real PTY.
+  4. Create and enhance.
+     Quickly add a task yourself, then click "AI Enhance" to have the model
+     rewrite it with clearer scope, tags, and priority.
+
+  5. Focus and run.
+     Move a plan into focus. Basebuild shows the plan context and lets you copy
+     its reference id or open it directly in a terminal or OMP session. The
+     agent gets the exact plan context and starts working.
+
+  6. Finish and archive.
+     When a plan is done, mark it finished. It slides into a collapsed finished
+     pile, keeping the workspace clean.
+
+Throughout, raw terminal panes and source control stay in the center so you
+can always fall back to real tools.
 
 
 Why it works
 ------------
 
 Basebuild is possible because OMP already speaks a host protocol. The app
-launches OMP in RPC mode over stdio and becomes its host: it reads the
-streaming JSONL events, sends prompts, sets the model, and registers its own
-host tools (so the agent can hand structured data back to the GUI) and URL
-schemes (so plans and tasks can live as virtual files the agent reads and
-writes). The agent never knows it's not talking to a terminal — it just sees
-a very capable host.
-
-Plans default to OpenSpec files on disk, because that's what OpenSpec already
-uses and it works offline. GitHub support is source-control support: see
-changes, review diffs, stage, commit, and inspect project history without
-leaving the app. Cloud sync to basebuild.net is a later integration, not a
-dependency for the desktop app.
+launches OMP over stdio and becomes its host, reading events and sending
+prompts. Plans get a stable reference id that can be injected into any
+terminal or OMP session, so the agent always knows which piece of work it is
+on. The plan panel is local-first: plans live in SQLite, generation is driven
+by editable skills, and nothing requires a cloud backend.
 
 
 Distribution
 ------------
 
 Tauri v2 (Rust core + native webview), packaged for Windows, macOS, and
-Linux in ~10MB binaries — a fraction of Electron. A Cloudflare Worker serves
-the update manifest and release notes; binaries live on Cloudflare R2 (or
-GitHub Releases). The app checks for updates on startup and self-updates in
-the background. The same Worker can carry feature flags and announcement
-payloads, so the app stays sleek and updateable without a heavy backend.
+Linux in ~10MB binaries. A Cloudflare Worker serves update manifests and
+release notes; binaries live on Cloudflare R2 or GitHub Releases. The app
+checks for updates on startup and self-updates in the background.
 
 
 In one line
 -----------
 
 Basebuild is the desktop app that turns OMP from a terminal tool into a
-managed, visual, idea-to-execution workflow — without reinventing the agent
-underneath.
+managed, visual, idea-to-execution workflow — with plans, not prompts, as the
+primary interface.
