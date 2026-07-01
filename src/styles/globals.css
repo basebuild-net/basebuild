@@ -27,6 +27,22 @@
 
 * { box-sizing: border-box; }
 
+/* ─── Desktop app behavior ─── */
+/* Disable native right-click context menu and text selection outside inputs */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-app-region: no-drag;
+}
+
+/* Re-enable selection inside text inputs, textareas, and code views */
+input, textarea, .source-diff-body, .terminal-viewport, [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Suppress the native context menu globally — the app draws its own menus */
+body { -webkit-touch-callout: none; }
 html, body, #root {
   width: 100%;
   height: 100%;
