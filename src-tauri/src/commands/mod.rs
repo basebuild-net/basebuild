@@ -9,6 +9,8 @@ pub mod plans;
 pub mod projects;
 pub mod requirements;
 pub mod schematic;
-pub mod sessions;
 pub mod skills;
+pub mod sessions;
 pub mod terminal;
+pub mod updater;
+

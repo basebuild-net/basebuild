@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Check, RefreshCw, Settings2, X } from "lucide-react";
+import { Check, Download, RefreshCw, Settings2, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
-
+import { checkForUpdates, installUpdate, type UpdateInfo } from "../../lib/updater";
 type SettingsModalProps = {
   open: boolean;
   onClose: () => void;
@@ -15,6 +15,9 @@ export function SettingsModal({ open, onClose, projectPath }: SettingsModalProps
   const [tab, setTab] = useState<Tab>("updates");
   const [requirements, setRequirements] = useState<RequirementStatus[]>([]);
   const [loading, setLoading] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updateLoading, setUpdateLoading] = useState(false);
+  const [installing, setInstalling] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -29,6 +32,29 @@ export function SettingsModal({ open, onClose, projectPath }: SettingsModalProps
       // ignore
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function checkUpdates() {
+    setUpdateLoading(true);
+    try {
+      const info = await checkForUpdates();
+      setUpdateInfo(info);
+    } catch (e) {
+      setUpdateInfo({ available: false, version: null, notes: `Error checking: ${e}`, downloadUrl: null });
+    } finally {
+      setUpdateLoading(false);
+    }
+  }
+
+  async function doInstall() {
+    setInstalling(true);
+    try {
+      await installUpdate();
+    } catch (e) {
+      setUpdateInfo({ available: false, version: null, notes: `Install failed: ${e}`, downloadUrl: null });
+    } finally {
+      setInstalling(false);
     }
   }
 
@@ -70,6 +96,40 @@ export function SettingsModal({ open, onClose, projectPath }: SettingsModalProps
             {tab === "updates" ? (
               <div className="stack">
                 <div className="row gap-sm" style={{ marginBottom: 8 }}>
+                  <h3>App Updates</h3>
+                  <button
+                    className="btn btn-sm"
+                    type="button"
+                    title="Check for updates"
+                    onClick={() => void checkUpdates()}
+                    disabled={updateLoading}
+                  >
+                    <RefreshCw size={12} className={updateLoading ? "spin" : ""} /> Check for updates
+                  </button>
+                </div>
+                {updateInfo?.available ? (
+                  <div className="requirement-row is-ok">
+                    <span className="requirement-badge is-ok">↓</span>
+                    <div>
+                      <div className="requirement-name">Version {updateInfo.version} available</div>
+                      {updateInfo.notes ? <div className="requirement-detail text-muted text-sm">{updateInfo.notes}</div> : null}
+                      <button
+                        className="btn btn-primary btn-sm"
+                        type="button"
+                        title="Download and install update"
+                        onClick={() => void doInstall()}
+                        disabled={installing}
+                        style={{ marginTop: 6 }}
+                      >
+                        <Download size={12} /> {installing ? "Installing…" : "Download and install"}
+                      </button>
+                    </div>
+                  </div>
+                ) : updateInfo ? (
+                  <p className="text-muted text-sm">{updateInfo.notes ?? "You're on the latest version."}</p>
+                ) : null}
+
+                <div className="row gap-sm" style={{ marginTop: 16, marginBottom: 8 }}>
                   <h3>Requirement Checks</h3>
                   <button
                     className="btn-icon btn-icon-sm"
@@ -102,10 +162,10 @@ export function SettingsModal({ open, onClose, projectPath }: SettingsModalProps
             {tab === "about" ? (
               <div className="stack">
                 <h3>Basebuild</h3>
-                <p className="text-muted">Version 0.1.0</p>
+                <p className="text-muted">Version 0.0.1</p>
                 <p className="text-muted text-sm">
                   Desktop application for managing OMP terminals, source control,
-                  ideas, and autonomous workflows.
+                  ideas, and plans.
                 </p>
               </div>
             ) : null}

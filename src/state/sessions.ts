@@ -48,7 +48,9 @@ export function useSessionState(projectPath: string | null, lastActiveSessionId?
       const list = await listTabs(activeSessionId);
       setTabs(list);
       if (list.length > 0 && !list.find((t) => t.id === activeTabId)) {
-        setActiveTabId(list[0].id);
+        // Don't auto-select dead terminal tabs on restore — prefer non-terminal tabs
+        const firstNonTerminal = list.find((t) => t.kind !== "terminal");
+        setActiveTabId(firstNonTerminal?.id ?? null);
       }
     } catch {
       setTabs([]);

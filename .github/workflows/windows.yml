@@ -76,12 +76,7 @@ jobs:
         with:
           tagName: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
           releaseName: "Basebuild ${{ github.ref_name }}"
-          releaseBody: |
-            Windows installer for Basebuild ${{ github.ref_name }}.
-
-            **Signing status**
-            - If `TAURI_SIGNING_PRIVATE_KEY` is configured, the updater `.sig` files are signed.
-            - If not, the installer is still produced but auto-updates will not be trusted until the public/private key pair is set up. See `docs/SECRETS.md`.
+          releaseBody: "Download the installer below to update Basebuild."
           releaseDraft: true
           prerelease: false
           args: "--target x86_64-pc-windows-msvc"

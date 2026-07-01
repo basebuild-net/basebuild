@@ -41,6 +41,7 @@ use commands::{
     },
     skills::read_skill,
     terminal::{close_terminal, create_terminal, list_terminals, resize_terminal, write_terminal},
+    updater::{check_for_updates, install_update},
 };
 
 pub struct CloseToTrayState {
@@ -187,6 +188,8 @@ pub fn run() {
             agent_start,
             agent_send,
             agent_stop,
+            check_for_updates,
+            install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Basebuild");

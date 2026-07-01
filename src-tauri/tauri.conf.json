@@ -32,7 +32,7 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": ["https://updates.basebuild.app/manifest.json"],
+      "endpoints": ["https://github.com/basebuild-net/basebuild/releases/latest/download/latest.json"],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNDMEI1NzAwRTRFQzVERkMKUldUOFhlemtBRmNMUE41QmtzMjloVWVVbmwxWE9CSWhwaEFnZm9EMWhsTTJmZVRnZkhMcW95by8K",
       "windows": {
         "installMode": "basicUi"
