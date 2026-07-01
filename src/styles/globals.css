@@ -930,8 +930,25 @@ a { color: inherit; text-decoration: none; }
 .modal-header h2 { margin: 0; font-size: 13px; font-weight: 600; }
 .modal-body { display: flex; flex: 1; overflow: hidden; }
 .settings-modal { width: 640px; }
-.plan-modal { width: 520px; }
+.plan-modal { width: 560px; }
 .plan-modal .modal-body { flex-direction: column; overflow: auto; padding: 12px; }
+.plan-mode-list { display: flex; flex-direction: column; gap: 4px; }
+.plan-mode-card {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--bb-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--bb-muted);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.08s, background 0.08s;
+}
+.plan-mode-card:hover { border-color: var(--bb-border-strong); background: var(--bb-surface); }
+.plan-mode-card.is-active { border-color: var(--bb-cta); background: color-mix(in srgb, var(--bb-cta) 8%, transparent); color: var(--bb-text); }
+.plan-mode-info { display: flex; flex-direction: column; gap: 2px; }
+.plan-mode-title { font-size: 12px; font-weight: 600; }
+.plan-mode-desc { font-size: 11px; color: var(--bb-muted); }
 .modal-actions {
   display: flex; justify-content: flex-end; gap: 6px;
   margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--bb-border);

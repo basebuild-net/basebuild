@@ -5,7 +5,6 @@ import {
   Copy,
   MoreHorizontal,
   Pencil,
-  Plus,
   Sparkles,
   TerminalSquare,
   Trash2,
@@ -81,55 +80,37 @@ export function PlanPanel({
   return (
     <aside className="plan-panel" aria-label="Plans">
       {showHeader ? (
-        <div className="plan-panel-header">
-          <span className="plan-panel-title">Plans</span>
-          <button
-            className="btn-icon"
-            title="Generate plans"
-            aria-label="Generate plans"
-            type="button"
-            onClick={onGeneratePlans}
-          >
-            <Sparkles size={15} />
-          </button>
-          <button
-            className="btn-icon"
-            title="Create plan"
-            aria-label="Create plan"
-            type="button"
-            onClick={onCreatePlan}
-          >
-            <Plus size={15} />
-          </button>
-          <button
-            className="btn-icon"
-            title="Collapse plans"
-            aria-label="Collapse plans"
-            type="button"
-            onClick={onToggleCollapse}
-          >
-            <ChevronRight size={15} />
-          </button>
-        </div>
+      <div className="plan-panel-header">
+        <span className="plan-panel-title">Plans</span>
+        <button
+          className="btn-icon side-section-action"
+          title="Generate plans"
+          aria-label="Generate plans"
+          type="button"
+          onClick={onGeneratePlans}
+        >
+          <Sparkles size={15} />
+        </button>
+        <button
+          className="btn-icon"
+          title="Collapse plans"
+          aria-label="Collapse plans"
+          type="button"
+          onClick={onToggleCollapse}
+        >
+          <ChevronRight size={15} />
+        </button>
+      </div>
       ) : (
         <div className="plan-panel-header-compact">
           <button
-            className="btn-icon"
+            className="btn-icon side-section-action"
             title="Generate plans"
             aria-label="Generate plans"
             type="button"
             onClick={onGeneratePlans}
           >
             <Sparkles size={15} />
-          </button>
-          <button
-            className="btn-icon"
-            title="Create plan"
-            aria-label="Create plan"
-            type="button"
-            onClick={onCreatePlan}
-          >
-            <Plus size={15} />
           </button>
         </div>
       )}
