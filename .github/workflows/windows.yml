@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (e.g. 0.0.2) — must NOT already exist as a published release"
+        description: "Version to release (e.g. 0.0.2) - must NOT already exist as a published release"
         required: true
         type: string
 
@@ -82,13 +82,13 @@ jobs:
           if gh release view "$tag" --repo "${{ github.repository }}" --json isDraft >/dev/null 2>&1; then
             is_draft=$(gh release view "$tag" --repo "${{ github.repository }}" --json isDraft --jq '.isDraft')
             if [ "$is_draft" = "true" ]; then
-              echo "::notice::Existing DRAFT release for $tag found — will update the draft."
+              echo "::notice::Existing DRAFT release for $tag found - will update the draft."
             else
               echo "::error::Release $tag already exists and is PUBLISHED. Re-releasing a published version is not allowed. Bump the version and create a new release instead."
               exit 1
             fi
           else
-            echo "::notice::No existing release for $tag — a new draft will be created."
+            echo "::notice::No existing release for $tag - a new draft will be created."
           fi
 
       - name: Setup Node.js

@@ -1,6 +1,6 @@
 ---
 name: basebuild-autonomous
-description: Autonomous work controller for Basebuild Desktop. Manages continuation prompts (next-steps, next-idea, combined), publishing modes (commit, PR, group-PR), and subagent coordination. Designed to be driven by the app UI, not CLI flags — terminals launched with autonomous modes show status in the tab bar.
+description: Autonomous work controller for Basebuild Desktop. Manages continuation prompts (next-steps, next-idea, combined), publishing modes (commit, PR, group-PR), and subagent coordination. Designed to be driven by the app UI, not CLI flags - terminals launched with autonomous modes show status in the tab bar.
 ---
 
 # Basebuild Autonomous Controller
@@ -16,7 +16,7 @@ autonomous mode.
 Continue advancing the current objective. Identify the remaining concrete
 steps, carry them out in order, and run the relevant tests or checks after
 each change. When the objective is genuinely complete and verified, confirm it
-briefly and take no further actions — continuation stops once a turn performs
+briefly and take no further actions - continuation stops once a turn performs
 no work. Do not invent busywork once the objective is done.
 
 ### Ideation Mode (`next-idea`)
@@ -32,8 +32,8 @@ First, finish the current objective: identify the remaining steps, carry them
 out in order, and run the relevant tests or checks after each meaningful
 change. Once the current objective is complete, switch to improvements:
 brainstorm at least three concrete, high-impact ideas for this codebase,
-choose the best one, and implement it. Repeat this cycle — finish, then
-improve — until you are interrupted.
+choose the best one, and implement it. Repeat this cycle - finish, then
+improve - until you are interrupted.
 
 ## Publishing Modes (Optional)
 
@@ -92,7 +92,7 @@ For each completed work unit or autonomous improvement:
 - Continue mode stops when an autonomous turn has no tool activity (objective
   done).
 - Ideation and full cycle modes are endless until interrupted.
-- Publishing modes do not run side effects mid-objective — they only instruct
+- Publishing modes do not run side effects mid-objective - they only instruct
   the agent to commit/PR after a work unit is complete and verified.
 
 ## Integration with Basebuild Desktop

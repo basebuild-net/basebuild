@@ -13,12 +13,12 @@ that happened inside it.
 
 The app will send you a compact prompt containing:
 
-- **projectPath** — the active project directory
-- **projectName** — short project folder name
-- **creationTime** — ISO timestamp of session creation
-- **recentOutput** — up to ~2,000 characters of the most recent terminal/PSE output
-- **existingTitle** — current session title (usually "New Session" or prior generated title)
-- **tabKinds** — kinds of tabs in the session, e.g. `[terminal, omp, docs]`
+- **projectPath** - the active project directory
+- **projectName** - short project folder name
+- **creationTime** - ISO timestamp of session creation
+- **recentOutput** - up to ~2,000 characters of the most recent terminal/PSE output
+- **existingTitle** - current session title (usually "New Session" or prior generated title)
+- **tabKinds** - kinds of tabs in the session, e.g. `[terminal, omp, docs]`
 
 ## Goal
 

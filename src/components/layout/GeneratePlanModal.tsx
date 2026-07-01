@@ -43,7 +43,7 @@ export function GeneratePlanModal({ open, onClose, onGenerate, onSuggest, onCrea
     try {
       const path = await invoke<string | null>("pick_context_folder");
       if (!path) return;
-      // For folders, store the path as context — the backend can enumerate it
+      // For folders, store the path as context - the backend can enumerate it
       setContextFile(path);
       setContextContent(null);
       setWarning(null);

@@ -6,7 +6,7 @@ The first foundation of Basebuild Desktop gives us projects, terminal panes, sou
 
 Basebuild should make this a first-class, visual workflow:
 
-- State a final goal (or don't — just brainstorm).
+- State a final goal (or don't - just brainstorm).
 - Press a button to get AI-generated MVP plans, prioritized for the current project.
 - Approve, edit, or merge plans.
 - Generate more plans with full context of what already exists.
@@ -37,9 +37,9 @@ This turns Basebuild from a terminal multiplexer into a **cursive self-improveme
 
 ### Modified Capabilities
 
-- `desktop-shell` — promoted plan panel becomes a primary column.
-- `project-workspaces` — plans are scoped to the active project/session.
-- `omp-rpc-integration` — OMP/status moved into Debug panel.
+- `desktop-shell` - promoted plan panel becomes a primary column.
+- `project-workspaces` - plans are scoped to the active project/session.
+- `omp-rpc-integration` - OMP/status moved into Debug panel.
 
 ## Impact
 

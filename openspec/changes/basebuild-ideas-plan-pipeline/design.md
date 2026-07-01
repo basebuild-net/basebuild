@@ -8,7 +8,7 @@
 
 **Goals**:
 - Replace the Ideas tab with a persistent, minimizable **Plan Panel** on the right.
-- Reduce the core tools to **Terminal / Source / Plans** (Plans is not a tab — it is a column).
+- Reduce the core tools to **Terminal / Source / Plans** (Plans is not a tab - it is a column).
 - Move OMP debug/status content into the **Debug** panel.
 - Support plan status lifecycle: `draft → openspec → waiting → in_progress → finished` plus `cancelled`.
 - Support manual plan creation, AI-enhanced plan editing, AI plan generation, and AI "suggest more" given existing plans.
@@ -104,12 +104,12 @@ interface PlanFocusContext {
 
 ## Plan Panel Components
 
-- `PlanPanel` — right-side column, minimizable, renders lanes.
-- `PlanLane` — vertical section for one status with count badge and subtle animation on add/remove.
-- `PlanCard` — compact card with title, reference id, priority dots, status actions.
-- `PlanModal` — edit/create/focus mode for a single plan.
-- `GeneratePlansModal` — goal input, model selector (optional), generate button, preview list.
-- `FocusActions` — Copy reference id / Open in terminal / Open in OMP / Mark finished / Cancel.
+- `PlanPanel` - right-side column, minimizable, renders lanes.
+- `PlanLane` - vertical section for one status with count badge and subtle animation on add/remove.
+- `PlanCard` - compact card with title, reference id, priority dots, status actions.
+- `PlanModal` - edit/create/focus mode for a single plan.
+- `GeneratePlansModal` - goal input, model selector (optional), generate button, preview list.
+- `FocusActions` - Copy reference id / Open in terminal / Open in OMP / Mark finished / Cancel.
 
 ## Interactions
 
@@ -132,11 +132,11 @@ interface PlanFocusContext {
 4. **Focus Plan** (for `in_progress`):
    - Modal shows title, description, reference id, status, notes, files.
    - Actions:
-     - **Copy reference** — copies `#bb-xyz` to clipboard.
-     - **Open in terminal** — creates/opens a terminal and injects the reference.
-     - **Open in OMP** — (future prep) creates an OMP tab focused on this plan.
-     - **Mark finished** — moves to finished pile.
-     - **Cancel** — status `cancelled`.
+     - **Copy reference** - copies `#bb-xyz` to clipboard.
+     - **Open in terminal** - creates/opens a terminal and injects the reference.
+     - **Open in OMP** - (future prep) creates an OMP tab focused on this plan.
+     - **Mark finished** - moves to finished pile.
+     - **Cancel** - status `cancelled`.
 
 5. **Status Transitions**:
    - `draft` → `openspec` → `waiting` → `in_progress` → `finished`

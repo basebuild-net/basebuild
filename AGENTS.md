@@ -1,4 +1,4 @@
-# Basebuild Desktop — Agent Guide
+# Basebuild Desktop - Agent Guide
 
 Basebuild is an open-source desktop control plane for AI coding agents.
 Read this file before making any code or documentation change.
@@ -33,7 +33,7 @@ change. Summarised here so agents do not need to cross-reference constantly:
 - **Fonts:** Space Grotesk (UI), JetBrains Mono (numbers, paths, code, terminal).
 - **Compact and dense.** Minimal padding, no wasted space.
 - **Tooltips on every interactive element** (`title` attribute).
-- **Collapsible columns** — left sidebar and right plan panel both collapse to
+- **Collapsible columns** - left sidebar and right plan panel both collapse to
   icon-only (36px).
 
 CSS custom properties in `src/styles/globals.css` map 1:1 to `DESIGN.md` tokens.
@@ -54,10 +54,10 @@ Current classes include `.btn`, `.btn-primary`, `.btn-ghost`, `.btn-icon`,
 
 The live shell is a three-column grid:
 
-1. **Left sidebar** (220px → 36px collapsed) — projects and sessions.
-2. **Center workspace** — session header, workspace tabs, and the active tab
+1. **Left sidebar** (220px → 36px collapsed) - projects and sessions.
+2. **Center workspace** - session header, workspace tabs, and the active tab
    view (terminal, file viewer, or project schematic).
-3. **Right side panel** (260px → 36px collapsed) — stacked accordion sections
+3. **Right side panel** (260px → 36px collapsed) - stacked accordion sections
    for **Plans**, **Files**, and **Source**. Each section can be folded or
    expanded, and sections can be dragged to reorder. The order is persisted
    in local storage.
@@ -103,14 +103,14 @@ draft → openspec → waiting → in_progress → finished
 
 A plan should be enough that an agent can pick it up with zero extra context:
 
-- `id`, `referenceId` — internal id and a short stable reference like `PLAN-7`. 
-- `title`, `description` — what and why.
-- `goal` / `target` / `finalGoal` — user-facing intent that generated the plan.
-- `priority` — 0–100; higher is more urgent.
-- `status` — lifecycle state.
-- `tags` — free-form strings for filtering.
-- `sessionId` — ties the plan to a workspace session.
-- `createdAt`, `updatedAt`, `completedAt` — audit timestamps.
+- `id`, `referenceId` - internal id and a short stable reference like `PLAN-7`. 
+- `title`, `description` - what and why.
+- `goal` / `target` / `finalGoal` - user-facing intent that generated the plan.
+- `priority` - 0–100; higher is more urgent.
+- `status` - lifecycle state.
+- `tags` - free-form strings for filtering.
+- `sessionId` - ties the plan to a workspace session.
+- `createdAt`, `updatedAt`, `completedAt` - audit timestamps.
 
 ### Plan UI behaviours
 
@@ -130,15 +130,15 @@ src/
   components/
     layout/          # Shell: AppShell, ProjectSidebar, SidePanel, ToolTabs, WorkspaceTabs, PlanPanel
     panels/          # Feature panels: TerminalPanel, SourcePanel, FilesPanel, FileViewer, ProjectSchematicTab, DebugPanel
-  lib/               # Tauri invoke wrappers — one file per backend domain
+  lib/               # Tauri invoke wrappers - one file per backend domain
   state/             # React state hooks
   styles/
     globals.css      # Single centralized CSS file
 
 src-tauri/
   src/
-    commands/        # Tauri command handlers — one file per domain
-    services/        # Business logic — one file per domain
+    commands/        # Tauri command handlers - one file per domain
+    services/        # Business logic - one file per domain
     models/          # Serializable data types
     app_state.rs     # Tauri managed state (terminal manager)
     lib.rs           # Tauri builder + command registration
@@ -158,9 +158,18 @@ src-tauri/
 
 ## Code Standards
 
+### No em dashes
+
+Do not use em dashes (U+2014) **anywhere** in this repo: not in code,
+comments, commit messages, documentation, or configuration. Use a plain
+hyphen (`-`) with surrounding spaces, or restructure the sentence. This
+is enforced for all file types including `.rs`, `.ts`, `.tsx`, `.md`,
+`.yml`, `.json`.
+
 ### Rust
 
-- One service per domain. Keep commands thin — validate input, call service,
+
+- One service per domain. Keep commands thin - validate input, call service,
   map errors.
 - Use `thiserror` for typed errors. Expose a simple error string to the frontend
   unless a structured response is needed.
@@ -173,7 +182,7 @@ src-tauri/
 - `type` over `interface` for sidecar object shapes.
 - Props are plain types, e.g. `type FooProps = { ... }`.
 - Use hooks from `src/state/` for all cross-component state.
-- Lib files in `src/lib/` must not contain React state logic — they are thin
+- Lib files in `src/lib/` must not contain React state logic - they are thin
   Tauri invoke wrappers only.
 - Prefer `useCallback`/`useMemo` only when needed for correctness or stable
   dependency lists.
@@ -197,10 +206,10 @@ This project is open source. Keep it approachable:
 - `AGENTS.md` (this file) is for maintainers and contributors.
 - `DESIGN.md` is the visual contract.
 - `docs/DEVELOPMENT.md` is deep build and architecture notes.
-- `docs/SECRETS.md` is release / signing secrets — do not leak values.
+- `docs/SECRETS.md` is release / signing secrets - do not leak values.
 - Update all of the above when a change invalidates their content.
 
-`LICENSE` is an attribution-required license — credit basebuild.net. It is already mentioned in `README.md`.
+`LICENSE` is an attribution-required license - credit basebuild.net. It is already mentioned in `README.md`.
 
 ## Release Discipline (Non-Negotiable)
 
@@ -216,7 +225,7 @@ published, is immutable.
 3. A maintainer reviews the draft release in the GitHub UI, writes the release
    notes, and clicks **Publish** manually.
 4. Publishing the release makes the version available to the updater and to
-   users. There is no path back — treat publish as final.
+   users. There is no path back - treat publish as final.
 
 ### Non-negotiable rules
 
@@ -253,7 +262,7 @@ If you change `.github/workflows/windows.yml`, this table MUST stay accurate.
 
 `v0.0.2` was published at ~06:39Z. The workflow then triggered on every
 re-push of the `v0.0.2` tag (as fix commits were added), re-running the
-release job and overwriting the published release each time — the last
+release job and overwriting the published release each time - the last
 overwrite at ~07:51Z appeared as a release "created 16 minutes ago" despite
 the version having been published over an hour earlier. This violates version
 immutability and breaks trust in the updater manifest. The rules above exist
