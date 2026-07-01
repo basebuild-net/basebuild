@@ -3,6 +3,24 @@
 Basebuild is an open-source desktop control plane for AI coding agents.
 Read this file before making any code or documentation change.
 
+## Branching Discipline (Non-Negotiable)
+
+**Never commit directly to `main` when a feature branch exists.** If you are
+on a branch, stay on it. All work — including CI fixes, bug fixes, and chores —
+goes on the current feature branch and is merged to `main` via PR or fast-forward
+merge when the work is complete.
+
+Rules:
+1. **Check `git branch` before committing.** Know where you are.
+2. **If a feature branch exists for your work, commit to it.** Do not switch to
+   `main` to "just fix one thing" — fix it on the branch.
+3. **`main` only receives commits via merge from a feature branch** or direct
+   commits for trivial docs/changelog when no branch is active.
+4. **Before starting work, create or checkout the correct branch.** If unsure,
+   ask.
+5. **Rebase your branch onto `main` before merging** to avoid conflicts.
+6. **Never force-push to `main`.**
+
 ## Project Purpose
 
 Basebuild wraps the [OhMyPi (OMP)](https://github.com/oh-my-pi) CLI in a
@@ -200,7 +218,7 @@ This project is open source. Keep it approachable:
 - `docs/SECRETS.md` is release / signing secrets — do not leak values.
 - Update all of the above when a change invalidates their content.
 
-There is no `LICENSE` file yet. If you add one, mention it in `README.md`.
+`LICENSE` is an attribution-required license — credit basebuild.net. It is already mentioned in `README.md`.
 
 ## Development
 
