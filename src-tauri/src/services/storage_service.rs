@@ -192,6 +192,17 @@ impl StorageService {
             );
         }
 
+        // Migration: add file_path to session_tabs for databases created before v0.0.2
+        let has_file_path = connection
+            .prepare("SELECT file_path FROM session_tabs LIMIT 0")
+            .is_ok();
+        if !has_file_path {
+            let _ = connection.execute(
+                "ALTER TABLE session_tabs ADD COLUMN file_path TEXT",
+                [],
+            );
+        }
+
         Ok(())
     }
 }
