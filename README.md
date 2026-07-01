@@ -87,4 +87,6 @@ used across the codebase.
 
 ## License
 
-MIT — see [`LICENSE`](./LICENSE) for details.
+Attribution-required license — feel free to use, improve, and distribute, but
+you must credit basebuild.net. Taking code or assets without attribution is
+prohibited. See [`LICENSE`](./LICENSE) for full terms.
