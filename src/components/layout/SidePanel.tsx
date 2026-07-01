@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, GripVertical } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, GripVertical, Plus, Sparkles } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { FileText, GitBranch, LayoutList } from "lucide-react";
 import type { NewPlan, Plan, PlanStatus } from "../../lib/plans";
@@ -67,33 +67,51 @@ function SectionHeader({
   id,
   expanded,
   onToggle,
-  dragHandleProps,
+  onDragStart,
+  onDragEnd,
+  actions,
 }: {
   id: SideSectionId;
   expanded: boolean;
   onToggle: () => void;
-  dragHandleProps: {
-    draggable: boolean;
-    onDragStart: (e: React.DragEvent) => void;
-    onDragEnd: () => void;
-  };
+  onDragStart: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
+  actions?: React.ReactNode;
 }) {
   const meta = sectionMeta[id];
   const Icon = meta.icon;
   return (
-    <button
-      className="side-section-header"
-      type="button"
-      onClick={onToggle}
-      aria-expanded={expanded}
-    >
-      <span className="side-section-drag" {...dragHandleProps}>
+    <div className="side-section-header">
+      <span
+        className="side-section-drag"
+        draggable
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        title="Drag to reorder"
+      >
         <GripVertical size={12} />
       </span>
-      <Icon size={12} />
-      <span className="side-section-label">{meta.label}</span>
-      <ChevronDown size={12} className={expanded ? "rotated" : ""} />
-    </button>
+      <button
+        className="side-section-toggle"
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        title={`${expanded ? "Collapse" : "Expand"} ${meta.label}`}
+      >
+        <Icon size={12} />
+        <span className="side-section-label">{meta.label}</span>
+      </button>
+      {actions ? <div className="side-section-actions">{actions}</div> : null}
+      <button
+        className="side-section-chevron"
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        title={`${expanded ? "Collapse" : "Expand"} ${meta.label}`}
+      >
+        <ChevronDown size={12} className={expanded ? "rotated" : ""} />
+      </button>
+    </div>
   );
 }
 
@@ -122,6 +140,7 @@ export function SidePanel({
   const handleDragStart = useCallback(
     (e: React.DragEvent, id: SideSectionId) => {
       e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", id);
       setDragging(id);
     },
     [],
@@ -135,19 +154,31 @@ export function SidePanel({
     [],
   );
 
-  const handleDrop = useCallback(() => {
-    if (!dragging || dragOverRef.current === null) return;
-    const from = order.indexOf(dragging);
-    const to = dragOverRef.current;
-    if (from === -1 || from === to) return;
-    const next = order.slice();
-    next.splice(from, 1);
-    next.splice(to, 0, dragging);
-    setOrder(next);
-    saveOrder(next);
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      const id = e.dataTransfer.getData("text/plain") as SideSectionId;
+      const to = dragOverRef.current;
+      if (!id || to === null) return;
+      setOrder((prev) => {
+        const from = prev.indexOf(id);
+        if (from === -1 || from === to) return prev;
+        const next = prev.slice();
+        next.splice(from, 1);
+        next.splice(to, 0, id);
+        saveOrder(next);
+        return next;
+      });
+      dragOverRef.current = null;
+      setDragging(null);
+    },
+    [],
+  );
+
+  const handleDragEnd = useCallback(() => {
     dragOverRef.current = null;
     setDragging(null);
-  }, [dragging, order]);
+  }, []);
 
   const setAll = useCallback((value: boolean) => {
     setExpanded({ plans: value, files: value, source: value });
@@ -174,10 +205,22 @@ export function SidePanel({
       <div className="side-panel-header">
         <span className="side-panel-title">Inspector</span>
         <div className="side-panel-actions">
-          <button className="btn-icon" type="button" title="Expand all" aria-label="Expand all" onClick={() => setAll(true)}>
+          <button
+            className="btn-icon"
+            type="button"
+            title="Expand all sections"
+            aria-label="Expand all sections"
+            onClick={() => setAll(true)}
+          >
             +
           </button>
-          <button className="btn-icon" type="button" title="Collapse all" aria-label="Collapse all" onClick={() => setAll(false)}>
+          <button
+            className="btn-icon"
+            type="button"
+            title="Collapse all sections"
+            aria-label="Collapse all sections"
+            onClick={() => setAll(false)}
+          >
             −
           </button>
           <button
@@ -191,23 +234,49 @@ export function SidePanel({
           </button>
         </div>
       </div>
-      <div className="side-panel-body">
+      <div className="side-panel-body" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
         {order.map((id, index) => (
           <div
             key={id}
             className={`side-section${dragging === id ? " is-dragging" : ""}`}
             onDragOver={(e) => handleDragOver(e, index)}
-            onDrop={handleDrop}
           >
             <SectionHeader
               id={id}
               expanded={expanded[id]}
               onToggle={() => toggle(id)}
-              dragHandleProps={{
-                draggable: true,
-                onDragStart: (e) => handleDragStart(e, id),
-                onDragEnd: () => setDragging(null),
-              }}
+              onDragStart={(e) => handleDragStart(e, id)}
+              onDragEnd={handleDragEnd}
+              actions={
+                id === "plans" ? (
+                  <>
+                    <button
+                      className="btn-icon btn-icon-sm side-section-action"
+                      type="button"
+                      title="Generate plans from goal"
+                      aria-label="Generate plans from goal"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        planCallbacks.onGeneratePlans();
+                      }}
+                    >
+                      <Sparkles size={13} />
+                    </button>
+                    <button
+                      className="btn-icon btn-icon-sm side-section-action"
+                      type="button"
+                      title="Create new plan"
+                      aria-label="Create new plan"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        planCallbacks.onCreatePlan();
+                      }}
+                    >
+                      <Plus size={13} />
+                    </button>
+                  </>
+                ) : undefined
+              }
             />
             {expanded[id] ? (
               <div className="side-section-body">

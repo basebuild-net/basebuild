@@ -995,24 +995,50 @@ a { color: inherit; text-decoration: none; }
 .side-section { border-bottom: 1px solid var(--bb-border); }
 .side-section.is-dragging { background: var(--bb-surface); opacity: 0.6; }
 .side-section-header {
+  display: flex; align-items: center; gap: 4px;
+  height: 28px; padding: 0 4px 0 0;
+  user-select: none;
+}
+.side-section-drag {
+  display: flex; align-items: center; justify-content: center;
+  width: 18px; height: 100%;
+  cursor: grab;
+  color: var(--bb-muted);
+}
+.side-section-drag:hover { color: var(--bb-text); }
+.side-section-drag:active { cursor: grabbing; }
+.side-section-toggle {
   display: flex; align-items: center; gap: 6px;
-  width: 100%; height: 28px; padding: 0 6px;
+  flex: 1; height: 100%;
+  padding: 0 4px;
   font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
   color: var(--bb-text);
   background: transparent; border: none;
-  text-align: left; cursor: pointer; user-select: none;
+  text-align: left; cursor: pointer;
   transition: all 0.06s;
 }
-.side-section-header:hover { background: var(--bb-surface); }
-.side-section-drag {
-  display: flex; align-items: center; justify-content: center;
-  width: 12px; cursor: grab;
-  color: var(--bb-muted);
-}
-.side-section-drag:active { cursor: grabbing; }
+.side-section-toggle:hover { background: var(--bb-surface); }
 .side-section-label { flex: 1; }
-.side-section-header > svg:last-child { transition: transform 0.1s; }
-.side-section-header > svg:last-child.rotated { transform: rotate(180deg); }
+.side-section-actions {
+  display: flex; align-items: center; gap: 2px;
+}
+.side-section-action {
+  color: var(--bb-cta);
+}
+.side-section-action:hover {
+  color: var(--bb-cta-hover);
+  background: color-mix(in srgb, var(--bb-cta) 12%, transparent);
+}
+.side-section-chevron {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 100%;
+  color: var(--bb-muted);
+  background: transparent; border: none;
+  cursor: pointer; transition: all 0.06s;
+}
+.side-section-chevron:hover { color: var(--bb-text); background: var(--bb-surface); }
+.side-section-chevron svg { transition: transform 0.1s; }
+.side-section-chevron svg.rotated { transform: rotate(180deg); }
 .side-section-body { display: flex; flex-direction: column; min-height: 0; }
 .app-shell[data-rail="collapsed"] .side-panel { width: 36px; min-width: 36px; }
 .app-shell[data-rail="collapsed"] .side-panel-body,
