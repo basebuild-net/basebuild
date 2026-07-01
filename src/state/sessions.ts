@@ -11,8 +11,9 @@ import {
   listTabs,
   renameSession as renameSessionApi,
 } from "../lib/sessions";
+import { setLastActiveSession as setLastActiveSessionApi } from "../lib/projects";
 
-export function useSessionState(projectPath: string | null) {
+export function useSessionState(projectPath: string | null, lastActiveSessionId?: string | null) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [tabs, setTabs] = useState<SessionTab[]>([]);
@@ -28,14 +29,15 @@ export function useSessionState(projectPath: string | null) {
     try {
       const list = await listSessions(projectPath);
       setSessions(list);
-      // Auto-select first session if none selected
-      if (list.length > 0 && !list.find((s) => s.id === activeSessionId)) {
-        setActiveSessionId(list[0].id);
+      // Auto-select last active session if valid, else first session
+      if (!list.find((s) => s.id === activeSessionId)) {
+        const last = lastActiveSessionId && list.find((s) => s.id === lastActiveSessionId);
+        setActiveSessionId(last ? last.id : list[0].id);
       }
     } catch {
       setSessions([]);
     }
-  }, [projectPath]);
+  }, [projectPath, lastActiveSessionId]);
 
   const refreshTabs = useCallback(async () => {
     if (!activeSessionId) {

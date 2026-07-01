@@ -1,16 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   Check,
+  ChevronRight,
   GitBranch as GitBranchIcon,
-  GitCommitHorizontal,
   Minus,
   Plus,
   RefreshCw,
   RotateCcw,
-  Trash2,
   X,
 } from "lucide-react";
 
+import { CommitGraph } from "../source/CommitGraph";
 import {
   gitAdd,
   gitBranchList,
@@ -102,6 +104,9 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
   const [tab, setTab] = useState<"changes" | "history">("changes");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stagedOpen, setStagedOpen] = useState(true);
+  const [changesOpen, setChangesOpen] = useState(true);
+  const [untrackedOpen, setUntrackedOpen] = useState(true);
 
   const refresh = useCallback(async () => {
     if (!projectPath) return;
@@ -110,7 +115,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
     try {
       const [s, c, b] = await Promise.all([
         gitStatus(projectPath),
-        gitLog(projectPath, 30),
+        gitLog(projectPath, 50),
         gitBranchList(projectPath),
       ]);
       setStatus(s);
@@ -228,48 +233,64 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
     return <p className="text-muted pad">Open a project to see source control.</p>;
   }
 
+  const stagedCount = status?.staged.length ?? 0;
+  const changesCount = status?.unstaged.length ?? 0;
+  const untrackedCount = status?.untracked.length ?? 0;
+  const totalChanges = stagedCount + changesCount + untrackedCount;
+
   return (
     <div className="source-panel">
-      {/* Branch bar */}
+      {/* Branch bar — VSCode-style with sync status */}
       {status ? (
         <div className="source-branch-bar">
           <GitBranchIcon size={13} />
           <span className="source-branch-name">{status.branch.branch}</span>
           {status.branch.upstream ? (
-            <span className="text-muted text-sm">→ {status.branch.upstream}</span>
+            <span className="source-upstream">
+              <ArrowDown size={11} />
+              {status.branch.upstream}
+            </span>
           ) : null}
-          {status.branch.ahead > 0 ? (
-            <span className="source-ahead" title="Commits ahead of upstream">↑{status.branch.ahead}</span>
+          {status.branch.ahead > 0 || status.branch.behind > 0 ? (
+            <span className="source-sync-status">
+              {status.branch.ahead > 0 ? <span className="source-ahead" title={`${status.branch.ahead} ahead`}>↑{status.branch.ahead}</span> : null}
+              {status.branch.behind > 0 ? <span className="source-behind" title={`${status.branch.behind} behind`}>↓{status.branch.behind}</span> : null}
+            </span>
           ) : null}
-          {status.branch.behind > 0 ? (
-            <span className="source-behind" title="Commits behind upstream">↓{status.branch.behind}</span>
-          ) : null}
-          <div className="row" style={{ marginLeft: "auto" }}>
-            <button className="btn-icon btn-icon-sm" title="Fetch from remote" onClick={() => void fetchRemote()} disabled={loading} type="button">
-              <RefreshCw size={13} />
+          <div className="source-actions">
+            <button className="btn-icon btn-icon-sm" title="Fetch" onClick={() => void fetchRemote()} disabled={loading} type="button">
+              <RefreshCw size={13} className={loading ? "spin" : ""} />
             </button>
-            <button className="btn-icon btn-icon-sm" title="Pull from remote" onClick={() => void pull()} disabled={loading} type="button">
-              <RotateCcw size={13} />
+            <button className="btn-icon btn-icon-sm" title="Pull" onClick={() => void pull()} disabled={loading} type="button">
+              <ArrowDown size={13} />
             </button>
-            <button className="btn-icon btn-icon-sm" title="Push to remote" onClick={() => void push()} disabled={loading} type="button">
-              <Plus size={13} />
+            <button className="btn-icon btn-icon-sm" title="Push" onClick={() => void push()} disabled={loading} type="button">
+              <ArrowUp size={13} />
             </button>
           </div>
         </div>
       ) : null}
 
-      {/* Tabs */}
+      {/* Tab bar with change count badge */}
       <div className="source-tabs">
-        <button className={`source-tab${tab === "changes" ? " is-active" : ""}`} onClick={() => setTab("changes")} type="button">
+        <button
+          className={`source-tab${tab === "changes" ? " is-active" : ""}`}
+          onClick={() => setTab("changes")}
+          type="button"
+        >
           Changes
+          {totalChanges > 0 ? <span className="source-tab-badge">{totalChanges}</span> : null}
         </button>
-        <button className={`source-tab${tab === "history" ? " is-active" : ""}`} onClick={() => setTab("history")} type="button">
+        <button
+          className={`source-tab${tab === "history" ? " is-active" : ""}`}
+          onClick={() => setTab("history")}
+          type="button"
+        >
           History
         </button>
         <button
-          className="btn-icon btn-icon-sm"
+          className="btn-icon btn-icon-sm source-refresh"
           title="Refresh"
-          style={{ marginLeft: "auto" }}
           onClick={() => void refresh()}
           disabled={loading}
           type="button"
@@ -281,78 +302,13 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
       {error ? <div className="terminal-error">{error}</div> : null}
 
       {tab === "changes" ? (
-        <div className="stack-sm">
-          {/* Staged section */}
-          <div>
-            <div className="source-section-label">
-              Staged ({status?.staged.length ?? 0})
-              {status && status.staged.length > 0 ? (
-                <button className="btn-icon btn-icon-sm" title="Unstage all" style={{ marginLeft: "auto" }} onClick={() => void unstageAll()} type="button">
-                  <Minus size={12} />
-                </button>
-              ) : null}
-            </div>
-            {(status?.staged ?? []).map((file) => (
-              <FileRow
-                key={`staged-${file.path}`}
-                file={file}
-                isSelected={selectedFile?.path === file.path}
-                onView={() => void viewDiff(file)}
-                actions={[
-                  { icon: Minus, title: "Unstage", onClick: () => void unstage(file) },
-                ]}
-              />
-            ))}
-          </div>
-
-          {/* Changes section */}
-          <div>
-            <div className="source-section-label">
-              Changes ({status?.unstaged.length ?? 0})
-              {status && status.unstaged.length > 0 ? (
-                <button className="btn-icon btn-icon-sm" title="Stage all" style={{ marginLeft: "auto" }} onClick={() => void stageAll()} type="button">
-                  <Plus size={12} />
-                </button>
-              ) : null}
-            </div>
-            {(status?.unstaged ?? []).map((file) => (
-              <FileRow
-                key={`unstaged-${file.path}`}
-                file={file}
-                isSelected={selectedFile?.path === file.path}
-                onView={() => void viewDiff(file)}
-                actions={[
-                  { icon: Plus, title: "Stage", onClick: () => void stage(file) },
-                  { icon: RotateCcw, title: "Discard changes", onClick: () => void discard(file), danger: true },
-                ]}
-              />
-            ))}
-          </div>
-
-          {/* Untracked section */}
-          <div>
-            <div className="source-section-label">
-              Untracked ({status?.untracked.length ?? 0})
-            </div>
-            {(status?.untracked ?? []).map((file) => (
-              <FileRow
-                key={`untracked-${file.path}`}
-                file={file}
-                isSelected={selectedFile?.path === file.path}
-                onView={() => void viewDiff(file)}
-                actions={[
-                  { icon: Plus, title: "Add", onClick: () => void stage(file) },
-                ]}
-              />
-            ))}
-          </div>
-
-          {/* Commit bar */}
-          {status && status.staged.length > 0 ? (
-            <div className="source-commit-bar">
+        <div className="source-changes">
+          {/* Commit input — always visible when there are staged changes */}
+          {stagedCount > 0 ? (
+            <div className="source-commit-area">
               <textarea
                 className="input source-commit-input"
-                placeholder="Commit message..."
+                placeholder="Message (Ctrl+Enter to commit)"
                 value={commitMessage}
                 onChange={(e) => setCommitMessage(e.target.value)}
                 onKeyDown={(e) => {
@@ -364,14 +320,92 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
                 rows={2}
               />
               <button
-                className="btn btn-primary"
-                title="Commit staged changes (Ctrl+Enter)"
+                className="btn btn-primary source-commit-btn"
+                title="Commit (Ctrl+Enter)"
                 disabled={!commitMessage.trim()}
                 onClick={() => void commit()}
                 type="button"
               >
                 <Check size={13} /> Commit
               </button>
+            </div>
+          ) : null}
+
+          {/* Staged Changes — collapsible */}
+          {stagedCount > 0 ? (
+            <CollapsibleSection
+              label="Staged Changes"
+              count={stagedCount}
+              open={stagedOpen}
+              onToggle={() => setStagedOpen((v) => !v)}
+              action={{ icon: Minus, title: "Unstage All", onClick: () => void unstageAll() }}
+            >
+              {(status?.staged ?? []).map((file) => (
+                <FileRow
+                  key={`staged-${file.path}`}
+                  file={file}
+                  isSelected={selectedFile?.path === file.path}
+                  onView={() => void viewDiff(file)}
+                  actions={[
+                    { icon: Minus, title: "Unstage", onClick: () => void unstage(file) },
+                  ]}
+                />
+              ))}
+            </CollapsibleSection>
+          ) : null}
+
+          {/* Changes — collapsible */}
+          {changesCount > 0 ? (
+            <CollapsibleSection
+              label="Changes"
+              count={changesCount}
+              open={changesOpen}
+              onToggle={() => setChangesOpen((v) => !v)}
+              action={{ icon: Plus, title: "Stage All", onClick: () => void stageAll() }}
+            >
+              {(status?.unstaged ?? []).map((file) => (
+                <FileRow
+                  key={`unstaged-${file.path}`}
+                  file={file}
+                  isSelected={selectedFile?.path === file.path}
+                  onView={() => void viewDiff(file)}
+                  actions={[
+                    { icon: Plus, title: "Stage", onClick: () => void stage(file) },
+                    { icon: RotateCcw, title: "Discard", onClick: () => void discard(file), danger: true },
+                  ]}
+                />
+              ))}
+            </CollapsibleSection>
+          ) : null}
+
+          {/* Untracked — collapsible */}
+          {untrackedCount > 0 ? (
+            <CollapsibleSection
+              label="Untracked"
+              count={untrackedCount}
+              open={untrackedOpen}
+              onToggle={() => setUntrackedOpen((v) => !v)}
+            >
+              {(status?.untracked ?? []).map((file) => (
+                <FileRow
+                  key={`untracked-${file.path}`}
+                  file={file}
+                  isSelected={selectedFile?.path === file.path}
+                  onView={() => void viewDiff(file)}
+                  actions={[
+                    { icon: Plus, title: "Add", onClick: () => void stage(file) },
+                  ]}
+                />
+              ))}
+            </CollapsibleSection>
+          ) : null}
+
+          {/* Empty state */}
+          {totalChanges === 0 && !error ? (
+            <div className="source-empty">
+              <Check size={20} className="text-muted" />
+              <p>No changes</p>
+              <p className="text-sm text-muted">Working tree is clean</p>
             </div>
           ) : null}
 
@@ -408,20 +442,45 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
           ) : null}
         </div>
       ) : (
-        <div className="source-history-graph">
-          {commits.map((c) => (
-            <div className="source-commit-node" key={c.hash}>
-              <div className="source-commit-dot" title={c.hash} />
-              <div className="source-commit-info">
-                <div className="source-commit-msg">{c.message}</div>
-                <div className="source-commit-meta">
-                  <span className="commit-hash">{c.shortHash}</span> · {c.author} · {c.date}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <CommitGraph commits={commits} />
       )}
+    </div>
+  );
+}
+
+function CollapsibleSection({
+  label,
+  count,
+  open,
+  onToggle,
+  action,
+  children,
+}: {
+  label: string;
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+  action?: { icon: typeof Plus; title: string; onClick: () => void };
+  children: ReactNode;
+}) {
+  return (
+    <div className="source-section">
+      <div className="source-section-header" onClick={onToggle}>
+        <ChevronRight size={12} className={`source-chevron${open ? " is-open" : ""}`} />
+        <span className="source-section-label">{label}</span>
+        <span className="source-section-count">{count}</span>
+        {action ? (
+          <button
+            className="btn-icon btn-icon-sm source-section-action"
+            title={action.title}
+            type="button"
+            onClick={(e) => { e.stopPropagation(); action.onClick(); }}
+          >
+            <action.icon size={12} />
+          </button>
+        ) : null}
+      </div>
+      {open ? <div className="source-section-body">{children}</div> : null}
     </div>
   );
 }

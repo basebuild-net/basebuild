@@ -30,6 +30,8 @@ export type GitCommit = {
   message: string;
   author: string;
   date: string;
+  parents: string[];
+  refs: string[];
 };
 
 export type GitBranch = {

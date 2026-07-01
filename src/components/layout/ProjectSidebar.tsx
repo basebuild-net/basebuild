@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -8,6 +9,7 @@ import {
   FolderOpen,
   FolderPlus,
   MoreHorizontal,
+  Pencil,
   Plus,
   TerminalSquare,
   X,
@@ -30,12 +32,13 @@ type ProjectSidebarProps = {
   activeSessionId: string | null;
   projects: RecentProject[];
   projectDetection: ProjectDetection | null;
-  sessions: Session[];
+  sessionsByProject: Map<string, Session[]>;
   onSelectProject: (path: string) => void;
   onOpenFolder: () => void;
   onRemoveProject: (path: string) => void;
   onSelectSession: (id: string) => void;
   onCreateSession: () => void;
+  onRenameSession: (id: string, title: string) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
 };
@@ -55,17 +58,21 @@ export function ProjectSidebar({
   activeSessionId,
   projects,
   projectDetection,
-  sessions,
+  sessionsByProject,
   onSelectProject,
   onOpenFolder,
   onRemoveProject,
   onSelectSession,
   onCreateSession,
+  onRenameSession,
   collapsed,
   onToggleCollapse,
 }: ProjectSidebarProps) {
   const [hiddenPaths, setHiddenPaths] = useState<Set<string>>(new Set());
   const [menuPath, setMenuPath] = useState<string | null>(null);
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
+  const [editingSession, setEditingSession] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
 
   const visibleProjects = projects.filter((p) => !hiddenPaths.has(p.path));
 
@@ -107,10 +114,28 @@ export function ProjectSidebar({
         ) : (
           visibleProjects.map((project) => {
             const isActive = project.path === activeProjectPath;
-            const projectSessions = isActive ? sessions : [];
+            const projectSessions = sessionsByProject.get(project.path) ?? [];
+            const isCollapsed = collapsedProjects.has(project.path);
             return (
               <div key={project.path} className="sidebar-project-group">
                 <div className={`sidebar-item${isActive ? " is-active" : ""}`}>
+                  {/* Collapse chevron */}
+                  <button
+                    className="sidebar-chevron-btn"
+                    title={isCollapsed ? "Expand" : "Collapse"}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCollapsedProjects((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(project.path)) next.delete(project.path);
+                        else next.add(project.path);
+                        return next;
+                      });
+                    }}
+                  >
+                    <ChevronDown size={12} className={`sidebar-chevron${isCollapsed ? " is-collapsed" : ""}`} />
+                  </button>
                   <button
                     className="sidebar-item-main"
                     type="button"
@@ -119,6 +144,9 @@ export function ProjectSidebar({
                   >
                     <FolderOpen size={14} className="sidebar-item-icon" />
                     <span className="sidebar-item-label">{project.name}</span>
+                    {projectSessions.length > 0 ? (
+                      <span className="sidebar-session-count">{projectSessions.length}</span>
+                    ) : null}
                   </button>
                   {isActive ? (
                     <button
@@ -159,21 +187,65 @@ export function ProjectSidebar({
                   ) : null}
                 </div>
 
-                {/* Sessions under active project */}
-                {isActive && projectSessions.length > 0 ? (
+                {/* Sessions under project (collapsible) */}
+                {!isCollapsed && projectSessions.length > 0 ? (
                   <div className="sidebar-sessions">
                     {projectSessions.map((s) => (
-                      <button
+                      <div
                         key={s.id}
                         className={`sidebar-session${s.id === activeSessionId ? " is-active" : ""}`}
-                        type="button"
-                        title={s.title}
-                        onClick={() => onSelectSession(s.id)}
                       >
-                        <TerminalSquare size={12} className="sidebar-session-icon" />
-                        <span className="sidebar-session-title">{s.title}</span>
-                        <span className="sidebar-session-time">{formatTime(s.updatedAt)}</span>
-                      </button>
+                        {editingSession === s.id ? (
+                          <input
+                            className="sidebar-session-edit"
+                            type="text"
+                            value={editValue}
+                            autoFocus
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onBlur={() => {
+                              if (editValue.trim()) onRenameSession(s.id, editValue.trim());
+                              setEditingSession(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                if (editValue.trim()) onRenameSession(s.id, editValue.trim());
+                                setEditingSession(null);
+                              } else if (e.key === "Escape") {
+                                setEditingSession(null);
+                              }
+                            }}
+                          />
+                        ) : (
+                          <button
+                            className="sidebar-session-main"
+                            type="button"
+                            title={s.title}
+                            onClick={() => onSelectSession(s.id)}
+                            onDoubleClick={() => {
+                              setEditingSession(s.id);
+                              setEditValue(s.title);
+                            }}
+                          >
+                            <TerminalSquare size={12} className="sidebar-session-icon" />
+                            <span className="sidebar-session-title">{s.title}</span>
+                            <span className="sidebar-session-time">{formatTime(s.updatedAt)}</span>
+                          </button>
+                        )}
+                        {editingSession !== s.id ? (
+                          <button
+                            className="btn-icon btn-icon-sm sidebar-session-edit-btn"
+                            title="Rename"
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingSession(s.id);
+                              setEditValue(s.title);
+                            }}
+                          >
+                            <Pencil size={10} />
+                          </button>
+                        ) : null}
+                      </div>
                     ))}
                   </div>
                 ) : null}
@@ -212,26 +284,32 @@ export function ProjectSidebar({
 export function useProjectSidebar(activeProjectPath: string | null) {
   const [projects, setProjects] = useState<RecentProject[]>([]);
   const [projectDetection, setProjectDetection] = useState<ProjectDetection | null>(null);
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessionsByProject, setSessionsByProject] = useState<Map<string, Session[]>>(new Map());
 
   async function refreshProjects() {
     try {
-      setProjects(await listRecentProjects());
+      const list = await listRecentProjects();
+      setProjects(list);
+      // Fetch sessions for ALL projects in parallel
+      const entries = await Promise.all<[string, Session[]]>(
+        list.map(async (p) => {
+          try {
+            const sessions = await listSessions(p.path);
+            return [p.path, sessions] as [string, Session[]];
+          } catch {
+            return [p.path, [] as Session[]] as [string, Session[]];
+          }
+        }),
+      );
+      setSessionsByProject(new Map(entries));
     } catch {
       // ignore
     }
   }
 
   async function refreshSessions() {
-    if (!activeProjectPath) {
-      setSessions([]);
-      return;
-    }
-    try {
-      setSessions(await listSessions(activeProjectPath));
-    } catch {
-      setSessions([]);
-    }
+    // Re-fetch sessions for all projects
+    await refreshProjects();
   }
 
   async function selectProject(path: string) {
@@ -264,12 +342,10 @@ export function useProjectSidebar(activeProjectPath: string | null) {
   useEffect(() => {
     if (activeProjectPath) {
       void selectProject(activeProjectPath);
-      void refreshSessions();
     } else {
       setProjectDetection(null);
-      setSessions([]);
     }
   }, [activeProjectPath]);
 
-  return { projects, projectDetection, sessions, refreshProjects, refreshSessions, selectProject, removeProject, openFolder };
+  return { projects, projectDetection, sessionsByProject, refreshProjects, refreshSessions, selectProject, removeProject, openFolder };
 }

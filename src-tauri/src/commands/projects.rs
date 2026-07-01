@@ -29,6 +29,10 @@ pub fn remove_recent_project(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn set_last_active_session(project_path: String, session_id: String) -> Result<(), String> {
+    StorageService::set_last_active_session(&project_path, &session_id)
+}
+#[tauri::command]
 pub fn reveal_in_explorer(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {

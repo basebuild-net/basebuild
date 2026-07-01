@@ -6,5 +6,6 @@ pub mod omp;
 pub mod projects;
 pub mod requirements;
 pub mod sessions;
+pub mod skills;
 pub mod terminal;
 pub mod updates;

@@ -15,6 +15,7 @@ export type RecentProject = {
   path: string;
   name: string;
   lastOpenedAt: number;
+  lastActiveSessionId: string | null;
 };
 
 export type ProjectDetection = {
@@ -47,4 +48,8 @@ export async function removeRecentProject(path: string): Promise<void> {
 
 export async function revealInExplorer(path: string): Promise<void> {
   return invoke("reveal_in_explorer", { path });
+}
+
+export async function setLastActiveSession(projectPath: string, sessionId: string): Promise<void> {
+  return invoke("set_last_active_session", { projectPath, sessionId });
 }

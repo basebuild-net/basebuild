@@ -90,11 +90,14 @@ impl GitService {
          run_git(path.as_ref(), &["commit", "-m", message])
      }
     pub fn log(path: impl AsRef<Path>, limit: usize) -> Result<Vec<GitCommit>, String> {
-        let format = "%H%x1f%h%x1f%s%x1f%an%x1f%ad";
+        // %H=full hash %h=short %s=subject %an=author %ad=date
+        // %P=parent hashes (space-separated) %d=ref names (decorate)
+        let format = "%H%x1f%h%x1f%s%x1f%an%x1f%ad%x1f%P%x1f%d";
         let output = run_git(path.as_ref(), &[
             "log",
             &format!("--pretty=format:{format}"),
             "--date=short",
+            "--decorate=full",
             &format!("-{limit}"),
         ])?;
 
@@ -103,16 +106,45 @@ impl GitService {
             .filter(|line| !line.is_empty())
             .map(|line| {
                 let parts: Vec<&str> = line.split('\x1f').collect();
+                let parents_str = parts.get(5).unwrap_or(&"");
+                let parents: Vec<String> = if parents_str.is_empty() {
+                    Vec::new()
+                } else {
+                    parents_str.split_whitespace().map(String::from).collect()
+                };
+                let refs_str = parts.get(6).unwrap_or(&"");
+                let refs: Vec<String> = parse_decorate_refs(refs_str);
                 GitCommit {
                     hash: parts.get(0).unwrap_or(&"").to_string(),
                     short_hash: parts.get(1).unwrap_or(&"").to_string(),
                     message: parts.get(2).unwrap_or(&"").to_string(),
                     author: parts.get(3).unwrap_or(&"").to_string(),
                     date: parts.get(4).unwrap_or(&"").to_string(),
+                    parents,
+                    refs,
                 }
             })
             .collect())
     }
+}
+
+/// Parse git's `%d` decorate output: ` (HEAD -> main, origin/main, tag: v1.0)`
+/// Returns cleaned ref names like `HEAD -> main`, `origin/main`, `tag: v1.0`.
+fn parse_decorate_refs(raw: &str) -> Vec<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    // Strip surrounding parentheses
+    let inner = trimmed
+        .strip_prefix('(')
+        .and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(trimmed);
+    inner
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 fn run_git(path: &Path, args: &[&str]) -> Result<String, String> {

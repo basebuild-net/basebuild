@@ -10,12 +10,14 @@ type TerminalPanelProps = {
   terminalId?: number | null;
   /** Optional: create a new terminal on mount with this cwd (legacy mode). */
   cwd?: string | null;
+  /** Called with terminal output data when it arrives. */
+  onOutput?: (data: string) => void;
 };
 
 const defaultShell =
   typeof window !== "undefined" && window.navigator.platform.startsWith("Win") ? "powershell.exe" : "bash";
 
-export function TerminalPanel({ terminalId, cwd }: TerminalPanelProps) {
+export function TerminalPanel({ terminalId, cwd, onOutput }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -72,6 +74,7 @@ export function TerminalPanel({ terminalId, cwd }: TerminalPanelProps) {
         if (event.payload.id === id) {
           if (event.payload.kind === "data") {
             terminal.write(event.payload.data);
+            if (onOutput) onOutput(event.payload.data);
           } else if (event.payload.kind === "close") {
             terminal.writeln("\r\n[terminal closed]");
           }

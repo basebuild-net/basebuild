@@ -19,10 +19,11 @@ use commands::{
     omp::{omp_config_list, omp_debug_context, omp_stats, omp_status, omp_stream_command, omp_usage},
     projects::{
         create_project_basebuild_config, detect_project, list_recent_projects, remember_recent_project,
-        remove_recent_project, reveal_in_explorer,
+        remove_recent_project, reveal_in_explorer, set_last_active_session,
     },
     requirements::list_requirements,
     sessions::{create_session, create_tab, delete_session, delete_tab, list_sessions, list_tabs, rename_session, update_tab_terminal},
+    skills::read_skill,
     terminal::{close_terminal, create_terminal, list_terminals, resize_terminal, write_terminal},
     updates::check_app_update,
 };
@@ -106,6 +107,7 @@ pub fn run() {
             detect_project,
             create_project_basebuild_config,
             remove_recent_project,
+            set_last_active_session,
             reveal_in_explorer,
             omp_status,
             omp_config_list,
@@ -113,6 +115,7 @@ pub fn run() {
             omp_usage,
             omp_debug_context,
             omp_stream_command,
+            read_skill,
             create_terminal,
             write_terminal,
             resize_terminal,

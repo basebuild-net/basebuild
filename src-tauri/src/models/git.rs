@@ -49,6 +49,8 @@ pub struct GitCommit {
     pub message: String,
     pub author: String,
     pub date: String,
+    pub parents: Vec<String>,
+    pub refs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
