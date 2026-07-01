@@ -56,6 +56,23 @@ Before publishing updates, replace `PLACEHOLDER_PUBLIC_KEY` in `src-tauri/tauri.
 
 See `docs/SECRETS.md` for the full secrets checklist.
 
+## Releases
+
+Releases are manual and draft-first. There is no automatic release on push or
+tag creation.
+
+1. Bump the version in `package.json`, `src-tauri/tauri.conf.json`, and
+   `src-tauri/Cargo.toml` in a dedicated `chore(release): bump version to X.Y.Z`
+   commit on `main`.
+2. Trigger the **CI / Release (Windows)** workflow via `workflow_dispatch`,
+   passing the version (e.g. `0.0.3`).
+3. The workflow builds the installer and creates a **GitHub draft release**. It
+   aborts if the target version is already published.
+4. Review the draft in the GitHub UI, write release notes, and click **Publish**.
+
+Never re-release a published version. If a release is broken, ship a hotfix as
+the next version. See `AGENTS.md` "Release Discipline" for the full policy.
+
 ## Feature backlog pointer
 
 OpenSpec plan lives in `openspec/changes/basebuild-desktop-local-foundation/`.

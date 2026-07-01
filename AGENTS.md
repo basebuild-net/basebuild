@@ -200,7 +200,64 @@ This project is open source. Keep it approachable:
 - `docs/SECRETS.md` is release / signing secrets — do not leak values.
 - Update all of the above when a change invalidates their content.
 
-There is no `LICENSE` file yet. If you add one, mention it in `README.md`.
+`LICENSE` is an attribution-required license — credit basebuild.net. It is already mentioned in `README.md`.
+
+## Release Discipline (Non-Negotiable)
+
+Releases are **manual, draft-first, and never re-published.** A version, once
+published, is immutable.
+
+### How releases are created
+
+1. A maintainer triggers the `workflow_dispatch` event on the **CI / Release
+   (Windows)** workflow, passing the target version (e.g. `0.0.2`).
+2. The workflow builds the installer and creates a **GitHub draft release**
+   (`releaseDraft: true`). Nothing is published automatically.
+3. A maintainer reviews the draft release in the GitHub UI, writes the release
+   notes, and clicks **Publish** manually.
+4. Publishing the release makes the version available to the updater and to
+   users. There is no path back — treat publish as final.
+
+### Non-negotiable rules
+
+- **No automatic releases.** The workflow MUST NOT trigger on `push` to `main`
+  or on tag creation. Releases are started by a human via `workflow_dispatch`
+  only. Tag pushes MUST NOT create or overwrite releases.
+- **Never re-release a published version.** Once a release is published, the
+  workflow MUST NOT overwrite it. The workflow MUST abort if the target
+  `vX.Y.Z` tag already corresponds to a published (non-draft) release. To ship
+  new artifacts, bump the version and release the next one.
+- **Draft before publish.** `releaseDraft` in the workflow MUST be `true`. The
+  workflow produces a draft; a human publishes.
+- **Version bumps are an explicit, separate step.** Bump the version in
+  `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` in a
+  dedicated commit (e.g. `chore(release): bump version to 0.0.3`) before
+  triggering the workflow. Do not bundle version bumps into feature commits.
+- **One release per version.** Never re-run the workflow against a version
+  that is already published. If a release is broken, ship a hotfix as the next
+  version.
+
+### Workflow contract (`.github/workflows/windows.yml`)
+
+| Property | Value | Reason |
+|---|---|---|
+| `on.push` | `branches: [main]` only, NO `tags` | Tag pushes must not create releases |
+| `on.workflow_dispatch` | required `version` input | Manual trigger only |
+| `release.if` | `github.event_name == 'workflow_dispatch'` | Release job never runs on push or PR |
+| `releaseDraft` | `true` | Draft-first; human publishes |
+| Re-release guard | `gh release view` check | Aborts if version is already published |
+
+If you change `.github/workflows/windows.yml`, this table MUST stay accurate.
+
+### What happened on v0.0.2 (the incident this prevents)
+
+`v0.0.2` was published at ~06:39Z. The workflow then triggered on every
+re-push of the `v0.0.2` tag (as fix commits were added), re-running the
+release job and overwriting the published release each time — the last
+overwrite at ~07:51Z appeared as a release "created 16 minutes ago" despite
+the version having been published over an hour earlier. This violates version
+immutability and breaks trust in the updater manifest. The rules above exist
+to make it impossible to recur.
 
 ## Development
 
@@ -378,6 +435,7 @@ When you change the following, update its documentation in the same change:
 | Design tokens, layout, or CSS classes | `DESIGN.md` and `AGENTS.md` |
 | Plan model, Project Schematic, or status semantics | `AGENTS.md` and `.basebuild/project-schematic.md` |
 | Build / dev / secrets | `docs/DEVELOPMENT.md` or `docs/SECRETS.md` |
+| Release workflow or versioning | `.github/workflows/windows.yml`, `AGENTS.md` (Release Discipline), and `docs/SECRETS.md` |
 | High-level project pitch or contribution | `README.md` |
 | OpenSpec plan | `openspec/changes/<change-name>/` |
 | Skills | `skills/<name>/SKILL.md` and `AGENTS.md` |
