@@ -17,7 +17,8 @@ struct AgentSession {
     #[allow(dead_code)]
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
-    profile_id: String,
+    #[allow(dead_code)]
+     profile_id: String,
 }
 
 /// Manages agent chat sessions. Uses runtime profiles so any chat adapter
@@ -175,6 +176,7 @@ impl AgentManager {
 }
 
 /// Returns the capabilities of a profile, or a typed error if unsupported.
+#[allow(dead_code)]
 pub fn profile_capabilities(profile: &RuntimeProfile) -> Vec<AgentCapability> {
     profile.capabilities.clone()
 }

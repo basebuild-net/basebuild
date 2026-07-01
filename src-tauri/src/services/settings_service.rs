@@ -10,7 +10,8 @@ use crate::{
 
 type DbResult<T> = Result<T, String>;
 
-fn gen_id() -> String {
+#[allow(dead_code)]
+ fn gen_id() -> String {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
@@ -18,7 +19,8 @@ fn gen_id() -> String {
     format!("{ts:x}")
 }
 
-fn now() -> i64 {
+#[allow(dead_code)]
+ fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -58,6 +60,7 @@ impl SettingsService {
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
     }
 
+    #[allow(dead_code)]
      pub fn get_profile(id: &str) -> DbResult<Option<RuntimeProfile>> {
         Ok(Self::list_profiles()?.into_iter().find(|p| p.id == id))
      }
@@ -188,7 +191,8 @@ impl SettingsService {
 
     // ─── Audit Trail ───
 
-    pub fn record_audit(
+    #[allow(dead_code)]
+     pub fn record_audit(
         action: &str,
         scope: Option<&str>,
         decision: &str,

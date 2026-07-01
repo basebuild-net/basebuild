@@ -26,8 +26,9 @@ const CONSENT_KEY: &str = "analytics_consent";
 
 /// Privacy-safe analytics event names. Adding a name here is required before
 /// any emitter can record it. This prevents ad-hoc events from leaking.
-#[derive(Debug, Clone)]
-pub enum AnalyticsEventName {
+ #[derive(Debug, Clone)]
+#[allow(dead_code)]
+ pub enum AnalyticsEventName {
     GenerateContextRequested,
     ChatDraftInjected,
     AdapterStartFailed,
@@ -56,8 +57,9 @@ impl AnalyticsService {
         Self::get_consent().map(|c| c.collection_enabled).unwrap_or(false)
     }
 
-    /// Returns true only if the user has opted in to both collection and upload.
-    pub fn upload_enabled() -> bool {
+     /// Returns true only if the user has opted in to both collection and upload.
+    #[allow(dead_code)]
+     pub fn upload_enabled() -> bool {
         Self::get_consent()
             .map(|c| c.collection_enabled && c.upload_enabled)
             .unwrap_or(false)
