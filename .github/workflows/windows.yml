@@ -13,7 +13,7 @@ env:
 
 jobs:
   checks:
-    runs-on: self-hosted
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -25,8 +25,6 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
 
       - name: Install frontend dependencies
         run: npm ci
@@ -45,7 +43,7 @@ jobs:
   release:
     needs: checks
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: self-hosted
+    runs-on: windows-latest
     permissions:
       contents: write
     steps:
