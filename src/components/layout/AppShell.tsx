@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bug,
-  GitBranch,
   TerminalSquare,
 } from "lucide-react";
 
@@ -23,15 +22,14 @@ import { WindowControls } from "./WindowControls";
 import { SettingsModal } from "./SettingsModal";
 import { createTerminal } from "../../lib/terminal";
 import { TerminalPanel } from "../panels/TerminalPanel";
-import { SourcePanel } from "../panels/SourcePanel";
 import { DebugPanel } from "../panels/DebugPanel";
+import { SidePanel } from "./SidePanel";
 import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
 
 export type ToolId = ToolTabId;
 
 const toolTabs: ToolTabItem[] = [
   { id: "terminal", icon: TerminalSquare, label: "Terminal" },
-  { id: "source", icon: GitBranch, label: "Source" },
   { id: "debug", icon: Bug, label: "Debug" },
 ];
 
@@ -44,7 +42,7 @@ export function AppShell() {
   const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<ToolId>("terminal");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [planCollapsed, setPlanCollapsed] = useState(false);
+  const [sideCollapsed, setSideCollapsed] = useState(false);
   const [gridView, setGridView] = useState(false);
   const [autoMode, setAutoMode] = useState<"none" | "steps" | "idea" | "combined">("none");
   const [autoCommit, setAutoCommit] = useState(false);
@@ -257,7 +255,7 @@ export function AppShell() {
       label: "View",
       items: [
         { label: sidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar", onClick: () => setSidebarCollapsed((v) => !v) },
-        { label: planCollapsed ? "Expand Plans" : "Collapse Plans", onClick: () => setPlanCollapsed((v) => !v) },
+        { label: sideCollapsed ? "Expand Side Panel" : "Collapse Side Panel", onClick: () => setSideCollapsed((v) => !v) },
         { separator: true },
         { label: gridView ? "Single Tab View" : "Grid View", onClick: () => setGridView((v) => !v) },
       ],
@@ -268,7 +266,7 @@ export function AppShell() {
         { label: "App Settings...", onClick: () => setSettingsOpen(true) },
       ],
     },
-  ], [activeProjectPath, handleOpenFolder, handleCreateSession, sidebarCollapsed, planCollapsed, gridView]);
+  ], [activeProjectPath, handleOpenFolder, handleCreateSession, sidebarCollapsed, sideCollapsed, gridView]);
 
   const terminalTabs = session.tabs.filter((t) => t.kind === "terminal");
   const activeTerminalTab = terminalTabs.find((t) => t.id === session.activeTabId) ?? terminalTabs[0] ?? null;
@@ -288,7 +286,7 @@ export function AppShell() {
       <main
         className="app-shell"
         data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}
-        data-rail={planCollapsed ? "collapsed" : "expanded"}
+        data-rail={sideCollapsed ? "collapsed" : "expanded"}
       >
         <ProjectSidebar
           activeProjectPath={activeProjectPath}
@@ -339,7 +337,7 @@ export function AppShell() {
               <div className="empty-state">
                 <TerminalSquare size={32} className="text-muted" />
                 <h3>No project open</h3>
-                <p>Open a folder to start managing terminals, source control, and ideas.</p>
+                <p>Open a folder to start managing terminals, files, source control, and plans.</p>
                 <button className="btn btn-primary" type="button" onClick={handleOpenFolder}>Open project</button>
               </div>
             ) : null}
@@ -371,25 +369,24 @@ export function AppShell() {
               )
             ) : null}
 
-            {activeTool === "source" && activeProjectPath ? <SourcePanel projectPath={activeProjectPath} /> : null}
             {activeTool === "debug" ? <DebugPanel /> : null}
           </div>
         </section>
-        <PlanPanel
+        <SidePanel
+          projectPath={activeProjectPath}
           sessionId={session.activeSessionId}
-          plans={plans.plans}
-          loading={plans.loading}
-          collapsed={planCollapsed}
-          onToggleCollapse={() => setPlanCollapsed((v) => !v)}
-          onCreatePlan={handleCreatePlan}
-          onGeneratePlans={() => setGenerateOpen(true)}
-          onEditPlan={handleEditPlan}
-          onFocusPlan={handleFocusPlan}
-          onSetPlanStatus={plans.setPlanStatus}
-          onDeletePlan={plans.deletePlan}
-          onCopyReference={handleCopyReference}
-          onOpenInTerminal={handleOpenPlanInTerminal}
-          onEnhancePlan={handleEnhancePlan}
+          collapsed={sideCollapsed}
+          onToggleCollapse={() => setSideCollapsed((v) => !v)}
+          plans={plans}
+          planCallbacks={{
+            onCreatePlan: handleCreatePlan,
+            onGeneratePlans: () => setGenerateOpen(true),
+            onEditPlan: handleEditPlan,
+            onFocusPlan: handleFocusPlan,
+            onCopyReference: handleCopyReference,
+            onOpenInTerminal: handleOpenPlanInTerminal,
+            onEnhancePlan: handleEnhancePlan,
+          }}
         />
       </main>
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} />

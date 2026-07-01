@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 
-export type ToolTabId = "terminal" | "source" | "debug";
+export type ToolTabId = "terminal" | "debug";
 
 export type ToolTabItem = { id: ToolTabId; icon: LucideIcon; label: string };
 

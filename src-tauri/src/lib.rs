@@ -10,6 +10,7 @@ use app_state::AppState;
 use commands::{
     app::app_version,
     config_packs::{create_user_config_pack, list_config_packs},
+    files::list_files,
     git::{
         git_add, git_branch_create, git_branch_list, git_branch_switch, git_commit, git_diff,
         git_discard, git_fetch, git_log, git_pull, git_push, git_reset, git_stage_all,
@@ -107,6 +108,7 @@ pub fn run() {
             remember_recent_project,
             list_recent_projects,
             detect_project,
+            list_files,
             create_project_basebuild_config,
             remove_recent_project,
             set_last_active_session,

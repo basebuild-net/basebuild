@@ -28,6 +28,7 @@ type PlanPanelProps = {
   onCopyReference: (refId: string) => void;
   onOpenInTerminal: (plan: Plan) => void;
   onEnhancePlan?: (plan: Plan) => void;
+  showHeader?: boolean;
 };
 
 export function PlanPanel({
@@ -45,6 +46,7 @@ export function PlanPanel({
   onCopyReference,
   onOpenInTerminal,
   onEnhancePlan,
+  showHeader = true,
 }: PlanPanelProps) {
   const [expandedFinished, setExpandedFinished] = useState(false);
 
@@ -78,36 +80,59 @@ export function PlanPanel({
 
   return (
     <aside className="plan-panel" aria-label="Plans">
-      <div className="plan-panel-header">
-        <span className="plan-panel-title">Plans</span>
-        <button
-          className="btn-icon"
-          title="Generate plans"
-          aria-label="Generate plans"
-          type="button"
-          onClick={onGeneratePlans}
-        >
-          <Sparkles size={15} />
-        </button>
-        <button
-          className="btn-icon"
-          title="Create plan"
-          aria-label="Create plan"
-          type="button"
-          onClick={onCreatePlan}
-        >
-          <Plus size={15} />
-        </button>
-        <button
-          className="btn-icon"
-          title="Collapse plans"
-          aria-label="Collapse plans"
-          type="button"
-          onClick={onToggleCollapse}
-        >
-          <ChevronRight size={15} />
-        </button>
-      </div>
+      {showHeader ? (
+        <div className="plan-panel-header">
+          <span className="plan-panel-title">Plans</span>
+          <button
+            className="btn-icon"
+            title="Generate plans"
+            aria-label="Generate plans"
+            type="button"
+            onClick={onGeneratePlans}
+          >
+            <Sparkles size={15} />
+          </button>
+          <button
+            className="btn-icon"
+            title="Create plan"
+            aria-label="Create plan"
+            type="button"
+            onClick={onCreatePlan}
+          >
+            <Plus size={15} />
+          </button>
+          <button
+            className="btn-icon"
+            title="Collapse plans"
+            aria-label="Collapse plans"
+            type="button"
+            onClick={onToggleCollapse}
+          >
+            <ChevronRight size={15} />
+          </button>
+        </div>
+      ) : (
+        <div className="plan-panel-header-compact">
+          <button
+            className="btn-icon"
+            title="Generate plans"
+            aria-label="Generate plans"
+            type="button"
+            onClick={onGeneratePlans}
+          >
+            <Sparkles size={15} />
+          </button>
+          <button
+            className="btn-icon"
+            title="Create plan"
+            aria-label="Create plan"
+            type="button"
+            onClick={onCreatePlan}
+          >
+            <Plus size={15} />
+          </button>
+        </div>
+      )}
 
       <div className="plan-panel-list">
         {!sessionId ? (

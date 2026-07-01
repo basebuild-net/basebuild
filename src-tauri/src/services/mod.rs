@@ -1,4 +1,5 @@
 pub mod config_pack_service;
+pub mod file_service;
 pub mod git_service;
 pub mod omp_service;
 pub mod plan_service;

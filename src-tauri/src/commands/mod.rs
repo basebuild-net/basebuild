@@ -1,5 +1,6 @@
 pub mod app;
 pub mod config_packs;
+pub mod files;
 pub mod git;
 pub mod ideas;
 pub mod omp;
