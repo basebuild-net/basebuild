@@ -159,8 +159,8 @@ components:
 ## Overview
 
 Basebuild Mono Desktop adapts the basebuild Mono web design system for a
-desktop tool. The personality is preserved — **pure black canvas, pure white
-type, a single electric orange (`#ff5606`) accent, and square geometry** — but
+desktop tool. The personality is preserved - **pure black canvas, pure white
+type, a single electric orange (`#ff5606`) accent, and square geometry** - but
 adapted for a dense, compact, instrument-like workspace.
 
 This is a desktop tool, not a marketing site. The UI is **extremely compact**:
@@ -207,14 +207,14 @@ At the top of both the left sidebar and right plan panel, a toggle button
 is a smooth width animation. In collapsed mode:
 - Text labels, badges, and secondary content are hidden.
 - Icons and top action rows remain visible.
-- Tooltips become essential — hovering shows the full label.
+- Tooltips become essential - hovering shows the full label.
 
 The collapsed state is stored in React state (not persisted yet).
 
 ## Tooltips
 
 Every interactive element has a tooltip via the `title` attribute. This is
-non-negotiable — density requires that users can discover what an icon does
+non-negotiable - density requires that users can discover what an icon does
 without clicking. For icon-only (collapsed) states, the tooltip is the primary
 label.
 
@@ -242,7 +242,7 @@ Same two-tone + orange system as the web:
 
 ## Shapes
 
-**0px radius everywhere.** No exceptions. Buttons, cards, inputs, badges, menus —
+**0px radius everywhere.** No exceptions. Buttons, cards, inputs, badges, menus -
 all square-cornered. This is non-negotiable.
 
 ## Hover Effects

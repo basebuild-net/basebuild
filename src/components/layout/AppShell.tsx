@@ -212,7 +212,7 @@ export function AppShell() {
       // TODO: call OMP to rewrite title/description/goal with clearer scope
       void plans.updatePlan(plan.id, {
         title: plan.title,
-        description: `${plan.description}\n\n[enhanced — wire AI rewrite]`,
+        description: `${plan.description}\n\n[enhanced - wire AI rewrite]`,
         goal: plan.goal ?? undefined,
         status: plan.status,
         priority: Math.min(100, plan.priority + 10),
@@ -320,7 +320,7 @@ export function AppShell() {
 
   return (
     <div className="app-container">
-      {/* Global window taskbar — always visible */}
+      {/* Global window taskbar - always visible */}
       <header className="window-taskbar" data-tauri-drag-region>
         <MenuBar menus={menus} />
         <div className="window-taskbar-right">

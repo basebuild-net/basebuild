@@ -41,7 +41,7 @@ input, textarea, .source-diff-body, .terminal-viewport, [contenteditable="true"]
   user-select: text;
 }
 
-/* Suppress the native context menu globally — the app draws its own menus */
+/* Suppress the native context menu globally - the app draws its own menus */
 body { -webkit-touch-callout: none; }
 html, body, #root {
   width: 100%;

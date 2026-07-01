@@ -17,13 +17,13 @@ type DebugData = {
 };
 
 function formatTimestamp(ts: number): string {
-  if (!ts) return "—";
+  if (!ts) return "-";
   const date = new Date(ts * 1000);
   return date.toLocaleTimeString();
 }
 
 function formatDuration(ts: number): string {
-  if (!ts) return "—";
+  if (!ts) return "-";
   const seconds = Math.floor(Date.now() / 1000 - ts);
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
@@ -135,7 +135,7 @@ export function DebugPanel() {
                   </span>
                 </div>
                 <div className="terminal-debug-grid">
-                  <span>PID: {t.pid ?? "—"}</span>
+                  <span>PID: {t.pid ?? "-"}</span>
                   <span>Size: {t.rows}×{t.cols}</span>
                   <span>Started: {formatTimestamp(t.startedAt)}</span>
                   <span>Uptime: {formatDuration(t.startedAt)}</span>
@@ -181,10 +181,10 @@ export function DebugPanel() {
         <div className="debug-section">
           <h3>OMP Stats</h3>
           <div className="debug-stats-grid">
-            <div className="debug-stat-card"><Activity size={16} /><div><span>Requests</span><strong>{overall.totalRequests?.toLocaleString() ?? "—"}</strong></div></div>
-            <div className="debug-stat-card"><DollarSign size={16} /><div><span>Cost</span><strong>${overall.totalCost?.toFixed(2) ?? "—"}</strong></div></div>
-            <div className="debug-stat-card"><Cpu size={16} /><div><span>Tokens/s</span><strong>{overall.avgTokensPerSecond?.toFixed(1) ?? "—"}</strong></div></div>
-            <div className="debug-stat-card"><Settings size={16} /><div><span>Avg TTFT</span><strong>{overall.avgTtft ? `${(overall.avgTtft / 1000).toFixed(1)}s` : "—"}</strong></div></div>
+            <div className="debug-stat-card"><Activity size={16} /><div><span>Requests</span><strong>{overall.totalRequests?.toLocaleString() ?? "-"}</strong></div></div>
+            <div className="debug-stat-card"><DollarSign size={16} /><div><span>Cost</span><strong>${overall.totalCost?.toFixed(2) ?? "-"}</strong></div></div>
+            <div className="debug-stat-card"><Cpu size={16} /><div><span>Tokens/s</span><strong>{overall.avgTokensPerSecond?.toFixed(1) ?? "-"}</strong></div></div>
+            <div className="debug-stat-card"><Settings size={16} /><div><span>Avg TTFT</span><strong>{overall.avgTtft ? `${(overall.avgTtft / 1000).toFixed(1)}s` : "-"}</strong></div></div>
           </div>
         </div>
       ) : null}

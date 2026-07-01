@@ -240,7 +240,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
 
   return (
     <div className="source-panel">
-      {/* Branch bar — VSCode-style with sync status */}
+      {/* Branch bar - VSCode-style with sync status */}
       {status ? (
         <div className="source-branch-bar">
           <GitBranchIcon size={13} />
@@ -303,7 +303,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
 
       {tab === "changes" ? (
         <div className="source-changes">
-          {/* Commit input — always visible when there are staged changes */}
+          {/* Commit input - always visible when there are staged changes */}
           {stagedCount > 0 ? (
             <div className="source-commit-area">
               <textarea
@@ -331,7 +331,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
             </div>
           ) : null}
 
-          {/* Staged Changes — collapsible */}
+          {/* Staged Changes - collapsible */}
           {stagedCount > 0 ? (
             <CollapsibleSection
               label="Staged Changes"
@@ -356,7 +356,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
             </CollapsibleSection>
           ) : null}
 
-          {/* Changes — collapsible */}
+          {/* Changes - collapsible */}
           {changesCount > 0 ? (
             <CollapsibleSection
               label="Changes"
@@ -382,7 +382,7 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
             </CollapsibleSection>
           ) : null}
 
-          {/* Untracked — collapsible */}
+          {/* Untracked - collapsible */}
           {untrackedCount > 0 ? (
             <CollapsibleSection
               label="Untracked"

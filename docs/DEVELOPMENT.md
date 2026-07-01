@@ -28,13 +28,13 @@ npm run tauri dev
 
 ## Architecture
 
-- `src/components/layout/*` — shell components (sidebar, workspace, tool tabs, plan panel).
-- `src/components/panels/*` — feature panels (Terminal, Source, Debug).
-- `src/lib/*` — thin Tauri invoke helpers for each backend service.
-- `src/state/*` — React state hooks.
-- `src-tauri/src/commands/*` — Tauri command surface.
-- `src-tauri/src/services/*` — business logic and external CLI integration.
-- `src-tauri/src/models/*` — serializable data types.
+- `src/components/layout/*` - shell components (sidebar, workspace, tool tabs, plan panel).
+- `src/components/panels/*` - feature panels (Terminal, Source, Debug).
+- `src/lib/*` - thin Tauri invoke helpers for each backend service.
+- `src/state/*` - React state hooks.
+- `src-tauri/src/commands/*` - Tauri command surface.
+- `src-tauri/src/services/*` - business logic and external CLI integration.
+- `src-tauri/src/models/*` - serializable data types.
 
 ## Requirements
 

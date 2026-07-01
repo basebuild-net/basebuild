@@ -55,7 +55,7 @@ Basebuild Desktop has a functional terminal and a minimal chat panel that wraps 
 **Frontend (React)**:
 - `ChatPanel` evolves from a thin listener to a managed UI:
   - Message list with structured rendering (user, assistant, system, tool-call, file-change)
-  - Action buttons (approve, deny, retry) — rendered as clickable cards
+  - Action buttons (approve, deny, retry) - rendered as clickable cards
   - Input box with model selector
   - View toggle: Chat | Terminal | Debug (side-by-side)
 - In "Terminal" view, render an xterm.js terminal connected to the same PTY
@@ -113,19 +113,19 @@ Generate Ideas (click)
 
 ### Decision: PTY behind chat, not a separate API
 **Rationale**: OMP's interactive mode is the richest interface. Running it via PTY lets us capture all output and also drop to "Terminal" view instantly. No need for a separate REST/gRPC API.
-**Alternatives**: Use OMP's `--print` or `--json` mode — rejected because it loses interactivity and tool-use rendering.
+**Alternatives**: Use OMP's `--print` or `--json` mode - rejected because it loses interactivity and tool-use rendering.
 
 ### Decision: Structured message rendering with fallback to raw text
 **Rationale**: OMP output is raw terminal text with ANSI codes. We parse what we can (messages, tool calls, file changes) and render the rest as preformatted text.
-**Alternatives**: Pure raw text — rejected because the user wants buttons and structured UI.
+**Alternatives**: Pure raw text - rejected because the user wants buttons and structured UI.
 
 ### Decision: Custom split-pane model instead of a library
 **Rationale**: The pane layout needs to be persisted and integrated with the tab system. A custom tree model is simpler than fighting a library's API. CSS `resize` + drag handles for dividers.
-**Alternatives**: `react-mosaic-component`, `allotment` — rejected for bundle size and inflexibility with custom tab types.
+**Alternatives**: `react-mosaic-component`, `allotment` - rejected for bundle size and inflexibility with custom tab types.
 
 ### Decision: Persist chat messages in SQLite
 **Rationale**: Already using SQLite for sessions and plans. Conversations should survive restarts.
-**Alternatives**: JSON files — rejected because we already have a DB layer.
+**Alternatives**: JSON files - rejected because we already have a DB layer.
 
 ## Risks / Trade-offs
 

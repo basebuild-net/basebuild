@@ -16,25 +16,25 @@ produce categorized, actionable suggestions that the user can select and track.
 Before generating ideas, understand the project context:
 
 - Read the project structure (`ls`, `glob`, `read` key files)
-- Check for `openspec/` specs — existing planned work
-- Check for `.basebuild/` config — project-specific settings
-- Check `git log` — recent activity and direction
-- Check `git status` — uncommitted work
-- Read `package.json`, `Cargo.toml`, or equivalent — tech stack
-- Read `README.md`, `AGENTS.md`, `DESIGN.md` — project conventions
+- Check for `openspec/` specs - existing planned work
+- Check for `.basebuild/` config - project-specific settings
+- Check `git log` - recent activity and direction
+- Check `git status` - uncommitted work
+- Read `package.json`, `Cargo.toml`, or equivalent - tech stack
+- Read `README.md`, `AGENTS.md`, `DESIGN.md` - project conventions
 
 ### 2. Generate Categories
 
 Based on the project analysis, generate 3-6 categories of work. Common categories:
 
-- **Optimization** — performance, bundle size, query speed, memory
-- **Bug Fixes** — known issues, error handling, edge cases, flaky tests
-- **New Features** — functionality gaps, user-requested features, roadmap items
-- **Refactoring** — code quality, tech debt, architecture improvements
-- **SEO/Content** — if web project: meta tags, sitemaps, structured data
-- **Testing** — coverage gaps, integration tests, E2E tests
-- **Documentation** — missing docs, outdated docs, API references
-- **DevOps** — CI/CD, deployment, monitoring, dependencies
+- **Optimization** - performance, bundle size, query speed, memory
+- **Bug Fixes** - known issues, error handling, edge cases, flaky tests
+- **New Features** - functionality gaps, user-requested features, roadmap items
+- **Refactoring** - code quality, tech debt, architecture improvements
+- **SEO/Content** - if web project: meta tags, sitemaps, structured data
+- **Testing** - coverage gaps, integration tests, E2E tests
+- **Documentation** - missing docs, outdated docs, API references
+- **DevOps** - CI/CD, deployment, monitoring, dependencies
 
 Each category should have a `name` and `description` explaining what's in scope.
 
@@ -42,9 +42,9 @@ Each category should have a `name` and `description` explaining what's in scope.
 
 For each category, generate 3-8 specific, actionable ideas. Each idea should have:
 
-- **title** — short, imperative (e.g., "Add sitemap.xml for dynamic routes")
-- **description** — 1-2 sentences explaining what and why
-- Be specific to THIS project — not generic advice
+- **title** - short, imperative (e.g., "Add sitemap.xml for dynamic routes")
+- **description** - 1-2 sentences explaining what and why
+- Be specific to THIS project - not generic advice
 - Reference real files, real functions, real issues
 
 ### 4. Output Format
@@ -67,12 +67,12 @@ Return ideas as a structured list so the UI can parse them:
 
 Ideas progress through these statuses:
 
-1. **Concept** — initially generated, not yet committed to
-2. **Plan Ready** — an OpenSpec plan has been generated for this idea
-3. **In Progress** — work has started on this idea
-4. **Finished** — work is complete and verified
-5. **Paused** — work started but temporarily stopped
-6. **Cancelled** — idea abandoned
+1. **Concept** - initially generated, not yet committed to
+2. **Plan Ready** - an OpenSpec plan has been generated for this idea
+3. **In Progress** - work has started on this idea
+4. **Finished** - work is complete and verified
+5. **Paused** - work started but temporarily stopped
+6. **Cancelled** - idea abandoned
 
 When the user selects ideas and clicks "Generate OpenSpec Plan", the selected
 ideas move to **Plan Ready** status and an OpenSpec proposal is created.
@@ -83,7 +83,7 @@ When the plan is archived/complete, the idea moves to **Finished**.
 
 ## Guidelines
 
-- **Be specific**: Don't say "improve performance" — say "add N+1 query detection to the session list endpoint"
+- **Be specific**: Don't say "improve performance" - say "add N+1 query detection to the session list endpoint"
 - **Be honest**: If the project is already well-optimized in an area, say so and suggest fewer ideas there
 - **Be scoped**: Each idea should be completable in 1-4 hours of focused work
 - **Be grounded**: Reference real files, real functions, real line numbers
@@ -102,4 +102,4 @@ The user can then:
 3. Change idea status (dropdown)
 4. Delete ideas
 5. Generate an OpenSpec plan from selected ideas (future)
-6. Start work on a plan (future — launches OMP with the plan context)
+6. Start work on a plan (future - launches OMP with the plan context)

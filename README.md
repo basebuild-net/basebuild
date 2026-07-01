@@ -9,16 +9,16 @@ scoped work without leaving the app.
 
 ## Features
 
-- **Plan pipeline** — generate, prioritize, and track MVP plans in a right-side
+- **Plan pipeline** - generate, prioritize, and track MVP plans in a right-side
   panel. Plans flow through `draft → openspec → waiting → in_progress → finished`.
-- **Integrated terminal** — real PTY-backed terminals backed by
+- **Integrated terminal** - real PTY-backed terminals backed by
   [portable-pty](https://github.com/wez/wezterm/tree/main/portable-pty) and
   rendered with [xterm.js](https://xtermjs.org/).
-- **Source control** — Git status, diff, stage, commit, and history using the
+- **Source control** - Git status, diff, stage, commit, and history using the
   installed Git CLI.
-- **Agent-aware context** — copy a plan reference id or open a plan directly in
+- **Agent-aware context** - copy a plan reference id or open a plan directly in
   a terminal session so the agent knows exactly what to work on.
-- **Local-first storage** — SQLite for dynamic state, OpenSpec files for plans,
+- **Local-first storage** - SQLite for dynamic state, OpenSpec files for plans,
   no cloud dependency.
 
 ## Stack
@@ -73,20 +73,20 @@ Only the patch component is bumped by default. To move to `0.1.0` or `1.0.0`, ed
 
 ## Documentation
 
-- [`AGENTS.md`](./AGENTS.md) — agent guide, design system, and code conventions.
-- [`DESIGN.md`](./DESIGN.md) — Basebuild Mono Desktop visual design system.
-- [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) — development notes, architecture, and build scripts.
-- [`docs/SECRETS.md`](./docs/SECRETS.md) — release signing and infrastructure secrets.
-- [`openspec/`](./openspec/) — OpenSpec planning artifacts.
+- [`AGENTS.md`](./AGENTS.md) - agent guide, design system, and code conventions.
+- [`DESIGN.md`](./DESIGN.md) - Basebuild Mono Desktop visual design system.
+- [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) - development notes, architecture, and build scripts.
+- [`docs/SECRETS.md`](./docs/SECRETS.md) - release signing and infrastructure secrets.
+- [`openspec/`](./openspec/) - OpenSpec planning artifacts.
 
 ## Contributing
 
 Contributions are welcome. Please read [`AGENTS.md`](./AGENTS.md) before making
-changes — it describes the design system, project structure, and conventions
+changes - it describes the design system, project structure, and conventions
 used across the codebase.
 
 ## License
 
-Attribution-required license — feel free to use, improve, and distribute, but
+Attribution-required license - feel free to use, improve, and distribute, but
 you must credit basebuild.net. Taking code or assets without attribution is
 prohibited. See [`LICENSE`](./LICENSE) for full terms.

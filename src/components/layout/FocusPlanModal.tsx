@@ -64,7 +64,7 @@ export function FocusPlanModal({
       <div className="modal plan-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3>
-            {plan.referenceId} <span className="text-muted">—</span> {plan.title}
+            {plan.referenceId} <span className="text-muted">-</span> {plan.title}
           </h3>
           <button className="btn-icon" type="button" title="Close" aria-label="Close" onClick={onClose}>
             <X size={14} />
