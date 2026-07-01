@@ -28,7 +28,9 @@ scoped work without leaving the app.
 - **Terminal**: portable-pty + xterm.js
 - **State**: rusqlite
 
-## Quick start
+## Quick start (desktop app)
+
+This repo is the source for the **desktop application**. Running the Vite dev server alone (`npm run dev`) only renders a non-functional web preview because terminals, source control, and the SQLite state layer require the Rust Tauri backend.
 
 ```bash
 npm install
@@ -40,6 +42,14 @@ You need:
 - Node.js 20+
 - Rust (stable)
 - Visual Studio C++ Build Tools (Windows) or equivalent C++ toolchain
+
+## Packaging
+
+```bash
+npm run tauri build
+```
+
+The installer (NSIS) is written to `src-tauri/target/release/bundle/nsis/`.
 
 ## Documentation
 

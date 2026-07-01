@@ -1,4 +1,4 @@
-name: Windows build
+name: CI / Release (Windows)
 
 on:
   push:
@@ -7,10 +7,13 @@ on:
   pull_request:
     branches: [main]
 
-jobs:
-  build:
-    runs-on: windows-latest
+env:
+  CI: "true"
+  RUST_BACKTRACE: "1"
 
+jobs:
+  checks:
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -31,6 +34,37 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Check Rust
+        working-directory: src-tauri
+        run: cargo check
+
+      - name: Test Rust
+        working-directory: src-tauri
+        run: cargo test
+
+  release:
+    needs: checks
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          toolchain: stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -40,7 +74,12 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Basebuild ${{ github.ref_name }}"
-          releaseBody: "See the assets to download and install Basebuild."
+          releaseBody: |
+            Windows installer for Basebuild ${{ github.ref_name }}.
+
+            **Signing status**
+            - If `TAURI_SIGNING_PRIVATE_KEY` is configured, the updater `.sig` files are signed.
+            - If not, the installer is still produced but auto-updates will not be trusted until the public/private key pair is set up. See `docs/SECRETS.md`.
           releaseDraft: true
           prerelease: false
           args: "--target x86_64-pc-windows-msvc"

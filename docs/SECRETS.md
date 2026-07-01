@@ -31,15 +31,19 @@ Update `src-tauri/tauri.conf.json`:
 }
 ```
 
+## Unsigned releases
+
+The GitHub Actions workflow (`.github/workflows/windows.yml`) will build and draft a release without any secrets. The installer is still produced, but the Tauri updater `.sig` files will be missing, so in-app auto-updates will not be trusted until a signing key is configured.
+
 ## Cloudflare Worker update manifest (future)
 
-The `check_app_update` command hits a static JSON manifest URL such as:
+The app checks a static JSON manifest URL such as:
 
 ```
 https://updates.basebuild.app/manifest.json
 ```
 
-The expected format is defined in `src-tauri/src/models/release.rs`:
+The expected format is:
 
 ```json
 {
