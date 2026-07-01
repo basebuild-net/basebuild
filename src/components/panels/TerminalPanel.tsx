@@ -3,20 +3,22 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 
-import { createTerminal, listenTerminalOutput, resizeTerminal, writeTerminal } from "../../lib/terminal";
+import { listenTerminalOutput, resizeTerminal, writeTerminal } from "../../lib/terminal";
+
+type TerminalPanelProps = {
+  /** Existing terminal ID to connect to. If null, shows empty state. */
+  terminalId?: number | null;
+  /** Optional: create a new terminal on mount with this cwd (legacy mode). */
+  cwd?: string | null;
+};
 
 const defaultShell =
   typeof window !== "undefined" && window.navigator.platform.startsWith("Win") ? "powershell.exe" : "bash";
 
-type TerminalPanelProps = {
-  cwd?: string | null;
-};
-
-export function TerminalPanel({ cwd }: TerminalPanelProps) {
+export function TerminalPanel({ terminalId, cwd }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const sessionIdRef = useRef<number | null>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,21 +31,21 @@ export function TerminalPanel({ cwd }: TerminalPanelProps) {
 
       const terminal = new Terminal({
         cursorBlink: true,
-        fontFamily: "Cascadia Code, Consolas, monospace",
-        fontSize: 13,
+        fontFamily: "JetBrains Mono, Consolas, monospace",
+        fontSize: 12,
         theme: {
-          background: "#0a0a0c",
-          foreground: "#e6e6e6",
-          cursor: "#d4d4d4",
-          selectionBackground: "#303035",
-          black: "#0a0a0c",
-          red: "#ef4444",
-          green: "#22c55e",
-          yellow: "#f59e0b",
-          blue: "#3b82f6",
-          magenta: "#d946ef",
+          background: "#000000",
+          foreground: "#ffffff",
+          cursor: "#ff5606",
+          selectionBackground: "rgba(255, 86, 6, 0.3)",
+          black: "#000000",
+          red: "#f87171",
+          green: "#4ade80",
+          yellow: "#facc15",
+          blue: "#818cf8",
+          magenta: "#c084fc",
           cyan: "#06b6d4",
-          white: "#e6e6e6",
+          white: "#ffffff",
         },
       });
       const fitAddon = new FitAddon();
@@ -59,12 +61,15 @@ export function TerminalPanel({ cwd }: TerminalPanelProps) {
       terminalRef.current = terminal;
       fitAddonRef.current = fitAddon;
 
-      // Buffer early output until session ID is known
-      const pendingOutput: Array<{ id: number; data: string } | { id: number; kind: "close" }> = [];
+      const id = terminalId;
+      if (id === null || id === undefined) {
+        setConnected(false);
+        return;
+      }
 
+      // Listen for output from this terminal
       const listener = await listenTerminalOutput((event) => {
-        const id = sessionIdRef.current;
-        if (id !== null && event.payload.id === id) {
+        if (event.payload.id === id) {
           if (event.payload.kind === "data") {
             terminal.write(event.payload.data);
           } else if (event.payload.kind === "close") {
@@ -80,21 +85,13 @@ export function TerminalPanel({ cwd }: TerminalPanelProps) {
       unlisten = () => listener();
 
       terminal.onData((data) => {
-        const id = sessionIdRef.current;
-        if (id !== null) void writeTerminal(id, data);
+        void writeTerminal(id, data);
       });
 
-      try {
-        const session = await createTerminal(defaultShell, cwd ?? undefined);
-        if (disposed) return;
-        sessionIdRef.current = session.id;
-        setConnected(true);
+      setConnected(true);
 
-        const dims = fitAddon.proposeDimensions();
-        if (dims) void resizeTerminal(session.id, dims.rows, dims.cols);
-      } catch (err) {
-        if (!disposed) setError(String(err));
-      }
+      const dims = fitAddon.proposeDimensions();
+      if (dims) void resizeTerminal(id, dims.rows, dims.cols);
     }
 
     void init();
@@ -105,26 +102,37 @@ export function TerminalPanel({ cwd }: TerminalPanelProps) {
       terminalRef.current?.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
+      setConnected(false);
     };
-  }, [cwd]);
+  }, [terminalId]);
 
   useEffect(() => {
     function handleResize() {
       fitAddonRef.current?.fit();
-      const dims = fitAddonRef.current?.proposeDimensions();
-      const id = sessionIdRef.current;
-      if (id !== null && dims) void resizeTerminal(id, dims.rows, dims.cols);
+      if (terminalId != null) {
+        const dims = fitAddonRef.current?.proposeDimensions();
+        if (dims) void resizeTerminal(terminalId, dims.rows, dims.cols);
+      }
     }
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, []);
+  }, [terminalId]);
+
+  if (terminalId == null && !cwd) {
+    return (
+      <div className="terminal-panel">
+        <div className="terminal-toolbar">
+          <span className="terminal-status">No terminal</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="terminal-panel">
       <div className="terminal-toolbar">
-        <span className="text-muted text-sm">{defaultShell}</span>
-        <span className={`text-sm ${connected ? "text-ok" : "text-muted"}`}>
-          {error ? "Error" : connected ? "Connected" : "Starting…"}
+        <span className="terminal-status">
+          {connected ? `● Terminal #${terminalId}` : error ? "Error" : "Connecting..."}
         </span>
       </div>
       {error ? <div className="terminal-error">{error}</div> : null}

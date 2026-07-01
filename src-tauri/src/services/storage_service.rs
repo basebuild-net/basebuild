@@ -88,7 +88,53 @@ impl StorageService {
                     path TEXT PRIMARY KEY NOT NULL,
                     name TEXT NOT NULL,
                     last_opened_at INTEGER NOT NULL
-                );",
+                );
+
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    project_path TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_path);
+
+                CREATE TABLE IF NOT EXISTS session_tabs (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    session_id TEXT NOT NULL,
+                    kind TEXT NOT NULL DEFAULT 'terminal',
+                    title TEXT NOT NULL,
+                    terminal_id INTEGER,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_tabs_session ON session_tabs(session_id);
+
+                CREATE TABLE IF NOT EXISTS idea_categories (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    session_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_categories_session ON idea_categories(session_id);
+
+                CREATE TABLE IF NOT EXISTS ideas (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    session_id TEXT NOT NULL,
+                    category_id TEXT,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'concept',
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (category_id) REFERENCES idea_categories(id) ON DELETE SET NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_ideas_session ON ideas(session_id);
+                CREATE INDEX IF NOT EXISTS idx_ideas_status ON ideas(status);
+                ",
             )
             .map_err(|error| format!("Failed to initialize Basebuild state database: {error}"))
     }

@@ -1,10 +1,12 @@
 pub mod config_pack;
 pub mod git;
+pub mod idea;
 pub mod omp;
 pub mod project;
 pub mod recent_project;
 pub mod release;
 pub mod requirement;
+pub mod session;
 pub mod storage;
 pub mod terminal;
 pub mod update;

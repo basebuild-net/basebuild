@@ -15,12 +15,14 @@ use commands::{
         git_discard, git_fetch, git_log, git_pull, git_push, git_reset, git_stage_all,
         git_status, git_unstage_all,
     },
+    ideas::{create_category, create_idea, delete_category, delete_idea, list_categories, list_ideas, update_idea_status},
     omp::{omp_config_list, omp_debug_context, omp_stats, omp_status, omp_stream_command, omp_usage},
     projects::{
         create_project_basebuild_config, detect_project, list_recent_projects, remember_recent_project,
         remove_recent_project, reveal_in_explorer,
     },
     requirements::list_requirements,
+    sessions::{create_session, create_tab, delete_session, delete_tab, list_sessions, list_tabs, rename_session, update_tab_terminal},
     terminal::{close_terminal, create_terminal, list_terminals, resize_terminal, write_terminal},
     updates::check_app_update,
 };
@@ -133,8 +135,22 @@ pub fn run() {
             git_log,
             list_config_packs,
             create_user_config_pack,
-            check_app_update,
             list_requirements,
+            create_session,
+            list_sessions,
+            rename_session,
+            delete_session,
+            create_tab,
+            list_tabs,
+            delete_tab,
+            update_tab_terminal,
+            create_category,
+            list_categories,
+            delete_category,
+            create_idea,
+            list_ideas,
+            update_idea_status,
+            delete_idea,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Basebuild");
