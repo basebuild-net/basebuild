@@ -18,6 +18,7 @@ use commands::{
     ideas::{create_category, create_idea, delete_category, delete_idea, list_categories, list_ideas, update_idea_status},
     omp::{omp_config_list, omp_debug_context, omp_stats, omp_status, omp_stream_command, omp_usage},
     plans::{create_plan, delete_plan, get_plan, list_plans, set_plan_context, set_plan_status, update_plan},
+    schematic::{get_project_schematic, has_project_schematic, set_project_schematic},
     projects::{
         create_project_basebuild_config, detect_project, list_recent_projects, remember_recent_project,
         remove_recent_project, reveal_in_explorer, set_last_active_session,
@@ -116,6 +117,9 @@ pub fn run() {
             omp_usage,
             omp_debug_context,
             omp_stream_command,
+            get_project_schematic,
+            has_project_schematic,
+            set_project_schematic,
             create_plan,
             list_plans,
             get_plan,

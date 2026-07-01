@@ -7,9 +7,10 @@ type GeneratePlanModalProps = {
   onGenerate: (goal: string) => void;
   onSuggest: (goal: string) => void;
   onCreateBlank: () => void;
+  showSuggestMore?: boolean;
 };
 
-export function GeneratePlanModal({ open, onClose, onGenerate, onSuggest, onCreateBlank }: GeneratePlanModalProps) {
+export function GeneratePlanModal({ open, onClose, onGenerate, onSuggest, onCreateBlank, showSuggestMore }: GeneratePlanModalProps) {
   const [goal, setGoal] = useState("");
 
   if (!open) return null;
@@ -53,14 +54,16 @@ export function GeneratePlanModal({ open, onClose, onGenerate, onSuggest, onCrea
               >
                 <Sparkles size={12} /> Generate plans
               </button>
-              <button
-                className="btn"
-                type="button"
-                title="Suggest additional plans based on the current goal and existing plans"
-                onClick={() => run(onSuggest)}
-              >
-                Suggest more
-              </button>
+              {showSuggestMore ? (
+                <button
+                  className="btn"
+                  type="button"
+                  title="Suggest additional plans based on the current goal and existing plans"
+                  onClick={() => run(onSuggest)}
+                >
+                  Suggest more
+                </button>
+              ) : null}
               <button
                 className="btn btn-ghost"
                 type="button"

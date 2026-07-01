@@ -4,6 +4,7 @@ pub mod omp_service;
 pub mod plan_service;
 pub mod project_service;
 pub mod requirement_service;
+pub mod schematic_service;
 pub mod session_service;
 pub mod storage_paths;
 pub mod storage_service;

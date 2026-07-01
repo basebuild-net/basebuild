@@ -12,7 +12,10 @@ import { PlanPanel } from "./PlanPanel";
 import { EditPlanModal } from "./EditPlanModal";
 import { FocusPlanModal } from "./FocusPlanModal";
 import { GeneratePlanModal } from "./GeneratePlanModal";
+import { ProjectDescriptionModal } from "./ProjectDescriptionModal";
 import { ToolTabs, type ToolTabId, type ToolTabItem } from "./ToolTabs";
+import { useProjectSchematic } from "../../state/schematic";
+import { revealInExplorer } from "../../lib/projects";
 import { generateSessionTitle } from "../../lib/skills";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import { MenuBar, type MenuConfig } from "./MenuBar";
@@ -52,6 +55,7 @@ export function AppShell() {
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [focusingPlan, setFocusingPlan] = useState<Plan | null>(null);
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [descriptionOpen, setDescriptionOpen] = useState(false);
   const [terminalOutputBuffer, setTerminalOutputBuffer] = useState("");
   const titleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titlePendingRef = useRef(false);
@@ -59,6 +63,7 @@ export function AppShell() {
   const activeProject = sidebar.projects.find((p) => p.path === activeProjectPath);
   const session = useSessionState(activeProjectPath, activeProject?.lastActiveSessionId);
   const plans = usePlans(session.activeSessionId);
+  const schematic = useProjectSchematic(activeProjectPath);
 
   useEffect(() => {
     if (activeProjectPath && session.sessions.length === 0 && !session.activeSessionId) {
@@ -160,26 +165,36 @@ export function AppShell() {
   const handleGenerateFromGoal = useCallback(
     (goal: string) => {
       if (!session.activeSessionId) return;
-      // TODO: call OMP planner skill with goal + project context, parse JSON, create plans
+      if (!schematic.exists) {
+        setDescriptionOpen(true);
+        return;
+      }
+      // TODO: call OMP planner skill with goal + schematic context, parse JSON, create plans
       void plans.createPlan({
         title: `Plan from ${activeProjectPath?.split(/[/\\]/)?.pop() ?? "project"}`,
-        description: goal || "Placeholder generated plan. Wire AI generation here.",
+        description: goal || `Generated plan. Schematic context:\n\n${schematic.content ?? "(no schematic)"}`,
         goal: goal || null,
         status: "draft",
         priority: 60,
         tags: ["generated"],
       });
     },
-    [plans, session.activeSessionId, activeProjectPath],
+    [plans, session.activeSessionId, activeProjectPath, schematic.exists, schematic.content],
   );
 
   const handleSuggestMore = useCallback(
     (goal: string) => {
-      // TODO: send existing plans + goal to OMP and append new plans
+      // TODO: send existing plans + schematic + goal to OMP and append new plans
       void handleGenerateFromGoal(goal);
     },
     [handleGenerateFromGoal],
   );
+
+  const handleOpenSchematicFile = useCallback(async () => {
+    if (!activeProjectPath) return;
+    await schematic.write(schematic.content ?? `# Project Schematic\n\n## Purpose\n`);
+    await revealInExplorer(`${activeProjectPath}/.basebuild/project-schematic.md`);
+  }, [activeProjectPath, schematic]);
 
   const handleEnhancePlan = useCallback(
     (plan: Plan) => {
@@ -398,7 +413,15 @@ export function AppShell() {
         onClose={() => setGenerateOpen(false)}
         onGenerate={handleGenerateFromGoal}
         onSuggest={handleSuggestMore}
-        onCreateBlank={handleCreatePlan}
+        onCreateBlank={handleOpenSchematicFile}
+        showSuggestMore={schematic.exists}
+      />
+      <ProjectDescriptionModal
+        open={descriptionOpen}
+        onClose={() => setDescriptionOpen(false)}
+        existingContent={schematic.content}
+        onSave={schematic.write}
+        onOpenFile={handleOpenSchematicFile}
       />
     </div>
   );
