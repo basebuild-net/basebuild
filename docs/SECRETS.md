@@ -8,7 +8,7 @@ This document lists the secrets and keys required to ship Basebuild app updates 
 |---|---|
 | `TAURI_SIGNING_PRIVATE_KEY` | Ed25519 private key used to sign update bundles. |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Optional password for the private key. |
-| `GITHUB_TOKEN` | Automatically provided by GitHub Actions to create draft releases. |
+| `GITHUB_TOKEN` | Automatically provided by GitHub Actions to create **draft** releases. A maintainer must publish the draft manually - see AGENTS.md "Release Discipline". |
 
 ## Generating the Tauri updater signing key
 
@@ -33,7 +33,7 @@ Update `src-tauri/tauri.conf.json`:
 
 ## Unsigned releases
 
-The GitHub Actions workflow (`.github/workflows/windows.yml`) will build and draft a release without any secrets. The installer is still produced, but the Tauri updater `.sig` files will be missing, so in-app auto-updates will not be trusted until a signing key is configured.
+The release workflow (`.github/workflows/windows.yml`) always builds and drafts a release, but without `TAURI_SIGNING_PRIVATE_KEY` configured the Tauri updater `.sig` files will be missing, so in-app auto-updates will not be trusted. The workflow creates a **draft** release regardless - a maintainer must publish it manually. See AGENTS.md "Release Discipline" for the full release process.
 
 ## Cloudflare Worker update manifest (future)
 

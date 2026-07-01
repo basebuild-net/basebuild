@@ -3,13 +3,12 @@ name: CI / Release (Windows)
 on:
   push:
     branches: [main]
-    tags: ["v*.*.*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
     inputs:
       version:
-        description: "Version tag to release (e.g. 0.0.1)"
+        description: "Version to release (e.g. 0.0.2) - must NOT already exist as a published release"
         required: true
         type: string
 
@@ -67,12 +66,30 @@ jobs:
 
   release:
     needs: [check-frontend, check-rust]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify version is not already published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          tag="v${{ inputs.version }}"
+          if gh release view "$tag" --repo "${{ github.repository }}" --json isDraft >/dev/null 2>&1; then
+            is_draft=$(gh release view "$tag" --repo "${{ github.repository }}" --json isDraft --jq '.isDraft')
+            if [ "$is_draft" = "true" ]; then
+              echo "::notice::Existing DRAFT release for $tag found - will update the draft."
+            else
+              echo "::error::Release $tag already exists and is PUBLISHED. Re-releasing a published version is not allowed. Bump the version and create a new release instead."
+              exit 1
+            fi
+          else
+            echo "::notice::No existing release for $tag - a new draft will be created."
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -93,10 +110,10 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
-          releaseName: "Basebuild ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}"
+          tagName: v${{ inputs.version }}
+          releaseName: "Basebuild v${{ inputs.version }}"
           releaseBody: "Download the installer below to update Basebuild."
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           updaterJsonPreferNsis: true
           args: "--target x86_64-pc-windows-msvc"

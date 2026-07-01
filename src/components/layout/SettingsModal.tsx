@@ -3,6 +3,7 @@ import { Check, Download, RefreshCw, Settings2, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
 import { checkForUpdates, installUpdate, type UpdateInfo } from "../../lib/updater";
+import { appVersion } from "../../lib/app";
 type SettingsModalProps = {
   open: boolean;
   onClose: () => void;
@@ -18,10 +19,12 @@ export function SettingsModal({ open, onClose, projectPath }: SettingsModalProps
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [updateLoading, setUpdateLoading] = useState(false);
   const [installing, setInstalling] = useState(false);
+  const [version, setVersion] = useState("");
 
   useEffect(() => {
     if (!open) return;
     void refreshReq();
+    void appVersion().then(setVersion).catch(() => {});
   }, [open]);
 
   async function refreshReq() {
@@ -162,7 +165,7 @@ export function SettingsModal({ open, onClose, projectPath }: SettingsModalProps
             {tab === "about" ? (
               <div className="stack">
                 <h3>Basebuild</h3>
-                <p className="text-muted">Version 0.0.1</p>
+                <p className="text-muted">Version {version || "…"}</p>
                 <p className="text-muted text-sm">
                   Desktop application for managing OMP terminals, source control,
                   ideas, and plans.

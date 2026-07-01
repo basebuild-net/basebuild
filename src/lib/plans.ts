@@ -36,13 +36,15 @@ export interface NewPlan {
 
 export async function createPlan(sessionId: string, plan: NewPlan): Promise<Plan> {
   return invoke<Plan>("create_plan", {
-    sessionId,
-    title: plan.title,
-    description: plan.description,
-    goal: plan.goal ?? null,
-    status: plan.status ?? "draft",
-    priority: plan.priority ?? 50,
-    tags: plan.tags ?? [],
+    input: {
+      sessionId,
+      title: plan.title,
+      description: plan.description,
+      goal: plan.goal ?? null,
+      status: plan.status ?? "draft",
+      priority: plan.priority ?? 50,
+      tags: plan.tags ?? [],
+    },
   });
 }
 
@@ -57,12 +59,14 @@ export async function getPlan(id: string): Promise<Plan | null> {
 export async function updatePlan(id: string, plan: NewPlan): Promise<Plan> {
   return invoke<Plan>("update_plan", {
     id,
-    title: plan.title,
-    description: plan.description,
-    goal: plan.goal ?? null,
-    status: plan.status ?? "draft",
-    priority: plan.priority ?? 50,
-    tags: plan.tags ?? [],
+    input: {
+      title: plan.title,
+      description: plan.description,
+      goal: plan.goal ?? null,
+      status: plan.status ?? "draft",
+      priority: plan.priority ?? 50,
+      tags: plan.tags ?? [],
+    },
   });
 }
 

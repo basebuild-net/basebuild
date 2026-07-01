@@ -52,7 +52,8 @@ export function useSessionState(projectPath: string | null, lastActiveSessionId?
         const firstNonTerminal = list.find((t) => t.kind !== "terminal");
         setActiveTabId(firstNonTerminal?.id ?? null);
       }
-    } catch {
+    } catch (e) {
+      console.error("Failed to list tabs:", e);
       setTabs([]);
     }
   }, [activeSessionId]);

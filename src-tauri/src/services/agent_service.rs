@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde_json::json;
 use tauri::{AppHandle, Emitter};
 
@@ -14,6 +14,7 @@ struct AgentSession {
     #[allow(dead_code)]
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    child: Box<dyn Child + Send + Sync>,
     _shell: String,
 }
 
@@ -97,6 +98,7 @@ impl AgentManager {
         let session = AgentSession {
             master: pair.master,
             writer,
+            child,
             _shell: "omp".to_string(),
         };
 
@@ -120,9 +122,12 @@ impl AgentManager {
     }
 
     pub fn stop(&mut self, id: u64) -> Result<(), String> {
-        self.sessions
+        let mut session = self
+            .sessions
             .remove(&id)
             .ok_or("Agent session not found")?;
+        // Kill the child process (omp.exe) so it doesn't linger as an orphan
+        let _ = session.child.kill();
         Ok(())
     }
 }
