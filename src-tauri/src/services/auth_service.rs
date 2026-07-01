@@ -7,7 +7,7 @@ use serde_json::json;
 
 use crate::services::storage_paths::StoragePathService;
 
-const BASE_URL: &str = "https://basebuild.app";
+const BASE_URL: &str = "https://basebuild.net";
 
 /// Persisted native app token + user profile stored locally.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

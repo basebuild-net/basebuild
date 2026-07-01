@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use crate::services::auth_service::AuthService;
 use crate::services::omp_service::OmpService;
 
-const MCP_URL: &str = "https://basebuild.app/api/mcp";
+const MCP_URL: &str = "https://basebuild.net/api/mcp";
 
 /// Sync raw OMP usage to basebuild.net using the stored native token.
 /// Collects `omp stats --json` and `omp usage --json`, then sends them
