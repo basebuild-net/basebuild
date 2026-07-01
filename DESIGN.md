@@ -94,6 +94,12 @@ components:
     borderRight: "1px solid {colors.outline}"
   sidebar-collapsed:
     width: 36px
+  side-panel:
+    backgroundColor: "transparent"
+    width: 260px
+    borderLeft: "1px solid {colors.outline}"
+  side-panel-collapsed:
+    width: 36px
   tool-rail:
     backgroundColor: "transparent"
     width: 160px
@@ -164,26 +170,29 @@ never costs clarity.
 
 ## Layout
 
-A three-column grid: left sidebar, center workspace, right plan panel.
+A three-column grid: left sidebar, center workspace, right side panel.
 **Both left and right columns are collapsible** to icon-only mode via toggle
 buttons at the top of each column.
 
 - **Left sidebar (220px → 36px collapsed):** Projects list with add/remove/reveal.
   Toggle button at top collapses to icon-only.
 - **Center workspace:** Session header with title, compact tool tabs, and status
-  pill. Below that are workspace session tabs and the active tool view.
-- **Right plan panel (260px → 36px collapsed):** Plan lanes, idea generation,
-  and focus controls. This is the primary work surface for ideas and tasks.
+  pill. Below that are workspace tabs and the active tab view (terminal, file
+  viewer, or project schematic).
+- **Right side panel (260px → 36px collapsed):** Tabbed panel with **Plans**,
+  **Files**, and **Source**. Plans show lanes and AI generation controls; Files
+  is a small project explorer; Source shows git status.
 
 ### Tool tabs
 
 Center tool selection is a compact tab bar inline with the session header:
-**Terminal / Source / Debug**. Active tab uses the orange accent background.
-These are not part of the collapsible right panel.
+**Terminal / Debug**. Source control moved to the right side panel's `Source`
+tab. Workspace tabs are per-session and each has a `kind`: terminal, file, or
+empty (schematic view).
 
 ### Plan panel
 
-The right panel is not a tab; it is always available. It exposes:
+The `Plans` tab inside the right panel exposes:
 - Plan lanes grouped by status.
 - Generate / suggest / enhance AI actions.
 - Per-plan actions: focus, edit, open in terminal, copy reference.

@@ -55,14 +55,21 @@ Current classes include `.btn`, `.btn-primary`, `.btn-ghost`, `.btn-icon`,
 The live shell is a three-column grid:
 
 1. **Left sidebar** (220px → 36px collapsed) — projects and sessions.
-2. **Center workspace** — top session header, workspace tabs (terminal sessions),
-   then the active tool view.
-3. **Right plan panel** (260px → 36px collapsed) — plans, tasks, idea
-   generation, focus mode.
+2. **Center workspace** — session header, workspace tabs, and the active tab
+   view (terminal, file viewer, or project schematic).
+3. **Right side panel** (260px → 36px collapsed) — tabbed panel with
+   **Plans**, **Files**, and **Source**.
 
 The center workspace uses a compact tab bar for switching tools:
-**Terminal / Source / Debug**. The right panel is not a tab; it is the primary
-work surface for plans.
+**Terminal / Debug**. Source control moved to the right side panel `Source`
+tab. Workspace tabs are generic and each tab has a `kind`: `terminal`, `file`,
+or `empty`.
+
+- Use the **+** menu on the workspace tab bar to add a **Terminal** or
+  **Schematic** tab.
+- Click a file in the right panel’s **Files** tab to open it as a `file` tab.
+- An `empty` tab renders the project schematic from
+  `.basebuild/project-schematic.md`.
 
 Shell state is driven by `data-sidebar="collapsed|expanded"` and
 `data-rail="collapsed|expanded"` attributes on `.app-shell`. CSS handles the grid
@@ -118,8 +125,8 @@ When you touch anything plan-related, make sure both `src/lib/plans.ts` and
 ```
 src/
   components/
-    layout/          # Shell: AppShell, ProjectSidebar, ToolTabs, WorkspaceTabs, PlanPanel
-    panels/          # Feature panels: TerminalPanel, SourcePanel, DebugPanel
+    layout/          # Shell: AppShell, ProjectSidebar, SidePanel, ToolTabs, WorkspaceTabs, PlanPanel
+    panels/          # Feature panels: TerminalPanel, SourcePanel, FilesPanel, FileViewer, ProjectSchematicTab, DebugPanel
   lib/               # Tauri invoke wrappers — one file per backend domain
   state/             # React state hooks
   styles/

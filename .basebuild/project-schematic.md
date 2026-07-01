@@ -1,118 +1,96 @@
-# Project Schematic: Basebuild Desktop
+# Project Schematic: Basebuild
 
 ## Purpose
 
-Basebuild is a local-first desktop control plane for AI coding agents. It wraps
-[OhMyPi (OMP)](https://github.com/oh-my-pi) and other terminal-based tools in a
-cross-platform Tauri v2 application, giving developers a visual project
-workspace, an integrated terminal, source control, and a persistent plan
-pipeline. The goal is to turn a vague intent into scoped, tracked work and then
-execute that work in the agent's native terminal environment with full context.
+Basebuild is an open-source desktop control plane for AI coding agents. It wraps
+the OhMyPi (OMP) CLI in a local-first, cross-platform interface so users can
+manage projects, run integrated terminals, track source control, and turn vague
+goals into scoped, trackable plans without leaving the app.
+
+It does not replace OMP, Git, or an editor. It gives those tools a shared
+visual workspace and a persistent plan pipeline.
 
 ## Target users
 
-Primary users are developers who already use OMP or similar CLI agents and want
-a structured way to manage what the agent should work on next, without leaving
-their tools behind.
+Primary users are developers and agent operators who work with OMP or similar
+CLI-first AI coding agents on real projects.
 
-- **Solo developers** tracking multiple feature ideas across one or more projects.
-- **Agent-first workers** who prefer to state a goal, review generated plans, and
-  hand them to an agent rather than typing prompts repeatedly.
-- **Small teams** that need lightweight project scoping and source-control
-  visibility in one desktop window.
+- **As a developer**, I want to open a project, see its plans, and run a terminal
+  in the same window so I can stay in flow.
+- **As an agent operator**, I want to generate ideas, refine them into plans,
+  and open a plan in a terminal with a single reference id so the agent picks
+  up exactly what to do.
+- **As a project maintainer**, I want a project schematic and plan history
+  persisted locally, not in a cloud service.
 
-User stories:
-- "I open my project, set a high-level goal, and get a prioritized list of
-  MVP plans."
-- "I move a plan to in-progress and click once to send its reference and
-  context to a terminal running OMP."
-- "I review git status, diff, commit, and history without leaving the app."
+Users range from solo founders to small teams, mostly on macOS, Windows, or
+Linux workstations.
 
 ## Tech stack
 
-- **Frontend**: React 18+, TypeScript, Vite, Tauri v2 webview
-- **Desktop core**: Rust, Tauri v2
-- **Terminal**: `portable-pty` (Rust), `xterm.js` (web)
-- **Local state**: rusqlite / SQLite
-- **Agent integration**: OhMyPi (OMP) CLI, invoked via Tauri commands and
-  terminal streams
-- **Build/package**: npm + cargo
+- **Frontend:** React 18 + TypeScript + Vite, running inside a Tauri v2 webview.
+- **Desktop core:** Rust + Tauri v2.
+- **Terminal:** `portable-pty` (Rust) for PTY shells, `xterm.js` for DOM rendering.
+- **Local state:** `rusqlite` for sessions, tabs, plans, ideas, and recent projects.
+- **Project metadata:** OpenSpec-style files under `.basebuild/` and `.omp/`.
+- **Build tooling:** npm/pnpm scripts, `cargo`, `tauri-cli`.
 
 ## Architecture notes
 
-The app is split into a Rust backend and a React frontend that communicate over
-Tauri invoke/events.
-
-- `src/components/layout/*` — shell components: sidebar, workspace tabs, tool
-  tabs, right-side panels, modals.
-- `src/components/panels/*` — feature panels: terminal, OMP debug, source.
-- `src/lib/*` — thin Tauri invoke wrappers, one file per backend domain.
-- `src/state/*` — React hooks for project, session, plan, OMP, and terminal
-  state.
-- `src/styles/globals.css` — single stylesheet and design token contract.
-- `src-tauri/src/services/*` — business logic and SQLite access.
-- `src-tauri/src/commands/*` — Tauri command surface exposed to the frontend.
-- `skills/*` — markdown skill files consumed by OMP when Basebuild drives
-  agent sessions.
-
-Key invariants:
-- Plans belong to a session and flow through a fixed status lifecycle:
-  `draft → openspec → waiting → in_progress → finished` with `cancelled` as a
-  terminal state.
-- CSS lives in exactly one file. No inline styles, no per-component CSS.
-- Basebuild does not replace OMP, Git, or editors. It wraps them.
+- The app is a classic Tauri shell: Rust commands expose OS access, React
+  renders everything, state lives in SQLite and the project folder.
+- Major UI regions: left sidebar (projects/sessions), center workspace (terminal,
+  file viewer, or project schematic tab), right side panel with `Plans`,
+  `Files`, and `Source` tabs.
+- Workspace tabs are generic. Each tab has a `kind`: `terminal`, `file`, or
+  `empty` (schematic view).
+- Plans are first-class objects with a fixed lifecycle:
+  `draft → openspec → waiting → in_progress → finished`. `cancelled` can
+  end from any status.
+- Agents must read `AGENTS.md` and `DESIGN.md` before UI or convention changes.
+- Only modify `AGENTS.md` or this project schematic with explicit user approval.
 
 ## Design constraints
 
-- Visual design is governed by `DESIGN.md`.
-- Pure black canvas (`#000000`), pure white text (`#ffffff`), single orange
-  accent (`#ff5606`).
-- **0px border radius everywhere.** No exceptions.
-- No decorative borders; layer with whitespace, hover lifts, and uppercase
-  micro-typography.
-- Fonts: Space Grotesk for UI, JetBrains Mono for code/paths/numbers.
-- Extremely compact, dense, instrument-like UI. Tooltips on every interactive
-  element.
-- Components and utility classes must be reused. A pattern that appears twice
-  should be a component; three times must be a component.
+- Source of truth is `DESIGN.md` (`Basebuild Mono Desktop`): pure black canvas,
+  pure white text, orange (`#ff5606`) accent, 0px border radius everywhere.
+- No inline styles, no CSS modules, no styled components. All styles live in
+  `src/styles/globals.css`.
+- Utilities only appear when reused. Document new utility classes in
+  `AGENTS.md` and `DESIGN.md`.
+- Fonts: Space Grotesk (UI), JetBrains Mono (paths, code, terminal).
+- Tooltips on every interactive element.
+- Layout grid is CSS-variable driven: `--bb-sidebar-w: 220px`,
+  `--bb-rail-w: 260px`, with collapsed states at `36px`.
 
 ## Development conventions
 
-- **Rust**: one service per domain; commands are thin; use typed errors.
-- **TypeScript**: `type` over `interface` for props; keep React hooks in
-  `src/state/`; lib files contain no React state logic.
-- **Naming**: `kebab-case` files, `PascalCase.tsx` components, `snake_case`
-  Rust modules, `camelCase` Tauri commands.
-- **Tests**: add or update a test when a command or service boundary changes.
-  Frontend UI changes require a screenshot/manual visual verification.
-- **Documentation**: update `AGENTS.md`, `DESIGN.md`, `docs/DEVELOPMENT.md`, or
-  `README.md` when a change invalidates them.
-- **Commits**: milestone-style commits with a short subject and body that
-  explains why.
-- **Skills**: new skills live in `skills/<name>/SKILL.md` and are tested on
-  this repository before shipping.
+- Run `npm run build` and `cargo check` after any non-trivial change.
+- Keep Tauri command signatures and `src/lib/*.ts` wrappers in sync.
+- Add/update tests for new Rust commands and complex UI interactions where
+  practical.
+- Error messages should be surfaced to the UI, not swallowed in the console.
+- Prefer existing patterns over new abstractions; do not create additional
+  conventions beside those already in the codebase.
+- Commit in small, focused units with descriptive messages.
 
 ## Current priorities
 
-1. Project Schematic support: read/write `.basebuild/project-schematic.md`, use
-   it as the source of truth for AI plan generation, and expose it in the UI.
-2. Right-side panel tabs: Plans, Files, Source Control as persistent utility
-   tabs in the right column.
-3. Workspace tab generalization: support terminal, file viewer, and empty tab
-   kinds with a clear + menu.
-4. GUI-driven OMP integration: run OMP in the background, surface interactive
-   questions in the UI, and allow switching to terminal view.
-5. Agent-aware AGENTS.md / schematic updates: agents should read both files
-   before acting and propose edits rather than silently overwrite them.
+1. Complete the right side panel refactor: `Plans`, `Files`, and `Source` tabs
+   are wired; continue hardening URL handling and tab persistence.
+2. Finish generalizing workspace tabs so terminal, file viewer, and project
+   schematic tabs coexist and restore cleanly across sessions.
+3. Wire the **Generate Plans** / **Suggest More** flow to OMP so plans can be
+   generated from a goal using the project schematic as context.
+4. Persist OpenSpec proposal artifacts inside `.basebuild/` or `openspec/`
+   and expose them in the UI.
+5. Add integration smoke tests for the tab model and file-service commands.
 
 ## Open questions
 
-- Should the Project Schematic be required before *any* plan creation, or only
-  before AI-generated plans?
-- What level of integration with OMP question/answer flow is feasible before
-  the first release?
-- How should Basebuild handle multi-root workspaces or projects without a
-  `.git` directory?
-- What opt-in `basebuild.net` aggregation features (skill sharing, usage
-  patterns, community configs) are in scope for MVP?
-- Should the Files tab use the OS file system or Git tree semantics, or both?
+- Should non-terminal tab kinds (`file`, `empty`) restore their previous state
+  when the app restarts, or is session-only persistence enough?
+- How should the app handle large files in the file viewer? Should there be a
+  size cutoff or lazy reader?
+- When generating plans from OMP, should results be appended as draft plans
+  immediately or shown in a transient review list first?
