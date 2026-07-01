@@ -11,6 +11,7 @@ import { ProjectSidebar, useProjectSidebar } from "./ProjectSidebar";
 import { PlanPanel } from "./PlanPanel";
 import { EditPlanModal } from "./EditPlanModal";
 import { FocusPlanModal } from "./FocusPlanModal";
+import { GeneratePlanModal } from "./GeneratePlanModal";
 import { ToolTabs, type ToolTabId, type ToolTabItem } from "./ToolTabs";
 import { generateSessionTitle } from "../../lib/skills";
 import { WorkspaceTabs } from "./WorkspaceTabs";
@@ -50,6 +51,7 @@ export function AppShell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [focusingPlan, setFocusingPlan] = useState<Plan | null>(null);
+  const [generateOpen, setGenerateOpen] = useState(false);
   const [terminalOutputBuffer, setTerminalOutputBuffer] = useState("");
   const titleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titlePendingRef = useRef(false);
@@ -155,16 +157,44 @@ export function AppShell() {
     });
   }, [plans, session.activeSessionId]);
 
-  const handleGeneratePlans = useCallback(() => {
-    if (!session.activeSessionId) return;
-    void plans.createPlan({
-      title: `Plan from ${activeProjectPath?.split(/[/\\]/)?.pop() ?? "project"}`,
-      description: "Placeholder generated plan. Wire AI generation here.",
-      status: "draft",
-      priority: 60,
-      tags: ["generated"],
-    });
-  }, [plans, session.activeSessionId, activeProjectPath]);
+  const handleGenerateFromGoal = useCallback(
+    (goal: string) => {
+      if (!session.activeSessionId) return;
+      // TODO: call OMP planner skill with goal + project context, parse JSON, create plans
+      void plans.createPlan({
+        title: `Plan from ${activeProjectPath?.split(/[/\\]/)?.pop() ?? "project"}`,
+        description: goal || "Placeholder generated plan. Wire AI generation here.",
+        goal: goal || null,
+        status: "draft",
+        priority: 60,
+        tags: ["generated"],
+      });
+    },
+    [plans, session.activeSessionId, activeProjectPath],
+  );
+
+  const handleSuggestMore = useCallback(
+    (goal: string) => {
+      // TODO: send existing plans + goal to OMP and append new plans
+      void handleGenerateFromGoal(goal);
+    },
+    [handleGenerateFromGoal],
+  );
+
+  const handleEnhancePlan = useCallback(
+    (plan: Plan) => {
+      // TODO: call OMP to rewrite title/description/goal with clearer scope
+      void plans.updatePlan(plan.id, {
+        title: plan.title,
+        description: `${plan.description}\n\n[enhanced — wire AI rewrite]`,
+        goal: plan.goal ?? undefined,
+        status: plan.status,
+        priority: Math.min(100, plan.priority + 10),
+        tags: [...plan.tags, "enhanced"],
+      });
+    },
+    [plans],
+  );
 
   const handleEditPlan = useCallback((plan: Plan) => {
     setEditingPlan(plan);
@@ -337,13 +367,14 @@ export function AppShell() {
           collapsed={planCollapsed}
           onToggleCollapse={() => setPlanCollapsed((v) => !v)}
           onCreatePlan={handleCreatePlan}
-          onGeneratePlans={handleGeneratePlans}
+          onGeneratePlans={() => setGenerateOpen(true)}
           onEditPlan={handleEditPlan}
           onFocusPlan={handleFocusPlan}
           onSetPlanStatus={plans.setPlanStatus}
           onDeletePlan={plans.deletePlan}
           onCopyReference={handleCopyReference}
           onOpenInTerminal={handleOpenPlanInTerminal}
+          onEnhancePlan={handleEnhancePlan}
         />
       </main>
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} />
@@ -361,6 +392,13 @@ export function AppShell() {
         onCopyReference={handleCopyReference}
         onOpenInTerminal={handleOpenPlanInTerminal}
         onSetContext={(id, ctx: PlanFocusContext) => void plans.setPlanContext(id, ctx)}
+      />
+      <GeneratePlanModal
+        open={generateOpen}
+        onClose={() => setGenerateOpen(false)}
+        onGenerate={handleGenerateFromGoal}
+        onSuggest={handleSuggestMore}
+        onCreateBlank={handleCreatePlan}
       />
     </div>
   );

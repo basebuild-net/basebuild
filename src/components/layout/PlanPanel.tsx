@@ -27,6 +27,7 @@ type PlanPanelProps = {
   onDeletePlan: (id: string) => void;
   onCopyReference: (refId: string) => void;
   onOpenInTerminal: (plan: Plan) => void;
+  onEnhancePlan?: (plan: Plan) => void;
 };
 
 export function PlanPanel({
@@ -43,6 +44,7 @@ export function PlanPanel({
   onDeletePlan,
   onCopyReference,
   onOpenInTerminal,
+  onEnhancePlan,
 }: PlanPanelProps) {
   const [expandedFinished, setExpandedFinished] = useState(false);
 
@@ -146,9 +148,10 @@ export function PlanPanel({
                           onEdit={onEditPlan}
                           onFocus={onFocusPlan}
                           onSetStatus={onSetPlanStatus}
-                          onDelete={onDeletePlan}
+                          onDeletePlan={onDeletePlan}
                           onCopyReference={onCopyReference}
                           onOpenInTerminal={onOpenInTerminal}
+                          onEnhancePlan={onEnhancePlan}
                         />
                       ))}
                     </div>
@@ -171,9 +174,10 @@ export function PlanPanel({
                       onEdit={onEditPlan}
                       onFocus={onFocusPlan}
                       onSetStatus={onSetPlanStatus}
-                      onDelete={onDeletePlan}
+                      onDeletePlan={onDeletePlan}
                       onCopyReference={onCopyReference}
                       onOpenInTerminal={onOpenInTerminal}
+                      onEnhancePlan={onEnhancePlan}
                     />
                   ))}
                 </div>
@@ -191,9 +195,10 @@ type PlanCardProps = {
   onEdit: (plan: Plan) => void;
   onFocus: (plan: Plan) => void;
   onSetStatus: (id: string, status: PlanStatus) => void;
-  onDelete: (id: string) => void;
+  onDeletePlan: (id: string) => void;
   onCopyReference: (refId: string) => void;
   onOpenInTerminal: (plan: Plan) => void;
+  onEnhancePlan?: (plan: Plan) => void;
 };
 
 function PlanCard({
@@ -201,9 +206,10 @@ function PlanCard({
   onEdit,
   onFocus,
   onSetStatus,
-  onDelete,
+  onDeletePlan,
   onCopyReference,
   onOpenInTerminal,
+  onEnhancePlan,
 }: PlanCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const isFinished = plan.status === "finished";
@@ -287,6 +293,18 @@ function PlanCard({
                   Move to {PLAN_STATUS_LABEL[status]}
                 </button>
               ))}
+              {onEnhancePlan && !isFinished ? (
+                <button
+                  className="menu-item text-sm"
+                  type="button"
+                  onClick={() => {
+                    onEnhancePlan(plan);
+                    setMenuOpen(false);
+                  }}
+                >
+                  AI enhance
+                </button>
+              ) : null}
               {!isFinished ? (
                 <button
                   className="menu-item text-sm"
@@ -303,9 +321,9 @@ function PlanCard({
                 className="menu-item menu-item-danger text-sm"
                 type="button"
                 onClick={() => {
-                  onDelete(plan.id);
-                  setMenuOpen(false);
-                }}
+                    onDeletePlan(plan.id);
+                    setMenuOpen(false);
+                  }}
               >
                 <Trash2 size={12} /> Delete
               </button>
