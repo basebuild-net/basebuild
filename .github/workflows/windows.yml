@@ -6,6 +6,12 @@ on:
     tags: ["v*.*.*"]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to release (e.g. 0.0.1)"
+        required: true
+        type: string
 
 env:
   CI: "true"
@@ -42,7 +48,7 @@ jobs:
 
   release:
     needs: checks
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     permissions:
       contents: write
@@ -57,8 +63,6 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
 
       - name: Install frontend dependencies
         run: npm ci
@@ -70,7 +74,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
+          tagName: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
           releaseName: "Basebuild ${{ github.ref_name }}"
           releaseBody: |
             Windows installer for Basebuild ${{ github.ref_name }}.
