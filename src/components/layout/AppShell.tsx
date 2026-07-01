@@ -53,6 +53,8 @@ export function AppShell() {
   const [focusingPlan, setFocusingPlan] = useState<Plan | null>(null);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [descriptionOpen, setDescriptionOpen] = useState(false);
+ const [chatDraft, setChatDraft] = useState<string | null>(null);
+ const [chatDraftTabId, setChatDraftTabId] = useState<string | null>(null);
   const [terminalOutputBuffer, setTerminalOutputBuffer] = useState("");
   const titleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titlePendingRef = useRef(false);
@@ -169,28 +171,57 @@ export function AppShell() {
     });
   }, [plans, session.activeSessionId]);
 
+  const openOrFocusChat = useCallback(
+    async (draftPrompt: string) => {
+      if (!session.activeSessionId) return;
+      // Find existing chat tab (prefer active, then most recent)
+      const activeChat = session.tabs.find((t) => t.id === session.activeTabId && t.kind === "chat");
+      const existingChat = activeChat ?? session.tabs.filter((t) => t.kind === "chat").slice(-1)[0] ?? null;
+      if (existingChat) {
+        session.setActiveTabId(existingChat.id);
+      } else {
+        await session.createTab("chat", `Chat ${session.tabs.length + 1}`);
+      }
+      setActiveTool("terminal");
+      // Inject the draft prompt — ChatPanel consumes it once
+      setChatDraft(draftPrompt);
+      setChatDraftTabId(session.activeTabId);
+    },
+    [session],
+  );
+
   const handleGenerateFromGoal = useCallback(
     (goal: string, contextFile?: string, contextContent?: string) => {
-      if (!session.activeSessionId) return;
+      if (!session.activeSessionId) {
+        addLog("warn", "Cannot generate", "No active session. Open a project first.");
+        return;
+      }
       if (!schematic.exists && !contextContent) {
         setDescriptionOpen(true);
         return;
       }
-      // TODO: call OMP planner skill with goal + schematic context + file context, parse JSON, create plans
-      const descParts: string[] = [];
-      if (goal) descParts.push(goal);
-      if (contextContent) descParts.push(`Context from ${contextFile}:\n\n${contextContent.slice(0, 5000)}`);
-      if (schematic.content) descParts.push(`Schematic:\n\n${schematic.content}`);
-      void plans.createPlan({
-        title: `Plan from ${activeProjectPath?.split(/[/\\]/)?.pop() ?? "project"}`,
-        description: descParts.join("\n\n---\n\n") || "Generated plan",
-        goal: goal || null,
-        status: "draft",
-        priority: 60,
-        tags: ["generated"],
-      });
+      // Compose a transparent prompt for the chat agent
+      const parts: string[] = [];
+      if (goal) parts.push(`Goal: ${goal}`);
+      if (contextContent) {
+        const label = contextFile ?? "selected context";
+        parts.push(`Context from ${label}:\n\n${contextContent.slice(0, 5000)}`);
+      }
+      if (schematic.content) {
+        parts.push(`Project Schematic:\n\n${schematic.content}`);
+      }
+      if (activeProjectPath) {
+        parts.push(`Project path: ${activeProjectPath}`);
+      }
+      const planSummary = plans.plans.length > 0
+        ? plans.plans.map((p) => `- [${p.status}] ${p.title} (${p.referenceId})`).join("\n")
+        : "(no existing plans)";
+      parts.push(`Existing plans:\n${planSummary}`);
+      parts.push("Based on the above, propose OpenSpec-backed plans. Do not create files or commit anything.");
+      const prompt = parts.join("\n\n---\n\n");
+      void openOrFocusChat(prompt);
     },
-    [plans, session.activeSessionId, activeProjectPath, schematic.exists, schematic.content],
+    [session.activeSessionId, schematic.exists, schematic.content, activeProjectPath, plans.plans, openOrFocusChat, addLog],
   );
 
   const handleSuggestMore = useCallback(
@@ -386,9 +417,13 @@ export function AppShell() {
                   <h3>No tab selected</h3>
                   <p>Click + in the tab bar to create a new terminal or schematic tab.</p>
                 </div>
-              ) : activeTab.kind === "chat" ? (
-                <ChatPanel projectPath={activeProjectPath} />
-              ) : activeTab.kind === "file" ? (
+            ) : activeTab.kind === "chat" ? (
+              <ChatPanel
+                projectPath={activeProjectPath}
+                draftPrompt={chatDraft}
+                onDraftConsumed={() => { setChatDraft(null); setChatDraftTabId(null); }}
+              />
+             ) : activeTab.kind === "file" ? (
                 <FileViewer path={activeTab.filePath} />
               ) : activeTab.kind === "empty" ? (
                 <ProjectSchematicTab projectPath={activeProjectPath} onOpenDescription={() => setDescriptionOpen(true)} />

@@ -157,26 +157,49 @@ impl StorageService {
                 CREATE INDEX IF NOT EXISTS idx_ideas_session ON ideas(session_id);
                 CREATE INDEX IF NOT EXISTS idx_ideas_status ON ideas(status);
 
-                CREATE TABLE IF NOT EXISTS plans (
+                CREATE TABLE IF NOT EXISTS runtime_profiles (
                     id TEXT PRIMARY KEY NOT NULL,
-                    session_id TEXT NOT NULL,
-                    reference_id TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    description TEXT NOT NULL DEFAULT '',
-                    goal TEXT,
-                    status TEXT NOT NULL DEFAULT 'draft',
-                    priority INTEGER NOT NULL DEFAULT 50,
-                    tags TEXT NOT NULL DEFAULT '[]',
-                    ai_enhanced INTEGER NOT NULL DEFAULT 0,
-                    context TEXT,
-                    created_at INTEGER NOT NULL,
-                    updated_at INTEGER NOT NULL,
-                    finished_at INTEGER,
-                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                    kind TEXT NOT NULL DEFAULT 'chat',
+                    label TEXT NOT NULL,
+                    executable TEXT NOT NULL,
+                    args TEXT NOT NULL DEFAULT '[]',
+                    working_directory_mode TEXT NOT NULL DEFAULT 'project',
+                    default_model TEXT,
+                    capabilities TEXT NOT NULL DEFAULT '[]',
+                    built_in INTEGER NOT NULL DEFAULT 0
                 );
-                CREATE INDEX IF NOT EXISTS idx_plans_session ON plans(session_id);
-                CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status);
-                CREATE INDEX IF NOT EXISTS idx_plans_reference ON plans(reference_id);
+
+                CREATE TABLE IF NOT EXISTS app_defaults (
+                    key TEXT PRIMARY KEY NOT NULL,
+                    value TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS permission_rules (
+                    key TEXT PRIMARY KEY NOT NULL,
+                    value TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS audit_trail (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    action TEXT NOT NULL,
+                    scope TEXT,
+                    decision TEXT NOT NULL,
+                    source_workflow TEXT,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_trail(created_at);
+
+                CREATE TABLE IF NOT EXISTS analytics_events (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    event_name TEXT NOT NULL,
+                    feature_area TEXT NOT NULL,
+                    outcome TEXT,
+                    duration_ms INTEGER,
+                    adapter_id TEXT,
+                    error_class TEXT,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_analytics_created ON analytics_events(created_at);
                 ",
             )
             .map_err(|error| format!("Failed to initialize Basebuild state database: {error}"))?;
@@ -192,14 +215,43 @@ impl StorageService {
             );
         }
 
-        // Migration: add file_path to session_tabs for databases created before v0.0.2
-        let has_file_path = connection
-            .prepare("SELECT file_path FROM session_tabs LIMIT 0")
-            .is_ok();
-        if !has_file_path {
+        // Seed built-in runtime profiles if none exist
+        let profile_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM runtime_profiles", [], |r| r.get(0))
+            .unwrap_or(0);
+        if profile_count == 0 {
+            for profile in crate::models::runtime::RuntimeProfile::built_ins() {
+                let _ = connection.execute(
+                    "INSERT OR IGNORE INTO runtime_profiles (id, kind, label, executable, args, working_directory_mode, default_model, capabilities, built_in) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    params![
+                        profile.id,
+                        profile.kind.as_str(),
+                        profile.label,
+                        profile.executable,
+                        serde_json::to_string(&profile.args).unwrap_or_default(),
+                        profile.working_directory_mode.as_str(),
+                        profile.default_model,
+                        serde_json::to_string(&profile.capabilities).unwrap_or_default(),
+                        profile.built_in as i32,
+                    ],
+                );
+            }
+        }
+
+        // Seed conservative defaults if none exist
+        let defaults_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM app_defaults", [], |r| r.get(0))
+            .unwrap_or(0);
+        if defaults_count == 0 {
+            let defaults = crate::models::runtime::RuntimeDefaults::conservative();
             let _ = connection.execute(
-                "ALTER TABLE session_tabs ADD COLUMN file_path TEXT",
-                [],
+                "INSERT INTO app_defaults (key, value) VALUES ('defaults', ?1)",
+                params![serde_json::to_string(&defaults).unwrap_or_default()],
+            );
+            let rules = crate::models::permission::PermissionRules::conservative();
+            let _ = connection.execute(
+                "INSERT INTO permission_rules (key, value) VALUES ('rules', ?1)",
+                params![serde_json::to_string(&rules).unwrap_or_default()],
             );
         }
 

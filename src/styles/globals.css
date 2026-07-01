@@ -815,8 +815,9 @@ a { color: inherit; text-decoration: none; }
 .chat-loading { padding: 8px; color: var(--bb-muted); font-size: 11px; font-style: italic; }
 .chat-input-area { display: flex; align-items: flex-end; gap: 4px; padding: 8px; border-top: 1px solid var(--bb-border); }
 .chat-input { flex: 1; resize: none; font-family: var(--bb-font); }
-.chat-send-btn { flex-shrink: 0; height: 34px; width: 34px; display: flex; align-items: center; justify-content: center; }
-
+ .chat-send-btn { flex-shrink: 0; height: 34px; width: 34px; display: flex; align-items: center; justify-content: center; }
+.chat-error-bar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--bb-surface); border-top: 1px solid var(--bb-negative); color: var(--bb-negative); }
+ .chat-error-bar .text-sm { flex: 1; }
 /* Terminal grid */
 .terminal-grid { display: grid; gap: 1px; background: var(--bb-border); flex: 1; overflow: hidden; }
 .terminal-grid-cell { background: var(--bb-bg); display: flex; flex-direction: column; overflow: hidden; position: relative; }

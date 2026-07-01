@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Send } from "lucide-react";
+import { AlertCircle, RefreshCw, Send } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { agentStart, agentSend, agentStop } from "../../lib/agent";
 import { useLogs } from "../../state/log";
@@ -11,14 +11,20 @@ type ChatMessage = {
 
 type ChatPanelProps = {
   projectPath: string;
-  terminalId?: number;
+  /** A one-shot draft prompt injected by a workflow. Consumed exactly once. */
+  draftPrompt?: string | null;
+  /** Called after the draft prompt is consumed, so the caller can clear it. */
+  onDraftConsumed?: () => void;
+  /** Whether to auto-send the draft prompt. Defaults to false. */
+  autoSendDraft?: boolean;
 };
 
-export function ChatPanel({ projectPath }: ChatPanelProps) {
+export function ChatPanel({ projectPath, draftPrompt, onDraftConsumed, autoSendDraft }: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [agentId, setAgentId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const assistantBufferRef = useRef<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const { addLog } = useLogs();
@@ -30,17 +36,20 @@ export function ChatPanel({ projectPath }: ChatPanelProps) {
 
     async function start() {
       try {
-        const id = await agentStart(projectPath);
+        const id = await agentStart({ cwd: projectPath });
         if (cancelled) {
           void agentStop(id);
           return;
         }
         startedId = id;
         setAgentId(id);
+        setError(null);
         setMessages([{ role: "system", content: "Agent session started. Type a message to begin." }]);
       } catch (e) {
-        addLog("error", "Failed to start agent", String(e));
-        setMessages([{ role: "system", content: `Failed to start agent: ${e}` }]);
+        const msg = String(e);
+        addLog("error", "Failed to start agent", msg);
+        setError(msg);
+        setMessages([{ role: "system", content: `Failed to start agent: ${msg}` }]);
       }
     }
 
@@ -84,6 +93,28 @@ export function ChatPanel({ projectPath }: ChatPanelProps) {
     };
   }, [agentId]);
 
+  // Inject draft prompt into the input without sending by default
+  useEffect(() => {
+    if (!draftPrompt) return;
+    setInput(draftPrompt);
+    onDraftConsumed?.();
+
+    if (autoSendDraft && agentId) {
+      // Auto-send is only enabled by explicit user setting
+      const text = draftPrompt.trim();
+      if (!text) return;
+      setLoading(true);
+      assistantBufferRef.current = "";
+      setMessages((prev) => [...prev, { role: "user", content: text }]);
+      setInput("");
+      void agentSend(agentId, text).catch((e) => {
+        addLog("error", "Failed to send draft to agent", String(e));
+        setMessages((prev) => [...prev, { role: "system", content: `Error: ${e}` }]);
+        setLoading(false);
+      });
+    }
+  }, [draftPrompt, autoSendDraft, agentId, onDraftConsumed, addLog]);
+
   // Auto-scroll to bottom
   useEffect(() => {
     if (scrollRef.current) {
@@ -93,7 +124,7 @@ export function ChatPanel({ projectPath }: ChatPanelProps) {
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || !agentId || loading) return;
+    if (!text || agentId === null || loading) return;
 
     setInput("");
     setLoading(true);
@@ -120,6 +151,20 @@ export function ChatPanel({ projectPath }: ChatPanelProps) {
         ))}
         {loading ? <div className="chat-loading">Agent is typing…</div> : null}
       </div>
+      {error ? (
+        <div className="chat-error-bar">
+          <AlertCircle size={12} />
+          <span className="text-sm">{error}</span>
+          <button
+            className="btn-icon btn-icon-sm"
+            title="Retry agent start"
+            type="button"
+            onClick={() => { setError(null); setAgentId(null); }}
+          >
+            <RefreshCw size={11} />
+          </button>
+        </div>
+      ) : null}
       <div className="chat-input-area">
         <textarea
           className="input chat-input"
@@ -133,13 +178,14 @@ export function ChatPanel({ projectPath }: ChatPanelProps) {
             }
           }}
           rows={2}
-          disabled={!agentId || loading}
+          disabled={agentId === null}
+          title="Chat input — type a message and press Enter to send"
         />
         <button
           className="btn btn-primary chat-send-btn"
           type="button"
           title="Send message"
-          disabled={!input.trim() || !agentId || loading}
+          disabled={!input.trim() || agentId === null || loading}
           onClick={() => void handleSend()}
         >
           <Send size={13} />

@@ -72,3 +72,7 @@ The expected format is:
 1. Replace `PLACEHOLDER_PUBLIC_KEY` in `tauri.conf.json`.
 2. Set `TAURI_SIGNING_PRIVATE_KEY` in repository secrets.
 3. Optional: add a Cloudflare Worker to serve `manifest.json` from R2.
+
+## Analytics upload (future)
+
+If a remote analytics upload endpoint is ever enabled, the endpoint URL, auth token, and upload interval MUST be documented here before the upload code path is activated. Until then, the `allowUsageAnalyticsUpload` permission is `false` by default and the upload toggle is hidden in settings.

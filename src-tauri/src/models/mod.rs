@@ -4,6 +4,8 @@ pub mod idea;
 pub mod omp;
 pub mod plan;
 pub mod project;
+pub mod permission;
+pub mod runtime;
 pub mod recent_project;
 pub mod requirement;
 pub mod session;
