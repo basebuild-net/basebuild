@@ -219,6 +219,146 @@ screenshot.
    and the active tool tab highlight.
 4. Test the actual interaction.
 
+## What Basebuild Is and Is Not
+
+Basebuild is a **local-first modular wrapper** around terminal-based coding
+tools. It is not a new agent, not a new IDE, and not a replacement for the CLI
+workflows users already know.
+
+### We are a wrapper
+
+- We surface OMP, Git, terminals, and file exploration through a unified desktop
+  shell.
+- We provide tool setups, integration, and a visual plan pipeline, then hand
+  execution back to CLI/IDE surfaces.
+- We do not silently take over agents, change their environment, or modify a
+  project without making the action visible and reversible.
+
+### Respect the underlying tools
+
+- Never assume Basebuild owns a project. `git`, `omp`, and editors are the source
+  of truth; Basebuild persists only project-local metadata in `.basebuild/`.
+- Do not spawn side effects (commits, PRs, installs, file edits) unless the user
+  explicitly triggers them through the UI or an approved skill.
+- When in doubt, ask. The default stance is conservative.
+
+## Project Schematic
+
+Every project managed by Basebuild should have a **Project Schematic** at
+`.basebuild/project-schematic.md`. It is the single source of truth for what the
+project is trying to become, how to work on it, and what agents should know.
+
+### When is a schematic required?
+
+- **Plan generation** requires a schematic. If none exists, the Generate Plans
+  flow opens the Project Description modal to create one first.
+- **Suggest More** is hidden until a schematic exists.
+- **Create blank plan** opens the schematic file in the workspace so the user can
+  edit it.
+
+### Schematic sections
+
+```markdown
+# Project Schematic: <Name>
+
+## Purpose
+One-paragraph product goal.
+
+## Target users
+Who uses this and what are they trying to do.
+
+## Tech stack
+Runtime, framework, key libraries, and build tools.
+
+## Architecture notes
+Domain boundaries, important invariants, data model shape.
+
+## Design constraints
+Visual system, CSS rules, component reuse rules, file conventions.
+
+## Development conventions
+How code should be written: naming, error handling, tests, docs.
+
+## Current priorities
+Top 3–5 open concerns in priority order.
+
+## Open questions
+What is still unclear and needs a human decision.
+```
+
+The skill `basebuild-project-schematic` guides a human or agent through filling
+this in. It asks careful questions and never fabricates answers.
+
+### Updating the schematic
+
+- Agents may **read** the schematic at any time.
+- Agents may **propose** updates to the user; they must not overwrite it
+  silently except for trivial factual fixes (typos, outdated links).
+- The schematic should be updated when project purpose, stack, architecture, or
+  conventions change.
+
+## Design Stability Rules
+
+Basebuild favours a small, consistent, maintainable codebase over fast patches.
+
+### CSS health
+
+- `src/styles/globals.css` is the only stylesheet. Keep it under 400 lines.
+- Before adding a new class, find an existing one. If you must add one, document
+  it in `AGENTS.md` and `DESIGN.md`.
+- Never inline styles, even for one-off spacing exceptions. Add a reusable
+  modifier or class instead.
+- Prefer layout primitives (`.stack`, `.row`, `.card`) over bespoke component
+  CSS.
+
+### Component reuse
+
+- A pattern that appears twice should be a component or utility.
+- A pattern that appears three times must be a component or utility.
+- Modals share one overlay/class contract; use the existing modal shape.
+- Keep business logic in `src/lib/` and `src-tauri/src/services/`, not inline
+  in components.
+
+### Code maintainability
+
+- One file per concern. Service files should read like a table of contents.
+- Avoid premature abstraction, but also avoid duplicating almost-identical UI.
+- Every new feature must leave the file tree cleaner than it found it, or the
+  change is not complete.
+
+## Data, Skills, and Community
+
+### Local-first data
+
+- Project schematics, plans, sessions, and settings live locally in SQLite and
+  `.basebuild/` markdown files.
+- Basebuild never phones home by default.
+
+### Optional community aggregation
+
+In the future, Basebuild may offer an **opt-in** `basebuild.net` integration:
+- Aggregate anonymous usage patterns to improve default skills.
+- Share community-tested skill configurations and project schematics.
+- Always explicit, always revocable, never the default.
+
+Until that feature is fully specified and documented in `docs/SECRETS.md`, do
+not add network calls that upload data.
+
+### Skill creation
+
+- A Basebuild skill is a markdown instruction set in `skills/<name>/SKILL.md`.
+- Skills must be narrow, useful, and explicit about what they can and cannot do.
+- New skills are added through normal code review; they are not auto-generated
+  and applied without testing.
+
+### Testing skills
+
+When you add or change a skill, run it against this repository at least once:
+1. Read the skill.
+2. Apply it to the Basebuild codebase as the test subject.
+3. Verify the output is coherent and follows `AGENTS.md`.
+4. Commit the skill and any resulting project-schematic updates together.
+
 ## Documentation Maintenance Rule
 
 When you change the following, update its documentation in the same change:
@@ -226,7 +366,9 @@ When you change the following, update its documentation in the same change:
 | Change | Document |
 |---|---|
 | Design tokens, layout, or CSS classes | `DESIGN.md` and `AGENTS.md` |
-| Plan model or status semantics | `AGENTS.md` |
+| Plan model, Project Schematic, or status semantics | `AGENTS.md` and `.basebuild/project-schematic.md` |
 | Build / dev / secrets | `docs/DEVELOPMENT.md` or `docs/SECRETS.md` |
 | High-level project pitch or contribution | `README.md` |
 | OpenSpec plan | `openspec/changes/<change-name>/` |
+| Skills | `skills/<name>/SKILL.md` and `AGENTS.md` |
+| Data collection / privacy behaviour | `AGENTS.md` and `docs/SECRETS.md` |
