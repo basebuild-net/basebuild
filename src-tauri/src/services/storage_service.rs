@@ -131,7 +131,6 @@ impl StorageService {
                     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
                 );
                 CREATE INDEX IF NOT EXISTS idx_tabs_session ON session_tabs(session_id);
-                ALTER TABLE session_tabs ADD COLUMN IF NOT EXISTS file_path TEXT;
 
                 CREATE TABLE IF NOT EXISTS idea_categories (
                     id TEXT PRIMARY KEY NOT NULL,
