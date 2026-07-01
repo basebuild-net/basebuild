@@ -26,6 +26,9 @@ import { DebugPanel } from "../panels/DebugPanel";
 import { FileViewer } from "../panels/FileViewer";
 import { ProjectSchematicTab } from "../panels/ProjectSchematicTab";
 import { SidePanel } from "./SidePanel";
+import { StatusBar } from "./StatusBar";
+import { LogPanel } from "./LogPanel";
+import { useLogs } from "../../state/log";
 import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
 
 export type ToolId = ToolTabId;
@@ -52,6 +55,8 @@ export function AppShell() {
   const [autoGroupPr, setAutoGroupPr] = useState(false);
   const [autoAgents, setAutoAgents] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [logPanelOpen, setLogPanelOpen] = useState(false);
+  const { addLog } = useLogs();
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [focusingPlan, setFocusingPlan] = useState<Plan | null>(null);
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -108,20 +113,30 @@ export function AppShell() {
   }, [activeProjectPath, session.activeSessionId, session.activeSession?.title, terminalOutputBuffer, session.tabs]);
 
   const handleOpenFolder = useCallback(async () => {
-    const path = await sidebar.openFolder();
-    if (path) {
-      setActiveProjectPath(path);
-      setActiveTool("terminal");
+    try {
+      const path = await sidebar.openFolder();
+      if (path) {
+        setActiveProjectPath(path);
+        setActiveTool("terminal");
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      addLog("error", "Failed to open project folder", message);
     }
-  }, [sidebar]);
+  }, [sidebar, addLog]);
 
   const handleSelectProject = useCallback(
     async (path: string) => {
-      await sidebar.selectProject(path);
-      setActiveProjectPath(path);
-      setActiveTool("terminal");
+      try {
+        await sidebar.selectProject(path);
+        setActiveProjectPath(path);
+        setActiveTool("terminal");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        addLog("error", `Failed to select project ${path}`, message);
+      }
     },
-    [sidebar],
+    [sidebar, addLog],
   );
 
   const handleRemoveProject = useCallback(
@@ -422,6 +437,8 @@ export function AppShell() {
           }}
         />
       </main>
+      <StatusBar onClick={() => setLogPanelOpen(true)} />
+      <LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} />
       <EditPlanModal
         plan={editingPlan}

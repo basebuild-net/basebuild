@@ -26,6 +26,7 @@ import {
   type RecentProject,
 } from "../../lib/projects";
 import { listSessions, type Session } from "../../lib/sessions";
+import { useLogs } from "../../state/log";
 
 type ProjectSidebarProps = {
   activeProjectPath: string | null;
@@ -285,6 +286,7 @@ export function useProjectSidebar(activeProjectPath: string | null) {
   const [projects, setProjects] = useState<RecentProject[]>([]);
   const [projectDetection, setProjectDetection] = useState<ProjectDetection | null>(null);
   const [sessionsByProject, setSessionsByProject] = useState<Map<string, Session[]>>(new Map());
+  const { addLog } = useLogs();
 
   async function refreshProjects() {
     try {
@@ -316,18 +318,32 @@ export function useProjectSidebar(activeProjectPath: string | null) {
     try {
       const detection = await detectProject(path);
       setProjectDetection(detection);
-    } catch {
+      addLog("info", `Project selected: ${path}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      addLog("error", `Failed to detect project ${path}`, message);
       setProjectDetection(null);
     }
   }
 
   async function openFolder() {
-    const path = await pickProjectDirectory();
-    if (!path) return null;
-    await rememberRecentProject(path);
-    await refreshProjects();
-    await selectProject(path);
-    return path;
+    addLog("info", "Opening folder picker...");
+    try {
+      const path = await pickProjectDirectory();
+      if (!path) {
+        addLog("info", "No folder selected");
+        return null;
+      }
+      addLog("info", `Folder selected: ${path}`);
+      await rememberRecentProject(path);
+      await refreshProjects();
+      await selectProject(path);
+      return path;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      addLog("error", "Folder picker failed", message);
+      throw err;
+    }
   }
 
   async function removeProject(path: string) {
