@@ -22,7 +22,9 @@ pub fn omp_stats() -> Result<Value, String> {
     if !result.success {
         return Err(result.stderr);
     }
-    result.json.ok_or_else(|| "Failed to parse stats JSON".to_string())
+    result
+        .json
+        .ok_or_else(|| "Failed to parse stats JSON".to_string())
 }
 
 #[tauri::command]
@@ -31,7 +33,9 @@ pub fn omp_usage() -> Result<Value, String> {
     if !result.success {
         return Err(result.stderr);
     }
-    result.json.ok_or_else(|| "Failed to parse usage JSON".to_string())
+    result
+        .json
+        .ok_or_else(|| "Failed to parse usage JSON".to_string())
 }
 
 #[tauri::command]

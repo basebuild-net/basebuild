@@ -1,4 +1,7 @@
-use std::{path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use rusqlite::{params, Connection};
 
@@ -42,7 +45,12 @@ impl StorageService {
                  ON CONFLICT(path) DO UPDATE SET
                    name = excluded.name,
                    last_opened_at = excluded.last_opened_at",
-                params![project.path, project.name, project.last_opened_at, project.last_active_session_id],
+                params![
+                    project.path,
+                    project.name,
+                    project.last_opened_at,
+                    project.last_active_session_id
+                ],
             )
             .map_err(|error| format!("Failed to persist recent project: {error}"))?;
 
@@ -179,7 +187,10 @@ impl StorageService {
             .prepare("SELECT last_active_session_id FROM recent_projects LIMIT 0")
             .is_ok();
         if !has_column {
-            let _ = connection.execute("ALTER TABLE recent_projects ADD COLUMN last_active_session_id TEXT", []);
+            let _ = connection.execute(
+                "ALTER TABLE recent_projects ADD COLUMN last_active_session_id TEXT",
+                [],
+            );
         }
 
         Ok(())

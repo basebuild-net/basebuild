@@ -31,7 +31,13 @@ pub fn create_tab(
     terminal_id: Option<u64>,
     file_path: Option<String>,
 ) -> Result<SessionTab, String> {
-    SessionService::create_tab(&session_id, TabKind::from_str(&kind), &title, terminal_id, file_path.as_deref())
+    SessionService::create_tab(
+        &session_id,
+        TabKind::from_str(&kind),
+        &title,
+        terminal_id,
+        file_path.as_deref(),
+    )
 }
 
 #[tauri::command]

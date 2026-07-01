@@ -10,4 +10,3 @@ pub mod session_service;
 pub mod storage_paths;
 pub mod storage_service;
 pub mod terminal_service;
-pub mod update_service;

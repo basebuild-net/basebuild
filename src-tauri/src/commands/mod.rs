@@ -11,4 +11,3 @@ pub mod schematic;
 pub mod sessions;
 pub mod skills;
 pub mod terminal;
-pub mod updates;

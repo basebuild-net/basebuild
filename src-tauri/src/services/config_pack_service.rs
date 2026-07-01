@@ -47,8 +47,12 @@ impl ConfigPackService {
             "# Custom prompt\n",
         )?;
 
-        let manifest = Self::read_manifest(&pack_dir)
-            .ok_or_else(|| format!("Failed to read created pack manifest at {}", pack_dir.display()))?;
+        let manifest = Self::read_manifest(&pack_dir).ok_or_else(|| {
+            format!(
+                "Failed to read created pack manifest at {}",
+                pack_dir.display()
+            )
+        })?;
         Ok(ConfigPack {
             manifest,
             path: pack_dir,
@@ -73,8 +77,12 @@ impl ConfigPackService {
             "# Idea generation\n\nGenerate concrete, actionable next tasks from a high-level goal.\n\n## Input\n- Goal: the user's short description\n\n## Output format\n1. Category name\n2. Three to five specific suggestions\n3. For each chosen suggestion, produce an OpenSpec-ready task list\n",
         )?;
 
-        let manifest = Self::read_manifest(&pack_dir)
-            .ok_or_else(|| format!("Failed to read official pack manifest at {}", pack_dir.display()))?;
+        let manifest = Self::read_manifest(&pack_dir).ok_or_else(|| {
+            format!(
+                "Failed to read official pack manifest at {}",
+                pack_dir.display()
+            )
+        })?;
         Ok(ConfigPack {
             manifest,
             path: pack_dir,

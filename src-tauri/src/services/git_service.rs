@@ -1,14 +1,19 @@
 use std::path::Path;
 use std::process::Command;
 
-use crate::models::git::{BranchInfo, BranchInfo2, FileChangeType, FileEntry, GitCommit, GitStatus};
+use crate::models::git::{
+    BranchInfo, BranchInfo2, FileChangeType, FileEntry, GitCommit, GitStatus,
+};
 
 #[derive(Debug, Default)]
 pub struct GitService;
 
 impl GitService {
     pub fn status(path: impl AsRef<Path>) -> Result<GitStatus, String> {
-        let output = run_git(path.as_ref(), &["status", "--porcelain=v2", "-z", "--branch"])?;
+        let output = run_git(
+            path.as_ref(),
+            &["status", "--porcelain=v2", "-z", "--branch"],
+        )?;
         Ok(parse_porcelain_v2(&output))
     }
 
@@ -60,7 +65,14 @@ impl GitService {
     }
 
     pub fn branch_list(path: impl AsRef<Path>) -> Result<Vec<BranchInfo2>, String> {
-        let output = run_git(path.as_ref(), &["branch", "--list", "--format=%(HEAD)%00%(refname:short)%00%(upstream:short)%00%(objectname:short)"])?;
+        let output = run_git(
+            path.as_ref(),
+            &[
+                "branch",
+                "--list",
+                "--format=%(HEAD)%00%(refname:short)%00%(upstream:short)%00%(objectname:short)",
+            ],
+        )?;
         Ok(output
             .split('\n')
             .filter(|l| !l.is_empty())
@@ -69,7 +81,10 @@ impl GitService {
                 let is_current = parts.first().map(|h| *h == "*").unwrap_or(false);
                 BranchInfo2 {
                     name: parts.get(1).unwrap_or(&"").to_string(),
-                    upstream: parts.get(2).filter(|s| !s.is_empty()).map(|s| s.to_string()),
+                    upstream: parts
+                        .get(2)
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string()),
                     is_current,
                 }
             })
@@ -86,20 +101,23 @@ impl GitService {
         Ok(())
     }
 
-     pub fn commit(path: impl AsRef<Path>, message: &str) -> Result<String, String> {
-         run_git(path.as_ref(), &["commit", "-m", message])
-     }
+    pub fn commit(path: impl AsRef<Path>, message: &str) -> Result<String, String> {
+        run_git(path.as_ref(), &["commit", "-m", message])
+    }
     pub fn log(path: impl AsRef<Path>, limit: usize) -> Result<Vec<GitCommit>, String> {
         // %H=full hash %h=short %s=subject %an=author %ad=date
         // %P=parent hashes (space-separated) %d=ref names (decorate)
         let format = "%H%x1f%h%x1f%s%x1f%an%x1f%ad%x1f%P%x1f%d";
-        let output = run_git(path.as_ref(), &[
-            "log",
-            &format!("--pretty=format:{format}"),
-            "--date=short",
-            "--decorate=full",
-            &format!("-{limit}"),
-        ])?;
+        let output = run_git(
+            path.as_ref(),
+            &[
+                "log",
+                &format!("--pretty=format:{format}"),
+                "--date=short",
+                "--decorate=full",
+                &format!("-{limit}"),
+            ],
+        )?;
 
         Ok(output
             .split('\n')
@@ -183,9 +201,16 @@ fn parse_porcelain_v2(output: &str) -> GitStatus {
         }
 
         if line.starts_with("# branch.head ") {
-            status.branch.branch = line.strip_prefix("# branch.head ").unwrap_or("").to_string();
+            status.branch.branch = line
+                .strip_prefix("# branch.head ")
+                .unwrap_or("")
+                .to_string();
         } else if line.starts_with("# branch.upstream ") {
-            status.branch.upstream = Some(line.strip_prefix("# branch.upstream ").unwrap_or("").to_string());
+            status.branch.upstream = Some(
+                line.strip_prefix("# branch.upstream ")
+                    .unwrap_or("")
+                    .to_string(),
+            );
         } else if line.starts_with("# branch.ab +") {
             let rest = line.strip_prefix("# branch.ab +").unwrap_or("");
             let parts: Vec<&str> = rest.split(' ').collect();

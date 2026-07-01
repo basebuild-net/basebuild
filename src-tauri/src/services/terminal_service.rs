@@ -143,10 +143,7 @@ impl TerminalManager {
     }
 
     pub fn write(&self, id: u64, data: &str) -> Result<(), String> {
-        let session = self
-            .sessions
-            .get(&id)
-            .ok_or("Terminal session not found")?;
+        let session = self.sessions.get(&id).ok_or("Terminal session not found")?;
 
         let mut writer = session
             .writer

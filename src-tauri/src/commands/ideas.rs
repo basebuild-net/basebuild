@@ -4,7 +4,11 @@ use crate::{
 };
 
 #[tauri::command]
-pub fn create_category(session_id: String, name: String, description: String) -> Result<IdeaCategory, String> {
+pub fn create_category(
+    session_id: String,
+    name: String,
+    description: String,
+) -> Result<IdeaCategory, String> {
     SessionService::create_category(&session_id, &name, &description)
 }
 
@@ -19,7 +23,12 @@ pub fn delete_category(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn create_idea(session_id: String, title: String, description: String, category_id: Option<String>) -> Result<Idea, String> {
+pub fn create_idea(
+    session_id: String,
+    title: String,
+    description: String,
+    category_id: Option<String>,
+) -> Result<Idea, String> {
     SessionService::create_idea(&session_id, &title, &description, category_id.as_deref())
 }
 

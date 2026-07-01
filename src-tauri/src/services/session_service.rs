@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use rusqlite::params;
 
 use crate::{
@@ -54,36 +52,57 @@ impl SessionService {
         let mut stmt = conn.prepare(
             "SELECT id, project_path, title, created_at, updated_at FROM sessions WHERE project_path = ?1 ORDER BY updated_at DESC",
         ).map_err(|e| e.to_string())?;
-        let rows = stmt.query_map(params![project_path], |row| {
-            Ok(Session {
-                id: row.get(0)?,
-                project_path: row.get(1)?,
-                title: row.get(2)?,
-                created_at: row.get(3)?,
-                updated_at: row.get(4)?,
+        let rows = stmt
+            .query_map(params![project_path], |row| {
+                Ok(Session {
+                    id: row.get(0)?,
+                    project_path: row.get(1)?,
+                    title: row.get(2)?,
+                    created_at: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
             })
-        }).map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     pub fn rename_session(id: &str, title: &str) -> DbResult<()> {
         let conn = StorageService::connect()?;
-        conn.execute("UPDATE sessions SET title = ?1, updated_at = ?2 WHERE id = ?3", params![title, now(), id]).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE sessions SET title = ?1, updated_at = ?2 WHERE id = ?3",
+            params![title, now(), id],
+        )
+        .map_err(|e| e.to_string())?;
         Ok(())
     }
 
     pub fn delete_session(id: &str) -> DbResult<()> {
         let conn = StorageService::connect()?;
-        conn.execute("DELETE FROM session_tabs WHERE session_id = ?1", params![id]).map_err(|e| e.to_string())?;
-        conn.execute("DELETE FROM idea_categories WHERE session_id = ?1", params![id]).map_err(|e| e.to_string())?;
-        conn.execute("DELETE FROM ideas WHERE session_id = ?1", params![id]).map_err(|e| e.to_string())?;
-        conn.execute("DELETE FROM sessions WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM session_tabs WHERE session_id = ?1",
+            params![id],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM idea_categories WHERE session_id = ?1",
+            params![id],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM ideas WHERE session_id = ?1", params![id])
+            .map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM sessions WHERE id = ?1", params![id])
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
     pub fn touch_session(id: &str) -> DbResult<()> {
         let conn = StorageService::connect()?;
-        conn.execute("UPDATE sessions SET updated_at = ?1 WHERE id = ?2", params![now(), id]).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE sessions SET updated_at = ?1 WHERE id = ?2",
+            params![now(), id],
+        )
+        .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -119,27 +138,35 @@ impl SessionService {
         let mut stmt = conn.prepare(
             "SELECT id, session_id, kind, title, terminal_id, file_path, created_at FROM session_tabs WHERE session_id = ?1 ORDER BY created_at ASC",
         ).map_err(|e| e.to_string())?;
-        let rows = stmt.query_map(params![session_id], |row| {
-            let kind_str: String = row.get(2)?;
-            Ok(SessionTab {
-                id: row.get(0)?,
-                session_id: row.get(1)?,
-                kind: TabKind::from_str(&kind_str),
-                title: row.get(3)?,
-                terminal_id: row.get(4)?,
-                file_path: row.get(5)?,
-                created_at: row.get(6)?,
+        let rows = stmt
+            .query_map(params![session_id], |row| {
+                let kind_str: String = row.get(2)?;
+                Ok(SessionTab {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    kind: TabKind::from_str(&kind_str),
+                    title: row.get(3)?,
+                    terminal_id: row.get(4)?,
+                    file_path: row.get(5)?,
+                    created_at: row.get(6)?,
+                })
             })
-        }).map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     pub fn delete_tab(id: &str) -> DbResult<()> {
         let conn = StorageService::connect()?;
         let session_id: String = conn
-            .query_row("SELECT session_id FROM session_tabs WHERE id = ?1", params![id], |r| r.get(0))
+            .query_row(
+                "SELECT session_id FROM session_tabs WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
             .unwrap_or_default();
-        conn.execute("DELETE FROM session_tabs WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM session_tabs WHERE id = ?1", params![id])
+            .map_err(|e| e.to_string())?;
         if !session_id.is_empty() {
             Self::touch_session(&session_id)?;
         }
@@ -148,19 +175,31 @@ impl SessionService {
 
     pub fn update_tab_terminal(id: &str, terminal_id: Option<u64>) -> DbResult<()> {
         let conn = StorageService::connect()?;
-        conn.execute("UPDATE session_tabs SET terminal_id = ?1 WHERE id = ?2", params![terminal_id, id]).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE session_tabs SET terminal_id = ?1 WHERE id = ?2",
+            params![terminal_id, id],
+        )
+        .map_err(|e| e.to_string())?;
         Ok(())
     }
 
     pub fn update_tab_file_path(id: &str, file_path: Option<&str>) -> DbResult<()> {
         let conn = StorageService::connect()?;
-        conn.execute("UPDATE session_tabs SET file_path = ?1 WHERE id = ?2", params![file_path, id]).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE session_tabs SET file_path = ?1 WHERE id = ?2",
+            params![file_path, id],
+        )
+        .map_err(|e| e.to_string())?;
         Ok(())
     }
 
     // ─── Ideas ───
 
-    pub fn create_category(session_id: &str, name: &str, description: &str) -> DbResult<IdeaCategory> {
+    pub fn create_category(
+        session_id: &str,
+        name: &str,
+        description: &str,
+    ) -> DbResult<IdeaCategory> {
         let cat = IdeaCategory {
             id: gen_id(),
             session_id: session_id.to_string(),
@@ -181,25 +220,34 @@ impl SessionService {
         let mut stmt = conn.prepare(
             "SELECT id, session_id, name, description, created_at FROM idea_categories WHERE session_id = ?1 ORDER BY created_at ASC",
         ).map_err(|e| e.to_string())?;
-        let rows = stmt.query_map(params![session_id], |row| {
-            Ok(IdeaCategory {
-                id: row.get(0)?,
-                session_id: row.get(1)?,
-                name: row.get(2)?,
-                description: row.get(3)?,
-                created_at: row.get(4)?,
+        let rows = stmt
+            .query_map(params![session_id], |row| {
+                Ok(IdeaCategory {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    name: row.get(2)?,
+                    description: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
             })
-        }).map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     pub fn delete_category(id: &str) -> DbResult<()> {
         let conn = StorageService::connect()?;
-        conn.execute("DELETE FROM idea_categories WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM idea_categories WHERE id = ?1", params![id])
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
-    pub fn create_idea(session_id: &str, title: &str, description: &str, category_id: Option<&str>) -> DbResult<Idea> {
+    pub fn create_idea(
+        session_id: &str,
+        title: &str,
+        description: &str,
+        category_id: Option<&str>,
+    ) -> DbResult<Idea> {
         let idea = Idea {
             id: gen_id(),
             session_id: session_id.to_string(),
@@ -224,49 +272,39 @@ impl SessionService {
         let mut stmt = conn.prepare(
             "SELECT id, session_id, category_id, title, description, status, created_at, updated_at FROM ideas WHERE session_id = ?1 ORDER BY created_at ASC",
         ).map_err(|e| e.to_string())?;
-        let rows = stmt.query_map(params![session_id], |row| {
-            let status_str: String = row.get(5)?;
-            Ok(Idea {
-                id: row.get(0)?,
-                session_id: row.get(1)?,
-                category_id: row.get(2)?,
-                title: row.get(3)?,
-                description: row.get(4)?,
-                status: IdeaStatus::from_str(&status_str),
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
+        let rows = stmt
+            .query_map(params![session_id], |row| {
+                let status_str: String = row.get(5)?;
+                Ok(Idea {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    category_id: row.get(2)?,
+                    title: row.get(3)?,
+                    description: row.get(4)?,
+                    status: IdeaStatus::from_str(&status_str),
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
+                })
             })
-        }).map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     pub fn update_idea_status(id: &str, status: IdeaStatus) -> DbResult<()> {
         let conn = StorageService::connect()?;
-        conn.execute("UPDATE ideas SET status = ?1, updated_at = ?2 WHERE id = ?3", params![status.as_str(), now(), id]).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE ideas SET status = ?1, updated_at = ?2 WHERE id = ?3",
+            params![status.as_str(), now(), id],
+        )
+        .map_err(|e| e.to_string())?;
         Ok(())
     }
 
     pub fn delete_idea(id: &str) -> DbResult<()> {
         let conn = StorageService::connect()?;
-        conn.execute("DELETE FROM ideas WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    // ─── Project-scoped ───
-
-    pub fn delete_all_for_project(project_path: &Path) -> DbResult<()> {
-        let conn = StorageService::connect()?;
-        let session_ids: Vec<String> = {
-            let mut stmt = conn.prepare("SELECT id FROM sessions WHERE project_path = ?1").map_err(|e| e.to_string())?;
-            let rows = stmt.query_map(params![project_path.to_string_lossy()], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
-            rows.filter_map(|r| r.ok()).collect()
-        };
-        for sid in &session_ids {
-            conn.execute("DELETE FROM session_tabs WHERE session_id = ?1", params![sid]).map_err(|e| e.to_string())?;
-            conn.execute("DELETE FROM idea_categories WHERE session_id = ?1", params![sid]).map_err(|e| e.to_string())?;
-            conn.execute("DELETE FROM ideas WHERE session_id = ?1", params![sid]).map_err(|e| e.to_string())?;
-        }
-        conn.execute("DELETE FROM sessions WHERE project_path = ?1", params![project_path.to_string_lossy()]).map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM ideas WHERE id = ?1", params![id])
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 }

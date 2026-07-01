@@ -15,7 +15,9 @@ pub fn list_directory(dir: &Path) -> Result<Vec<DirEntry>, String> {
     let mut result = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|e| format!("Failed to read entry: {e}"))?;
-        let meta = entry.metadata().map_err(|e| format!("Failed to read metadata: {e}"))?;
+        let meta = entry
+            .metadata()
+            .map_err(|e| format!("Failed to read metadata: {e}"))?;
         let name = entry.file_name().to_string_lossy().to_string();
         let path = entry.path().to_string_lossy().to_string();
         result.push(DirEntry {

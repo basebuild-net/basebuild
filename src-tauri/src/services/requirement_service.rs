@@ -76,5 +76,8 @@ fn command_version(program: &str, args: &[&str]) -> Result<String, String> {
 }
 
 fn parse_git_version(output: &str) -> Option<String> {
-    output.strip_prefix("git version ").map(str::trim).map(str::to_string)
+    output
+        .strip_prefix("git version ")
+        .map(str::trim)
+        .map(str::to_string)
 }

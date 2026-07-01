@@ -1,9 +1,6 @@
 use tauri::{AppHandle, State};
 
-use crate::{
-    app_state::AppState,
-    models::terminal::{TerminalSession},
-};
+use crate::{app_state::AppState, models::terminal::TerminalSession};
 
 #[tauri::command]
 pub fn create_terminal(
@@ -30,7 +27,12 @@ pub fn write_terminal(state: State<AppState>, id: u64, data: String) -> Result<(
 }
 
 #[tauri::command]
-pub fn resize_terminal(state: State<AppState>, id: u64, rows: u16, cols: u16) -> Result<(), String> {
+pub fn resize_terminal(
+    state: State<AppState>,
+    id: u64,
+    rows: u16,
+    cols: u16,
+) -> Result<(), String> {
     state
         .terminals
         .lock()
