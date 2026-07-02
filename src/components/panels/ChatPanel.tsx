@@ -439,6 +439,7 @@ export function ChatPanel({
 
       <div className="chat-input-area">
         <textarea
+          className="input chat-input"
           placeholder={nativeMode ? "Type a message… (Enter to send, Shift+Enter for newline)" : "Agent not connected. Click retry above to start."}
           value={input}
           onChange={(event) => {
