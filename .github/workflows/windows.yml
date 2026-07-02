@@ -108,27 +108,38 @@ jobs:
         run: |
           version="${{ inputs.version }}"
           # The workflow_dispatch version input is the source of truth.
-          # Bump all three version files to match it so the release is
+          # Bump all version files to match it so the release is
           # self-contained — no manual pre-bump commit required.
           node -e "
             const fs = require('fs');
+            const version = '${version}';
             const pkg = JSON.parse(fs.readFileSync('package.json','utf8'));
-            pkg.version = '${version}';
+            pkg.version = version;
             fs.writeFileSync('package.json', JSON.stringify(pkg,null,2) + '\n');
+            const lock = JSON.parse(fs.readFileSync('package-lock.json','utf8'));
+            lock.version = version;
+            if (lock.packages && lock.packages['']) lock.packages[''].version = version;
+            fs.writeFileSync('package-lock.json', JSON.stringify(lock,null,2) + '\n');
             const tauri = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8'));
-            tauri.version = '${version}';
+            tauri.version = version;
             fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(tauri,null,2) + '\n');
             let cargo = fs.readFileSync('src-tauri/Cargo.toml','utf8');
-            cargo = cargo.replace(/^version = \"[^\"]+\"/m, 'version = \"${version}\"');
+            cargo = cargo.replace(/^version = \"[^\"]+\"/m, 'version = \"' + version + '\"');
             fs.writeFileSync('src-tauri/Cargo.toml', cargo);
+            let cargoLock = fs.readFileSync('src-tauri/Cargo.lock','utf8');
+            cargoLock = cargoLock.replace(/(\[\[package\]\]\nname = \"basebuild-app\"\nversion = \")[^\"]+(\")/, (_, prefix, suffix) => prefix + version + suffix);
+            fs.writeFileSync('src-tauri/Cargo.lock', cargoLock);
           "
           echo "::notice::Version files bumped to ${version}"
           # Verify the bump took
           package_version="$(node -p "require('./package.json').version")"
+          lock_version="$(node -p "require('./package-lock.json').version")"
+          lock_package_version="$(node -p "require('./package-lock.json').packages[''].version")"
           tauri_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
           cargo_version="$(grep -m1 '^version = ' src-tauri/Cargo.toml | cut -d '"' -f2)"
-          if [ "$package_version" != "$version" ] || [ "$tauri_version" != "$version" ] || [ "$cargo_version" != "$version" ]; then
-            echo "::error::Version bump failed. input=$version package=$package_version tauri=$tauri_version cargo=$cargo_version"
+          cargo_lock_version="$(grep -A2 '^name = "basebuild-app"$' src-tauri/Cargo.lock | grep -m1 '^version = ' | cut -d '"' -f2)"
+          if [ "$package_version" != "$version" ] || [ "$lock_version" != "$version" ] || [ "$lock_package_version" != "$version" ] || [ "$tauri_version" != "$version" ] || [ "$cargo_version" != "$version" ] || [ "$cargo_lock_version" != "$version" ]; then
+            echo "::error::Version bump failed. input=$version package=$package_version package_lock=$lock_version package_lock_root=$lock_package_version tauri=$tauri_version cargo=$cargo_version cargo_lock=$cargo_lock_version"
             exit 1
           fi
           if ! node -e "const c=require('./src-tauri/tauri.conf.json'); if (c.bundle?.createUpdaterArtifacts !== true) process.exit(1)"; then
@@ -182,72 +193,44 @@ jobs:
             exit 1
           }
 
-          # 4. Download latest.json and validate its structure
-          gh release download "$tag" --repo "${{ github.repository }}" --pattern "latest.json" --dir /tmp/updater-check --clobber
-          node -e "
-            const fs = require('fs');
-            const manifest = JSON.parse(fs.readFileSync('/tmp/updater-check/latest.json', 'utf8'));
-            const errors = [];
-            if (!manifest.version) errors.push('missing version');
-            if (manifest.version !== '${version}' && manifest.version !== 'v${version}') {
-              errors.push('version mismatch: manifest=' + manifest.version + ' expected=${version}');
-            }
-            const platform = manifest.platforms && manifest.platforms['windows-x86_64'];
-            if (!platform) errors.push('missing windows-x86_64 platform entry');
-            if (platform && !platform.url) errors.push('windows-x86_64 missing url');
-            if (platform && !platform.signature) errors.push('windows-x86_64 missing signature');
-            if (platform && platform.url && !platform.url.includes('${version}')) {
-              errors.push('windows-x86_64 url does not contain version ${version}: ' + platform.url);
-            }
-            if (errors.length > 0) {
-              console.error('::error::Updater manifest validation failed:');
-              errors.forEach(e => console.error('::error::  ' + e));
-              process.exit(1);
-            }
-            console.log('::notice::Updater manifest validated: version=' + manifest.version + ' target=windows-x86_64');
-          "
-
-      - name: Verify public updater endpoint
-        if: github.event_name == 'workflow_dispatch'
-        shell: bash
-        run: |
-          # Verify the public latest/download/latest.json URL resolves and
-          # contains the expected Windows platform entry. This catches the
-          # observed regression where the release was published without
-          # latest.json, causing a 404 at the configured updater endpoint.
-          # We allow a brief propagation delay for GitHub's CDN.
-          version="${{ inputs.version }}"
-          endpoint="https://github.com/${{ github.repository }}/releases/latest/download/latest.json"
-          echo "Fetching $endpoint"
-          for attempt in 1 2 3 4 5; do
-            response=$(curl -fsSL "$endpoint" 2>/dev/null) && break
-            echo "Attempt $attempt: endpoint not yet available, waiting 10s..."
-            sleep 10
-          done
-          if [ -z "$response" ]; then
-            echo "::error::Public updater endpoint returned empty or 404: $endpoint"
-            echo "::error::The release may not be published yet, or latest.json is missing from the latest release."
-            exit 1
-          fi
-          echo "$response" | node -e "
+          # 4. Fetch latest.json and validate its structure.
+          # Pipe via --output - to avoid Windows/Git-Bash path
+          # resolution mismatches between gh (Go binary) and node
+          # for /tmp — both resolve /tmp differently on Windows.
+          gh release download "$tag" --repo "${{ github.repository }}" --pattern "latest.json" --output - | node -e "
             let data = '';
             process.stdin.on('data', chunk => data += chunk);
             process.stdin.on('end', () => {
               try {
                 const manifest = JSON.parse(data);
+                const errors = [];
+                if (!manifest.version) errors.push('missing version');
+                if (manifest.version !== '${version}' && manifest.version !== 'v${version}') {
+                  errors.push('version mismatch: manifest=' + manifest.version + ' expected=${version}');
+                }
                 const platform = manifest.platforms && manifest.platforms['windows-x86_64'];
-                if (!platform) {
-                  console.error('::error::Public latest.json is missing windows-x86_64 platform entry');
+                if (!platform) errors.push('missing windows-x86_64 platform entry');
+                if (platform && !platform.url) errors.push('windows-x86_64 missing url');
+                if (platform && !platform.signature) errors.push('windows-x86_64 missing signature');
+                if (platform && platform.url && !platform.url.includes('github.com')) {
+                  errors.push('windows-x86_64 url does not point to GitHub: ' + platform.url);
+                }
+                if (errors.length > 0) {
+                  console.error('::error::Updater manifest validation failed:');
+                  errors.forEach(e => console.error('::error::  ' + e));
                   process.exit(1);
                 }
-                if (!platform.url || !platform.signature) {
-                  console.error('::error::Public latest.json windows-x86_64 entry is missing url or signature');
-                  process.exit(1);
-                }
-                console.log('::notice::Public updater endpoint verified: version=' + manifest.version);
+                console.log('::notice::Updater manifest validated: version=' + manifest.version + ' target=windows-x86_64');
               } catch (e) {
-                console.error('::error::Public latest.json is not valid JSON: ' + e.message);
+                console.error('::error::Failed to parse latest.json: ' + e.message);
                 process.exit(1);
               }
             });
           "
+
+      - name: Record post-publish updater check
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          endpoint="https://github.com/${{ github.repository }}/releases/latest/download/latest.json"
+          echo "::notice::Draft release assets verified. Publish v${{ inputs.version }}, then verify the updater endpoint resolves: ${endpoint}"

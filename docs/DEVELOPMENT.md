@@ -78,17 +78,17 @@ Releases are manual and draft-first. There is no automatic release on push or
 tag creation.
 
 1. Bump the version in `package.json`, `package-lock.json`,
-   `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` in a dedicated
-   `chore(release): bump version to X.Y.Z` commit on `main`.
+   `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and
+   `src-tauri/Cargo.lock` in a dedicated `chore(release): bump version to X.Y.Z`
+   commit on `main`.
 2. Keep `src-tauri/tauri.conf.json` `bundle.createUpdaterArtifacts` set to
    `true`; without it the workflow will not upload `latest.json` or `.sig`
    updater assets and in-app updates will fail.
 3. Trigger the **CI / Release (Windows)** workflow via `workflow_dispatch`,
-   passing the version (e.g. `0.0.5`). The workflow verifies the version files
+   passing the version (e.g. `0.0.6`). The workflow verifies the version files
    match the input and fails if updater metadata/signature assets are missing.
    It also validates that `latest.json` contains the correct version, Windows
-   platform entry, URL, and signature, and verifies the public
-   `releases/latest/download/latest.json` endpoint resolves after publication.
+   platform entry, URL, and signature.
 4. The workflow builds the installer and creates a **GitHub draft release**. It
    aborts if the target version is already published.
 5. Review the draft in the GitHub UI, write release notes, and click **Publish**.
