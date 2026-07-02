@@ -103,22 +103,38 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Verify release version files
+      - name: Bump version files to match release input
         shell: bash
         run: |
           version="${{ inputs.version }}"
+          # The workflow_dispatch version input is the source of truth.
+          # Bump all three version files to match it so the release is
+          # self-contained — no manual pre-bump commit required.
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json','utf8'));
+            pkg.version = '${version}';
+            fs.writeFileSync('package.json', JSON.stringify(pkg,null,2) + '\n');
+            const tauri = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8'));
+            tauri.version = '${version}';
+            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(tauri,null,2) + '\n');
+            let cargo = fs.readFileSync('src-tauri/Cargo.toml','utf8');
+            cargo = cargo.replace(/^version = \"[^\"]+\"/m, 'version = \"${version}\"');
+            fs.writeFileSync('src-tauri/Cargo.toml', cargo);
+          "
+          echo "::notice::Version files bumped to ${version}"
+          # Verify the bump took
           package_version="$(node -p "require('./package.json').version")"
           tauri_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
           cargo_version="$(grep -m1 '^version = ' src-tauri/Cargo.toml | cut -d '"' -f2)"
           if [ "$package_version" != "$version" ] || [ "$tauri_version" != "$version" ] || [ "$cargo_version" != "$version" ]; then
-            echo "::error::Version mismatch. input=$version package=$package_version tauri=$tauri_version cargo=$cargo_version"
+            echo "::error::Version bump failed. input=$version package=$package_version tauri=$tauri_version cargo=$cargo_version"
             exit 1
           fi
           if ! node -e "const c=require('./src-tauri/tauri.conf.json'); if (c.bundle?.createUpdaterArtifacts !== true) process.exit(1)"; then
             echo "::error::bundle.createUpdaterArtifacts must be true so latest.json and .sig assets are generated."
             exit 1
           fi
-
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v1
