@@ -1,6 +1,8 @@
 [package]
 name = "basebuild-app"
-version = "0.0.6"
+# DO NOT EDIT — managed by .github/workflows/windows.yml (workflow_dispatch version input).
+# Repo stays at 0.0.0; real versions are set at release time.
+version = "0.0.0"
 description = "Basebuild desktop application"
 authors = ["Basebuild"]
 edition = "2021"

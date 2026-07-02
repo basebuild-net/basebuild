@@ -44,6 +44,8 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
   const [tab, setTab] = useState<Tab>("updates");
   const [requirements, setRequirements] = useState<RequirementStatus[]>([]);
   const [loading, setLoading] = useState(false);
+  // App version — compiled in at build time. Shows "0.0.0" in dev; the real
+  // version in release builds (set by .github/workflows/windows.yml).
   const [version, setVersion] = useState("");
 
   // Defaults state

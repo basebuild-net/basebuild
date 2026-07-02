@@ -107,9 +107,10 @@ jobs:
         shell: bash
         run: |
           version="${{ inputs.version }}"
-          # The workflow_dispatch version input is the source of truth.
-          # Bump all version files to match it so the release is
-          # self-contained — no manual pre-bump commit required.
+          # The workflow_dispatch version input is the single source of truth.
+          # The repo version files are kept at 0.0.0 (dev sentinel); this
+          # step bumps all of them to the release version at build time so
+          # no manual pre-bump commit is ever required.
           node -e "
             const fs = require('fs');
             const version = '${version}';
