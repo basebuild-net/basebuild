@@ -98,8 +98,16 @@ impl SettingsService {
         Ok(())
     }
     pub fn validate_profile(profile: &RuntimeProfile) -> DbResult<ProfileValidation> {
+        // Executables don't share a version flag. PowerShell parses `--version`
+        // as a script expression and exits 1 with a ParserError. Use the
+        // correct flag per shell, falling back to `--version` for everything else.
+        let version_args: &[&str] = match profile.executable.as_str() {
+            "powershell" | "powershell.exe" => &["-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"],
+            "pwsh" | "pwsh.exe" => &["--version"],
+            _ => &["--version"],
+        };
         let output = hidden_command(&profile.executable)
-            .arg("--version")
+            .args(version_args)
             .output();
         match output {
             Ok(o) if o.status.success() => Ok(ProfileValidation {

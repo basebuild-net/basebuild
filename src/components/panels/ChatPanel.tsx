@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { agentStart, agentSend, agentStop } from "../../lib/agent";
 import { useLogs } from "../../state/log";
 
-const SEND_TIMEOUT_MS = 10_000;
+const SEND_TIMEOUT_MS = 45_000;
 
 type ChatMessage = {
   role: "user" | "assistant" | "system";

@@ -74,29 +74,29 @@ Basebuild is local-first. Usage analytics collection and upload are disabled by 
 
 ## Releases
 
-Releases are manual and draft-first. There is no automatic release on push or
-tag creation.
+Releases are draft-first and single-source. The `workflow_dispatch` version
+input is the source of truth — the workflow bumps all version files
+(`package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`,
+`src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`) itself, so there is no manual
+pre-bump commit and no version drift between files.
 
-1. Bump the version in `package.json`, `package-lock.json`,
-   `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and
-   `src-tauri/Cargo.lock` in a dedicated `chore(release): bump version to X.Y.Z`
-   commit on `main`.
-2. Keep `src-tauri/tauri.conf.json` `bundle.createUpdaterArtifacts` set to
-   `true`; without it the workflow will not upload `latest.json` or `.sig`
-   updater assets and in-app updates will fail.
-3. Trigger the **CI / Release (Windows)** workflow via `workflow_dispatch`,
-   passing the version (e.g. `0.0.6`). The workflow verifies the version files
-   match the input and fails if updater metadata/signature assets are missing.
-   It also validates that `latest.json` contains the correct version, Windows
-   platform entry, URL, and signature.
-4. The workflow builds the installer and creates a **GitHub draft release**. It
-   aborts if the target version is already published.
-5. Review the draft in the GitHub UI, write release notes, and click **Publish**.
+1. Ensure `src-tauri/tauri.conf.json` `bundle.createUpdaterArtifacts` is `true`.
+   Without it the workflow will not upload `latest.json` or `.sig` updater
+   assets and in-app updates will fail.
+2. Trigger the **CI / Release (Windows)** workflow via `workflow_dispatch`,
+   passing the version (e.g. `0.0.7`). The workflow bumps all version files to
+   match the input and verifies the bump succeeded before building.
+3. The workflow builds the installer and creates a **GitHub draft release**.
+   It aborts if the target version is already published, and validates that
+   `latest.json` contains the correct version, Windows platform entry, URL,
+   and signature.
+4. Review the draft in the GitHub UI, write release notes, and click **Publish**.
    After publishing, verify the in-app update check no longer reports a remote
    JSON failure — the updater endpoint should serve the new `latest.json`.
 
 Never re-release a published version. If a release is broken, ship a hotfix as
-the next version. See `AGENTS.md` "Release Discipline" for the full policy.
+the next version (e.g. `0.0.7` after a broken `0.0.6`). See `AGENTS.md`
+"Release Discipline" for the full policy.
 
 ## Feature backlog pointer
 
