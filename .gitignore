@@ -12,3 +12,4 @@ src-tauri/gen/
 openspec/
 screenshots/test-results/
 playwright-report/
+test-results/
