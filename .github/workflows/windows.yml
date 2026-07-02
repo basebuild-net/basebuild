@@ -135,7 +135,7 @@ jobs:
           updaterJsonPreferNsis: true
           args: "--target x86_64-pc-windows-msvc"
 
--      - name: Verify updater release assets
+      - name: Verify updater release assets
         if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -191,7 +191,7 @@ jobs:
             console.log('::notice::Updater manifest validated: version=' + manifest.version + ' target=windows-x86_64');
           "
 
--      - name: Verify public updater endpoint
+      - name: Verify public updater endpoint
         if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
