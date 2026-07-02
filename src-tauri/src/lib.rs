@@ -129,11 +129,7 @@ pub fn run() {
                 .build()?;
 
             let _tray_icon = tauri::tray::TrayIconBuilder::new()
-                .icon(tauri::image::Image::new(
-                    include_bytes!("../icons/icon.png"),
-                    512,
-                    512,
-                ))
+                .icon(tauri::include_image!("icons/icon.png"))
                 .menu(&tray_menu)
                 .tooltip("Basebuild")
                 .on_menu_event(|app, event| match event.id.as_ref() {
