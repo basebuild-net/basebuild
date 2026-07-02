@@ -12,7 +12,11 @@ Basebuild's app shell is a three-column grid:
 The global taskbar sits above the shell. Its right side contains the update
 indicator, account control, settings, and window controls. The update indicator
 checks on startup and every 5 minutes; when an update is available it becomes a
-blue one-click download/install button next to the account avatar.
+blue one-click download/install button next to the account avatar. When the
+update channel is broken (missing `latest.json`, malformed manifest, missing
+Windows platform), the indicator shows "Update unavailable" in a warning state
+instead of a red error — the user cannot fix this by retrying, and full
+diagnostics are available in Settings → Updates.
 
 ## Tab kinds
 
@@ -50,7 +54,18 @@ width changes and hides panel labels in collapsed mode.
 
 `useSessionState` hook manages sessions, tabs, and active selection. Sessions
 are project-scoped. Tabs are session-scoped. The last active session is
-persisted per project.
+persisted per project. On restore, stale terminal tabs (whose PTY processes
+are not alive after restart) are not auto-focused; the workspace prefers
+non-terminal tabs or shows a neutral "No tab open" empty state.
+
+## Startup behavior
+
+Basebuild does not create or focus a terminal process on launch, project
+selection, or session restore. The workspace shows a neutral empty state
+until the user explicitly creates a terminal, schematic, or chat tab via
+the "+" menu. Terminal tabs restored from previous sessions that have no
+live PTY show a "Terminal not connected" empty state instead of an
+implied-running terminal.
 
 ## Plan pipeline
 

@@ -51,6 +51,14 @@ export function useSessionState(projectPath: string | null, lastActiveSessionId?
         // Don't auto-select dead terminal tabs on restore - prefer non-terminal tabs
         const firstNonTerminal = list.find((t) => t.kind !== "terminal");
         setActiveTabId(firstNonTerminal?.id ?? null);
+      } else if (list.length > 0) {
+        // Even if the active tab still exists, if it's a terminal tab with no
+        // live PTY (restored from a previous session), prefer a non-terminal tab.
+        const active = list.find((t) => t.id === activeTabId);
+        if (active?.kind === "terminal" && active.terminalId == null) {
+          const firstNonTerminal = list.find((t) => t.kind !== "terminal");
+          if (firstNonTerminal) setActiveTabId(firstNonTerminal.id);
+        }
       }
     } catch (e) {
       console.error("Failed to list tabs:", e);

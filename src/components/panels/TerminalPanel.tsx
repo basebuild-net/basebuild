@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-
+import { TerminalSquare } from "lucide-react";
 import { listenTerminalOutput, resizeTerminal, writeTerminal } from "../../lib/terminal";
 
 type TerminalPanelProps = {
@@ -123,10 +123,10 @@ export function TerminalPanel({ terminalId, cwd, onOutput }: TerminalPanelProps)
 
   if (terminalId == null && !cwd) {
     return (
-      <div className="terminal-panel">
-        <div className="terminal-toolbar">
-          <span className="terminal-status">No terminal</span>
-        </div>
+      <div className="empty-state">
+        <TerminalSquare size={32} className="text-muted" />
+        <h3>No terminal</h3>
+        <p>Create a terminal tab from the + menu to start a shell.</p>
       </div>
     );
   }

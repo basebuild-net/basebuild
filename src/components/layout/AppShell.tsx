@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bug, MessageSquare, TerminalSquare } from "lucide-react";
-import { Settings2 } from "lucide-react";
+import { Bug, LayoutTemplate, MessageSquare, Settings2, TerminalSquare } from "lucide-react";
 
 import { useSessionState } from "../../state/sessions";
 import { usePlans } from "../../state/plans";
@@ -432,20 +431,26 @@ export function AppShell() {
             {activeTool === "terminal" && activeProjectPath ? (
               !activeTab ? (
                 <div className="empty-state">
-                  <TerminalSquare size={32} className="text-muted" />
-                  <h3>No tab selected</h3>
-                  <p>Click + in the tab bar to create a new terminal or schematic tab.</p>
+                  <LayoutTemplate size={32} className="text-muted" />
+                  <h3>No tab open</h3>
+                  <p>Click + in the tab bar to create a terminal, schematic, or chat tab.</p>
                 </div>
-            ) : activeTab.kind === "chat" ? (
-              <ChatPanel
-                projectPath={activeProjectPath}
-                draftPrompt={chatDraft}
-                onDraftConsumed={() => { setChatDraft(null); setChatDraftTabId(null); }}
-              />
-             ) : activeTab.kind === "file" ? (
+              ) : activeTab.kind === "chat" ? (
+                <ChatPanel
+                  projectPath={activeProjectPath}
+                  draftPrompt={chatDraft}
+                  onDraftConsumed={() => { setChatDraft(null); setChatDraftTabId(null); }}
+                />
+              ) : activeTab.kind === "file" ? (
                 <FileViewer path={activeTab.filePath} />
               ) : activeTab.kind === "empty" ? (
                 <ProjectSchematicTab projectPath={activeProjectPath} onOpenDescription={() => setDescriptionOpen(true)} />
+              ) : activeTab.terminalId == null ? (
+                <div className="empty-state">
+                  <LayoutTemplate size={32} className="text-muted" />
+                  <h3>Terminal not connected</h3>
+                  <p>This terminal tab was restored from a previous session. Close it and create a new terminal tab to start a fresh shell.</p>
+                </div>
               ) : gridView && session.tabs.filter((t) => t.kind === "terminal").length > 1 ? (
                 (() => {
                   const terminalTabs = session.tabs.filter((t) => t.kind === "terminal");
