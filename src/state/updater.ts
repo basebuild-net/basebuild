@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { checkForUpdates, installUpdate, type UpdateInfo } from "../lib/updater";
+import { checkForUpdates, installUpdate, type UpdateChannelStatus, type UpdateInfo } from "../lib/updater";
 
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -18,7 +18,40 @@ function messageFromError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/// Parse a `channel_status=Variant` token from a backend error string.
+/// The backend formats updater errors as
+/// `"... | channel_status=Variant | explanation..."` so the frontend
+/// can classify release-channel breakage without leaking plugin internals.
+function parseChannelStatus(message: string): UpdateChannelStatus {
+  const match = message.match(/channel_status=(\w+)/);
+  if (!match) return "unknown";
+  const variant = match[1];
+  // Convert PascalCase Rust enum to the camelCase TS union member.
+  const lower = variant.charAt(0).toLowerCase() + variant.slice(1);
+  const valid: UpdateChannelStatus[] = [
+    "ok",
+    "endpointUnavailable",
+    "malformedManifest",
+    "platformMissing",
+    "signatureInvalid",
+    "networkUnreachable",
+    "unknown",
+  ];
+  return (valid as string[]).includes(lower) ? (lower as UpdateChannelStatus) : "unknown";
+}
+
+function parseChannelExplanation(message: string): string {
+  // Extract everything after the last " | " separator in the formatted error.
+  const idx = message.lastIndexOf(" | ");
+  if (idx >= 0 && idx + 3 < message.length) {
+    return message.slice(idx + 3);
+  }
+  return "An update-channel error occurred. See the raw message for details.";
+}
+
 function errorInfo(message: string): UpdateInfo {
+  const channelStatus = parseChannelStatus(message);
+  const channelExplanation = parseChannelExplanation(message);
   return {
     available: false,
     version: null,
@@ -27,6 +60,9 @@ function errorInfo(message: string): UpdateInfo {
     date: null,
     target: null,
     downloadUrl: null,
+    channelStatus,
+    channelExplanation,
+    rawError: message,
   };
 }
 

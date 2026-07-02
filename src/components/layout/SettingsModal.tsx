@@ -249,9 +249,26 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                     </div>
                   </div>
                 ) : updates.info ? (
-                  <p className={`text-sm${updates.status === "error" ? " text-danger" : " text-muted"}`}>
-                    {updates.error ?? updates.info.notes ?? "You're on the latest version."}
-                  </p>
+                  <>
+                    <p className={`text-sm${updates.status === "error" ? " text-danger" : " text-muted"}`}>
+                      {updates.error ?? updates.info.notes ?? "You're on the latest version."}
+                    </p>
+                    {updates.info.channelStatus && updates.info.channelStatus !== "ok" ? (
+                      <div className="requirement-row is-warn">
+                        <span className="requirement-badge is-warn">!</span>
+                        <div>
+                          <div className="requirement-name">Update channel: {updates.info.channelStatus}</div>
+                          <div className="requirement-detail text-muted text-sm">{updates.info.channelExplanation}</div>
+                          {updates.info.rawError ? (
+                            <details className="update-raw-error">
+                              <summary className="text-muted text-sm">Raw updater message</summary>
+                              <pre className="text-sm mono">{updates.info.rawError}</pre>
+                            </details>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
                 ) : (
                   <p className="text-muted text-sm">Checking for updates on startup and every 5 minutes.</p>
                 )}

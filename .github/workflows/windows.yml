@@ -135,20 +135,103 @@ jobs:
           updaterJsonPreferNsis: true
           args: "--target x86_64-pc-windows-msvc"
 
-      - name: Verify updater release assets
+-      - name: Verify updater release assets
         if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
+          version="${{ inputs.version }}"
           tag="v${{ inputs.version }}"
           assets="$(gh release view "$tag" --repo "${{ github.repository }}" --json assets --jq '.assets[].name')"
           echo "$assets"
+
+          # 1. latest.json must exist
           echo "$assets" | grep -Fx "latest.json" >/dev/null || {
             echo "::error::latest.json was not uploaded; in-app updates will not work."
             exit 1
           }
+
+          # 2. A signature asset must exist
           echo "$assets" | grep -E '\.sig$' >/dev/null || {
             echo "::error::No updater signature asset was uploaded; in-app updates will not be trusted."
             exit 1
           }
+
+          # 3. The installer asset name must include the release version
+          installer_pattern="Basebuild_${version}_x64-setup.exe"
+          echo "$assets" | grep -Fx "$installer_pattern" >/dev/null || {
+            echo "::error::Installer asset '$installer_pattern' not found. Expected asset name to match the release version."
+            echo "::error::Found assets: $(echo "$assets" | tr '\n' ' ')"
+            exit 1
+          }
+
+          # 4. Download latest.json and validate its structure
+          gh release download "$tag" --repo "${{ github.repository }}" --pattern "latest.json" --dir /tmp/updater-check --clobber
+          node -e "
+            const fs = require('fs');
+            const manifest = JSON.parse(fs.readFileSync('/tmp/updater-check/latest.json', 'utf8'));
+            const errors = [];
+            if (!manifest.version) errors.push('missing version');
+            if (manifest.version !== '${version}' && manifest.version !== 'v${version}') {
+              errors.push('version mismatch: manifest=' + manifest.version + ' expected=${version}');
+            }
+            const platform = manifest.platforms && manifest.platforms['windows-x86_64'];
+            if (!platform) errors.push('missing windows-x86_64 platform entry');
+            if (platform && !platform.url) errors.push('windows-x86_64 missing url');
+            if (platform && !platform.signature) errors.push('windows-x86_64 missing signature');
+            if (platform && platform.url && !platform.url.includes('${version}')) {
+              errors.push('windows-x86_64 url does not contain version ${version}: ' + platform.url);
+            }
+            if (errors.length > 0) {
+              console.error('::error::Updater manifest validation failed:');
+              errors.forEach(e => console.error('::error::  ' + e));
+              process.exit(1);
+            }
+            console.log('::notice::Updater manifest validated: version=' + manifest.version + ' target=windows-x86_64');
+          "
+
+-      - name: Verify public updater endpoint
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          # Verify the public latest/download/latest.json URL resolves and
+          # contains the expected Windows platform entry. This catches the
+          # observed regression where the release was published without
+          # latest.json, causing a 404 at the configured updater endpoint.
+          # We allow a brief propagation delay for GitHub's CDN.
+          version="${{ inputs.version }}"
+          endpoint="https://github.com/${{ github.repository }}/releases/latest/download/latest.json"
+          echo "Fetching $endpoint"
+          for attempt in 1 2 3 4 5; do
+            response=$(curl -fsSL "$endpoint" 2>/dev/null) && break
+            echo "Attempt $attempt: endpoint not yet available, waiting 10s..."
+            sleep 10
+          done
+          if [ -z "$response" ]; then
+            echo "::error::Public updater endpoint returned empty or 404: $endpoint"
+            echo "::error::The release may not be published yet, or latest.json is missing from the latest release."
+            exit 1
+          fi
+          echo "$response" | node -e "
+            let data = '';
+            process.stdin.on('data', chunk => data += chunk);
+            process.stdin.on('end', () => {
+              try {
+                const manifest = JSON.parse(data);
+                const platform = manifest.platforms && manifest.platforms['windows-x86_64'];
+                if (!platform) {
+                  console.error('::error::Public latest.json is missing windows-x86_64 platform entry');
+                  process.exit(1);
+                }
+                if (!platform.url || !platform.signature) {
+                  console.error('::error::Public latest.json windows-x86_64 entry is missing url or signature');
+                  process.exit(1);
+                }
+                console.log('::notice::Public updater endpoint verified: version=' + manifest.version);
+              } catch (e) {
+                console.error('::error::Public latest.json is not valid JSON: ' + e.message);
+                process.exit(1);
+              }
+            });
+          "

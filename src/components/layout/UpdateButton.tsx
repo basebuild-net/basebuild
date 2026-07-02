@@ -42,15 +42,25 @@ export function UpdateButton({ updates, onOpenSettings }: UpdateButtonProps) {
   }
 
   if (status === "error") {
+    const channelStatus = info?.channelStatus ?? "unknown";
+    // Network errors are transient and worth a retry; channel errors
+    // (endpoint unavailable, malformed manifest, etc.) are release pipeline
+    // issues the user cannot fix by retrying. Show a calmer indicator.
+    const isChannelBroken =
+      channelStatus === "endpointUnavailable" ||
+      channelStatus === "malformedManifest" ||
+      channelStatus === "platformMissing" ||
+      channelStatus === "signatureInvalid";
+    const label = isChannelBroken ? "Update unavailable" : "Update error";
     return (
       <button
-        className="update-taskbar-status is-error"
+        className={`update-taskbar-status${isChannelBroken ? " is-warning" : " is-error"}`}
         type="button"
-        title={updates.error ?? "Update check failed"}
+        title={info?.channelExplanation ?? updates.error ?? "Update check failed"}
         onClick={onOpenSettings}
       >
         <RefreshCw size={12} />
-        <span>Update error</span>
+        <span>{label}</span>
       </button>
     );
   }

@@ -1,5 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 
+export type UpdateChannelStatus =
+  | "ok"
+  | "endpointUnavailable"
+  | "malformedManifest"
+  | "platformMissing"
+  | "signatureInvalid"
+  | "networkUnreachable"
+  | "unknown";
+
 export type UpdateInfo = {
   available: boolean;
   version: string | null;
@@ -8,6 +17,9 @@ export type UpdateInfo = {
   date: string | null;
   target: string | null;
   downloadUrl: string | null;
+  channelStatus: UpdateChannelStatus;
+  channelExplanation: string;
+  rawError: string | null;
 };
 
 export async function checkForUpdates(): Promise<UpdateInfo> {

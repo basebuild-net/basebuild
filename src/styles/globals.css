@@ -179,6 +179,7 @@ html, body, #root {
 }
 .update-taskbar-status:hover { background: var(--bb-surface); color: var(--bb-text); }
 .update-taskbar-status.is-error { color: var(--bb-negative); }
+.update-taskbar-status.is-warning { color: var(--bb-warning); }
 
 .app-shell {
   display: grid;
@@ -1058,7 +1059,9 @@ a { color: inherit; text-decoration: none; }
 .settings-section-spacer { margin-top: 16px; }
 .update-notes { margin-top: 4px; word-break: break-word; }
 .update-action-row { margin-top: 6px; }
-
+.update-raw-error { margin-top: 6px; }
+.update-raw-error summary { cursor: pointer; user-select: none; }
+.update-raw-error pre { margin-top: 4px; white-space: pre-wrap; word-break: break-word; color: var(--bb-muted); }
 /* Requirement rows */
 .requirement-row {
   display: flex; align-items: flex-start; gap: 8px;
@@ -1066,8 +1069,9 @@ a { color: inherit; text-decoration: none; }
   border-radius: 0;
 }
 .requirement-row.is-ok { border-left: 3px solid #4ec9b0; }
-.requirement-row.is-attention { border-left: 3px solid #dcdcaa; }
 .requirement-row.is-error { border-left: 3px solid #e85d75; }
+.requirement-row.is-warn { border-left: 3px solid var(--bb-warning); }
+.requirement-badge.is-warn { color: var(--bb-warning); }
 .requirement-badge {
   display: flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; border-radius: 0;
