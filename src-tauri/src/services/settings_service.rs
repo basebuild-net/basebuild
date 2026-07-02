@@ -5,6 +5,7 @@ use crate::{
         permission::{AuditEntry, PermissionRules},
         runtime::{RuntimeDefaults, RuntimeProfile, RuntimeProfileKind, WorkingDirectoryMode},
     },
+    services::process_helpers::hidden_command,
     services::storage_service::StorageService,
 };
 
@@ -96,9 +97,8 @@ impl SettingsService {
             .map_err(|e| e.to_string())?;
         Ok(())
     }
-
     pub fn validate_profile(profile: &RuntimeProfile) -> DbResult<ProfileValidation> {
-        let output = std::process::Command::new(&profile.executable)
+        let output = hidden_command(&profile.executable)
             .arg("--version")
             .output();
         match output {

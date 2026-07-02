@@ -64,3 +64,16 @@ When in doubt, ask. The default stance is conservative.
 
 Never assume Basebuild owns a project. `git`, `omp`, and editors are the source
 of truth; Basebuild persists only project-local metadata in `.basebuild/`.
+
+## Hidden process spawning
+
+Non-interactive helper commands (`omp --version`, `omp stats --json`, `git`,
+`node --version`, profile validation) are spawned with `CREATE_NO_WINDOW` on
+Windows via `crate::services::process_helpers::hidden_command`. This prevents
+visible console windows from appearing when Basebuild (a windowed application
+with no console) spawns console-subsystem child processes. PTY-backed terminal
+and agent spawns use ConPTY, which already passes `CREATE_NO_WINDOW`.
+
+The release binary is built with `windows_subsystem = "windows"` so the
+packaged app does not allocate a console window on launch. Debug builds keep
+the console visible for panic output and development logging.

@@ -1,6 +1,5 @@
-use std::process::Command;
-
 use crate::models::requirement::{RequirementSeverity, RequirementStatus};
+use crate::services::process_helpers::hidden_command;
 
 #[derive(Debug, Default)]
 pub struct RequirementService;
@@ -58,11 +57,10 @@ impl RequirementService {
 }
 
 fn command_version(program: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new(program)
+    let output = hidden_command(program)
         .args(args)
         .output()
         .map_err(|_| format!("{program} was not found on PATH."))?;
-
     if !output.status.success() {
         return Err(format!("{program} returned a non-zero exit code."));
     }

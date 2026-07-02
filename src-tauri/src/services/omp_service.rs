@@ -1,4 +1,4 @@
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 
@@ -7,6 +7,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::events::OMP_EVENT;
 use crate::models::omp::{OmpCommandResult, OmpStatus};
+use crate::services::process_helpers::hidden_command;
 
 static STREAM_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -54,7 +55,7 @@ impl OmpService {
     pub fn stream_command(app: AppHandle, args: Vec<String>) -> Result<u64, String> {
         let id = STREAM_ID.fetch_add(1, Ordering::Relaxed);
         thread::spawn(move || {
-            let child = Command::new("omp")
+            let child = hidden_command("omp")
                 .args(&args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -103,7 +104,7 @@ impl OmpService {
 }
 
 fn run_omp(args: &[&str]) -> Result<OmpCommandResult, String> {
-    let output = Command::new("omp")
+    let output = hidden_command("omp")
         .args(args)
         .output()
         .map_err(|_| "omp was not found on PATH.".to_string())?;

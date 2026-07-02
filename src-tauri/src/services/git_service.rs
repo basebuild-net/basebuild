@@ -1,9 +1,9 @@
 use std::path::Path;
-use std::process::Command;
 
 use crate::models::git::{
     BranchInfo, BranchInfo2, FileChangeType, FileEntry, GitCommit, GitStatus,
 };
+use crate::services::process_helpers::hidden_command;
 
 #[derive(Debug, Default)]
 pub struct GitService;
@@ -166,7 +166,7 @@ fn parse_decorate_refs(raw: &str) -> Vec<String> {
 }
 
 fn run_git(path: &Path, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
+    let output = hidden_command("git")
         .args(args)
         .current_dir(path)
         .output()
