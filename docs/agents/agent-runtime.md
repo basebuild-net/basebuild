@@ -77,3 +77,27 @@ and agent spawns use ConPTY, which already passes `CREATE_NO_WINDOW`.
 The release binary is built with `windows_subsystem = "windows"` so the
 packaged app does not allocate a console window on launch. Debug builds keep
 the console visible for panic output and development logging.
+
+## Update policy
+
+The release channel can declare update policy fields in the signed
+`latest.json` manifest. These fields control the startup splash behavior:
+
+- `minimumSupportedVersion` (or `mandatoryBelow`) — If the running app's
+  version is strictly below this value, the update is mandatory: the splash
+  hides the skip button and auto-starts the update. Example: a manifest
+  declaring `"minimumSupportedVersion": "0.1.2"` forces all versions below
+  `0.1.2` to update mandatorily.
+- `releaseSummary` — Short user-facing summary shown in the splash. Falls
+  back to the standard `notes` field when absent.
+
+Skip-version persistence: when the user skips an optional update for version
+`X.Y.Z`, Basebuild stores that version locally and suppresses the startup
+prompt for that exact target. A newer release clears the skip implicitly.
+Mandatory updates always override any skip.
+
+The no-wizard update flow uses NSIS `passive` install mode (shows only a
+progress bar, no wizard dialogs). The Tauri updater plugin verifies the
+downloaded payload signature before applying. Progress events are emitted
+to the frontend via `updater://progress` events with step, downloaded bytes,
+total bytes, and a message.

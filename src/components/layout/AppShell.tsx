@@ -32,7 +32,7 @@ import { StatusBar } from "./StatusBar";
 import { LogPanel } from "./LogPanel";
 import { useLogs } from "../../state/log";
 import { useAccount } from "../../state/account";
-import { useUpdater } from "../../state/updater";
+import type { UpdaterState } from "../../state/updater";
 import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
 export type ToolId = ToolTabId;
 
@@ -46,7 +46,11 @@ const DEFAULT_SHELL = () => {
   return "bash";
 };
 
-export function AppShell() {
+type AppShellProps = {
+  updates: UpdaterState;
+};
+
+export function AppShell({ updates }: AppShellProps) {
   const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<ToolId>("terminal");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -59,9 +63,9 @@ export function AppShell() {
   const [focusingPlan, setFocusingPlan] = useState<Plan | null>(null);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [descriptionOpen, setDescriptionOpen] = useState(false);
- const firstRun = useFirstRun();
+  const firstRun = useFirstRun();
   const [chatDraft, setChatDraft] = useState<string | null>(null);
- const [chatDraftTabId, setChatDraftTabId] = useState<string | null>(null);
+  const [chatDraftTabId, setChatDraftTabId] = useState<string | null>(null);
   const [terminalOutputBuffer, setTerminalOutputBuffer] = useState("");
   const titleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titlePendingRef = useRef(false);
@@ -71,7 +75,6 @@ export function AppShell() {
   const plans = usePlans(session.activeSessionId);
   const schematic = useProjectSchematic(activeProjectPath);
   const account = useAccount();
-  const updates = useUpdater();
 
   useEffect(() => {
     if (activeProjectPath && session.sessions.length === 0 && !session.activeSessionId) {

@@ -63,6 +63,7 @@ src-tauri/
 8. **One service per domain.** Commands validate input, call service, map errors.
 9. **Plan statuses are `snake_case`.** Lifecycle: `draft → openspec → waiting → in_progress → finished`.
 10. **Commit milestones.** Keep large changes in coherent, verified milestones. If the user has explicitly asked for commits, commit each completed milestone separately with a clear message. Otherwise, report suggested commit points but do not create commits silently.
+11. **Feature branches.** Never build on `main`. Before starting any non-trivial change, create a branch named after the work (e.g. `feat/startup-update-splash`). If the current branch is already non-`main`, stay on it. Do not push commits to `main`. Only merge a feature branch into `main` after the work is verified.
 
 ## Development
 

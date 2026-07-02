@@ -157,11 +157,44 @@ jobs:
         with:
           tagName: v${{ inputs.version }}
           releaseName: "Basebuild v${{ inputs.version }}"
-          releaseBody: "Download the installer below to update Basebuild. Includes signed updater metadata for in-app one-click updates."
+          releaseBody: "## Basebuild v${{ inputs.version }}\n\nIncludes:\n- **NSIS installer** (recommended) — `Basebuild_${{ inputs.version }}_x64-setup.exe`\n- **Portable build** — `Basebuild_${{ inputs.version }}_x64-portable.zip` (no installer required)\n- Signed updater metadata for in-app one-click updates.\n\nThe app checks for updates on startup and supports mandatory update policies."
           releaseDraft: true
           prerelease: false
           updaterJsonPreferNsis: true
           args: "--target x86_64-pc-windows-msvc"
+
+      - name: Create portable artifact
+        shell: bash
+        run: |
+          version="${{ inputs.version }}"
+          # The Tauri build produces the main executable in the target release dir.
+          # Package it as a portable zip that can be extracted and run without setup.
+          exe_path="src-tauri/target/x86_64-pc-windows-msvc/release/basebuild-app.exe"
+          if [ ! -f "$exe_path" ]; then
+            echo "::error::Portable executable not found at $exe_path"
+            exit 1
+          fi
+          portable_name="Basebuild_${version}_x64-portable.zip"
+          # Create a temp dir, copy the exe and frontend dist, then zip.
+          tmpdir="$(mktemp -d)"
+          cp "$exe_path" "$tmpdir/Basebuild.exe"
+          # Verify the embedded version matches
+          embedded_version="$(strings "$exe_path" | grep -oP 'CARGO_PKG_VERSION=\K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+          if [ -n "$embedded_version" ] && [ "$embedded_version" != "$version" ]; then
+            echo "::warning::Embedded version '$embedded_version' != expected '$version' (may be embedded differently)"
+          fi
+          (cd "$tmpdir" && 7z a -tzip "$GITHUB_WORKSPACE/$portable_name" Basebuild.exe)
+          rm -rf "$tmpdir"
+          echo "portable_artifact=$portable_name" >> "$GITHUB_ENV"
+
+      - name: Upload portable artifact
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          tag="v${{ inputs.version }}"
+          gh release upload "$tag" --repo "${{ github.repository }}" "$portable_artifact" --clobber
 
       - name: Verify updater release assets
         if: github.event_name == 'workflow_dispatch'
@@ -194,7 +227,15 @@ jobs:
             exit 1
           }
 
-          # 4. Fetch latest.json and validate its structure.
+          # 4. The portable artifact must exist and match the version
+          portable_pattern="Basebuild_${version}_x64-portable.zip"
+          echo "$assets" | grep -Fx "$portable_pattern" >/dev/null || {
+            echo "::error::Portable artifact '$portable_pattern' not found. Portable builds require this asset."
+            exit 1
+          }
+
+          # 5. Fetch latest.json and validate its structure, including
+          # optional update policy fields (minimumSupportedVersion, releaseSummary).
           # Pipe via --output - to avoid Windows/Git-Bash path
           # resolution mismatches between gh (Go binary) and node
           # for /tmp — both resolve /tmp differently on Windows.
@@ -215,6 +256,14 @@ jobs:
                 if (platform && !platform.signature) errors.push('windows-x86_64 missing signature');
                 if (platform && platform.url && !platform.url.includes('github.com')) {
                   errors.push('windows-x86_64 url does not point to GitHub: ' + platform.url);
+                }
+                // Optional policy fields are not required but if present
+                // must be non-empty strings.
+                if (manifest.minimumSupportedVersion !== undefined && typeof manifest.minimumSupportedVersion !== 'string') {
+                  errors.push('minimumSupportedVersion must be a string if present');
+                }
+                if (manifest.releaseSummary !== undefined && typeof manifest.releaseSummary !== 'string') {
+                  errors.push('releaseSummary must be a string if present');
                 }
                 if (errors.length > 0) {
                   console.error('::error::Updater manifest validation failed:');

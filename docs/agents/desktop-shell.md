@@ -60,6 +60,24 @@ non-terminal tabs or shows a neutral "No tab open" empty state.
 
 ## Startup behavior
 
+Before the main shell renders, Basebuild shows a startup update splash
+that checks for updates. The splash displays the current build version
+and transitions through these states:
+
+- **Checking** — update check in progress.
+- **Optional update** — target version, summary, and `Upgrade` / `Skip
+  update for now` buttons. Skip is version-scoped: the same target version
+  is not prompted again, but a newer release will prompt.
+- **Mandatory update** — when the running version is below the release
+  channel's `minimumSupportedVersion`, the skip button is hidden and the
+  update auto-starts.
+- **Progress** — download progress bar and step text (downloading,
+  installing, restarting).
+- **Error** — actionable diagnostics with retry and "Continue anyway".
+
+The splash does not replace the in-app update controls. The taskbar
+update button and Settings → Updates tab remain functional after startup.
+
 Basebuild does not create or focus a terminal process on launch, project
 selection, or session restore. The workspace shows a neutral empty state
 until the user explicitly creates a terminal, schematic, or chat tab via

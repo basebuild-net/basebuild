@@ -86,13 +86,57 @@ pre-bump commit and no version drift between files.
 2. Trigger the **CI / Release (Windows)** workflow via `workflow_dispatch`,
    passing the version (e.g. `0.0.7`). The workflow bumps all version files to
    match the input and verifies the bump succeeded before building.
-3. The workflow builds the installer and creates a **GitHub draft release**.
-   It aborts if the target version is already published, and validates that
+3. The workflow builds the NSIS installer, creates a portable `.zip` artifact,
+   and uploads both to a **GitHub draft release**. It validates that
    `latest.json` contains the correct version, Windows platform entry, URL,
-   and signature.
+   and signature. It also checks that the portable artifact exists.
 4. Review the draft in the GitHub UI, write release notes, and click **Publish**.
    After publishing, verify the in-app update check no longer reports a remote
    JSON failure — the updater endpoint should serve the new `latest.json`.
+
+### Release artifacts
+
+Each Windows release produces:
+
+- **`Basebuild_X.Y.Z_x64-setup.exe`** — NSIS installer with passive install
+  mode (no wizard prompts during auto-update). This is the recommended
+  download for most users.
+- **`Basebuild_X.Y.Z_x64-portable.zip`** — Portable build containing a
+  standalone `Basebuild.exe` that runs without installation. Used for
+  no-wizard portable updates.
+- **`latest.json`** — Signed Tauri updater manifest pointing to the installer.
+  May optionally contain `minimumSupportedVersion` and `releaseSummary`
+  fields for update policy control.
+- **`.sig`** — Minisign signature for update verification.
+
+### Update policy fields
+
+The `latest.json` manifest supports optional policy fields:
+
+- `minimumSupportedVersion` (or `mandatoryBelow`) — If the running app's
+  version is strictly below this value, the startup splash hides the skip
+  button and auto-starts the update. Example: setting `minimumSupportedVersion`
+  to `"0.1.2"` forces all versions below `0.1.2` to update mandatorily.
+- `releaseSummary` — Short user-facing summary shown in the splash. Falls
+  back to the standard `notes` field when absent.
+
+### Startup update splash
+
+On launch, Basebuild shows a startup splash that checks for updates before
+the main shell becomes interactive. The splash has these states:
+
+- **Checking** — Shows current version and update-check progress.
+- **Optional update** — Shows target version, summary, and `Upgrade` /
+  `Skip update for now` buttons. The skip is version-scoped: the user is
+  not prompted again for the same target version, but will be prompted for
+  a newer release.
+- **Mandatory update** — Hides the skip button and auto-starts the update
+  when the running version is below `minimumSupportedVersion`.
+- **Progress** — Shows download/install progress bar and step text.
+- **Error** — Shows actionable diagnostics with retry and "Continue anyway".
+
+The existing in-app update UI (taskbar button + Settings → Updates tab)
+remains functional after startup for manual checks and installs.
 
 Never re-release a published version. If a release is broken, ship a hotfix as
 the next version (e.g. `0.0.7` after a broken `0.0.6`). See `AGENTS.md`

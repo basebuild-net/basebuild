@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Check, Download, Lock, LogOut, RefreshCw, Settings2, Shield, Trash2, User, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
+import { CopyButton } from "./CopyButton";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
 import { type UpdaterState } from "../../state/updater";
 import { appVersion } from "../../lib/app";
@@ -260,12 +261,14 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                         <span className="requirement-badge is-warn">!</span>
                         <div>
                           <div className="requirement-name">Update channel: {updates.info.channelStatus}</div>
-                          <div className="requirement-detail text-muted text-sm">{updates.info.channelExplanation}</div>
                           {updates.info.rawError ? (
                             <details className="update-raw-error">
                               <summary className="text-muted text-sm">Raw updater message</summary>
                               <pre className="text-sm mono">{updates.info.rawError}</pre>
                             </details>
+                          ) : null}
+                          {updates.info.rawError ? (
+                            <CopyButton text={updates.info.rawError} label="Copy" className="btn btn-ghost btn-sm" />
                           ) : null}
                         </div>
                       </div>

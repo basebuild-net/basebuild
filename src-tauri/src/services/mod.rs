@@ -16,3 +16,4 @@ pub mod settings_service;
 pub mod storage_service;
  pub mod terminal_service;
 pub mod sync_service;
+pub mod updater_service;

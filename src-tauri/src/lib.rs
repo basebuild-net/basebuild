@@ -60,7 +60,10 @@ use commands::{
     skills::read_skill,
      terminal::{close_terminal, create_terminal, list_terminals, resize_terminal, write_terminal},
     sync::sync_raw_usage_native,
-     updater::{check_for_updates, install_update},
+    updater::{
+        check_for_updates, clear_skipped_update, get_skipped_update_version,
+        install_update, install_update_with_progress, skip_update_version,
+    },
 };
 
 pub struct CloseToTrayState {
@@ -272,6 +275,10 @@ pub fn run() {
             sync_raw_usage_native,
              check_for_updates,
              install_update,
+            install_update_with_progress,
+            skip_update_version,
+            clear_skipped_update,
+            get_skipped_update_version,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Basebuild");
