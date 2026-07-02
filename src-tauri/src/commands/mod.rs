@@ -7,6 +7,7 @@ pub mod auth;
  pub mod git;
  pub mod ideas;
  pub mod omp;
+pub mod native_chat;
  pub mod plans;
  pub mod projects;
  pub mod requirements;
@@ -18,3 +19,4 @@ pub mod settings;
 pub mod sync;
  pub mod updater;
 
+pub mod workspace;

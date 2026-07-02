@@ -19,7 +19,7 @@ instead of a red error — the user cannot fix this by retrying, and full
 diagnostics are available in Settings → Updates.
 
 ## Tab kinds
-
+- **Chat** — agent chat panel backed by a runtime profile. The default profile is `basebuild-native`, which runs structured chat, provider/model controls, and local request metrics; OMP remains selectable.
 Each workspace tab has a `kind`: `terminal`, `file`, `empty`, or `chat`.
 
 - **Terminal** — PTY-backed shell.
@@ -84,6 +84,15 @@ until the user explicitly creates a terminal, schematic, or chat tab via
 the "+" menu. Terminal tabs restored from previous sessions that have no
 live PTY show a "Terminal not connected" empty state instead of an
 implied-running terminal.
+
+## Workspace restore
+
+Per-project workspace state (last session, last tab, side panel section,
+sidebar/side collapse, side panel width) is persisted locally and restored on
+project open. Side panel width is resizable via a drag handle between the center
+workspace and the right panel, clamped to 180–520px. Restoring never auto-spawns
+terminals or agents; stale process-backed tabs show a disconnected state until
+the user explicitly reconnects.
 
 ## Plan pipeline
 

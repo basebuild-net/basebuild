@@ -17,6 +17,7 @@ export type SessionTab = {
   title: string;
   terminalId: number | null;
   filePath: string | null;
+  chatSessionId: string | null;
   createdAt: number;
 };
 
@@ -41,7 +42,8 @@ export async function createTab(
   kind: TabKind,
   title: string,
   terminalId?: number,
-  filePath?: string
+  filePath?: string,
+  chatSessionId?: string | null
 ): Promise<SessionTab> {
   return invoke<SessionTab>("create_tab", {
     sessionId,
@@ -49,6 +51,7 @@ export async function createTab(
     title,
     terminalId: terminalId ?? null,
     filePath: filePath ?? null,
+    chatSessionId: chatSessionId ?? null,
   });
 }
 
@@ -66,6 +69,10 @@ export async function updateTabTerminal(id: string, terminalId: number | null): 
 
 export async function updateTabFilePath(id: string, filePath: string | null): Promise<void> {
   return invoke("update_tab_file_path", { id, filePath });
+}
+
+export async function updateTabChatSession(id: string, chatSessionId: string | null): Promise<void> {
+  return invoke("update_tab_chat_session", { id, chatSessionId });
 }
 
 export async function readFile(path: string): Promise<string> {

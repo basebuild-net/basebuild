@@ -9,6 +9,7 @@ import {
   createTab as createTabApi,
   deleteTab as deleteTabApi,
   listTabs,
+  updateTabChatSession,
   renameSession as renameSessionApi,
 } from "../lib/sessions";
 import { setLastActiveSession as setLastActiveSessionApi } from "../lib/projects";
@@ -112,9 +113,9 @@ export function useSessionState(projectPath: string | null, lastActiveSessionId?
   );
 
   const createTab = useCallback(
-    async (kind: TabKind, title: string, terminalId?: number, filePath?: string) => {
+    async (kind: TabKind, title: string, terminalId?: number, filePath?: string, chatSessionId?: string | null) => {
       if (!activeSessionId) return null;
-      const tab = await createTabApi(activeSessionId, kind, title, terminalId, filePath);
+      const tab = await createTabApi(activeSessionId, kind, title, terminalId, filePath, chatSessionId);
       await refreshTabs();
       setActiveTabId(tab.id);
       return tab;
@@ -133,6 +134,14 @@ export function useSessionState(projectPath: string | null, lastActiveSessionId?
     [activeTabId, refreshTabs],
   );
 
+  const setTabChatSession = useCallback(
+    async (id: string, chatSessionId: string | null) => {
+      await updateTabChatSession(id, chatSessionId);
+      await refreshTabs();
+    },
+    [refreshTabs],
+  );
+
   return {
     sessions,
     activeSession,
@@ -148,6 +157,7 @@ export function useSessionState(projectPath: string | null, lastActiveSessionId?
     renameSession,
     createTab,
     removeTab,
+    setTabChatSession,
     setActiveTabId,
   };
 }

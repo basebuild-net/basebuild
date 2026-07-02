@@ -19,6 +19,7 @@ pub struct SessionTab {
     pub title: String,
     pub terminal_id: Option<u64>,
     pub file_path: Option<String>,
+    pub chat_session_id: Option<String>,
     pub created_at: i64,
 }
 

@@ -30,6 +30,7 @@ pub fn create_tab(
     title: String,
     terminal_id: Option<u64>,
     file_path: Option<String>,
+    chat_session_id: Option<String>,
 ) -> Result<SessionTab, String> {
     SessionService::create_tab(
         &session_id,
@@ -37,6 +38,7 @@ pub fn create_tab(
         &title,
         terminal_id,
         file_path.as_deref(),
+        chat_session_id.as_deref(),
     )
 }
 
@@ -58,4 +60,9 @@ pub fn update_tab_terminal(id: String, terminal_id: Option<u64>) -> Result<(), S
 #[tauri::command]
 pub fn update_tab_file_path(id: String, file_path: Option<String>) -> Result<(), String> {
     SessionService::update_tab_file_path(&id, file_path.as_deref())
+}
+
+#[tauri::command]
+pub fn update_tab_chat_session(id: String, chat_session_id: Option<String>) -> Result<(), String> {
+    SessionService::update_tab_chat_session(&id, chat_session_id.as_deref())
 }

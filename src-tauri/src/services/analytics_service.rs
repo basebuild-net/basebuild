@@ -191,8 +191,9 @@ mod tests {
     fn test_runtime_defaults_conservative() {
         let defaults = crate::models::runtime::RuntimeDefaults::conservative();
         assert!(!defaults.auto_send_generated_prompts, "auto-send must be off in conservative defaults");
-        assert_eq!(defaults.default_chat_profile_id.as_deref(), Some("omp"), "default chat profile must be OMP");
-        assert!(defaults.default_model.is_none(), "default model must be None in conservative defaults");
+        assert_eq!(defaults.default_chat_profile_id.as_deref(), Some("basebuild-native"), "default chat profile must be the native harness");
+        assert_eq!(defaults.default_terminal_profile_id.as_deref(), Some("default-terminal"));
+        assert_eq!(defaults.default_model.as_deref(), Some("basebuild-local-coordinator"), "default model must match the native coordinator");
     }
 
     #[test]
@@ -218,7 +219,8 @@ mod tests {
     #[test]
     fn test_runtime_profile_built_ins() {
         let built_ins = crate::models::runtime::RuntimeProfile::built_ins();
-        assert_eq!(built_ins.len(), 2, "should have OMP + terminal built-ins");
+        assert_eq!(built_ins.len(), 3, "should have native + OMP + terminal built-ins");
+        assert!(built_ins.iter().any(|p| p.id == "basebuild-native"), "native harness profile must exist");
         assert!(built_ins.iter().any(|p| p.id == "omp"), "OMP profile must exist");
         assert!(built_ins.iter().any(|p| p.id == "default-terminal"), "terminal profile must exist");
     }

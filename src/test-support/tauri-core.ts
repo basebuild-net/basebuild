@@ -15,6 +15,52 @@ type SessionTab = {
   filePath: string | null;
   createdAt: number;
 };
+type NativeChatSession = {
+  id: string;
+  projectPath: string;
+  title: string;
+  profileId: string;
+  providerId: string;
+  modelId: string;
+  effortLevel: string;
+  status: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+type NativeChatMessage = {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  sortOrder: number;
+  providerId: string | null;
+  modelId: string | null;
+  effortLevel: string | null;
+  createdAt: number;
+};
+
+type NativeRequestMetric = {
+  id: string;
+  sessionId: string;
+  providerId: string;
+  modelId: string;
+  effortLevel: string;
+  startedAt: number;
+  completedAt: number | null;
+  durationMs: number | null;
+  ttftMs: number | null;
+  ttltMs: number | null;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  tokensPerSecond: number | null;
+  costTotal: number | null;
+  outcome: string;
+  errorClass: string | null;
+  createdAt: number;
+};
 
 type Plan = {
   id: string;
@@ -42,6 +88,13 @@ type E2eState = {
   nextTabId: number;
   nextPlanId: number;
   nextTerminalId: number;
+  nextNativeChatId: number;
+  nextNativeMessageId: number;
+  nextNativeMetricId: number;
+  nativeChatSessions: NativeChatSession[];
+  nativeChatMessages: NativeChatMessage[];
+  nativeRequestMetrics: NativeRequestMetric[];
+  workspaceRestoreByProject: Map<string, unknown>;
   auth: { accessToken: string; expiresAt: string; scopes: string[]; user: { id: string; username: string; email: string; image: string | null; isAdmin: boolean; isEditor: boolean } | null } | null;
   updateInstallCount: number;
 };
@@ -60,6 +113,13 @@ function state(): E2eState {
       nextTabId: 1,
       nextPlanId: 1,
       nextTerminalId: 1,
+      nextNativeChatId: 1,
+      nextNativeMessageId: 1,
+      nextNativeMetricId: 1,
+      nativeChatSessions: [],
+      nativeChatMessages: [],
+      nativeRequestMetrics: [],
+      workspaceRestoreByProject: new Map(),
       auth: null,
       updateInstallCount: 0,
     };
@@ -192,12 +252,148 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return [] as T;
     case "agent_start":
       return 1 as T;
+    case "native_provider_catalog":
+      return {
+        providers: [
+          { id: "basebuild-local", label: "Basebuild Local", status: "ready", credentialOwner: "basebuild", configured: true, localOnly: true, detail: "Local coordinator" },
+          { id: "openai", label: "OpenAI", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials" },
+        ],
+        models: [
+          { id: "basebuild-local-coordinator", providerId: "basebuild-local", label: "Local Coordinator", supportsEffort: true, supportsStreaming: false, localOnly: true },
+          { id: "gpt-5.1", providerId: "openai", label: "GPT-5.1", supportsEffort: true, supportsStreaming: true, localOnly: false },
+        ],
+        effortLevels: [
+          { id: "low", label: "Low", description: "Fast" },
+          { id: "medium", label: "Medium", description: "Balanced" },
+          { id: "high", label: "High", description: "Deep" },
+          { id: "xhigh", label: "XHigh", description: "Max" },
+        ],
+        defaultProviderId: "basebuild-local",
+        defaultModelId: "basebuild-local-coordinator",
+        defaultEffortLevel: "medium",
+      } as T;
+    case "native_chat_start": {
+      const req = args.request as { projectPath: string; title?: string; providerId?: string; modelId?: string; effortLevel?: string };
+      const id = `nchat-${s.nextNativeChatId++}`;
+      const ts = Math.floor(Date.now() / 1000);
+      const session: NativeChatSession = {
+        id,
+        projectPath: req.projectPath,
+        title: req.title ?? "Native Chat",
+        profileId: "basebuild-native",
+        providerId: req.providerId ?? "basebuild-local",
+        modelId: req.modelId ?? "basebuild-local-coordinator",
+        effortLevel: req.effortLevel ?? "medium",
+        status: "ready",
+        createdAt: ts,
+        updatedAt: ts,
+      };
+      s.nativeChatSessions.push(session);
+      return session as T;
+    }
+    case "native_chat_get":
+      return (s.nativeChatSessions.find((session) => session.id === args.sessionId) ?? null) as T;
+    case "native_chat_list":
+      return s.nativeChatSessions.filter((session) => session.projectPath === args.projectPath) as T;
+    case "native_chat_messages":
+      return s.nativeChatMessages.filter((message) => message.sessionId === args.sessionId) as T;
+    case "native_chat_send": {
+      const req = args.request as { sessionId: string; content: string; providerId?: string; modelId?: string; effortLevel?: string };
+      const ts = Math.floor(Date.now() / 1000);
+      const startedAt = Date.now();
+      const userMessage: NativeChatMessage = {
+        id: `nmsg-${s.nextNativeMessageId++}`,
+        sessionId: req.sessionId,
+        role: "user",
+        content: req.content,
+        sortOrder: s.nativeChatMessages.filter((m) => m.sessionId === req.sessionId).length,
+        providerId: req.providerId ?? "basebuild-local",
+        modelId: req.modelId ?? "basebuild-local-coordinator",
+        effortLevel: req.effortLevel ?? "medium",
+        createdAt: ts,
+      };
+      const assistantContent = `Native harness echo: ${req.content}`;
+      const assistantMessage: NativeChatMessage = {
+        id: `nmsg-${s.nextNativeMessageId++}`,
+        sessionId: req.sessionId,
+        role: "assistant",
+        content: assistantContent,
+        sortOrder: userMessage.sortOrder + 1,
+        providerId: req.providerId ?? "basebuild-local",
+        modelId: req.modelId ?? "basebuild-local-coordinator",
+        effortLevel: req.effortLevel ?? "medium",
+        createdAt: ts,
+      };
+      s.nativeChatMessages.push(userMessage, assistantMessage);
+      const completedAt = Date.now();
+      const metric: NativeRequestMetric = {
+        id: `nreq-${s.nextNativeMetricId++}`,
+        sessionId: req.sessionId,
+        providerId: req.providerId ?? "basebuild-local",
+        modelId: req.modelId ?? "basebuild-local-coordinator",
+        effortLevel: req.effortLevel ?? "medium",
+        startedAt,
+        completedAt,
+        durationMs: completedAt - startedAt,
+        ttftMs: 1,
+        ttltMs: completedAt - startedAt,
+        inputTokens: req.content.split(/\s+/).length,
+        outputTokens: assistantContent.split(/\s+/).length,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        tokensPerSecond: 10,
+        costTotal: 0,
+        outcome: "success",
+        errorClass: null,
+        createdAt: ts,
+      };
+      s.nativeRequestMetrics.push(metric);
+      return { userMessage, assistantMessage, metrics: metric, toolEvents: [] } as T;
+    }
+    case "native_request_metrics":
+      return s.nativeRequestMetrics.slice(-Math.min((args.limit as number) ?? 100, s.nativeRequestMetrics.length)) as T;
+    case "native_request_metrics_summary": {
+      const total = s.nativeRequestMetrics.length;
+      const input = s.nativeRequestMetrics.reduce((acc, m) => acc + m.inputTokens, 0);
+      const output = s.nativeRequestMetrics.reduce((acc, m) => acc + m.outputTokens, 0);
+      return {
+        totalRequests: total,
+        totalInputTokens: input,
+        totalOutputTokens: output,
+        avgTokensPerSecond: total > 0 ? 10 : null,
+        avgTtftMs: total > 0 ? 1 : null,
+        avgTtltMs: total > 0 ? 5 : null,
+        lastProviderId: total > 0 ? s.nativeRequestMetrics[total - 1].providerId : null,
+        lastModelId: total > 0 ? s.nativeRequestMetrics[total - 1].modelId : null,
+        lastEffortLevel: total > 0 ? s.nativeRequestMetrics[total - 1].effortLevel : null,
+      } as T;
+    }
+    case "get_workspace_restore_state": {
+      const projectPath = args.projectPath as string;
+      return (s.workspaceRestoreByProject.get(projectPath) ?? {
+        projectPath,
+        lastSessionId: null,
+        lastTabId: null,
+        sideSection: "plans",
+        sidebarCollapsed: false,
+        sideCollapsed: false,
+        sideWidth: 260,
+        updatedAt: 0,
+      }) as T;
+    }
+    case "save_workspace_restore_state":
+      s.workspaceRestoreByProject.set((args.state as { projectPath: string }).projectPath, args.state);
+      return args.state as T;
+    case "update_tab_chat_session":
+      return undefined as T;
     case "omp_status":
       return { installed: false, version: null, path: null } as T;
     case "omp_debug_context":
       return { stats: null, usage: null, config: null } as T;
     case "list_requirements":
       return [] as T;
+    case "get_runtime_defaults":
+      return { defaultChatProfileId: "basebuild-native", defaultTerminalProfileId: "default-terminal", defaultModel: "basebuild-local-coordinator", autoSendGeneratedPrompts: false } as T;
     case "check_for_updates":
       return {
         available: true,
@@ -208,6 +404,11 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         target: "windows-x86_64",
         downloadUrl: "https://github.com/basebuild-net/basebuild/releases/download/v0.0.5/Basebuild_0.0.5_x64-setup.exe",
       } as T;
+    case "get_skipped_update_version":
+      return null as T;
+    case "clear_skipped_update":
+    case "skip_update_version":
+      return undefined as T;
     case "install_update":
       s.updateInstallCount += 1;
       return undefined as T;

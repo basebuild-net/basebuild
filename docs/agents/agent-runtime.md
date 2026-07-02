@@ -8,12 +8,13 @@ without changing the chat UI contract.
 
 Agent and terminal integrations are modeled as **runtime profiles**, not
 hardcoded UI branches. Profiles are persisted in SQLite and validated before
-use.
+use. The default chat profile is `basebuild-native`, which runs Basebuild's
+first-party local harness; OMP remains a selectable chat profile.
 
 - `RuntimeProfile` defines: `id`, `kind` (chat/terminal), `label`, `executable`,
   `args`, `workingDirectoryMode`, `defaultModel`, `capabilities`, `builtIn`.
-- Built-in profiles: OMP (chat), Default Terminal (platform shell).
-- The Basebuild CLI profile is a placeholder until its executable exists.
+- Built-in profiles: Basebuild Native (chat, default), OMP (chat), Default Terminal (platform shell).
+- The Basebuild Native profile runs structured chat sessions, persists messages/tool events/approvals, and records per-request metrics locally without requiring an external CLI.
 
 ## Capabilities
 
@@ -21,14 +22,28 @@ use.
 `info`. The chat UI degrades gracefully when an adapter does not support a
 capability. Unsupported capabilities return a typed error, not a crash.
 
+## Native request metrics
+
+The native harness records an OMP-stats-style local ledger row per request:
+provider, model, effort level, started/completed timestamps, duration, TTFT, TTLT,
+input/output/cache tokens, tokens-per-second, cost, outcome, and error class.
+Prompt text, response text, source code, terminal output, secrets, and raw absolute
+paths are never stored. The ledger is queryable locally even when analytics
+collection/upload remain disabled.
+
+## Provider and model catalog
+
+Native chat exposes providers (Basebuild Local, OpenAI, Anthropic, OMP-connector),
+models, and effort levels through typed backend commands. Provider credentials are
+never uploaded; unconfigured providers block send with an actionable setup state.
+
 ## Defaults
 
 `RuntimeDefaults` (persisted in SQLite):
-- `defaultChatProfileId` — which chat adapter to use (default: `omp`).
-- `defaultTerminalProfileId` — which terminal to use (default: platform shell).
+- `defaultChatProfileId` — default: `basebuild-native`.
+- `defaultTerminalProfileId` — default: platform shell.
 - `defaultModel` — model selection if the adapter supports it.
-- `autoSendGeneratedPrompts` — whether to auto-send drafted prompts (default:
-  `false`).
+- `autoSendGeneratedPrompts` — whether to auto-send drafted prompts (default: `false`).
 
 ## Permissions
 
@@ -77,6 +92,14 @@ and agent spawns use ConPTY, which already passes `CREATE_NO_WINDOW`.
 The release binary is built with `windows_subsystem = "windows"` so the
 packaged app does not allocate a console window on launch. Debug builds keep
 the console visible for panic output and development logging.
+
+## Workspace restore
+
+Basebuild persists per-project workspace state (last session, last tab, side panel
+section, sidebar/side collapse, side panel width) and restores it on project open.
+Restoring never auto-spawns terminals, agents, or external processes; stale
+process-backed tabs show a disconnected state until the user takes action. Side
+panel width is resizable via a drag handle and persisted locally.
 
 ## Update policy
 
