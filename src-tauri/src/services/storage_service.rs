@@ -342,7 +342,8 @@ impl StorageService {
             );
         }
 
-        // Seed conservative defaults if none exist
+        // Seed conservative defaults if none exist, or migrate old OMP defaults
+        // to the native harness profile.
         let defaults_count: i64 = connection
             .query_row("SELECT COUNT(*) FROM app_defaults", [], |r| r.get(0))
             .unwrap_or(0);
@@ -357,6 +358,39 @@ impl StorageService {
                 "INSERT INTO permission_rules (key, value) VALUES ('rules', ?1)",
                 params![serde_json::to_string(&rules).unwrap_or_default()],
             );
+        } else {
+            // Migration: update existing defaults to use the native harness as
+            // the default chat profile. Old databases persisted OMP as default.
+            let existing: Option<String> = connection
+                .query_row(
+                    "SELECT value FROM app_defaults WHERE key = 'defaults'",
+                    [],
+                    |r| r.get(0),
+                )
+                .ok();
+            if let Some(raw) = existing {
+                if let Ok(mut defaults) =
+                    serde_json::from_str::<crate::models::runtime::RuntimeDefaults>(&raw)
+                {
+                    let needs_migration = defaults
+                        .default_chat_profile_id
+                        .as_deref()
+                        .map(|id| id != "basebuild-native")
+                        .unwrap_or(true);
+                    if needs_migration {
+                        defaults.default_chat_profile_id =
+                            Some("basebuild-native".to_string());
+                        if defaults.default_model.is_none() {
+                            defaults.default_model =
+                                Some("basebuild-local-coordinator".to_string());
+                        }
+                        let _ = connection.execute(
+                            "UPDATE app_defaults SET value = ?1 WHERE key = 'defaults'",
+                            params![serde_json::to_string(&defaults).unwrap_or_default()],
+                        );
+                    }
+                }
+            }
         }
 
         Ok(())

@@ -9,9 +9,19 @@ async function openFixtureProject(page: Page) {
   await expect(page.locator(".status-pill", { hasText: "C:\\basebuild-e2e\\project" })).toBeVisible();
 }
 
-async function createChatTab(page: Page) {
+async function ensureChatTab(page: Page) {
+  // Wait for workspace tabs to appear after project open + auto-create.
+  await page.waitForTimeout(1500);
+  // If a chat tab already exists (auto-created), click it.
+  const chatTab = page.locator('.workspace-tab[title^="Chat"] .workspace-tab-label').first();
+  const count = await chatTab.count();
+  if (count > 0) {
+    await chatTab.click();
+    return;
+  }
+  // Otherwise create one via the + menu.
   await page.getByTitle("New tab").click();
-  await page.getByRole("button", { name: /Chat/ }).click();
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
 }
 
 test.describe("native chat workspace", () => {
@@ -25,7 +35,7 @@ test.describe("native chat workspace", () => {
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
     await openFixtureProject(page);
-    await createChatTab(page);
+    await ensureChatTab(page);
 
     // The chat toolbar should show the native profile pill.
     await expect(page.locator(".chat-toolbar-title .pill")).toHaveText("basebuild-native");
@@ -37,7 +47,7 @@ test.describe("native chat workspace", () => {
     await expect(page.locator(".chat-metrics")).toContainText("0 req");
 
     // Type and send a message.
-    await page.getByTitle("Chat input — type a message and press Enter to send").fill("Hello native harness");
+    await page.getByTitle(/Chat input/).first().fill("Hello native harness");
     await page.getByTitle("Send message").click();
 
     // The user and assistant messages should render.
@@ -59,14 +69,14 @@ test.describe("native chat workspace", () => {
     });
 
     await openFixtureProject(page);
-    await createChatTab(page);
+    await ensureChatTab(page);
 
     // Select the OpenAI provider which is unconfigured in the fixture.
     await page.locator(".chat-select").first().selectOption("openai");
     await expect(page.locator(".chat-setup-bar")).toBeVisible();
 
     // Type — the send button should be disabled because the provider is unconfigured.
-    await page.getByTitle("Chat input — type a message and press Enter to send").fill("should not send");
+    await page.getByTitle(/Chat input/).first().fill("should not send");
     const sendBtn = page.getByTitle("Send message");
     await expect(sendBtn).toBeDisabled();
 

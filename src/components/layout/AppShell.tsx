@@ -89,6 +89,15 @@ export function AppShell({ updates }: AppShellProps) {
     }
   }, [activeProjectPath, session.sessions.length]);
 
+  // Auto-create a chat tab when a session is active but has no tabs
+  useEffect(() => {
+    if (!activeProjectPath || !session.activeSessionId) return;
+    if (session.tabs.length > 0) return;
+    if (session.activeSession?.title === "New Session") return;
+    void session.createTab("chat", "Chat 1");
+    setActiveTool("terminal");
+  }, [activeProjectPath, session.activeSessionId, session.tabs.length, session.activeSession?.title, session]);
+
   useEffect(() => {
     if (activeProjectPath || sidebar.projects.length === 0) return;
     const latestProject = sidebar.projects[0];
@@ -151,8 +160,18 @@ export function AppShell({ updates }: AppShellProps) {
     if (!workspaceRestore?.lastTabId) return;
     if (session.activeTabId) return;
     const restoredTab = session.tabs.find((tab) => tab.id === workspaceRestore.lastTabId);
-    if (!restoredTab) return;
-    if (restoredTab.kind === "terminal" && restoredTab.terminalId == null) return;
+    if (!restoredTab) {
+      // If the restored tab doesn't exist but we have chat tabs, focus the first one
+      const firstChat = session.tabs.find((tab) => tab.kind === "chat");
+      if (firstChat) session.setActiveTabId(firstChat.id);
+      return;
+    }
+    if (restoredTab.kind === "terminal" && restoredTab.terminalId == null) {
+      // Stale terminal — prefer a chat tab if available
+      const firstChat = session.tabs.find((tab) => tab.kind === "chat");
+      if (firstChat) session.setActiveTabId(firstChat.id);
+      return;
+    }
     session.setActiveTabId(restoredTab.id);
   }, [workspaceRestore, session]);
 
