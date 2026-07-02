@@ -128,7 +128,7 @@ jobs:
             cargo = cargo.replace(/^version = \"[^\"]+\"/m, 'version = \"' + version + '\"');
             fs.writeFileSync('src-tauri/Cargo.toml', cargo);
             let cargoLock = fs.readFileSync('src-tauri/Cargo.lock','utf8');
-            cargoLock = cargoLock.replace(/(\[\[package\]\]\nname = \"basebuild-app\"\nversion = \")[^\"]+(\")/, (_, prefix, suffix) => prefix + version + suffix);
+            cargoLock = cargoLock.replace(/(\[\[package\]\]\r?\nname = \"basebuild-app\"\r?\nversion = \")[^\"]+(\")/, (_, prefix, suffix) => prefix + version + suffix);
             fs.writeFileSync('src-tauri/Cargo.lock', cargoLock);
           "
           echo "::notice::Version files bumped to ${version}"
