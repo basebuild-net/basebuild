@@ -1,17 +1,37 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { checkForUpdates, installUpdate, type UpdateChannelStatus, type UpdateInfo } from "../lib/updater";
+import {
+  checkForUpdates,
+  clearSkippedUpdate,
+  getSkippedUpdateVersion,
+  installUpdate,
+  installUpdateWithProgress,
+  onUpdaterProgress,
+  skipUpdateVersion,
+  type UpdateChannelStatus,
+  type UpdateInfo,
+  type UpdateProgress,
+} from "../lib/updater";
 
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
-export type UpdateStatus = "idle" | "checking" | "available" | "up_to_date" | "installing" | "error";
+export type UpdateStatus =
+  | "idle"
+  | "checking"
+  | "available"
+  | "up_to_date"
+  | "installing"
+  | "error";
 
 export type UpdaterState = {
   info: UpdateInfo | null;
   status: UpdateStatus;
   error: string | null;
   lastCheckedAt: number | null;
+  progress: UpdateProgress | null;
   checkNow: () => Promise<void>;
   install: () => Promise<void>;
+  installWithProgress: () => Promise<void>;
+  skipVersion: (version: string) => Promise<void>;
 };
 
 function messageFromError(error: unknown): string {
@@ -63,6 +83,8 @@ function errorInfo(message: string): UpdateInfo {
     channelStatus,
     channelExplanation,
     rawError: message,
+    policy: { mandatory: false, minimumSupportedVersion: null, releaseSummary: null },
+    skipped: false,
   };
 }
 
@@ -71,6 +93,7 @@ export function useUpdater(): UpdaterState {
   const [status, setStatus] = useState<UpdateStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [lastCheckedAt, setLastCheckedAt] = useState<number | null>(null);
+  const [progress, setProgress] = useState<UpdateProgress | null>(null);
   const checkInFlight = useRef(false);
   const installInFlight = useRef(false);
 
@@ -114,11 +137,67 @@ export function useUpdater(): UpdaterState {
     }
   }, []);
 
+  const installWithProgress = useCallback(async () => {
+    if (installInFlight.current) return;
+    installInFlight.current = true;
+    setStatus("installing");
+    setProgress(null);
+    try {
+      await installUpdateWithProgress();
+    } catch (e) {
+      const message = messageFromError(e);
+      setError(message);
+      setInfo((current) => ({
+        ...(current ?? errorInfo(message)),
+        notes: `Install failed: ${message}`,
+      }));
+      setStatus("error");
+    } finally {
+      installInFlight.current = false;
+    }
+  }, []);
+
+  const skipVersion = useCallback(async (version: string) => {
+    await skipUpdateVersion(version);
+    // Clear the in-memory availability so the splash doesn't prompt.
+    setInfo((current) =>
+      current ? { ...current, skipped: true } : current,
+    );
+  }, []);
+
+  // Listen for progress events from the backend during install.
+  useEffect(() => {
+    const unlistenPromise = onUpdaterProgress((p) => setProgress(p));
+    return () => {
+      void unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, []);
+
+  // Clear stale skipped version if a newer release appears.
+  useEffect(() => {
+    void (async () => {
+      const skipped = await getSkippedUpdateVersion();
+      if (skipped && info?.available && info.version && skipped !== info.version) {
+        await clearSkippedUpdate();
+      }
+    })();
+  }, [info?.available, info?.version]);
+
   useEffect(() => {
     void checkNow();
     const id = window.setInterval(() => void checkNow(), UPDATE_CHECK_INTERVAL_MS);
     return () => window.clearInterval(id);
   }, [checkNow]);
 
-  return { info, status, error, lastCheckedAt, checkNow, install };
+  return {
+    info,
+    status,
+    error,
+    lastCheckedAt,
+    progress,
+    checkNow,
+    install,
+    installWithProgress,
+    skipVersion,
+  };
 }

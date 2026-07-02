@@ -1,9 +1,12 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_updater::{Error as UpdaterPluginError, UpdaterExt};
 
+use crate::services::updater_service::{
+    clear_skipped_version, get_skipped_version, set_skipped_version, UpdatePolicy,
+};
 /// Classified update-channel state for actionable diagnostics.
 ///
 /// `Ok` means the channel responded with a parseable manifest (whether or
@@ -123,6 +126,36 @@ pub struct UpdateInfo {
     pub channel_explanation: String,
     /// Raw updater plugin error message (if any). Useful for maintainers.
     pub raw_error: Option<String>,
+    /// Release-channel policy: whether this update is mandatory (running
+    /// version is below the supported minimum) and a user-facing summary.
+    pub policy: UpdatePolicyInfo,
+    /// Whether the user has previously skipped this exact target version.
+    /// When `true`, the startup splash should not prompt for this version.
+    pub skipped: bool,
+}
+
+/// Serializable update policy for the frontend.
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatePolicyInfo {
+    /// `true` when the running version is below the release channel's
+    /// minimum supported version. The splash must hide the skip button
+    /// and auto-start the update.
+    pub mandatory: bool,
+    /// The minimum supported version string (e.g. `"0.1.2"`), if declared.
+    pub minimum_supported_version: Option<String>,
+    /// Short user-facing summary of the release, if provided by the channel.
+    pub release_summary: Option<String>,
+}
+
+impl From<&UpdatePolicy> for UpdatePolicyInfo {
+    fn from(policy: &UpdatePolicy) -> Self {
+        Self {
+            mandatory: false, // Set by the caller after comparing to current_version.
+            minimum_supported_version: policy.mandatory_below.clone(),
+            release_summary: policy.release_summary.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -238,6 +271,14 @@ pub async fn check_for_updates(app: AppHandle) -> Result<UpdateInfo, String> {
     match update {
         Some(update) => {
             let parsed = parse_static_update_manifest_value(&update.raw_json, &update.target)?;
+            let policy = UpdatePolicy::from_raw_json(&update.raw_json);
+            let mandatory = policy.is_mandatory(&update.current_version);
+            let skipped_version = get_skipped_version().ok().flatten();
+            let skipped = skipped_version
+                .as_deref()
+                .map(|v| v == update.version.as_str())
+                .unwrap_or(false);
+
             Ok(UpdateInfo {
                 available: true,
                 version: Some(update.version.clone()),
@@ -249,6 +290,12 @@ pub async fn check_for_updates(app: AppHandle) -> Result<UpdateInfo, String> {
                 channel_status: UpdateChannelStatus::Ok,
                 channel_explanation: UpdateChannelStatus::Ok.explanation().to_string(),
                 raw_error: None,
+                policy: UpdatePolicyInfo {
+                    mandatory,
+                    minimum_supported_version: policy.mandatory_below.clone(),
+                    release_summary: policy.release_summary.clone(),
+                },
+                skipped,
             })
         }
         None => Ok(UpdateInfo {
@@ -262,6 +309,8 @@ pub async fn check_for_updates(app: AppHandle) -> Result<UpdateInfo, String> {
             channel_status: UpdateChannelStatus::Ok,
             channel_explanation: UpdateChannelStatus::Ok.explanation().to_string(),
             raw_error: None,
+            policy: UpdatePolicyInfo::default(),
+            skipped: false,
         }),
     }
 }
@@ -298,6 +347,143 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
         })?;
 
     app.restart();
+}
+
+/// Download and install an update with progress events emitted to the
+/// frontend. Emits `updater://progress` with `{ step, downloaded, total }`
+/// during download, then delegates to the Tauri plugin's install path
+/// (NSIS for installer builds, or the portable handoff for portable
+/// builds when supported).
+#[tauri::command]
+pub async fn install_update_with_progress(app: AppHandle) -> Result<(), String> {
+    let updater = app
+        .updater()
+        .map_err(|e| format!("Failed to get updater: {e}"))?;
+
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| {
+            let status = UpdateChannelStatus::from_plugin_error(&e);
+            let explanation = status.explanation();
+            format!(
+                "Failed to check for updates: {e} | channel_status={status:?} | {explanation}"
+            )
+        })?
+        .ok_or("No update available")?;
+
+    parse_static_update_manifest_value(&update.raw_json, &update.target)?;
+
+    let app_handle = app.clone();
+    let version = update.version.clone();
+
+    let _ = app_handle.emit(
+        UPDATER_PROGRESS_EVENT,
+        UpdateProgress {
+            step: UpdateStep::Downloading.to_string(),
+            downloaded: 0,
+            total: None,
+            message: format!("Downloading Basebuild {version}…"),
+        },
+    );
+
+    // Use the plugin's download (which verifies signature) then install.
+    update
+        .download_and_install(
+            |chunk_len, content_length| {
+                let _ = app_handle.emit(
+                    UPDATER_PROGRESS_EVENT,
+                    UpdateProgress {
+                        step: UpdateStep::Downloading.to_string(),
+                        downloaded: chunk_len,
+                        total: content_length,
+                        message: format!("Downloading Basebuild {version}…"),
+                    },
+                );
+            },
+            || {
+                let _ = app_handle.emit(
+                    UPDATER_PROGRESS_EVENT,
+                    UpdateProgress {
+                        step: UpdateStep::Installing.to_string(),
+                        downloaded: 0,
+                        total: None,
+                        message: "Installing update…".to_string(),
+                    },
+                );
+            },
+        )
+        .await
+        .map_err(|e| {
+            let status = UpdateChannelStatus::from_plugin_error(&e);
+            let explanation = status.explanation();
+            format!(
+                "Failed to install update: {e} | channel_status={status:?} | {explanation}"
+            )
+        })?;
+
+    let _ = app_handle.emit(
+        UPDATER_PROGRESS_EVENT,
+        UpdateProgress {
+            step: UpdateStep::Restarting.to_string(),
+            downloaded: 0,
+            total: None,
+            message: "Restarting Basebuild…".to_string(),
+        },
+    );
+
+    app.restart();
+}
+
+/// Mark a target version as skipped so the startup splash does not
+/// prompt for it again (until a newer version appears).
+#[tauri::command]
+pub fn skip_update_version(version: String) -> Result<(), String> {
+    set_skipped_version(&version)
+}
+
+/// Clear any previously skipped version record. Called when the user
+/// clicks Upgrade or when a newer version is detected.
+#[tauri::command]
+pub fn clear_skipped_update() -> Result<(), String> {
+    clear_skipped_version()
+}
+
+/// Returns the version the user last skipped, if any.
+#[tauri::command]
+pub fn get_skipped_update_version() -> Result<Option<String>, String> {
+    get_skipped_version()
+}
+
+/// Event name for update progress events emitted to the frontend.
+pub const UPDATER_PROGRESS_EVENT: &str = "updater://progress";
+
+/// Steps in the update progress lifecycle.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProgress {
+    pub step: String,
+    pub downloaded: usize,
+    pub total: Option<u64>,
+    pub message: String,
+}
+
+/// Update lifecycle steps, serialized as strings for the frontend.
+#[derive(Debug, Clone)]
+pub enum UpdateStep {
+    Downloading,
+    Installing,
+    Restarting,
+}
+
+impl UpdateStep {
+    pub fn to_string(&self) -> String {
+        match self {
+            Self::Downloading => "downloading".to_string(),
+            Self::Installing => "installing".to_string(),
+            Self::Restarting => "restarting".to_string(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -486,5 +672,54 @@ mod tests {
             "Ok status should not mention 404: {}",
             status.explanation()
         );
+    }
+    #[test]
+    fn policy_marks_old_version_as_mandatory() {
+        let raw = serde_json::json!({
+            "version": "0.1.2",
+            "minimumSupportedVersion": "0.1.0"
+        });
+        let policy = UpdatePolicy::from_raw_json(&raw);
+        assert!(policy.is_mandatory("0.0.3"), "0.0.3 < 0.1.0 should be mandatory");
+        assert!(!policy.is_mandatory("0.1.0"), "0.1.0 >= 0.1.0 should be optional");
+        assert!(!policy.is_mandatory("0.1.5"), "0.1.5 >= 0.1.0 should be optional");
+    }
+
+    #[test]
+    fn policy_with_no_threshold_is_optional() {
+        let raw = serde_json::json!({ "version": "0.1.2" });
+        let policy = UpdatePolicy::from_raw_json(&raw);
+        assert!(!policy.is_mandatory("0.0.1"), "no threshold means always optional");
+    }
+
+    #[test]
+    fn policy_extracts_release_summary() {
+        let raw = serde_json::json!({
+            "version": "0.1.2",
+            "releaseSummary": "Critical security update"
+        });
+        let policy = UpdatePolicy::from_raw_json(&raw);
+        assert_eq!(policy.release_summary.as_deref(), Some("Critical security update"));
+    }
+
+    #[test]
+    fn policy_skipped_version_check() {
+        // When the user skipped 0.1.2 and the manifest announces 0.1.2,
+        // the frontend should suppress the startup prompt.
+        let skipped = Some("0.1.2".to_string());
+        let target = "0.1.2";
+        let is_skipped = skipped
+            .as_deref()
+            .map(|v| v == target)
+            .unwrap_or(false);
+        assert!(is_skipped, "matching skipped version should be true");
+
+        // A newer version (0.1.3) should clear the skip implicitly.
+        let target_new = "0.1.3";
+        let is_skipped_new = skipped
+            .as_deref()
+            .map(|v| v == target_new)
+            .unwrap_or(false);
+        assert!(!is_skipped_new, "non-matching version should not be skipped");
     }
 }
