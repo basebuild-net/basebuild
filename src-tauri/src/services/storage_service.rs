@@ -255,6 +255,14 @@ impl StorageService {
                 );
                 CREATE INDEX IF NOT EXISTS idx_native_provider_accounts_provider ON native_provider_accounts(provider_id);
 
+                CREATE TABLE IF NOT EXISTS native_provider_credentials (
+                    provider_id TEXT PRIMARY KEY NOT NULL,
+                    label TEXT NOT NULL,
+                    api_key TEXT NOT NULL,
+                    base_url TEXT,
+                    updated_at INTEGER NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS native_model_defaults (
                     provider_id TEXT PRIMARY KEY NOT NULL,
                     model_id TEXT NOT NULL,

@@ -66,6 +66,25 @@ pub struct NativeProvider {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct NativeProviderCredential {
+    pub provider_id: String,
+    pub label: String,
+    pub api_key: String,
+    pub base_url: Option<String>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeProviderCredentialInput {
+    pub provider_id: String,
+    pub label: String,
+    pub api_key: String,
+    pub base_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NativeModel {
     pub id: String,
     pub provider_id: String,

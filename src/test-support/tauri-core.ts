@@ -386,6 +386,12 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return args.state as T;
     case "update_tab_chat_session":
       return undefined as T;
+    case "native_save_provider_credential":
+      return { providerId: "umans", label: "Umans", apiKey: "test-key", baseUrl: null, updatedAt: Math.floor(Date.now() / 1000) } as T;
+    case "native_list_provider_credentials":
+      return [] as T;
+    case "native_delete_provider_credential":
+      return undefined as T;
     case "omp_status":
       return { installed: false, version: null, path: null } as T;
     case "omp_debug_context":

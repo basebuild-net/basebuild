@@ -1,8 +1,9 @@
 use crate::{
     models::native_chat::{
         NativeChatMessage, NativeChatSendRequest, NativeChatSendResult, NativeChatSession,
-        NativeChatStartRequest, NativeProviderCatalog, NativeRequestMetric,
-        NativeRequestMetricsSummary, NativeToolApprovalRequest, NativeToolApprovalResult,
+        NativeChatStartRequest, NativeProviderCatalog, NativeProviderCredential,
+        NativeProviderCredentialInput, NativeRequestMetric, NativeRequestMetricsSummary,
+        NativeToolApprovalRequest, NativeToolApprovalResult,
     },
     services::native_chat_service::NativeChatService,
 };
@@ -52,4 +53,21 @@ pub fn native_request_tool_approval(
     request: NativeToolApprovalRequest,
 ) -> Result<NativeToolApprovalResult, String> {
     NativeChatService::request_tool_approval(request)
+}
+
+#[tauri::command]
+pub fn native_save_provider_credential(
+    input: NativeProviderCredentialInput,
+) -> Result<NativeProviderCredential, String> {
+    NativeChatService::save_credential(input)
+}
+
+#[tauri::command]
+pub fn native_list_provider_credentials() -> Result<Vec<NativeProviderCredential>, String> {
+    NativeChatService::list_credentials()
+}
+
+#[tauri::command]
+pub fn native_delete_provider_credential(provider_id: String) -> Result<(), String> {
+    NativeChatService::delete_credential(&provider_id)
 }

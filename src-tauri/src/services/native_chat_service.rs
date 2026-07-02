@@ -5,7 +5,8 @@ use crate::{
         native_chat::{
             NativeChatMessage, NativeChatSendRequest, NativeChatSendResult, NativeChatSession,
             NativeChatStartRequest, NativeEffortLevel, NativeModel, NativeProvider,
-            NativeProviderCatalog, NativeRequestMetric, NativeRequestMetricsSummary,
+            NativeProviderCatalog, NativeProviderCredential, NativeProviderCredentialInput,
+            NativeRequestMetric, NativeRequestMetricsSummary,
             NativeToolApprovalRequest, NativeToolApprovalResult, NativeToolEvent,
         },
         permission::PermissionDecision,
@@ -25,6 +26,12 @@ pub struct NativeChatService;
 
 impl NativeChatService {
     pub fn provider_catalog() -> NativeProviderCatalog {
+        let credentials = Self::list_credentials().unwrap_or_default();
+        let is_configured = |pid: &str| -> bool {
+            pid == LOCAL_PROVIDER_ID
+                || credentials.iter().any(|c| c.provider_id == pid)
+        };
+
         NativeProviderCatalog {
             providers: vec![
                 NativeProvider {
@@ -34,34 +41,34 @@ impl NativeChatService {
                     credential_owner: "basebuild".to_string(),
                     configured: true,
                     local_only: true,
-                    detail: "Runs the native coordination harness locally and records request metrics without a network provider.".to_string(),
+                    detail: "Runs locally without a network provider.".to_string(),
+                },
+                NativeProvider {
+                    id: "umans".to_string(),
+                    label: "Umans".to_string(),
+                    status: if is_configured("umans") { "ready" } else { "setup_required" }.to_string(),
+                    credential_owner: "user".to_string(),
+                    configured: is_configured("umans"),
+                    local_only: false,
+                    detail: "Umans API — OpenAI-compatible. Enter your API key to connect.".to_string(),
                 },
                 NativeProvider {
                     id: "openai".to_string(),
                     label: "OpenAI".to_string(),
-                    status: "setup_required".to_string(),
+                    status: if is_configured("openai") { "ready" } else { "setup_required" }.to_string(),
                     credential_owner: "user".to_string(),
-                    configured: false,
+                    configured: is_configured("openai"),
                     local_only: false,
-                    detail: "Provider metadata is available; credentials must be configured explicitly before requests run.".to_string(),
+                    detail: "OpenAI API — enter your API key to connect.".to_string(),
                 },
                 NativeProvider {
                     id: "anthropic".to_string(),
                     label: "Anthropic".to_string(),
-                    status: "setup_required".to_string(),
+                    status: if is_configured("anthropic") { "ready" } else { "setup_required" }.to_string(),
                     credential_owner: "user".to_string(),
-                    configured: false,
+                    configured: is_configured("anthropic"),
                     local_only: false,
-                    detail: "Provider metadata is available; credentials must be configured explicitly before requests run.".to_string(),
-                },
-                NativeProvider {
-                    id: "omp".to_string(),
-                    label: "OhMyPi".to_string(),
-                    status: "connector_required".to_string(),
-                    credential_owner: "omp".to_string(),
-                    configured: false,
-                    local_only: true,
-                    detail: "OMP provider ownership is handled by the connector gateway; native chat will not copy OMP credentials.".to_string(),
+                    detail: "Anthropic API — enter your API key to connect.".to_string(),
                 },
             ],
             models: vec![
@@ -72,6 +79,14 @@ impl NativeChatService {
                     supports_effort: true,
                     supports_streaming: false,
                     local_only: true,
+                },
+                NativeModel {
+                    id: "umans-glm-5.2".to_string(),
+                    provider_id: "umans".to_string(),
+                    label: "Umans GLM 5.2".to_string(),
+                    supports_effort: true,
+                    supports_streaming: true,
+                    local_only: false,
                 },
                 NativeModel {
                     id: "gpt-5.1".to_string(),
@@ -100,6 +115,50 @@ impl NativeChatService {
             default_model_id: LOCAL_MODEL_ID.to_string(),
             default_effort_level: DEFAULT_EFFORT.to_string(),
         }
+    }
+
+    pub fn save_credential(input: NativeProviderCredentialInput) -> DbResult<NativeProviderCredential> {
+        let now = now_seconds();
+        let cred = NativeProviderCredential {
+            provider_id: input.provider_id.clone(),
+            label: input.label,
+            api_key: input.api_key,
+            base_url: input.base_url,
+            updated_at: now,
+        };
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO native_provider_credentials (provider_id, label, api_key, base_url, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(provider_id) DO UPDATE SET
+               label = excluded.label, api_key = excluded.api_key, base_url = excluded.base_url, updated_at = excluded.updated_at",
+            params![cred.provider_id, cred.label, cred.api_key, cred.base_url, cred.updated_at],
+        ).map_err(|e| format!("Failed to save provider credential: {e}"))?;
+        Ok(cred)
+    }
+
+    pub fn list_credentials() -> DbResult<Vec<NativeProviderCredential>> {
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare("SELECT provider_id, label, api_key, base_url, updated_at FROM native_provider_credentials ORDER BY updated_at DESC")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([], |row| {
+            Ok(NativeProviderCredential {
+                provider_id: row.get(0)?,
+                label: row.get(1)?,
+                api_key: row.get(2)?,
+                base_url: row.get(3)?,
+                updated_at: row.get(4)?,
+            })
+        }).map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    pub fn delete_credential(provider_id: &str) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute("DELETE FROM native_provider_credentials WHERE provider_id = ?1", params![provider_id])
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     pub fn start_session(request: NativeChatStartRequest) -> DbResult<NativeChatSession> {

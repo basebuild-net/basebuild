@@ -128,6 +128,33 @@ export async function nativeChatGet(sessionId: string): Promise<NativeChatSessio
   return invoke<NativeChatSession | null>("native_chat_get", { sessionId });
 }
 
+
+export type NativeProviderCredential = {
+  providerId: string;
+  label: string;
+  apiKey: string;
+  baseUrl: string | null;
+  updatedAt: number;
+};
+
+export type NativeProviderCredentialInput = {
+  providerId: string;
+  label: string;
+  apiKey: string;
+  baseUrl?: string | null;
+};
+
+export async function nativeSaveProviderCredential(input: NativeProviderCredentialInput): Promise<NativeProviderCredential> {
+  return invoke<NativeProviderCredential>("native_save_provider_credential", { input });
+}
+
+export async function nativeListProviderCredentials(): Promise<NativeProviderCredential[]> {
+  return invoke<NativeProviderCredential[]>("native_list_provider_credentials");
+}
+
+export async function nativeDeleteProviderCredential(providerId: string): Promise<void> {
+  return invoke("native_delete_provider_credential", { providerId });
+}
 export async function nativeChatList(projectPath: string): Promise<NativeChatSession[]> {
   return invoke<NativeChatSession[]>("native_chat_list", { projectPath });
 }

@@ -10,16 +10,13 @@ async function openFixtureProject(page: Page) {
 }
 
 async function ensureChatTab(page: Page) {
-  // Wait for workspace tabs to appear after project open + auto-create.
   await page.waitForTimeout(1500);
-  // If a chat tab already exists (auto-created), click it.
   const chatTab = page.locator('.workspace-tab[title^="Chat"] .workspace-tab-label').first();
   const count = await chatTab.count();
   if (count > 0) {
     await chatTab.click();
     return;
   }
-  // Otherwise create one via the + menu.
   await page.getByTitle("New tab").click();
   await page.getByRole("button", { name: "Chat", exact: true }).click();
 }
@@ -37,8 +34,8 @@ test.describe("native chat workspace", () => {
     await openFixtureProject(page);
     await ensureChatTab(page);
 
-    // The chat toolbar should show the native profile pill.
-    await expect(page.locator(".chat-toolbar-title .pill")).toHaveText("basebuild-native");
+    // The chat input controls should be visible (provider/model/effort selectors).
+    await expect(page.locator(".chat-input-controls")).toBeVisible();
 
     // The local coordinator provider should be selected by default.
     await expect(page.locator(".chat-select").first()).toHaveValue("basebuild-local");
@@ -62,7 +59,7 @@ test.describe("native chat workspace", () => {
     expect(consoleErrors).toEqual([]);
   });
 
-  test("blocks send when an unconfigured provider is selected", async ({ page }) => {
+  test("shows connect button when an unconfigured provider is selected", async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on("console", (message) => {
       if (message.type() === "error") consoleErrors.push(message.text());
@@ -73,9 +70,11 @@ test.describe("native chat workspace", () => {
 
     // Select the OpenAI provider which is unconfigured in the fixture.
     await page.locator(".chat-select").first().selectOption("openai");
-    await expect(page.locator(".chat-setup-bar")).toBeVisible();
 
-    // Type — the send button should be disabled because the provider is unconfigured.
+    // A "Connect" button should appear next to the selectors.
+    await expect(page.locator(".chat-input-controls button[title*='Connect']")).toBeVisible();
+
+    // The send button should be disabled because the provider is unconfigured.
     await page.getByTitle(/Chat input/).first().fill("should not send");
     const sendBtn = page.getByTitle("Send message");
     await expect(sendBtn).toBeDisabled();

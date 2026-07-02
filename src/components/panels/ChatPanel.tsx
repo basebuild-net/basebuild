@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { AlertCircle, BarChart3, Brain, RefreshCw, Send, StopCircle } from "lucide-react";
+import { AlertCircle, BarChart3, Brain, Key, RefreshCw, Send, X } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 
 import { agentStart, agentSend, agentStop } from "../../lib/agent";
@@ -10,6 +10,7 @@ import {
   nativeChatStart,
   nativeProviderCatalog,
   nativeRequestMetricsSummary,
+  nativeSaveProviderCredential,
   type NativeChatMessage,
   type NativeProviderCatalog,
   type NativeRequestMetricsSummary,
@@ -19,20 +20,14 @@ import { useLogs } from "../../state/log";
 const SEND_TIMEOUT_MS = 45_000;
 const NATIVE_PROFILE_ID = "basebuild-native";
 
-type LegacyChatMessage = {
-  role: "user" | "assistant" | "system";
-  content: string;
-};
+type LegacyChatMessage = { role: "user" | "assistant" | "system"; content: string };
 
 type ChatPanelProps = {
   projectPath: string;
   chatSessionId?: string | null;
   onChatSessionCreated?: (id: string) => void;
-  /** A one-shot draft prompt injected by a workflow. Consumed exactly once. */
   draftPrompt?: string | null;
-  /** Called after the draft prompt is consumed, so the caller can clear it. */
   onDraftConsumed?: () => void;
-  /** Whether to auto-send the draft prompt. Defaults to false. */
   autoSendDraft?: boolean;
 };
 
@@ -63,141 +58,126 @@ export function ChatPanel({
   const [stuck, setStuck] = useState(false);
   const [agentId, setAgentId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showLogin, setShowLogin] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [savingCred, setSavingCred] = useState(false);
   const sendTimerRef = useRef<number | null>(null);
   const assistantBufferRef = useRef("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const { addLog } = useLogs();
 
   const nativeMode = profileId === NATIVE_PROFILE_ID;
-  const selectedProvider = catalog?.providers.find((provider) => provider.id === providerId) ?? null;
+  const selectedProvider = catalog?.providers.find((p) => p.id === providerId) ?? null;
   const availableModels = useMemo(
-    () => catalog?.models.filter((model) => model.providerId === providerId) ?? [],
+    () => catalog?.models.filter((m) => m.providerId === providerId) ?? [],
     [catalog, providerId],
   );
 
+  // Load config on mount
   useEffect(() => {
     let cancelled = false;
-    async function loadConfiguration() {
+    async function load() {
       try {
-        const [defaults, nextCatalog, nextMetrics] = await Promise.all([
+        const [defaults, cat, met] = await Promise.all([
           getRuntimeDefaults(),
           nativeProviderCatalog(),
           nativeRequestMetricsSummary(),
         ]);
         if (cancelled) return;
         setProfileId(defaults.defaultChatProfileId ?? NATIVE_PROFILE_ID);
-        setCatalog(nextCatalog);
-        setMetrics(nextMetrics);
-        setProviderId(nextCatalog.defaultProviderId);
-        setModelId(defaults.defaultModel ?? nextCatalog.defaultModelId);
-        setEffortLevel(nextCatalog.defaultEffortLevel);
-      } catch (caught) {
-        const message = caught instanceof Error ? caught.message : String(caught);
-        addLog("error", "Failed to load native chat configuration", message);
-        setError(message);
+        setCatalog(cat);
+        setMetrics(met);
+        setProviderId(cat.defaultProviderId);
+        setModelId(defaults.defaultModel ?? cat.defaultModelId);
+        setEffortLevel(cat.defaultEffortLevel);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        addLog("error", "Failed to load chat config", msg);
+        setError(msg);
       }
     }
-    void loadConfiguration();
-    return () => {
-      cancelled = true;
-    };
+    void load();
+    return () => { cancelled = true; };
   }, [addLog]);
 
+  // Fix model when provider changes
   useEffect(() => {
     if (!catalog) return;
-    if (availableModels.length > 0 && !availableModels.some((model) => model.id === modelId)) {
+    if (availableModels.length > 0 && !availableModels.some((m) => m.id === modelId)) {
       setModelId(availableModels[0].id);
     }
   }, [availableModels, catalog, modelId]);
 
+  // Sync chatSessionId prop
   useEffect(() => {
     setNativeSessionId(chatSessionId ?? null);
   }, [chatSessionId]);
 
+  // Native mode: load or create session
   useEffect(() => {
-    if (!nativeMode) return;
-    if (!catalog) return;
+    if (!nativeMode || !catalog) return;
     let cancelled = false;
-
-    async function loadOrCreateNativeSession() {
+    async function loadOrCreate() {
       try {
-        const id = nativeSessionId;
-        if (id) {
-          const messages = await nativeChatMessages(id);
-          if (!cancelled) setNativeMessages(messages);
+        if (nativeSessionId) {
+          const msgs = await nativeChatMessages(nativeSessionId);
+          if (!cancelled) setNativeMessages(msgs);
           return;
         }
-
         const session = await nativeChatStart({
-          projectPath,
-          title: "Native Chat",
-          providerId,
-          modelId,
-          effortLevel,
+          projectPath, title: "Native Chat",
+          providerId, modelId, effortLevel,
         });
         if (cancelled) return;
         setNativeSessionId(session.id);
         onChatSessionCreated?.(session.id);
         setNativeMessages([]);
         setError(null);
-      } catch (caught) {
-        const message = caught instanceof Error ? caught.message : String(caught);
-        addLog("error", "Failed to open native chat", message);
-        if (!cancelled) setError(message);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        addLog("error", "Failed to open native chat", msg);
+        if (!cancelled) setError(msg);
       }
     }
-
-    void loadOrCreateNativeSession();
-    return () => {
-      cancelled = true;
-    };
+    void loadOrCreate();
+    return () => { cancelled = true; };
   }, [nativeMode, catalog, nativeSessionId, projectPath, providerId, modelId, effortLevel, onChatSessionCreated, addLog]);
 
+  // Legacy mode: start agent
   useEffect(() => {
     if (nativeMode) return;
     let cancelled = false;
     let startedId: number | null = null;
-
     async function start() {
       try {
         const id = await agentStart({ cwd: projectPath, profileId });
-        if (cancelled) {
-          void agentStop(id);
-          return;
-        }
+        if (cancelled) { void agentStop(id); return; }
         startedId = id;
         setAgentId(id);
         setError(null);
         setLegacyMessages([{ role: "system", content: "Agent session started. Type a message to begin." }]);
-      } catch (caught) {
-        const message = caught instanceof Error ? caught.message : String(caught);
-        addLog("error", "Failed to start agent", message);
-        setError(message);
-        setLegacyMessages([{ role: "system", content: `Failed to start agent: ${message}` }]);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        addLog("error", "Failed to start agent", msg);
+        setError(msg);
+        setLegacyMessages([{ role: "system", content: `Failed to start agent: ${msg}` }]);
       }
     }
-
     void start();
-
-    return () => {
-      cancelled = true;
-      if (startedId !== null) {
-        void agentStop(startedId);
-      }
-    };
+    return () => { cancelled = true; if (startedId !== null) void agentStop(startedId); };
   }, [nativeMode, projectPath, profileId, addLog]);
 
+  // Legacy mode: listen for output
   useEffect(() => {
     if (nativeMode) return;
     const unlisten = listen<{ id: number; kind: string; data?: string }>("agent://output", (event) => {
       if (agentId !== null && event.payload.id !== agentId) return;
-
       if (event.payload.kind === "close") {
         setLoading(false);
         setLegacyMessages((prev) => [...prev, { role: "system", content: "Agent session ended." }]);
         return;
       }
-
       const chunk = event.payload.data ?? "";
       assistantBufferRef.current += chunk;
       setLegacyMessages((prev) => {
@@ -209,106 +189,73 @@ export function ChatPanel({
       });
       setLoading(false);
     });
-
-    return () => {
-      void unlisten.then((fn) => fn());
-    };
+    return () => { void unlisten.then((fn) => fn()); };
   }, [agentId, nativeMode]);
 
-  const sendMessage = useCallback(
-    async (text: string) => {
-      if (!text.trim() || loading) return;
-      if (nativeMode) {
-        if (!nativeSessionId) return;
-        if (selectedProvider && !selectedProvider.configured) {
-          setError(`${selectedProvider.label} is not configured. Choose Basebuild Local or configure the provider first.`);
-          return;
-        }
-        setInput("");
-        setLoading(true);
-        setStuck(false);
-        try {
-          const result = await nativeChatSend({
-            sessionId: nativeSessionId,
-            content: text,
-            providerId,
-            modelId,
-            effortLevel,
-          });
-          setNativeMessages((prev) => [...prev, result.userMessage, result.assistantMessage]);
-          setMetrics(await nativeRequestMetricsSummary());
-          setError(null);
-        } catch (caught) {
-          const message = caught instanceof Error ? caught.message : String(caught);
-          addLog("error", "Failed to send native message", message);
-          setError(message);
-        } finally {
-          setLoading(false);
-        }
+  const sendMessage = useCallback(async (text: string) => {
+    if (!text.trim() || loading) return;
+    if (nativeMode) {
+      if (!nativeSessionId) return;
+      if (selectedProvider && !selectedProvider.configured) {
+        setShowLogin(true);
         return;
       }
-
-      if (agentId === null) return;
       setInput("");
       setLoading(true);
       setStuck(false);
-      assistantBufferRef.current = "";
-      setLegacyMessages((prev) => [...prev, { role: "user", content: text }]);
-      if (sendTimerRef.current) window.clearTimeout(sendTimerRef.current);
-      sendTimerRef.current = window.setTimeout(() => {
-        setStuck(true);
-        setLoading(false);
-        addLog("error", "Agent send timed out", `No response after ${SEND_TIMEOUT_MS / 1000}s. The agent may be frozen.`);
-      }, SEND_TIMEOUT_MS);
-
       try {
-        await agentSend(agentId, text);
-      } catch (caught) {
-        if (sendTimerRef.current) {
-          window.clearTimeout(sendTimerRef.current);
-          sendTimerRef.current = null;
-        }
-        setStuck(false);
-        const message = caught instanceof Error ? caught.message : String(caught);
-        addLog("error", "Failed to send message to agent", message);
-        setLegacyMessages((prev) => [...prev, { role: "system", content: `Error: ${message}` }]);
+        const result = await nativeChatSend({ sessionId: nativeSessionId, content: text, providerId, modelId, effortLevel });
+        setNativeMessages((prev) => [...prev, result.userMessage, result.assistantMessage]);
+        setMetrics(await nativeRequestMetricsSummary());
+        setError(null);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        addLog("error", "Failed to send native message", msg);
+        setError(msg);
+      } finally {
         setLoading(false);
       }
-    },
-    [
-      nativeMode,
-      nativeSessionId,
-      selectedProvider,
-      loading,
-      providerId,
-      modelId,
-      effortLevel,
-      agentId,
-      addLog,
-    ],
-  );
+      return;
+    }
+    if (agentId === null) return;
+    setInput("");
+    setLoading(true);
+    setStuck(false);
+    assistantBufferRef.current = "";
+    setLegacyMessages((prev) => [...prev, { role: "user", content: text }]);
+    if (sendTimerRef.current) window.clearTimeout(sendTimerRef.current);
+    sendTimerRef.current = window.setTimeout(() => {
+      setStuck(true); setLoading(false);
+      addLog("error", "Agent send timed out", `No response after ${SEND_TIMEOUT_MS / 1000}s.`);
+    }, SEND_TIMEOUT_MS);
+    try {
+      await agentSend(agentId, text);
+    } catch (e) {
+      if (sendTimerRef.current) { window.clearTimeout(sendTimerRef.current); sendTimerRef.current = null; }
+      setStuck(false);
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to send message to agent", msg);
+      setLegacyMessages((prev) => [...prev, { role: "system", content: `Error: ${msg}` }]);
+      setLoading(false);
+    }
+  }, [nativeMode, nativeSessionId, selectedProvider, loading, providerId, modelId, effortLevel, agentId, addLog]);
 
+  // Draft prompt injection
   useEffect(() => {
     if (!draftPrompt) return;
     setInput(draftPrompt);
     onDraftConsumed?.();
-
-    if (autoSendDraft) {
-      void sendMessage(draftPrompt.trim());
-    }
+    if (autoSendDraft) void sendMessage(draftPrompt.trim());
   }, [draftPrompt, autoSendDraft, onDraftConsumed, sendMessage]);
 
+  // Auto-scroll
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [nativeMessages, legacyMessages]);
 
+  // Clear stuck timer
   useEffect(() => {
-    if (!loading && sendTimerRef.current) {
-      window.clearTimeout(sendTimerRef.current);
-      sendTimerRef.current = null;
-    }
+    if (!loading && sendTimerRef.current) { window.clearTimeout(sendTimerRef.current); sendTimerRef.current = null; }
   }, [loading]);
 
   const handleSend = useCallback(async () => {
@@ -318,18 +265,10 @@ export function ChatPanel({
   }, [input, sendMessage]);
 
   const handleStopAgent = useCallback(async () => {
-    if (sendTimerRef.current) {
-      window.clearTimeout(sendTimerRef.current);
-      sendTimerRef.current = null;
-    }
-    setStuck(false);
-    setLoading(false);
+    if (sendTimerRef.current) { window.clearTimeout(sendTimerRef.current); sendTimerRef.current = null; }
+    setStuck(false); setLoading(false);
     if (agentId !== null) {
-      try {
-        await agentStop(agentId);
-      } catch {
-        // best effort recovery path
-      }
+      try { await agentStop(agentId); } catch { /* ignore */ }
       setAgentId(null);
     }
     setLegacyMessages((prev) => [...prev, { role: "system", content: "Agent session stopped. Reloading..." }]);
@@ -339,71 +278,65 @@ export function ChatPanel({
           const id = await agentStart({ cwd: projectPath, profileId });
           setAgentId(id);
           setLegacyMessages([{ role: "system", content: "Agent session restarted." }]);
-        } catch (caught) {
-          setError(caught instanceof Error ? caught.message : String(caught));
-        }
+        } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
       })();
     }, 500);
   }, [agentId, projectPath, profileId]);
 
+  const handleSaveCredential = useCallback(async () => {
+    if (!apiKey.trim() || !providerId) return;
+    setSavingCred(true);
+    try {
+      const providerLabel = selectedProvider?.label ?? providerId;
+      await nativeSaveProviderCredential({
+        providerId,
+        label: providerLabel,
+        apiKey: apiKey.trim(),
+        baseUrl: baseUrl.trim() || null,
+      });
+      // Refresh catalog to update configured status
+      const cat = await nativeProviderCatalog();
+      setCatalog(cat);
+      setShowLogin(false);
+      setApiKey("");
+      setBaseUrl("");
+      setError(null);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to save provider credential", msg);
+      setError(msg);
+    } finally {
+      setSavingCred(false);
+    }
+  }, [apiKey, baseUrl, providerId, selectedProvider, addLog]);
+
   const renderMessages = nativeMode ? nativeMessages : legacyMessages;
+  const inputDisabled = nativeMode ? !nativeSessionId : agentId === null;
   const sendDisabled = loading || !input.trim() || (nativeMode ? !nativeSessionId || !!(selectedProvider && !selectedProvider.configured) : agentId === null);
 
   return (
     <div className="chat-panel">
-      <div className="chat-toolbar">
-        <div className="chat-toolbar-title">
-          <Brain size={13} />
-          <span>{nativeMode ? "Basebuild Native" : "Runtime Adapter"}</span>
-          <span className="pill mono">{profileId}</span>
-        </div>
-        {nativeMode && catalog ? (
-          <div className="chat-controls">
-            <select className="input chat-select" title="Select native provider" value={providerId} onChange={(event) => setProviderId(event.target.value)}>
-              {catalog.providers.map((provider) => (
-                <option key={provider.id} value={provider.id}>{provider.label}</option>
-              ))}
-            </select>
-            <select className="input chat-select" title="Select native model" value={modelId} onChange={(event) => setModelId(event.target.value)}>
-              {availableModels.map((model) => (
-                <option key={model.id} value={model.id}>{model.label}</option>
-              ))}
-            </select>
-            <select className="input chat-select" title="Select effort level" value={effortLevel} onChange={(event) => setEffortLevel(event.target.value)}>
-              {catalog.effortLevels.map((effort) => (
-                <option key={effort.id} value={effort.id}>{effort.label}</option>
-              ))}
-            </select>
+      {/* Messages area */}
+      <div className="chat-messages" ref={scrollRef}>
+        {nativeMode && metrics ? (
+          <div className="chat-metrics" title="Local request metrics">
+            <BarChart3 size={11} />
+            <span>{metrics.totalRequests} req</span>
+            <span>{metrics.totalInputTokens + metrics.totalOutputTokens} tok</span>
+            <span>{formatMetric(metrics.avgTokensPerSecond, " tok/s")}</span>
+            <span>TTFT {formatMetric(metrics.avgTtftMs, "ms")}</span>
+            <span>TTLT {formatMetric(metrics.avgTtltMs, "ms")}</span>
           </div>
         ) : null}
-      </div>
 
-      {nativeMode && metrics ? (
-        <div className="chat-metrics" title="Local OMP-stats-style native request metrics">
-          <BarChart3 size={12} />
-          <span>{metrics.totalRequests} req</span>
-          <span>{metrics.totalInputTokens + metrics.totalOutputTokens} tok</span>
-          <span>{formatMetric(metrics.avgTokensPerSecond, " tok/s")}</span>
-          <span>TTFT {formatMetric(metrics.avgTtftMs, "ms")}</span>
-          <span>TTLT {formatMetric(metrics.avgTtltMs, "ms")}</span>
-        </div>
-      ) : null}
-
-      {nativeMode && selectedProvider && !selectedProvider.configured ? (
-        <div className="chat-setup-bar">
-          <AlertCircle size={12} />
-          <span>{selectedProvider.detail}</span>
-        </div>
-      ) : null}
-
-      <div className="chat-messages" ref={scrollRef}>
-        {renderMessages.length === 0 ? (
+        {renderMessages.length === 0 && nativeMode ? (
           <div className="chat-empty-state">
             <Brain size={24} />
             <h3>Native chat ready</h3>
-            <p>Start a local Basebuild harness conversation. Requests are stored as structured chat and local metrics.</p>
+            <p>Send a message to start. Requests are stored locally as structured chat with metrics.</p>
           </div>
         ) : null}
+
         {renderMessages.map((msg, index) => {
           const key = "id" in msg ? String(msg.id) : `legacy-${index}`;
           return (
@@ -415,51 +348,116 @@ export function ChatPanel({
             </div>
           );
         })}
-        {loading ? <div className="chat-loading">{nativeMode ? "Native harness is working…" : "Agent is typing…"}</div> : null}
+        {loading ? <div className="chat-loading">{nativeMode ? "Working…" : "Agent is typing…"}</div> : null}
         {stuck ? (
           <div className="chat-stuck-bar">
             <AlertCircle size={12} />
-            <span className="text-sm">Agent appears frozen. No response after {SEND_TIMEOUT_MS / 1000}s.</span>
-            <button className="btn btn-sm" type="button" title="Stop and restart the agent session" onClick={() => void handleStopAgent()}>
-              <StopCircle size={12} /> Stop &amp; restart
+            <span className="text-sm">Agent frozen. No response after {SEND_TIMEOUT_MS / 1000}s.</span>
+            <button className="btn btn-sm" type="button" title="Stop and restart the agent" onClick={() => void handleStopAgent()}>
+              <RefreshCw size={12} /> Restart
             </button>
           </div>
         ) : null}
       </div>
 
+      {/* Error bar */}
       {error ? (
         <div className="chat-error-bar">
           <AlertCircle size={12} />
           <span className="text-sm">{error}</span>
-          <button className="btn-icon btn-icon-sm" title="Clear chat error" type="button" onClick={() => setError(null)}>
-            <RefreshCw size={11} />
+          <button className="btn-icon btn-icon-sm" title="Clear error" type="button" onClick={() => setError(null)}>
+            <X size={11} />
           </button>
         </div>
       ) : null}
 
+      {/* Provider login form */}
+      {showLogin && selectedProvider && !selectedProvider.configured ? (
+        <div className="chat-login-form">
+          <div className="chat-login-header">
+            <Key size={12} />
+            <span>Connect to {selectedProvider.label}</span>
+            <button className="btn-icon btn-icon-sm" title="Close" type="button" onClick={() => setShowLogin(false)}>
+              <X size={11} />
+            </button>
+          </div>
+          <input
+            className="input chat-login-input"
+            type="password"
+            placeholder="API key"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            title="Enter your API key for this provider"
+          />
+          {providerId === "umans" || providerId === "openai" ? (
+            <input
+              className="input chat-login-input"
+              placeholder="Base URL (optional, e.g. https://api.umans.ai/v1)"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              title="Custom API base URL (optional)"
+            />
+          ) : null}
+          <button
+            className="btn btn-primary btn-sm"
+            type="button"
+            title="Save credential and connect"
+            disabled={!apiKey.trim() || savingCred}
+            onClick={() => void handleSaveCredential()}
+          >
+            {savingCred ? "Saving…" : "Connect"}
+          </button>
+        </div>
+      ) : null}
+
+      {/* Input area with selectors */}
       <div className="chat-input-area">
-        <textarea
-          className="input chat-input"
-          placeholder={nativeMode ? "Type a message… (Enter to send, Shift+Enter for newline)" : "Agent not connected. Click retry above to start."}
-          value={input}
-          onChange={(event) => {
-            setInput(event.target.value);
-            const el = event.target;
-            el.style.height = "auto";
-            el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              void handleSend();
-            }
-          }}
-          disabled={nativeMode ? !nativeSessionId : agentId === null}
-          title={nativeMode ? "Chat input — type a message and press Enter to send" : "Chat input — start the agent to enable sending"}
-        />
-        <button className="btn btn-primary chat-send-btn" type="button" title="Send message" disabled={sendDisabled} onClick={() => void handleSend()}>
-          <Send size={13} />
-        </button>
+        {nativeMode && catalog ? (
+          <div className="chat-input-controls">
+            <select className="input chat-select" title="Select provider" value={providerId} onChange={(e) => { setProviderId(e.target.value); setShowLogin(false); }}>
+              {catalog.providers.map((p) => (
+                <option key={p.id} value={p.id}>{p.label}{p.configured ? "" : " — not connected"}</option>
+              ))}
+            </select>
+            <select className="input chat-select" title="Select model" value={modelId} onChange={(e) => setModelId(e.target.value)}>
+              {availableModels.map((m) => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+            <select className="input chat-select" title="Select effort level" value={effortLevel} onChange={(e) => setEffortLevel(e.target.value)}>
+              {catalog.effortLevels.map((ef) => (
+                <option key={ef.id} value={ef.id}>{ef.label}</option>
+              ))}
+            </select>
+            {selectedProvider && !selectedProvider.configured ? (
+              <button className="btn btn-sm" type="button" title={`Connect to ${selectedProvider.label}`} onClick={() => setShowLogin(true)}>
+                <Key size={11} /> Connect
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="chat-input-row">
+          <textarea
+            className="input chat-input"
+            placeholder={nativeMode ? "Type a message… (Enter to send, Shift+Enter for newline)" : "Agent not connected. Click retry above to start."}
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              const el = e.target;
+              el.style.height = "auto";
+              el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSend(); }
+            }}
+            rows={2}
+            disabled={inputDisabled}
+            title={nativeMode ? "Chat input — type a message and press Enter to send" : "Chat input — start the agent to enable sending"}
+          />
+          <button className="btn btn-primary chat-send-btn" type="button" title="Send message" disabled={sendDisabled} onClick={() => void handleSend()}>
+            <Send size={14} />
+          </button>
+        </div>
       </div>
     </div>
   );
