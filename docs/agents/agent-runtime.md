@@ -39,8 +39,14 @@ collection/upload remain disabled.
 ## Provider and model catalog
 
 Native chat exposes providers (Basebuild Local, OpenAI, Anthropic, Umans),
-models, and effort levels through typed backend commands. Provider credentials are
-stored locally only and never uploaded.
+models, effort levels, sync freshness, and source metadata through typed backend
+commands. Provider credentials are stored locally only and never uploaded.
+`native_provider_catalog` returns the cache-first catalog; `native_provider_catalog_refresh`
+forces online sync for one provider or all providers. Direct provider/CLI model
+payloads are preferred, OpenAI-compatible providers use `/v1/models` when
+available, and the optional hosted Basebuild model directory is queried only
+when direct discovery is unavailable and without secrets, prompts, project
+paths, or local account identifiers.
 
 ## Provider-backed turn execution
 
@@ -72,6 +78,21 @@ API-key entry (`src-tauri/src/services/provider_login_service.rs`):
 - `native_provider_login_poll` / `native_provider_login_cancel` drive the UI.
 - Disconnect removes the stored credential and returns the provider to
   setup-required; the catalog refreshes without an app restart.
+
+## Chat slash commands
+
+The composer intercepts recognized slash commands before provider send:
+
+- `/login` opens the provider chooser; `/login <provider>` preselects a matching
+  provider and opens its connection UI.
+- `/model` opens the searchable model picker; `/model <filter>` pre-filters by
+  provider id, model id, or label.
+- `/models refresh` forces provider model-catalog sync and reports the result in
+  the composer.
+
+Unknown slash commands remain local and offer an explicit "send as text" escape.
+Slash commands are accelerators only; provider/model UI remains visible next to
+the effort selector.
 
 ## In-chat idea generation
 

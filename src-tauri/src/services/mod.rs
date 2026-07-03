@@ -8,6 +8,7 @@ pub mod omp_service;
 pub mod plan_service;
 pub mod provider_client;
 pub mod provider_login_service;
+pub mod provider_model_catalog_service;
 pub mod native_chat_service;
 pub mod process_helpers;
  pub mod project_service;

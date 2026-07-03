@@ -268,16 +268,17 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "agent_start":
       return 1 as T;
     case "native_provider_catalog":
+    case "native_provider_catalog_refresh":
       return {
         providers: [
-          { id: "basebuild-local", label: "Basebuild Local", status: "ready", credentialOwner: "basebuild", configured: true, localOnly: true, detail: "Local coordinator" },
-          { id: "openai", label: "OpenAI", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials" },
-          { id: "umans", label: "Umans", status: "ready", credentialOwner: "user", configured: true, localOnly: false, detail: "Connected" },
+          { id: "basebuild-local", label: "Basebuild Local", status: "ready", credentialOwner: "basebuild", configured: true, localOnly: true, detail: "Local coordinator", supportsWebLogin: false, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+          { id: "openai", label: "OpenAI", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", supportsWebLogin: true, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+          { id: "umans", label: "Umans", status: "ready", credentialOwner: "user", configured: true, localOnly: false, detail: "Connected", supportsWebLogin: true, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "provider_discovered", error: null },
         ],
         models: [
-          { id: "basebuild-local-coordinator", providerId: "basebuild-local", label: "Local Coordinator", supportsEffort: true, supportsStreaming: false, localOnly: true },
-          { id: "gpt-5.1", providerId: "openai", label: "GPT-5.1", supportsEffort: true, supportsStreaming: true, localOnly: false },
-          { id: "umans-glm-5.2", providerId: "umans", label: "Umans GLM 5.2", supportsEffort: true, supportsStreaming: true, localOnly: false },
+          { id: "basebuild-local-coordinator", providerId: "basebuild-local", label: "Local Coordinator", supportsEffort: true, supportsStreaming: false, localOnly: true, contextWindow: null, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "bundled" },
+          { id: "gpt-5.1", providerId: "openai", label: "GPT-5.1", supportsEffort: true, supportsStreaming: true, localOnly: false, contextWindow: 400000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: true, source: "bundled" },
+          { id: "umans-glm-5.2", providerId: "umans", label: "Umans GLM 5.2", supportsEffort: true, supportsStreaming: true, localOnly: false, contextWindow: 128000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "provider_discovered" },
         ],
         effortLevels: [
           { id: "low", label: "Low", description: "Fast" },
@@ -288,6 +289,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         defaultProviderId: "basebuild-local",
         defaultModelId: "basebuild-local-coordinator",
         defaultEffortLevel: "medium",
+        fetchedAt: 1_800_000_000,
+        stale: false,
       } as T;
     case "native_chat_start": {
       const req = args.request as { projectPath: string; title?: string; providerId?: string; modelId?: string; effortLevel?: string };

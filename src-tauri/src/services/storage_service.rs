@@ -270,6 +270,22 @@ impl StorageService {
                     updated_at INTEGER NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS native_provider_model_cache (
+                    provider_id TEXT NOT NULL,
+                    model_id TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    context_window INTEGER,
+                    max_tokens INTEGER,
+                    supports_reasoning INTEGER NOT NULL DEFAULT 0,
+                    supported_efforts TEXT NOT NULL DEFAULT '[]',
+                    supports_images INTEGER NOT NULL DEFAULT 0,
+                    source TEXT NOT NULL,
+                    synced_at INTEGER NOT NULL,
+                    error TEXT,
+                    PRIMARY KEY (provider_id, model_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_native_provider_model_cache_provider ON native_provider_model_cache(provider_id, synced_at);
+
                 CREATE TABLE IF NOT EXISTS native_request_metrics (
                     id TEXT PRIMARY KEY NOT NULL,
                     session_id TEXT NOT NULL,

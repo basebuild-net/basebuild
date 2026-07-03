@@ -34,12 +34,12 @@ test.describe("native chat workspace", () => {
     await openFixtureProject(page);
     await ensureChatTab(page);
 
-    // The composer header with provider/model/effort selectors should be visible.
+    // The compact composer rail with provider/model/effort controls should be visible.
     await expect(page.locator(".chat-composer-header")).toBeVisible();
-    await expect(page.locator(".chat-select")).toHaveCount(3);
-
-    // The local coordinator provider should be selected by default.
-    await expect(page.locator(".chat-select").first()).toHaveValue("basebuild-local");
+    await expect(page.locator(".chat-provider-trigger")).toBeVisible();
+    await expect(page.locator(".chat-model-trigger")).toBeVisible();
+    await expect(page.locator(".chat-effort-select")).toHaveValue("medium");
+    await expect(page.locator(".chat-provider-trigger")).toContainText("Basebuild Local");
 
     // Metrics bar should render with 0 req initially.
     await expect(page.locator(".chat-metrics")).toContainText("0 req");
@@ -73,10 +73,12 @@ test.describe("native chat workspace", () => {
     await ensureChatTab(page);
 
     // Select the OpenAI provider which is unconfigured in the fixture.
-    await page.locator(".chat-select").first().selectOption("openai");
+    await page.locator(".chat-provider-trigger").click();
+    await page.locator(".chat-picker-item", { hasText: "OpenAI" }).click();
 
-    // The composer shows a degraded health state and a Connect affordance.
-    await expect(page.locator(".chat-health")).toContainText("Setup required");
+    // The composer shows a degraded setup state and a Connect affordance.
+    await expect(page.locator(".chat-provider-trigger")).toContainText("OpenAI");
+    await expect(page.locator(".chat-provider-trigger")).toHaveClass(/is-warn/);
     await expect(page.locator(".chat-composer-header button[title*='Connect']")).toBeVisible();
 
     // Attempting to send opens the connect prompt and keeps the draft; no turn is sent.
@@ -98,10 +100,11 @@ test.describe("native chat workspace", () => {
     await openFixtureProject(page);
     await ensureChatTab(page);
 
-    // Select the connected Umans provider and generate ideas.
-    await page.locator(".chat-select").first().selectOption("umans");
+    // Select the connected Umans provider and generate ideas from the overflow menu.
+    await page.locator(".chat-provider-trigger").click();
+    await page.locator(".chat-picker-item", { hasText: "Umans" }).click();
+    await page.getByTitle("More chat actions").click();
     await page.getByTitle("Generate ideas from this conversation").click();
-
     // Two idea cards render with promote actions.
     await expect(page.locator(".chat-idea-card")).toHaveCount(2);
     await expect(page.locator(".chat-idea-title").first()).toHaveText("Improve onboarding");
@@ -111,5 +114,26 @@ test.describe("native chat workspace", () => {
     await expect(page.locator(".chat-idea-status", { hasText: "Planned" })).toBeVisible();
 
     expect(consoleErrors).toEqual([]);
+  });
+
+  test("handles slash commands locally", async ({ page }) => {
+    await openFixtureProject(page);
+    await ensureChatTab(page);
+
+    await page.getByTitle(/Chat input/).first().fill("/model glm");
+    await page.getByTitle("Send message").click();
+    await expect(page.locator(".chat-picker", { hasText: "Choose model" })).toBeVisible();
+    await expect(page.locator(".chat-picker-item", { hasText: "Umans GLM 5.2" })).toBeVisible();
+    await page.locator(".chat-picker-item", { hasText: "Umans GLM 5.2" }).click();
+    await expect(page.locator(".chat-model-trigger")).toContainText("Umans GLM 5.2");
+
+    await page.getByTitle(/Chat input/).first().fill("/models refresh");
+    await page.getByTitle("Send message").click();
+    await expect(page.locator(".chat-command-notice")).toContainText("Model catalog refreshed.");
+
+    await page.getByTitle(/Chat input/).first().fill("/wat");
+    await page.getByTitle("Send message").click();
+    await expect(page.locator(".chat-command-notice")).toContainText("Unknown slash command");
+    await expect(page.getByTitle("Send this slash-prefixed text as a normal message")).toBeVisible();
   });
 });

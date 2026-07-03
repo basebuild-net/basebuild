@@ -4,9 +4,9 @@ use crate::{
     models::native_chat::{
         NativeChatMessage, NativeChatSendRequest, NativeChatSendResult, NativeChatSession,
         NativeChatStartRequest, NativeGenerateIdeasRequest, NativeGenerateIdeasResult,
-        NativeProviderCatalog, NativeProviderCredential, NativeProviderCredentialInput,
-        NativeRequestMetric, NativeRequestMetricsSummary, NativeToolApprovalRequest,
-        NativeToolApprovalResult,
+        NativeProviderCatalog, NativeProviderCatalogRefreshRequest, NativeProviderCredential,
+        NativeProviderCredentialInput, NativeRequestMetric, NativeRequestMetricsSummary,
+        NativeToolApprovalRequest, NativeToolApprovalResult,
     },
     services::native_chat_service::NativeChatService,
 };
@@ -14,6 +14,16 @@ use crate::{
 #[tauri::command]
 pub fn native_provider_catalog() -> Result<NativeProviderCatalog, String> {
     Ok(NativeChatService::provider_catalog())
+}
+
+#[tauri::command]
+pub fn native_provider_catalog_refresh(
+    request: Option<NativeProviderCatalogRefreshRequest>,
+) -> Result<NativeProviderCatalog, String> {
+    crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh(
+        request.as_ref().and_then(|r| r.provider_id.clone()),
+        request.and_then(|r| r.force).unwrap_or(false),
+    )
 }
 
 #[tauri::command]

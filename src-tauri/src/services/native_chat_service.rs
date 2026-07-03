@@ -7,11 +7,11 @@ use crate::{
     models::{
         native_chat::{
             NativeChatMessage, NativeChatSendRequest, NativeChatSendResult, NativeChatSession,
-            NativeChatStartRequest, NativeEffortLevel, NativeGenerateIdeasRequest,
-            NativeGenerateIdeasResult, NativeGeneratedIdea, NativeModel, NativeProvider,
-            NativeProviderCatalog, NativeProviderCredential, NativeProviderCredentialInput,
-            NativeRequestMetric, NativeRequestMetricsSummary, NativeSetupRequired,
-            NativeToolApprovalRequest, NativeToolApprovalResult, NativeToolEvent,
+            NativeChatStartRequest, NativeGenerateIdeasRequest, NativeGenerateIdeasResult,
+            NativeGeneratedIdea, NativeProviderCatalog, NativeProviderCredential,
+            NativeProviderCredentialInput, NativeRequestMetric, NativeRequestMetricsSummary,
+            NativeSetupRequired, NativeToolApprovalRequest, NativeToolApprovalResult,
+            NativeToolEvent,
         },
         permission::PermissionDecision,
     },
@@ -26,103 +26,13 @@ type DbResult<T> = Result<T, String>;
 
 const NATIVE_PROFILE_ID: &str = "basebuild-native";
 const LOCAL_PROVIDER_ID: &str = "basebuild-local";
-const LOCAL_MODEL_ID: &str = "basebuild-local-coordinator";
-const DEFAULT_EFFORT: &str = "medium";
 
 #[derive(Debug, Default)]
 pub struct NativeChatService;
 
 impl NativeChatService {
     pub fn provider_catalog() -> NativeProviderCatalog {
-        let credentials = Self::list_credentials().unwrap_or_default();
-        let is_configured = |pid: &str| -> bool {
-            pid == LOCAL_PROVIDER_ID
-                || credentials.iter().any(|c| c.provider_id == pid)
-        };
-
-        NativeProviderCatalog {
-            providers: vec![
-                NativeProvider {
-                    id: LOCAL_PROVIDER_ID.to_string(),
-                    label: "Basebuild Local".to_string(),
-                    status: "ready".to_string(),
-                    credential_owner: "basebuild".to_string(),
-                    configured: true,
-                    local_only: true,
-                    detail: "Runs locally without a network provider.".to_string(),
-                },
-                NativeProvider {
-                    id: "umans".to_string(),
-                    label: "Umans".to_string(),
-                    status: if is_configured("umans") { "ready" } else { "setup_required" }.to_string(),
-                    credential_owner: "user".to_string(),
-                    configured: is_configured("umans"),
-                    local_only: false,
-                    detail: "Umans API — OpenAI-compatible. Enter your API key to connect.".to_string(),
-                },
-                NativeProvider {
-                    id: "openai".to_string(),
-                    label: "OpenAI".to_string(),
-                    status: if is_configured("openai") { "ready" } else { "setup_required" }.to_string(),
-                    credential_owner: "user".to_string(),
-                    configured: is_configured("openai"),
-                    local_only: false,
-                    detail: "OpenAI API — enter your API key to connect.".to_string(),
-                },
-                NativeProvider {
-                    id: "anthropic".to_string(),
-                    label: "Anthropic".to_string(),
-                    status: if is_configured("anthropic") { "ready" } else { "setup_required" }.to_string(),
-                    credential_owner: "user".to_string(),
-                    configured: is_configured("anthropic"),
-                    local_only: false,
-                    detail: "Anthropic API — enter your API key to connect.".to_string(),
-                },
-            ],
-            models: vec![
-                NativeModel {
-                    id: LOCAL_MODEL_ID.to_string(),
-                    provider_id: LOCAL_PROVIDER_ID.to_string(),
-                    label: "Local Coordinator".to_string(),
-                    supports_effort: true,
-                    supports_streaming: false,
-                    local_only: true,
-                },
-                NativeModel {
-                    id: "umans-glm-5.2".to_string(),
-                    provider_id: "umans".to_string(),
-                    label: "Umans GLM 5.2".to_string(),
-                    supports_effort: true,
-                    supports_streaming: true,
-                    local_only: false,
-                },
-                NativeModel {
-                    id: "gpt-5.1".to_string(),
-                    provider_id: "openai".to_string(),
-                    label: "GPT-5.1".to_string(),
-                    supports_effort: true,
-                    supports_streaming: true,
-                    local_only: false,
-                },
-                NativeModel {
-                    id: "claude-sonnet-4.5".to_string(),
-                    provider_id: "anthropic".to_string(),
-                    label: "Claude Sonnet 4.5".to_string(),
-                    supports_effort: true,
-                    supports_streaming: true,
-                    local_only: false,
-                },
-            ],
-            effort_levels: vec![
-                NativeEffortLevel { id: "low".to_string(), label: "Low".to_string(), description: "Fast, shallow planning.".to_string() },
-                NativeEffortLevel { id: "medium".to_string(), label: "Medium".to_string(), description: "Balanced reliability and speed.".to_string() },
-                NativeEffortLevel { id: "high".to_string(), label: "High".to_string(), description: "Deeper reasoning for implementation planning.".to_string() },
-                NativeEffortLevel { id: "xhigh".to_string(), label: "XHigh".to_string(), description: "Maximum local planning budget before provider-backed execution.".to_string() },
-            ],
-            default_provider_id: LOCAL_PROVIDER_ID.to_string(),
-            default_model_id: LOCAL_MODEL_ID.to_string(),
-            default_effort_level: DEFAULT_EFFORT.to_string(),
-        }
+        crate::services::provider_model_catalog_service::ProviderModelCatalogService::catalog()
     }
 
     pub fn save_credential(input: NativeProviderCredentialInput) -> DbResult<NativeProviderCredential> {
@@ -140,8 +50,9 @@ impl NativeChatService {
              VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(provider_id) DO UPDATE SET
                label = excluded.label, api_key = excluded.api_key, base_url = excluded.base_url, updated_at = excluded.updated_at",
-            params![cred.provider_id, cred.label, cred.api_key, cred.base_url, cred.updated_at],
+            params![&cred.provider_id, &cred.label, &cred.api_key, &cred.base_url, cred.updated_at],
         ).map_err(|e| format!("Failed to save provider credential: {e}"))?;
+        let _ = crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh_provider(&cred.provider_id, true);
         Ok(cred)
     }
 
@@ -166,6 +77,7 @@ impl NativeChatService {
         let conn = StorageService::connect()?;
         conn.execute("DELETE FROM native_provider_credentials WHERE provider_id = ?1", params![provider_id])
             .map_err(|e| e.to_string())?;
+        let _ = crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh_provider(provider_id, true);
         Ok(())
     }
 
@@ -917,7 +829,7 @@ mod tests {
     fn provider_catalog_has_local_default_and_effort_levels() {
         let catalog = NativeChatService::provider_catalog();
         assert_eq!(catalog.default_provider_id, LOCAL_PROVIDER_ID);
-        assert_eq!(catalog.default_model_id, LOCAL_MODEL_ID);
+        assert_eq!(catalog.default_model_id, "basebuild-local-coordinator");
         assert!(catalog.providers.iter().any(|provider| provider.id == LOCAL_PROVIDER_ID && provider.configured));
         assert!(catalog.effort_levels.iter().any(|effort| effort.id == "xhigh"));
     }

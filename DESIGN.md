@@ -209,13 +209,15 @@ The `Plans` section inside the right panel exposes:
 
 The chat message list scrolls; the composer stays pinned to the bottom of the
 panel and is always visible at any window size — it is never scrolled off or
-clipped. The composer footer has a subtle top divider and carries a persistent
-header with the provider, model, and effort selectors, an adapter-health dot
-(green = ready, amber = setup required), and connect/disconnect + "Generate
-ideas" actions. While the model catalog loads, the selectors show placeholder
-skeletons. Every control has a tooltip. Offline (local-coordinator) assistant
-replies carry an amber "Offline" tag so local output is never mistaken for a
-provider answer.
+clipped. The composer footer has a subtle top divider and carries a persistent,
+single-line control rail with provider status, model picker, effort selector,
+model refresh, connect/disconnect, and an overflow menu for lower-priority
+actions like "Generate ideas". The rail truncates labels and moves secondary
+actions into overflow before it wraps. While the model catalog loads, the
+selectors show placeholder skeletons. Every control has a tooltip. `/login`,
+`/model`, and `/models refresh` are keyboard accelerators for the same visible
+UI. Offline (local-coordinator) assistant replies carry an amber "Offline" tag
+so local output is never mistaken for a provider answer.
 
 ## Collapsible Columns
 

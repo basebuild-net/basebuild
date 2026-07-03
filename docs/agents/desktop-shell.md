@@ -19,7 +19,7 @@ instead of a red error — the user cannot fix this by retrying, and full
 diagnostics are available in Settings → Updates.
 
 ## Tab kinds
-- **Chat** — agent chat panel backed by a runtime profile. The default profile is `basebuild-native`, which runs structured chat, provider/model controls, and local request metrics; OMP remains selectable.
+- **Chat** — agent chat panel backed by a runtime profile. The default profile is `basebuild-native`, which runs structured chat, a compact one-line provider/model/effort control rail, slash-command accelerators (`/login`, `/model`, `/models refresh`), provider model sync, and local request metrics; OMP remains selectable.
 Each workspace tab has a `kind`: `terminal`, `file`, `empty`, or `chat`.
 
 - **Terminal** — PTY-backed shell.

@@ -43,6 +43,11 @@ export type NativeProvider = {
   configured: boolean;
   localOnly: boolean;
   detail: string;
+  supportsWebLogin: boolean;
+  modelCount: number;
+  lastSyncedAt: number | null;
+  source: "bundled" | "provider_discovered" | "cli_discovered" | "hosted_fallback" | "stale_cache" | "unavailable" | string;
+  error: string | null;
 };
 
 export type NativeModel = {
@@ -52,6 +57,12 @@ export type NativeModel = {
   supportsEffort: boolean;
   supportsStreaming: boolean;
   localOnly: boolean;
+  contextWindow: number | null;
+  maxTokens: number | null;
+  supportsReasoning: boolean;
+  supportedEfforts: string[];
+  supportsImages: boolean;
+  source: string;
 };
 
 export type NativeEffortLevel = {
@@ -67,6 +78,8 @@ export type NativeProviderCatalog = {
   defaultProviderId: string;
   defaultModelId: string;
   defaultEffortLevel: string;
+  fetchedAt: number;
+  stale: boolean;
 };
 
 export type NativeRequestMetric = {
@@ -142,6 +155,13 @@ export type ProviderLoginPoll = {
 
 export async function nativeProviderCatalog(): Promise<NativeProviderCatalog> {
   return invoke<NativeProviderCatalog>("native_provider_catalog");
+}
+
+export async function nativeProviderCatalogRefresh(input?: {
+  providerId?: string | null;
+  force?: boolean;
+}): Promise<NativeProviderCatalog> {
+  return invoke<NativeProviderCatalog>("native_provider_catalog_refresh", { request: input ?? null });
 }
 
 export async function nativeChatStart(input: {

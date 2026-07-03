@@ -50,6 +50,8 @@ pub struct NativeProviderCatalog {
     pub default_provider_id: String,
     pub default_model_id: String,
     pub default_effort_level: String,
+    pub fetched_at: i64,
+    pub stale: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +64,11 @@ pub struct NativeProvider {
     pub configured: bool,
     pub local_only: bool,
     pub detail: String,
+    pub supports_web_login: bool,
+    pub model_count: i64,
+    pub last_synced_at: Option<i64>,
+    pub source: String,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,6 +99,12 @@ pub struct NativeModel {
     pub supports_effort: bool,
     pub supports_streaming: bool,
     pub local_only: bool,
+    pub context_window: Option<i64>,
+    pub max_tokens: Option<i64>,
+    pub supports_reasoning: bool,
+    pub supported_efforts: Vec<String>,
+    pub supports_images: bool,
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,6 +113,13 @@ pub struct NativeEffortLevel {
     pub id: String,
     pub label: String,
     pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeProviderCatalogRefreshRequest {
+    pub provider_id: Option<String>,
+    pub force: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

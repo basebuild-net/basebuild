@@ -39,9 +39,9 @@ use commands::{
     native_chat::{
         native_chat_get, native_chat_list, native_chat_messages, native_chat_send,
         native_chat_start, native_delete_provider_credential, native_generate_ideas,
-        native_list_provider_credentials, native_provider_catalog, native_provider_login_cancel,
-        native_provider_login_poll, native_provider_login_start, native_request_metrics,
-        native_request_metrics_summary, native_request_tool_approval,
+        native_list_provider_credentials, native_provider_catalog, native_provider_catalog_refresh,
+        native_provider_login_cancel, native_provider_login_poll, native_provider_login_start,
+        native_request_metrics, native_request_metrics_summary, native_request_tool_approval,
         native_save_provider_credential,
     },
     plans::{
@@ -258,6 +258,7 @@ pub fn run() {
             agent_capabilities,
              agent_stop,
             native_provider_catalog,
+            native_provider_catalog_refresh,
             native_chat_start,
             native_chat_get,
             native_chat_list,

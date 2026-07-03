@@ -54,8 +54,12 @@ The composer must be structurally impossible to clip:
 - `.chat-input-area` is a `flex-shrink: 0` footer and a **sibling** of the scroll
   region (never inside it), with a `min-height` and a top border so it is always
   visible even when empty.
-- The always-visible controls live in `.chat-composer-header`; while the catalog
-  loads they render `.chat-select-skeleton` placeholders.
+- The always-visible controls live in `.chat-composer-header`, which is a
+  single-line nowrap rail. Provider and model labels truncate, effort remains
+  adjacent to model selection, refresh/connect buttons can become icon-only,
+  and secondary actions use `.chat-inline-menu` / `.chat-picker` overflow
+  surfaces before any wrapping occurs. While the catalog loads the rail renders
+  `.chat-select-skeleton` placeholders.
 - Assistant streaming arrives on the `native-chat://chunk` Tauri event and is
   appended live; offline turns are flagged with `.chat-offline-tag`.
 

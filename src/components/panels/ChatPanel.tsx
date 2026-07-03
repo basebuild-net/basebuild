@@ -23,6 +23,7 @@ import {
   nativeDeleteProviderCredential,
   nativeGenerateIdeas,
   nativeProviderCatalog,
+  nativeProviderCatalogRefresh,
   nativeProviderLoginCancel,
   nativeProviderLoginPoll,
   nativeProviderLoginStart,
@@ -104,6 +105,12 @@ export function ChatPanel({
   const loginTimerRef = useRef<number | null>(null);
   // Idea generation.
   const [generatingIdeas, setGeneratingIdeas] = useState(false);
+  const [catalogRefreshing, setCatalogRefreshing] = useState(false);
+  const [commandNotice, setCommandNotice] = useState<string | null>(null);
+  const [showActionMenu, setShowActionMenu] = useState(false);
+  const [showProviderPicker, setShowProviderPicker] = useState(false);
+  const [showModelPicker, setShowModelPicker] = useState(false);
+  const [modelFilter, setModelFilter] = useState("");
 
   const sendTimerRef = useRef<number | null>(null);
   const assistantBufferRef = useRef("");
@@ -111,6 +118,25 @@ export function ChatPanel({
   const { addLog } = useLogs();
   const ideaState = useIdeaState(activeSessionId ?? null);
 
+  const filteredModels = useMemo(() => {
+    const models = catalog?.models ?? [];
+    const needle = modelFilter.trim().toLowerCase();
+    const ranked = models.slice().sort((a, b) => {
+      if (a.providerId === providerId && b.providerId !== providerId) return -1;
+      if (a.providerId !== providerId && b.providerId === providerId) return 1;
+      return a.label.localeCompare(b.label);
+    });
+    if (!needle) return ranked;
+    return ranked.filter((model) => {
+      const provider = catalog?.providers.find((p) => p.id === model.providerId);
+      return (
+        model.id.toLowerCase().includes(needle) ||
+        model.label.toLowerCase().includes(needle) ||
+        model.providerId.toLowerCase().includes(needle) ||
+        (provider?.label.toLowerCase().includes(needle) ?? false)
+      );
+    });
+  }, [catalog, modelFilter, providerId]);
   const nativeMode = profileId === NATIVE_PROFILE_ID;
   const selectedProvider = catalog?.providers.find((p) => p.id === providerId) ?? null;
   const selectedModel = catalog?.models.find((m) => m.id === modelId) ?? null;
@@ -401,8 +427,53 @@ export function ChatPanel({
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text) return;
+    if (nativeMode && text.startsWith("/")) {
+      const [rawCommand, ...parts] = text.slice(1).split(/\s+/);
+      const command = rawCommand.toLowerCase();
+      const rest = parts.join(" ").trim();
+      setCommandNotice(null);
+      if (command === "login") {
+        const provider = rest
+          ? catalog?.providers.find((p) => p.id.toLowerCase() === rest.toLowerCase() || p.label.toLowerCase() === rest.toLowerCase())
+          : null;
+        if (provider) {
+          setProviderId(provider.id);
+          setShowLogin(provider.id !== LOCAL_PROVIDER_ID);
+          setShowProviderPicker(false);
+        } else {
+          setShowProviderPicker(true);
+          setShowLogin(false);
+        }
+        setInput("");
+        return;
+      }
+      if (command === "model") {
+        setModelFilter(rest);
+        setShowModelPicker(true);
+        setInput("");
+        return;
+      }
+      if (command === "models" && rest.toLowerCase() === "refresh") {
+        setCatalogRefreshing(true);
+        try {
+          const refreshed = await nativeProviderCatalogRefresh({ force: true });
+          setCatalog(refreshed);
+          setCommandNotice("Model catalog refreshed.");
+          setInput("");
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          setCommandNotice(`Model refresh failed: ${msg}`);
+          addLog("error", "Failed to refresh model catalog", msg);
+        } finally {
+          setCatalogRefreshing(false);
+        }
+        return;
+      }
+      setCommandNotice(`Unknown slash command: /${command}. Use /login, /model, or /models refresh.`);
+      return;
+    }
     await sendMessage(text);
-  }, [input, sendMessage]);
+  }, [input, nativeMode, sendMessage, catalog, addLog]);
 
   const handleStopAgent = useCallback(async () => {
     if (sendTimerRef.current) {
@@ -433,11 +504,19 @@ export function ChatPanel({
     }, 500);
   }, [agentId, projectPath, profileId]);
 
-  const refreshCatalog = useCallback(async () => {
+  const refreshCatalog = useCallback(async (force = false, targetProviderId?: string) => {
+    setCatalogRefreshing(true);
     try {
-      setCatalog(await nativeProviderCatalog());
+      const refreshed = force
+        ? await nativeProviderCatalogRefresh({ providerId: targetProviderId ?? null, force: true })
+        : await nativeProviderCatalog();
+      setCatalog(refreshed);
+      return refreshed;
     } catch (e) {
       addLog("error", "Failed to refresh provider catalog", e instanceof Error ? e.message : String(e));
+      return null;
+    } finally {
+      setCatalogRefreshing(false);
     }
   }, [addLog]);
 
@@ -798,41 +877,38 @@ export function ChatPanel({
       {/* Composer footer: always visible, never clipped */}
       <div className="chat-input-area">
         {nativeMode ? (
-          <div className="chat-composer-header">
-            {catalog ? (
-              <>
-                <div className="chat-select-group">
-                  <select
-                    className="input chat-select"
-                    title="Select provider"
-                    value={providerId}
-                    onChange={(e) => {
-                      setProviderId(e.target.value);
-                      setShowLogin(false);
-                      setSetupRequired(null);
+          <>
+            <div className="chat-composer-header">
+              {catalog ? (
+                <>
+                  <button
+                    className={`btn btn-sm chat-provider-trigger${providerDegraded ? " is-warn" : ""}`}
+                    type="button"
+                    title={`${providerName} — ${providerDegraded ? "setup required" : "ready"}. Click to choose or connect a provider.`}
+                    onClick={() => {
+                      setShowProviderPicker((value) => !value);
+                      setShowModelPicker(false);
+                      setShowActionMenu(false);
                     }}
                   >
-                    {catalog.providers.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.label}
-                        {p.configured ? "" : " — not connected"}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className="input chat-select"
-                    title="Select model"
-                    value={modelId}
-                    onChange={(e) => setModelId(e.target.value)}
+                    <span className={`chat-health-dot ${providerDegraded ? "is-warn" : "is-ok"}`} />
+                    <span className="chat-trigger-label">{providerName}</span>
+                  </button>
+                  <button
+                    className="btn btn-sm chat-model-trigger"
+                    type="button"
+                    title={`Select model. Current model: ${modelName} (${modelId})`}
+                    onClick={() => {
+                      setShowModelPicker((value) => !value);
+                      setShowProviderPicker(false);
+                      setShowActionMenu(false);
+                    }}
                   >
-                    {availableModels.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
+                    <span className="chat-trigger-kicker">Model</span>
+                    <span className="chat-trigger-label">{modelName}</span>
+                  </button>
                   <select
-                    className="input chat-select"
+                    className="input chat-select chat-effort-select"
                     title="Select effort level"
                     value={effortLevel}
                     onChange={(e) => setEffortLevel(e.target.value)}
@@ -843,59 +919,160 @@ export function ChatPanel({
                       </option>
                     ))}
                   </select>
-                </div>
-                <span
-                  className="chat-health"
-                  title={
-                    providerDegraded
-                      ? `${providerName} is not connected`
-                      : `${providerName} is ready`
-                  }
-                >
-                  <span className={`chat-health-dot ${providerDegraded ? "is-warn" : "is-ok"}`} />
-                  {providerDegraded ? "Setup required" : "Ready"}
-                </span>
-                {providerDegraded ? (
                   <button
-                    className="btn btn-sm"
+                    className="btn-icon btn-icon-sm"
                     type="button"
-                    title={`Connect ${providerName}`}
+                    title={selectedProvider?.lastSyncedAt ? `Refresh models. Last sync: ${new Date(selectedProvider.lastSyncedAt * 1000).toLocaleString()}` : "Refresh models"}
+                    disabled={catalogRefreshing}
+                    onClick={() => void refreshCatalog(true, selectedProvider?.id)}
+                  >
+                    <RefreshCw size={12} className={catalogRefreshing ? "spin" : ""} />
+                  </button>
+                  {providerDegraded ? (
+                    <button
+                      className="btn-icon btn-icon-sm"
+                      type="button"
+                      title={`Connect ${providerName}`}
+                      onClick={() => {
+                        setLoginError(null);
+                        setShowLogin(true);
+                        setShowProviderPicker(false);
+                      }}
+                    >
+                      <Key size={11} />
+                    </button>
+                  ) : selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID ? (
+                    <button
+                      className="btn-icon btn-icon-sm"
+                      type="button"
+                      title={`Disconnect ${providerName}`}
+                      onClick={() => void handleDisconnect()}
+                    >
+                      <Unplug size={11} />
+                    </button>
+                  ) : null}
+                  <button
+                    className="btn-icon btn-icon-sm"
+                    type="button"
+                    title="More chat actions"
                     onClick={() => {
-                      setLoginError(null);
-                      setShowLogin(true);
+                      setShowActionMenu((value) => !value);
+                      setShowProviderPicker(false);
+                      setShowModelPicker(false);
                     }}
                   >
-                    <Key size={11} /> Connect
+                    ⋯
                   </button>
-                ) : selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID ? (
-                  <button
-                    className="btn btn-sm"
-                    type="button"
-                    title={`Disconnect ${providerName}`}
-                    onClick={() => void handleDisconnect()}
-                  >
-                    <Unplug size={11} /> Disconnect
-                  </button>
-                ) : null}
-                <span className="chat-health-spacer" />
+                </>
+              ) : (
+                <div className="chat-select-group">
+                  <span className="chat-select-skeleton" />
+                  <span className="chat-select-skeleton" />
+                  <span className="chat-select-skeleton" />
+                </div>
+              )}
+            </div>
+            {showActionMenu ? (
+              <div className="chat-inline-menu">
                 <button
-                  className="btn btn-sm"
+                  className="chat-inline-menu-item"
                   type="button"
                   title="Generate ideas from this conversation"
                   disabled={generatingIdeas || !nativeSessionId}
-                  onClick={() => void handleGenerateIdeas()}
+                  onClick={() => {
+                    setShowActionMenu(false);
+                    void handleGenerateIdeas();
+                  }}
                 >
                   <Sparkles size={11} /> {generatingIdeas ? "Generating…" : "Generate ideas"}
                 </button>
-              </>
-            ) : (
-              <div className="chat-select-group">
-                <span className="chat-select-skeleton" />
-                <span className="chat-select-skeleton" />
-                <span className="chat-select-skeleton" />
               </div>
-            )}
-          </div>
+            ) : null}
+            {showProviderPicker && catalog ? (
+              <div className="chat-picker" role="dialog" aria-label="Choose provider">
+                <div className="chat-picker-header">
+                  <span>Choose provider</span>
+                  <button className="btn-icon btn-icon-sm" type="button" title="Close provider picker" onClick={() => setShowProviderPicker(false)}>
+                    <X size={11} />
+                  </button>
+                </div>
+                <div className="chat-picker-list">
+                  {catalog.providers.map((provider) => (
+                    <button
+                      key={provider.id}
+                      className={`chat-picker-item${provider.id === providerId ? " is-active" : ""}`}
+                      type="button"
+                      title={`${provider.label}: ${provider.configured ? "connected" : "not connected"}`}
+                      onClick={() => {
+                        setProviderId(provider.id);
+                        setShowProviderPicker(false);
+                        setShowLogin(!provider.configured && provider.id !== LOCAL_PROVIDER_ID);
+                        setSetupRequired(null);
+                      }}
+                    >
+                      <span className="chat-picker-main">{provider.label}</span>
+                      <span className="chat-picker-meta">{provider.configured ? `${provider.modelCount} models` : "connect"}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {showModelPicker && catalog ? (
+              <div className="chat-picker" role="dialog" aria-label="Choose model">
+                <div className="chat-picker-header">
+                  <span>Choose model</span>
+                  <button className="btn-icon btn-icon-sm" type="button" title="Close model picker" onClick={() => setShowModelPicker(false)}>
+                    <X size={11} />
+                  </button>
+                </div>
+                <input
+                  className="input chat-picker-search"
+                  value={modelFilter}
+                  placeholder="Filter models"
+                  title="Filter models by provider, id, or label"
+                  onChange={(e) => setModelFilter(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setShowModelPicker(false);
+                  }}
+                />
+                <div className="chat-picker-list">
+                  {filteredModels.map((model) => {
+                    const provider = catalog.providers.find((p) => p.id === model.providerId);
+                    return (
+                      <button
+                        key={`${model.providerId}:${model.id}`}
+                        className={`chat-picker-item${model.id === modelId && model.providerId === providerId ? " is-active" : ""}`}
+                        type="button"
+                        title={`${provider?.label ?? model.providerId} / ${model.id}. Source: ${model.source}`}
+                        onClick={() => {
+                          setProviderId(model.providerId);
+                          setModelId(model.id);
+                          setShowModelPicker(false);
+                          setSetupRequired(null);
+                        }}
+                      >
+                        <span className="chat-picker-main">{model.label}</span>
+                        <span className="chat-picker-meta">{provider?.label ?? model.providerId} · {model.supportedEfforts.length ? model.supportedEfforts.join("/") : "standard"} · {model.source}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+            {commandNotice ? (
+              <div className="chat-command-notice">
+                <span>{commandNotice}</span>
+                {input.trim().startsWith("/") ? (
+                  <button className="btn btn-sm" type="button" title="Send this slash-prefixed text as a normal message" onClick={() => void sendMessage(input.trim())}>
+                    Send as text
+                  </button>
+                ) : null}
+                <button className="btn-icon btn-icon-sm" type="button" title="Dismiss command notice" onClick={() => setCommandNotice(null)}>
+                  <X size={11} />
+                </button>
+              </div>
+            ) : null}
+          </>
         ) : null}
         <div className="chat-input-row">
           <textarea

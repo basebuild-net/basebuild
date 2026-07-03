@@ -2,7 +2,7 @@ node_modules/
 dist/
 .vite/
 src-tauri/target/
-src-tauri/gen/
+src-tauri/target-verify/
 *.log
 .DS_Store
 .bb-screenshots/
@@ -13,3 +13,4 @@ openspec/
 screenshots/test-results/
 playwright-report/
 test-results/
+artifacts/
