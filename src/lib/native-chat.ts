@@ -103,11 +103,41 @@ export type NativeRequestMetricsSummary = {
   lastEffortLevel: string | null;
 };
 
+export type NativeSetupRequired = {
+  providerId: string;
+  providerLabel: string;
+  message: string;
+};
+
 export type NativeChatSendResult = {
   userMessage: NativeChatMessage;
-  assistantMessage: NativeChatMessage;
-  metrics: NativeRequestMetric;
+  assistantMessage: NativeChatMessage | null;
+  metrics: NativeRequestMetric | null;
   toolEvents: NativeToolEvent[];
+  setupRequired: NativeSetupRequired | null;
+  offline: boolean;
+};
+
+export type NativeGeneratedIdea = {
+  title: string;
+  description: string;
+};
+
+export type NativeGenerateIdeasResult = {
+  ideas: NativeGeneratedIdea[];
+  setupRequired: NativeSetupRequired | null;
+};
+
+export type ProviderLoginStart = {
+  providerId: string;
+  providerLabel: string;
+  landingUrl: string;
+  providerUrl: string;
+};
+
+export type ProviderLoginPoll = {
+  status: "pending" | "success" | "error" | "cancelled";
+  message: string | null;
 };
 
 export async function nativeProviderCatalog(): Promise<NativeProviderCatalog> {
@@ -179,4 +209,26 @@ export async function nativeRequestMetrics(limit?: number): Promise<NativeReques
 
 export async function nativeRequestMetricsSummary(): Promise<NativeRequestMetricsSummary> {
   return invoke<NativeRequestMetricsSummary>("native_request_metrics_summary");
+}
+
+export async function nativeGenerateIdeas(input: {
+  sessionId: string;
+  schematic?: string | null;
+  providerId?: string | null;
+  modelId?: string | null;
+  effortLevel?: string | null;
+}): Promise<NativeGenerateIdeasResult> {
+  return invoke<NativeGenerateIdeasResult>("native_generate_ideas", { request: input });
+}
+
+export async function nativeProviderLoginStart(providerId: string): Promise<ProviderLoginStart> {
+  return invoke<ProviderLoginStart>("native_provider_login_start", { providerId });
+}
+
+export async function nativeProviderLoginPoll(providerId: string): Promise<ProviderLoginPoll> {
+  return invoke<ProviderLoginPoll>("native_provider_login_poll", { providerId });
+}
+
+export async function nativeProviderLoginCancel(providerId: string): Promise<void> {
+  return invoke("native_provider_login_cancel", { providerId });
 }

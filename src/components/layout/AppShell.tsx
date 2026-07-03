@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bug, LayoutTemplate, MessageSquare, Settings2, TerminalSquare } from "lucide-react";
+import { LayoutTemplate, Settings2, TerminalSquare } from "lucide-react";
 
 import { useSessionState } from "../../state/sessions";
 import { usePlans } from "../../state/plans";
@@ -9,7 +9,6 @@ import { EditPlanModal } from "./EditPlanModal";
 import { FocusPlanModal } from "./FocusPlanModal";
 import { GeneratePlanModal } from "./GeneratePlanModal";
 import { ProjectDescriptionModal } from "./ProjectDescriptionModal";
-import { ToolTabs, type ToolTabId, type ToolTabItem } from "./ToolTabs";
 import { useProjectSchematic } from "../../state/schematic";
 import { revealInExplorer } from "../../lib/projects";
 import { generateSessionTitle } from "../../lib/skills";
@@ -24,7 +23,6 @@ import { FirstRunModal } from "./FirstRunModal";
 import { useFirstRun } from "../../state/first-run";
 import { createTerminal } from "../../lib/terminal";
 import { TerminalPanel } from "../panels/TerminalPanel";
-import { DebugPanel } from "../panels/DebugPanel";
 import { FileViewer } from "../panels/FileViewer";
 import { ProjectSchematicTab } from "../panels/ProjectSchematicTab";
 import { ChatPanel } from "../panels/ChatPanel";
@@ -35,12 +33,7 @@ import { useLogs } from "../../state/log";
 import { useAccount } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
 import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
-export type ToolId = ToolTabId;
-
-const toolTabs: ToolTabItem[] = [
-  { id: "terminal", icon: TerminalSquare, label: "Terminal" },
-  { id: "debug", icon: Bug, label: "Debug" },
-];
+export type ToolId = "terminal";
 
 const DEFAULT_SHELL = () => {
   if (typeof window !== "undefined" && window.navigator.platform.includes("Win")) return "powershell.exe";
@@ -53,7 +46,6 @@ type AppShellProps = {
 
 export function AppShell({ updates }: AppShellProps) {
   const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null);
-  const [activeTool, setActiveTool] = useState<ToolId>("terminal");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sideCollapsed, setSideCollapsed] = useState(false);
   const [gridView, setGridView] = useState(false);
@@ -95,7 +87,6 @@ export function AppShell({ updates }: AppShellProps) {
     if (session.tabs.length > 0) return;
     if (session.activeSession?.title === "New Session") return;
     void session.createTab("chat", "Chat 1");
-    setActiveTool("terminal");
   }, [activeProjectPath, session.activeSessionId, session.tabs.length, session.activeSession?.title, session]);
 
   useEffect(() => {
@@ -215,7 +206,6 @@ export function AppShell({ updates }: AppShellProps) {
       const path = await sidebar.openFolder();
       if (path) {
         setActiveProjectPath(path);
-        setActiveTool("terminal");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -228,7 +218,6 @@ export function AppShell({ updates }: AppShellProps) {
       try {
         await sidebar.selectProject(path);
         setActiveProjectPath(path);
-        setActiveTool("terminal");
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         addLog("error", `Failed to select project ${path}`, message);
@@ -249,7 +238,6 @@ export function AppShell({ updates }: AppShellProps) {
 
   const handleCreateSession = useCallback(async () => {
     await session.createSession();
-    setActiveTool("terminal");
   }, [session]);
 
   const handleCreateTerminalTab = useCallback(async () => {
@@ -257,7 +245,6 @@ export function AppShell({ updates }: AppShellProps) {
     const shell = DEFAULT_SHELL();
     const term = await createTerminal(shell, activeProjectPath ?? undefined);
     await session.createTab("terminal", `Terminal ${term.id}`, term.id);
-    setActiveTool("terminal");
   }, [session, activeProjectPath]);
 
   const handleTerminalOutput = useCallback((data: string) => {
@@ -275,6 +262,20 @@ export function AppShell({ updates }: AppShellProps) {
     });
   }, [plans, session.activeSessionId]);
 
+  const handleCreatePlanFromIdea = useCallback(
+    async (title: string, description: string, chatSessionId: string | null) => {
+      if (!session.activeSessionId) return;
+      await plans.createPlan({
+        title,
+        description,
+        status: "draft",
+        priority: 50,
+        tags: chatSessionId ? [`chat:${chatSessionId}`] : [],
+      });
+    },
+    [plans, session.activeSessionId],
+  );
+
   const openOrFocusChat = useCallback(
     async (draftPrompt: string) => {
       if (!session.activeSessionId) return;
@@ -286,7 +287,6 @@ export function AppShell({ updates }: AppShellProps) {
       } else {
         await session.createTab("chat", `Chat ${session.tabs.length + 1}`);
       }
-      setActiveTool("terminal");
       // Inject the draft prompt — ChatPanel consumes it once
       setChatDraft(draftPrompt);
       setChatDraftTabId(session.activeTabId);
@@ -341,21 +341,6 @@ export function AppShell({ updates }: AppShellProps) {
     await schematic.write(schematic.content ?? `# Project Schematic\n\n## Purpose\n`);
     await revealInExplorer(`${activeProjectPath}/.basebuild/project-schematic.md`);
   }, [activeProjectPath, schematic]);
-
-  const handleEnhancePlan = useCallback(
-    (plan: Plan) => {
-      // TODO: call OMP to rewrite title/description/goal with clearer scope
-      void plans.updatePlan(plan.id, {
-        title: plan.title,
-        description: `${plan.description}\n\n[enhanced - wire AI rewrite]`,
-        goal: plan.goal ?? undefined,
-        status: plan.status,
-        priority: Math.min(100, plan.priority + 10),
-        tags: [...plan.tags, "enhanced"],
-      });
-    },
-    [plans],
-  );
 
   const handleEditPlan = useCallback((plan: Plan) => {
     setEditingPlan(plan);
@@ -423,12 +408,10 @@ export function AppShell({ updates }: AppShellProps) {
       if (!session.activeSessionId) return;
       if (kind === "empty") {
         await session.createTab("empty", "Schematic");
-        setActiveTool("terminal");
         return;
       }
       if (kind === "chat") {
         await session.createTab("chat", `Chat ${session.tabs.length + 1}`);
-        setActiveTool("terminal");
         return;
       }
       await handleCreateTerminalTab();
@@ -479,12 +462,10 @@ export function AppShell({ updates }: AppShellProps) {
       const existing = session.tabs.find((t) => t.kind === "file" && t.filePath === filePath);
       if (existing) {
         session.setActiveTabId(existing.id);
-        setActiveTool("terminal");
         return;
       }
       const name = filePath.split(/[\\/]/).pop() ?? filePath;
       await session.createTab("file", name, undefined, filePath);
-      setActiveTool("terminal");
     },
     [session],
   );
@@ -537,7 +518,6 @@ export function AppShell({ updates }: AppShellProps) {
             <>
               <div className="session-header">
                 <h1 className="session-title">{session.activeSession?.title ?? "Session"}</h1>
-                <ToolTabs tabs={toolTabs} activeTab={activeTool} onSelect={setActiveTool} />
                 <span className="status-pill" title={activeProjectPath}>{activeProjectPath}</span>
               </div>
               <WorkspaceTabs
@@ -550,7 +530,7 @@ export function AppShell({ updates }: AppShellProps) {
             </>
           ) : null}
           <div className="workspace-scroll">
-            {!activeProjectPath && activeTool !== "debug" ? (
+            {!activeProjectPath ? (
               <div className="empty-state">
                 <TerminalSquare size={32} className="text-muted" />
                 <h3>No project open</h3>
@@ -559,7 +539,7 @@ export function AppShell({ updates }: AppShellProps) {
               </div>
             ) : null}
 
-            {activeTool === "terminal" && activeProjectPath ? (
+            {activeProjectPath ? (
               !activeTab ? (
                 <div className="empty-state">
                   <LayoutTemplate size={32} className="text-muted" />
@@ -573,6 +553,9 @@ export function AppShell({ updates }: AppShellProps) {
                   onChatSessionCreated={handleChatSessionCreated(activeTab.id)}
                   draftPrompt={chatDraft}
                   onDraftConsumed={() => { setChatDraft(null); setChatDraftTabId(null); }}
+                  activeSessionId={session.activeSessionId}
+                  schematicContent={schematic.content}
+                  onCreatePlanFromIdea={handleCreatePlanFromIdea}
                 />
               ) : activeTab.kind === "file" ? (
                 <FileViewer path={activeTab.filePath} />
@@ -608,7 +591,6 @@ export function AppShell({ updates }: AppShellProps) {
                 <TerminalPanel terminalId={activeTab.terminalId} onOutput={handleTerminalOutput} />
               )
             ) : null}
-            {activeTool === "debug" ? <DebugPanel /> : null}
           </div>
         </section>
         <div className="side-panel-wrapper">
@@ -634,7 +616,6 @@ export function AppShell({ updates }: AppShellProps) {
               onFocusPlan: handleFocusPlan,
               onCopyReference: handleCopyReference,
               onOpenInTerminal: handleOpenPlanInTerminal,
-              onEnhancePlan: handleEnhancePlan,
             }}
           />
         </div>

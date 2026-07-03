@@ -15,6 +15,11 @@ first-party local harness; OMP remains a selectable chat profile.
   `args`, `workingDirectoryMode`, `defaultModel`, `capabilities`, `builtIn`.
 - Built-in profiles: Basebuild Native (chat, default), OMP (chat), Default Terminal (platform shell).
 - The Basebuild Native profile runs structured chat sessions, persists messages/tool events/approvals, and records per-request metrics locally without requiring an external CLI.
+- Because the native harness runs **in-process** (no external binary), its adapter
+  health is always reported available. Default-adapter selection is health-aware:
+  `get_defaults` never activates a chat adapter that reports unavailable and falls
+  back to the first available adapter (preferring the internal harness). External
+  adapters (e.g. OMP) are probed on `PATH`.
 
 ## Capabilities
 
@@ -33,9 +38,49 @@ collection/upload remain disabled.
 
 ## Provider and model catalog
 
-Native chat exposes providers (Basebuild Local, OpenAI, Anthropic, OMP-connector),
+Native chat exposes providers (Basebuild Local, OpenAI, Anthropic, Umans),
 models, and effort levels through typed backend commands. Provider credentials are
-never uploaded; unconfigured providers block send with an actionable setup state.
+stored locally only and never uploaded.
+
+## Provider-backed turn execution
+
+Each chat turn is dispatched to the provider/model selected for that turn via the
+`ProviderClient` trait (`src-tauri/src/services/provider_client.rs`):
+
+- `LocalCoordinator` — explicit, clearly-labeled **offline** fallback. Its turns
+  are tagged "Offline" in the UI and never presented as provider answers.
+- `OpenAiCompatibleClient` — OpenAI and Umans (OpenAI-compatible base URL).
+- `AnthropicClient` — Anthropic Messages API.
+
+Assistant output streams incrementally to the UI over the `native-chat://chunk`
+event channel and is appended live. Metrics (TTFT, total latency, input/output
+tokens) are captured from the real request. When the chosen provider has no
+stored credential, `send_message` returns a typed `SetupRequired` result (not an
+error) so the composer renders an inline connect prompt **without discarding the
+drafted message**.
+
+## Provider web login
+
+Providers can be connected through a web/loopback flow in addition to manual
+API-key entry (`src-tauri/src/services/provider_login_service.rs`):
+
+- `native_provider_login_start(provider_id)` binds an ephemeral `127.0.0.1` port,
+  opens a loopback landing page in the system browser (linking to the provider's
+  key page), and captures the credential via an HTTP POST to localhost.
+- The secret is never placed in a URL query string and never logged; it is
+  persisted only through the local credential store.
+- `native_provider_login_poll` / `native_provider_login_cancel` drive the UI.
+- Disconnect removes the stored credential and returns the provider to
+  setup-required; the catalog refreshes without an app restart.
+
+## In-chat idea generation
+
+`native_generate_ideas` sends the conversation plus the project schematic to a
+**configured** provider and parses the structured JSON result into Idea records
+(persisted via the existing ideas store). The offline local coordinator does not
+fabricate ideas — with no configured provider the command returns a setup prompt.
+Generated ideas render inline in the composer and can be promoted into the
+existing plan pipeline, tagged with the originating chat session (`chat:<id>`).
 
 ## Defaults
 

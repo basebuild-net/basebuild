@@ -62,6 +62,17 @@ type NativeRequestMetric = {
   createdAt: number;
 };
 
+type Idea = {
+  id: string;
+  sessionId: string;
+  categoryId: string | null;
+  title: string;
+  description: string;
+  status: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
 type Plan = {
   id: string;
   sessionId: string;
@@ -94,6 +105,8 @@ type E2eState = {
   nativeChatSessions: NativeChatSession[];
   nativeChatMessages: NativeChatMessage[];
   nativeRequestMetrics: NativeRequestMetric[];
+  ideas: Idea[];
+  nextIdeaId: number;
   workspaceRestoreByProject: Map<string, unknown>;
   auth: { accessToken: string; expiresAt: string; scopes: string[]; user: { id: string; username: string; email: string; image: string | null; isAdmin: boolean; isEditor: boolean } | null } | null;
   updateInstallCount: number;
@@ -119,6 +132,8 @@ function state(): E2eState {
       nativeChatSessions: [],
       nativeChatMessages: [],
       nativeRequestMetrics: [],
+      ideas: [],
+      nextIdeaId: 1,
       workspaceRestoreByProject: new Map(),
       auth: null,
       updateInstallCount: 0,
@@ -257,10 +272,12 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         providers: [
           { id: "basebuild-local", label: "Basebuild Local", status: "ready", credentialOwner: "basebuild", configured: true, localOnly: true, detail: "Local coordinator" },
           { id: "openai", label: "OpenAI", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials" },
+          { id: "umans", label: "Umans", status: "ready", credentialOwner: "user", configured: true, localOnly: false, detail: "Connected" },
         ],
         models: [
           { id: "basebuild-local-coordinator", providerId: "basebuild-local", label: "Local Coordinator", supportsEffort: true, supportsStreaming: false, localOnly: true },
           { id: "gpt-5.1", providerId: "openai", label: "GPT-5.1", supportsEffort: true, supportsStreaming: true, localOnly: false },
+          { id: "umans-glm-5.2", providerId: "umans", label: "Umans GLM 5.2", supportsEffort: true, supportsStreaming: true, localOnly: false },
         ],
         effortLevels: [
           { id: "low", label: "Low", description: "Fast" },
@@ -348,7 +365,14 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         createdAt: ts,
       };
       s.nativeRequestMetrics.push(metric);
-      return { userMessage, assistantMessage, metrics: metric, toolEvents: [] } as T;
+      return {
+        userMessage,
+        assistantMessage,
+        metrics: metric,
+        toolEvents: [],
+        setupRequired: null,
+        offline: (req.providerId ?? "basebuild-local") === "basebuild-local",
+      } as T;
     }
     case "native_request_metrics":
       return s.nativeRequestMetrics.slice(-Math.min((args.limit as number) ?? 100, s.nativeRequestMetrics.length)) as T;
@@ -391,6 +415,61 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "native_list_provider_credentials":
       return [] as T;
     case "native_delete_provider_credential":
+      return undefined as T;
+    case "list_categories":
+      return [] as T;
+    case "create_category":
+      return { id: `cat-${Date.now()}`, sessionId: args.sessionId as string, name: args.name as string, description: args.description as string, createdAt: Math.floor(Date.now() / 1000) } as T;
+    case "delete_category":
+      return undefined as T;
+    case "list_ideas":
+      return s.ideas.filter((idea) => idea.sessionId === args.sessionId) as T;
+    case "create_idea": {
+      const ts = Math.floor(Date.now() / 1000);
+      const idea: Idea = {
+        id: `idea-${s.nextIdeaId++}`,
+        sessionId: args.sessionId as string,
+        categoryId: (args.categoryId as string | null) ?? null,
+        title: args.title as string,
+        description: args.description as string,
+        status: "concept",
+        createdAt: ts,
+        updatedAt: ts,
+      };
+      s.ideas.push(idea);
+      return idea as T;
+    }
+    case "update_idea_status": {
+      const idea = s.ideas.find((item) => item.id === args.id);
+      if (idea) idea.status = args.status as string;
+      return undefined as T;
+    }
+    case "delete_idea":
+      s.ideas = s.ideas.filter((idea) => idea.id !== args.id);
+      return undefined as T;
+    case "native_generate_ideas": {
+      const req = args.request as { providerId?: string };
+      const providerId = req.providerId ?? "basebuild-local";
+      // Only configured, non-local providers generate ideas in the fixture.
+      if (providerId === "basebuild-local" || providerId === "openai") {
+        return {
+          ideas: [],
+          setupRequired: { providerId, providerLabel: providerId === "openai" ? "OpenAI" : "Basebuild Local", message: "Connect a model provider to generate ideas from this chat." },
+        } as T;
+      }
+      return {
+        ideas: [
+          { title: "Improve onboarding", description: "Add a guided first-run tour." },
+          { title: "Cache provider catalog", description: "Avoid refetching on every mount." },
+        ],
+        setupRequired: null,
+      } as T;
+    }
+    case "native_provider_login_start":
+      return { providerId: args.providerId as string, providerLabel: "OpenAI", landingUrl: "http://127.0.0.1:0/", providerUrl: "https://example.com/keys" } as T;
+    case "native_provider_login_poll":
+      return { status: "success", message: null } as T;
+    case "native_provider_login_cancel":
       return undefined as T;
     case "omp_status":
       return { installed: false, version: null, path: null } as T;

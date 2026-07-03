@@ -34,8 +34,9 @@ test.describe("native chat workspace", () => {
     await openFixtureProject(page);
     await ensureChatTab(page);
 
-    // The chat input controls should be visible (provider/model/effort selectors).
-    await expect(page.locator(".chat-input-controls")).toBeVisible();
+    // The composer header with provider/model/effort selectors should be visible.
+    await expect(page.locator(".chat-composer-header")).toBeVisible();
+    await expect(page.locator(".chat-select")).toHaveCount(3);
 
     // The local coordinator provider should be selected by default.
     await expect(page.locator(".chat-select").first()).toHaveValue("basebuild-local");
@@ -52,6 +53,9 @@ test.describe("native chat workspace", () => {
     await expect(page.locator(".chat-message-assistant")).toHaveCount(1);
     await expect(page.locator(".chat-message-assistant .chat-message-content")).toContainText("Native harness echo");
 
+    // The local-coordinator turn is explicitly labeled offline.
+    await expect(page.locator(".chat-offline-tag")).toBeVisible();
+
     // The metrics bar should now reflect one request.
     await expect(page.locator(".chat-metrics")).toContainText("1 req");
 
@@ -59,7 +63,7 @@ test.describe("native chat workspace", () => {
     expect(consoleErrors).toEqual([]);
   });
 
-  test("shows connect button when an unconfigured provider is selected", async ({ page }) => {
+  test("prompts to connect when an unconfigured provider is selected", async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on("console", (message) => {
       if (message.type() === "error") consoleErrors.push(message.text());
@@ -71,16 +75,41 @@ test.describe("native chat workspace", () => {
     // Select the OpenAI provider which is unconfigured in the fixture.
     await page.locator(".chat-select").first().selectOption("openai");
 
-    // A "Connect" button should appear next to the selectors.
-    await expect(page.locator(".chat-input-controls button[title*='Connect']")).toBeVisible();
+    // The composer shows a degraded health state and a Connect affordance.
+    await expect(page.locator(".chat-health")).toContainText("Setup required");
+    await expect(page.locator(".chat-composer-header button[title*='Connect']")).toBeVisible();
 
-    // The send button should be disabled because the provider is unconfigured.
-    await page.getByTitle(/Chat input/).first().fill("should not send");
-    const sendBtn = page.getByTitle("Send message");
-    await expect(sendBtn).toBeDisabled();
-
-    // No user message should have been created.
+    // Attempting to send opens the connect prompt and keeps the draft; no turn is sent.
+    await page.getByTitle(/Chat input/).first().fill("should not send yet");
+    await page.getByTitle("Send message").click();
+    await expect(page.locator(".chat-login-form")).toBeVisible();
     await expect(page.locator(".chat-message-user")).toHaveCount(0);
+    await expect(page.getByTitle(/Chat input/).first()).toHaveValue("should not send yet");
+
+    expect(consoleErrors).toEqual([]);
+  });
+
+  test("generates ideas with a connected provider and promotes one to a plan", async ({ page }) => {
+    const consoleErrors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") consoleErrors.push(message.text());
+    });
+
+    await openFixtureProject(page);
+    await ensureChatTab(page);
+
+    // Select the connected Umans provider and generate ideas.
+    await page.locator(".chat-select").first().selectOption("umans");
+    await page.getByTitle("Generate ideas from this conversation").click();
+
+    // Two idea cards render with promote actions.
+    await expect(page.locator(".chat-idea-card")).toHaveCount(2);
+    await expect(page.locator(".chat-idea-title").first()).toHaveText("Improve onboarding");
+
+    // Promote the first idea → it becomes planned and appears in the plan pipeline.
+    await page.locator(".chat-idea-card button", { hasText: "Promote to Plan" }).first().click();
+    await expect(page.locator(".chat-idea-status", { hasText: "Planned" })).toBeVisible();
+
     expect(consoleErrors).toEqual([]);
   });
 });

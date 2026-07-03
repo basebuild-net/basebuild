@@ -1,17 +1,25 @@
 use rusqlite::{params, OptionalExtension};
+use serde_json::Value;
+use tauri::{AppHandle, Emitter};
 
 use crate::{
+    events::NATIVE_CHAT_CHUNK,
     models::{
         native_chat::{
             NativeChatMessage, NativeChatSendRequest, NativeChatSendResult, NativeChatSession,
-            NativeChatStartRequest, NativeEffortLevel, NativeModel, NativeProvider,
+            NativeChatStartRequest, NativeEffortLevel, NativeGenerateIdeasRequest,
+            NativeGenerateIdeasResult, NativeGeneratedIdea, NativeModel, NativeProvider,
             NativeProviderCatalog, NativeProviderCredential, NativeProviderCredentialInput,
-            NativeRequestMetric, NativeRequestMetricsSummary,
+            NativeRequestMetric, NativeRequestMetricsSummary, NativeSetupRequired,
             NativeToolApprovalRequest, NativeToolApprovalResult, NativeToolEvent,
         },
         permission::PermissionDecision,
     },
-    services::{settings_service::SettingsService, storage_service::StorageService},
+    services::{
+        provider_client::{resolve_client, ChatMsg, ProviderRequest},
+        settings_service::SettingsService,
+        storage_service::StorageService,
+    },
 };
 
 type DbResult<T> = Result<T, String>;
@@ -252,7 +260,10 @@ impl NativeChatService {
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
     }
 
-    pub fn send_message(request: NativeChatSendRequest) -> DbResult<NativeChatSendResult> {
+    pub fn send_message(
+        app: &AppHandle,
+        request: NativeChatSendRequest,
+    ) -> DbResult<NativeChatSendResult> {
         let content = request.content.trim();
         if content.is_empty() {
             return Err("Message content is required.".to_string());
@@ -260,13 +271,18 @@ impl NativeChatService {
 
         let session = Self::get_session(&request.session_id)?
             .ok_or_else(|| format!("Native chat session '{}' not found", request.session_id))?;
-        let provider_id = request.provider_id.unwrap_or(session.provider_id);
-        let model_id = request.model_id.unwrap_or(session.model_id);
-        let effort_level = request.effort_level.unwrap_or(session.effort_level);
-        Self::validate_provider_model(&provider_id, &model_id, false)?;
+        let provider_id = request
+            .provider_id
+            .unwrap_or_else(|| session.provider_id.clone());
+        let model_id = request.model_id.unwrap_or_else(|| session.model_id.clone());
+        let effort_level = request
+            .effort_level
+            .unwrap_or_else(|| session.effort_level.clone());
+        // Allow unconfigured providers: we return a typed SetupRequired result
+        // rather than hard-failing, so the draft is never lost.
+        Self::validate_provider_model(&provider_id, &model_id, true)?;
 
-        let started_at = now_millis();
-        let input_tokens = estimate_tokens(content);
+        // Persist the user message immediately so the draft survives any outcome.
         let user_message = Self::insert_message(
             &request.session_id,
             "user",
@@ -275,38 +291,129 @@ impl NativeChatService {
             Some(&model_id),
             Some(&effort_level),
         )?;
+        Self::touch_session(&request.session_id)?;
 
-        let response = Self::local_coordinator_response(
-            &session.project_path,
-            content,
-            &provider_id,
-            &model_id,
-            &effort_level,
-        );
-        let ttft_ms = now_millis().saturating_sub(started_at);
+        let catalog = Self::provider_catalog();
+        let provider_label = catalog
+            .providers
+            .iter()
+            .find(|p| p.id == provider_id)
+            .map(|p| p.label.clone())
+            .unwrap_or_else(|| provider_id.clone());
+
+        let is_local = provider_id == LOCAL_PROVIDER_ID;
+        let credential = Self::list_credentials()?
+            .into_iter()
+            .find(|c| c.provider_id == provider_id);
+
+        // Non-local provider without a stored credential → typed setup prompt.
+        if !is_local && credential.is_none() {
+            return Ok(NativeChatSendResult {
+                user_message,
+                assistant_message: None,
+                metrics: None,
+                tool_events: vec![],
+                setup_required: Some(NativeSetupRequired {
+                    provider_id: provider_id.clone(),
+                    provider_label: provider_label.clone(),
+                    message: format!(
+                        "Connect {provider_label} to send this message. Your draft was kept."
+                    ),
+                }),
+                offline: false,
+            });
+        }
+
+        // Build conversation context: prior turns are already persisted, and the
+        // new user message was just inserted, so list_messages includes it.
+        let history = Self::list_messages(&request.session_id)?;
+        let messages: Vec<ChatMsg> = history
+            .iter()
+            .filter(|m| m.role == "user" || m.role == "assistant")
+            .map(|m| ChatMsg {
+                role: m.role.clone(),
+                content: m.content.clone(),
+            })
+            .collect();
+        let system = Self::system_prompt(&session.project_path, None);
+
+        let req = ProviderRequest {
+            model_id: model_id.clone(),
+            effort_level: effort_level.clone(),
+            system: Some(system),
+            messages,
+            api_key: credential.as_ref().map(|c| c.api_key.clone()),
+            base_url: credential.as_ref().and_then(|c| c.base_url.clone()),
+        };
+
+        let client = resolve_client(&provider_id, req.base_url.as_deref());
+        let started_at = now_millis();
+        let session_id_for_emit = request.session_id.clone();
+        let app_for_emit = app.clone();
+        let emit = move |delta: &str| {
+            let _ = app_for_emit.emit(
+                NATIVE_CHAT_CHUNK,
+                serde_json::json!({ "sessionId": session_id_for_emit, "delta": delta }),
+            );
+        };
+
+        let response = match client.generate(&req, &emit) {
+            Ok(r) => r,
+            Err(e) => {
+                let completed_at = now_millis();
+                let metric = NativeRequestMetric {
+                    id: gen_id("nreq"),
+                    session_id: request.session_id.clone(),
+                    provider_id: provider_id.clone(),
+                    model_id: model_id.clone(),
+                    effort_level: effort_level.clone(),
+                    started_at,
+                    completed_at: Some(completed_at),
+                    duration_ms: Some(completed_at.saturating_sub(started_at).max(1)),
+                    ttft_ms: None,
+                    ttlt_ms: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cache_read_tokens: 0,
+                    cache_write_tokens: 0,
+                    tokens_per_second: None,
+                    cost_total: Some(0.0),
+                    outcome: "error".to_string(),
+                    error_class: Some("provider_error".to_string()),
+                    created_at: now_seconds(),
+                };
+                let _ = Self::insert_metric(&metric);
+                return Err(e);
+            }
+        };
+
         let assistant_message = Self::insert_message(
             &request.session_id,
             "assistant",
-            &response,
+            &response.content,
             Some(&provider_id),
             Some(&model_id),
             Some(&effort_level),
         )?;
-        let completed_at = now_millis();
-        let duration_ms = completed_at.saturating_sub(started_at).max(1);
-        let output_tokens = estimate_tokens(&response);
-        let tokens_per_second = Some((output_tokens as f64) / ((duration_ms as f64) / 1000.0).max(0.001));
+
+        let duration_ms = response.duration_ms.max(1);
+        let output_tokens = response
+            .output_tokens
+            .unwrap_or_else(|| estimate_tokens(&response.content));
+        let input_tokens = response.input_tokens.unwrap_or_else(|| estimate_tokens(content));
+        let tokens_per_second =
+            Some((output_tokens as f64) / ((duration_ms as f64) / 1000.0).max(0.001));
 
         let metric = NativeRequestMetric {
             id: gen_id("nreq"),
             session_id: request.session_id.clone(),
-            provider_id,
-            model_id,
-            effort_level,
+            provider_id: provider_id.clone(),
+            model_id: model_id.clone(),
+            effort_level: effort_level.clone(),
             started_at,
-            completed_at: Some(completed_at),
+            completed_at: Some(started_at + duration_ms),
             duration_ms: Some(duration_ms),
-            ttft_ms: Some(ttft_ms),
+            ttft_ms: response.ttft_ms,
             ttlt_ms: Some(duration_ms),
             input_tokens,
             output_tokens,
@@ -320,21 +427,121 @@ impl NativeChatService {
         };
         Self::insert_metric(&metric)?;
 
+        let summary = if is_local {
+            "Handled offline by the local coordinator; no external model was contacted."
+        } else {
+            "Provider-backed turn: streamed assistant output with real timing/token metrics."
+        };
         let event = Self::insert_tool_event(
             &request.session_id,
             Some(&assistant_message.id),
             "request_metrics",
             "recorded",
-            "Recorded local provider/model/effort/token timing metrics for this turn.",
+            summary,
         )?;
 
         Self::touch_session(&request.session_id)?;
 
         Ok(NativeChatSendResult {
             user_message,
-            assistant_message,
-            metrics: metric,
+            assistant_message: Some(assistant_message),
+            metrics: Some(metric),
             tool_events: vec![event],
+            setup_required: None,
+            offline: is_local,
+        })
+    }
+
+    /// Generate structured ideas from the conversation + project schematic using
+    /// a configured provider. The offline local coordinator does not fabricate
+    /// ideas: if the active provider is local or unconfigured, a setup prompt is
+    /// returned instead.
+    pub fn generate_ideas(
+        app: &AppHandle,
+        request: NativeGenerateIdeasRequest,
+    ) -> DbResult<NativeGenerateIdeasResult> {
+        let session = Self::get_session(&request.session_id)?
+            .ok_or_else(|| format!("Native chat session '{}' not found", request.session_id))?;
+        let provider_id = request
+            .provider_id
+            .unwrap_or_else(|| session.provider_id.clone());
+        let model_id = request.model_id.unwrap_or_else(|| session.model_id.clone());
+        let effort_level = request
+            .effort_level
+            .unwrap_or_else(|| session.effort_level.clone());
+        Self::validate_provider_model(&provider_id, &model_id, true)?;
+
+        let catalog = Self::provider_catalog();
+        let provider_label = catalog
+            .providers
+            .iter()
+            .find(|p| p.id == provider_id)
+            .map(|p| p.label.clone())
+            .unwrap_or_else(|| provider_id.clone());
+
+        // Idea generation requires a configured, network-backed provider. The
+        // local coordinator has no credential row, so this covers both cases.
+        let credential = Self::list_credentials()?
+            .into_iter()
+            .find(|c| c.provider_id == provider_id);
+        if credential.is_none() {
+            return Ok(NativeGenerateIdeasResult {
+                ideas: vec![],
+                setup_required: Some(NativeSetupRequired {
+                    provider_id: provider_id.clone(),
+                    provider_label: provider_label.clone(),
+                    message: "Connect a model provider to generate ideas from this chat."
+                        .to_string(),
+                }),
+            });
+        }
+
+        let history = Self::list_messages(&request.session_id)?;
+        let convo: String = history
+            .iter()
+            .filter(|m| m.role == "user" || m.role == "assistant")
+            .map(|m| format!("{}: {}", m.role, m.content))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        let system = Self::system_prompt(&session.project_path, request.schematic.as_deref());
+        let prompt = format!(
+            "Based on the conversation below and the project context, propose 3-6 concrete, \
+             actionable ideas for this project.\nRespond with ONLY a JSON array of objects, each \
+             with \"title\" (max 8 words) and \"description\" (1-2 sentences). No prose, no code \
+             fences.\n\nConversation:\n{convo}"
+        );
+
+        let req = ProviderRequest {
+            model_id,
+            effort_level,
+            system: Some(system),
+            messages: vec![ChatMsg {
+                role: "user".to_string(),
+                content: prompt,
+            }],
+            api_key: credential.as_ref().map(|c| c.api_key.clone()),
+            base_url: credential.as_ref().and_then(|c| c.base_url.clone()),
+        };
+
+        let client = resolve_client(&provider_id, req.base_url.as_deref());
+        let session_id_for_emit = request.session_id.clone();
+        let app_for_emit = app.clone();
+        let emit = move |delta: &str| {
+            let _ = app_for_emit.emit(
+                NATIVE_CHAT_CHUNK,
+                serde_json::json!({
+                    "sessionId": session_id_for_emit,
+                    "delta": delta,
+                    "channel": "ideas"
+                }),
+            );
+        };
+        let response = client.generate(&req, &emit)?;
+        let ideas = Self::parse_ideas(&response.content);
+        Ok(NativeGenerateIdeasResult {
+            ideas,
+            setup_required: None,
         })
     }
 
@@ -565,17 +772,56 @@ impl NativeChatService {
         Ok(())
     }
 
-    fn local_coordinator_response(
-        project_path: &str,
-        content: &str,
-        provider_id: &str,
-        model_id: &str,
-        effort_level: &str,
-    ) -> String {
-        let first_line = content.lines().next().unwrap_or(content).trim();
-        format!(
-            "Basebuild native harness is running locally.\n\nProject: {project_path}\nProvider/model: {provider_id} / {model_id}\nEffort: {effort_level}\nRequest: {first_line}\n\nThis turn was handled by the local coordinator, persisted as structured chat, and recorded in the local request metrics ledger. Configure a provider when you want model-backed generation; no external provider call ran for this response."
-        )
+    /// Build the system prompt for a turn: harness identity, project path, and
+    /// optionally the project schematic (clipped) for grounding.
+    fn system_prompt(project_path: &str, schematic: Option<&str>) -> String {
+        let mut s = format!(
+            "You are the Basebuild native chat harness, an assistant embedded in a local desktop \
+             IDE.\nActive project path: {project_path}\nBe concise and practical. Do not modify \
+             files, run commands, or commit unless the user explicitly asks."
+        );
+        if let Some(sch) = schematic {
+            let sch = sch.trim();
+            if !sch.is_empty() {
+                let clipped: String = sch.chars().take(4000).collect();
+                s.push_str(&format!("\n\nProject schematic:\n{clipped}"));
+            }
+        }
+        s
+    }
+
+    /// Parse a provider response into structured ideas. Extracts the first JSON
+    /// array and reads `title`/`description` from each object; tolerant of
+    /// surrounding prose or code fences.
+    fn parse_ideas(raw: &str) -> Vec<NativeGeneratedIdea> {
+        let text = raw.trim();
+        let (start, end) = match (text.find('['), text.rfind(']')) {
+            (Some(s), Some(e)) if e > s => (s, e),
+            _ => return vec![],
+        };
+        let parsed: Value = match serde_json::from_str(&text[start..=end]) {
+            Ok(v) => v,
+            Err(_) => return vec![],
+        };
+        let arr = match parsed.as_array() {
+            Some(a) => a,
+            None => return vec![],
+        };
+        arr.iter()
+            .filter_map(|item| {
+                let title = item.get("title").and_then(Value::as_str)?.trim().to_string();
+                if title.is_empty() {
+                    return None;
+                }
+                let description = item
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                Some(NativeGeneratedIdea { title, description })
+            })
+            .collect()
     }
 }
 

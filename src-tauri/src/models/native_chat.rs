@@ -126,9 +126,47 @@ pub struct NativeChatSendRequest {
 #[serde(rename_all = "camelCase")]
 pub struct NativeChatSendResult {
     pub user_message: NativeChatMessage,
-    pub assistant_message: NativeChatMessage,
-    pub metrics: NativeRequestMetric,
+    pub assistant_message: Option<NativeChatMessage>,
+    pub metrics: Option<NativeRequestMetric>,
     pub tool_events: Vec<NativeToolEvent>,
+    /// Present when the chosen provider has no stored credential. The composer
+    /// renders this as an inline connect prompt without discarding the draft.
+    pub setup_required: Option<NativeSetupRequired>,
+    /// True when the turn was handled by the offline local coordinator rather
+    /// than an external provider.
+    pub offline: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeSetupRequired {
+    pub provider_id: String,
+    pub provider_label: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeGenerateIdeasRequest {
+    pub session_id: String,
+    pub schematic: Option<String>,
+    pub provider_id: Option<String>,
+    pub model_id: Option<String>,
+    pub effort_level: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeGeneratedIdea {
+    pub title: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeGenerateIdeasResult {
+    pub ideas: Vec<NativeGeneratedIdea>,
+    pub setup_required: Option<NativeSetupRequired>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -183,4 +221,23 @@ pub struct NativeToolApprovalResult {
     pub decision: String,
     pub requires_prompt: bool,
     pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderLoginStart {
+    pub provider_id: String,
+    pub provider_label: String,
+    /// Loopback landing page opened in the system browser to capture the token.
+    pub landing_url: String,
+    /// The provider's own key/authorization page linked from the landing page.
+    pub provider_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderLoginPoll {
+    /// One of: "pending", "success", "error", "cancelled".
+    pub status: String,
+    pub message: Option<String>,
 }

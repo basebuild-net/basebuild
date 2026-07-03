@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Check, Download, Lock, LogOut, RefreshCw, Settings2, Shield, Trash2, User, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, Check, Download, Globe, Key, Lock, LogOut, RefreshCw, Settings2, Shield, Trash2, Unplug, User, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { CopyButton } from "./CopyButton";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
@@ -7,6 +7,15 @@ import { type UpdaterState } from "../../state/updater";
 import { appVersion } from "../../lib/app";
 import { authStartDeviceFlow, authPollDeviceFlow, type PollResult } from "../../lib/auth";
 import { useAccount, type AccountState } from "../../state/account";
+import {
+  nativeProviderCatalog,
+  nativeProviderLoginStart,
+  nativeProviderLoginPoll,
+  nativeProviderLoginCancel,
+  nativeSaveProviderCredential,
+  nativeDeleteProviderCredential,
+  type NativeProviderCatalog,
+} from "../../lib/native-chat";
 import {
   getRuntimeDefaults,
   setRuntimeDefaults,
@@ -335,6 +344,21 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                       </select>
                     </label>
 
+                    {defaults.defaultChatProfileId &&
+                    profileValidations[defaults.defaultChatProfileId] &&
+                    !profileValidations[defaults.defaultChatProfileId].valid ? (
+                      <div className="requirement-row is-attention">
+                        <span className="requirement-badge is-attention">!</span>
+                        <div>
+                          <div className="requirement-name">Selected adapter is unavailable</div>
+                          <div className="requirement-detail text-muted text-sm">
+                            {profileValidations[defaults.defaultChatProfileId].error ??
+                              "This adapter reported unavailable. Install it or pick an available adapter; new chats fall back to an available one."}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+
                     <label className="stack-sm">
                       <span className="text-sm text-muted">Default terminal</span>
                       <select
@@ -534,7 +558,12 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
             {tab === "configs" ? <ConfigPanel projectPath={projectPath} /> : null}
 
             {/* ─── Account ─── */}
-            {tab === "account" ? <AccountPanel account={account} /> : null}
+            {tab === "account" ? (
+              <div className="stack">
+                <AccountPanel account={account} />
+                <ModelProvidersPanel />
+              </div>
+            ) : null}
 
             {/* ─── About ─── */}
             {tab === "about" ? (
@@ -702,6 +731,175 @@ function AccountPanel({ account }: { account: AccountState }) {
           <User size={12} /> Sign in
         </button>
       )}
+      {error ? <p className="text-danger text-sm">{error}</p> : null}
+    </div>
+  );
+}
+
+function ModelProvidersPanel() {
+  const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
+  const pollRef = useRef<number | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      setCatalog(await nativeProviderCatalog());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    return () => {
+      if (pollRef.current) window.clearTimeout(pollRef.current);
+    };
+  }, [refresh]);
+
+  const connectWeb = useCallback(
+    async (providerId: string) => {
+      setError(null);
+      setBusyId(providerId);
+      const poll = async () => {
+        try {
+          const res = await nativeProviderLoginPoll(providerId);
+          if (res.status === "pending") {
+            pollRef.current = window.setTimeout(() => void poll(), 1500);
+          } else if (res.status === "success") {
+            setBusyId(null);
+            await refresh();
+          } else {
+            setError(res.message ?? "Provider login did not complete.");
+            setBusyId(null);
+          }
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+          setBusyId(null);
+        }
+      };
+      try {
+        await nativeProviderLoginStart(providerId);
+        pollRef.current = window.setTimeout(() => void poll(), 1500);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        setBusyId(null);
+      }
+    },
+    [refresh],
+  );
+
+  const cancelWeb = useCallback((providerId: string) => {
+    if (pollRef.current) window.clearTimeout(pollRef.current);
+    void nativeProviderLoginCancel(providerId);
+    setBusyId(null);
+  }, []);
+
+  const saveKey = useCallback(
+    async (providerId: string, label: string) => {
+      const key = (keyDrafts[providerId] ?? "").trim();
+      if (!key) return;
+      setBusyId(providerId);
+      setError(null);
+      try {
+        await nativeSaveProviderCredential({ providerId, label, apiKey: key, baseUrl: null });
+        setKeyDrafts((prev) => ({ ...prev, [providerId]: "" }));
+        await refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [keyDrafts, refresh],
+  );
+
+  const disconnect = useCallback(
+    async (providerId: string) => {
+      setBusyId(providerId);
+      setError(null);
+      try {
+        await nativeDeleteProviderCredential(providerId);
+        await refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [refresh],
+  );
+
+  const providers = (catalog?.providers ?? []).filter((p) => !p.localOnly);
+
+  return (
+    <div className="stack" style={{ marginTop: 16 }}>
+      <h3>Model Providers</h3>
+      <p className="text-muted text-sm">
+        Connect model providers with a web flow or an API key. Credentials are stored locally on this device only.
+      </p>
+      {providers.map((p) => (
+        <div key={p.id} className="requirement-row" style={{ alignItems: "flex-start" }}>
+          <span className={`requirement-badge is-${p.configured ? "ok" : "attention"}`}>
+            {p.configured ? "✓" : "!"}
+          </span>
+          <div style={{ flex: 1 }}>
+            <div className="requirement-name">
+              {p.label} {p.configured ? <span className="text-muted text-sm">connected</span> : null}
+            </div>
+            {p.configured ? (
+              <button
+                className="btn btn-sm"
+                type="button"
+                title={`Disconnect ${p.label}`}
+                disabled={busyId === p.id}
+                onClick={() => void disconnect(p.id)}
+                style={{ marginTop: 6 }}
+              >
+                <Unplug size={12} /> Disconnect
+              </button>
+            ) : busyId === p.id ? (
+              <div className="row gap-sm" style={{ marginTop: 6 }}>
+                <span className="text-muted text-sm">Waiting for browser…</span>
+                <button className="btn btn-sm" type="button" title="Cancel" onClick={() => cancelWeb(p.id)}>
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div className="stack-sm" style={{ marginTop: 6 }}>
+                <button
+                  className="btn btn-primary btn-sm"
+                  type="button"
+                  title={`Connect with ${p.label}`}
+                  onClick={() => void connectWeb(p.id)}
+                >
+                  <Globe size={12} /> Connect with {p.label}
+                </button>
+                <div className="row gap-sm">
+                  <input
+                    className="input"
+                    type="password"
+                    placeholder="or paste API key"
+                    value={keyDrafts[p.id] ?? ""}
+                    onChange={(e) => setKeyDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                    title={`API key for ${p.label}`}
+                  />
+                  <button
+                    className="btn btn-sm"
+                    type="button"
+                    title="Save API key"
+                    disabled={!(keyDrafts[p.id] ?? "").trim()}
+                    onClick={() => void saveKey(p.id, p.label)}
+                  >
+                    <Key size={12} /> Save
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
       {error ? <p className="text-danger text-sm">{error}</p> : null}
     </div>
   );

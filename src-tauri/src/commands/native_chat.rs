@@ -1,9 +1,12 @@
+use tauri::AppHandle;
+
 use crate::{
     models::native_chat::{
         NativeChatMessage, NativeChatSendRequest, NativeChatSendResult, NativeChatSession,
-        NativeChatStartRequest, NativeProviderCatalog, NativeProviderCredential,
-        NativeProviderCredentialInput, NativeRequestMetric, NativeRequestMetricsSummary,
-        NativeToolApprovalRequest, NativeToolApprovalResult,
+        NativeChatStartRequest, NativeGenerateIdeasRequest, NativeGenerateIdeasResult,
+        NativeProviderCatalog, NativeProviderCredential, NativeProviderCredentialInput,
+        NativeRequestMetric, NativeRequestMetricsSummary, NativeToolApprovalRequest,
+        NativeToolApprovalResult,
     },
     services::native_chat_service::NativeChatService,
 };
@@ -34,8 +37,19 @@ pub fn native_chat_messages(session_id: String) -> Result<Vec<NativeChatMessage>
 }
 
 #[tauri::command]
-pub fn native_chat_send(request: NativeChatSendRequest) -> Result<NativeChatSendResult, String> {
-    NativeChatService::send_message(request)
+pub fn native_chat_send(
+    app: AppHandle,
+    request: NativeChatSendRequest,
+) -> Result<NativeChatSendResult, String> {
+    NativeChatService::send_message(&app, request)
+}
+
+#[tauri::command]
+pub fn native_generate_ideas(
+    app: AppHandle,
+    request: NativeGenerateIdeasRequest,
+) -> Result<NativeGenerateIdeasResult, String> {
+    NativeChatService::generate_ideas(&app, request)
 }
 
 #[tauri::command]
@@ -70,4 +84,24 @@ pub fn native_list_provider_credentials() -> Result<Vec<NativeProviderCredential
 #[tauri::command]
 pub fn native_delete_provider_credential(provider_id: String) -> Result<(), String> {
     NativeChatService::delete_credential(&provider_id)
+}
+
+#[tauri::command]
+pub fn native_provider_login_start(
+    provider_id: String,
+) -> Result<crate::models::native_chat::ProviderLoginStart, String> {
+    crate::services::provider_login_service::ProviderLoginService::start(&provider_id)
+}
+
+#[tauri::command]
+pub fn native_provider_login_poll(
+    provider_id: String,
+) -> Result<crate::models::native_chat::ProviderLoginPoll, String> {
+    Ok(crate::services::provider_login_service::ProviderLoginService::poll(&provider_id))
+}
+
+#[tauri::command]
+pub fn native_provider_login_cancel(provider_id: String) -> Result<(), String> {
+    crate::services::provider_login_service::ProviderLoginService::cancel(&provider_id);
+    Ok(())
 }
