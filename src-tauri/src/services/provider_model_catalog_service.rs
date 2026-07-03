@@ -141,6 +141,15 @@ impl ProviderModelCatalogService {
         }
 
         let credential = credential.expect("checked above");
+
+        // Catalog sync is the primary model source. Fetch the canonical
+        // basebuild.net catalog first; if it has rows for this provider,
+        // skip per-provider /v1/models discovery entirely.
+        let catalog_synced = crate::services::catalog_sync_service::sync_catalog();
+        if catalog_synced.error.is_none() && Self::has_cached_provider_with_source(spec.id, "catalog_sync")? {
+            return Ok(());
+        }
+
         let discovered = if spec.id == "anthropic" {
             Err("Anthropic does not expose a stable public model-list endpoint for this flow.".to_string())
         } else {
@@ -202,12 +211,13 @@ impl ProviderModelCatalogService {
                 supports_effort: supports_reasoning(spec.id, id),
                 supports_streaming: true,
                 local_only: false,
-                context_window: extract_i64(entry, &["context_window", "contextWindow", "max_context_window", "maxContextWindow"]),
+                context_window: extract_i64(entry, &["context_window", "contextWindow", "context_length", "max_context_window", "maxContextWindow"]),
                 max_tokens: extract_i64(entry, &["max_output_tokens", "maxOutputTokens", "max_tokens", "maxTokens"]),
                 supports_reasoning: supports_reasoning(spec.id, id),
                 supported_efforts: if supports_reasoning(spec.id, id) { effort_ids() } else { Vec::new() },
                 supports_images: supports_images(id),
                 source: "provider_discovered".to_string(),
+                model_api_id: None,
             }, "provider_discovered"));
         }
 
@@ -278,23 +288,25 @@ impl ProviderModelCatalogService {
                     .and_then(Value::as_str)
                     .map(str::to_string)
                     .unwrap_or_else(|| model_label(spec.id, id));
+                let reasoning = entry.get("supportsReasoning").and_then(Value::as_bool).unwrap_or_else(|| supports_reasoning(spec.id, id));
+                let supported = entry.get("supportedEfforts")
+                    .and_then(Value::as_array)
+                    .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .unwrap_or_else(|| if reasoning { effort_ids() } else { Vec::new() });
                 Some(model_with_source(NativeModel {
                     id: id.to_string(),
                     provider_id: spec.id.to_string(),
                     label,
-                    supports_effort: entry.get("supportsReasoning").and_then(Value::as_bool).unwrap_or_else(|| supports_reasoning(spec.id, id)),
+                    supports_effort: reasoning,
                     supports_streaming: true,
                     local_only: false,
-                    context_window: extract_i64(entry, &["contextWindow", "context_window"]),
-                    max_tokens: extract_i64(entry, &["maxTokens", "max_tokens"]),
-                    supports_reasoning: entry.get("supportsReasoning").and_then(Value::as_bool).unwrap_or_else(|| supports_reasoning(spec.id, id)),
-                    supported_efforts: entry
-                        .get("supportedEfforts")
-                        .and_then(Value::as_array)
-                        .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
-                        .unwrap_or_else(|| if supports_reasoning(spec.id, id) { effort_ids() } else { Vec::new() }),
+                    context_window: extract_i64(entry, &["context_window", "contextWindow", "context_length", "max_context_window", "maxContextWindow"]),
+                    max_tokens: extract_i64(entry, &["max_output_tokens", "maxOutputTokens", "max_tokens", "maxTokens"]),
+                    supports_reasoning: reasoning,
+                    supported_efforts: supported,
                     supports_images: entry.get("supportsImages").and_then(Value::as_bool).unwrap_or_else(|| supports_images(id)),
                     source: "hosted_fallback".to_string(),
+                    model_api_id: None,
                 }, "hosted_fallback"))
             })
             .collect();
@@ -306,7 +318,7 @@ impl ProviderModelCatalogService {
         let mut stmt = conn
             .prepare(
                 "SELECT provider_id, model_id, label, context_window, max_tokens, supports_reasoning,
-                        supported_efforts, supports_images, source, synced_at, error
+                        supported_efforts, supports_images, source, synced_at, error, model_api_id
                  FROM native_provider_model_cache
                  ORDER BY provider_id, label",
             )
@@ -332,6 +344,7 @@ impl ProviderModelCatalogService {
                         supported_efforts,
                         supports_images: row.get::<_, i64>(7)? != 0,
                         source: row.get(8)?,
+                        model_api_id: row.get::<_, Option<String>>(11)?,
                     },
                     synced_at: row.get(9)?,
                     error: row.get(10)?,
@@ -349,8 +362,8 @@ impl ProviderModelCatalogService {
         for model in models {
             conn.execute(
                 "INSERT INTO native_provider_model_cache
-                 (provider_id, model_id, label, context_window, max_tokens, supports_reasoning, supported_efforts, supports_images, source, synced_at, error)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                 (provider_id, model_id, label, context_window, max_tokens, supports_reasoning, supported_efforts, supports_images, source, synced_at, error, model_api_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 params![
                     provider_id,
                     model.id,
@@ -363,6 +376,7 @@ impl ProviderModelCatalogService {
                     source,
                     now,
                     error,
+                    model.model_api_id,
                 ],
             )
             .map_err(|e| format!("Failed to save model cache row: {e}"))?;
@@ -378,6 +392,18 @@ impl ProviderModelCatalogService {
         )
         .map_err(|e| format!("Failed to mark model cache stale: {e}"))?;
         Ok(())
+    }
+
+    fn has_cached_provider_with_source(provider_id: &str, source: &str) -> DbResult<bool> {
+        let conn = StorageService::connect()?;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM native_provider_model_cache WHERE provider_id = ?1 AND source = ?2",
+                params![provider_id, source],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(count > 0)
     }
 
     fn has_cached_provider(provider_id: &str) -> DbResult<bool> {
@@ -429,7 +455,7 @@ fn provider_specs() -> Vec<ProviderSpec> {
             auth_method: "api_key",
             api_key_url: Some("https://app.umans.ai/billing?context=personal&tab=api-keys"),
             detail: "Umans API — OpenAI-compatible. Enter your API key to connect.",
-            default_base_url: Some("https://api.umans.ai/v1"),
+            default_base_url: Some("https://api.code.umans.ai/v1"),
         },
         ProviderSpec {
             id: "openai",
@@ -469,6 +495,7 @@ fn bundled_models(provider_id: &str) -> Vec<NativeModel> {
             supported_efforts: effort_ids(),
             supports_images: false,
             source: "bundled".to_string(),
+            model_api_id: None,
         }, "bundled")],
         "umans" => vec![
             bundled("umans", "umans-coder", "Umans Coder", 262144, 32768, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
@@ -577,6 +604,7 @@ fn bundled(
         supported_efforts: supported_efforts.into_iter().map(String::from).collect(),
         supports_images,
         source: "bundled".to_string(),
+        model_api_id: None,
     }, "bundled")
 }
 
@@ -653,7 +681,7 @@ fn extract_i64(value: &Value, keys: &[&str]) -> Option<i64> {
     None
 }
 
-fn now_seconds() -> i64 {
+pub fn now_seconds() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)

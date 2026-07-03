@@ -164,7 +164,15 @@ export async function nativeProviderCatalogRefresh(input?: {
 }): Promise<NativeProviderCatalog> {
   return invoke<NativeProviderCatalog>("native_provider_catalog_refresh", { request: input ?? null });
 }
+export type CatalogSyncResult = {
+  synced: number;
+  skipped: number;
+  error: string | null;
+};
 
+export async function nativeCatalogSync(): Promise<CatalogSyncResult> {
+  return invoke<CatalogSyncResult>("native_catalog_sync");
+}
 export async function nativeChatStart(input: {
   projectPath: string;
   title?: string | null;

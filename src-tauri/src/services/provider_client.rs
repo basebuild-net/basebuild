@@ -41,11 +41,16 @@ pub struct ProviderResponse {
 }
 
 /// Dispatches a resolved request, streaming content deltas through `emit`.
+///
+/// `emit` receives the delta text and a channel label: `"content"` for final
+/// assistant text, `"reasoning"` for chain-of-thought / thinking tokens that
+/// providers stream ahead of the answer. Callers that only care about the
+/// final text can ignore the channel.
 pub trait ProviderClient {
     fn generate(
         &self,
         req: &ProviderRequest,
-        emit: &dyn Fn(&str),
+        emit: &dyn Fn(&str, &str),
     ) -> Result<ProviderResponse, String>;
 }
 
@@ -63,7 +68,7 @@ pub fn resolve_client(provider_id: &str, base_url: Option<&str>) -> Box<dyn Prov
             provider_id: "umans".to_string(),
             base_url: base_url
                 .map(str::to_string)
-                .unwrap_or_else(|| "https://api.umans.ai/v1".to_string()),
+                .unwrap_or_else(|| "https://api.code.umans.ai/v1".to_string()),
         }),
         // Default OpenAI-compatible (OpenAI itself and any future compatible provider).
         _ => Box::new(OpenAiCompatibleClient {
@@ -120,7 +125,7 @@ impl ProviderClient for LocalCoordinator {
     fn generate(
         &self,
         req: &ProviderRequest,
-        emit: &dyn Fn(&str),
+        emit: &dyn Fn(&str, &str),
     ) -> Result<ProviderResponse, String> {
         let start = Instant::now();
         let text = LocalCoordinator::compose(
@@ -129,7 +134,7 @@ impl ProviderClient for LocalCoordinator {
             &req.model_id,
             &req.effort_level,
         );
-        emit(&text);
+        emit(&text, "content");
         let elapsed = start.elapsed().as_millis() as i64;
         Ok(ProviderResponse {
             input_tokens: Some(req.messages.iter().map(|m| estimate_tokens(&m.content)).sum()),
@@ -152,7 +157,7 @@ impl ProviderClient for OpenAiCompatibleClient {
     fn generate(
         &self,
         req: &ProviderRequest,
-        emit: &dyn Fn(&str),
+        emit: &dyn Fn(&str, &str),
     ) -> Result<ProviderResponse, String> {
         let api_key = req
             .api_key
@@ -197,6 +202,7 @@ impl ProviderClient for OpenAiCompatibleClient {
         }
 
         let mut content = String::new();
+        let mut reasoning = String::new();
         let mut ttft_ms: Option<i64> = None;
         let mut input_tokens: Option<i64> = None;
         let mut output_tokens: Option<i64> = None;
@@ -225,37 +231,61 @@ impl ProviderClient for OpenAiCompatibleClient {
                     .and_then(Value::as_i64)
                     .or(output_tokens);
             }
-            if let Some(delta) = value
+            let delta = value
                 .get("choices")
                 .and_then(|c| c.get(0))
-                .and_then(|c| c.get("delta"))
-                .and_then(|d| d.get("content"))
+                .and_then(|c| c.get("delta"));
+            // Reasoning tokens (e.g. Umans GLM, DeepSeek-R1) arrive ahead of
+            // the final answer. Stream them on the reasoning channel so the UI
+            // can show live thinking activity instead of freezing silently.
+            if let Some(text) = delta
+                .and_then(|d| d.get("reasoning_content"))
                 .and_then(Value::as_str)
             {
-                if !delta.is_empty() {
+                if !text.is_empty() {
                     if ttft_ms.is_none() {
                         ttft_ms = Some(start.elapsed().as_millis() as i64);
                     }
-                    content.push_str(delta);
-                    emit(delta);
+                    reasoning.push_str(text);
+                    emit(text, "reasoning");
+                }
+            }
+            if let Some(text) = delta
+                .and_then(|d| d.get("content"))
+                .and_then(Value::as_str)
+            {
+                if !text.is_empty() {
+                    if ttft_ms.is_none() {
+                        ttft_ms = Some(start.elapsed().as_millis() as i64);
+                    }
+                    content.push_str(text);
+                    emit(text, "content");
                 }
             }
         }
 
         let duration_ms = (start.elapsed().as_millis() as i64).max(1);
-        if content.trim().is_empty() && output_tokens.is_none() {
+        if content.trim().is_empty() && reasoning.trim().is_empty() && output_tokens.is_none() {
             return Err(format!(
                 "Provider '{}' returned an empty response.",
                 self.provider_id
             ));
         }
+        // Fold reasoning into the persisted content so the saved assistant
+        // message keeps the full trace. The UI renders them separately while
+        // streaming; the persisted form is a single string for searchability.
+        let persisted = if reasoning.trim().is_empty() {
+            content
+        } else {
+            format!("{reasoning}\n\n---\n\n{content}")
+        };
         Ok(ProviderResponse {
-            output_tokens: output_tokens.or_else(|| Some(estimate_tokens(&content))),
+            output_tokens: output_tokens.or_else(|| Some(estimate_tokens(&persisted))),
             input_tokens: input_tokens
                 .or_else(|| Some(req.messages.iter().map(|m| estimate_tokens(&m.content)).sum())),
             ttft_ms: ttft_ms.or(Some(duration_ms)),
             duration_ms,
-            content,
+            content: persisted,
         })
     }
 }
@@ -270,7 +300,7 @@ impl ProviderClient for AnthropicClient {
     fn generate(
         &self,
         req: &ProviderRequest,
-        emit: &dyn Fn(&str),
+        emit: &dyn Fn(&str, &str),
     ) -> Result<ProviderResponse, String> {
         let api_key = req
             .api_key
@@ -313,6 +343,7 @@ impl ProviderClient for AnthropicClient {
         }
 
         let mut content = String::new();
+        let mut reasoning = String::new();
         let mut ttft_ms: Option<i64> = None;
         let mut input_tokens: Option<i64> = None;
         let mut output_tokens: Option<i64> = None;
@@ -341,8 +372,23 @@ impl ProviderClient for AnthropicClient {
                         .or(input_tokens);
                 }
                 Some("content_block_delta") => {
-                    if let Some(text) = value
-                        .get("delta")
+                    let delta = value.get("delta");
+                    // Anthropic streams reasoning as `thinking_delta` events
+                    // when extended thinking is enabled. Surface them on the
+                    // reasoning channel so the UI shows live thinking.
+                    if let Some(text) = delta
+                        .and_then(|d| d.get("thinking"))
+                        .and_then(Value::as_str)
+                    {
+                        if !text.is_empty() {
+                            if ttft_ms.is_none() {
+                                ttft_ms = Some(start.elapsed().as_millis() as i64);
+                            }
+                            reasoning.push_str(text);
+                            emit(text, "reasoning");
+                        }
+                    }
+                    if let Some(text) = delta
                         .and_then(|d| d.get("text"))
                         .and_then(Value::as_str)
                     {
@@ -351,7 +397,7 @@ impl ProviderClient for AnthropicClient {
                                 ttft_ms = Some(start.elapsed().as_millis() as i64);
                             }
                             content.push_str(text);
-                            emit(text);
+                            emit(text, "content");
                         }
                     }
                 }
@@ -375,16 +421,21 @@ impl ProviderClient for AnthropicClient {
         }
 
         let duration_ms = (start.elapsed().as_millis() as i64).max(1);
-        if content.trim().is_empty() && output_tokens.is_none() {
+        if content.trim().is_empty() && reasoning.trim().is_empty() && output_tokens.is_none() {
             return Err("Provider 'anthropic' returned an empty response.".to_string());
         }
+        let persisted = if reasoning.trim().is_empty() {
+            content
+        } else {
+            format!("{reasoning}\n\n---\n\n{content}")
+        };
         Ok(ProviderResponse {
-            output_tokens: output_tokens.or_else(|| Some(estimate_tokens(&content))),
+            output_tokens: output_tokens.or_else(|| Some(estimate_tokens(&persisted))),
             input_tokens: input_tokens
                 .or_else(|| Some(req.messages.iter().map(|m| estimate_tokens(&m.content)).sum())),
             ttft_ms: ttft_ms.or(Some(duration_ms)),
             duration_ms,
-            content,
+            content: persisted,
         })
     }
 }
@@ -434,7 +485,7 @@ mod tests {
         };
         let streamed = std::cell::RefCell::new(String::new());
         let resp = client
-            .generate(&req, &|delta| streamed.borrow_mut().push_str(delta))
+            .generate(&req, &|delta, _channel| streamed.borrow_mut().push_str(delta))
             .expect("local coordinator generate");
         assert!(resp.content.contains("Offline local coordinator"));
         assert_eq!(streamed.into_inner(), resp.content);

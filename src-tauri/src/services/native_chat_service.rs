@@ -249,8 +249,13 @@ impl NativeChatService {
             .collect();
         let system = Self::system_prompt(&session.project_path, None);
 
+        // Resolve the provider-specific model API id (e.g. "umans-glm-5.2")
+        // from the cache; fall back to the canonical model_id when null.
+        let resolved_model_id = Self::resolve_model_api_id(&provider_id, &model_id)
+            .unwrap_or_else(|| model_id.clone());
+
         let req = ProviderRequest {
-            model_id: model_id.clone(),
+            model_id: resolved_model_id,
             effort_level: effort_level.clone(),
             system: Some(system),
             messages,
@@ -262,10 +267,10 @@ impl NativeChatService {
         let started_at = now_millis();
         let session_id_for_emit = request.session_id.clone();
         let app_for_emit = app.clone();
-        let emit = move |delta: &str| {
+        let emit = move |delta: &str, channel: &str| {
             let _ = app_for_emit.emit(
                 NATIVE_CHAT_CHUNK,
-                serde_json::json!({ "sessionId": session_id_for_emit, "delta": delta }),
+                serde_json::json!({ "sessionId": session_id_for_emit, "delta": delta, "channel": channel }),
             );
         };
 
@@ -439,7 +444,7 @@ impl NativeChatService {
         let client = resolve_client(&provider_id, req.base_url.as_deref());
         let session_id_for_emit = request.session_id.clone();
         let app_for_emit = app.clone();
-        let emit = move |delta: &str| {
+        let emit = move |delta: &str, _channel: &str| {
             let _ = app_for_emit.emit(
                 NATIVE_CHAT_CHUNK,
                 serde_json::json!({
@@ -542,6 +547,22 @@ impl NativeChatService {
             requires_prompt,
             reason: reason.to_string(),
         })
+    }
+
+    /// Look up the provider-specific model API id (e.g. "umans-glm-5.2") from
+    /// the cache for a (provider_id, canonical model_id) pair. Returns None
+    /// when the row has no model_api_id (legacy bundled/discovered rows) or
+    /// the row doesn't exist — callers fall back to the canonical model_id.
+    fn resolve_model_api_id(provider_id: &str, model_id: &str) -> Option<String> {
+        let conn = StorageService::connect().ok()?;
+        conn.query_row(
+            "SELECT model_api_id FROM native_provider_model_cache
+             WHERE provider_id = ?1 AND model_id = ?2 AND model_api_id IS NOT NULL",
+            params![provider_id, model_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten()
     }
 
     fn validate_provider_model(provider_id: &str, model_id: &str, allow_unconfigured: bool) -> DbResult<()> {

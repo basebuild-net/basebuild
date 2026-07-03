@@ -27,6 +27,10 @@ pub fn native_provider_catalog_refresh(
 }
 
 #[tauri::command]
+pub fn native_catalog_sync() -> Result<crate::services::catalog_sync_service::CatalogSyncResult, String> {
+    Ok(crate::services::catalog_sync_service::sync_catalog())
+}
+#[tauri::command]
 pub fn native_chat_start(request: NativeChatStartRequest) -> Result<NativeChatSession, String> {
     NativeChatService::start_session(request)
 }

@@ -347,6 +347,20 @@ impl StorageService {
             );
         }
 
+        // Migration: add model_api_id to native_provider_model_cache for
+        // provider-specific model ids (e.g. "umans-glm-5.2") distinct from the
+        // canonical model_id used as the cache primary key. Null for legacy
+        // bundled/discovered rows; resolve_client falls back to model_id.
+        let has_model_api_id = connection
+            .prepare("SELECT model_api_id FROM native_provider_model_cache LIMIT 0")
+            .is_ok();
+        if !has_model_api_id {
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN model_api_id TEXT",
+                [],
+            );
+        }
+
         // Seed built-in runtime profiles individually so existing databases gain
         // newly-added built-ins without losing user-edited profiles.
         for profile in crate::models::runtime::RuntimeProfile::built_ins() {
@@ -426,4 +440,52 @@ fn unix_timestamp() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initialize_is_idempotent_and_adds_model_api_id() {
+        // An in-memory SQLite DB simulates a fresh state.db. Running
+        // initialize twice must not error (CREATE TABLE IF NOT EXISTS +
+        // ALTER TABLE guarded by has-column check). The model_api_id column
+        // must appear after migration, and existing rows must survive with
+        // null model_api_id.
+        let conn = Connection::open_in_memory().unwrap();
+        StorageService::initialize(&conn).expect("first initialize");
+        // Insert a legacy cache row WITHOUT model_api_id (simulating a
+        // pre-migration database) by dropping the column, inserting, then
+        // re-running initialize to add it back.
+        // Actually, the column is added by initialize itself, so just insert
+        // a row with model_api_id = null and verify it persists.
+        conn.execute(
+            "INSERT INTO native_provider_model_cache
+                (provider_id, model_id, label, context_window, max_tokens,
+                 supports_reasoning, supported_efforts, supports_images, source,
+                 synced_at, error, model_api_id)
+             VALUES ('umans', 'glm-5.2', 'GLM 5.2', 405504, 131072, 1, '[\"high\",\"xhigh\"]', 0, 'bundled', 0, NULL, NULL)",
+            [],
+        )
+        .unwrap();
+        // Re-run initialize — must not error, must not duplicate columns.
+        StorageService::initialize(&conn).expect("second initialize (idempotent)");
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM native_provider_model_cache WHERE provider_id = 'umans'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "existing row survived re-init");
+        let api_id: Option<String> = conn
+            .query_row(
+                "SELECT model_api_id FROM native_provider_model_cache WHERE provider_id = 'umans' AND model_id = 'glm-5.2'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(api_id.is_none(), "legacy row has null model_api_id");
+    }
 }

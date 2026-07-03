@@ -106,6 +106,11 @@ pub struct NativeModel {
     pub supported_efforts: Vec<String>,
     pub supports_images: bool,
     pub source: String,
+    /// Provider-specific model API id (e.g. "umans-glm-5.2") sent in the
+    /// provider's chat request body. Null for legacy bundled/discovered rows;
+    /// callers fall back to `id` when null. Populated by catalog sync.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_api_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

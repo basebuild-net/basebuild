@@ -94,7 +94,9 @@ export function ChatPanel({
   // Streaming assistant output for the in-flight turn.
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
+  const [reasoningText, setReasoningText] = useState("");
   const streamBufRef = useRef("");
+  const reasoningBufRef = useRef("");
   // Provider connection UI.
   const [showLogin, setShowLogin] = useState(false);
   const [apiKey, setApiKey] = useState("");
@@ -227,12 +229,17 @@ export function ChatPanel({
 
   // Native mode: listen for streamed assistant chunks for this session
   useEffect(() => {
-    if (!nativeMode || !nativeSessionId) return;
     const unlisten = listen<{ sessionId: string; delta: string; channel?: string }>(
       "native-chat://chunk",
       (event) => {
         if (event.payload.sessionId !== nativeSessionId) return;
-        if (event.payload.channel === "ideas") return;
+        const channel = event.payload.channel;
+        if (channel === "ideas") return;
+        if (channel === "reasoning") {
+          reasoningBufRef.current += event.payload.delta;
+          setReasoningText(reasoningBufRef.current);
+          return;
+        }
         streamBufRef.current += event.payload.delta;
         setStreamText(streamBufRef.current);
       },
@@ -320,7 +327,9 @@ export function ChatPanel({
         setLoading(true);
         setStuck(false);
         streamBufRef.current = "";
+        reasoningBufRef.current = "";
         setStreamText("");
+        setReasoningText("");
         setStreaming(true);
         const tempUserId = `temp-${Date.now()}`;
         const tempUser: NativeChatMessage = {
@@ -362,7 +371,9 @@ export function ChatPanel({
         } finally {
           setStreaming(false);
           setStreamText("");
+          setReasoningText("");
           streamBufRef.current = "";
+          reasoningBufRef.current = "";
           setLoading(false);
         }
         return;
@@ -407,7 +418,7 @@ export function ChatPanel({
   // Auto-scroll
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [nativeMessages, legacyMessages, streamText]);
+  }, [nativeMessages, legacyMessages, streamText, reasoningText]);
 
   // Clear stuck timer
   useEffect(() => {
@@ -724,6 +735,13 @@ export function ChatPanel({
           );
         })}
 
+        {streaming && reasoningText ? (
+          <div className="chat-message chat-message-assistant chat-message-reasoning" title="Live chain-of-thought from the model. Final answer follows.">
+            <span className="chat-message-role">Thinking…</span>
+            <pre className="chat-message-content">{reasoningText}</pre>
+          </div>
+        ) : null}
+
         {streaming && streamText ? (
           <div className="chat-message chat-message-assistant">
             <span className="chat-message-role">Basebuild</span>
@@ -731,7 +749,7 @@ export function ChatPanel({
           </div>
         ) : null}
 
-        {loading && (!streaming || !streamText) ? (
+        {loading && (!streaming || (!streamText && !reasoningText)) ? (
           <div className="chat-loading">{nativeMode ? "Working…" : "Agent is typing…"}</div>
         ) : null}
         {stuck ? (
