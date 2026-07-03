@@ -39,7 +39,6 @@ type SidePanelProps = {
     onFocusPlan: (plan: Plan) => void;
     onCopyReference: (refId: string) => void;
     onOpenInTerminal: (plan: Plan) => void;
-    onEnhancePlan?: (plan: Plan) => void;
   };
 };
 

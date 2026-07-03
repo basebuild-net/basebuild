@@ -132,6 +132,28 @@ impl RuntimeProfile {
         }
     }
 
+    /// Basebuild's first-party local native harness profile.
+    pub fn basebuild_native() -> Self {
+        Self {
+            id: "basebuild-native".to_string(),
+            kind: RuntimeProfileKind::Chat,
+            label: "Basebuild Native".to_string(),
+            executable: "basebuild-native".to_string(),
+            args: vec![],
+            working_directory_mode: WorkingDirectoryMode::Project,
+            default_model: Some("basebuild-local-coordinator".to_string()),
+            capabilities: vec![
+                AgentCapability::Chat,
+                AgentCapability::Messages,
+                AgentCapability::Skills,
+                AgentCapability::Providers,
+                AgentCapability::Commands,
+                AgentCapability::Info,
+            ],
+            built_in: true,
+        }
+    }
+
     /// The default terminal profile for the current platform.
     pub fn default_terminal() -> Self {
         let shell = if cfg!(target_os = "windows") {
@@ -170,7 +192,7 @@ impl RuntimeProfile {
 
     /// Built-in profiles seeded on first run.
     pub fn built_ins() -> Vec<Self> {
-        vec![Self::default_omp(), Self::default_terminal()]
+        vec![Self::basebuild_native(), Self::default_omp(), Self::default_terminal()]
     }
 }
 
@@ -188,9 +210,9 @@ impl RuntimeDefaults {
     /// Conservative defaults used on fresh install or after reset.
     pub fn conservative() -> Self {
         Self {
-            default_chat_profile_id: Some("omp".to_string()),
+            default_chat_profile_id: Some("basebuild-native".to_string()),
             default_terminal_profile_id: Some("default-terminal".to_string()),
-            default_model: None,
+            default_model: Some("basebuild-local-coordinator".to_string()),
             auto_send_generated_prompts: false,
         }
     }

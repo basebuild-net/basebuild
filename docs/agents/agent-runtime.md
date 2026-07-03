@@ -8,12 +8,18 @@ without changing the chat UI contract.
 
 Agent and terminal integrations are modeled as **runtime profiles**, not
 hardcoded UI branches. Profiles are persisted in SQLite and validated before
-use.
+use. The default chat profile is `basebuild-native`, which runs Basebuild's
+first-party local harness; OMP remains a selectable chat profile.
 
 - `RuntimeProfile` defines: `id`, `kind` (chat/terminal), `label`, `executable`,
   `args`, `workingDirectoryMode`, `defaultModel`, `capabilities`, `builtIn`.
-- Built-in profiles: OMP (chat), Default Terminal (platform shell).
-- The Basebuild CLI profile is a placeholder until its executable exists.
+- Built-in profiles: Basebuild Native (chat, default), OMP (chat), Default Terminal (platform shell).
+- The Basebuild Native profile runs structured chat sessions, persists messages/tool events/approvals, and records per-request metrics locally without requiring an external CLI.
+- Because the native harness runs **in-process** (no external binary), its adapter
+  health is always reported available. Default-adapter selection is health-aware:
+  `get_defaults` never activates a chat adapter that reports unavailable and falls
+  back to the first available adapter (preferring the internal harness). External
+  adapters (e.g. OMP) are probed on `PATH`.
 
 ## Capabilities
 
@@ -21,14 +27,89 @@ use.
 `info`. The chat UI degrades gracefully when an adapter does not support a
 capability. Unsupported capabilities return a typed error, not a crash.
 
+## Native request metrics
+
+The native harness records an OMP-stats-style local ledger row per request:
+provider, model, effort level, started/completed timestamps, duration, TTFT, TTLT,
+input/output/cache tokens, tokens-per-second, cost, outcome, and error class.
+Prompt text, response text, source code, terminal output, secrets, and raw absolute
+paths are never stored. The ledger is queryable locally even when analytics
+collection/upload remain disabled.
+
+## Provider and model catalog
+
+Native chat exposes providers (Basebuild Local, OpenAI, Anthropic, Umans),
+models, effort levels, sync freshness, and source metadata through typed backend
+commands. Provider credentials are stored locally only and never uploaded.
+`native_provider_catalog` returns the cache-first catalog; `native_provider_catalog_refresh`
+forces online sync for one provider or all providers. Direct provider/CLI model
+payloads are preferred, OpenAI-compatible providers use `/v1/models` when
+available, and the optional hosted Basebuild model directory is queried only
+when direct discovery is unavailable and without secrets, prompts, project
+paths, or local account identifiers.
+
+## Provider-backed turn execution
+
+Each chat turn is dispatched to the provider/model selected for that turn via the
+`ProviderClient` trait (`src-tauri/src/services/provider_client.rs`):
+
+- `LocalCoordinator` — explicit, clearly-labeled **offline** fallback. Its turns
+  are tagged "Offline" in the UI and never presented as provider answers.
+- `OpenAiCompatibleClient` — OpenAI and Umans (OpenAI-compatible base URL).
+- `AnthropicClient` — Anthropic Messages API.
+
+Assistant output streams incrementally to the UI over the `native-chat://chunk`
+event channel and is appended live. Metrics (TTFT, total latency, input/output
+tokens) are captured from the real request. When the chosen provider has no
+stored credential, `send_message` returns a typed `SetupRequired` result (not an
+error) so the composer renders an inline connect prompt **without discarding the
+drafted message**.
+
+## Provider web login
+
+Providers can be connected through a web/loopback flow in addition to manual
+API-key entry (`src-tauri/src/services/provider_login_service.rs`):
+
+- `native_provider_login_start(provider_id)` binds an ephemeral `127.0.0.1` port,
+  opens a loopback landing page in the system browser (linking to the provider's
+  key page), and captures the credential via an HTTP POST to localhost.
+- The secret is never placed in a URL query string and never logged; it is
+  persisted only through the local credential store.
+- `native_provider_login_poll` / `native_provider_login_cancel` drive the UI.
+- Disconnect removes the stored credential and returns the provider to
+  setup-required; the catalog refreshes without an app restart.
+
+## Chat slash commands
+
+The composer intercepts recognized slash commands before provider send:
+
+- `/login` opens the provider chooser; `/login <provider>` preselects a matching
+  provider and opens its connection UI.
+- `/model` opens the searchable model picker; `/model <filter>` pre-filters by
+  provider id, model id, or label.
+- `/models refresh` forces provider model-catalog sync and reports the result in
+  the composer.
+
+Unknown slash commands remain local and offer an explicit "send as text" escape.
+Slash commands are accelerators only; provider/model UI remains visible next to
+the effort selector.
+
+## In-chat idea generation
+
+`native_generate_ideas` sends the conversation plus the project schematic to a
+**configured** provider and parses the structured JSON result into Idea records
+(persisted via the existing ideas store). The offline local coordinator does not
+fabricate ideas — with no configured provider the command returns a setup prompt.
+Generated ideas render inline in the composer and can be promoted into the
+existing plan pipeline, tagged with the originating chat session (`chat:<id>`).
+
 ## Defaults
 
 `RuntimeDefaults` (persisted in SQLite):
-- `defaultChatProfileId` — which chat adapter to use (default: `omp`).
-- `defaultTerminalProfileId` — which terminal to use (default: platform shell).
+- `defaultChatProfileId` — default: `basebuild-native`.
+- `defaultTerminalProfileId` — default: platform shell.
 - `defaultModel` — model selection if the adapter supports it.
-- `autoSendGeneratedPrompts` — whether to auto-send drafted prompts (default:
-  `false`).
+- `autoSendGeneratedPrompts` — whether to auto-send drafted prompts (default: `false`).
 
 ## Permissions
 
@@ -77,6 +158,14 @@ and agent spawns use ConPTY, which already passes `CREATE_NO_WINDOW`.
 The release binary is built with `windows_subsystem = "windows"` so the
 packaged app does not allocate a console window on launch. Debug builds keep
 the console visible for panic output and development logging.
+
+## Workspace restore
+
+Basebuild persists per-project workspace state (last session, last tab, side panel
+section, sidebar/side collapse, side panel width) and restores it on project open.
+Restoring never auto-spawns terminals, agents, or external processes; stale
+process-backed tabs show a disconnected state until the user takes action. Side
+panel width is resizable via a drag handle and persisted locally.
 
 ## Update policy
 

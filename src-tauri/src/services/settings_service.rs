@@ -97,7 +97,31 @@ impl SettingsService {
             .map_err(|e| e.to_string())?;
         Ok(())
     }
+    /// Built-in adapters whose chat runs inside this process (no external
+    /// binary). They are always available regardless of PATH.
+    pub fn is_internal_chat_profile(id: &str) -> bool {
+        id == "basebuild-native"
+    }
+
+    /// Whether an adapter is currently available. Internal adapters are always
+    /// available; external adapters are resolved on PATH (cheap, no spawn).
+    pub fn profile_available(profile: &RuntimeProfile) -> bool {
+        if Self::is_internal_chat_profile(&profile.id) {
+            return true;
+        }
+        which::which(&profile.executable).is_ok()
+    }
+
     pub fn validate_profile(profile: &RuntimeProfile) -> DbResult<ProfileValidation> {
+        // The native harness runs in-process; it has no external binary to
+        // probe. Report it as available so defaults never land on "unavailable".
+        if Self::is_internal_chat_profile(&profile.id) {
+            return Ok(ProfileValidation {
+                valid: true,
+                version: Some("Built-in (local, in-process)".to_string()),
+                error: None,
+            });
+        }
         // Executables don't share a version flag. PowerShell parses `--version`
         // as a script expression and exits 1 with a ParserError. Use the
         // correct flag per shell, falling back to `--version` for everything else.
@@ -144,10 +168,38 @@ impl SettingsService {
                 |r| r.get(0),
             )
             .ok();
-        match value {
-            Some(v) => serde_json::from_str(&v).map_err(|e| e.to_string()),
-            None => Ok(RuntimeDefaults::conservative()),
+        let mut defaults = match value {
+            Some(v) => serde_json::from_str(&v).map_err(|e| e.to_string())?,
+            None => RuntimeDefaults::conservative(),
+        };
+        Self::apply_health_fallback(&mut defaults)?;
+        Ok(defaults)
+    }
+
+    /// Never surface an unavailable chat adapter as the active default. If the
+    /// stored default chat adapter is missing or unavailable, fall back to the
+    /// first available chat adapter (preferring the internal native harness).
+    /// This does not persist; it corrects the value on read.
+    fn apply_health_fallback(defaults: &mut RuntimeDefaults) -> DbResult<()> {
+        let profiles = Self::list_profiles()?;
+        let chat_profiles: Vec<&RuntimeProfile> = profiles
+            .iter()
+            .filter(|p| p.kind == RuntimeProfileKind::Chat)
+            .collect();
+        let current_ok = defaults
+            .default_chat_profile_id
+            .as_deref()
+            .and_then(|id| chat_profiles.iter().find(|p| p.id == id))
+            .map(|p| Self::profile_available(p))
+            .unwrap_or(false);
+        if !current_ok {
+            let fallback = chat_profiles
+                .iter()
+                .find(|p| Self::is_internal_chat_profile(&p.id) && Self::profile_available(p))
+                .or_else(|| chat_profiles.iter().find(|p| Self::profile_available(p)));
+            defaults.default_chat_profile_id = fallback.map(|p| p.id.clone());
         }
+        Ok(())
     }
 
     pub fn set_defaults(defaults: &RuntimeDefaults) -> DbResult<()> {

@@ -197,15 +197,25 @@ fn parse_static_update_manifest_value(
         ));
     }
 
-    let platform = manifest
+    // `target` may be either the bare OS reported by the updater plugin
+    // when no explicit `.target()` is configured (e.g. `"windows"`) or a
+    // fully-qualified `{os}-{arch}` string (e.g. `"windows-x86_64"`). The
+    // manifest's `platforms` keys are fully-qualified and may also carry
+    // an installer suffix (`windows-x86_64-nsis`). The plugin's own
+    // `get_urls` already resolved the right key; this re-parse only
+    // validates that some key for the current target exists. Accept an
+    // exact match or any key whose first segment(s) match `target`.
+    let platform_key = manifest
         .platforms
-        .get(target)
+        .keys()
+        .find(|k| *k == target || k.starts_with(&format!("{target}-")))
         .ok_or_else(|| format!("Updater manifest is missing required platform `{target}`"))?;
+    let platform = &manifest.platforms[platform_key];
 
     let url = platform.url.trim();
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err(format!(
-            "Updater manifest platform `{target}` has invalid URL `{}`",
+            "Updater manifest platform `{platform_key}` has invalid URL `{}`",
             platform.url
         ));
     }
@@ -213,7 +223,7 @@ fn parse_static_update_manifest_value(
     let signature = platform.signature.trim();
     if signature.is_empty() {
         return Err(format!(
-            "Updater manifest platform `{target}` has an empty signature"
+            "Updater manifest platform `{platform_key}` has an empty signature"
         ));
     }
 
@@ -221,7 +231,7 @@ fn parse_static_update_manifest_value(
         version: version.to_string(),
         notes: manifest.notes,
         pub_date: manifest.pub_date,
-        target: target.to_string(),
+        target: platform_key.to_string(),
         url: url.to_string(),
         signature: signature.to_string(),
     })
@@ -539,6 +549,54 @@ mod tests {
         .expect("manifest should parse");
 
         assert_eq!(manifest.version, "v0.0.5");
+    }
+
+    #[test]
+    fn resolves_bare_os_target_to_fully_qualified_platform_key() {
+        // Regression: the updater plugin reports `target = "windows"` when
+        // no explicit `.target()` is configured, but the manifest uses
+        // fully-qualified keys (`windows-x86_64`, `windows-x86_64-nsis`).
+        // The parser must not reject a manifest that the plugin already
+        // accepted as a valid update.
+        let manifest = parse(
+            r#"{
+                "version": "0.0.7",
+                "platforms": {
+                    "windows-x86_64": {
+                        "signature": "sig",
+                        "url": "https://github.com/basebuild-net/basebuild/releases/download/v0.0.7/Basebuild_0.0.7_x64-setup.exe"
+                    }
+                }
+            }"#,
+            "windows",
+        )
+        .expect("bare-OS target should resolve to windows-x86_64");
+
+        assert_eq!(manifest.version, "0.0.7");
+        assert_eq!(manifest.target, "windows-x86_64");
+    }
+
+    #[test]
+    fn resolves_bare_os_target_to_nsis_suffixed_platform_key() {
+        // When the manifest carries both the bare and the `-nsis` suffixed
+        // key, either is acceptable — the plugin's own `get_urls` already
+        // picked the right one. This test just confirms the suffix form
+        // does not trip the lookup.
+        let manifest = parse(
+            r#"{
+                "version": "0.0.7",
+                "platforms": {
+                    "windows-x86_64-nsis": {
+                        "signature": "sig",
+                        "url": "https://github.com/basebuild-net/basebuild/releases/download/v0.0.7/Basebuild_0.0.7_x64-setup.exe"
+                    }
+                }
+            }"#,
+            "windows",
+        )
+        .expect("bare-OS target should resolve to windows-x86_64-nsis");
+
+        assert_eq!(manifest.target, "windows-x86_64-nsis");
     }
 
     #[test]

@@ -12,7 +12,7 @@ static APP_HANDLE: LazyLock<Mutex<Option<AppHandle>>> = LazyLock::new(|| Mutex::
 use app_state::AppState;
 use commands::{
     agent::{agent_capabilities, agent_send, agent_start, agent_stop},
-     app::app_version,
+     app::{app_version, open_url},
     auth::{
         auth_fetch_profile, auth_get_token, auth_poll_device_flow, auth_sign_out,
         auth_start_device_flow, auth_status,
@@ -36,6 +36,14 @@ use commands::{
     omp::{
         omp_config_list, omp_debug_context, omp_stats, omp_status, omp_stream_command, omp_usage,
     },
+    native_chat::{
+        native_chat_get, native_chat_list, native_chat_messages, native_chat_send,
+        native_chat_start, native_catalog_sync, native_delete_provider_credential,
+        native_generate_ideas, native_list_provider_credentials, native_provider_catalog,
+        native_provider_catalog_refresh, native_provider_login_cancel, native_provider_login_poll,
+        native_provider_login_start, native_request_metrics, native_request_metrics_summary,
+        native_request_tool_approval, native_save_provider_credential,
+    },
     plans::{
         create_plan, delete_plan, get_plan, list_plans, set_plan_context, set_plan_status,
         update_plan,
@@ -53,12 +61,13 @@ use commands::{
         set_permission_rules, set_runtime_defaults, upsert_runtime_profile,
         validate_runtime_profile,
     },
-     sessions::{
+    sessions::{
         create_session, create_tab, delete_session, delete_tab, list_sessions, list_tabs,
-        rename_session, update_tab_file_path, update_tab_terminal,
+        rename_session, update_tab_chat_session, update_tab_file_path, update_tab_terminal,
     },
     skills::read_skill,
      terminal::{close_terminal, create_terminal, list_terminals, resize_terminal, write_terminal},
+    workspace::{get_workspace_restore_state, save_workspace_restore_state},
     sync::sync_raw_usage_native,
     updater::{
         check_for_updates, clear_skipped_update, get_skipped_update_version,
@@ -175,6 +184,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_version,
+            open_url,
             remember_recent_project,
             list_recent_projects,
             detect_project,
@@ -236,6 +246,7 @@ pub fn run() {
             delete_tab,
             update_tab_terminal,
             update_tab_file_path,
+            update_tab_chat_session,
             create_category,
             list_categories,
             delete_category,
@@ -247,6 +258,24 @@ pub fn run() {
              agent_send,
             agent_capabilities,
              agent_stop,
+            native_provider_catalog,
+            native_catalog_sync,
+            native_provider_catalog_refresh,
+            native_chat_start,
+            native_chat_get,
+            native_chat_list,
+            native_chat_messages,
+            native_chat_send,
+            native_request_metrics,
+            native_request_metrics_summary,
+            native_request_tool_approval,
+            native_save_provider_credential,
+            native_list_provider_credentials,
+            native_delete_provider_credential,
+            native_generate_ideas,
+            native_provider_login_start,
+            native_provider_login_poll,
+            native_provider_login_cancel,
             list_runtime_profiles,
             upsert_runtime_profile,
             delete_runtime_profile,
@@ -273,6 +302,8 @@ pub fn run() {
             auth_sign_out,
             auth_get_token,
             sync_raw_usage_native,
+            get_workspace_restore_state,
+            save_workspace_restore_state,
              check_for_updates,
              install_update,
             install_update_with_progress,

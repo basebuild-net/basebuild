@@ -22,7 +22,9 @@ change. This document links to it and adds agent-specific rules.
   components, no inline styles.
 - Keep CSS under 400 lines is the goal — audit before adding.
 - Before adding a new class, find an existing one. If you must add one, document
-  it in `AGENTS.md` and `DESIGN.md`.
+  it in `AGENTS.md` and this file (`docs/agents/design-system.md`). Do NOT add
+  CSS class names or layout mechanics to `DESIGN.md` — it is visual/non-technical
+  only.
 - Prefer layout primitives (`.stack`, `.row`, `.card`) over bespoke component CSS.
 
 ## Reusable classes
@@ -39,6 +41,27 @@ Current classes include `.btn`, `.btn-primary`, `.btn-update`, `.btn-ghost`,
 - Modals share one overlay/class contract; use the existing modal shape.
 - Keep business logic in `src/lib/` and `src-tauri/src/services/`, not inline
   in components.
+
+## Chat composer layout (technical)
+
+The composer must be structurally impossible to clip:
+
+- The full height chain is `min-height: 0` bounded: `.app-shell` uses
+  `grid-template-rows: minmax(0, 1fr)` + `min-height: 0`; `.workspace-panel` and
+  `.workspace-scroll` are `min-height: 0`.
+- `.chat-panel` is a flex column; `.chat-messages { flex: 1 1 0; min-height: 0 }`
+  absorbs all overflow so the composer never grows the panel.
+- `.chat-input-area` is a `flex-shrink: 0` footer and a **sibling** of the scroll
+  region (never inside it), with a `min-height` and a top border so it is always
+  visible even when empty.
+- The always-visible controls live in `.chat-composer-header`, which is a
+  single-line nowrap rail. Provider and model labels truncate, effort remains
+  adjacent to model selection, refresh/connect buttons can become icon-only,
+  and secondary actions use `.chat-inline-menu` / `.chat-picker` overflow
+  surfaces before any wrapping occurs. While the catalog loads the rail renders
+  `.chat-select-skeleton` placeholders.
+- Assistant streaming arrives on the `native-chat://chunk` Tauri event and is
+  appended live; offline turns are flagged with `.chat-offline-tag`.
 
 ## Screenshot verification
 

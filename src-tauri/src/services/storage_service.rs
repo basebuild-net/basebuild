@@ -127,6 +127,7 @@ impl StorageService {
                     title TEXT NOT NULL,
                     terminal_id INTEGER,
                     file_path TEXT,
+                    chat_session_id TEXT,
                     created_at INTEGER NOT NULL,
                     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
                 );
@@ -200,6 +201,126 @@ impl StorageService {
                     created_at INTEGER NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_analytics_created ON analytics_events(created_at);
+
+                CREATE TABLE IF NOT EXISTS native_chat_sessions (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    project_path TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    profile_id TEXT NOT NULL,
+                    provider_id TEXT NOT NULL,
+                    model_id TEXT NOT NULL,
+                    effort_level TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'ready',
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_native_chat_project ON native_chat_sessions(project_path, updated_at);
+
+                CREATE TABLE IF NOT EXISTS native_chat_messages (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    session_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    sort_order INTEGER NOT NULL,
+                    provider_id TEXT,
+                    model_id TEXT,
+                    effort_level TEXT,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES native_chat_sessions(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_native_chat_messages_session ON native_chat_messages(session_id, sort_order);
+
+                CREATE TABLE IF NOT EXISTS native_tool_events (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    session_id TEXT NOT NULL,
+                    message_id TEXT,
+                    kind TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES native_chat_sessions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (message_id) REFERENCES native_chat_messages(id) ON DELETE SET NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_native_tool_events_session ON native_tool_events(session_id, created_at);
+
+                CREATE TABLE IF NOT EXISTS native_provider_accounts (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    provider_id TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    credential_owner TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    metadata TEXT NOT NULL DEFAULT '{}',
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_native_provider_accounts_provider ON native_provider_accounts(provider_id);
+
+                CREATE TABLE IF NOT EXISTS native_provider_credentials (
+                    provider_id TEXT PRIMARY KEY NOT NULL,
+                    label TEXT NOT NULL,
+                    api_key TEXT NOT NULL,
+                    base_url TEXT,
+                    updated_at INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS native_model_defaults (
+                    provider_id TEXT PRIMARY KEY NOT NULL,
+                    model_id TEXT NOT NULL,
+                    effort_level TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS native_provider_model_cache (
+                    provider_id TEXT NOT NULL,
+                    model_id TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    context_window INTEGER,
+                    max_tokens INTEGER,
+                    supports_reasoning INTEGER NOT NULL DEFAULT 0,
+                    supported_efforts TEXT NOT NULL DEFAULT '[]',
+                    supports_images INTEGER NOT NULL DEFAULT 0,
+                    source TEXT NOT NULL,
+                    synced_at INTEGER NOT NULL,
+                    error TEXT,
+                    PRIMARY KEY (provider_id, model_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_native_provider_model_cache_provider ON native_provider_model_cache(provider_id, synced_at);
+
+                CREATE TABLE IF NOT EXISTS native_request_metrics (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    session_id TEXT NOT NULL,
+                    provider_id TEXT NOT NULL,
+                    model_id TEXT NOT NULL,
+                    effort_level TEXT NOT NULL,
+                    started_at INTEGER NOT NULL,
+                    completed_at INTEGER,
+                    duration_ms INTEGER,
+                    ttft_ms INTEGER,
+                    ttlt_ms INTEGER,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+                    tokens_per_second REAL,
+                    cost_total REAL,
+                    outcome TEXT NOT NULL,
+                    error_class TEXT,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES native_chat_sessions(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_native_request_metrics_created ON native_request_metrics(created_at);
+                CREATE INDEX IF NOT EXISTS idx_native_request_metrics_provider ON native_request_metrics(provider_id, model_id, effort_level);
+
+                CREATE TABLE IF NOT EXISTS workspace_restore_state (
+                    project_path TEXT PRIMARY KEY NOT NULL,
+                    last_session_id TEXT,
+                    last_tab_id TEXT,
+                    side_section TEXT,
+                    sidebar_collapsed INTEGER NOT NULL DEFAULT 0,
+                    side_collapsed INTEGER NOT NULL DEFAULT 0,
+                    side_width INTEGER NOT NULL DEFAULT 260,
+                    updated_at INTEGER NOT NULL
+                );
                 ",
             )
             .map_err(|error| format!("Failed to initialize Basebuild state database: {error}"))?;
@@ -215,30 +336,52 @@ impl StorageService {
             );
         }
 
-        // Seed built-in runtime profiles if none exist
-        let profile_count: i64 = connection
-            .query_row("SELECT COUNT(*) FROM runtime_profiles", [], |r| r.get(0))
-            .unwrap_or(0);
-        if profile_count == 0 {
-            for profile in crate::models::runtime::RuntimeProfile::built_ins() {
-                let _ = connection.execute(
-                    "INSERT OR IGNORE INTO runtime_profiles (id, kind, label, executable, args, working_directory_mode, default_model, capabilities, built_in) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                    params![
-                        profile.id,
-                        profile.kind.as_str(),
-                        profile.label,
-                        profile.executable,
-                        serde_json::to_string(&profile.args).unwrap_or_default(),
-                        profile.working_directory_mode.as_str(),
-                        profile.default_model,
-                        serde_json::to_string(&profile.capabilities).unwrap_or_default(),
-                        profile.built_in as i32,
-                    ],
-                );
-            }
+        // Migration: add chat_session_id to existing tab rows for structured native chat.
+        let has_chat_session_column = connection
+            .prepare("SELECT chat_session_id FROM session_tabs LIMIT 0")
+            .is_ok();
+        if !has_chat_session_column {
+            let _ = connection.execute(
+                "ALTER TABLE session_tabs ADD COLUMN chat_session_id TEXT",
+                [],
+            );
         }
 
-        // Seed conservative defaults if none exist
+        // Migration: add model_api_id to native_provider_model_cache for
+        // provider-specific model ids (e.g. "umans-glm-5.2") distinct from the
+        // canonical model_id used as the cache primary key. Null for legacy
+        // bundled/discovered rows; resolve_client falls back to model_id.
+        let has_model_api_id = connection
+            .prepare("SELECT model_api_id FROM native_provider_model_cache LIMIT 0")
+            .is_ok();
+        if !has_model_api_id {
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN model_api_id TEXT",
+                [],
+            );
+        }
+
+        // Seed built-in runtime profiles individually so existing databases gain
+        // newly-added built-ins without losing user-edited profiles.
+        for profile in crate::models::runtime::RuntimeProfile::built_ins() {
+            let _ = connection.execute(
+                "INSERT OR IGNORE INTO runtime_profiles (id, kind, label, executable, args, working_directory_mode, default_model, capabilities, built_in) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    profile.id,
+                    profile.kind.as_str(),
+                    profile.label,
+                    profile.executable,
+                    serde_json::to_string(&profile.args).unwrap_or_default(),
+                    profile.working_directory_mode.as_str(),
+                    profile.default_model,
+                    serde_json::to_string(&profile.capabilities).unwrap_or_default(),
+                    profile.built_in as i32,
+                ],
+            );
+        }
+
+        // Seed conservative defaults if none exist, or migrate old OMP defaults
+        // to the native harness profile.
         let defaults_count: i64 = connection
             .query_row("SELECT COUNT(*) FROM app_defaults", [], |r| r.get(0))
             .unwrap_or(0);
@@ -253,6 +396,39 @@ impl StorageService {
                 "INSERT INTO permission_rules (key, value) VALUES ('rules', ?1)",
                 params![serde_json::to_string(&rules).unwrap_or_default()],
             );
+        } else {
+            // Migration: update existing defaults to use the native harness as
+            // the default chat profile. Old databases persisted OMP as default.
+            let existing: Option<String> = connection
+                .query_row(
+                    "SELECT value FROM app_defaults WHERE key = 'defaults'",
+                    [],
+                    |r| r.get(0),
+                )
+                .ok();
+            if let Some(raw) = existing {
+                if let Ok(mut defaults) =
+                    serde_json::from_str::<crate::models::runtime::RuntimeDefaults>(&raw)
+                {
+                    let needs_migration = defaults
+                        .default_chat_profile_id
+                        .as_deref()
+                        .map(|id| id != "basebuild-native")
+                        .unwrap_or(true);
+                    if needs_migration {
+                        defaults.default_chat_profile_id =
+                            Some("basebuild-native".to_string());
+                        if defaults.default_model.is_none() {
+                            defaults.default_model =
+                                Some("basebuild-local-coordinator".to_string());
+                        }
+                        let _ = connection.execute(
+                            "UPDATE app_defaults SET value = ?1 WHERE key = 'defaults'",
+                            params![serde_json::to_string(&defaults).unwrap_or_default()],
+                        );
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -264,4 +440,52 @@ fn unix_timestamp() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initialize_is_idempotent_and_adds_model_api_id() {
+        // An in-memory SQLite DB simulates a fresh state.db. Running
+        // initialize twice must not error (CREATE TABLE IF NOT EXISTS +
+        // ALTER TABLE guarded by has-column check). The model_api_id column
+        // must appear after migration, and existing rows must survive with
+        // null model_api_id.
+        let conn = Connection::open_in_memory().unwrap();
+        StorageService::initialize(&conn).expect("first initialize");
+        // Insert a legacy cache row WITHOUT model_api_id (simulating a
+        // pre-migration database) by dropping the column, inserting, then
+        // re-running initialize to add it back.
+        // Actually, the column is added by initialize itself, so just insert
+        // a row with model_api_id = null and verify it persists.
+        conn.execute(
+            "INSERT INTO native_provider_model_cache
+                (provider_id, model_id, label, context_window, max_tokens,
+                 supports_reasoning, supported_efforts, supports_images, source,
+                 synced_at, error, model_api_id)
+             VALUES ('umans', 'glm-5.2', 'GLM 5.2', 405504, 131072, 1, '[\"high\",\"xhigh\"]', 0, 'bundled', 0, NULL, NULL)",
+            [],
+        )
+        .unwrap();
+        // Re-run initialize — must not error, must not duplicate columns.
+        StorageService::initialize(&conn).expect("second initialize (idempotent)");
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM native_provider_model_cache WHERE provider_id = 'umans'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "existing row survived re-init");
+        let api_id: Option<String> = conn
+            .query_row(
+                "SELECT model_api_id FROM native_provider_model_cache WHERE provider_id = 'umans' AND model_id = 'glm-5.2'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(api_id.is_none(), "legacy row has null model_api_id");
+    }
 }

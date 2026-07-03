@@ -26,7 +26,6 @@ type PlanPanelProps = {
   onDeletePlan: (id: string) => void;
   onCopyReference: (refId: string) => void;
   onOpenInTerminal: (plan: Plan) => void;
-  onEnhancePlan?: (plan: Plan) => void;
   showHeader?: boolean;
 };
 
@@ -44,7 +43,6 @@ export function PlanPanel({
   onDeletePlan,
   onCopyReference,
   onOpenInTerminal,
-  onEnhancePlan,
   showHeader = true,
 }: PlanPanelProps) {
   const [expandedFinished, setExpandedFinished] = useState(false);
@@ -157,7 +155,6 @@ export function PlanPanel({
                           onDeletePlan={onDeletePlan}
                           onCopyReference={onCopyReference}
                           onOpenInTerminal={onOpenInTerminal}
-                          onEnhancePlan={onEnhancePlan}
                         />
                       ))}
                     </div>
@@ -183,7 +180,6 @@ export function PlanPanel({
                       onDeletePlan={onDeletePlan}
                       onCopyReference={onCopyReference}
                       onOpenInTerminal={onOpenInTerminal}
-                      onEnhancePlan={onEnhancePlan}
                     />
                   ))}
                 </div>
@@ -204,7 +200,6 @@ type PlanCardProps = {
   onDeletePlan: (id: string) => void;
   onCopyReference: (refId: string) => void;
   onOpenInTerminal: (plan: Plan) => void;
-  onEnhancePlan?: (plan: Plan) => void;
 };
 
 function PlanCard({
@@ -215,7 +210,6 @@ function PlanCard({
   onDeletePlan,
   onCopyReference,
   onOpenInTerminal,
-  onEnhancePlan,
 }: PlanCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const isFinished = plan.status === "finished";
@@ -234,7 +228,7 @@ function PlanCard({
       >
         <span className="plan-card-ref">{plan.referenceId}</span>
         <span className="plan-card-title">{plan.title}</span>
-        {plan.aiEnhanced ? <Sparkles size={10} className="plan-card-ai" /> : null}
+        {plan.aiEnhanced ? <span className="plan-card-ai" /> : null}
       </button>
       <div className="plan-card-actions">
         {!isFinished ? (
@@ -299,18 +293,6 @@ function PlanCard({
                   Move to {PLAN_STATUS_LABEL[status]}
                 </button>
               ))}
-              {onEnhancePlan && !isFinished ? (
-                <button
-                  className="menu-item text-sm"
-                  type="button"
-                  onClick={() => {
-                    onEnhancePlan(plan);
-                    setMenuOpen(false);
-                  }}
-                >
-                  AI enhance
-                </button>
-              ) : null}
               {!isFinished ? (
                 <button
                   className="menu-item text-sm"

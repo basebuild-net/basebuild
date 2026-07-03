@@ -205,6 +205,20 @@ The `Plans` section inside the right panel exposes:
 - Per-plan actions: focus, edit, open in terminal, copy reference.
 - Collapse toggle at the panel header.
 
+### Chat composer
+
+The chat message list scrolls; the composer stays pinned to the bottom of the
+panel and is always visible at any window size — it is never scrolled off or
+clipped. The composer footer has a subtle top divider and carries a persistent,
+single-line control rail with provider status, model picker, effort selector,
+model refresh, connect/disconnect, and an overflow menu for lower-priority
+actions like "Generate ideas". The rail truncates labels and moves secondary
+actions into overflow before it wraps. While the model catalog loads, the
+selectors show placeholder skeletons. Every control has a tooltip. `/login`,
+`/model`, and `/models refresh` are keyboard accelerators for the same visible
+UI. Offline (local-coordinator) assistant replies carry an amber "Offline" tag
+so local output is never mistaken for a provider answer.
+
 ## Collapsible Columns
 
 At the top of both the left sidebar and right plan panel, a toggle button

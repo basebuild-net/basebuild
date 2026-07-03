@@ -7,7 +7,7 @@ Read this file before making any code or documentation change.
 
 - **Purpose**: Local-first desktop wrapper around OMP and terminal-based coding tools.
 - **Stack**: Tauri (Rust), React + TypeScript, SQLite local state.
-- **Design contract**: `DESIGN.md` is canonical. `src/styles/globals.css` is the only stylesheet.
+- **Design contract**: `DESIGN.md` is canonical but **visual/non-technical only** — visual language, layout intent, colors, spacing, states. NEVER put CSS class names, selectors, flex/grid mechanics, event names, or any implementation detail in `DESIGN.md`; those go in `docs/agents/design-system.md`. `src/styles/globals.css` is the only stylesheet.
 - **Privacy**: Local-first. No phone-home. Analytics disabled by default.
 - **No silent side effects**: No commits, PRs, installs, or file edits unless the user explicitly triggers them.
 
@@ -25,7 +25,7 @@ starting work in that area:
 | [`docs/agents/desktop-shell.md`](./docs/agents/desktop-shell.md) | Changing tabs, panels, workspace routing, or session state |
 
 Also see:
-- `DESIGN.md` — visual design contract
+- `DESIGN.md` — visual design contract (visual/non-technical only)
 - `docs/DEVELOPMENT.md` — build and architecture notes
 - `docs/SECRETS.md` — release/secrets (do not leak values)
 
@@ -85,7 +85,8 @@ When you change behavior, update its documentation in the same change:
 
 | Change | Document |
 |---|---|
-| Design tokens, layout, or CSS classes | `DESIGN.md` and `docs/agents/design-system.md` |
+| Visual design language (colors, spacing, states, layout intent) | `DESIGN.md` (visual/non-technical only) |
+| CSS classes, selectors, or layout mechanics | `docs/agents/design-system.md` (NOT `DESIGN.md`) |
 | Plan model, Project Schematic, or status semantics | This file and `.basebuild/project-schematic.md` |
 | Build / dev / secrets | `docs/DEVELOPMENT.md` or `docs/SECRETS.md` |
 | High-level project pitch or contribution | `README.md` |

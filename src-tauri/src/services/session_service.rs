@@ -114,6 +114,7 @@ impl SessionService {
         title: &str,
         terminal_id: Option<u64>,
         file_path: Option<&str>,
+        chat_session_id: Option<&str>,
     ) -> DbResult<SessionTab> {
         let tab = SessionTab {
             id: gen_id(),
@@ -122,12 +123,13 @@ impl SessionService {
             title: title.to_string(),
             terminal_id,
             file_path: file_path.map(|s| s.to_string()),
+            chat_session_id: chat_session_id.map(str::to_string),
             created_at: now(),
         };
         let conn = StorageService::connect()?;
         conn.execute(
-            "INSERT INTO session_tabs (id, session_id, kind, title, terminal_id, file_path, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![tab.id, tab.session_id, kind.as_str(), tab.title, tab.terminal_id, tab.file_path, tab.created_at],
+            "INSERT INTO session_tabs (id, session_id, kind, title, terminal_id, file_path, chat_session_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![tab.id, tab.session_id, kind.as_str(), tab.title, tab.terminal_id, tab.file_path, tab.chat_session_id, tab.created_at],
         ).map_err(|e| e.to_string())?;
         Self::touch_session(session_id)?;
         Ok(tab)
@@ -136,7 +138,7 @@ impl SessionService {
     pub fn list_tabs(session_id: &str) -> DbResult<Vec<SessionTab>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, kind, title, terminal_id, file_path, created_at FROM session_tabs WHERE session_id = ?1 ORDER BY created_at ASC",
+            "SELECT id, session_id, kind, title, terminal_id, file_path, chat_session_id, created_at FROM session_tabs WHERE session_id = ?1 ORDER BY created_at ASC",
         ).map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map(params![session_id], |row| {
@@ -148,7 +150,8 @@ impl SessionService {
                     title: row.get(3)?,
                     terminal_id: row.get(4)?,
                     file_path: row.get(5)?,
-                    created_at: row.get(6)?,
+                    chat_session_id: row.get(6)?,
+                    created_at: row.get(7)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -188,6 +191,16 @@ impl SessionService {
         conn.execute(
             "UPDATE session_tabs SET file_path = ?1 WHERE id = ?2",
             params![file_path, id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn update_tab_chat_session(id: &str, chat_session_id: Option<&str>) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "UPDATE session_tabs SET chat_session_id = ?1 WHERE id = ?2",
+            params![chat_session_id, id],
         )
         .map_err(|e| e.to_string())?;
         Ok(())
