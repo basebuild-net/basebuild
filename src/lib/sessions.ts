@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type TabKind = "terminal" | "empty" | "file" | "chat";
+export type TabKind = "terminal" | "empty" | "file" | "chat" | "omp";
 
 export type Session = {
   id: string;

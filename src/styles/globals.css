@@ -1427,3 +1427,36 @@ a { color: inherit; text-decoration: none; }
 .splash-progress-message { text-align: center; line-height: 1.4; }
 .splash-skip-check { margin-top: 8px; }
 .splash-error-copy { display: flex; justify-content: center; }
+
+/* ─── OMP Telemetry HUD ─── */
+.omp-terminal-tab { display: flex; flex-direction: column; height: 100%; }
+.omp-telemetry-hud { border-bottom: 1px solid var(--bb-border); padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; background: var(--bb-surface); }
+.omp-hud-header { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+.omp-hud-title { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--bb-text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.omp-hud-body { display: flex; flex-direction: column; gap: 2px; }
+.omp-hud-row { display: flex; gap: 8px; align-items: baseline; }
+.omp-hud-label { font-size: 11px; color: var(--bb-text-muted); min-width: 60px; }
+.omp-hud-value { font-size: 12px; }
+.omp-live-badge { display: inline-block; font-size: 10px; padding: 1px 4px; background: var(--bb-success, #22c55e); color: #fff; }
+.omp-stale-badge { display: inline-block; font-size: 10px; padding: 1px 4px; background: var(--bb-warning, #f59e0b); color: #fff; }
+.omp-windows { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+.omp-window-row { display: flex; align-items: center; gap: 6px; }
+.omp-window-label { font-size: 10px; color: var(--bb-text-muted); min-width: 24px; }
+.omp-window-bar { flex: 1; height: 4px; background: var(--bb-surface-high); overflow: hidden; }
+.omp-window-fill { height: 100%; background: var(--bb-text); transition: width 0.3s; }
+.omp-window-row.omp-sev-ok .omp-window-fill { background: var(--bb-success, #22c55e); }
+.omp-window-row.omp-sev-warning .omp-window-fill { background: var(--bb-warning, #f59e0b); }
+.omp-window-row.omp-sev-critical .omp-window-fill { background: var(--bb-danger, #ef4444); }
+.omp-window-row.is-stale .omp-window-fill { opacity: 0.4; }
+.omp-window-pct { font-size: 10px; min-width: 32px; text-align: right; }
+.omp-window-stale { font-size: 9px; color: var(--bb-text-muted); }
+.omp-terminal-body { flex: 1; overflow: hidden; min-height: 0; }
+
+/* ─── Usage Sync (Account page) ─── */
+.usage-window-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.usage-window-bar { flex: 1; height: 6px; background: var(--bb-surface-high); overflow: hidden; }
+.usage-window-fill { height: 100%; background: var(--bb-text); transition: width 0.3s; }
+.usage-window-row.is-stale .usage-window-fill { opacity: 0.4; }
+.usage-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.usage-table th { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--bb-border); font-weight: 600; color: var(--bb-text-muted); }
+.usage-table td { padding: 4px 6px; border-bottom: 1px solid var(--bb-border); }

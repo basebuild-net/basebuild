@@ -28,8 +28,35 @@ export function TerminalPanel({ terminalId, cwd, onOutput }: TerminalPanelProps)
     let unlisten: (() => void) | undefined;
     let disposed = false;
 
+    // Resolve once the container has a non-zero size. Opening xterm on a
+    // zero-size element crashes its viewport (`syncScrollArea` reads undefined
+    // render dimensions). This also protects against mounting a terminal in a
+    // collapsed/hidden panel.
+    function waitForSize(el: HTMLElement): Promise<boolean> {
+      return new Promise((resolve) => {
+        if (el.clientWidth > 0 && el.clientHeight > 0) {
+          resolve(true);
+          return;
+        }
+        const observer = new ResizeObserver(() => {
+          if (disposed) {
+            observer.disconnect();
+            resolve(false);
+          } else if (el.clientWidth > 0 && el.clientHeight > 0) {
+            observer.disconnect();
+            resolve(true);
+          }
+        });
+        observer.observe(el);
+      });
+    }
+
     async function init() {
-      if (!containerRef.current || disposed) return;
+      const container = containerRef.current;
+      if (!container || disposed) return;
+
+      const sized = await waitForSize(container);
+      if (!sized || disposed || !containerRef.current) return;
 
       const terminal = new Terminal({
         cursorBlink: true,
@@ -53,7 +80,11 @@ export function TerminalPanel({ terminalId, cwd, onOutput }: TerminalPanelProps)
       const fitAddon = new FitAddon();
       terminal.loadAddon(fitAddon);
       terminal.open(containerRef.current);
-      fitAddon.fit();
+      try {
+        fitAddon.fit();
+      } catch {
+        /* transient layout error; the resize handler + rAF refit will size it */
+      }
 
       if (disposed) {
         terminal.dispose();
@@ -93,8 +124,18 @@ export function TerminalPanel({ terminalId, cwd, onOutput }: TerminalPanelProps)
 
       setConnected(true);
 
-      const dims = fitAddon.proposeDimensions();
-      if (dims) void resizeTerminal(id, dims.rows, dims.cols);
+      // rAF refit once layout has settled (fixes the mount-time zero-size race
+      // in flex-wrapped containers such as the OMP tab).
+      requestAnimationFrame(() => {
+        if (disposed) return;
+        try {
+          fitAddon.fit();
+        } catch {
+          /* ignore transient layout errors */
+        }
+        const dims = fitAddon.proposeDimensions();
+        if (dims) void resizeTerminal(id, dims.rows, dims.cols);
+      });
     }
 
     void init();
@@ -111,7 +152,11 @@ export function TerminalPanel({ terminalId, cwd, onOutput }: TerminalPanelProps)
 
   useEffect(() => {
     function handleResize() {
-      fitAddonRef.current?.fit();
+      try {
+        fitAddonRef.current?.fit();
+      } catch {
+        return;
+      }
       if (terminalId != null) {
         const dims = fitAddonRef.current?.proposeDimensions();
         if (dims) void resizeTerminal(terminalId, dims.rows, dims.cols);

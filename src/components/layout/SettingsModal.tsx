@@ -7,6 +7,7 @@ import { type UpdaterState } from "../../state/updater";
 import { appVersion } from "../../lib/app";
 import { authStartDeviceFlow, authPollDeviceFlow, type PollResult } from "../../lib/auth";
 import { useAccount, type AccountState } from "../../state/account";
+import { useUsageSync } from "../../state/usageSync";
 import {
   nativeProviderCatalog,
   nativeProviderLoginStart,
@@ -561,6 +562,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
             {tab === "account" ? (
               <div className="stack">
                 <AccountPanel account={account} />
+                <UsageSyncPanel signedIn={!!account.profile} />
                 <ModelProvidersPanel />
               </div>
             ) : null}
@@ -732,6 +734,148 @@ function AccountPanel({ account }: { account: AccountState }) {
         </button>
       )}
       {error ? <p className="text-danger text-sm">{error}</p> : null}
+    </div>
+  );
+}
+
+function UsageSyncPanel({ signedIn }: { signedIn: boolean }) {
+  const { status, projected, loading, error, lastSyncResult, fetchProjected, triggerSync, setEnabled } =
+    useUsageSync(signedIn);
+  const [toggling, setToggling] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  if (!signedIn) {
+    return (
+      <div className="stack">
+        <h3>Usage Sync</h3>
+        <p className="text-muted text-sm">
+          Sign in to sync your OMP usage to basebuild.net and see projected provider usage here.
+        </p>
+      </div>
+    );
+  }
+
+  async function toggleAutoSync(enabled: boolean) {
+    setToggling(true);
+    try {
+      await setEnabled(enabled);
+    } finally {
+      setToggling(false);
+    }
+  }
+
+  async function syncNow() {
+    setSyncing(true);
+    try {
+      await triggerSync("manual");
+      await fetchProjected();
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  const liveRows = projected?.live.rows ?? [];
+  const snapshotRows = projected?.snapshot.rows ?? [];
+
+  return (
+    <div className="stack">
+      <h3>Usage Sync</h3>
+      <p className="text-muted text-sm">
+        Sync your OMP usage to basebuild.net. The app sends only aggregated usage stats
+        (model, provider, tokens, cost, timing) — never prompts, source code, or secrets.
+      </p>
+
+      <div className="row gap-sm" style={{ alignItems: "center", flexWrap: "wrap" }}>
+        <label className="row gap-sm" style={{ alignItems: "center" }}>
+          <input
+            type="checkbox"
+            checked={status?.enabled ?? false}
+            disabled={toggling}
+            onChange={(e) => void toggleAutoSync(e.target.checked)}
+            title="Enable hourly auto-sync to basebuild.net"
+          />
+          <span className="text-sm">Auto-sync every {status?.intervalMinutes ?? 60} min</span>
+        </label>
+        <button
+          className="btn btn-sm"
+          type="button"
+          title="Sync usage now"
+          disabled={syncing}
+          onClick={() => void syncNow()}
+        >
+          <RefreshCw size={12} /> Sync now
+        </button>
+        {status?.lastSyncAt ? (
+          <span className="text-muted text-sm">
+            Last sync: {new Date((status.lastSyncAt ?? 0) * 1000).toLocaleString()}
+          </span>
+        ) : null}
+      </div>
+
+      {status?.lastError ? (
+        <p className="text-danger text-sm" title={status.lastError}>
+          Last error: {status.lastError}
+        </p>
+      ) : null}
+      {lastSyncResult ? (
+        <p className={`text-sm ${lastSyncResult.ok ? "text-muted" : "text-danger"}`} title={lastSyncResult.message}>
+          {lastSyncResult.ok ? "✓ " : "✗ "}
+          {lastSyncResult.message}
+        </p>
+      ) : null}
+      {error ? <p className="text-danger text-sm">{error}</p> : null}
+      {loading ? <p className="text-muted text-sm">Loading…</p> : null}
+
+      {liveRows.length > 0 ? (
+        <div className="card">
+          <h4>Live Utilization</h4>
+          {liveRows.map((r) => {
+            const pct = Math.round(r.usedFraction * 100);
+            return (
+              <div
+                key={`${r.provider}-${r.window}`}
+                className={`usage-window-row ${r.isStale ? "is-stale" : ""}`}
+                title={`${r.provider} ${r.window}: ${pct}% used${r.resetsAt ? ` · resets ${r.resetsAt}` : ""}${r.isStale ? " · stale" : ""}`}
+              >
+                <span className="text-sm">{r.provider} · {r.window}</span>
+                <div className="usage-window-bar">
+                  <div className="usage-window-fill" style={{ width: `${pct}%` }} />
+                </div>
+                <span className="text-sm">{pct}%</span>
+                {r.isStale ? <span className="text-muted text-sm">stale</span> : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {snapshotRows.length > 0 ? (
+        <div className="card">
+          <h4>Per-Model Usage (last 7 days)</h4>
+          <table className="usage-table">
+            <thead>
+              <tr>
+                <th>Provider</th>
+                <th>Model</th>
+                <th>Req/day</th>
+                <th>Hrs/day</th>
+                <th>$/day</th>
+              </tr>
+            </thead>
+            <tbody>
+              {snapshotRows.map((r) => (
+                <tr key={`${r.provider}-${r.model}`}>
+                  <td>{r.provider}</td>
+                  <td>{r.model}</td>
+                  <td>{Math.round(r.requestsPerDay)}</td>
+                  <td>{r.hoursPerDay.toFixed(1)}</td>
+                  <td>{r.costPerDay != null ? `$${r.costPerDay.toFixed(2)}` : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
     </div>
   );
 }

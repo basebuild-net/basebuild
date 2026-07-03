@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FileText, LayoutTemplate, MessageSquare, Plus, TerminalSquare, X } from "lucide-react";
+import { FileText, LayoutTemplate, MessageSquare, Plus, TerminalSquare, X, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { SessionTab, TabKind } from "../../lib/sessions";
 
@@ -8,13 +8,17 @@ const kindIcons: Record<TabKind, LucideIcon> = {
   file: FileText,
   empty: LayoutTemplate,
   chat: MessageSquare,
+  omp: Zap,
 };
+
 type WorkspaceTabsProps = {
   tabs: SessionTab[];
   activeTabId: string | null;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
-  onCreateTab: (kind: "terminal" | "empty" | "chat") => void;
+  onCreateTab: (kind: "terminal" | "empty" | "chat" | "omp") => void;
+  /** Whether OMP is detected installed. When false, the "Oh My Pi" entry is hidden. */
+  ompInstalled?: boolean;
 };
 
 export function WorkspaceTabs({
@@ -23,6 +27,7 @@ export function WorkspaceTabs({
   onSelectTab,
   onCloseTab,
   onCreateTab,
+  ompInstalled = false,
 }: WorkspaceTabsProps) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -71,6 +76,11 @@ export function WorkspaceTabs({
               <button type="button" onClick={() => { onCreateTab("chat"); setMenuOpen(false); }}>
                 <MessageSquare size={12} /> Chat
               </button>
+              {ompInstalled ? (
+                <button type="button" onClick={() => { onCreateTab("omp"); setMenuOpen(false); }}>
+                  <Zap size={12} /> Oh My Pi
+                </button>
+              ) : null}
               <span className="add-menu-hint">Open a file from the Files panel</span>
             </div>
           ) : null}

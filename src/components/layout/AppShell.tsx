@@ -23,9 +23,11 @@ import { FirstRunModal } from "./FirstRunModal";
 import { useFirstRun } from "../../state/first-run";
 import { createTerminal } from "../../lib/terminal";
 import { TerminalPanel } from "../panels/TerminalPanel";
+import { OmpTerminalTab } from "../panels/OmpTerminalTab";
 import { FileViewer } from "../panels/FileViewer";
 import { ProjectSchematicTab } from "../panels/ProjectSchematicTab";
 import { ChatPanel } from "../panels/ChatPanel";
+import { ompStatus } from "../../lib/omp";
 import { SidePanel } from "./SidePanel";
 import { StatusBar } from "./StatusBar";
 import { LogPanel } from "./LogPanel";
@@ -74,7 +76,13 @@ export function AppShell({ updates }: AppShellProps) {
   const plans = usePlans(session.activeSessionId);
   const schematic = useProjectSchematic(activeProjectPath);
   const account = useAccount();
+  const [ompInstalled, setOmpInstalled] = useState(false);
 
+  useEffect(() => {
+    ompStatus()
+      .then((s) => setOmpInstalled(s.installed))
+      .catch(() => setOmpInstalled(false));
+  }, []);
   useEffect(() => {
     if (activeProjectPath && session.sessions.length === 0 && !session.activeSessionId) {
       void session.createSession();
@@ -402,9 +410,8 @@ export function AppShell({ updates }: AppShellProps) {
   ], [activeProjectPath, handleOpenFolder, handleCreateSession, sidebarCollapsed, sideCollapsed, gridView]);
 
   const activeTab = session.tabs.find((t) => t.id === session.activeTabId) ?? null;
-
   const handleCreateTab = useCallback(
-    async (kind: "terminal" | "empty" | "chat") => {
+    async (kind: "terminal" | "empty" | "chat" | "omp") => {
       if (!session.activeSessionId) return;
       if (kind === "empty") {
         await session.createTab("empty", "Schematic");
@@ -414,9 +421,15 @@ export function AppShell({ updates }: AppShellProps) {
         await session.createTab("chat", `Chat ${session.tabs.length + 1}`);
         return;
       }
+      if (kind === "omp") {
+        // Spawn OMP as a raw terminal in the project's working directory.
+        const term = await createTerminal("omp", activeProjectPath ?? undefined);
+        await session.createTab("omp", `Oh My Pi`, term.id);
+        return;
+      }
       await handleCreateTerminalTab();
     },
-    [session, handleCreateTerminalTab],
+    [session, handleCreateTerminalTab, activeProjectPath],
   );
 
   const handleResizeStart = useCallback(
@@ -526,6 +539,7 @@ export function AppShell({ updates }: AppShellProps) {
                 onSelectTab={session.setActiveTabId}
                 onCloseTab={(id) => void session.removeTab(id)}
                 onCreateTab={(kind) => void handleCreateTab(kind)}
+                ompInstalled={ompInstalled}
               />
             </>
           ) : null}
@@ -546,6 +560,10 @@ export function AppShell({ updates }: AppShellProps) {
                   <h3>No tab open</h3>
                   <p>Click + in the tab bar to create a terminal, schematic, or chat tab.</p>
                 </div>
+              ) : activeTab.kind === "empty" ? (
+                <ProjectSchematicTab projectPath={activeProjectPath} onOpenDescription={() => setDescriptionOpen(true)} />
+              ) : activeTab.kind === "omp" ? (
+                <OmpTerminalTab terminalId={activeTab.terminalId} onOutput={handleTerminalOutput} />
               ) : activeTab.kind === "chat" ? (
                 <ChatPanel
                   projectPath={activeProjectPath}
@@ -559,8 +577,6 @@ export function AppShell({ updates }: AppShellProps) {
                 />
               ) : activeTab.kind === "file" ? (
                 <FileViewer path={activeTab.filePath} />
-              ) : activeTab.kind === "empty" ? (
-                <ProjectSchematicTab projectPath={activeProjectPath} onOpenDescription={() => setDescriptionOpen(true)} />
               ) : activeTab.terminalId == null ? (
                 <div className="empty-state">
                   <LayoutTemplate size={32} className="text-muted" />
