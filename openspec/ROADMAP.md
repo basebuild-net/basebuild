@@ -20,13 +20,13 @@ node scripts/openspec-status.mjs --write
 4. `native-app-login-mcp` — device-auth account connection + first-party usage sync with basebuild.net.
 5. `harness-context-files` — system-prompt assembly: AGENTS.md discovery, schematic injection, skills metadata, context inspector. **After `native-agent-loop`** (feeds its budget guard).
 6. `connector-permission-gateway` — re-scoped 2026-07-03: permission broker now extends the `native-agent-loop` tool-approval substrate (task 1.1 gates on that merge).
+7. `diff-review-workflow` — per-run changeset baseline, file-level review (approve/revert/send-back), review gate before commit/PR final touches on queue runs. **After both in-flight changes.**
 
 ### Proposed (no artifacts yet — run `/propose <name>` when its turn comes)
 
 |Plan|Scope|Depends on|
 |---|---|---|
 |`session-compaction`|Summarize-and-continue history compaction past the truncation guard; explicitly deferred out of `native-agent-loop`.|`native-agent-loop`|
-|`diff-review-workflow`|Per-run diff review UI: inspect/approve/revert agent-made changes before final-touches commit/PR steps.|`native-agent-loop`, `plan-pipeline-harness`|
 |`harness-subagents`|Delegate scoped subtasks to parallel native sessions (omp task-tool parity) on top of the run queue + worktrees.|both in-flight changes|
 
 Full artifacts are deliberately **not** pre-generated for proposed plans — the two
@@ -45,6 +45,7 @@ _Last refreshed: 2026-07-03 (`node scripts/openspec-status.mjs --write`)_
 |`stabilize-and-agent-chat`|37/42|in progress|`/apply stabilize-and-agent-chat`|
 |`startup-update-splash`|17/20|in progress|`/apply startup-update-splash`|
 |`connector-permission-gateway`|0/29|not started|`/apply connector-permission-gateway`|
+|`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
 |`native-agent-loop`|0/34|not started|`/apply native-agent-loop`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|

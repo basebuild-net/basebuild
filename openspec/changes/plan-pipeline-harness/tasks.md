@@ -17,19 +17,19 @@
 
 ## 3. Idea → Plan Pipeline
 
-- [ ] 3.1 `pipeline_service.rs`: stage-run recording, per-run `CancellationToken`, cancel command; `pipeline.rs` Tauri commands + `src/lib/pipeline.ts` wrapper + run events.
-- [ ] 3.2 Implement stages over the native harness: generate idea categories, generate ideas (per category/freeform), enhance idea → draft plan; prompt templates as bundled skills with project schematic context.
-- [ ] 3.3 Pick flow: multi-select promote in `IdeasPanel.tsx` → linked draft plans (`idea_id`), idea → `picked`; idea card shows derived plan status/link.
-- [ ] 3.4 Pipeline UI: stage buttons, per-run status/error display, cancel buttons in `IdeasPanel.tsx`/`PlanPanel.tsx`; tooltips on all controls.
-- [ ] 3.5 Tests: stage lifecycle transitions, cancellation aborts request and records `cancelled`, promotion linkage (Rust unit + UI smoke).
+- [x] 3.1 `pipeline_service.rs`: stage-run recording, per-run `CancellationToken`, cancel command; `pipeline.rs` Tauri commands + `src/lib/pipeline.ts` wrapper + run events.
+- [x] 3.2 Implement stages over the native harness: generate idea categories, generate ideas (per category/freeform), enhance idea → draft plan; prompt templates as bundled skills with project schematic context.
+- [x] 3.3 Pick flow: multi-select promote in `IdeasPanel.tsx` → linked draft plans (`idea_id`), idea → `picked`; idea card shows derived plan status/link.
+- [x] 3.4 Pipeline UI: stage buttons, per-run status/error display, cancel buttons in `IdeasPanel.tsx`/`PlanPanel.tsx`; tooltips on all controls.
+- [x] 3.5 Tests: stage lifecycle transitions, cancellation aborts request and records `cancelled`, promotion linkage (Rust unit + UI smoke).
 
 ## 4. OpenSpec Artifacts
 
-- [ ] 4.1 `openspec_service.rs`: change-name derivation (kebab-case + collision suffix), atomic artifact writes to `<project>/openspec/changes/<name>/`, `.openspec.yaml` stamping.
-- [ ] 4.2 Bundled skills `basebuild-openspec-proposal/-specs/-design/-tasks` driving generation as a pipeline stage; `draft → openspec` transition gated on all files written.
-- [ ] 4.3 `tasks.md` checkbox parser + progress on plan model; refresh on file change/open; plan card progress display.
-- [ ] 4.4 Review affordance: open generated artifacts in the file viewer; explicit action advances `openspec → ready`.
-- [ ] 4.5 Tests: name collision handling, atomic write (no partial change dir on failure), checkbox parsing edge cases.
+- [x] 4.1 `openspec_service.rs`: change-name derivation (kebab-case + collision suffix), atomic artifact writes to `<project>/openspec/changes/<name>/`, `.openspec.yaml` stamping.
+- [x] 4.2 Bundled skills `basebuild-openspec-proposal/-specs/-design/-tasks` driving generation as a pipeline stage; `draft → openspec` transition gated on all files written.
+- [x] 4.3 `tasks.md` checkbox parser + progress on plan model; refresh on file change/open; plan card progress display.
+- [x] 4.4 Review affordance: open generated artifacts in the file viewer; explicit action advances `openspec → ready`.
+- [x] 4.5 Tests: name collision handling, atomic write (no partial change dir on failure), checkbox parsing edge cases.
 
 ## 5. Slash Command Registry
 
