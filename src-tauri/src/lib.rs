@@ -12,7 +12,7 @@ static APP_HANDLE: LazyLock<Mutex<Option<AppHandle>>> = LazyLock::new(|| Mutex::
 use app_state::AppState;
 use commands::{
     agent::{agent_capabilities, agent_send, agent_start, agent_stop},
-     app::app_version,
+     app::{app_version, open_url},
     auth::{
         auth_fetch_profile, auth_get_token, auth_poll_device_flow, auth_sign_out,
         auth_start_device_flow, auth_status,
@@ -184,6 +184,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_version,
+            open_url,
             remember_recent_project,
             list_recent_projects,
             detect_project,

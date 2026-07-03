@@ -85,6 +85,8 @@ test.describe("native chat workspace", () => {
     await page.getByTitle(/Chat input/).first().fill("should not send yet");
     await page.getByTitle("Send message").click();
     await expect(page.locator(".chat-login-form")).toBeVisible();
+    await expect(page.locator(".chat-login-form input[placeholder='API key']")).toBeVisible();
+    await expect(page.locator(".chat-link-btn", { hasText: "Get API key" })).toBeVisible();
     await expect(page.locator(".chat-message-user")).toHaveCount(0);
     await expect(page.getByTitle(/Chat input/).first()).toHaveValue("should not send yet");
 

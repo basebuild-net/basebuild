@@ -949,6 +949,8 @@ a { color: inherit; text-decoration: none; }
 .chat-health-spacer { flex: 1; }
 .chat-offline-tag { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--bb-warning); border: 1px solid var(--bb-warning); padding: 0 4px; margin-left: 6px; }
 .chat-inline-menu, .chat-picker, .chat-command-notice { border-top: 1px solid var(--bb-border); background: var(--bb-surface); flex-shrink: 0; }
+.chat-link-btn { background: none; border: none; color: var(--bb-cta); font-size: 11px; padding: 0; cursor: pointer; text-decoration: underline; display: inline; }
+.chat-link-btn:hover { color: var(--bb-cta-hover, #ff7a3d); }
 .chat-inline-menu { display: flex; justify-content: flex-end; padding: 4px; }
 .chat-inline-menu-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; color: var(--bb-text); font-size: 11px; width: 100%; text-align: left; }
 .chat-inline-menu-item:hover { background: var(--bb-surface-high); }

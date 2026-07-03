@@ -43,7 +43,8 @@ export type NativeProvider = {
   configured: boolean;
   localOnly: boolean;
   detail: string;
-  supportsWebLogin: boolean;
+  authMethod: "local" | "api_key" | "oauth" | string;
+  apiKeyUrl: string | null;
   modelCount: number;
   lastSyncedAt: number | null;
   source: "bundled" | "provider_discovered" | "cli_discovered" | "hosted_fallback" | "stale_cache" | "unavailable" | string;

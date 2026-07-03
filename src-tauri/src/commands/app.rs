@@ -7,3 +7,9 @@
 pub fn app_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
+
+/// Open a URL in the system browser. Used for provider API-key pages.
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    open::that(&url).map_err(|e| format!("Failed to open URL: {e}"))
+}

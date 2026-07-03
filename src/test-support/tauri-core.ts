@@ -271,9 +271,9 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "native_provider_catalog_refresh":
       return {
         providers: [
-          { id: "basebuild-local", label: "Basebuild Local", status: "ready", credentialOwner: "basebuild", configured: true, localOnly: true, detail: "Local coordinator", supportsWebLogin: false, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "openai", label: "OpenAI", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", supportsWebLogin: true, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "umans", label: "Umans", status: "ready", credentialOwner: "user", configured: true, localOnly: false, detail: "Connected", supportsWebLogin: true, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "provider_discovered", error: null },
+          { id: "basebuild-local", label: "Basebuild Local", status: "ready", credentialOwner: "basebuild", configured: true, localOnly: true, detail: "Local coordinator", authMethod: "local", apiKeyUrl: null, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+          { id: "openai", label: "OpenAI", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.openai.com/api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+          { id: "umans", label: "Umans", status: "ready", credentialOwner: "user", configured: true, localOnly: false, detail: "Connected", authMethod: "api_key", apiKeyUrl: "https://app.umans.ai/billing?context=personal&tab=api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "provider_discovered", error: null },
         ],
         models: [
           { id: "basebuild-local-coordinator", providerId: "basebuild-local", label: "Local Coordinator", supportsEffort: true, supportsStreaming: false, localOnly: true, contextWindow: null, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "bundled" },
@@ -517,6 +517,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "auth_get_token":
       return (s.auth?.accessToken ?? null) as T;
+    case "open_url":
+      return undefined as T;
     default:
       throw new Error(`Unhandled E2E Tauri command: ${command}`);
   }

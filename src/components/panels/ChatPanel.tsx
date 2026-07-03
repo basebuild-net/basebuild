@@ -3,7 +3,6 @@ import {
   AlertCircle,
   BarChart3,
   Brain,
-  Globe,
   Key,
   Lightbulb,
   RefreshCw,
@@ -16,6 +15,7 @@ import { listen } from "@tauri-apps/api/event";
 
 import { agentStart, agentSend, agentStop } from "../../lib/agent";
 import { getRuntimeDefaults } from "../../lib/settings";
+import { openUrl } from "../../lib/app";
 import {
   nativeChatMessages,
   nativeChatSend,
@@ -593,6 +593,14 @@ export function ChatPanel({
     stopLoginPoll();
   }, [selectedProvider, stopLoginPoll]);
 
+  const openApiKeyUrl = useCallback((url: string) => {
+    return openUrl(url).catch((e) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to open API key URL", msg);
+      setLoginError(msg);
+    });
+  }, [addLog]);
+
   const handleDisconnect = useCallback(async () => {
     if (!selectedProvider) return;
     try {
@@ -808,7 +816,7 @@ export function ChatPanel({
         </div>
       ) : null}
 
-      {/* Provider login panel: web flow + API key fallback */}
+      {/* Provider login panel: in-app API key entry + link to provider's key page */}
       {nativeMode && showLogin && selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID ? (
         <div className="chat-login-form">
           <div className="chat-login-header">
@@ -826,26 +834,12 @@ export function ChatPanel({
               <X size={11} />
             </button>
           </div>
-          {loginPolling ? (
-            <>
-              <p className="chat-login-hint">
-                Waiting for the browser… Get an API key on the {selectedProvider.label} page, paste it, and Connect.
-              </p>
-              <button className="btn btn-sm" type="button" title="Cancel web login" onClick={cancelWebLogin}>
-                Cancel
-              </button>
-            </>
-          ) : (
-            <button
-              className="btn btn-primary btn-sm"
-              type="button"
-              title={`Open ${selectedProvider.label} in your browser to connect`}
-              onClick={() => void startWebLogin()}
-            >
-              <Globe size={12} /> Connect with {selectedProvider.label}
-            </button>
-          )}
-          <div className="chat-login-sep">or paste an API key</div>
+          <p className="chat-login-hint">
+            Enter your {selectedProvider.label} API key below.
+            {selectedProvider.apiKeyUrl ? (
+              <> Need a key? <button className="chat-link-btn" type="button" title={`Open ${selectedProvider.label} key page`} onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}>Get API key →</button></>
+            ) : null}
+          </p>
           <input
             className="input chat-login-input"
             type="password"
@@ -862,7 +856,7 @@ export function ChatPanel({
             title="Custom API base URL (optional)"
           />
           <button
-            className="btn btn-sm"
+            className="btn btn-primary btn-sm"
             type="button"
             title="Save API key and connect"
             disabled={!apiKey.trim() || savingCred}
