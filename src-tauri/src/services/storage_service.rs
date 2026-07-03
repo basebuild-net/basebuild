@@ -321,6 +321,13 @@ impl StorageService {
                     side_width INTEGER NOT NULL DEFAULT 260,
                     updated_at INTEGER NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS usage_sync_settings (
+                    key TEXT PRIMARY KEY NOT NULL,
+                    auto_sync_usage INTEGER NOT NULL DEFAULT 0,
+                    auto_sync_interval_minutes INTEGER NOT NULL DEFAULT 60,
+                    last_usage_sync_at INTEGER
+                );
                 ",
             )
             .map_err(|error| format!("Failed to initialize Basebuild state database: {error}"))?;

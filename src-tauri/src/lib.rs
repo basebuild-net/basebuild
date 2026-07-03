@@ -36,6 +36,9 @@ use commands::{
     omp::{
         omp_config_list, omp_debug_context, omp_stats, omp_status, omp_stream_command, omp_usage,
     },
+    omp_telemetry::{
+        omp_telemetry_refresh, omp_telemetry_snapshot, omp_telemetry_start, omp_telemetry_stop,
+    },
     native_chat::{
         native_chat_get, native_chat_list, native_chat_messages, native_chat_send,
         native_chat_start, native_catalog_sync, native_delete_provider_credential,
@@ -66,9 +69,12 @@ use commands::{
         rename_session, update_tab_chat_session, update_tab_file_path, update_tab_terminal,
     },
     skills::read_skill,
+    sync::{
+        sync_raw_usage_native, usage_sync_projected_usage, usage_sync_set_enabled,
+        usage_sync_status, usage_sync_trigger,
+    },
      terminal::{close_terminal, create_terminal, list_terminals, resize_terminal, write_terminal},
     workspace::{get_workspace_restore_state, save_workspace_restore_state},
-    sync::sync_raw_usage_native,
     updater::{
         check_for_updates, clear_skipped_update, get_skipped_update_version,
         install_update, install_update_with_progress, skip_update_version,
@@ -165,21 +171,43 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // Start the OMP telemetry polling loop (publishes omp-telemetry://update).
+            // Cheap: only polls when OMP is installed; otherwise emits detached state.
+            crate::services::omp_telemetry_service::OmpTelemetryService::start_loop(app.handle().clone());
+            // Start the auto-sync loop (off by default; gates re-checked each tick).
+            crate::services::sync_service::start_autosync_loop(app.handle().clone());
+
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                use tauri::Manager;
-                let should_exit = window
-                    .app_handle()
-                    .try_state::<CloseToTrayState>()
-                    .and_then(|s| s.force_exit.lock().ok().map(|g| *g))
-                    .unwrap_or(false);
+            use tauri::Manager;
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    use tauri::Manager;
+                    let should_exit = window
+                        .app_handle()
+                        .try_state::<CloseToTrayState>()
+                        .and_then(|s| s.force_exit.lock().ok().map(|g| *g))
+                        .unwrap_or(false);
 
-                if !should_exit {
-                    api.prevent_close();
-                    let _ = window.hide();
+                    if !should_exit {
+                        api.prevent_close();
+                        let _ = window.hide();
+                        // Opportunistic sync trigger: window hidden but process alive.
+                        crate::services::sync_service::trigger_sync(
+                            window.app_handle().clone(),
+                            "window-hidden",
+                        );
+                    }
                 }
+                tauri::WindowEvent::Focused(false) => {
+                    // Best-effort sync when the app loses focus (user stepping away).
+                    crate::services::sync_service::trigger_sync(
+                        window.app_handle().clone(),
+                        "focus-lost",
+                    );
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -203,6 +231,10 @@ pub fn run() {
             omp_usage,
             omp_debug_context,
             omp_stream_command,
+            omp_telemetry_start,
+            omp_telemetry_stop,
+            omp_telemetry_snapshot,
+            omp_telemetry_refresh,
             get_project_schematic,
             has_project_schematic,
             set_project_schematic,
@@ -302,8 +334,11 @@ pub fn run() {
             auth_sign_out,
             auth_get_token,
             sync_raw_usage_native,
+            usage_sync_trigger,
+            usage_sync_set_enabled,
+            usage_sync_status,
+            usage_sync_projected_usage,
             get_workspace_restore_state,
-            save_workspace_restore_state,
              check_for_updates,
              install_update,
             install_update_with_progress,

@@ -2,13 +2,12 @@ use rusqlite::params;
 
 use crate::{
     models::{
-        permission::{AuditEntry, PermissionRules},
+        permission::{AuditEntry, PermissionRules, UsageSyncSettings},
         runtime::{RuntimeDefaults, RuntimeProfile, RuntimeProfileKind, WorkingDirectoryMode},
     },
     services::process_helpers::hidden_command,
     services::storage_service::StorageService,
 };
-
 type DbResult<T> = Result<T, String>;
 
 #[allow(dead_code)]
@@ -293,6 +292,38 @@ impl SettingsService {
         let conn = StorageService::connect()?;
         conn.execute("DELETE FROM audit_trail", [])
             .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    // ─── Usage Sync ───
+
+    pub fn get_usage_sync_settings() -> DbResult<UsageSyncSettings> {
+        let conn = StorageService::connect()?;
+        let value: Option<String> = conn
+            .query_row(
+                "SELECT value FROM usage_sync_settings WHERE key = 'settings'",
+                [],
+                |r| r.get(0),
+            )
+            .ok();
+        match value {
+            Some(v) => serde_json::from_str(&v).map_err(|e| e.to_string()),
+            None => Ok(UsageSyncSettings {
+                auto_sync_usage: false,
+                auto_sync_interval_minutes: 60,
+                last_usage_sync_at: None,
+            }),
+        }
+    }
+
+    pub fn set_usage_sync_settings(settings: &UsageSyncSettings) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO usage_sync_settings (key, value) VALUES ('settings', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![serde_json::to_string(settings).map_err(|e| e.to_string())?],
+        )
+        .map_err(|e| e.to_string())?;
         Ok(())
     }
 }

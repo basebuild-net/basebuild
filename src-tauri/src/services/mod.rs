@@ -6,6 +6,7 @@ pub mod auth_service;
  pub mod file_service;
  pub mod git_service;
 pub mod omp_service;
+pub mod omp_telemetry_service;
 pub mod plan_service;
 pub mod provider_client;
 pub mod provider_login_service;
