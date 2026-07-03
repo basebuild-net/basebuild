@@ -53,16 +53,15 @@ _Last refreshed: 2026-07-03 (`node scripts/openspec-status.mjs --write`)_
 |`native-app-login-mcp`|0/20|not started|
 |`strong-testing-suite`|0/19|not started|
 |`desktop-catalog-sync`|0/0|no tasks|
-|`chat-context-defaults`|67/67|complete — archive|
-|`fix-native-chat-composer-and-harness`|27/27|complete — archive|
-|`fix-update-terminal-launch`|22/22|complete — archive|
-|`native-harness-ide-chat`|23/23|complete — archive|
-|`provider-model-command-ui`|27/27|complete — archive|
 <!-- status:end -->
 
-## Archive candidates
+## Archiving
 
-Changes at `complete — archive` should be archived (`/archive <name>`) to merge
-their delta specs into `openspec/specs/`. The straggler verification tasks for
-`stabilize-and-agent-chat`, `startup-update-splash`, and `omp-ide-sync` are
-phase 1 of `native-agent-loop`.
+Changes at `complete — archive` get archived (`/archive <name>`): delta specs
+merge into canonical `openspec/specs/` and the folder moves to
+`openspec/changes/archive/<date>-<name>/`. First batch (5 changes, 17 canonical
+specs) archived 2026-07-03 — new proposals must now check `openspec/specs/`
+and mark overlapping capabilities as **Modified**, not New.
+
+The straggler verification tasks for `stabilize-and-agent-chat`,
+`startup-update-splash`, and `omp-ide-sync` are phase 1 of `native-agent-loop`.

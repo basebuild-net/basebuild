@@ -28,7 +28,7 @@ function countTasks(tasksPath) {
 function collect() {
   const rows = [];
   for (const entry of readdirSync(CHANGES_DIR, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
+    if (!entry.isDirectory() || entry.name === "archive") continue;
     const tasksPath = join(CHANGES_DIR, entry.name, "tasks.md");
     if (!existsSync(tasksPath)) {
       rows.push({ name: entry.name, open: 0, done: 0, total: 0, status: "no tasks" });
