@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Download, Globe, Key, Lock, LogOut, RefreshCw, Settings2, Shield, Trash2, Unplug, User, X } from "lucide-react";
+import { AlertTriangle, Check, Download, Globe, Key, Lock, LogOut, Plug, RefreshCw, Settings2, Shield, Trash2, Unplug, User, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { CopyButton } from "./CopyButton";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
@@ -40,6 +40,16 @@ import {
   exportAnalyticsJson,
   type AnalyticsConsent,
 } from "../../lib/analytics";
+import {
+  mcpReload,
+  mcpListServers,
+  mcpDisconnect,
+  mcpOAuthStart,
+  mcpOAuthPoll,
+  mcpOAuthCancel,
+  type ServerState as McpServerState,
+  type LoadResult as McpLoadResult,
+} from "../../lib/mcp";
 
 type SettingsModalProps = {
   open: boolean;
@@ -49,7 +59,7 @@ type SettingsModalProps = {
   updates: UpdaterState;
 };
 
-type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "about";
+type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "mcp" | "about";
 
 export function SettingsModal({ open, onClose, projectPath, account, updates }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
@@ -71,6 +81,12 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
   const [consent, setConsent] = useState<AnalyticsConsent | null>(null);
   const [eventCount, setEventCount] = useState(0);
 
+  // MCP state
+  const [mcpServers, setMcpServers] = useState<McpServerState[]>([]);
+  const [mcpErrors, setMcpErrors] = useState<string[]>([]);
+  const [mcpLoading, setMcpLoading] = useState(false);
+  const [oauthPollUrl, setOauthPollUrl] = useState<string | null>(null);
+
   useEffect(() => {
     if (!open) return;
     void refreshReq();
@@ -78,6 +94,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
     void refreshDefaults();
     void refreshPermissions();
     void refreshAnalytics();
+    if (projectPath) void refreshMcp();
   }, [open]);
 
   async function refreshReq() {
@@ -88,6 +105,20 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
       // ignore
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function refreshMcp() {
+    if (!projectPath) return;
+    setMcpLoading(true);
+    try {
+      const result = await mcpReload(projectPath);
+      setMcpServers(await mcpListServers(projectPath));
+      setMcpErrors(result.errors.map((e) => `${e.file}: ${e.server}: ${e.message}`));
+    } catch {
+      // ignore
+    } finally {
+      setMcpLoading(false);
     }
   }
 
@@ -194,6 +225,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
     { id: "privacy", label: "Privacy", icon: Shield },
     { id: "account", label: "Account", icon: User },
     { id: "configs", label: "Config Packs", icon: Settings2 },
+    { id: "mcp", label: "MCP Servers", icon: Plug },
     { id: "about", label: "About", icon: Check },
   ];
 
@@ -563,7 +595,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                     <span className="requirement-badge is-ok">✓</span>
                     <div>
                       <div className="requirement-name">Analytics disabled</div>
-                      <div className="requirement-detail text-muted text-sm">No usage data is being collected or uploaded.</div>
+                      <div className="text-muted text-sm">No data leaves this device.</div>
                     </div>
                   </div>
                 ) : null}
@@ -572,6 +604,82 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
 
             {/* ─── Config Packs ─── */}
             {tab === "configs" ? <ConfigPanel projectPath={projectPath} /> : null}
+
+            {/* ─── MCP Servers ─── */}
+            {tab === "mcp" ? (
+              <div className="stack">
+                <div className="settings-section-header">
+                  <h3>MCP Servers</h3>
+                  <button
+                    className="btn btn-sm"
+                    type="button"
+                    title="Reload MCP server configs from disk"
+                    disabled={mcpLoading || !projectPath}
+                    onClick={() => void refreshMcp()}
+                  >
+                    <RefreshCw size={14} />
+                    Reload
+                  </button>
+                </div>
+                <p className="text-muted text-sm">
+                  MCP servers are defined in <code>.omp/mcp.json</code> (project) or <code>~/.omp/agent/mcp.json</code> (user). Configure once — shared with oh-my-pi.
+                </p>
+                {mcpErrors.length > 0 ? (
+                  <div className="callout callout-warn">
+                    {mcpErrors.map((e, i) => (
+                      <div key={i}>{e}</div>
+                    ))}
+                  </div>
+                ) : null}
+                {mcpServers.length === 0 ? (
+                  <p className="text-muted text-sm">No MCP servers configured.</p>
+                ) : (
+                  <div className="stack">
+                    {mcpServers.map((s) => (
+                      <div key={s.name} className="settings-row">
+                        <div className="settings-row-info">
+                          <div className="settings-row-label">{s.name}</div>
+                          <div className="text-muted text-sm">
+                            {s.source} · {s.state}
+                            {s.toolCount > 0 ? ` · ${s.toolCount} tools` : ""}
+                            {s.promptCount > 0 ? ` · ${s.promptCount} prompts` : ""}
+                            {s.error ? ` · ${s.error}` : ""}
+                          </div>
+                        </div>
+                        <div className="settings-row-actions">
+                          {s.state === "connected" ? (
+                            <button
+                              className="btn btn-sm"
+                              type="button"
+                              title="Disconnect this server"
+                              disabled={!projectPath}
+                              onClick={() => {
+                                if (!projectPath) return;
+                                void mcpDisconnect(projectPath, s.name).then(() => refreshMcp());
+                              }}
+                            >
+                              <Unplug size={14} />
+                              Disconnect
+                            </button>
+                          ) : (
+                            <button
+                              className="btn btn-sm"
+                              type="button"
+                              title="Reconnect this server"
+                              disabled={mcpLoading || !projectPath}
+                              onClick={() => void refreshMcp()}
+                            >
+                              <RefreshCw size={14} />
+                              Connect
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
 
             {/* ─── Account ─── */}
             {tab === "account" ? (

@@ -112,6 +112,64 @@ pub fn discover_commands(project_path: &str) -> Vec<SlashCommand> {
     commands
 }
 
+/// Merge MCP prompt commands into a discovered command list.
+///
+/// MCP prompts are dynamic (require a live connection) so they're added after
+/// the static `discover_commands` call. On name collision with an existing
+/// command (builtin, file-based, or another MCP prompt), the MCP prompt is
+/// prefixed with its server name: `/<server>-<prompt-name>`.
+///
+/// Each MCP prompt entry carries the server name so the caller can route the
+/// command to `mcp_get_prompt` with the correct server.
+pub fn merge_mcp_prompts(
+    mut commands: Vec<SlashCommand>,
+    mcp_prompts: &[(String, String, String)],
+) -> Vec<SlashCommand> {
+    // Build the set of existing command names for collision detection.
+    let mut existing: std::collections::HashSet<String> = commands.iter().map(|c| c.name.clone()).collect();
+
+    for (server, prompt_name, description) in mcp_prompts {
+        let name = if existing.contains(prompt_name) {
+            // Collision — prefix with server name.
+            let prefixed = format!("{server}-{prompt_name}");
+            if existing.contains(&prefixed) {
+                // Still collides — skip. First-wins.
+                continue;
+            }
+            prefixed
+        } else {
+            prompt_name.clone()
+        };
+
+        existing.insert(name.clone());
+        commands.push(SlashCommand {
+            name,
+            description: description.clone(),
+            source: "mcp".to_string(),
+            priority: PRIORITY_MCP,
+            shadowed: false,
+            file_path: None,
+            body: None,
+        });
+    }
+
+    // Re-sort so MCP commands sort after higher-priority sources.
+    commands.sort_by(|a, b| b.priority.cmp(&a.priority));
+    // Re-mark shadowed status.
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    for (i, cmd) in commands.iter_mut().enumerate() {
+        if let Some(&first_idx) = seen.get(&cmd.name) {
+            cmd.shadowed = true;
+            let _ = first_idx;
+        } else {
+            cmd.shadowed = false;
+            seen.insert(cmd.name.clone(), i);
+        }
+    }
+
+    commands
+}
+
 /// The builtin command manifest: commands that execute UI actions immediately
 /// rather than expanding into a prompt.
 fn builtin_commands() -> Vec<(String, String)> {

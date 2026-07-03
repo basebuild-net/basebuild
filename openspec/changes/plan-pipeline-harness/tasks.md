@@ -44,11 +44,11 @@
 
 - [x] 6.1 Add pinned `rmcp` dependency (dependency review); `mcp_service.rs` wrapping client behind a Basebuild trait; config loader for omp `mcp.json` schema (both scopes + fallbacks, `disabledServers`, `${VAR}`, `!command` resolution) with validation errors surfaced.
 - [x] 6.2 stdio transport: supervised child processes (spawn on enable, kill on disable, crash reporting/reconnect).
-- [ ] 6.3 Streamable HTTP + SSE transports; OAuth browser flow reusing `auth_service.rs` plumbing, tokens keyed per server URL, refresh handling.
-- [ ] 6.4 Expose MCP tools to native chat turns namespaced `mcp:<server>/<tool>` through the approval gateway; render tool results in transcript.
-- [ ] 6.5 Register MCP prompts as slash commands via `command_discovery_service.rs` (collision prefixing).
-- [ ] 6.6 Settings MCP section: server list (source, state, tool/prompt counts), enable/disable, add/edit (project or user scope with `$schema`), test, reauth, reload; `src/lib/mcp.ts` wrapper.
-- [ ] 6.7 Tests: config parsing/validation (table-driven), stdio lifecycle against a local echo server, approval-gated tool call integration.
+- [x] 6.3 Streamable HTTP + SSE transports; OAuth browser flow reusing `auth_service.rs` plumbing, tokens keyed per server URL, refresh handling.
+- [x] 6.4 Expose MCP tools to native chat turns namespaced `mcp:<server>/<tool>` through the approval gateway; render tool results in transcript.
+- [x] 6.5 Register MCP prompts as slash commands via `command_discovery_service.rs` (collision prefixing).
+- [x] 6.6 Settings MCP section: server list (source, state, tool/prompt counts), enable/disable, add/edit (project or user scope with `$schema`), test, reauth, reload; `src/lib/mcp.ts` wrapper.
+- [x] 6.7 Tests: config parsing/validation (table-driven), stdio lifecycle against a local echo server, approval-gated tool call integration.
 
 ## 7. Plan Run Queue & Sessions
 

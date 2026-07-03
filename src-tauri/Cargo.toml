@@ -31,6 +31,10 @@ which = "6"
 parking_lot = "0.12"
 rmcp = { version = "2.1", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "auth"] }
 tokio = { version = "1", features = ["process", "rt-multi-thread", "macros"] }
+async-trait = "0.1.89"
+http = "1.4.2"
+oauth2 = "5.0"
+regex = "1"
 
 [dev-dependencies]
 tempfile = "3"

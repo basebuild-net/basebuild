@@ -5,6 +5,7 @@ pub mod app;
 pub mod config_packs;
 pub mod files;
 pub mod git;
+pub mod mcp;
 pub mod ideas;
 pub mod omp;
 pub mod omp_telemetry;
