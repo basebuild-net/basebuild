@@ -11,6 +11,7 @@ import {
   Unplug,
   X,
 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 import { agentStart, agentSend, agentStop } from "../../lib/agent";
@@ -18,7 +19,9 @@ import { getRuntimeDefaults } from "../../lib/settings";
 import { openUrl } from "../../lib/app";
 import {
   nativeChatMessages,
+  nativeChatModelDefault,
   nativeChatSend,
+  nativeChatSetProjectModelDefault,
   nativeChatStart,
   nativeDeleteProviderCredential,
   nativeGenerateIdeas,
@@ -29,6 +32,7 @@ import {
   nativeProviderLoginStart,
   nativeRequestMetricsSummary,
   nativeSaveProviderCredential,
+  type ChatModelDefault,
   type NativeChatMessage,
   type NativeProviderCatalog,
   type NativeRequestMetricsSummary,
@@ -78,13 +82,14 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
+  const [metrics, setMetrics] = useState<NativeRequestMetricsSummary | null>(null);
   const [nativeSessionId, setNativeSessionId] = useState<string | null>(chatSessionId ?? null);
   const [nativeMessages, setNativeMessages] = useState<NativeChatMessage[]>([]);
   const [legacyMessages, setLegacyMessages] = useState<LegacyChatMessage[]>([]);
-  const [metrics, setMetrics] = useState<NativeRequestMetricsSummary | null>(null);
   const [providerId, setProviderId] = useState(LOCAL_PROVIDER_ID);
   const [modelId, setModelId] = useState("basebuild-local-coordinator");
   const [effortLevel, setEffortLevel] = useState("medium");
+  const [modelNotice, setModelNotice] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [stuck, setStuck] = useState(false);
@@ -154,18 +159,20 @@ export function ChatPanel({
     let cancelled = false;
     async function load() {
       try {
-        const [defaults, cat, met] = await Promise.all([
+        const [defaults, cat, met, resolved] = await Promise.all([
           getRuntimeDefaults(),
           nativeProviderCatalog(),
           nativeRequestMetricsSummary(),
+          nativeChatModelDefault(projectPath),
         ]);
         if (cancelled) return;
         setProfileId(defaults.defaultChatProfileId ?? NATIVE_PROFILE_ID);
         setCatalog(cat);
         setMetrics(met);
-        setProviderId(cat.defaultProviderId);
-        setModelId(defaults.defaultModel ?? cat.defaultModelId);
-        setEffortLevel(cat.defaultEffortLevel);
+        setProviderId(resolved.providerId);
+        setModelId(resolved.modelId);
+        setEffortLevel(resolved.effortLevel);
+        setModelNotice(resolved.notice);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to load chat config", msg);
@@ -176,7 +183,7 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [addLog]);
+  }, [addLog, projectPath]);
 
   // Fix model when provider changes
   useEffect(() => {
@@ -443,27 +450,49 @@ export function ChatPanel({
       const command = rawCommand.toLowerCase();
       const rest = parts.join(" ").trim();
       setCommandNotice(null);
-      if (command === "login") {
-        const provider = rest
-          ? catalog?.providers.find((p) => p.id.toLowerCase() === rest.toLowerCase() || p.label.toLowerCase() === rest.toLowerCase())
-          : null;
-        if (provider) {
-          setProviderId(provider.id);
-          setShowLogin(provider.id !== LOCAL_PROVIDER_ID);
-          setShowProviderPicker(false);
-        } else {
-          setShowProviderPicker(true);
-          setShowLogin(false);
-        }
+
+      // Builtin-action dispatch map: commands that execute UI actions
+      // immediately rather than expanding into a prompt.
+      const builtinActions: Record<string, () => void | Promise<void>> = {
+        login: () => {
+          const provider = rest
+            ? catalog?.providers.find((p) => p.id.toLowerCase() === rest.toLowerCase() || p.label.toLowerCase() === rest.toLowerCase())
+            : null;
+          if (provider) {
+            setProviderId(provider.id);
+            setShowLogin(provider.id !== LOCAL_PROVIDER_ID);
+            setShowProviderPicker(false);
+          } else {
+            setShowProviderPicker(true);
+            setShowLogin(false);
+          }
+        },
+        model: () => {
+          setModelFilter(rest);
+          setShowModelPicker(true);
+        },
+        mcp: () => {
+          // MCP management is opened via Settings — show a notice.
+          setCommandNotice("MCP servers are managed in Settings.");
+        },
+        plan: () => {
+          setCommandNotice(rest ? `Plan: ${rest}` : "Plan commands: list, run <ref>, status");
+        },
+        idea: () => {
+          setCommandNotice(rest ? `Idea: ${rest}` : "Idea commands: generate, promote");
+        },
+        openspec: () => {
+          setCommandNotice(rest ? `OpenSpec: ${rest}` : "OpenSpec commands: generate <ref>, progress <ref>");
+        },
+      };
+
+      if (command in builtinActions) {
+        await builtinActions[command]();
         setInput("");
         return;
       }
-      if (command === "model") {
-        setModelFilter(rest);
-        setShowModelPicker(true);
-        setInput("");
-        return;
-      }
+
+      // /models refresh — special-cased because it's async.
       if (command === "models" && rest.toLowerCase() === "refresh") {
         setCatalogRefreshing(true);
         try {
@@ -480,7 +509,27 @@ export function ChatPanel({
         }
         return;
       }
-      setCommandNotice(`Unknown slash command: /${command}. Use /login, /model, or /models refresh.`);
+
+      // /skill:<name> — inject skill content.
+      if (command.startsWith("skill:")) {
+        const skillName = command.slice(6);
+        if (skillName) {
+          // Skill injection: fetch skill body and send as context.
+          try {
+            const skillBody = await invoke<string>("read_skill", { name: skillName });
+            const prompt = `${skillBody}\n\n${rest}`;
+            await sendMessage(prompt);
+            setInput("");
+            return;
+          } catch {
+            setCommandNotice(`Skill '${skillName}' not found.`);
+            return;
+          }
+        }
+      }
+
+      // Unknown command fallthrough: show notice + send-as-text action.
+      setCommandNotice(`Unknown slash command: /${command}. Send as text or use /login, /model, /plan, /idea, /openspec.`);
       return;
     }
     await sendMessage(text);
@@ -666,7 +715,7 @@ export function ChatPanel({
     async (idea: Idea) => {
       try {
         await onCreatePlanFromIdea?.(idea.title, idea.description, nativeSessionId);
-        await ideaState.updateIdeaStatus(idea.id, "planReady");
+        await ideaState.updateIdeaStatus(idea.id, "picked");
       } catch (e) {
         addLog("error", "Failed to promote idea to plan", e instanceof Error ? e.message : String(e));
       }
@@ -784,12 +833,22 @@ export function ChatPanel({
                     Promote to Plan
                   </button>
                 ) : (
-                  <span className="chat-idea-status">{idea.status === "planReady" ? "Planned" : idea.status}</span>
+                  <span className="chat-idea-status">{idea.status === "picked" ? "Planned" : idea.status}</span>
                 )}
               </div>
               {idea.description ? <p className="chat-idea-desc">{idea.description}</p> : null}
             </div>
           ))}
+        </div>
+      ) : null}
+      {/* Model default notice (unavailable default fell back) */}
+      {nativeMode && modelNotice ? (
+        <div className="chat-notice-bar" title={modelNotice}>
+          <AlertCircle size={12} />
+          <span className="text-sm">{modelNotice}</span>
+          <button className="btn-icon btn-icon-sm" title="Dismiss" type="button" onClick={() => setModelNotice(null)}>
+            <X size={11} />
+          </button>
         </div>
       ) : null}
 
@@ -923,7 +982,15 @@ export function ChatPanel({
                     className="input chat-select chat-effort-select"
                     title="Select effort level"
                     value={effortLevel}
-                    onChange={(e) => setEffortLevel(e.target.value)}
+                    onChange={(e) => {
+                      setEffortLevel(e.target.value);
+                      const next: ChatModelDefault = {
+                        providerId,
+                        modelId,
+                        effortLevel: e.target.value,
+                      };
+                      void nativeChatSetProjectModelDefault(projectPath, next);
+                    }}
                   >
                     {catalog.effortLevels.map((ef) => (
                       <option key={ef.id} value={ef.id}>
@@ -1061,6 +1128,13 @@ export function ChatPanel({
                           setModelId(model.id);
                           setShowModelPicker(false);
                           setSetupRequired(null);
+                          setModelNotice(null);
+                          const next: ChatModelDefault = {
+                            providerId: model.providerId,
+                            modelId: model.id,
+                            effortLevel,
+                          };
+                          void nativeChatSetProjectModelDefault(projectPath, next);
                         }}
                       >
                         <span className="chat-picker-main">{model.label}</span>

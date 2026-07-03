@@ -15,6 +15,8 @@ pub struct CreatePlanInput {
     pub status: Option<String>,
     pub priority: Option<u8>,
     pub tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub idea_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -31,7 +33,6 @@ pub struct UpdatePlanInput {
 fn parse_status(s: &str) -> PlanStatus {
     PlanStatus::from_str(s)
 }
-
 #[tauri::command]
 pub fn create_plan(input: CreatePlanInput) -> Result<Plan, String> {
     let plan = NewPlan {
@@ -41,6 +42,7 @@ pub fn create_plan(input: CreatePlanInput) -> Result<Plan, String> {
         status: parse_status(input.status.as_deref().unwrap_or("draft")),
         priority: input.priority,
         tags: input.tags.unwrap_or_default(),
+        idea_id: input.idea_id,
     };
     PlanService::create(&input.session_id, &plan)
 }
@@ -64,6 +66,7 @@ pub fn update_plan(id: String, input: UpdatePlanInput) -> Result<Plan, String> {
         status: parse_status(&input.status),
         priority: input.priority,
         tags: input.tags,
+        idea_id: None,
     };
     PlanService::update(&id, &plan)
 }

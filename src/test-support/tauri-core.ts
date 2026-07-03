@@ -80,7 +80,7 @@ type Plan = {
   title: string;
   description: string;
   goal: string | null;
-  status: "draft" | "openspec" | "waiting" | "in_progress" | "finished" | "cancelled";
+  status: "draft" | "openspec" | "ready" | "running" | "finished" | "cancelled";
   priority: number;
   tags: string[];
   aiEnhanced: boolean;

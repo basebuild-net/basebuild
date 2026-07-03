@@ -45,7 +45,7 @@ Linux workstations.
 - Workspace tabs are generic. Each tab has a `kind`: `terminal`, `file`, or
   `empty` (schematic view).
 - Plans are first-class objects with a fixed lifecycle:
-  `draft → openspec → waiting → in_progress → finished`. `cancelled` can
+  `draft → openspec → ready → running → finished`. `cancelled` can
   end from any status.
 - Agents must read `AGENTS.md` and `DESIGN.md` before UI or convention changes.
 - Only modify `AGENTS.md` or this project schematic with explicit user approval.

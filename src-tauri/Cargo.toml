@@ -27,8 +27,13 @@ reqwest = { version = "0.12", features = ["blocking", "json"] }
 toml = "0.8"
 urlencoding = "2"
  open = "5"
- which = "6"
+which = "6"
 parking_lot = "0.12"
+rmcp = { version = "2.1", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "auth"] }
+tokio = { version = "1", features = ["process", "rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+tempfile = "3"
 
 [patch.crates-io]
 portable-pty = { path = "vendor/portable-pty" }

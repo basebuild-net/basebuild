@@ -2,11 +2,12 @@ use tauri::AppHandle;
 
 use crate::{
     models::native_chat::{
-        NativeChatMessage, NativeChatSendRequest, NativeChatSendResult, NativeChatSession,
-        NativeChatStartRequest, NativeGenerateIdeasRequest, NativeGenerateIdeasResult,
-        NativeProviderCatalog, NativeProviderCatalogRefreshRequest, NativeProviderCredential,
-        NativeProviderCredentialInput, NativeRequestMetric, NativeRequestMetricsSummary,
-        NativeToolApprovalRequest, NativeToolApprovalResult,
+        ChatModelDefault, NativeChatMessage, NativeChatSendRequest, NativeChatSendResult,
+        NativeChatSession, NativeChatStartRequest, NativeGenerateIdeasRequest,
+        NativeGenerateIdeasResult, NativeProviderCatalog, NativeProviderCatalogRefreshRequest,
+        NativeProviderCredential, NativeProviderCredentialInput, NativeRequestMetric,
+        NativeRequestMetricsSummary, NativeToolApprovalRequest, NativeToolApprovalResult,
+        ResolvedChatModelDefault,
     },
     services::native_chat_service::NativeChatService,
 };
@@ -118,4 +119,22 @@ pub fn native_provider_login_poll(
 pub fn native_provider_login_cancel(provider_id: String) -> Result<(), String> {
     crate::services::provider_login_service::ProviderLoginService::cancel(&provider_id);
     Ok(())
+}
+
+#[tauri::command]
+pub fn native_chat_model_default(project_path: String) -> Result<ResolvedChatModelDefault, String> {
+    NativeChatService::resolve_model_default(&project_path)
+}
+
+#[tauri::command]
+pub fn native_chat_set_project_model_default(
+    project_path: String,
+    default: ChatModelDefault,
+) -> Result<(), String> {
+    NativeChatService::set_project_model_default(&project_path, &default)
+}
+
+#[tauri::command]
+pub fn native_chat_set_global_model_default(default: ChatModelDefault) -> Result<(), String> {
+    NativeChatService::set_global_model_default(&default)
 }

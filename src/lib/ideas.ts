@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type IdeaStatus = "concept" | "planReady" | "inProgress" | "finished" | "paused" | "cancelled";
+export type IdeaStatus = "concept" | "picked" | "archived";
 
 export type IdeaCategory = {
   id: string;
@@ -47,4 +47,32 @@ export async function updateIdeaStatus(id: string, status: IdeaStatus): Promise<
 
 export async function deleteIdea(id: string): Promise<void> {
   return invoke("delete_idea", { id });
+}
+
+export type PromoteIdeasInput = {
+  sessionId: string;
+  ideaIds: string[];
+};
+
+export type PromotedPlan = {
+  id: string;
+  sessionId: string;
+  referenceId: string;
+  title: string;
+  description: string;
+  goal: string | null;
+  status: string;
+  priority: number;
+  tags: string[];
+  aiEnhanced: boolean;
+  context: unknown;
+  ideaId?: string;
+  changeName?: string;
+  createdAt: number;
+  updatedAt: number;
+  finishedAt: number | null;
+};
+
+export async function promoteIdeas(sessionId: string, ideaIds: string[]): Promise<PromotedPlan[]> {
+  return invoke<PromotedPlan[]>("promote_ideas", { input: { sessionId, ideaIds } });
 }

@@ -42,8 +42,8 @@
 
 ## 6. Native MCP Client
 
-- [ ] 6.1 Add pinned `rmcp` dependency (dependency review); `mcp_service.rs` wrapping client behind a Basebuild trait; config loader for omp `mcp.json` schema (both scopes + fallbacks, `disabledServers`, `${VAR}`, `!command` resolution) with validation errors surfaced.
-- [ ] 6.2 stdio transport: supervised child processes (spawn on enable, kill on disable, crash reporting/reconnect).
+- [x] 6.1 Add pinned `rmcp` dependency (dependency review); `mcp_service.rs` wrapping client behind a Basebuild trait; config loader for omp `mcp.json` schema (both scopes + fallbacks, `disabledServers`, `${VAR}`, `!command` resolution) with validation errors surfaced.
+- [x] 6.2 stdio transport: supervised child processes (spawn on enable, kill on disable, crash reporting/reconnect).
 - [ ] 6.3 Streamable HTTP + SSE transports; OAuth browser flow reusing `auth_service.rs` plumbing, tokens keyed per server URL, refresh handling.
 - [ ] 6.4 Expose MCP tools to native chat turns namespaced `mcp:<server>/<tool>` through the approval gateway; render tool results in transcript.
 - [ ] 6.5 Register MCP prompts as slash commands via `command_discovery_service.rs` (collision prefixing).

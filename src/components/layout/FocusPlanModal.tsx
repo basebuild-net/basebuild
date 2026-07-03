@@ -43,8 +43,8 @@ export function FocusPlanModal({
 
   const statusActions: { status: PlanStatus; label: string; icon: typeof Clock }[] = [
     { status: "openspec", label: "Start OpenSpec", icon: Clock },
-    { status: "waiting", label: "Mark waiting", icon: Clock },
-    { status: "in_progress", label: "Start in progress", icon: TerminalSquare },
+    { status: "ready", label: "Mark ready", icon: Clock },
+    { status: "running", label: "Start running", icon: TerminalSquare },
     { status: "finished", label: "Mark finished", icon: CheckCircle },
   ];
 
@@ -124,7 +124,7 @@ export function FocusPlanModal({
                     onClick={() => {
                       handleSaveContext();
                       onSetStatus(currentPlan.id, a.status);
-                      if (a.status === "in_progress") {
+                      if (a.status === "running") {
                         onOpenInTerminal(currentPlan);
                       }
                       onClose();

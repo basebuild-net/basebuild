@@ -101,8 +101,8 @@ export function EditPlanModal({ plan, open, onClose, onSave }: EditPlanModalProp
               <select className="input" value={status} onChange={(e) => setStatus(e.target.value as PlanStatus)}>
                 <option value="draft">{PLAN_STATUS_LABEL.draft}</option>
                 <option value="openspec">{PLAN_STATUS_LABEL.openspec}</option>
-                <option value="waiting">{PLAN_STATUS_LABEL.waiting}</option>
-                <option value="in_progress">{PLAN_STATUS_LABEL.in_progress}</option>
+                <option value="ready">{PLAN_STATUS_LABEL.ready}</option>
+                <option value="running">{PLAN_STATUS_LABEL.running}</option>
                 <option value="finished">{PLAN_STATUS_LABEL.finished}</option>
                 <option value="cancelled">{PLAN_STATUS_LABEL.cancelled}</option>
               </select>

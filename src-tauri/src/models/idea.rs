@@ -24,35 +24,33 @@ pub struct Idea {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub enum IdeaStatus {
     Concept,
-    PlanReady,
-    InProgress,
-    Finished,
-    Paused,
-    Cancelled,
+    Picked,
+    Archived,
 }
 
 impl IdeaStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
             IdeaStatus::Concept => "concept",
-            IdeaStatus::PlanReady => "plan_ready",
-            IdeaStatus::InProgress => "in_progress",
-            IdeaStatus::Finished => "finished",
-            IdeaStatus::Paused => "paused",
-            IdeaStatus::Cancelled => "cancelled",
+            IdeaStatus::Picked => "picked",
+            IdeaStatus::Archived => "archived",
         }
     }
 
+    /// Parse an idea status string. Lenient for one release: accepts the legacy
+    // camelCase/snake_case values and collapses them into the new triad
+    // (planReady/plan_ready/inProgress/in_progress/finished → picked;
+    // paused/cancelled → archived; concept → concept). Unknown strings fall
+    // back to `Concept`.
     pub fn from_str(s: &str) -> Self {
         match s {
-            "plan_ready" => IdeaStatus::PlanReady,
-            "in_progress" => IdeaStatus::InProgress,
-            "finished" => IdeaStatus::Finished,
-            "paused" => IdeaStatus::Paused,
-            "cancelled" => IdeaStatus::Cancelled,
+            "picked" | "planReady" | "plan_ready" | "inProgress" | "in_progress" | "finished" => {
+                IdeaStatus::Picked
+            }
+            "archived" | "paused" | "cancelled" => IdeaStatus::Archived,
             _ => IdeaStatus::Concept,
         }
     }

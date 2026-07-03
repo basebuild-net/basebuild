@@ -328,6 +328,120 @@ impl StorageService {
                     auto_sync_interval_minutes INTEGER NOT NULL DEFAULT 60,
                     last_usage_sync_at INTEGER
                 );
+
+                CREATE TABLE IF NOT EXISTS plans (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    session_id TEXT NOT NULL,
+                    reference_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    goal TEXT,
+                    status TEXT NOT NULL DEFAULT 'draft',
+                    priority INTEGER NOT NULL DEFAULT 50,
+                    tags TEXT NOT NULL DEFAULT '[]',
+                    ai_enhanced INTEGER NOT NULL DEFAULT 0,
+                    context TEXT,
+                    idea_id TEXT,
+                    change_name TEXT,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    finished_at INTEGER,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_plans_session ON plans(session_id);
+                CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status);
+
+                CREATE TABLE IF NOT EXISTS pipeline_runs (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    session_id TEXT NOT NULL,
+                    project_path TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    idea_id TEXT,
+                    plan_id TEXT,
+                    input_summary TEXT NOT NULL DEFAULT '',
+                    session_chat_id TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    error TEXT,
+                    output_refs TEXT NOT NULL DEFAULT '[]',
+                    started_at INTEGER,
+                    completed_at INTEGER,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_pipeline_runs_session ON pipeline_runs(session_id);
+                CREATE INDEX IF NOT EXISTS idx_pipeline_runs_status ON pipeline_runs(status);
+
+                CREATE TABLE IF NOT EXISTS plan_queue (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    session_id TEXT NOT NULL,
+                    plan_id TEXT NOT NULL,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_plan_queue_session ON plan_queue(session_id, sort_order);
+
+                CREATE TABLE IF NOT EXISTS plan_runs (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    plan_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    chat_session_id TEXT,
+                    workspace_path TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    runner_kind TEXT NOT NULL DEFAULT 'native',
+                    error TEXT,
+                    steps_output TEXT NOT NULL DEFAULT '[]',
+                    started_at INTEGER,
+                    finished_at INTEGER,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_plan_runs_plan ON plan_runs(plan_id);
+                CREATE INDEX IF NOT EXISTS idx_plan_runs_status ON plan_runs(status);
+
+                CREATE TABLE IF NOT EXISTS final_touch_steps (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    project_path TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    config TEXT NOT NULL DEFAULT '{}',
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_final_touch_steps_project ON final_touch_steps(project_path, sort_order);
+
+                CREATE TABLE IF NOT EXISTS workspaces (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    project_path TEXT NOT NULL,
+                    plan_id TEXT,
+                    branch TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    pruned_at INTEGER,
+                    FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE SET NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_workspaces_project ON workspaces(project_path);
+
+                CREATE TABLE IF NOT EXISTS chat_model_defaults (
+                    project_path TEXT PRIMARY KEY NOT NULL,
+                    provider_id TEXT NOT NULL,
+                    model_id TEXT NOT NULL,
+                    effort_level TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS plan_run_profiles (
+                    project_path TEXT PRIMARY KEY NOT NULL,
+                    concurrency INTEGER NOT NULL DEFAULT 1,
+                    provider_id TEXT NOT NULL,
+                    model_id TEXT NOT NULL,
+                    effort_level TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
                 ",
             )
             .map_err(|error| format!("Failed to initialize Basebuild state database: {error}"))?;
@@ -368,6 +482,68 @@ impl StorageService {
             );
         }
 
+        // Migration (plan-pipeline-harness): add idea_id and change_name to
+        // plans for idea→plan promotion and OpenSpec change linkage. Both
+        // nullable: legacy plans and unpromoted drafts carry no link.
+        let has_idea_id = connection
+            .prepare("SELECT idea_id FROM plans LIMIT 0")
+            .is_ok();
+        if !has_idea_id {
+            let _ = connection
+                .execute("ALTER TABLE plans ADD COLUMN idea_id TEXT", []);
+        }
+        let has_change_name = connection
+            .prepare("SELECT change_name FROM plans LIMIT 0")
+            .is_ok();
+        if !has_change_name {
+            let _ = connection
+                .execute("ALTER TABLE plans ADD COLUMN change_name TEXT", []);
+        }
+
+        // Migration (plan-pipeline-harness): rename plan statuses
+        // waiting → ready and in_progress → running. Idempotent: re-running
+        // matches no rows once migrated. New rows use the new vocabulary.
+        let _ = connection.execute(
+            "UPDATE plans SET status = 'ready' WHERE status = 'waiting'",
+            [],
+        );
+        let _ = connection.execute(
+            "UPDATE plans SET status = 'running' WHERE status = 'in_progress'",
+            [],
+        );
+
+        // Migration (plan-pipeline-harness): collapse idea statuses to the
+        // snake_case triad concept → picked → archived. Legacy camelCase
+        // values map: planReady/inProgress/finished → picked;
+        // paused/cancelled → archived; concept stays concept.
+        let _ = connection.execute(
+            "UPDATE ideas SET status = 'picked'
+             WHERE status IN ('planReady','plan_ready','inProgress','in_progress','finished')",
+            [],
+        );
+        let _ = connection.execute(
+            "UPDATE ideas SET status = 'archived'
+             WHERE status IN ('paused','cancelled')",
+            [],
+        );
+
+        // Migration (plan-pipeline-harness): startup cleanup. Any pipeline or
+        // plan run left in 'running' from a crash is marked 'failed' with a
+        // restart note so the UI never shows a stale running state. The
+        // targeted plan/idea stays in its pre-stage status.
+        let now = unix_timestamp();
+        let _ = connection.execute(
+            "UPDATE pipeline_runs SET status = 'failed', error = 'restart: marked failed on startup',
+                completed_at = ?1
+             WHERE status IN ('running','pending')",
+            params![now],
+        );
+        let _ = connection.execute(
+            "UPDATE plan_runs SET status = 'failed', error = 'restart: marked failed on startup',
+                finished_at = ?1
+             WHERE status IN ('running','pending')",
+            params![now],
+        );
         // Seed built-in runtime profiles individually so existing databases gain
         // newly-added built-ins without losing user-edited profiles.
         for profile in crate::models::runtime::RuntimeProfile::built_ins() {
@@ -494,5 +670,184 @@ mod tests {
             )
             .unwrap();
         assert!(api_id.is_none(), "legacy row has null model_api_id");
+    }
+
+    #[test]
+    fn migrates_plan_statuses_waiting_to_ready_and_in_progress_to_running() {
+        // A pre-migration database with legacy plan statuses must be rewritten
+        // on initialize. Re-running initialize must be idempotent (no rows
+        // match the legacy values the second time).
+        let conn = Connection::open_in_memory().unwrap();
+        StorageService::initialize(&conn).expect("first initialize");
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+             VALUES ('s1', '/p', 'S', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plans (id, session_id, reference_id, title, description, goal,
+                status, priority, tags, ai_enhanced, context, created_at, updated_at, finished_at)
+             VALUES ('p1', 's1', 'bb-aaa', 'A', '', NULL, 'waiting', 50, '[]', 0, NULL, 0, 0, NULL),
+                    ('p2', 's1', 'bb-bbb', 'B', '', NULL, 'in_progress', 50, '[]', 0, NULL, 0, 0, NULL)",
+            [],
+        )
+        .unwrap();
+        StorageService::initialize(&conn).expect("migration run");
+        let statuses: Vec<String> = conn
+            .prepare("SELECT status FROM plans ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(statuses, vec!["ready", "running"]);
+        // Idempotent: second run matches no legacy rows.
+        StorageService::initialize(&conn).expect("idempotent re-init");
+        let statuses2: Vec<String> = conn
+            .prepare("SELECT status FROM plans ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(statuses2, vec!["ready", "running"]);
+    }
+
+    #[test]
+    fn migrates_idea_statuses_to_triad() {
+        // Legacy idea statuses (camelCase and snake_case) collapse to
+        // concept/picked/archived on initialize.
+        let conn = Connection::open_in_memory().unwrap();
+        StorageService::initialize(&conn).expect("first initialize");
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+             VALUES ('s1', '/p', 'S', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO ideas (id, session_id, category_id, title, description, status, created_at, updated_at)
+             VALUES ('i1', 's1', NULL, 'a', '', 'concept', 0, 0),
+                    ('i2', 's1', NULL, 'b', '', 'planReady', 0, 0),
+                    ('i3', 's1', NULL, 'c', '', 'plan_ready', 0, 0),
+                    ('i4', 's1', NULL, 'd', '', 'inProgress', 0, 0),
+                    ('i5', 's1', NULL, 'e', '', 'in_progress', 0, 0),
+                    ('i6', 's1', NULL, 'f', '', 'finished', 0, 0),
+                    ('i7', 's1', NULL, 'g', '', 'paused', 0, 0),
+                    ('i8', 's1', NULL, 'h', '', 'cancelled', 0, 0)",
+            [],
+        )
+        .unwrap();
+        StorageService::initialize(&conn).expect("migration run");
+        let statuses: Vec<String> = conn
+            .prepare("SELECT status FROM ideas ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        // concept, then 5 picked, then 2 archived
+        assert_eq!(
+            statuses,
+            vec![
+                "concept",
+                "picked",
+                "picked",
+                "picked",
+                "picked",
+                "picked",
+                "archived",
+                "archived",
+            ]
+        );
+    }
+
+    #[test]
+    fn cleanup_marks_stale_running_pipeline_and_plan_runs_failed() {
+        // Stale 'running'/'pending' rows from a crash must be marked 'failed'
+        // on initialize so the UI never shows a phantom running state.
+        let conn = Connection::open_in_memory().unwrap();
+        StorageService::initialize(&conn).expect("first initialize");
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+             VALUES ('s1', '/p', 'S', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plans (id, session_id, reference_id, title, description, goal, status,
+                priority, tags, ai_enhanced, context, created_at, updated_at, finished_at)
+             VALUES ('p1', 's1', 'bb-a', 'A', '', NULL, 'ready', 50, '[]', 0, NULL, 0, 0, NULL),
+                    ('p2', 's1', 'bb-b', 'B', '', NULL, 'running', 50, '[]', 0, NULL, 0, 0, NULL)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO pipeline_runs (id, session_id, project_path, kind, status, created_at)
+             VALUES ('pr1', 's1', '/p', 'generate_categories', 'running', 0),
+                    ('pr2', 's1', '/p', 'generate_ideas', 'pending', 0),
+                    ('pr3', 's1', '/p', 'enhance_idea', 'succeeded', 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plan_runs (id, plan_id, session_id, status, runner_kind, created_at)
+             VALUES ('r1', 'p1', 's1', 'running', 'native', 0),
+                    ('r2', 'p2', 's1', 'succeeded', 'native', 0)",
+            [],
+        )
+        .unwrap();
+        StorageService::initialize(&conn).expect("cleanup run");
+        let pipeline_failed: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pipeline_runs WHERE status = 'failed'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(pipeline_failed, 2, "stale running/pending pipeline runs -> failed");
+        let plan_failed: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM plan_runs WHERE status = 'failed'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(plan_failed, 1, "stale running plan run -> failed");
+        let plan_ok: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM plan_runs WHERE status = 'succeeded'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(plan_ok, 1, "already-succeeded run untouched");
+    }
+
+    #[test]
+    fn plan_status_from_str_accepts_legacy_values() {
+        use crate::models::plan::PlanStatus;
+        assert_eq!(PlanStatus::from_str("waiting"), PlanStatus::Ready);
+        assert_eq!(PlanStatus::from_str("in_progress"), PlanStatus::Running);
+        assert_eq!(PlanStatus::from_str("ready"), PlanStatus::Ready);
+        assert_eq!(PlanStatus::from_str("running"), PlanStatus::Running);
+        assert_eq!(PlanStatus::from_str("draft"), PlanStatus::Draft);
+        assert_eq!(PlanStatus::from_str("nonsense"), PlanStatus::Draft);
+    }
+
+    #[test]
+    fn idea_status_from_str_collapses_legacy_values() {
+        use crate::models::idea::IdeaStatus;
+        assert_eq!(IdeaStatus::from_str("concept"), IdeaStatus::Concept);
+        assert_eq!(IdeaStatus::from_str("planReady"), IdeaStatus::Picked);
+        assert_eq!(IdeaStatus::from_str("plan_ready"), IdeaStatus::Picked);
+        assert_eq!(IdeaStatus::from_str("inProgress"), IdeaStatus::Picked);
+        assert_eq!(IdeaStatus::from_str("in_progress"), IdeaStatus::Picked);
+        assert_eq!(IdeaStatus::from_str("finished"), IdeaStatus::Picked);
+        assert_eq!(IdeaStatus::from_str("paused"), IdeaStatus::Archived);
+        assert_eq!(IdeaStatus::from_str("cancelled"), IdeaStatus::Archived);
+        assert_eq!(IdeaStatus::from_str("archived"), IdeaStatus::Archived);
+        assert_eq!(IdeaStatus::from_str("nonsense"), IdeaStatus::Concept);
     }
 }
