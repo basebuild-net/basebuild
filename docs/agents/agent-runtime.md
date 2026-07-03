@@ -146,6 +146,50 @@ When in doubt, ask. The default stance is conservative.
 Never assume Basebuild owns a project. `git`, `omp`, and editors are the source
 of truth; Basebuild persists only project-local metadata in `.basebuild/`.
 
+## OMP session telemetry
+
+When OMP is installed, Basebuild attaches a read-only telemetry channel to the
+running OMP session by reading `omp stats --json` + `omp usage --json` (the same
+blobs used for account sync). This surfaces per-message provider, plan, model,
+and effort/thinking level (when resolvable), per-message metrics (tokens, cost,
+TTFT, duration), and live provider window utilization (5h/7d usedFraction,
+resetsAt, severity) with explicit freshness markers.
+
+- Telemetry is **read-only**: it never writes to OMP databases or sends commands
+  to OMP. It never ingests prompt text, response text, source code, terminal
+  output, secrets, or raw absolute paths.
+- Live in-memory display is ungated. Local persistence of telemetry metrics is
+  gated on `allowUsageAnalyticsCollection`.
+- Updates are published over the `omp-telemetry://update` event channel. The
+  polling loop starts on app launch and emits a `detached` state when OMP is not
+  installed or no session is running.
+- OMP's stdio RPC mode (`omp --mode rpc`) is a separate, non-terminal protocol;
+  a raw TUI terminal and RPC mode are mutually exclusive on one process. The
+  "Oh My Pi" tab runs OMP as a raw PTY terminal; telemetry reads from the
+  ledgers. RPC-backed native rendering is an optional future path.
+
+## Account usage sync
+
+Signed-in users can opt in to periodic account usage sync, which pushes compiled
+OMP usage to basebuild.net via the MCP `sync_raw_usage` tool using the stored
+native `bb_app_` token. The app is a producer; the website computes projected
+usage.
+
+- **Off by default.** Requires sign-in + explicit enable + upload permission.
+- **Cadence**: hourly interval (default 60 min) plus opportunistic triggers —
+  window hide/focus-loss (process alive), impending shutdown/sleep (best-effort),
+  and network offline→online. Triggers are debounced behind a freshness check.
+- **Freshness-gated**: before pushing, the app checks `get_my_live_usage.isStale`
+  / `fetchedAgoMin` and skips if the account data is already fresh.
+- **Native token only**: all reads/writes go to `POST /api/mcp` with the native
+  token. The API-key-only `/api/mcp/personal/usage-context` anchor is not used.
+- **Projected usage** (`get_my_live_usage`, `get_my_usage`, `list_my_plans`,
+  `get_my_plan_timeline`) is displayed on the Account page, labeled with
+  freshness. Server-stale values are shown as stale, not as current.
+- **Usage-only payload**: only aggregated usage stats are sent — no prompts,
+  source, secrets, or absolute paths.
+- On 401/unauthorized, the stored token is cleared and a re-sign-in prompt is
+  emitted via `auth://changed`.
 ## Hidden process spawning
 
 Non-interactive helper commands (`omp --version`, `omp stats --json`, `git`,

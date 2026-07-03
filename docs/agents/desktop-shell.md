@@ -20,17 +20,22 @@ diagnostics are available in Settings → Updates.
 
 ## Tab kinds
 - **Chat** — agent chat panel backed by a runtime profile. The default profile is `basebuild-native`, which runs structured chat, a compact one-line provider/model/effort control rail, slash-command accelerators (`/login`, `/model`, `/models refresh`), provider model sync, and local request metrics; OMP remains selectable.
-Each workspace tab has a `kind`: `terminal`, `file`, `empty`, or `chat`.
+Each workspace tab has a `kind`: `terminal`, `file`, `empty`, `chat`, or `omp`.
 
 - **Terminal** — PTY-backed shell.
 - **File** — file viewer for a specific path.
 - **Empty** — renders the project schematic.
 - **Chat** — agent chat panel backed by a runtime profile.
+- **OMP** — raw OMP TUI terminal (`omp` in a PTY), shown only when OMP is
+  detected installed. Displays a live telemetry HUD (provider, plan, model,
+  effort, window utilization) alongside the terminal. Spawned only on explicit
+  user action; restore never auto-spawns.
 
 ## Tab creation
 
-The "+" menu in the workspace tab bar offers: Terminal, Schematic, Chat.
-Clicking a file in the Files panel opens a file tab.
+The "+" menu in the workspace tab bar offers: Terminal, Schematic, Chat, and
+(gated on OMP detection) Oh My Pi. Clicking a file in the Files panel opens a
+file tab.
 
 ## Chat tab workflow routing
 
