@@ -16,11 +16,12 @@ node scripts/openspec-status.mjs --write
 
 ### Next (specced, ready to start)
 
-3. `strong-testing-suite` — Playwright + CI + crash diagnostics. Start any time; independent of the two above.
-4. `native-app-login-mcp` — device-auth account connection + first-party usage sync with basebuild.net.
-5. `harness-context-files` — system-prompt assembly: AGENTS.md discovery, schematic injection, skills metadata, context inspector. **After `native-agent-loop`** (feeds its budget guard).
-6. `connector-permission-gateway` — re-scoped 2026-07-03: permission broker now extends the `native-agent-loop` tool-approval substrate (task 1.1 gates on that merge).
-7. `diff-review-workflow` — per-run changeset baseline, file-level review (approve/revert/send-back), review gate before commit/PR final touches on queue runs. **After both in-flight changes.**
+3. `stability-hardening` — freeze watchdog + hang-to-crash escalation, persisted crash reports, SQLite WAL/busy_timeout, timeouts + async command migration. **Phases 1–4 start any time; phase 5 (chat send) sequences with `native-agent-loop`.** Land before or with `strong-testing-suite` (it asserts the diagnostics this builds).
+4. `strong-testing-suite` — Playwright + CI + crash diagnostics. Start any time; independent of the two above.
+5. `native-app-login-mcp` — device-auth account connection + first-party usage sync with basebuild.net.
+6. `harness-context-files` — system-prompt assembly: AGENTS.md discovery, schematic injection, skills metadata, context inspector. **After `native-agent-loop`** (feeds its budget guard).
+7. `connector-permission-gateway` — re-scoped 2026-07-03: permission broker now extends the `native-agent-loop` tool-approval substrate (task 1.1 gates on that merge).
+8. `diff-review-workflow` — per-run changeset baseline, file-level review (approve/revert/send-back), review gate before commit/PR final touches on queue runs. **After both in-flight changes.**
 
 ### Proposed (no artifacts yet — run `/propose <name>` when its turn comes)
 
@@ -41,7 +42,7 @@ _Last refreshed: 2026-07-03 (`node scripts/openspec-status.mjs --write`)_
 |Change|Progress|Status|Next command|
 |---|---|---|---|
 |`omp-ide-sync`|22/23|in progress|`/apply omp-ide-sync`|
-|`plan-pipeline-harness`|19/51|in progress|`/apply plan-pipeline-harness`|
+|`plan-pipeline-harness`|25/51|in progress|`/apply plan-pipeline-harness`|
 |`stabilize-and-agent-chat`|37/42|in progress|`/apply stabilize-and-agent-chat`|
 |`startup-update-splash`|17/20|in progress|`/apply startup-update-splash`|
 |`connector-permission-gateway`|0/29|not started|`/apply connector-permission-gateway`|
@@ -49,6 +50,7 @@ _Last refreshed: 2026-07-03 (`node scripts/openspec-status.mjs --write`)_
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
 |`native-agent-loop`|0/34|not started|`/apply native-agent-loop`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
+|`stability-hardening`|0/23|not started|`/apply stability-hardening`|
 |`strong-testing-suite`|0/19|not started|`/apply strong-testing-suite`|
 <!-- status:end -->
 

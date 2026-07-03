@@ -33,12 +33,12 @@
 
 ## 5. Slash Command Registry
 
-- [ ] 5.1 `command_discovery_service.rs`: scan builtin manifest, `.omp/commands` (project>user), `.claude/commands` (recursive + `dir:name` aliases), `.codex/commands`, skills, MCP prompts; first-wins dedup with shadow tracking; `list_slash_commands` command.
-- [ ] 5.2 Frontmatter parsing (`name`, `description`) + template expansion (`$1..$n`, `$@[start[:len]]`, `$ARGUMENTS`/`$@`, quote-aware args, no-placeholder append) with Rust unit tests; `expand_slash_command` command.
-- [ ] 5.3 Composer autocomplete popup in `ChatPanel.tsx`: filter-as-you-type, description + source badge, keyboard navigation; styles in `globals.css`.
-- [ ] 5.4 Replace hardcoded `handleSend` parsing with builtin-action dispatch map (`/login`, `/model`, `/models refresh`, `/mcp`, `/plan`, `/idea`, `/openspec`) + file/MCP expansion path + `/skill:<name>` injection + unknown-command fallthrough (send-as-text).
-- [ ] 5.5 Command list UI (shadowed entries visible) and rescan on project switch/manual refresh.
-- [ ] 5.6 Tests: precedence/dedup, expansion table-driven cases, unknown fallthrough UI smoke.
+- [x] 5.1 `command_discovery_service.rs`: scan builtin manifest, `.omp/commands` (project>user), `.claude/commands` (recursive + `dir:name` aliases), `.codex/commands`, skills, MCP prompts; first-wins dedup with shadow tracking; `list_slash_commands` command.
+- [x] 5.2 Frontmatter parsing (`name`, `description`) + template expansion (`$1..$n`, `$@[start[:len]]`, `$ARGUMENTS`/`$@`, quote-aware args, no-placeholder append) with Rust unit tests; `expand_slash_command` command.
+- [x] 5.3 Composer autocomplete popup in `ChatPanel.tsx`: filter-as-you-type, description + source badge, keyboard navigation; styles in `globals.css`.
+- [x] 5.4 Replace hardcoded `handleSend` parsing with builtin-action dispatch map (`/login`, `/model`, `/models refresh`, `/mcp`, `/plan`, `/idea`, `/openspec`) + file/MCP expansion path + `/skill:<name>` injection + unknown-command fallthrough (send-as-text).
+- [x] 5.5 Command list UI (shadowed entries visible) and rescan on project switch/manual refresh.
+- [x] 5.6 Tests: precedence/dedup, expansion table-driven cases, unknown fallthrough UI smoke.
 
 ## 6. Native MCP Client
 
