@@ -199,6 +199,11 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
 
   const updateChecking = updates.status === "checking";
   const updateInstalling = updates.status === "installing";
+  // Latest version: explicit when an update is available; otherwise the
+  // running version is the latest (up-to-date). Unknown until checked.
+  const latestVersion =
+    updates.info?.version ??
+    (updates.status === "up_to_date" ? (version || "—") : "—");
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -242,6 +247,16 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                   >
                     <RefreshCw size={12} className={updateChecking ? "spin" : ""} /> Check for updates
                   </button>
+                </div>
+                <div className="update-version-grid">
+                  <div className="update-version-cell">
+                    <div className="text-muted text-sm">Installed</div>
+                    <div className="mono">{version || "—"}</div>
+                  </div>
+                  <div className="update-version-cell">
+                    <div className="text-muted text-sm">Latest</div>
+                    <div className="mono">{latestVersion}</div>
+                  </div>
                 </div>
                 {updates.info?.available ? (
                   <div className="requirement-row is-ok">

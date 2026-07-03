@@ -1152,6 +1152,12 @@ a { color: inherit; text-decoration: none; }
 .update-raw-error { margin-top: 6px; }
 .update-raw-error summary { cursor: pointer; user-select: none; }
 .update-raw-error pre { margin-top: 4px; white-space: pre-wrap; word-break: break-word; color: var(--bb-muted); }
+.update-version-grid { display: flex; gap: 12px; margin-bottom: 8px; }
+.update-version-cell {
+  flex: 1; padding: 6px 8px;
+  border: 1px solid var(--bb-border); background: var(--bb-surface);
+}
+.update-version-cell .mono { font-size: 13px; margin-top: 2px; }
 /* Requirement rows */
 .requirement-row {
   display: flex; align-items: flex-start; gap: 8px;
