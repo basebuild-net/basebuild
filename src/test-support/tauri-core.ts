@@ -9,7 +9,7 @@ type Session = {
 type SessionTab = {
   id: string;
   sessionId: string;
-  kind: "terminal" | "empty" | "file" | "chat";
+  kind: "terminal" | "empty" | "file" | "chat" | "omp";
   title: string;
   terminalId: number | null;
   filePath: string | null;
@@ -110,6 +110,7 @@ type E2eState = {
   workspaceRestoreByProject: Map<string, unknown>;
   auth: { accessToken: string; expiresAt: string; scopes: string[]; user: { id: string; username: string; email: string; image: string | null; isAdmin: boolean; isEditor: boolean } | null } | null;
   updateInstallCount: number;
+  autoSyncEnabled?: boolean;
 };
 
 const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState };
@@ -137,6 +138,7 @@ function state(): E2eState {
       workspaceRestoreByProject: new Map(),
       auth: null,
       updateInstallCount: 0,
+      autoSyncEnabled: false,
     };
   }
   return globalState.__BASEBUILD_E2E_STATE__;
@@ -475,7 +477,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "native_provider_login_cancel":
       return undefined as T;
     case "omp_status":
-      return { installed: false, version: null, path: null } as T;
+      return { installed: true, version: "omp 1.2.3", configPath: "C:\\basebuild-e2e\\.omp\\config.yml", message: null } as T;
     case "omp_debug_context":
       return { stats: null, usage: null, config: null } as T;
     case "list_requirements":
@@ -519,6 +521,56 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return (s.auth?.accessToken ?? null) as T;
     case "open_url":
       return undefined as T;
+    case "omp_telemetry_start":
+    case "omp_telemetry_stop":
+      return undefined as T;
+    case "omp_telemetry_snapshot":
+    case "omp_telemetry_refresh":
+      return {
+        attachment: { state: "attached" },
+        provider: "anthropic",
+        model: "claude-sonnet-4",
+        planTier: "Claude Max",
+        planSource: "local",
+        effort: "high",
+        sessionId: "sess-e2e",
+        windows: [
+          { window: "5h", usedFraction: 0.42, remainingFraction: 0.58, resetsAt: "2026-07-03T18:00:00Z", severity: "warning", measuredAt: Math.floor(Date.now() / 1000), ageMinutes: 1, isStale: false },
+        ],
+        recentMessages: [],
+        assembledAt: Math.floor(Date.now() / 1000),
+      } as T;
+    case "usage_sync_trigger":
+      return undefined as T;
+    case "usage_sync_set_enabled":
+      s.autoSyncEnabled = args.enabled as boolean;
+      return undefined as T;
+    case "usage_sync_status":
+      return {
+        enabled: s.autoSyncEnabled ?? false,
+        gatesPass: !!s.auth,
+        intervalMinutes: 60,
+        lastSyncAt: s.auth ? Math.floor(Date.now() / 1000) - 120 : null,
+        lastError: null,
+      } as T;
+    case "usage_sync_projected_usage":
+      return {
+        live: {
+          rows: [
+            { provider: "anthropic", window: "5h", usedFraction: 0.42, remainingFraction: 0.58, resetsAt: "2026-07-03T18:00:00Z", severity: "warning", fetchedAgoMin: 2, isStale: false },
+            { provider: "anthropic", window: "7d", usedFraction: 0.18, remainingFraction: 0.82, resetsAt: "2026-07-10T00:00:00Z", severity: "ok", fetchedAgoMin: 2, isStale: false },
+          ],
+          shouldSync: false,
+        },
+        snapshot: {
+          rows: [
+            { provider: "anthropic", model: "claude-sonnet-4", requestsPerDay: 120, hoursPerDay: 2.5, costPerDay: 3.4, avgDurationMs: 2500, avgTtftMs: 800, errorRate: 0.01 },
+          ],
+        },
+        plans: { plans: [] },
+        timeline: { windows: [] },
+        assembledAt: Math.floor(Date.now() / 1000),
+      } as T;
     default:
       throw new Error(`Unhandled E2E Tauri command: ${command}`);
   }
