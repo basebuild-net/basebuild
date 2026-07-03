@@ -38,17 +38,17 @@ worse than none.
 <!-- status:begin -->
 _Last refreshed: 2026-07-03 (`node scripts/openspec-status.mjs --write`)_
 
-|Change|Progress|Status|
-|---|---|---|
-|`omp-ide-sync`|22/23|in progress|
-|`plan-pipeline-harness`|9/51|in progress|
-|`stabilize-and-agent-chat`|37/42|in progress|
-|`startup-update-splash`|17/20|in progress|
-|`connector-permission-gateway`|0/29|not started|
-|`harness-context-files`|0/13|not started|
-|`native-agent-loop`|0/34|not started|
-|`native-app-login-mcp`|0/20|not started|
-|`strong-testing-suite`|0/19|not started|
+|Change|Progress|Status|Next command|
+|---|---|---|---|
+|`omp-ide-sync`|22/23|in progress|`/apply omp-ide-sync`|
+|`plan-pipeline-harness`|19/51|in progress|`/apply plan-pipeline-harness`|
+|`stabilize-and-agent-chat`|37/42|in progress|`/apply stabilize-and-agent-chat`|
+|`startup-update-splash`|17/20|in progress|`/apply startup-update-splash`|
+|`connector-permission-gateway`|0/29|not started|`/apply connector-permission-gateway`|
+|`harness-context-files`|0/13|not started|`/apply harness-context-files`|
+|`native-agent-loop`|0/34|not started|`/apply native-agent-loop`|
+|`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
+|`strong-testing-suite`|0/19|not started|`/apply strong-testing-suite`|
 <!-- status:end -->
 
 ## Archiving

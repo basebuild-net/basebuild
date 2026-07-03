@@ -47,11 +47,21 @@ function collect() {
   return rows;
 }
 
+function nextCommand(row) {
+  switch (row.status) {
+    case "not started": return `/apply ${row.name}`;
+    case "in progress": return `/apply ${row.name}`;
+    case "complete — archive": return `/archive ${row.name}`;
+    case "no tasks": return `/ff ${row.name}`;
+    default: return "";
+  }
+}
+
 function renderTable(rows) {
   const lines = [
-    "|Change|Progress|Status|",
-    "|---|---|---|",
-    ...rows.map((r) => `|\`${r.name}\`|${r.done}/${r.total}|${r.status}|`),
+    "|Change|Progress|Status|Next command|",
+    "|---|---|---|---|",
+    ...rows.map((r) => `|\`${r.name}\`|${r.done}/${r.total}|${r.status}|\`${nextCommand(r)}\`|`),
   ];
   return lines.join("\n");
 }
