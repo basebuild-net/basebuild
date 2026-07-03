@@ -21,6 +21,10 @@ scoped work without leaving the app.
 - **Local-first storage** - SQLite for dynamic state, OpenSpec files for plans,
   no cloud dependency.
 
+## Preview
+<img width="1279" height="798" alt="image" src="https://github.com/user-attachments/assets/ddfd6b38-d45c-4011-b825-047ffb61df4f" />
+
+
 ## Stack
 
 - **Frontend**: React + TypeScript + Vite (Tauri webview)
