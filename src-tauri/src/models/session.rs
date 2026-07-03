@@ -30,6 +30,7 @@ pub enum TabKind {
     Empty,
     File,
     Chat,
+    Omp,
 }
 
 impl TabKind {
@@ -39,6 +40,7 @@ impl TabKind {
             TabKind::Empty => "empty",
             TabKind::File => "file",
             TabKind::Chat => "chat",
+            TabKind::Omp => "omp",
         }
     }
 
@@ -47,6 +49,7 @@ impl TabKind {
             "file" => TabKind::File,
             "empty" => TabKind::Empty,
             "chat" => TabKind::Chat,
+            "omp" => TabKind::Omp,
             _ => TabKind::Terminal,
         }
     }

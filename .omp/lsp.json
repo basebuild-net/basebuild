@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "rust-analyzer": {
+      "rootMarkers": ["src-tauri/Cargo.toml"],
+      "initOptions": {
+        "linkedProjects": ["src-tauri/Cargo.toml"]
+      }
+    }
+  }
+}

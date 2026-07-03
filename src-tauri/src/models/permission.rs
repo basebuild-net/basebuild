@@ -96,3 +96,16 @@ pub struct AnalyticsConsent {
     pub consent_version: Option<String>,
     pub consented_at: Option<i64>,
 }
+
+/// Persisted usage-sync settings. `auto_sync_usage` is off by default and
+/// requires sign-in + `allow_usage_analytics_upload` to actually run.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageSyncSettings {
+    /// Whether the user has opted in to periodic account usage sync.
+    pub auto_sync_usage: bool,
+    /// Sync interval in minutes (default 60).
+    pub auto_sync_interval_minutes: i64,
+    /// Epoch seconds of the last successful sync, when any.
+    pub last_usage_sync_at: Option<i64>,
+}

@@ -1,3 +1,6 @@
+use tauri::AppHandle;
+
+use crate::models::usage_sync::{AutoSyncStatus, ProjectedUsage};
 use crate::services::sync_service;
 
 /// Sync raw OMP usage to basebuild.net using the stored native token.
@@ -6,4 +9,30 @@ use crate::services::sync_service;
 #[tauri::command]
 pub fn sync_raw_usage_native() -> Result<String, String> {
     sync_service::sync_raw_usage_native()
+}
+
+/// Trigger an opportunistic sync push (manual "Sync now"). Re-checks gates
+/// and freshness, then pushes if due. Non-blocking: emits `usage-sync://status`.
+#[tauri::command]
+pub fn usage_sync_trigger(app: AppHandle, reason: Option<String>) -> Result<(), String> {
+    sync_service::trigger_sync(app, &reason.unwrap_or_else(|| "manual".to_string()));
+    Ok(())
+}
+
+/// Enable or disable auto-sync. Persisted to settings.
+#[tauri::command]
+pub fn usage_sync_set_enabled(enabled: bool) -> Result<(), String> {
+    sync_service::set_autosync_enabled(enabled)
+}
+
+/// Read the current auto-sync status (cached, no network I/O).
+#[tauri::command]
+pub fn usage_sync_status() -> Result<AutoSyncStatus, String> {
+    Ok(sync_service::autosync_status())
+}
+
+/// Fetch the full projected-usage payload for the Account page.
+#[tauri::command]
+pub fn usage_sync_projected_usage() -> Result<ProjectedUsage, String> {
+    sync_service::fetch_projected_usage()
 }
