@@ -1,5 +1,16 @@
 ## ADDED Requirements
 
+### Requirement: Unified Approval Substrate
+Connector permission flows SHALL reuse the tool-approval gateway shipped by `native-agent-loop`: the same rules storage, prompt UI components, decision provenance, and audit trail, extended with connector identity and capability as additional scope dimensions. The system SHALL NOT maintain a second permission rules store or a parallel audit trail for connectors.
+
+#### Scenario: Connector rule stored in shared substrate
+- **WHEN** the user grants a persistent permission to a connector
+- **THEN** the grant is stored in the same rules store used by native tool approvals, scoped by connector id, and appears in the same audit surface
+
+#### Scenario: Consistent prompt experience
+- **WHEN** a connector triggers a permission prompt and a native tool triggers one in the same session
+- **THEN** both prompts use the same approval card UI, differing only in the actor identity shown (connector name vs native harness)
+
 ### Requirement: Central Connector Permission Broker
 The system SHALL route connector requests for commands, file access, provider claims, chat sync, web UI embedding, diagnostics, analytics, and external context through a centralized permission broker.
 

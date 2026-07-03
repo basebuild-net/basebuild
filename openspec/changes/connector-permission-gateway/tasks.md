@@ -2,17 +2,18 @@
 
 ## 1. Gateway Contract And Storage
 
-- [ ] 1.1 Define connector manifest fields, capability names, lifecycle states, event schemas, transport options, permission request shapes, and error codes
-- [ ] 1.2 Add SQLite migrations for connectors, capabilities, lifecycle state, provider claims, grants, audit records, sync sessions, and web/collab bridge origins
-- [ ] 1.3 Document local-first connector constraints and unsupported remote/plugin marketplace behavior
+- [ ] 1.1 Confirm `native-agent-loop` is merged; document its approval-gateway extension seams (rules schema, prompt components, audit trail, decision provenance) for connector scopes
+- [ ] 1.2 Define connector manifest fields, capability names, lifecycle states, event schemas, transport options, permission request shapes, and error codes
+- [ ] 1.3 Add SQLite migrations for connectors, capabilities, lifecycle state, provider claims, and sync sessions; extend the `native-agent-loop` rules/audit schema with connector identity scope (no parallel tables)
+- [ ] 1.4 Document local-first connector constraints and unsupported remote/plugin marketplace behavior
 
 ## 2. Backend Gateway And Permission Broker
 
 - [ ] 2.1 Implement connector registry service for manifest registration, enable/disable, validation, trust status, and project binding
 - [ ] 2.2 Implement connector lifecycle service for launch, attach, disconnect, restart, crash handling, and no-silent-startup restore
 - [ ] 2.3 Implement capability negotiation and typed unsupported-capability responses
-- [ ] 2.4 Implement permission-provider broker flows for commands, files, provider claims, chat sync, web UI/collab bridge, diagnostics, and analytics
-- [ ] 2.5 Add audit trail storage and grant revocation commands for connector decisions
+- [ ] 2.4 Implement permission-provider broker flows for commands, files, provider claims, chat sync, web UI/collab bridge, diagnostics, and analytics as extensions of the native tool-approval gateway (shared rules store, prompt cards, audit trail)
+- [ ] 2.5 Add connector grant revocation commands reusing the shared audit/rules surfaces
 - [ ] 2.6 Add thin Tauri command modules and `src/lib/*.ts` wrappers for connector registry, lifecycle, permissions, sync events, and provider claims
 
 ## 3. OMP Connector

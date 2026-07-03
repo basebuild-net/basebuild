@@ -18,17 +18,13 @@ node scripts/openspec-status.mjs --write
 
 3. `strong-testing-suite` — Playwright + CI + crash diagnostics. Start any time; independent of the two above.
 4. `native-app-login-mcp` — device-auth account connection + first-party usage sync with basebuild.net.
-
-### Needs re-scope before starting
-
-- `connector-permission-gateway` — written before `native-agent-loop`; its `permission-provider-broker` capability must be re-scoped to *wrap* the tool-approval gateway shipped by `native-agent-loop` instead of redefining it. Re-run `/propose`-level review on it first.
-- `desktop-catalog-sync` — has no `tasks.md`; finish its artifacts (`/ff`) or drop it.
+5. `harness-context-files` — system-prompt assembly: AGENTS.md discovery, schematic injection, skills metadata, context inspector. **After `native-agent-loop`** (feeds its budget guard).
+6. `connector-permission-gateway` — re-scoped 2026-07-03: permission broker now extends the `native-agent-loop` tool-approval substrate (task 1.1 gates on that merge).
 
 ### Proposed (no artifacts yet — run `/propose <name>` when its turn comes)
 
 |Plan|Scope|Depends on|
 |---|---|---|
-|`harness-context-files`|Native harness system-prompt assembly: AGENTS.md discovery, project schematic injection, skills metadata list (omp `context-files` parity).|`native-agent-loop`|
 |`session-compaction`|Summarize-and-continue history compaction past the truncation guard; explicitly deferred out of `native-agent-loop`.|`native-agent-loop`|
 |`diff-review-workflow`|Per-run diff review UI: inspect/approve/revert agent-made changes before final-touches commit/PR steps.|`native-agent-loop`, `plan-pipeline-harness`|
 |`harness-subagents`|Delegate scoped subtasks to parallel native sessions (omp task-tool parity) on top of the run queue + worktrees.|both in-flight changes|
@@ -48,11 +44,11 @@ _Last refreshed: 2026-07-03 (`node scripts/openspec-status.mjs --write`)_
 |`plan-pipeline-harness`|9/51|in progress|
 |`stabilize-and-agent-chat`|37/42|in progress|
 |`startup-update-splash`|17/20|in progress|
-|`connector-permission-gateway`|0/28|not started|
+|`connector-permission-gateway`|0/29|not started|
+|`harness-context-files`|0/13|not started|
 |`native-agent-loop`|0/34|not started|
 |`native-app-login-mcp`|0/20|not started|
 |`strong-testing-suite`|0/19|not started|
-|`desktop-catalog-sync`|0/0|no tasks|
 <!-- status:end -->
 
 ## Archiving

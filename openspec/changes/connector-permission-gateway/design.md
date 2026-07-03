@@ -27,6 +27,10 @@ Basebuild currently treats OMP as the primary CLI integration and already models
 **Rationale**: Basebuild needs to know what each tool can safely expose before rendering UI or offering actions.  
 **Alternatives**: Hardcode each tool into React components. That blocks future connectors and duplicates permission logic.
 
+**Decision**: Build the permission broker on the tool-approval gateway substrate shipped by `native-agent-loop` (same approval modes, rules storage, prompt cards, and audit trail), adding connector identity and capability as scope dimensions.
+**Rationale**: One permission system. Two parallel prompt/rules/audit stacks would drift, double the settings UI, and teach users two mental models for the same question ("may this actor do X?").
+**Alternatives**: Standalone connector-only broker as originally drafted — rejected once `native-agent-loop` was planned; it would duplicate the entire rules/audit layer.
+
 **Decision**: Keep connectors out-of-process and communicate through local IPC/stdio/loopback channels with strict allowlists.  
 **Rationale**: External tools should remain independently installable and crash-isolated, while Basebuild controls permissions and UI projection.  
 **Alternatives**: Load connector code directly into the Tauri process. That increases crash/security risk and makes third-party connector support harder.
@@ -53,7 +57,7 @@ Basebuild currently treats OMP as the primary CLI integration and already models
 
 ## Migration Plan
 
-1. Add connector registry and permission-provider broker schema tables with additive migrations.
+1. Extend the `native-agent-loop` approval rules/audit schema with connector identity scope; add connector registry tables with additive migrations.
 2. Implement connector manifest parsing, capability negotiation, lifecycle state, and audit logging behind backend services.
 3. Add OMP connector wrapper using existing OMP launch/detection paths and raw terminal process ownership.
 4. Add native projection events for whatever OMP can safely expose first: availability, sessions, provider claims, skills/commands, and terminal status.
