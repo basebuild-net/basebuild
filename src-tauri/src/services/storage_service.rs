@@ -20,6 +20,24 @@ impl StorageService {
         let db_path = Self::state_db_path()?;
         let connection = Connection::open(db_path)
             .map_err(|error| format!("Failed to open Basebuild state database: {error}"))?;
+
+        // ── SQLite robustness pragmas ──────────────────────────────────────
+        // WAL: readers don't block writers; sticky (set once at startup, but
+        // idempotent per-connect so every connection sees the right mode).
+        connection
+            .pragma_update(None, "journal_mode", "WAL")
+            .map_err(|e| format!("Failed to set WAL journal mode: {e}"))?;
+        // busy_timeout: absorb writer bursts from multiple threads (queue,
+        // telemetry, agent loop) without returning SQLITE_BUSY immediately.
+        connection
+            .busy_timeout(std::time::Duration::from_millis(5000))
+            .map_err(|e| format!("Failed to set busy_timeout: {e}"))?;
+        // Normal synchronous is safe with WAL and avoids the fsync-per-commit
+        // cost of FULL.
+        connection
+            .pragma_update(None, "synchronous", "NORMAL")
+            .map_err(|e| format!("Failed to set synchronous mode: {e}"))?;
+
         Self::initialize(&connection)?;
         Ok(connection)
     }
@@ -897,5 +915,52 @@ mod tests {
         assert_eq!(IdeaStatus::from_str("cancelled"), IdeaStatus::Archived);
         assert_eq!(IdeaStatus::from_str("archived"), IdeaStatus::Archived);
         assert_eq!(IdeaStatus::from_str("nonsense"), IdeaStatus::Concept);
+    }
+
+    #[test]
+    fn connect_sets_wal_and_busy_timeout_pragmas() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::env::set_var("BASEBUILD_HOME", dir.path());
+        let conn = StorageService::connect().unwrap();
+        let mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get::<_, String>(0))
+            .unwrap();
+        assert_eq!(mode.to_lowercase(), "wal");
+        let timeout: i64 = conn
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(timeout, 5000);
+    }
+
+    #[test]
+    fn concurrent_writers_do_not_deadlock() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::env::set_var("BASEBUILD_HOME", dir.path());
+        // Initialize schema.
+        let _ = StorageService::connect().unwrap();
+
+        let mut handles = Vec::new();
+        for i in 0..4 {
+            handles.push(std::thread::spawn(move || {
+                let conn = StorageService::connect().unwrap();
+                for j in 0..20 {
+                    conn.execute(
+                        "INSERT INTO recent_projects(path, name, last_opened_at, last_active_session_id) VALUES (?1, ?2, ?3, NULL)",
+                        params![format!("/test/{i}-{j}"), format!("Project {i}-{j}"), unix_timestamp()],
+                    )
+                    .unwrap();
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // Verify all 80 rows landed.
+        let conn = StorageService::connect().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM recent_projects", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 80);
     }
 }
