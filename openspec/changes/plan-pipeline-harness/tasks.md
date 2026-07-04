@@ -68,12 +68,10 @@
 - [x] 8.5 Tests: ordering, failure halts, disabled-by-default guarantees (no commit/PR on unconfigured project).
 
 ## 9. Parallel Workspaces
-
-- [ ] 9.1 `worktree_service.rs`: create worktree under managed dir with branch `bb/<ref>-<slug>`, list, remove via `git worktree remove` (confirmation before `--force`); `src/lib/workspaces.ts`.
-- [ ] 9.2 Queue integration: acquire worktree per run when concurrency > 1 and repo is git; sequential fallback + notice otherwise; hard-cap concurrency 1 without worktrees.
-- [ ] 9.3 Workspace UI: list with plan/branch/path, prune action, uncommitted-changes warning.
-- [ ] 9.4 Tests: worktree create/remove round-trip in a temp repo, non-git fallback.
-
+- [x] 9.1 `worktree_service.rs`: create worktree under managed dir with branch `bb/<ref>-<slug>`, list, remove via `git worktree remove` (confirmation before `--force`); `src/lib/workspaces.ts`.
+- [x] 9.2 Queue integration: acquire worktree per run when concurrency > 1 and repo is git; sequential fallback + notice otherwise; hard-cap concurrency 1 without worktrees.
+- [x] 9.3 Workspace UI: list with plan/branch/path, prune action, uncommitted-changes warning.
+- [x] 9.4 Tests: worktree create/remove round-trip in a temp repo, non-git fallback.
 ## 10. Docs, Polish & Verification
 
 - [ ] 10.1 Update `docs/agents/agent-runtime.md` (harness commands, MCP, defaults), `docs/agents/desktop-shell.md` (queue/workspace surfaces), `DESIGN.md` (new UI states/classes).

@@ -24,7 +24,7 @@ pub mod skills;
 pub mod stability;
 pub mod sessions;
 pub mod terminal;
-pub mod sync;
 pub mod updater;
-
+pub mod sync;
 pub mod workspace;
+pub mod workspaces;

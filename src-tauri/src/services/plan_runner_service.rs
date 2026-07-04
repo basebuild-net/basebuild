@@ -186,9 +186,15 @@ impl PlanRunnerService {
         }
 
         // Spawn the dispatcher thread. It acquires a tokio semaphore permit
-        // per run, up to concurrency. Without worktrees (phase 9), concurrency
-        // is hard-capped at 1.
-        let concurrency = profile.concurrency.max(1).min(if Self::worktrees_enabled() {
+        // per run, up to concurrency. Without worktrees (non-git project),
+        // concurrency is hard-capped at 1.
+        let project_path = SessionService::get(&session_id)
+            .ok()
+            .flatten()
+            .map(|s| s.project_path)
+            .unwrap_or_default();
+        let worktrees_enabled = Self::worktrees_enabled_for(&project_path);
+        let concurrency = profile.concurrency.max(1).min(if worktrees_enabled {
             profile.concurrency
         } else {
             1
@@ -583,6 +589,12 @@ impl PlanRunnerService {
             .ok_or_else(|| "Plan run not found after execution".to_string())
     }
 
+    /// Worktrees are enabled when the project is a git repo. Called by
+    /// the dispatcher to decide whether to cap concurrency at 1.
+    fn worktrees_enabled_for(project_path: &str) -> bool {
+        crate::services::worktree_service::WorktreeService::is_supported(project_path)
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────
 
     /// Find the next queue entry whose plan has no run yet (or only
@@ -618,10 +630,6 @@ impl PlanRunnerService {
         Ok(row)
     }
 
-    /// Worktrees are enabled in phase 9. Until then, concurrency is capped at 1.
-    fn worktrees_enabled() -> bool {
-        false
-    }
 
     fn map_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<PlanRun> {
         let steps_json: String = row.get(8)?;
@@ -757,8 +765,8 @@ mod tests {
     }
 
     #[test]
-    fn worktrees_disabled_until_phase9() {
-        // Without phase-9 worktree support, concurrency is capped at 1.
-        assert!(!PlanRunnerService::worktrees_enabled());
+    fn worktrees_not_supported_for_nonexistent_path() {
+        // A non-git path returns false from worktrees_enabled_for.
+        assert!(!PlanRunnerService::worktrees_enabled_for("/nonexistent/path/that/does/not/exist"));
     }
  }
