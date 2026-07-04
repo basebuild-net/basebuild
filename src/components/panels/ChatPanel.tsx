@@ -23,6 +23,7 @@ import {
   nativeChatSend,
   nativeChatSetProjectModelDefault,
   nativeChatStart,
+  nativeChatToolEvents,
   nativeDeleteProviderCredential,
   nativeGenerateIdeas,
   nativeProviderCatalog,
@@ -37,6 +38,7 @@ import {
   type NativeProviderCatalog,
   type NativeRequestMetricsSummary,
   type NativeSetupRequired,
+  type NativeToolEvent,
 } from "../../lib/native-chat";
 import { useIdeaState } from "../../state/ideas";
 import type { Idea } from "../../lib/ideas";
@@ -69,6 +71,35 @@ function formatMetric(value: number | null | undefined, suffix = "") {
   return `${Math.round(value * 10) / 10}${suffix}`;
 }
 
+function ToolEventCard({ event }: { event: NativeToolEvent }) {
+  const [expanded, setExpanded] = useState(false);
+  const isRunning = event.status === "running" || event.status === "pending";
+  const isError = event.status === "error" || event.status === "denied";
+  const isApproval = event.kind === "approval" || event.kind === "request_tool_approval";
+  const isCommand = event.kind === "run_command" || event.kind === "command";
+  const isEdit = event.kind === "edit_file" || event.kind === "write_file";
+  const icon = isApproval ? "🔐" : isCommand ? "▶" : isEdit ? "✎" : event.kind === "request_metrics" ? "📊" : "🔧";
+  const statusClass = isRunning ? "running" : isError ? "error" : event.status === "success" || event.status === "recorded" || event.status === "allow" ? "success" : "info";
+
+  return (
+    <div className={`tool-card tool-card-${statusClass}`} title={`${event.kind}: ${event.status}`}>
+      <div className="tool-card-header" onClick={() => setExpanded(!expanded)} role="button" tabIndex={0}>
+        <span className="tool-card-icon">{icon}</span>
+        <span className="tool-card-name">{event.kind.replace(/_/g, " ")}</span>
+        <span className={`tool-card-status tool-card-status-${statusClass}`}>{event.status}</span>
+        <span className="tool-card-expand">{expanded ? "▼" : "▶"}</span>
+      </div>
+      {expanded ? (
+        <div className="tool-card-body">
+          <pre className="tool-card-summary">{event.summary}</pre>
+        </div>
+      ) : null}
+      {!expanded && event.summary ? (
+        <div className="tool-card-summary-truncated text-muted text-sm">{event.summary.slice(0, 120)}{event.summary.length > 120 ? "…" : ""}</div>
+      ) : null}
+    </div>
+  );
+}
 export function ChatPanel({
   projectPath,
   chatSessionId,
@@ -85,6 +116,7 @@ export function ChatPanel({
   const [metrics, setMetrics] = useState<NativeRequestMetricsSummary | null>(null);
   const [nativeSessionId, setNativeSessionId] = useState<string | null>(chatSessionId ?? null);
   const [nativeMessages, setNativeMessages] = useState<NativeChatMessage[]>([]);
+  const [toolEvents, setToolEvents] = useState<NativeToolEvent[]>([]);
   const [legacyMessages, setLegacyMessages] = useState<LegacyChatMessage[]>([]);
   const [providerId, setProviderId] = useState(LOCAL_PROVIDER_ID);
   const [modelId, setModelId] = useState("basebuild-local-coordinator");
@@ -96,7 +128,6 @@ export function ChatPanel({
   const [agentId, setAgentId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [setupRequired, setSetupRequired] = useState<NativeSetupRequired | null>(null);
-  // Streaming assistant output for the in-flight turn.
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [reasoningText, setReasoningText] = useState("");
@@ -205,8 +236,14 @@ export function ChatPanel({
     async function loadOrCreate() {
       try {
         if (nativeSessionId) {
-          const msgs = await nativeChatMessages(nativeSessionId);
-          if (!cancelled) setNativeMessages(msgs);
+          const [msgs, events] = await Promise.all([
+            nativeChatMessages(nativeSessionId),
+            nativeChatToolEvents(nativeSessionId),
+          ]);
+          if (!cancelled) {
+            setNativeMessages(msgs);
+            setToolEvents(events);
+          }
           return;
         }
         const session = await nativeChatStart({
@@ -220,6 +257,7 @@ export function ChatPanel({
         setNativeSessionId(session.id);
         onChatSessionCreated?.(session.id);
         setNativeMessages([]);
+        setToolEvents([]);
         setError(null);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -359,6 +397,10 @@ export function ChatPanel({
             if (result.assistantMessage) next.push(result.assistantMessage);
             return next;
           });
+          // Reload tool events from the result
+          if (result.toolEvents.length > 0 && nativeSessionId) {
+            setToolEvents(await nativeChatToolEvents(nativeSessionId));
+          }
           if (result.setupRequired) {
             setSetupRequired(result.setupRequired);
             setShowLogin(true);
@@ -367,11 +409,9 @@ export function ChatPanel({
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           addLog("error", "Failed to send native message", msg);
-          setError(msg);
-          // The backend persists the user message before contacting the provider;
-          // reload to reflect the real conversation state.
           try {
             setNativeMessages(await nativeChatMessages(nativeSessionId));
+            setToolEvents(await nativeChatToolEvents(nativeSessionId));
           } catch {
             /* ignore */
           }
@@ -783,6 +823,15 @@ export function ChatPanel({
             </div>
           );
         })}
+
+        {nativeMode && toolEvents.length > 0 ? (
+          <div className="chat-tool-events">
+            {toolEvents.map((ev) => (
+              <ToolEventCard key={ev.id} event={ev} />
+            ))}
+          </div>
+        ) : null}
+
 
         {streaming && reasoningText ? (
           <div className="chat-message chat-message-assistant chat-message-reasoning" title="Live chain-of-thought from the model. Final answer follows.">

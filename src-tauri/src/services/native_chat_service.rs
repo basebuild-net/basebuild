@@ -927,6 +927,30 @@ impl NativeChatService {
         Ok(event)
     }
 
+    pub fn list_tool_events(session_id: &str) -> DbResult<Vec<NativeToolEvent>> {
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, session_id, message_id, kind, status, summary, created_at
+                 FROM native_tool_events WHERE session_id = ?1 ORDER BY created_at ASC",
+            )
+            .map_err(|e| format!("Failed to prepare tool event query: {e}"))?;
+        let rows = stmt
+            .query_map(params![session_id], |row| {
+                Ok(NativeToolEvent {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    message_id: row.get(2)?,
+                    kind: row.get(3)?,
+                    status: row.get(4)?,
+                    summary: row.get(5)?,
+                    created_at: row.get(6)?,
+                })
+            })
+            .map_err(|e| format!("Failed to query tool events: {e}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to collect tool events: {e}"))
+    }
     fn insert_metric(metric: &NativeRequestMetric) -> DbResult<()> {
         let conn = StorageService::connect()?;
         conn.execute(

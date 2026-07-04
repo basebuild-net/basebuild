@@ -46,7 +46,7 @@ use commands::{
     },
     native_chat::{
         native_chat_get, native_chat_list, native_chat_messages, native_chat_send,
-        native_chat_start, native_chat_cancel, native_chat_model_default, native_chat_set_project_model_default,
+        native_chat_start, native_chat_cancel, native_chat_tool_events, native_chat_model_default, native_chat_set_project_model_default,
         native_chat_set_global_model_default, native_catalog_sync,
         native_delete_provider_credential, native_generate_ideas,
         native_list_provider_credentials, native_provider_catalog,
@@ -341,6 +341,7 @@ pub fn run() {
             native_request_metrics_summary,
             native_chat_send,
             native_chat_cancel,
+            native_chat_tool_events,
             native_list_provider_credentials,
             native_delete_provider_credential,
             native_generate_ideas,

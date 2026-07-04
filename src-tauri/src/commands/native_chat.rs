@@ -7,7 +7,7 @@ use crate::{
         NativeGenerateIdeasResult, NativeProviderCatalog, NativeProviderCatalogRefreshRequest,
         NativeProviderCredential, NativeProviderCredentialInput, NativeRequestMetric,
         NativeRequestMetricsSummary, NativeToolApprovalRequest, NativeToolApprovalResult,
-        ResolvedChatModelDefault,
+        NativeToolEvent, ResolvedChatModelDefault,
     },
     services::native_chat_service::NativeChatService,
 };
@@ -87,6 +87,11 @@ pub fn native_request_tool_approval(
 #[tauri::command]
 pub fn native_chat_cancel(session_id: String) -> Result<bool, String> {
     Ok(crate::services::agent_loop_service::cancel_run(&session_id))
+}
+
+#[tauri::command]
+pub fn native_chat_tool_events(session_id: String) -> Result<Vec<NativeToolEvent>, String> {
+    NativeChatService::list_tool_events(&session_id)
 }
 
 #[tauri::command]

@@ -291,6 +291,11 @@ export async function nativeChatCancel(sessionId: string): Promise<boolean> {
   return invoke<boolean>("native_chat_cancel", { sessionId });
 }
 
+/** List tool events for a session (tool calls, approvals, metrics). */
+export async function nativeChatToolEvents(sessionId: string): Promise<NativeToolEvent[]> {
+  return invoke<NativeToolEvent[]>("native_chat_tool_events", { sessionId });
+}
+
 /** Persist the per-project chat model default (called on manual composer selection). */
 export async function nativeChatSetProjectModelDefault(
   projectPath: string,

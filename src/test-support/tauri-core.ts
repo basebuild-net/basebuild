@@ -194,6 +194,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "agent_stop":
     case "native_chat_cancel":
       return undefined as T;
+    case "native_chat_tool_events":
+      return [] as T;
     case "detect_project":
       return { path: args.path as string, gitRoot: args.path as string, hasGit: true, hasOpenSpec: true, hasBasebuild: true } as T;
     case "list_sessions":
