@@ -47,6 +47,26 @@ impl SessionService {
         Ok(session)
     }
 
+    pub fn get(id: &str) -> DbResult<Option<Session>> {
+        let conn = StorageService::connect()?;
+        let row = conn
+            .query_row(
+                "SELECT id, project_path, title, created_at, updated_at FROM sessions WHERE id = ?1",
+                params![id],
+                |row| {
+                    Ok(Session {
+                        id: row.get(0)?,
+                        project_path: row.get(1)?,
+                        title: row.get(2)?,
+                        created_at: row.get(3)?,
+                        updated_at: row.get(4)?,
+                    })
+                },
+            )
+            .ok();
+        Ok(row)
+    }
+
     pub fn list_sessions(project_path: &str) -> DbResult<Vec<Session>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn.prepare(

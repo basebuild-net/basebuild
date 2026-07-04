@@ -52,12 +52,12 @@
 
 ## 7. Plan Run Queue & Sessions
 
-- [ ] 7.1 `plan_runner_service.rs`: queue CRUD (enqueue/reorder/remove), execution profile `N × provider/model[/effort]` persistence, tokio-semaphore scheduler, `plan_run://` events; commands + `src/lib/planRuns.ts`.
-- [ ] 7.2 Session provisioning: `create_session_for_plan` in `native_chat_service.rs` — fresh session, title `<ref> — <plan title>`, opening context from plan + linked change + schematic, bound model; plan `ready → running`.
-- [ ] 7.3 Run lifecycle: completion detection (all tasks checked or explicit user done), cancel (abort turn, plan back to `ready` or `cancelled` per user choice, artifacts kept), pause queue, `finished_at` stamping.
-- [ ] 7.4 OMP runner path: "Run with OMP" opens terminal tab seeded with reference id + change path; plan → `running`.
-- [ ] 7.5 Queue UI in `PlanPanel.tsx`: profile selector at top (`N ×` + model picker), queue ordering, per-run status, cancel/pause controls, links to run sessions.
-- [ ] 7.6 Tests: scheduler respects N, cancel semantics, session provisioning fields, queue survives panel unmount (backend-owned) — Rust unit + dev-app smoke.
+- [x] 7.1 `plan_runner_service.rs`: queue CRUD (enqueue/reorder/remove), execution profile `N × provider/model[/effort]` persistence, tokio-semaphore scheduler, `plan_run://` events; commands + `src/lib/planRuns.ts`.
+- [x] 7.2 Session provisioning: `create_session_for_plan` in `native_chat_service.rs` — fresh session, title `<ref> — <plan title>`, opening context from plan + linked change + schematic, bound model; plan `ready → running`.
+- [x] 7.3 Run lifecycle: completion detection (all tasks checked or explicit user done), cancel (abort turn, plan back to `ready` or `cancelled` per user choice, artifacts kept), pause queue, `finished_at` stamping.
+- [x] 7.4 OMP runner path: "Run with OMP" opens terminal tab seeded with reference id + change path; plan → `running`.
+- [x] 7.5 Queue UI in `PlanPanel.tsx`: profile selector at top (`N ×` + model picker), queue ordering, per-run status, cancel/pause controls, links to run sessions.
+- [x] 7.6 Tests: scheduler respects N, cancel semantics, session provisioning fields, queue survives panel unmount (backend-owned) — Rust unit + dev-app smoke.
 
 ## 8. Final Touches
 

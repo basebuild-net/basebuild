@@ -11,9 +11,11 @@ import {
 } from "lucide-react";
 import type { Plan, PlanStatus } from "../../lib/plans";
 import { PLAN_STATUSES, PLAN_STATUS_LABEL, isTerminalStatus } from "../../lib/plans";
+import { PlanQueueSection } from "./PlanQueueSection";
 
 type PlanPanelProps = {
   sessionId: string | null;
+  projectPath: string | null;
   plans: Plan[];
   loading: boolean;
   collapsed: boolean;
@@ -26,11 +28,13 @@ type PlanPanelProps = {
   onDeletePlan: (id: string) => void;
   onCopyReference: (refId: string) => void;
   onOpenInTerminal: (plan: Plan) => void;
+  onOpenChatSession: (chatSessionId: string) => void;
   showHeader?: boolean;
 };
 
 export function PlanPanel({
   sessionId,
+  projectPath,
   plans,
   loading,
   collapsed,
@@ -43,6 +47,7 @@ export function PlanPanel({
   onDeletePlan,
   onCopyReference,
   onOpenInTerminal,
+  onOpenChatSession,
   showHeader = true,
 }: PlanPanelProps) {
   const [expandedFinished, setExpandedFinished] = useState(false);
@@ -188,6 +193,11 @@ export function PlanPanel({
           })
         )}
       </div>
+      <PlanQueueSection
+        sessionId={sessionId}
+        plans={plans}
+        onOpenChatSession={onOpenChatSession}
+      />
     </aside>
   );
 }

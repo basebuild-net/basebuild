@@ -10,6 +10,7 @@ pub mod ideas;
 pub mod omp;
 pub mod omp_telemetry;
 pub mod plans;
+pub mod plan_runs;
 pub mod pipeline;
 pub mod native_chat;
 pub mod openspec;

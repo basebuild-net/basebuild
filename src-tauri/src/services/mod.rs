@@ -10,6 +10,7 @@ pub mod auth_service;
  pub mod git_service;
 pub mod omp_service;
 pub mod omp_telemetry_service;
+pub mod plan_runner_service;
 pub mod plan_service;
 pub mod pipeline_service;
 pub mod native_chat_service;
