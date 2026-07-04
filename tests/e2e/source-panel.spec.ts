@@ -37,7 +37,7 @@ test.describe("source panel", () => {
     await expect(page.locator(".source-section", { hasText: "Staged Changes" })).toContainText("SourcePanel.tsx");
     await page.getByTitle("Generate commit message with AI").click();
 
-    await expect(page.locator('textarea[title="Commit message"]')).toHaveValue("Update source panel commit generation");
+    await expect(page.locator('textarea[title="Commit message"]')).toHaveValue("Rework patch system to target sbox-public");
     expect(pageErrors).toEqual([]);
     expect(consoleErrors).toEqual([]);
   });

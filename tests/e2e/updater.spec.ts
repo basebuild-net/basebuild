@@ -4,6 +4,7 @@ test.describe("updater taskbar", () => {
   test("shows detected update and starts one-click install", async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem("basebuild:first-run-complete", "true");
+      Object.defineProperty(navigator, "platform", { get: () => "Win32" });
     });
 
     await page.goto("/");
