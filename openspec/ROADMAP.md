@@ -49,8 +49,8 @@ _Last refreshed: 2026-07-04 (`node scripts/openspec-status.mjs --write`)_
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
 |`stability-hardening`|0/23|not started|`/apply stability-hardening`|
-|`strong-testing-suite`|0/19|not started|`/apply strong-testing-suite`|
 |`native-agent-loop`|34/34|complete — archive|`/archive native-agent-loop`|
+|`strong-testing-suite`|19/19|complete — archive|`/archive strong-testing-suite`|
 <!-- status:end -->
 
 ## Archiving

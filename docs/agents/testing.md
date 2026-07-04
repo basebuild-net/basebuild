@@ -55,3 +55,33 @@ screenshot.
 - Do not suppress warnings to hide real problems.
 - Do not ship stubs, placeholders, mocks, or `TODO: implement` as delivered work.
 - Do not skip visual verification for UI changes.
+
+## CI pipeline
+
+GitHub Actions (`.github/workflows/windows.yml`) runs three jobs on every PR and push to `main`:
+
+| Job | What it does |
+|---|---|
+| `check-frontend` | `npm ci`, `npm run build`, `npx tsc --noEmit` |
+| `check-rust` | `cargo check`, `cargo test` (on Ubuntu with Tauri Linux deps) |
+| `check-e2e` | `BASEBUILD_E2E=1 npm run test:e2e` with Playwright browser cache |
+
+The `release` job (manual dispatch only) gates on all three. Playwright
+traces, screenshots, and videos are uploaded as artifacts on failure
+(7-day retention).
+
+### Local CI reproduction
+
+```bash
+npx tsc --noEmit              # check-frontend
+npm run build                 # check-frontend
+cd src-tauri && cargo check   # check-rust
+cd src-tauri && cargo test    # check-rust
+BASEBUILD_E2E=1 npm run test:e2e  # check-e2e
+```
+
+### Crash diagnostics in tests
+
+Renderer crashes produce JSON reports under `<app-data>/reports/` (see
+`stability_service.rs`). The DebugPanel shows unseen reports with a badge.
+E2e tests should assert crash report visibility for renderer failure paths.
