@@ -74,7 +74,7 @@
 - [x] 9.4 Tests: worktree create/remove round-trip in a temp repo, non-git fallback.
 ## 10. Docs, Polish & Verification
 
-- [ ] 10.1 Update `docs/agents/agent-runtime.md` (harness commands, MCP, defaults), `docs/agents/desktop-shell.md` (queue/workspace surfaces), `DESIGN.md` (new UI states/classes).
-- [ ] 10.2 Verify design contract: zero radius, tooltips on every new control, styles only in `globals.css`.
-- [ ] 10.3 Full pass: `npx tsc --noEmit`, `npm run build`, `cargo check`, `cargo test`; end-to-end smoke: categories → ideas → pick → openspec → ready → queue run (1× and 2× with worktrees) → final touches → finished; cancel at each stage.
-- [ ] 10.4 Suggest commit points per completed phase (no silent commits).
+- [x] 10.1 Update `docs/agents/agent-runtime.md` (harness commands, MCP, defaults), `docs/agents/desktop-shell.md` (queue/workspace surfaces), `DESIGN.md` (new UI states/classes).
+- [x] 10.2 Verify design contract: zero radius, tooltips on every new control, styles only in `globals.css`.
+- [x] 10.3 Full pass: `npx tsc --noEmit`, `npm run build`, `cargo check`, `cargo test`; end-to-end smoke: categories → ideas → pick → openspec → ready → queue run (1× and 2× with worktrees) → final touches → finished; cancel at each stage.
+- [x] 10.4 Suggest commit points per completed phase (no silent commits).

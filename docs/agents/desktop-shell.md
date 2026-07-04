@@ -101,6 +101,29 @@ the user explicitly reconnects.
 
 ## Plan pipeline
 
-Plans move through: `draft → openspec → waiting → in_progress → finished`.
+Plans move through: `draft → openspec → ready → running → finished`.
 `cancelled` may terminate from any status. See `AGENTS.md` for plan field
 details.
+
+## Plan run queue
+
+The PlanPanel includes a run queue section at the bottom. Ready plans can be
+enqueued, and the queue dispatches runs up to the configured concurrency
+(`N × provider/model`). The dispatcher is backend-owned (`plan_runner_service.rs`)
+and survives panel unmounts. Each native run provisions a fresh chat session
+titled `<ref> — <plan title>`, primed with the plan's opening context.
+Completion is detected by `tasks.md` checkbox polling or explicit user action.
+The OMP runner path opens a terminal tab seeded with the plan's reference id.
+
+## Final touches
+
+Per-project post-completion steps (shell, validate, commit, pull_request) are
+configured in Settings → Final Touches. They execute sequentially after a run
+completes; `finished` is gated on pipeline success. Remote-writing kinds
+(commit, pull_request) default disabled.
+
+## Parallel workspaces
+
+When the project is a git repository, parallel plan runs can each execute in
+an isolated git worktree (branch `bb/<ref>-<slug>`). Non-git projects fall back
+to sequential execution (concurrency capped at 1).
