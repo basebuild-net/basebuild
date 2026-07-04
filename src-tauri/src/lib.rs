@@ -287,6 +287,8 @@ pub fn run() {
             set_plan_status,
             set_plan_context,
             pipeline_start,
+            pipeline_cancel,
+            pipeline_list_runs,
             final_touch_delete_step,
             connector_register,
             connector_list,
