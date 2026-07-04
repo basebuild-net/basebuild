@@ -11,12 +11,12 @@ node scripts/openspec-status.mjs --write
 
 ### Now (in flight)
 
-1. `connector-permission-gateway` — phase 1+2 (gateway contract, storage,
-   backend permission broker, Tauri commands, TS wrappers) in PR #17.
-   Phase 2 OMP connector integration + frontend UX + web bridge + verification
-   remain (tasks 3.1–6.5). Permission broker extends the merged
-   `native-agent-loop` approval substrate (modes, rules, prompts, audit trail);
-   the task 1.1 merge gate is satisfied as of PR #9.
+1. `connector-permission-gateway` — phases 1+2 merged in PR #17 (gateway
+   contract, storage, backend permission broker, Tauri commands, TS wrappers;
+   9/29 tasks done). Phase 2 OMP connector integration + frontend UX + web
+   bridge + verification remain (tasks 2.2 partial, 3.1–6.5). Permission broker
+   extends the merged `native-agent-loop` approval substrate (modes, rules,
+   prompts, audit trail); the task 1.1 merge gate is satisfied as of PR #9.
 
 ### Next (specced, ready to start)
 
