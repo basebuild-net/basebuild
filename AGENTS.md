@@ -1,7 +1,10 @@
 # Basebuild Desktop — Agent Guide
 
 Basebuild is an open-source desktop control plane for AI coding agents.
-Read this file before making any code or documentation change.
+Read this file before making any code or documentation change. Every rule
+below is enforced in review: a PR that violates a Mandatory Invariant is
+rejected regardless of feature quality. When another document conflicts with
+this file, this file wins.
 
 ## Quick Reference
 
@@ -64,6 +67,13 @@ src-tauri/
 9. **Plan statuses are `snake_case`.** Lifecycle: `draft → openspec → ready → running → finished`. `cancelled` is reachable from any non-terminal status. Ideas use `concept → picked → archived`.
 10. **Commit milestones.** Keep large changes in coherent, verified milestones. If the user has explicitly asked for commits, commit each completed milestone separately with a clear message. Otherwise, report suggested commit points but do not create commits silently.
 11. **Feature branches.** Never build on `main`. Before starting any non-trivial change, create a branch named after the work (e.g. `feat/startup-update-splash`). If the current branch is already non-`main`, stay on it. Do not push commits to `main`. Only merge a feature branch into `main` after the work is verified.
+12. **Roadmap tracks OpenSpec — always.** Any edit under `openspec/changes/**`
+    (task checkbox, new proposal, re-scope, archive) MUST be accompanied, in the
+    same commit/PR, by `node scripts/openspec-status.mjs --write` **and** a pass
+    over the narrative sections of `openspec/ROADMAP.md` (Now / Merged — awaiting
+    archive / Next / Proposed). The script only refreshes the status table; the
+    narrative is your job. A PR that completes or merges a change MUST move its
+    roadmap entry and cite the PR number.
 
 ## Development
 
@@ -91,8 +101,19 @@ When you change behavior, update its documentation in the same change:
 | Build / dev / secrets | `docs/DEVELOPMENT.md` or `docs/SECRETS.md` |
 | High-level project pitch or contribution | `README.md` |
 | OpenSpec plan | `openspec/changes/<change-name>/` |
+| OpenSpec progress (checkbox, propose, re-scope, archive) | `openspec/ROADMAP.md` — refresh table with `node scripts/openspec-status.mjs --write` and update narrative in the same commit (Invariant 12) |
 | Skills | `skills/<name>/SKILL.md` and this file |
 | Data collection / privacy behaviour | `docs/agents/agent-runtime.md` and `docs/SECRETS.md` |
 | Agent/chat/terminal/adapter behavior | `docs/agents/agent-runtime.md` |
 | Tab/panel/workspace routing | `docs/agents/desktop-shell.md` |
 | Testing requirements | `docs/agents/testing.md` |
+
+## Before You Yield — Checklist
+
+Do not claim a change complete until every line holds:
+
+- [ ] `npx tsc --noEmit` passes; `cargo check`/`cargo test` pass when Rust changed — actually run, never assumed.
+- [ ] New interactive elements have `title=` tooltips; 0px radius; styles only in `globals.css`.
+- [ ] Behavior docs updated per the Documentation Maintenance table above.
+- [ ] If anything under `openspec/changes/**` changed: status table refreshed and `ROADMAP.md` narrative matches reality (Invariant 12).
+- [ ] Work is on a feature branch; commit points reported, no silent commits.

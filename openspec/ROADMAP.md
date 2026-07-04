@@ -11,28 +11,50 @@ node scripts/openspec-status.mjs --write
 
 ### Now (in flight)
 
-1. `plan-pipeline-harness` — idea→plan pipeline, run queue, MCP client, slash commands, workspaces. **Owner: agent A.**
-2. `native-agent-loop` — provider tool protocol, tool runtime, approval gateway, transcript UI, budget guard. **Must merge its provider/service layer before `plan-pipeline-harness` phases 6–7** (MCP tools + run queue consume `run_agent_turn` and the gateway).
+1. `plan-pipeline-harness` — phases 7–10 remain: run queue, final touches,
+   parallel worktrees, docs/verification. **Unblocked** — `native-agent-loop`
+   merged in PR #9, so phases 7+ can consume `run_agent_turn` and the approval
+   gateway. **Owner: agent A.**
+
+### Merged — awaiting `/archive`
+
+|Change|Merged in|Archive command|
+|---|---|---|
+|`native-agent-loop`|PR #9|`/archive native-agent-loop`|
+|`stability-hardening`|PR #10 + followup PR #12|`/archive stability-hardening`|
+|`strong-testing-suite`|PR #11|`/archive strong-testing-suite`|
+
+### Verification stragglers (code merged, tasks open)
+
+- `omp-ide-sync` (PR #8) — task 6.3: manual smoke of telemetry HUD, opt-in
+  autosync cadence, and the Oh My Pi tab.
+- `startup-update-splash` (PR #6) — tasks 5.3–5.5: release-workflow dry run,
+  portable update-in-place test, splash screenshots.
 
 ### Next (specced, ready to start)
 
-3. `stability-hardening` — freeze watchdog + hang-to-crash escalation, persisted crash reports, SQLite WAL/busy_timeout, timeouts + async command migration. **Phases 1–4 start any time; phase 5 (chat send) sequences with `native-agent-loop`.** Land before or with `strong-testing-suite` (it asserts the diagnostics this builds).
-4. `strong-testing-suite` — Playwright + CI + crash diagnostics. Start any time; independent of the two above.
-5. `native-app-login-mcp` — device-auth account connection + first-party usage sync with basebuild.net.
-6. `harness-context-files` — system-prompt assembly: AGENTS.md discovery, schematic injection, skills metadata, context inspector. **After `native-agent-loop`** (feeds its budget guard).
-7. `connector-permission-gateway` — re-scoped 2026-07-03: permission broker now extends the `native-agent-loop` tool-approval substrate (task 1.1 gates on that merge).
-8. `diff-review-workflow` — per-run changeset baseline, file-level review (approve/revert/send-back), review gate before commit/PR final touches on queue runs. **After both in-flight changes.**
+2. `connector-permission-gateway` — permission broker extends the merged
+   `native-agent-loop` approval substrate (modes, rules, prompts, audit trail);
+   the task 1.1 merge gate is satisfied as of PR #9.
+3. `harness-context-files` — system-prompt assembly: AGENTS.md discovery,
+   schematic injection, skills metadata, context inspector. Feeds the merged
+   budget guard; no remaining gate.
+4. `native-app-login-mcp` — device-auth account connection + first-party usage
+   sync with basebuild.net. Independent of everything above.
+5. `diff-review-workflow` — per-run changeset baseline, file-level review
+   (approve/revert/send-back), review gate before commit/PR final touches.
+   **After `plan-pipeline-harness`** (its only remaining gate).
 
 ### Proposed (no artifacts yet — run `/propose <name>` when its turn comes)
 
 |Plan|Scope|Depends on|
 |---|---|---|
-|`session-compaction`|Summarize-and-continue history compaction past the truncation guard; explicitly deferred out of `native-agent-loop`.|`native-agent-loop`|
-|`harness-subagents`|Delegate scoped subtasks to parallel native sessions (omp task-tool parity) on top of the run queue + worktrees.|both in-flight changes|
+|`session-compaction`|Summarize-and-continue history compaction past the truncation guard; explicitly deferred out of `native-agent-loop`.|unblocked — `native-agent-loop` merged (PR #9)|
+|`harness-subagents`|Delegate scoped subtasks to parallel native sessions (omp task-tool parity) on top of the run queue + worktrees.|`plan-pipeline-harness` phases 7 + 9|
 
-Full artifacts are deliberately **not** pre-generated for proposed plans — the two
-in-flight changes reshape the services they'd spec against, and stale specs are
-worse than none.
+Full artifacts are deliberately **not** pre-generated for proposed plans —
+`plan-pipeline-harness` still reshapes the services they'd spec against, and
+stale specs are worse than none.
 
 ## Status
 
@@ -61,5 +83,6 @@ merge into canonical `openspec/specs/` and the folder moves to
 specs) archived 2026-07-03 — new proposals must now check `openspec/specs/`
 and mark overlapping capabilities as **Modified**, not New.
 
-The straggler verification tasks for `stabilize-and-agent-chat`,
-`startup-update-splash`, and `omp-ide-sync` are phase 1 of `native-agent-loop`.
+The remaining unchecked tasks in `omp-ide-sync` and `startup-update-splash`
+are manual release/smoke verifications; complete them (or consciously waive
+them in the tasks file with a note) before archiving those changes.
