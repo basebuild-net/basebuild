@@ -6,7 +6,7 @@
 //! assistant output and capture real token usage. Secrets are never logged.
 
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -154,7 +154,7 @@ impl ProviderClient for OmpCodexRpcClient {
         }
         let start = Instant::now();
         let prompt = compose_omp_rpc_prompt(req);
-        let mut child = Command::new("omp")
+        let mut child = crate::services::process_helpers::hidden_command("omp")
             .args([
                 "--mode",
                 "rpc",

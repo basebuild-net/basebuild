@@ -287,12 +287,15 @@ impl NativeChatService {
     /// spawns. OMP provider ids are mapped to Basebuild's (e.g.
     /// `openai-codex` → `openai`).
     fn omp_credentials() -> Vec<NativeProviderCredential> {
-        let db_path = omp_agent_dir().join("agent.db");
+        Self::omp_credentials_from(&omp_agent_dir().join("agent.db"))
+    }
+
+    fn omp_credentials_from(db_path: &std::path::Path) -> Vec<NativeProviderCredential> {
         if !db_path.exists() {
             return Vec::new();
         }
         let conn = match Connection::open_with_flags(
-            &db_path,
+            db_path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         ) {
             Ok(c) => c,
@@ -1467,51 +1470,69 @@ mod tests {
         assert!(resolved.notice.as_ref().unwrap().contains("nonexistent-provider"));
     }
 
-    /// Verifies omp_credentials() reads credentials from the OMP agent db when
-    /// present. `openai-codex` OAuth maps to Basebuild `openai` and is tagged
-    /// so send-time routing uses OMP's ChatGPT/Codex RPC path. Skips gracefully
-    /// on machines without OMP.
+    /// Builds an OMP-shaped `agent.db` fixture in a temp dir so the credential
+    /// reader can be exercised deterministically on any machine, with or
+    /// without OMP installed.
+    fn write_omp_fixture_db(db_path: &std::path::Path, rows: &[(&str, &str, &str, Option<&str>, i64)]) {
+        let conn = Connection::open(db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE auth_credentials (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider TEXT NOT NULL,
+                credential_type TEXT NOT NULL,
+                data TEXT NOT NULL,
+                disabled_cause TEXT,
+                updated_at INTEGER NOT NULL
+            );",
+        )
+        .unwrap();
+        for (provider, cred_type, data, disabled_cause, updated_at) in rows {
+            conn.execute(
+                "INSERT INTO auth_credentials (provider, credential_type, data, disabled_cause, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![provider, cred_type, data, disabled_cause, updated_at],
+            )
+            .unwrap();
+        }
+    }
+
     #[test]
-    fn omp_credentials_reads_active_api_keys_when_db_present() {
-        let db_path = omp_agent_dir().join("agent.db");
-        if !db_path.exists() {
-            eprintln!("skipping: no OMP agent db at {}", db_path.display());
-            return;
-        }
-        let creds = NativeChatService::omp_credentials();
-        assert!(!creds.is_empty(), "OMP db exists but no credentials read");
-        for c in &creds {
-            assert!(!c.api_key.is_empty(), "empty key for {}", c.provider_id);
-            assert!(!c.provider_id.is_empty());
-            // Mapped provider ids must be Basebuild ids, not raw OMP ids.
-            assert!(
-                matches!(c.provider_id.as_str(), "umans" | "openai" | "anthropic"),
-                "unmapped OMP provider id leaked: {}",
-                c.provider_id
-            );
-        }
-        // This machine has umans (api_key) in OMP.
-        assert!(creds.iter().any(|c| c.provider_id == "umans"), "umans not found");
+    fn omp_credentials_maps_dedupes_and_filters_api_key_rows() {
         let dir = tempfile::TempDir::new().unwrap();
-        let mut seen = Vec::new();
-        for c in &creds {
-            assert!(
-                !seen.contains(&c.provider_id),
-                "omp_credentials should dedupe duplicate provider rows: {}",
-                c.provider_id
-            );
-            seen.push(c.provider_id.clone());
-        }
-        let _g = lock_db(&dir);
-        let listed = NativeChatService::list_credentials().unwrap();
-        assert_eq!(
-            listed.iter().filter(|c| c.provider_id == "umans").count(),
-            1,
-            "merged credentials should dedupe duplicate OMP Umans rows"
+        let db_path = dir.path().join("agent.db");
+        write_omp_fixture_db(
+            &db_path,
+            &[
+                ("umans", "api_key", r#"{"key":"sk-old"}"#, None, 100),
+                ("umans", "api_key", r#"{"key":"sk-new"}"#, None, 200),
+                ("anthropic", "api_key", r#"{"key":"sk-ant"}"#, None, 150),
+                ("anthropic", "api_key", r#"{"key":"sk-revoked"}"#, Some("revoked"), 300),
+                ("mystery-provider", "api_key", r#"{"key":"sk-x"}"#, None, 100),
+                ("openai", "api_key", r#"{"key":""}"#, None, 100),
+            ],
         );
-        if creds.iter().any(|c| c.label == "openai-codex") {
-            let openai = creds.iter().find(|c| c.provider_id == "openai").expect("openai-codex should map to openai");
-            assert_eq!(openai.base_url.as_deref(), Some(OMP_CODEX_BASE_URL));
-        }
+
+        let creds = NativeChatService::omp_credentials_from(&db_path);
+        assert_eq!(creds.len(), 2, "expected only umans + anthropic: {creds:?}");
+        let umans = creds.iter().find(|c| c.provider_id == "umans").expect("umans mapped");
+        assert_eq!(umans.api_key, "sk-new", "newest active row should win");
+        assert!(umans.base_url.is_none(), "api_key rows must not get the OMP Codex base_url tag");
+        let anthropic = creds.iter().find(|c| c.provider_id == "anthropic").expect("anthropic mapped");
+        assert_eq!(anthropic.api_key, "sk-ant", "disabled row must not shadow the active one");
+    }
+
+    #[test]
+    fn omp_credentials_missing_db_returns_empty() {
+        let dir = tempfile::TempDir::new().unwrap();
+        assert!(NativeChatService::omp_credentials_from(&dir.path().join("agent.db")).is_empty());
+    }
+
+    #[test]
+    fn omp_provider_ids_map_to_basebuild_ids() {
+        assert_eq!(omp_to_basebuild_provider("openai-codex"), Some("openai"));
+        assert_eq!(omp_to_basebuild_provider("openai"), Some("openai"));
+        assert_eq!(omp_to_basebuild_provider("anthropic"), Some("anthropic"));
+        assert_eq!(omp_to_basebuild_provider("umans"), Some("umans"));
+        assert_eq!(omp_to_basebuild_provider("something-else"), None);
     }
 }

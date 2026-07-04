@@ -34,7 +34,7 @@ import {
   type GitCommit,
   type GitStatus,
 } from "../../lib/git";
-import { nativeChatModelDefault, nativeChatSend, nativeChatStart } from "../../lib/native-chat";
+import { nativeChatModelDefault, nativeChatSend, nativeChatStart, nativeProviderCatalog } from "../../lib/native-chat";
 import { getRuntimeDefaults } from "../../lib/settings";
 
 // ponytail: cap staged diff; add chunking only when real commits need more context.
@@ -256,7 +256,16 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
         getRuntimeDefaults(),
       ]);
       const providerId = runtimeDefaults.gitAiProviderId ?? modelDefault.providerId;
-      const modelId = runtimeDefaults.gitAiModelId ?? modelDefault.modelId;
+      let modelId = runtimeDefaults.gitAiModelId ?? modelDefault.modelId;
+      if (providerId !== modelDefault.providerId && !runtimeDefaults.gitAiModelId) {
+        // Provider overridden without a model: the chat default's model belongs
+        // to a different provider, so resolve one from the override provider.
+        const catalog = await nativeProviderCatalog();
+        const providerModel =
+          catalog.models.find((m) => m.providerId === providerId && m.id === catalog.defaultModelId) ??
+          catalog.models.find((m) => m.providerId === providerId);
+        if (providerModel) modelId = providerModel.id;
+      }
       const effortLevel = modelDefault.effortLevel;
       const diffParts = await Promise.all(diffFiles.map(async (file) => {
         const diff = await gitDiff(projectPath, file.path, stagedFiles.length > 0);

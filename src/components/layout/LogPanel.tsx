@@ -103,7 +103,8 @@ function LogRow({ entry }: { entry: LogEntry }) {
       role="button"
       tabIndex={0}
       onClick={() => {
-        if (!window.getSelection()?.isCollapsed) return;
+        const selection = window.getSelection();
+        if (selection && !selection.isCollapsed) return;
         setExpanded((v) => !v);
       }}
       onKeyDown={(event) => {
