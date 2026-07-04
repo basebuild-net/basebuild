@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Check, Download, Globe, Key, Lock, LogOut, Plug, RefreshCw, Settings2, Shield, Trash2, Unplug, User, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { CopyButton } from "./CopyButton";
+import { FinalTouchesTab } from "./FinalTouchesTab";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
 import { type UpdaterState } from "../../state/updater";
 import { appVersion } from "../../lib/app";
@@ -69,7 +70,7 @@ type SettingsModalProps = {
   updates: UpdaterState;
 };
 
-type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "mcp" | "about";
+type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "mcp" | "final_touches" | "about";
 
 export function SettingsModal({ open, onClose, projectPath, account, updates }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
@@ -260,7 +261,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
     { id: "account", label: "Account", icon: User },
     { id: "configs", label: "Config Packs", icon: Settings2 },
     { id: "mcp", label: "MCP Servers", icon: Plug },
-    { id: "about", label: "About", icon: Check },
+    { id: "final_touches", label: "Final Touches", icon: Settings2 },
   ];
 
   const updateChecking = updates.status === "checking";
@@ -873,6 +874,11 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                 <UsageSyncPanel signedIn={!!account.profile} />
                 <ModelProvidersPanel />
               </div>
+            ) : null}
+
+            {/* ─── Final Touches ─── */}
+            {tab === "final_touches" ? (
+              <FinalTouchesTab projectPath={projectPath} />
             ) : null}
 
             {/* ─── About ─── */}

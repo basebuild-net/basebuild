@@ -270,9 +270,37 @@ impl PlanRunnerService {
 
         let run = Self::get_run(run_id)?;
         if let Some(run) = &run {
-            // Transition the plan.
+            // If succeeded, run final-touches before transitioning.
             let new_plan_status = if succeeded {
-                PlanStatus::Finished
+                // Run the final-touches pipeline.
+                let session = SessionService::get(&run.session_id)
+                    .ok()
+                    .flatten();
+                let project_path = session
+                    .as_ref()
+                    .map(|s| s.project_path.as_str())
+                    .unwrap_or("");
+                let step_results = if !project_path.is_empty() {
+                    crate::services::final_touches_service::FinalTouchesService::execute_steps(
+                        project_path,
+                    )
+                    .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+                // Store step results on the run.
+                let _ = Self::update_run_steps(run_id, &step_results);
+                // If any step failed, the run is failed, not finished.
+                let any_failed = step_results.iter().any(|r| r.status == "failed");
+                if any_failed {
+                    let _ = conn.execute(
+                        "UPDATE plan_runs SET status = 'failed' WHERE id = ?1",
+                        params![run_id],
+                    );
+                    PlanStatus::Ready
+                } else {
+                    PlanStatus::Finished
+                }
             } else {
                 PlanStatus::Ready
             };
@@ -297,6 +325,21 @@ impl PlanRunnerService {
                 },
             );
         }
+        Ok(())
+    }
+
+    /// Update the steps_output JSON on a plan_run row.
+    fn update_run_steps(
+        run_id: &str,
+        steps: &[crate::services::final_touches_service::FinalTouchStepResult],
+    ) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        let json = serde_json::to_string(steps).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE plan_runs SET steps_output = ?1 WHERE id = ?2",
+            params![json, run_id],
+        )
+        .map_err(|e| format!("Failed to update run steps: {e}"))?;
         Ok(())
     }
 

@@ -61,11 +61,11 @@
 
 ## 8. Final Touches
 
-- [ ] 8.1 `final_touches_service.rs` + step config CRUD (kinds: `shell`, `validate`, `commit`, `pull_request`; ordered, per-project, remote-writing kinds default disabled).
-- [ ] 8.2 Execution after run completion: sequential steps, per-step status/output on the run, halt-on-failure with retry/skip/send-to-chat actions; `finished` gated on pipeline success.
-- [ ] 8.3 Step implementations: shell via `process_helpers`, validate via harness diff-review turn, commit/PR via `git_service.rs` extensions.
-- [ ] 8.4 Settings UI for step configuration showing exact commands to run; tooltips.
-- [ ] 8.5 Tests: ordering, failure halts, disabled-by-default guarantees (no commit/PR on unconfigured project).
+- [x] 8.1 `final_touches_service.rs` + step config CRUD (kinds: `shell`, `validate`, `commit`, `pull_request`; ordered, per-project, remote-writing kinds default disabled).
+- [x] 8.2 Execution after run completion: sequential steps, per-step status/output on the run, halt-on-failure with retry/skip/send-to-chat actions; `finished` gated on pipeline success.
+- [x] 8.3 Step implementations: shell via `process_helpers`, validate via harness diff-review turn, commit/PR via `git_service.rs` extensions.
+- [x] 8.4 Settings UI for step configuration showing exact commands to run; tooltips.
+- [x] 8.5 Tests: ordering, failure halts, disabled-by-default guarantees (no commit/PR on unconfigured project).
 
 ## 9. Parallel Workspaces
 

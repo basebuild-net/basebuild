@@ -4,6 +4,7 @@ pub mod analytics;
 pub mod app;
 pub mod config_packs;
 pub mod files;
+pub mod final_touches;
 pub mod git;
 pub mod mcp;
 pub mod ideas;
