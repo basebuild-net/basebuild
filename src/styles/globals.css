@@ -763,6 +763,51 @@ a { color: inherit; text-decoration: none; }
 .debug-panel summary { cursor: pointer; color: var(--bb-muted); font-size: 11px; padding: 4px 0; }
 .debug-panel { flex: 1; overflow-y: auto; padding: 8px 12px; }
 
+/* Crash report notice (non-blocking toast) */
+.crash-notice {
+  display: flex; align-items: center; gap: 8px;
+  position: fixed; bottom: 36px; right: 12px; z-index: 9000;
+  background: var(--bb-warning-bg, #3a2a0a);
+  color: var(--bb-warning-text, #ffc107);
+  border: 1px solid var(--bb-warning-border, #5a3e0a);
+  padding: 8px 12px;
+  font-size: 12px;
+  max-width: 380px;
+  animation: crash-notice-slide-in 0.25s ease-out;
+}
+.crash-notice-text { flex: 1; }
+.crash-notice-action {
+  background: transparent; border: 1px solid currentColor;
+  color: inherit; font-size: 11px; padding: 2px 8px; cursor: pointer;
+  display: flex; align-items: center; gap: 2px;
+}
+.crash-notice-action:hover { background: rgba(255,193,7,0.15); }
+.crash-notice-dismiss {
+  background: transparent; border: none; color: inherit;
+  cursor: pointer; padding: 2px; display: flex; align-items: center;
+}
+.crash-notice-dismiss:hover { opacity: 0.7; }
+@keyframes crash-notice-slide-in {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Debug panel overlay (modal) */
+.debug-panel-overlay {
+  position: fixed; inset: 0; z-index: 8000;
+  background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center;
+}
+.debug-panel-modal {
+  background: var(--bb-bg); border: 1px solid var(--bb-border);
+  width: 80vw; height: 80vh; display: flex; flex-direction: column;
+}
+.debug-panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; border-bottom: 1px solid var(--bb-border);
+}
+.debug-panel-header h2 { font-size: 13px; font-weight: 600; margin: 0; }
+.debug-panel-body { flex: 1; overflow-y: auto; }
 /* Terminal debug cards */
 .terminal-debug-list { display: flex; flex-direction: column; gap: 4px; }
 .terminal-debug-card { border: 1px solid var(--bb-border); padding: 6px 8px; }

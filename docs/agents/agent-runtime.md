@@ -313,3 +313,48 @@ Approval Gateway → Audit Trail.
 When a tool call requires approval, the loop emits an approval-request event.
 The frontend renders inline approval cards (allow once / allow session / deny).
 If no response within 10 minutes, the call is auto-denied and the run pauses.
+
+## Stability & Crash Detection
+
+The desktop app has a multi-layer stability system to detect freezes, crashes,
+and renderer failures.
+
+### Freeze watchdog
+
+A background thread posts a heartbeat to the Tauri main thread every 2s. If the
+main thread doesn't respond within 10s, a freeze report is written to
+`<app-data>/reports/`. If unresponsive for >60s, the process aborts after
+writing a final report.
+
+### Renderer heartbeat
+
+The frontend calls `stability_renderer_heartbeat` every 5s. If the backend
+doesn't receive a heartbeat for >15s, a "renderer" crash report is written.
+This detects JS freezes, webview crashes, and navigation failures.
+
+### Command telemetry
+
+Every Tauri command is timed via the `timed!` macro. Durations >50ms are
+flagged as violations. The ring holds 512 entries. The DebugPanel shows recent
+slow commands and violations.
+
+### Crash reports
+
+Reports are JSON files under `<app-data>/reports/`, retained to 50 files.
+Kinds: `panic`, `freeze`, `renderer`, `abort`. The DebugPanel lists reports
+with unseen badges. The `CrashReportNotice` toast surfaces unseen reports on
+next launch (non-blocking, auto-dismisses after 15s).
+
+### Provider timeouts
+
+- Connect timeout: 10s
+- Total request timeout: 300s
+- Stream-idle timeout: 120s (documented; enforced via total timeout)
+- Typed errors: `ProviderError` enum classifies failures as `AuthMissing`,
+  `HttpError`, `ConnectTimeout`, `StreamIdleTimeout`, `EmptyResponse`, `Other`
+
+### Subprocess timeouts
+
+Git commands run with a 30s wall-clock timeout via `spawn_blocking`. OMP
+commands have a 60s timeout. All git/catalog/chat commands are async Tauri
+commands that run on a blocking thread pool to prevent main-thread freezes.

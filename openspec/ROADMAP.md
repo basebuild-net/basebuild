@@ -48,8 +48,8 @@ _Last refreshed: 2026-07-04 (`node scripts/openspec-status.mjs --write`)_
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
-|`stability-hardening`|0/23|not started|`/apply stability-hardening`|
 |`native-agent-loop`|34/34|complete — archive|`/archive native-agent-loop`|
+|`stability-hardening`|24/24|complete — archive|`/archive stability-hardening`|
 |`strong-testing-suite`|19/19|complete — archive|`/archive strong-testing-suite`|
 <!-- status:end -->
 
