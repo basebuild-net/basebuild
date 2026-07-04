@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
-import { Activity, DollarSign, Cpu, RefreshCw, Settings, TerminalSquare } from "lucide-react";
+import { Activity, AlertTriangle, DollarSign, Cpu, RefreshCw, Settings, TerminalSquare, Trash2 } from "lucide-react";
 
 import { appVersion } from "../../lib/app";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
 import { ompDebugContext, ompStatus, type OmpStatus } from "../../lib/omp";
 import { listTerminals, type TerminalSession } from "../../lib/terminal";
+import {
+  stabilityListReports,
+  stabilityDeleteReport,
+  stabilityMarkSeen,
+  stabilityUnseenCount,
+  stabilityRecentTelemetry,
+  stabilityViolations,
+  type StabilityReport,
+  type CommandTelemetryEntry,
+} from "../../lib/stability";
 import { OmpPanel } from "./OmpPanel";
 import { useOmpState } from "../../state/omp";
 
@@ -37,12 +47,34 @@ export function DebugPanel() {
   const [terminals, setTerminals] = useState<TerminalSession[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [reports, setReports] = useState<StabilityReport[]>([]);
+  const [unseenCount, setUnseenCount] = useState(0);
+  const [telemetry, setTelemetry] = useState<CommandTelemetryEntry[]>([]);
+  const [violations, setViolations] = useState<CommandTelemetryEntry[]>([]);
+  const [selectedReport, setSelectedReport] = useState<StabilityReport | null>(null);
 
   const refreshTerminals = useCallback(async () => {
     try {
       setTerminals(await listTerminals());
     } catch {
       setTerminals([]);
+    }
+  }, []);
+
+  const refreshStability = useCallback(async () => {
+    try {
+      const [rpts, unseen, tel, viols] = await Promise.all([
+        stabilityListReports(),
+        stabilityUnseenCount(),
+        stabilityRecentTelemetry(20),
+        stabilityViolations(),
+      ]);
+      setReports(rpts);
+      setUnseenCount(unseen);
+      setTelemetry(tel);
+      setViolations(viols);
+    } catch {
+      // ignore
     }
   }, []);
 
@@ -66,9 +98,10 @@ export function DebugPanel() {
         requirements, omp, context,
       });
       setTerminals(terms);
+      void refreshStability();
     } catch (err) { setError(String(err)); }
     finally { setLoading(false); }
-  }, []);
+  }, [refreshStability]);
 
   useEffect(() => {
     void loadAll();
@@ -203,6 +236,92 @@ export function DebugPanel() {
       <div className="debug-section">
         <h3>OMP Console</h3>
         <OmpPanel state={ompState} />
+      </div>
+
+      {/* ─── Stability Reports ─── */}
+      <div className="debug-section">
+        <h3>
+          <AlertTriangle size={14} /> Crash & Freeze Reports
+          {unseenCount > 0 ? <span className="badge badge-error">{unseenCount} new</span> : null}
+        </h3>
+        {reports.length === 0 ? (
+          <p className="text-muted text-sm">No crash or freeze reports.</p>
+        ) : (
+          <div className="stack">
+            {reports.map((rpt) => (
+              <div key={rpt.id} className="debug-item" style={{ flexDirection: "column", alignItems: "stretch" }}>
+                <div className="row align-center" style={{ justifyContent: "space-between" }}>
+                  <span>
+                    <span className={`badge badge-${rpt.kind === "panic" ? "error" : rpt.kind === "freeze" ? "warning" : "info"}`}>{rpt.kind}</span>
+                    {" "}{rpt.summary.slice(0, 80)}{rpt.summary.length > 80 ? "…" : ""}
+                    {" "}<span className="text-muted text-xs">{new Date(rpt.timestamp * 1000).toLocaleString()}</span>
+                  </span>
+                  <div className="row gap-sm">
+                    <button
+                      className="btn btn-sm"
+                      type="button"
+                      title="View full report"
+                      onClick={() => { setSelectedReport(rpt); if (!rpt.seen) void stabilityMarkSeen(rpt.id).then(() => void refreshStability()); }}
+                    >
+                      View
+                    </button>
+                    <button
+                      className="btn btn-sm"
+                      type="button"
+                      title="Delete this report"
+                      onClick={() => void stabilityDeleteReport(rpt.id).then(() => void refreshStability())}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                    <a
+                      className="btn btn-sm"
+                      title="File a GitHub issue with this report"
+                      href={`https://github.com/basebuild-net/basebuild/issues/new?title=${encodeURIComponent(rpt.summary)}&body=${encodeURIComponent(rpt.details)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      File Issue
+                    </a>
+                  </div>
+                </div>
+                {selectedReport?.id === rpt.id ? (
+                  <pre className="text-xs mono" style={{ marginTop: 4, maxHeight: 300, overflow: "auto", whiteSpace: "pre-wrap" }}>
+                    {rpt.details}
+                  </pre>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ─── Slow Commands ─── */}
+      <div className="debug-section">
+        <h3><Activity size={14} /> Command Telemetry</h3>
+        {violations.length > 0 ? (
+          <div className="stack" style={{ marginBottom: 8 }}>
+            <h4 className="text-danger text-sm">Violations (sync &gt;50ms)</h4>
+            {violations.slice(0, 10).map((v, i) => (
+              <div key={i} className="debug-item">
+                <span className="mono text-sm">{v.command}</span>
+                <strong className="text-danger">{v.durationMs}ms</strong>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {telemetry.length > 0 ? (
+          <div className="stack">
+            <h4 className="text-muted text-sm">Recent (slowest first)</h4>
+            {telemetry.slice(0, 10).map((t, i) => (
+              <div key={i} className="debug-item">
+                <span className="mono text-sm">{t.command}</span>
+                <strong className={t.violation ? "text-danger" : ""}>{t.durationMs}ms</strong>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-muted text-sm">No telemetry yet.</p>
+        )}
       </div>
     </div>
   );

@@ -3,7 +3,8 @@ mod commands;
 mod events;
 pub mod models;
 pub mod services;
-
+#[cfg(test)]
+pub mod test_util;
 use std::sync::{LazyLock, Mutex};
 use tauri::{AppHandle, Emitter};
 
@@ -84,6 +85,11 @@ use commands::{
         rename_session, update_tab_chat_session, update_tab_file_path, update_tab_terminal,
     },
     skills::read_skill,
+    stability::{
+        stability_delete_report, stability_list_reports, stability_mark_seen,
+        stability_read_report, stability_recent_telemetry, stability_unseen_count,
+        stability_violations,
+    },
     sync::{
         sync_raw_usage_native, usage_sync_projected_usage, usage_sync_set_enabled,
         usage_sync_status, usage_sync_trigger,
@@ -110,7 +116,9 @@ impl Default for CloseToTrayState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Install panic hook to capture crash info and open a GitHub issue
+    // Install panic hook: file-first, deadlock-free.
+    // Writes a crash report to disk before any lock/emit, then best-effort
+    // emits to the frontend via try_lock (never blocks on APP_HANDLE).
     std::panic::set_hook(Box::new(|info| {
         let payload = info.payload();
         let msg = if let Some(s) = payload.downcast_ref::<&str>() {
@@ -120,28 +128,32 @@ pub fn run() {
         } else {
             "Unknown panic".to_string()
         };
-        let location = info.location().map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column())).unwrap_or_default();
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_default();
         let backtrace = std::backtrace::Backtrace::force_capture();
-        let report = format!(
+        let summary = format!("Panic: {msg} at {location}");
+        let details = format!(
             "## Rust Crash Report\n\n**Message:** {msg}\n\n**Location:** {location}\n\n**Backtrace:**\n```\n{backtrace}\n```"
         );
-        let title = format!("Crash: {msg}");
-        let url = format!(
-            "https://github.com/basebuild-net/basebuild/issues/new?title={}&body={}",
-            urlencoding::encode(&title),
-            urlencoding::encode(&report)
-        );
-        eprintln!("{report}");
 
-        // Emit to the frontend so the ErrorBoundary can display the crash
-        if let Ok(handle) = APP_HANDLE.lock() {
+        // 1. File-first: write to disk before any lock acquisition.
+        let _ = crate::services::stability_service::StabilityReport::write(
+            "panic",
+            &summary,
+            &details,
+        );
+
+        // 2. Best-effort frontend emit via try_lock (never deadlocks).
+        if let Ok(handle) = APP_HANDLE.try_lock() {
             if let Some(app) = handle.as_ref() {
-                let _ = app.emit("rust://panic", &report);
+                let _ = app.emit("rust://panic", &details);
             }
         }
 
-
-        let _ = open::that(&url);
+        // 3. stderr for debugging.
+        eprintln!("{details}");
     }));
 
     tauri::Builder::default()
@@ -191,7 +203,8 @@ pub fn run() {
             crate::services::omp_telemetry_service::OmpTelemetryService::start_loop(app.handle().clone());
             // Start the auto-sync loop (off by default; gates re-checked each tick).
             crate::services::sync_service::start_autosync_loop(app.handle().clone());
-
+            // Start the freeze watchdog (heartbeat + freeze report + abort).
+            crate::services::stability_service::start_watchdog(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -279,6 +292,13 @@ pub fn run() {
             mcp_oauth_clear,
             mcp_shutdown_all,
             read_skill,
+            stability_list_reports,
+            stability_read_report,
+            stability_delete_report,
+            stability_mark_seen,
+            stability_unseen_count,
+            stability_recent_telemetry,
+            stability_violations,
             openspec_task_progress,
             openspec_parse_task_progress,
             list_slash_commands,

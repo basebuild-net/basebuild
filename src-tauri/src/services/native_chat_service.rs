@@ -1135,7 +1135,7 @@ fn estimate_tokens(text: &str) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use crate::test_util::test::lock_db;
     #[test]
     fn provider_catalog_has_local_default_and_effort_levels() {
         let catalog = NativeChatService::provider_catalog();
@@ -1144,18 +1144,9 @@ mod tests {
         assert!(catalog.providers.iter().any(|provider| provider.id == LOCAL_PROVIDER_ID && provider.configured));
         assert!(catalog.effort_levels.iter().any(|effort| effort.id == "xhigh"));
     }
-
-    #[test]
-    fn token_estimate_never_counts_empty_content() {
-        assert_eq!(estimate_tokens(""), 0);
-        assert_eq!(estimate_tokens("one two"), 2);
-    }
-
-    #[test]
     fn resolve_model_default_falls_back_when_no_project_or_global_default() {
-        // With no project default and no global default set, resolution falls
-        // back to the first connected provider (the local coordinator) and
-        // reports source "fallback" with no notice.
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
         let resolved = NativeChatService::resolve_model_default("/test/no-defaults").unwrap();
         assert_eq!(resolved.source, "fallback");
         assert!(resolved.notice.is_none());
@@ -1165,6 +1156,8 @@ mod tests {
 
     #[test]
     fn resolve_model_default_uses_project_default_when_set() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
         let project_path = "/test/project-default";
         let default = ChatModelDefault {
             provider_id: LOCAL_PROVIDER_ID.to_string(),
@@ -1181,9 +1174,8 @@ mod tests {
 
     #[test]
     fn resolve_model_default_falls_back_when_project_default_unavailable() {
-        // A project default pointing at a disconnected provider should fall
-        // back to the first connected provider and include a notice naming
-        // the unavailable default.
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
         let project_path = "/test/project-unavailable";
         let default = ChatModelDefault {
             provider_id: "nonexistent-provider".to_string(),

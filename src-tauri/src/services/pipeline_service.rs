@@ -788,17 +788,16 @@ mod tests {
 
     #[test]
     fn cancel_run_marks_nonexistent_run_cancelled() {
-        // Cancelling a run that isn't in the RUNNING_STAGES map (already
-        // completed or never existed) should still update the DB row if it
-        // exists. For a nonexistent id, the update affects 0 rows but doesn't
-        // error — the caller gets Ok(()).
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
         let result = PipelineService::cancel_run("nonexistent-run-id");
         assert!(result.is_ok());
     }
 
     #[test]
     fn list_runs_returns_empty_for_new_session() {
-        // A session with no pipeline runs returns an empty vec.
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
         let result = PipelineService::list_runs("no-such-session");
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
