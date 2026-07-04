@@ -309,22 +309,16 @@ pub fn start_watchdog(app: tauri::AppHandle) {
 mod tests {
     use super::*;
     use std::sync::LazyLock;
-    use parking_lot::Mutex;
 
     static SHARED_DIR: LazyLock<tempfile::TempDir> = LazyLock::new(|| {
-        let dir = tempfile::TempDir::new().unwrap();
-        std::env::set_var("BASEBUILD_HOME", dir.path());
-        let _ = StoragePathService::ensure_global_layout().unwrap();
-        dir
+        tempfile::TempDir::new().unwrap()
     });
-
-    static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     fn lock() -> parking_lot::MutexGuard<'static, ()> {
         let _ = &*SHARED_DIR;
-        // Re-set BASEBUILD_HOME in case other tests clobbered it.
+        let guard = crate::test_util::test::DB_TEST_LOCK.lock();
         std::env::set_var("BASEBUILD_HOME", SHARED_DIR.path());
-        TEST_LOCK.lock()
+        guard
     }
     #[test]
     fn ring_bounded_to_capacity() {

@@ -1135,16 +1135,7 @@ fn estimate_tokens(text: &str) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::LazyLock;
-    use parking_lot::Mutex;
-
-    static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
-
-    fn lock_db(dir: &tempfile::TempDir) -> parking_lot::MutexGuard<'_, ()> {
-        std::env::set_var("BASEBUILD_HOME", dir.path());
-        let _ = crate::services::storage_service::StorageService::connect();
-        TEST_LOCK.lock()
-    }
+    use crate::test_util::test::lock_db;
     #[test]
     fn provider_catalog_has_local_default_and_effort_levels() {
         let catalog = NativeChatService::provider_catalog();

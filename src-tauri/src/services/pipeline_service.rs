@@ -789,8 +789,7 @@ mod tests {
     #[test]
     fn cancel_run_marks_nonexistent_run_cancelled() {
         let dir = tempfile::TempDir::new().unwrap();
-        std::env::set_var("BASEBUILD_HOME", dir.path());
-        let _ = crate::services::storage_service::StorageService::connect();
+        let _g = crate::test_util::test::lock_db(&dir);
         let result = PipelineService::cancel_run("nonexistent-run-id");
         assert!(result.is_ok());
     }
@@ -798,8 +797,7 @@ mod tests {
     #[test]
     fn list_runs_returns_empty_for_new_session() {
         let dir = tempfile::TempDir::new().unwrap();
-        std::env::set_var("BASEBUILD_HOME", dir.path());
-        let _ = crate::services::storage_service::StorageService::connect();
+        let _g = crate::test_util::test::lock_db(&dir);
         let result = PipelineService::list_runs("no-such-session");
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());

@@ -3,7 +3,8 @@ mod commands;
 mod events;
 pub mod models;
 pub mod services;
-
+#[cfg(test)]
+pub mod test_util;
 use std::sync::{LazyLock, Mutex};
 use tauri::{AppHandle, Emitter};
 

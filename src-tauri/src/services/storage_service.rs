@@ -920,7 +920,7 @@ mod tests {
     #[test]
     fn connect_sets_wal_and_busy_timeout_pragmas() {
         let dir = tempfile::TempDir::new().unwrap();
-        std::env::set_var("BASEBUILD_HOME", dir.path());
+        let _g = crate::test_util::test::lock_db(&dir);
         let conn = StorageService::connect().unwrap();
         let mode: String = conn
             .query_row("PRAGMA journal_mode", [], |row| row.get::<_, String>(0))
@@ -935,9 +935,7 @@ mod tests {
     #[test]
     fn concurrent_writers_do_not_deadlock() {
         let dir = tempfile::TempDir::new().unwrap();
-        std::env::set_var("BASEBUILD_HOME", dir.path());
-        // Initialize schema.
-        let _ = StorageService::connect().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
         let dir_path = dir.path().to_path_buf();
 
         let mut handles = Vec::new();
