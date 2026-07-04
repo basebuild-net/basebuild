@@ -11,34 +11,29 @@ node scripts/openspec-status.mjs --write
 
 ### Now (in flight)
 
-1. `plan-pipeline-harness` — phases 7–10 remain: run queue, final touches,
-   parallel worktrees, docs/verification. **Unblocked** — `native-agent-loop`
-   archived (PR #9), so phases 7+ can consume `run_agent_turn` and the approval
-   gateway. **Owner: agent A.**
+1. `connector-permission-gateway` — permission broker extends the merged
+   `native-agent-loop` approval substrate (modes, rules, prompts, audit trail);
+   the task 1.1 merge gate is satisfied as of PR #9.
 
 ### Next (specced, ready to start)
 
-2. `connector-permission-gateway` — permission broker extends the merged
-   `native-agent-loop` approval substrate (modes, rules, prompts, audit trail);
-   the task 1.1 merge gate is satisfied as of PR #9.
-3. `harness-context-files` — system-prompt assembly: AGENTS.md discovery,
+2. `harness-context-files` — system-prompt assembly: AGENTS.md discovery,
    schematic injection, skills metadata, context inspector. Feeds the merged
    budget guard; no remaining gate.
-4. `native-app-login-mcp` — device-auth account connection + first-party usage
+3. `native-app-login-mcp` — device-auth account connection + first-party usage
    sync with basebuild.net. Independent of everything above.
-5. `diff-review-workflow` — per-run changeset baseline, file-level review
+4. `diff-review-workflow` — per-run changeset baseline, file-level review
    (approve/revert/send-back), review gate before commit/PR final touches.
-   **After `plan-pipeline-harness`** (its only remaining gate).
+   **After `plan-pipeline-harness`** (archived PR #15 — gate satisfied).
 
 ### Proposed (no artifacts yet — run `/propose <name>` when its turn comes)
 
 |Plan|Scope|Depends on|
 |---|---|---|
 |`session-compaction`|Summarize-and-continue history compaction past the truncation guard; explicitly deferred out of `native-agent-loop`.|unblocked — `native-agent-loop` archived (PR #9)|
-|`harness-subagents`|Delegate scoped subtasks to parallel native sessions (omp task-tool parity) on top of the run queue + worktrees.|`plan-pipeline-harness` phases 7 + 9|
+|`harness-subagents`|Delegate scoped subtasks to parallel native sessions (omp task-tool parity) on top of the run queue + worktrees.|`plan-pipeline-harness` archived (PR #15) — gate satisfied|
 
 Full artifacts are deliberately **not** pre-generated for proposed plans —
-`plan-pipeline-harness` still reshapes the services they'd spec against, and
 stale specs are worse than none.
 
 
@@ -53,7 +48,6 @@ _Last refreshed: 2026-07-04 (`node scripts/openspec-status.mjs --write`)_
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
-|`plan-pipeline-harness`|51/51|complete — archive|`/archive plan-pipeline-harness`|
 <!-- status:end -->
 
 ## Archiving
@@ -78,4 +72,7 @@ merge into canonical `openspec/specs/` and the folder moves to
   matrix consciously waived (live-only; require published release / running
   Tauri app / OS event simulation). New proposals must check `openspec/specs/`
   and mark overlapping capabilities as **Modified**, not New.
-
+- **2026-07-04c** — `plan-pipeline-harness` archived in PR #15: 8 new canonical
+  specs (`plan-pipeline`, `plan-run-queue`, `plan-final-touches`,
+  `chat-model-defaults`, `slash-command-registry`, `native-mcp-client`,
+  `openspec-artifacts`, `parallel-workspaces`). 51/51 tasks complete.
