@@ -32,6 +32,7 @@ impl ConnectorState {
 
     pub fn from_str(s: &str) -> Self {
         match s {
+            "registered" => Self::Registered,
             "connecting" => Self::Connecting,
             "connected" => Self::Connected,
             "error" => Self::Error,

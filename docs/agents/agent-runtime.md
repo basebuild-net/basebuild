@@ -398,5 +398,34 @@ is marked failed and the plan stays `ready`.
 `worktree_service.rs` creates git worktrees under
 `<data-dir>/worktrees/<project-hash>/<reference-id>` with branch
 `bb/<ref>-<slug>`. The queue acquires a worktree per run when concurrency > 1
-and the project is a git repo. Non-git projects fall back to sequential
 execution (concurrency capped at 1).
+
+## Connector Permission Gateway
+
+Connectors are local-first tool integrations (OMP, Claude Code, Codex, etc.)
+that plug into Basebuild's UI without being modified. The gateway extends the
+native-agent-loop approval substrate — one rules store, one prompt stack, one
+audit trail — with connector identity as an additional scope dimension.
+
+### Local-first constraints
+- No remote plugin marketplace. Connectors are local processes only.
+- No unreviewed remote code execution. Connector manifests must be registered
+  and enabled explicitly.
+- No silent startup launch. Connectors are NOT auto-started on app launch;
+  restore shows them as `disconnected` until the user explicitly starts them.
+- Provider claims (e.g. "OMP has OpenAI connected") require explicit user
+  approval before Basebuild adopts them. Credentials are never auto-imported.
+- Web/collab bridge origins require explicit allowlisting.
+
+### Permission broker
+The broker extends `settings_service.rs`'s approval modes (Safe/Balanced/Auto)
+and rules storage with connector-scoped grants. Capabilities: command,
+file_access, provider_claim, chat_sync, web_bridge, diagnostics, analytics,
+skills. Grant scopes: once, session, project.
+
+### Connector tables
+- `connectors` — registry entries with manifest, state, capabilities, trust.
+- `connector_grants` — per-connector per-capability grants (reuses
+  `PermissionDecision` from the native approval gateway).
+- `provider_claims` — provider subscription claims from connectors, with
+  approved/denied flags.

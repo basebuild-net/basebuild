@@ -11,7 +11,10 @@ node scripts/openspec-status.mjs --write
 
 ### Now (in flight)
 
-1. `connector-permission-gateway` — permission broker extends the merged
+1. `connector-permission-gateway` — phase 1+2 (gateway contract, storage,
+   backend permission broker, Tauri commands, TS wrappers) in PR #17.
+   Phase 2 OMP connector integration + frontend UX + web bridge + verification
+   remain (tasks 3.1–6.5). Permission broker extends the merged
    `native-agent-loop` approval substrate (modes, rules, prompts, audit trail);
    the task 1.1 merge gate is satisfied as of PR #9.
 
@@ -44,7 +47,7 @@ _Last refreshed: 2026-07-04 (`node scripts/openspec-status.mjs --write`)_
 
 |Change|Progress|Status|Next command|
 |---|---|---|---|
-|`connector-permission-gateway`|0/29|not started|`/apply connector-permission-gateway`|
+|`connector-permission-gateway`|10/29|in progress|`/apply connector-permission-gateway`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
