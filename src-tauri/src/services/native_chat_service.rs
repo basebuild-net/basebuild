@@ -1260,6 +1260,7 @@ mod tests {
         assert!(catalog.providers.iter().any(|provider| provider.id == LOCAL_PROVIDER_ID && provider.configured));
         assert!(catalog.effort_levels.iter().any(|effort| effort.id == "xhigh"));
     }
+    #[test]
     fn resolve_model_default_falls_back_when_no_project_or_global_default() {
         let dir = tempfile::TempDir::new().unwrap();
         let _g = lock_db(&dir);
