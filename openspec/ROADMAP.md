@@ -13,16 +13,8 @@ node scripts/openspec-status.mjs --write
 
 1. `plan-pipeline-harness` — phases 7–10 remain: run queue, final touches,
    parallel worktrees, docs/verification. **Unblocked** — `native-agent-loop`
-   merged in PR #9, so phases 7+ can consume `run_agent_turn` and the approval
+   archived (PR #9), so phases 7+ can consume `run_agent_turn` and the approval
    gateway. **Owner: agent A.**
-
-### Merged — awaiting `/archive`
-
-|Change|Merged in|Archive command|
-|---|---|---|
-|`native-agent-loop`|PR #9|`/archive native-agent-loop`|
-|`stability-hardening`|PR #10 + followup PR #12|`/archive stability-hardening`|
-|`strong-testing-suite`|PR #11|`/archive strong-testing-suite`|
 
 ### Verification stragglers (code merged, tasks open)
 
@@ -49,12 +41,13 @@ node scripts/openspec-status.mjs --write
 
 |Plan|Scope|Depends on|
 |---|---|---|
-|`session-compaction`|Summarize-and-continue history compaction past the truncation guard; explicitly deferred out of `native-agent-loop`.|unblocked — `native-agent-loop` merged (PR #9)|
+|`session-compaction`|Summarize-and-continue history compaction past the truncation guard; explicitly deferred out of `native-agent-loop`.|unblocked — `native-agent-loop` archived (PR #9)|
 |`harness-subagents`|Delegate scoped subtasks to parallel native sessions (omp task-tool parity) on top of the run queue + worktrees.|`plan-pipeline-harness` phases 7 + 9|
 
 Full artifacts are deliberately **not** pre-generated for proposed plans —
 `plan-pipeline-harness` still reshapes the services they'd spec against, and
 stale specs are worse than none.
+
 
 ## Status
 
@@ -70,18 +63,23 @@ _Last refreshed: 2026-07-04 (`node scripts/openspec-status.mjs --write`)_
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
-|`native-agent-loop`|34/34|complete — archive|`/archive native-agent-loop`|
-|`stability-hardening`|24/24|complete — archive|`/archive stability-hardening`|
-|`strong-testing-suite`|19/19|complete — archive|`/archive strong-testing-suite`|
 <!-- status:end -->
 
 ## Archiving
 
 Changes at `complete — archive` get archived (`/archive <name>`): delta specs
 merge into canonical `openspec/specs/` and the folder moves to
-`openspec/changes/archive/<date>-<name>/`. First batch (5 changes, 17 canonical
-specs) archived 2026-07-03 — new proposals must now check `openspec/specs/`
-and mark overlapping capabilities as **Modified**, not New.
+`openspec/changes/archive/<date>-<name>/`. Archive history:
+
+- **2026-07-03** — first batch: 5 changes, 17 canonical specs (see archive/).
+- **2026-07-04** — `native-agent-loop`, `stability-hardening`,
+  `strong-testing-suite` archived in PR #13: 10 new canonical specs
+  (`agent-tool-loop`, `core-tool-runtime`, `tool-approval-gateway`,
+  `tool-transcript-rendering`, `context-budget-guard`, `sqlite-robustness`,
+  `main-thread-hygiene`, `freeze-watchdog`, `crash-reporting`,
+  `testing-automation`) + 1 modified (`desktop-shell` gained "Renderer Crash
+  Visibility"). New proposals must check `openspec/specs/` and mark overlapping
+  capabilities as **Modified**, not New.
 
 The remaining unchecked tasks in `omp-ide-sync` and `startup-update-splash`
 are manual release/smoke verifications; complete them (or consciously waive
