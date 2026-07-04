@@ -10,7 +10,7 @@
 ## 2. Backend Gateway And Permission Broker
 
 - [x] 2.1 Implement connector registry service for manifest registration, enable/disable, validation, trust status, and project binding
-- [x] 2.2 Implement connector lifecycle service for launch, attach, disconnect, restart, crash handling, and no-silent-startup restore
+- [ ] 2.2 Implement connector lifecycle service for launch, attach, disconnect, restart, crash handling, and no-silent-startup restore _(partial in PR #17: `restore_on_startup` + `set_state` only; launch/attach/disconnect/restart/crash-handling deferred to phase 3 with OMP connector integration)_
 - [x] 2.3 Implement capability negotiation and typed unsupported-capability responses
 - [x] 2.4 Implement permission-provider broker flows for commands, files, provider claims, chat sync, web UI/collab bridge, diagnostics, and analytics as extensions of the native tool-approval gateway (shared rules store, prompt cards, audit trail)
 - [x] 2.5 Add connector grant revocation commands reusing the shared audit/rules surfaces
