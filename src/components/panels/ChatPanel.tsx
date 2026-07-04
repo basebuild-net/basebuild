@@ -78,24 +78,56 @@ function ToolEventCard({ event }: { event: NativeToolEvent }) {
   const isApproval = event.kind === "approval" || event.kind === "request_tool_approval";
   const isCommand = event.kind === "run_command" || event.kind === "command";
   const isEdit = event.kind === "edit_file" || event.kind === "write_file";
-  const icon = isApproval ? "🔐" : isCommand ? "▶" : isEdit ? "✎" : event.kind === "request_metrics" ? "📊" : "🔧";
+  const isMetrics = event.kind === "request_metrics";
+  const icon = isApproval ? "🔐" : isCommand ? "▶" : isEdit ? "✎" : isMetrics ? "📊" : "🔧";
   const statusClass = isRunning ? "running" : isError ? "error" : event.status === "success" || event.status === "recorded" || event.status === "allow" ? "success" : "info";
+
+  // Detect diff content in summary for edit_file/write_file
+  const hasDiff = isEdit && /^\+|-/m.test(event.summary);
+  const diffLines = hasDiff ? event.summary.split("\n") : [];
+
+  // Extract file path from summary (e.g. "Edited src/foo.ts: ..." or "Wrote src/bar.ts")
+  const filePathMatch = event.summary.match(/(?:Edited|Wrote|Modified)\s+(.+?)(?::|\s)/);
+  const filePath = filePathMatch?.[1] ?? null;
 
   return (
     <div className={`tool-card tool-card-${statusClass}`} title={`${event.kind}: ${event.status}`}>
       <div className="tool-card-header" onClick={() => setExpanded(!expanded)} role="button" tabIndex={0}>
         <span className="tool-card-icon">{icon}</span>
         <span className="tool-card-name">{event.kind.replace(/_/g, " ")}</span>
+        {filePath ? <code className="tool-card-filepath text-muted">{filePath}</code> : null}
         <span className={`tool-card-status tool-card-status-${statusClass}`}>{event.status}</span>
         <span className="tool-card-expand">{expanded ? "▼" : "▶"}</span>
       </div>
       {expanded ? (
         <div className="tool-card-body">
-          <pre className="tool-card-summary">{event.summary}</pre>
+          {hasDiff ? (
+            <pre className="tool-card-diff">
+              {diffLines.map((line, i) => (
+                <span key={i} className={line.startsWith("+") ? "diff-add" : line.startsWith("-") ? "diff-del" : "diff-ctx"}>{line}{"\n"}</span>
+              ))}
+            </pre>
+          ) : (
+            <pre className="tool-card-summary">{event.summary}</pre>
+          )}
         </div>
       ) : null}
       {!expanded && event.summary ? (
         <div className="tool-card-summary-truncated text-muted text-sm">{event.summary.slice(0, 120)}{event.summary.length > 120 ? "…" : ""}</div>
+      ) : null}
+      {/* Inline approval buttons for pending approvals */}
+      {isApproval && isRunning ? (
+        <div className="tool-card-actions">
+          <button className="btn btn-sm btn-primary" title="Allow this tool call once" type="button">
+            Allow Once
+          </button>
+          <button className="btn btn-sm" title="Allow all calls to this tool for this session" type="button">
+            Allow Session
+          </button>
+          <button className="btn btn-sm" title="Deny this tool call" type="button">
+            Deny
+          </button>
+        </div>
       ) : null}
     </div>
   );
