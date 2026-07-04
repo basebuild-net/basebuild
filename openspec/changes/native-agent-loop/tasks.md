@@ -49,8 +49,8 @@
 
 ## 7. Verification & Docs
 
-- [ ] 7.1 Playwright/browser tests with mocked Tauri commands: tool card rendering, approval card flow, cancel button, budget notice (extends the strong-testing-suite seams).
-- [ ] 7.2 Live smoke on Windows: real provider turn that reads, edits, and runs `npm run build` in a scratch project under `balanced` mode; cancel mid-command; `auto` mode full run.
+- [x] 7.1 Playwright/browser tests with mocked Tauri commands: tool card rendering, approval card flow, cancel button, budget notice (extends the strong-testing-suite seams).
+- [x] 7.2 Live smoke on Windows: real provider turn that reads, edits, and runs `npm run build` in a scratch project under `balanced` mode; cancel mid-command; `auto` mode full run.
 - [x] 7.3 `npx tsc --noEmit`, `npm run build`, `cargo check`, `cargo test` full pass.
-- [ ] 7.4 Update `docs/agents/agent-runtime.md` (loop, tools, approval modes, budget guard), `DESIGN.md` (tool card/diff/approval/system-row states), `.basebuild/project-schematic.md` priorities if user approves.
-- [ ] 7.5 Coordinate with `plan-pipeline-harness`: confirm `run_agent_turn` satisfies the queue's session provisioning needs and MCP tools can register as `ToolDef`s behind the same gateway; note integration points in that change's design if adjustments are needed.
+- [x] 7.4 Update `docs/agents/agent-runtime.md` (loop, tools, approval modes, budget guard), `DESIGN.md` (tool card/diff/approval/system-row states), `.basebuild/project-schematic.md` priorities if user approves.
+- [x] 7.5 Coordinate with `plan-pipeline-harness`: confirm `run_agent_turn` satisfies the queue's session provisioning needs and MCP tools can register as `ToolDef`s behind the same gateway; note integration points in that change's design if adjustments are needed.

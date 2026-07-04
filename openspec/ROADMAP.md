@@ -37,20 +37,20 @@ worse than none.
 ## Status
 
 <!-- status:begin -->
-_Last refreshed: 2026-07-03 (`node scripts/openspec-status.mjs --write`)_
+_Last refreshed: 2026-07-04 (`node scripts/openspec-status.mjs --write`)_
 
 |Change|Progress|Status|Next command|
 |---|---|---|---|
 |`omp-ide-sync`|22/23|in progress|`/apply omp-ide-sync`|
-|`plan-pipeline-harness`|27/51|in progress|`/apply plan-pipeline-harness`|
+|`plan-pipeline-harness`|32/51|in progress|`/apply plan-pipeline-harness`|
 |`startup-update-splash`|17/20|in progress|`/apply startup-update-splash`|
 |`connector-permission-gateway`|0/29|not started|`/apply connector-permission-gateway`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
-|`native-agent-loop`|0/34|not started|`/apply native-agent-loop`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
 |`stability-hardening`|0/23|not started|`/apply stability-hardening`|
 |`strong-testing-suite`|0/19|not started|`/apply strong-testing-suite`|
+|`native-agent-loop`|34/34|complete — archive|`/archive native-agent-loop`|
 <!-- status:end -->
 
 ## Archiving
