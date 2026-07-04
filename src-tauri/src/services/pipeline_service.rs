@@ -168,7 +168,7 @@ impl PipelineService {
     /// Cancel a running pipeline stage by run id. Sets the cancellation token
     /// so the stage's emit closure aborts the request on the next chunk.
     pub fn cancel_run(run_id: &str) -> DbResult<()> {
-        if let Ok(mut map) = RUNNING_STAGES.lock() {
+        if let Ok(map) = RUNNING_STAGES.lock() {
             if let Some(token) = map.get(run_id) {
                 token.cancel();
                 return Ok(());

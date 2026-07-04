@@ -8,7 +8,7 @@ use crate::{
     events::PLAN_RUN_EVENT,
     models::plan::PlanStatus,
     models::plan_run::{
-        EnqueuePlanRequest, ExecutionProfile, PlanOverride, PlanQueueEntry, PlanRun, PlanRunEvent,
+        EnqueuePlanRequest, ExecutionProfile, PlanQueueEntry, PlanRun, PlanRunEvent,
         PlanRunStatus, RunnerKind, StartQueueRequest,
     },
     services::{
@@ -223,7 +223,7 @@ impl PlanRunnerService {
     /// the run aborts on the next check. Returns the plan to `ready` (or
     /// `cancelled` if the user chose that) — artifacts are kept.
     pub fn cancel_run(app: &AppHandle, run_id: &str, cancel_plan: bool) -> DbResult<()> {
-        if let Ok(mut map) = RUNNING_RUNS.lock() {
+        if let Ok(map) = RUNNING_RUNS.lock() {
             if let Some(token) = map.get(run_id) {
                 token.cancel();
             }

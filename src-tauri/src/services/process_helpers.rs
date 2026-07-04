@@ -35,7 +35,7 @@ pub fn hidden_command(program: &str) -> Command {
 /// waits for it with a timeout. If the timeout elapses, the child is killed.
 pub fn run_with_timeout(
     mut cmd: Command,
-    timeout: Duration,
+    _timeout: Duration,
     label: &str,
 ) -> Result<String, String> {
     let child = cmd

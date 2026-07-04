@@ -26,11 +26,6 @@ impl AppState {
         services.insert(project_path.to_string(), svc.clone());
         svc
     }
-
-    /// Remove the MCP service for a project (e.g. on project close).
-    pub fn remove_mcp_service(&self, project_path: &str) {
-        self.mcp_services.lock().remove(project_path);
-    }
 }
 
 impl Default for AppState {
