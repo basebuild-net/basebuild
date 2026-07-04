@@ -1153,9 +1153,9 @@ mod tests {
 
     #[test]
     fn resolve_model_default_falls_back_when_no_project_or_global_default() {
-        // With no project default and no global default set, resolution falls
-        // back to the first connected provider (the local coordinator) and
-        // reports source "fallback" with no notice.
+        let dir = tempfile::TempDir::new().unwrap();
+        std::env::set_var("BASEBUILD_HOME", dir.path());
+        let _ = crate::services::storage_service::StorageService::connect();
         let resolved = NativeChatService::resolve_model_default("/test/no-defaults").unwrap();
         assert_eq!(resolved.source, "fallback");
         assert!(resolved.notice.is_none());
@@ -1165,6 +1165,9 @@ mod tests {
 
     #[test]
     fn resolve_model_default_uses_project_default_when_set() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::env::set_var("BASEBUILD_HOME", dir.path());
+        let _ = crate::services::storage_service::StorageService::connect();
         let project_path = "/test/project-default";
         let default = ChatModelDefault {
             provider_id: LOCAL_PROVIDER_ID.to_string(),
@@ -1172,6 +1175,7 @@ mod tests {
             effort_level: "medium".to_string(),
         };
         NativeChatService::set_project_model_default(project_path, &default).unwrap();
+        std::env::set_var("BASEBUILD_HOME", dir.path());
         let resolved = NativeChatService::resolve_model_default(project_path).unwrap();
         assert_eq!(resolved.source, "project");
         assert_eq!(resolved.provider_id, LOCAL_PROVIDER_ID);
@@ -1181,9 +1185,9 @@ mod tests {
 
     #[test]
     fn resolve_model_default_falls_back_when_project_default_unavailable() {
-        // A project default pointing at a disconnected provider should fall
-        // back to the first connected provider and include a notice naming
-        // the unavailable default.
+        let dir = tempfile::TempDir::new().unwrap();
+        std::env::set_var("BASEBUILD_HOME", dir.path());
+        let _ = crate::services::storage_service::StorageService::connect();
         let project_path = "/test/project-unavailable";
         let default = ChatModelDefault {
             provider_id: "nonexistent-provider".to_string(),
@@ -1191,6 +1195,8 @@ mod tests {
             effort_level: "high".to_string(),
         };
         NativeChatService::set_project_model_default(project_path, &default).unwrap();
+        // Re-set BASEBUILD_HOME in case another test clobbered it.
+        std::env::set_var("BASEBUILD_HOME", dir.path());
         let resolved = NativeChatService::resolve_model_default(project_path).unwrap();
         assert_eq!(resolved.source, "fallback");
         assert!(resolved.notice.is_some());

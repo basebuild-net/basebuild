@@ -1,5 +1,6 @@
 pub mod agent_loop_service;
 pub mod analytics_service;
+pub mod stability_service;
 pub mod agent_service;
 pub mod command_discovery_service;
 pub mod catalog_sync_service;

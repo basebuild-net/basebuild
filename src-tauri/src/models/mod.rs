@@ -12,6 +12,7 @@ pub mod runtime;
 pub mod recent_project;
 pub mod requirement;
 pub mod session;
+pub mod stability;
 pub mod storage;
 pub mod terminal;
 pub mod usage_sync;
