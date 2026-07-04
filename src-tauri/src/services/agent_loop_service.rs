@@ -8,11 +8,11 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use parking_lot::Mutex as PMutex;
+use parking_lot::Mutex;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
@@ -35,8 +35,8 @@ const OUTPUT_MARGIN_RATIO: f64 = 0.2;
 const MAX_TOOL_RESULT_TOKENS: i64 = 4_000;
 
 /// Tracks active runs so cancellation can find them. Keyed by session id.
-static ACTIVE_RUNS: LazyLock<PMutex<std::collections::HashMap<String, Arc<RunHandle>>>> =
-    LazyLock::new(|| PMutex::new(std::collections::HashMap::new()));
+static ACTIVE_RUNS: LazyLock<Mutex<std::collections::HashMap<String, Arc<RunHandle>>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
 /// A cancellation token for a running agent loop.
 pub struct CancellationToken {
@@ -408,13 +408,13 @@ fn process_tool_calls(
                     full_content: None,
                 }
             };
-            results.lock().unwrap().push((idx, result));
+            results.lock().push((idx, result));
         }));
     }
     for t in threads {
         let _ = t.join();
     }
-    let mut read_results = read_results.lock().unwrap().drain(..).collect::<Vec<_>>();
+    let mut read_results = read_results.lock().drain(..).collect::<Vec<_>>();
     read_results.sort_by_key(|(i, _)| *i);
     for (idx, result) in read_results {
         let call = &calls[idx];
