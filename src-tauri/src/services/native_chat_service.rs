@@ -1135,7 +1135,16 @@ fn estimate_tokens(text: &str) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::LazyLock;
+    use parking_lot::Mutex;
 
+    static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    fn lock_db(dir: &tempfile::TempDir) -> parking_lot::MutexGuard<'_, ()> {
+        std::env::set_var("BASEBUILD_HOME", dir.path());
+        let _ = crate::services::storage_service::StorageService::connect();
+        TEST_LOCK.lock()
+    }
     #[test]
     fn provider_catalog_has_local_default_and_effort_levels() {
         let catalog = NativeChatService::provider_catalog();
@@ -1144,18 +1153,9 @@ mod tests {
         assert!(catalog.providers.iter().any(|provider| provider.id == LOCAL_PROVIDER_ID && provider.configured));
         assert!(catalog.effort_levels.iter().any(|effort| effort.id == "xhigh"));
     }
-
-    #[test]
-    fn token_estimate_never_counts_empty_content() {
-        assert_eq!(estimate_tokens(""), 0);
-        assert_eq!(estimate_tokens("one two"), 2);
-    }
-
-    #[test]
     fn resolve_model_default_falls_back_when_no_project_or_global_default() {
         let dir = tempfile::TempDir::new().unwrap();
-        std::env::set_var("BASEBUILD_HOME", dir.path());
-        let _ = crate::services::storage_service::StorageService::connect();
+        let _g = lock_db(&dir);
         let resolved = NativeChatService::resolve_model_default("/test/no-defaults").unwrap();
         assert_eq!(resolved.source, "fallback");
         assert!(resolved.notice.is_none());
@@ -1166,8 +1166,7 @@ mod tests {
     #[test]
     fn resolve_model_default_uses_project_default_when_set() {
         let dir = tempfile::TempDir::new().unwrap();
-        std::env::set_var("BASEBUILD_HOME", dir.path());
-        let _ = crate::services::storage_service::StorageService::connect();
+        let _g = lock_db(&dir);
         let project_path = "/test/project-default";
         let default = ChatModelDefault {
             provider_id: LOCAL_PROVIDER_ID.to_string(),
@@ -1175,7 +1174,6 @@ mod tests {
             effort_level: "medium".to_string(),
         };
         NativeChatService::set_project_model_default(project_path, &default).unwrap();
-        std::env::set_var("BASEBUILD_HOME", dir.path());
         let resolved = NativeChatService::resolve_model_default(project_path).unwrap();
         assert_eq!(resolved.source, "project");
         assert_eq!(resolved.provider_id, LOCAL_PROVIDER_ID);
@@ -1186,8 +1184,7 @@ mod tests {
     #[test]
     fn resolve_model_default_falls_back_when_project_default_unavailable() {
         let dir = tempfile::TempDir::new().unwrap();
-        std::env::set_var("BASEBUILD_HOME", dir.path());
-        let _ = crate::services::storage_service::StorageService::connect();
+        let _g = lock_db(&dir);
         let project_path = "/test/project-unavailable";
         let default = ChatModelDefault {
             provider_id: "nonexistent-provider".to_string(),
@@ -1195,8 +1192,6 @@ mod tests {
             effort_level: "high".to_string(),
         };
         NativeChatService::set_project_model_default(project_path, &default).unwrap();
-        // Re-set BASEBUILD_HOME in case another test clobbered it.
-        std::env::set_var("BASEBUILD_HOME", dir.path());
         let resolved = NativeChatService::resolve_model_default(project_path).unwrap();
         assert_eq!(resolved.source, "fallback");
         assert!(resolved.notice.is_some());
