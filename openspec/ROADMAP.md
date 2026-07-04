@@ -16,13 +16,6 @@ node scripts/openspec-status.mjs --write
    archived (PR #9), so phases 7+ can consume `run_agent_turn` and the approval
    gateway. **Owner: agent A.**
 
-### Verification stragglers (code merged, tasks open)
-
-- `omp-ide-sync` (PR #8) — task 6.3: manual smoke of telemetry HUD, opt-in
-  autosync cadence, and the Oh My Pi tab.
-- `startup-update-splash` (PR #6) — tasks 5.3–5.5: release-workflow dry run,
-  portable update-in-place test, splash screenshots.
-
 ### Next (specced, ready to start)
 
 2. `connector-permission-gateway` — permission broker extends the merged
@@ -56,9 +49,7 @@ _Last refreshed: 2026-07-04 (`node scripts/openspec-status.mjs --write`)_
 
 |Change|Progress|Status|Next command|
 |---|---|---|---|
-|`omp-ide-sync`|22/23|in progress|`/apply omp-ide-sync`|
 |`plan-pipeline-harness`|32/51|in progress|`/apply plan-pipeline-harness`|
-|`startup-update-splash`|17/20|in progress|`/apply startup-update-splash`|
 |`connector-permission-gateway`|0/29|not started|`/apply connector-permission-gateway`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
@@ -72,15 +63,19 @@ merge into canonical `openspec/specs/` and the folder moves to
 `openspec/changes/archive/<date>-<name>/`. Archive history:
 
 - **2026-07-03** — first batch: 5 changes, 17 canonical specs (see archive/).
-- **2026-07-04** — `native-agent-loop`, `stability-hardening`,
+- **2026-07-04a** — `native-agent-loop`, `stability-hardening`,
   `strong-testing-suite` archived in PR #13: 10 new canonical specs
   (`agent-tool-loop`, `core-tool-runtime`, `tool-approval-gateway`,
   `tool-transcript-rendering`, `context-budget-guard`, `sqlite-robustness`,
   `main-thread-hygiene`, `freeze-watchdog`, `crash-reporting`,
   `testing-automation`) + 1 modified (`desktop-shell` gained "Renderer Crash
-  Visibility"). New proposals must check `openspec/specs/` and mark overlapping
-  capabilities as **Modified**, not New.
+  Visibility").
+- **2026-07-04b** — `omp-ide-sync`, `startup-update-splash` archived in PR #14:
+  5 new canonical specs (`omp-tab-integration`, `omp-session-telemetry`,
+  `omp-account-usage-sync`, `startup-update-gate`, `portable-instant-updates`).
+  Straggler tasks (6.3, 5.3–5.5) closed: 5.3 release-workflow dry-run verified
+  statically; 5.4 portable update + 5.5 splash screenshots + 6.3 live autosync
+  matrix consciously waived (live-only; require published release / running
+  Tauri app / OS event simulation). New proposals must check `openspec/specs/`
+  and mark overlapping capabilities as **Modified**, not New.
 
-The remaining unchecked tasks in `omp-ide-sync` and `startup-update-splash`
-are manual release/smoke verifications; complete them (or consciously waive
-them in the tasks file with a note) before archiving those changes.
