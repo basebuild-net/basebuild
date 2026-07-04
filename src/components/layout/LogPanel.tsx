@@ -98,10 +98,20 @@ function LogRow({ entry }: { entry: LogEntry }) {
   const [expanded, setExpanded] = useState(false);
   const time = new Date(entry.timestamp).toLocaleTimeString();
   return (
-    <button
+    <div
       className={`log-row ${entry.level}`}
-      type="button"
-      onClick={() => setExpanded((v) => !v)}
+      role="button"
+      tabIndex={0}
+      onClick={() => {
+        if (!window.getSelection()?.isCollapsed) return;
+        setExpanded((v) => !v);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          setExpanded((v) => !v);
+        }
+      }}
     >
       <div className="log-row-summary">
         <span className={levelBadge[entry.level]}>{entry.level.toUpperCase()}</span>
@@ -111,6 +121,6 @@ function LogRow({ entry }: { entry: LogEntry }) {
       {expanded && entry.details ? (
         <pre className="log-row-details">{entry.details}</pre>
       ) : null}
-    </button>
+    </div>
   );
 }

@@ -113,6 +113,7 @@ type E2eState = {
   auth: { accessToken: string; expiresAt: string; scopes: string[]; user: { id: string; username: string; email: string; image: string | null; isAdmin: boolean; isEditor: boolean } | null } | null;
   updateInstallCount: number;
   autoSyncEnabled?: boolean;
+  gitChangeStaged: boolean;
 };
 
 const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState };
@@ -143,6 +144,7 @@ function state(): E2eState {
       auth: null,
       updateInstallCount: 0,
       autoSyncEnabled: false,
+      gitChangeStaged: false,
     };
   }
   return globalState.__BASEBUILD_E2E_STATE__!;
@@ -214,6 +216,52 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return [] as T;
     case "detect_project":
       return { path: args.path as string, gitRoot: args.path as string, hasGit: true, hasOpenSpec: true, hasBasebuild: true } as T;
+    case "git_status": {
+      const file = {
+        path: "src/components/panels/SourcePanel.tsx",
+        indexStatus: s.gitChangeStaged ? "M" : null,
+        worktreeStatus: s.gitChangeStaged ? null : "M",
+        changeType: "modified",
+        staged: s.gitChangeStaged,
+      };
+      return {
+        branch: { branch: "main", ahead: 0, behind: 0, upstream: "origin/main" },
+        staged: s.gitChangeStaged ? [file] : [],
+        unstaged: s.gitChangeStaged ? [] : [file],
+        untracked: [],
+      } as T;
+    }
+    case "git_diff":
+      return [
+        "diff --git a/src/components/panels/SourcePanel.tsx b/src/components/panels/SourcePanel.tsx",
+        "--- a/src/components/panels/SourcePanel.tsx",
+        "+++ b/src/components/panels/SourcePanel.tsx",
+        "@@ -448,7 +448,7 @@",
+        "-                  <Sparkles size={12} /> Generate commit",
+        "+                  <Sparkles size={12} /> Generate commit",
+      ].join("\n") as T;
+    case "git_add":
+    case "git_stage_all":
+      s.gitChangeStaged = true;
+      return undefined as T;
+    case "git_reset":
+    case "git_unstage_all":
+    case "git_discard":
+      s.gitChangeStaged = false;
+      return undefined as T;
+    case "git_commit":
+      s.gitChangeStaged = false;
+      return "abc1234" as T;
+    case "git_log":
+      return [
+        { hash: "abc1234", shortHash: "abc1234", message: "Initial commit", author: "Basebuild", date: "2026-07-01T00:00:00Z", parents: [], refs: ["HEAD -> main"] },
+      ] as T;
+    case "git_branch_list":
+      return [{ name: "main", upstream: "origin/main", isCurrent: true }] as T;
+    case "git_pull":
+    case "git_push":
+    case "git_fetch":
+      return "Already up to date." as T;
     case "list_sessions":
       return s.sessions.filter((session) => session.projectPath === args.projectPath) as T;
     case "create_session": {
@@ -390,7 +438,9 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         effortLevel: req.effortLevel ?? "medium",
         createdAt: ts,
       };
-      const assistantContent = `Native harness echo: ${req.content}`;
+      const assistantContent = req.content.includes("Write one concise git commit message")
+        ? "Let me write a concise commit message.\n\n1. `launch-sbox.sh` - changes\n2. `patch_engine.sh` - changes\n\n---\n\nRework patch system to target sbox-public"
+        : `Native harness echo: ${req.content}`;
       const assistantMessage: NativeChatMessage = {
         id: `nmsg-${s.nextNativeMessageId++}`,
         sessionId: req.sessionId,
@@ -550,7 +600,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "list_requirements":
       return [] as T;
     case "get_runtime_defaults":
-      return { defaultChatProfileId: "basebuild-native", defaultTerminalProfileId: "default-terminal", defaultModel: "basebuild-local-coordinator", autoSendGeneratedPrompts: false } as T;
+      return { defaultChatProfileId: "basebuild-native", defaultTerminalProfileId: "default-terminal", defaultModel: "basebuild-local-coordinator", autoSendGeneratedPrompts: false, gitAiProviderId: null, gitAiModelId: null } as T;
     case "check_for_updates":
       return {
         available: true,

@@ -1,5 +1,6 @@
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, OptionalExtension, OpenFlags, Connection};
 use serde_json::Value;
+use std::env;
 use tauri::{AppHandle, Emitter};
 
 use crate::{
@@ -17,7 +18,7 @@ use crate::{
         plan::Plan,
     },
     services::{
-        provider_client::{resolve_client, ChatMsg, ProviderRequest},
+        provider_client::{resolve_client, ChatMsg, ProviderRequest, OMP_CODEX_BASE_URL},
         session_service::SessionService,
         settings_service::SettingsService,
         storage_service::StorageService,
@@ -253,7 +254,89 @@ impl NativeChatService {
                 updated_at: row.get(4)?,
             })
         }).map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        let mut creds = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+
+        // Merge credentials from the OMP (Oh My Pi) key store so providers
+        // configured there are usable without re-entering a key here. OMP's
+        // store is the source of truth, so it replaces any same-provider
+        // Basebuild-saved credential.
+        let mut omp_seen = Vec::new();
+        for omp in Self::omp_credentials() {
+            if omp_seen.contains(&omp.provider_id) {
+                continue;
+            }
+            omp_seen.push(omp.provider_id.clone());
+            if let Some(existing) = creds.iter_mut().find(|c| c.provider_id == omp.provider_id) {
+                *existing = omp;
+            } else {
+                creds.push(omp);
+            }
+        }
+        Ok(creds)
+    }
+
+    /// Read credentials from the OMP agent database (`<agent_dir>/agent.db` →
+    /// `auth_credentials`). The agent dir is the active OMP profile's, resolved
+    /// via `omp config path` (handles per-profile DBs); falls back to
+    /// `~/.omp/agent` when omp isn't on PATH. Opened read-only so we never
+    /// contend with OMP's own writes.
+    ///
+    /// `api_key` rows are read directly from the db (fast, no expiry). `oauth`
+    /// rows are resolved via `omp token <provider>` which refreshes expired
+    /// tokens internally; results are cached for 5 min to avoid per-send CLI
+    /// spawns. OMP provider ids are mapped to Basebuild's (e.g.
+    /// `openai-codex` → `openai`).
+    fn omp_credentials() -> Vec<NativeProviderCredential> {
+        let db_path = omp_agent_dir().join("agent.db");
+        if !db_path.exists() {
+            return Vec::new();
+        }
+        let conn = match Connection::open_with_flags(
+            &db_path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        ) {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let mut stmt = match conn
+            .prepare("SELECT provider, credential_type, data, updated_at FROM auth_credentials WHERE disabled_cause IS NULL ORDER BY updated_at DESC, id DESC")
+        {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt.query_map([], |row| {
+            let provider: String = row.get(0)?;
+            let cred_type: String = row.get(1)?;
+            let data: String = row.get(2)?;
+            let updated_at: i64 = row.get(3)?;
+            Ok((provider, cred_type, data, updated_at))
+        });
+        let Ok(rows) = rows else { return Vec::new() };
+        let mut creds = Vec::new();
+        for credential in rows.filter_map(|r| r.ok()).filter_map(|(omp_id, cred_type, data, updated_at)| {
+            let basebuild_id = omp_to_basebuild_provider(&omp_id)?;
+            let key = match cred_type.as_str() {
+                "api_key" => serde_json::from_str::<Value>(&data)
+                    .ok()
+                    .and_then(|v| v.get("key").and_then(|k| k.as_str()).map(String::from))?,
+                "oauth" => omp_oauth_token(&omp_id)?,
+                _ => return None,
+            };
+            if key.is_empty() { return None; }
+            let is_omp_codex_oauth = omp_id == "openai-codex" && cred_type == "oauth";
+            Some(NativeProviderCredential {
+                provider_id: basebuild_id.to_string(),
+                label: omp_id,
+                api_key: key,
+                base_url: is_omp_codex_oauth.then(|| OMP_CODEX_BASE_URL.to_string()),
+                updated_at,
+            })
+        }) {
+            if !creds.iter().any(|c: &NativeProviderCredential| c.provider_id == credential.provider_id) {
+                creds.push(credential);
+            }
+        }
+        creds
     }
 
     pub fn delete_credential(provider_id: &str) -> DbResult<()> {
@@ -559,11 +642,15 @@ impl NativeChatService {
             base_url: credential.as_ref().and_then(|c| c.base_url.clone()),
             tools: Vec::new(),
         };
+        let uses_omp_codex_oauth = req.base_url.as_deref() == Some(OMP_CODEX_BASE_URL);
 
         let started_at = now_millis();
 
-        // Check if the model supports tools → use the agent loop.
+        // Check if the model supports tools → use the agent loop. OMP-backed
+        // ChatGPT OAuth is provider-only here: OMP owns its Codex transport, but
+        // Basebuild tool schemas cannot be passed through this RPC bridge.
         let supports_tools = !is_local
+            && !uses_omp_codex_oauth
             && Self::model_supports_tools(&provider_id, &model_id);
 
         if supports_tools {
@@ -1239,6 +1326,80 @@ fn now_millis() -> i64 {
         .unwrap_or_default()
 }
 
+/// Active OMP agent directory, resolved once per process. Prefers
+/// `omp config path` so per-profile DBs are honored; falls back to
+/// `<home>/.omp/agent` when omp isn't installed or the call fails.
+static OMP_AGENT_DIR: std::sync::LazyLock<std::path::PathBuf> = std::sync::LazyLock::new(|| {
+    use crate::services::process_helpers::hidden_command;
+    let home = env::var_os("USERPROFILE").or_else(|| env::var_os("HOME"));
+    let default = home
+        .as_ref()
+        .map(|h| std::path::Path::new(h).join(".omp/agent"))
+        .unwrap_or_default();
+    let output = hidden_command("omp").args(["config", "path"]).output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let p = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if p.is_empty() { default } else { std::path::PathBuf::from(p) }
+        }
+        _ => default,
+    }
+});
+
+/// Map OMP provider ids to Basebuild provider ids. Returns None for providers
+/// Basebuild doesn't know about.
+///
+/// `openai-codex` maps to Basebuild's `openai`, but its credential is tagged
+/// with `OMP_CODEX_BASE_URL` so requests route through OMP's Codex/ChatGPT
+/// RPC path instead of the standard OpenAI API endpoint.
+fn omp_to_basebuild_provider(omp_id: &str) -> Option<&'static str> {
+    match omp_id {
+        "umans" => Some("umans"),
+        "openai" | "openai-codex" => Some("openai"),
+        "anthropic" => Some("anthropic"),
+        _ => None,
+    }
+}
+
+/// OAuth token cache: (token, fetched_at). TTL prevents per-send CLI spawns.
+/// ponytail: 5-min TTL; OAuth tokens typically last 1h, refresh handled by omp.
+static OAUTH_TOKEN_CACHE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, (String, std::time::Instant)>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+const OAUTH_TOKEN_TTL_SECS: u64 = 300;
+
+/// Get a live OAuth token for an OMP provider via `omp token <provider>`.
+/// Cached for 5 min to avoid spawning a process on every send. Returns None
+/// on any failure (expired refresh token, omp not found, etc.) — the caller
+/// skips the credential, preserving the setup-required prompt.
+fn omp_oauth_token(omp_provider: &str) -> Option<String> {
+    {
+        let cache = OAUTH_TOKEN_CACHE.lock().ok()?;
+        if let Some((token, fetched_at)) = cache.get(omp_provider) {
+            if fetched_at.elapsed().as_secs() < OAUTH_TOKEN_TTL_SECS {
+                return Some(token.clone());
+            }
+        }
+    }
+    use crate::services::process_helpers::hidden_command;
+    let output = hidden_command("omp")
+        .args(["token", omp_provider])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if token.is_empty() { return None; }
+    if let Ok(mut cache) = OAUTH_TOKEN_CACHE.lock() {
+        cache.insert(omp_provider.to_string(), (token.clone(), std::time::Instant::now()));
+    }
+    Some(token)
+}
+
+fn omp_agent_dir() -> &'static std::path::Path {
+    &OMP_AGENT_DIR
+}
+
 fn estimate_tokens(text: &str) -> i64 {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -1304,5 +1465,53 @@ mod tests {
         assert_eq!(resolved.source, "fallback");
         assert!(resolved.notice.is_some());
         assert!(resolved.notice.as_ref().unwrap().contains("nonexistent-provider"));
+    }
+
+    /// Verifies omp_credentials() reads credentials from the OMP agent db when
+    /// present. `openai-codex` OAuth maps to Basebuild `openai` and is tagged
+    /// so send-time routing uses OMP's ChatGPT/Codex RPC path. Skips gracefully
+    /// on machines without OMP.
+    #[test]
+    fn omp_credentials_reads_active_api_keys_when_db_present() {
+        let db_path = omp_agent_dir().join("agent.db");
+        if !db_path.exists() {
+            eprintln!("skipping: no OMP agent db at {}", db_path.display());
+            return;
+        }
+        let creds = NativeChatService::omp_credentials();
+        assert!(!creds.is_empty(), "OMP db exists but no credentials read");
+        for c in &creds {
+            assert!(!c.api_key.is_empty(), "empty key for {}", c.provider_id);
+            assert!(!c.provider_id.is_empty());
+            // Mapped provider ids must be Basebuild ids, not raw OMP ids.
+            assert!(
+                matches!(c.provider_id.as_str(), "umans" | "openai" | "anthropic"),
+                "unmapped OMP provider id leaked: {}",
+                c.provider_id
+            );
+        }
+        // This machine has umans (api_key) in OMP.
+        assert!(creds.iter().any(|c| c.provider_id == "umans"), "umans not found");
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut seen = Vec::new();
+        for c in &creds {
+            assert!(
+                !seen.contains(&c.provider_id),
+                "omp_credentials should dedupe duplicate provider rows: {}",
+                c.provider_id
+            );
+            seen.push(c.provider_id.clone());
+        }
+        let _g = lock_db(&dir);
+        let listed = NativeChatService::list_credentials().unwrap();
+        assert_eq!(
+            listed.iter().filter(|c| c.provider_id == "umans").count(),
+            1,
+            "merged credentials should dedupe duplicate OMP Umans rows"
+        );
+        if creds.iter().any(|c| c.label == "openai-codex") {
+            let openai = creds.iter().find(|c| c.provider_id == "openai").expect("openai-codex should map to openai");
+            assert_eq!(openai.base_url.as_deref(), Some(OMP_CODEX_BASE_URL));
+        }
     }
 }

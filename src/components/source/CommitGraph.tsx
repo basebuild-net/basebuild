@@ -22,7 +22,7 @@ const LANE_COLORS = [
 
 const LANE_W = 22;
 const DOT_R = 4;
-const ROW_H = 28;
+const ROW_H = 42;
 
 /**
  * Assign commits to lanes and compute connector lines.

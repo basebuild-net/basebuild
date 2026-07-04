@@ -184,6 +184,9 @@ export function useUpdater(): UpdaterState {
   }, [info?.available, info?.version]);
 
   useEffect(() => {
+    // Releases are Windows-only (NSIS). Skip the check on other platforms to
+    // avoid a guaranteed "platform missing" error every 5 minutes.
+    if (!navigator.platform.includes("Win")) return;
     void checkNow();
     const id = window.setInterval(() => void checkNow(), UPDATE_CHECK_INTERVAL_MS);
     return () => window.clearInterval(id);

@@ -5,7 +5,11 @@ use serde_json::Value;
 
 use crate::{
     models::native_chat::{NativeEffortLevel, NativeModel, NativeProvider, NativeProviderCatalog, NativeProviderCredential},
-    services::{native_chat_service::NativeChatService, storage_service::StorageService},
+    services::{
+        native_chat_service::NativeChatService,
+        provider_client::OMP_CODEX_BASE_URL,
+        storage_service::StorageService,
+    },
 };
 
 type DbResult<T> = Result<T, String>;
@@ -150,7 +154,11 @@ impl ProviderModelCatalogService {
             return Ok(());
         }
 
-        let discovered = if spec.id == "anthropic" {
+        let discovered = if credential.base_url.as_deref() == Some(OMP_CODEX_BASE_URL) {
+            // OMP-backed ChatGPT OAuth is not an OpenAI /v1 API key. Only show
+            // models confirmed to work through OMP's openai-codex RPC path.
+            Ok(omp_codex_oauth_models())
+        } else if spec.id == "anthropic" {
             Err("Anthropic does not expose a stable public model-list endpoint for this flow.".to_string())
         } else {
             Self::discover_openai_compatible(spec, credential)
@@ -585,6 +593,17 @@ fn bundled_models(provider_id: &str) -> Vec<NativeModel> {
     }
 }
 
+fn omp_codex_oauth_models() -> Vec<NativeModel> {
+    bundled_models("openai")
+        .into_iter()
+        .filter(|model| model.id == "gpt-5.5")
+        .map(|mut model| {
+            model.supports_tools = false;
+            model
+        })
+        .collect()
+}
+
 fn bundled(
     provider_id: &str,
     id: &str,
@@ -691,4 +710,17 @@ pub fn now_seconds() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn omp_codex_oauth_models_only_lists_verified_model_without_tools() {
+        let models = omp_codex_oauth_models();
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "gpt-5.5");
+        assert!(!models[0].supports_tools);
+    }
 }

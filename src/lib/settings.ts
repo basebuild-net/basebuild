@@ -31,6 +31,8 @@ export type RuntimeDefaults = {
   defaultTerminalProfileId: string | null;
   defaultModel: string | null;
   autoSendGeneratedPrompts: boolean;
+  gitAiProviderId?: string | null;
+  gitAiModelId?: string | null;
 };
 
 export type PermissionDecision = "ask" | "allow" | "deny";
