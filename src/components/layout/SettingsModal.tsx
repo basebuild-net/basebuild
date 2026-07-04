@@ -83,6 +83,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
   const [defaults, setDefaults] = useState<RuntimeDefaults | null>(null);
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([]);
   const [profileValidations, setProfileValidations] = useState<Record<string, ProfileValidation>>({});
+  const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
 
   // Permissions state
   const [permissions, setPermissions] = useState<PermissionRules | null>(null);
@@ -142,9 +143,14 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
 
   async function refreshDefaults() {
     try {
-      const [d, p] = await Promise.all([getRuntimeDefaults(), listRuntimeProfiles()]);
+      const [d, p, c] = await Promise.all([
+        getRuntimeDefaults(),
+        listRuntimeProfiles(),
+        nativeProviderCatalog(),
+      ]);
       setDefaults(d);
       setProfiles(p);
+      setCatalog(c);
       // Validate all profiles
       const validations: Record<string, ProfileValidation> = {};
       for (const profile of p) {
@@ -479,6 +485,46 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                     <p className="text-muted text-sm" style={{ marginTop: -4 }}>
                       When enabled, prompts from Generate from context are sent immediately. Disabled by default.
                     </p>
+
+                    {/* GIT Ai — model used by Source → Generate commit */}
+                    <div className="stack-sm" style={{ marginTop: 12 }}>
+                      <h4 className="text-sm text-muted" style={{ marginBottom: 4 }}>GIT Ai</h4>
+                      <p className="text-muted text-sm">
+                        Model used by Source → Generate commit. Only configured providers are listed. Falls back to your chat default when unset.
+                      </p>
+                      <label className="row gap-sm" style={{ marginBottom: 4 }}>
+                        <span className="text-sm" style={{ width: 64 }}>Provider</span>
+                        <select
+                          className="input"
+                          title="GIT Ai provider — used by Source → Generate commit"
+                          value={defaults.gitAiProviderId ?? ""}
+                          onChange={(e) => void saveDefaults({ ...defaults, gitAiProviderId: e.target.value || null, gitAiModelId: null })}
+                        >
+                          <option value="">(use chat default)</option>
+                          {(catalog?.providers ?? []).filter((p) => p.configured && !p.localOnly).map((p) => (
+                            <option key={p.id} value={p.id}>{p.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      {defaults.gitAiProviderId ? (
+                        <label className="row gap-sm">
+                          <span className="text-sm" style={{ width: 64 }}>Model</span>
+                          <select
+                            className="input"
+                            title="GIT Ai model — used by Source → Generate commit"
+                            value={defaults.gitAiModelId ?? ""}
+                            onChange={(e) => void saveDefaults({ ...defaults, gitAiModelId: e.target.value || null })}
+                          >
+                            <option value="">(provider default)</option>
+                            {(catalog?.models ?? [])
+                              .filter((m) => m.providerId === defaults.gitAiProviderId)
+                              .map((m) => (
+                                <option key={m.id} value={m.id}>{m.label}</option>
+                              ))}
+                          </select>
+                        </label>
+                      ) : null}
+                    </div>
                   </>
                 ) : (
                   <p className="text-muted">Loading defaults…</p>

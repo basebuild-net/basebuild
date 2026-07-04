@@ -5,12 +5,16 @@
 //! network clients (`OpenAiCompatibleClient`, `AnthropicClient`) stream real
 //! assistant output and capture real token usage. Secrets are never logged.
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
 pub const LOCAL_PROVIDER_ID: &str = "basebuild-local";
+pub const OMP_CODEX_BASE_URL: &str = "omp://openai-codex";
 
 /// A single conversation message handed to a provider.
 ///
@@ -115,6 +119,7 @@ pub trait ProviderClient {
 pub fn resolve_client(provider_id: &str, base_url: Option<&str>) -> Box<dyn ProviderClient> {
     match provider_id {
         LOCAL_PROVIDER_ID => Box::new(LocalCoordinator),
+        "openai" if base_url == Some(OMP_CODEX_BASE_URL) => Box::new(OmpCodexRpcClient),
         "anthropic" => Box::new(AnthropicClient {
             base_url: base_url
                 .map(str::to_string)
@@ -134,6 +139,253 @@ pub fn resolve_client(provider_id: &str, base_url: Option<&str>) -> Box<dyn Prov
                 .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
         }),
     }
+}
+
+struct OmpCodexRpcClient;
+
+impl ProviderClient for OmpCodexRpcClient {
+    fn generate(
+        &self,
+        req: &ProviderRequest,
+        emit: &dyn Fn(&str, &str),
+    ) -> Result<ProviderResponse, String> {
+        if !req.tools.is_empty() {
+            return Err("ChatGPT OAuth via OMP does not support Basebuild tool calls in this bridge".to_string());
+        }
+        let start = Instant::now();
+        let prompt = compose_omp_rpc_prompt(req);
+        let mut child = Command::new("omp")
+            .args([
+                "--mode",
+                "rpc",
+                "--provider",
+                "openai-codex",
+                "--model",
+                &req.model_id,
+                "--no-tools",
+                "--no-session",
+                "--no-title",
+                "--no-skills",
+                "--no-rules",
+                "--no-extensions",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to launch OMP for ChatGPT OAuth: {e}"))?;
+
+        let mut stdin = child.stdin.take().ok_or("Failed to open OMP stdin")?;
+        let stdout = child.stdout.take().ok_or("Failed to open OMP stdout")?;
+        let stderr = child.stderr.take().ok_or("Failed to open OMP stderr")?;
+        let (tx, rx) = mpsc::channel::<String>();
+        thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                let _ = tx.send(line);
+            }
+        });
+        let stderr_reader = thread::spawn(move || {
+            BufReader::new(stderr)
+                .lines()
+                .map_while(Result::ok)
+                .collect::<Vec<_>>()
+                .join("\n")
+        });
+
+        let prompt_frame = json!({ "id": "basebuild-prompt", "type": "prompt", "message": prompt });
+        writeln!(stdin, "{prompt_frame}").map_err(|e| format!("Failed to write OMP prompt: {e}"))?;
+        stdin.flush().map_err(|e| format!("Failed to flush OMP prompt: {e}"))?;
+
+        let mut content = String::new();
+        let mut ttft_ms = None;
+        let mut last_text = None;
+        let mut prompt_accepted = false;
+        let deadline = Instant::now() + Duration::from_secs(300);
+        while Instant::now() < deadline {
+            let line = match rx.recv_timeout(Duration::from_millis(250)) {
+                Ok(line) => line,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            };
+            let Ok(frame) = serde_json::from_str::<Value>(&line) else { continue };
+            if frame.get("type").and_then(Value::as_str) == Some("response")
+                && frame.get("command").and_then(Value::as_str) == Some("prompt")
+            {
+                if frame.get("success").and_then(Value::as_bool) == Some(false) {
+                    let _ = child.kill();
+                    return Err(frame.get("error").and_then(Value::as_str).unwrap_or("OMP rejected prompt").to_string());
+                }
+                prompt_accepted = true;
+                continue;
+            }
+            if let Some(delta) = frame
+                .get("assistantMessageEvent")
+                .and_then(|event| {
+                    (event.get("type").and_then(Value::as_str) == Some("text_delta"))
+                        .then(|| event.get("delta").and_then(Value::as_str))
+                        .flatten()
+                })
+            {
+                if !delta.is_empty() {
+                    if ttft_ms.is_none() {
+                        ttft_ms = Some(start.elapsed().as_millis() as i64);
+                    }
+                    content.push_str(delta);
+                    emit(delta, "content");
+                }
+            }
+            if matches!(frame.get("type").and_then(Value::as_str), Some("turn_end") | Some("agent_end")) {
+                break;
+            }
+        }
+
+        if !prompt_accepted {
+            let _ = child.kill();
+            let _ = child.wait();
+            let stderr = stderr_reader.join().unwrap_or_default();
+            return Err(if stderr.trim().is_empty() {
+                "OMP did not accept the ChatGPT OAuth prompt".to_string()
+            } else {
+                format!("OMP did not accept the ChatGPT OAuth prompt: {}", stderr.trim())
+            });
+        }
+
+        let last_frame = json!({ "id": "basebuild-last", "type": "get_last_assistant_text" });
+        let _ = writeln!(stdin, "{last_frame}");
+        let _ = stdin.flush();
+        let last_deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < last_deadline {
+            let line = match rx.recv_timeout(Duration::from_millis(250)) {
+                Ok(line) => line,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            };
+            let Ok(frame) = serde_json::from_str::<Value>(&line) else { continue };
+            if frame.get("type").and_then(Value::as_str) == Some("response")
+                && frame.get("command").and_then(Value::as_str) == Some("get_last_assistant_text")
+            {
+                last_text = frame
+                    .get("data")
+                    .and_then(|d| d.get("text"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                break;
+            }
+        }
+
+        let _ = child.kill();
+        let _ = child.wait();
+        let final_content = last_text.filter(|s| !s.trim().is_empty()).unwrap_or(content);
+        if final_content.trim().is_empty() {
+            let stderr = stderr_reader.join().unwrap_or_default();
+            // ponytail: OMP swallows 429s silently — tail its latest log for a usable hint.
+            // Upgrade to structured OMP error frames if/when OMP emits them on stdout.
+            let hint = omp_rate_limit_hint();
+            return Err(if stderr.trim().is_empty() {
+                if let Some(h) = hint {
+                    format!("OMP returned an empty ChatGPT OAuth response: {h}")
+                } else {
+                    "OMP returned an empty ChatGPT OAuth response".to_string()
+                }
+            } else {
+                format!("OMP returned an empty ChatGPT OAuth response: {}", stderr.trim())
+            });
+        }
+        let duration_ms = (start.elapsed().as_millis() as i64).max(1);
+        Ok(ProviderResponse {
+            content: final_content.clone(),
+            input_tokens: Some(req.messages.iter().map(|m| estimate_tokens(&m.content)).sum()),
+            output_tokens: Some(estimate_tokens(&final_content)),
+            ttft_ms: ttft_ms.or(Some(duration_ms)),
+            duration_ms,
+            tool_calls: Vec::new(),
+        })
+    }
+}
+
+fn compose_omp_rpc_prompt(req: &ProviderRequest) -> String {
+    let mut prompt = String::new();
+    if let Some(system) = req.system.as_deref().filter(|s| !s.trim().is_empty()) {
+        prompt.push_str("System instructions:\n");
+        prompt.push_str(system.trim());
+        prompt.push_str("\n\n");
+    }
+    prompt.push_str("Conversation transcript. Reply only to the final user message.\n\n");
+    for message in &req.messages {
+        let role = match message.role.as_str() {
+            "assistant" => "Assistant",
+            "system" => "System",
+            "tool" => "Tool",
+            _ => "User",
+        };
+        if message.content.trim().is_empty() {
+            continue;
+        }
+        prompt.push_str(role);
+        prompt.push_str(":\n");
+        prompt.push_str(message.content.trim());
+        prompt.push_str("\n\n");
+    }
+    prompt.push_str("Assistant:");
+    prompt
+}
+
+/// Best-effort scan of OMP's latest log for a rate-limit / usage-cap message.
+/// Returns the matched message (e.g. "Usage limit reached for 5 hour. Your
+/// limit will reset at ...") when found, so the empty-response error can
+/// surface a real reason instead of a generic "empty" message.
+fn omp_rate_limit_hint() -> Option<String> {
+    use std::fs;
+    use std::io::Read;
+    let mut dir = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from)?;
+    dir.push(".omp");
+    dir.push("logs");
+    let entries = fs::read_dir(&dir).ok()?;
+    // Pick the most recently modified .log file (current day; gz ignored).
+    let latest = entries
+        .filter_map(Result::ok)
+        .filter_map(|e| {
+            let path = e.path();
+            if path.extension().and_then(|x| x.to_str()) == Some("log") {
+                let m = e.metadata().ok()?;
+                let modified = m.modified().ok()?;
+                Some((path, modified))
+            } else {
+                None
+            }
+        })
+        .max_by_key(|(_, m)| *m)
+        .map(|(p, _)| p)?;
+    let mut buf = String::new();
+    // Tail last 64 KiB only — large enough to catch recent errors.
+    let mut file = fs::File::open(&latest).ok()?;
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    if len > 65_536 {
+        use std::io::Seek;
+        let _ = file.seek(std::io::SeekFrom::Start(len - 65_536));
+    }
+    file.read_to_string(&mut buf).ok()?;
+    // Find the last rate-limit line; OMP logs JSON with "rate_limit_error" or
+    // "Usage limit reached". Extract the bracketed message.
+    let mut found: Option<String> = None;
+    for line in buf.lines().rev() {
+        if !(line.contains("rate_limit_error") || line.contains("Usage limit reached")) {
+            continue;
+        }
+        // Try to extract the human-readable message between [code][...].
+        if let Some(start) = line.rfind("Usage limit reached") {
+            let tail = &line[start..];
+            let end = tail.find(']').unwrap_or(tail.len());
+            let msg = tail[..end].trim();
+            if !msg.is_empty() {
+                found = Some(msg.to_string());
+            }
+            break;
+        }
+    }
+    found
 }
 
 /// Stream-idle timeout: if no data arrives for this duration during SSE streaming,
@@ -724,9 +976,12 @@ impl ProviderClient for AnthropicClient {
 
         let url = format!("{}/messages", self.base_url.trim_end_matches('/'));
         let start = Instant::now();
+        let is_jwt = api_key.starts_with("eyJ");
         let resp = http_client()?
             .post(&url)
-            .header("x-api-key", api_key)
+            // OAuth JWTs (from omp login) use Bearer; regular API keys use
+            // x-api-key. Sending both risks auth-confusion rejection.
+            .header(if is_jwt { "Authorization" } else { "x-api-key" }, if is_jwt { format!("Bearer {}", api_key) } else { api_key.to_string() })
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
             .json(&body)

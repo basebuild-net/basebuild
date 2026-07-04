@@ -204,6 +204,10 @@ pub struct RuntimeDefaults {
     pub default_terminal_profile_id: Option<String>,
     pub default_model: Option<String>,
     pub auto_send_generated_prompts: bool,
+    #[serde(default)]
+    pub git_ai_provider_id: Option<String>,
+    #[serde(default)]
+    pub git_ai_model_id: Option<String>,
 }
 
 impl RuntimeDefaults {
@@ -214,6 +218,8 @@ impl RuntimeDefaults {
             default_terminal_profile_id: Some("default-terminal".to_string()),
             default_model: Some("basebuild-local-coordinator".to_string()),
             auto_send_generated_prompts: false,
+            git_ai_provider_id: None,
+            git_ai_model_id: None,
         }
     }
 }

@@ -9,6 +9,7 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Sparkles,
   X,
 } from "lucide-react";
 
@@ -33,6 +34,11 @@ import {
   type GitCommit,
   type GitStatus,
 } from "../../lib/git";
+import { nativeChatModelDefault, nativeChatSend, nativeChatStart } from "../../lib/native-chat";
+import { getRuntimeDefaults } from "../../lib/settings";
+
+// ponytail: cap staged diff; add chunking only when real commits need more context.
+const COMMIT_DIFF_LIMIT = 12_000;
 
 const STATUS_ICON: Record<FileChangeType, string> = {
   added: "A",
@@ -94,6 +100,43 @@ function parseDiff(diff: string): DiffLine[] {
   return result;
 }
 
+function cleanGeneratedCommitMessage(text: string) {
+  let cleaned = text
+    .trim()
+    .replace(/^```[a-z]*\n?/i, "")
+    .replace(/```$/i, "")
+    .trim();
+
+  // ponytail: some models (GLM 5.2) prepend reasoning/analysis then a
+  // markdown horizontal rule (---) before the actual commit message.
+  // Take everything after the last hr-style delimiter (---/***/___) when present.
+  const hr = /^(-{3,}|\*{3,}|_{3,})$/;
+  const hrIdx = cleaned
+    .split("\n")
+    .map((line, idx) => (hr.test(line.trim()) ? idx : -1))
+    .filter((idx) => idx >= 0)
+    .pop();
+  if (typeof hrIdx === "number") {
+    const after = cleaned.split("\n").slice(hrIdx + 1).join("\n").trim();
+    if (after) cleaned = after;
+  } else {
+    // No hr delimiter: strip conversational preamble lines ending in "." or ":"
+    // (e.g. "Let me analyze the changes to write a concise commit message.").
+    const lines = cleaned.split("\n");
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i].trim();
+      if (line === "") { i++; continue; }
+      if (!line.endsWith(".") && !line.endsWith(":")) break;
+      i++;
+    }
+    const stripped = lines.slice(i).join("\n").trim();
+    if (stripped) cleaned = stripped;
+  }
+
+  return cleaned.replace(/^['"]|['"]$/g, "");
+}
+
 export function SourcePanel({ projectPath }: { projectPath: string | null }) {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [commits, setCommits] = useState<GitCommit[]>([]);
@@ -101,6 +144,8 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
   const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null);
   const [diffLines, setDiffLines] = useState<DiffLine[]>([]);
   const [commitMessage, setCommitMessage] = useState("");
+  const [commitChatSessionId, setCommitChatSessionId] = useState<string | null>(null);
+  const [generatingCommit, setGeneratingCommit] = useState(false);
   const [tab, setTab] = useState<"changes" | "history">("changes");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,6 +177,11 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
     if (!projectPath) return;
     void refresh();
   }, [projectPath, refresh]);
+
+  useEffect(() => {
+    setCommitMessage("");
+    setCommitChatSessionId(null);
+  }, [projectPath]);
 
   async function viewDiff(file: FileEntry) {
     if (!projectPath) return;
@@ -187,6 +237,75 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
       await refresh();
     } catch (e) {
       setError(String(e));
+    }
+  }
+
+  async function generateCommitMessage() {
+    if (!projectPath || !status || generatingCommit) return;
+
+    const stagedFiles = status.staged;
+    const fallbackFiles = stagedFiles.length > 0 ? [] : [...status.unstaged, ...status.untracked];
+    const diffFiles = stagedFiles.length > 0 ? stagedFiles : fallbackFiles;
+    if (diffFiles.length === 0) return;
+
+    setGeneratingCommit(true);
+    setError(null);
+    try {
+      const [modelDefault, runtimeDefaults] = await Promise.all([
+        nativeChatModelDefault(projectPath),
+        getRuntimeDefaults(),
+      ]);
+      const providerId = runtimeDefaults.gitAiProviderId ?? modelDefault.providerId;
+      const modelId = runtimeDefaults.gitAiModelId ?? modelDefault.modelId;
+      const effortLevel = modelDefault.effortLevel;
+      const diffParts = await Promise.all(diffFiles.map(async (file) => {
+        const diff = await gitDiff(projectPath, file.path, stagedFiles.length > 0);
+        return `### ${file.path}\n${diff || `${file.changeType} (no textual diff)`}`;
+      }));
+
+      const fullDiff = diffParts.join("\n\n");
+      const visibleDiff = fullDiff.length > COMMIT_DIFF_LIMIT
+        ? `${fullDiff.slice(0, COMMIT_DIFF_LIMIT)}\n\n[diff truncated]`
+        : fullDiff;
+      const prompt = [
+        "Write one concise git commit message for these changes.",
+        "Return only the commit message text. Do not include any explanation, reasoning, or preamble like 'Let me analyze' or 'Here is the message'. Start directly with the commit subject line. Use imperative mood. Keep the subject under 72 characters. Add a body only if it is truly needed.",
+        `Files:\n${diffFiles.map((file) => `- ${file.path} (${file.changeType})`).join("\n")}`,
+        `Diff:\n${visibleDiff}`,
+      ].filter(Boolean).join("\n\n");
+      const sessionId = commitChatSessionId ?? (await nativeChatStart({
+        projectPath,
+        title: "Commit Message",
+        providerId,
+        modelId,
+        effortLevel,
+      })).id;
+      setCommitChatSessionId(sessionId);
+
+      const result = await nativeChatSend({
+        sessionId,
+        content: prompt,
+        providerId,
+        modelId,
+        effortLevel,
+      });
+
+      if (result.setupRequired) {
+        setError(result.setupRequired.message);
+        return;
+      }
+
+      const message = cleanGeneratedCommitMessage(result.assistantMessage?.content ?? "");
+      if (!message) {
+        setError("AI did not return a commit message.");
+        return;
+      }
+
+      setCommitMessage(message);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setGeneratingCommit(false);
     }
   }
 
@@ -303,33 +422,43 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
 
       {tab === "changes" ? (
         <div className="source-changes">
-          {/* Commit input - always visible when there are staged changes */}
-          {stagedCount > 0 ? (
-            <div className="source-commit-area">
-              <textarea
-                className="input source-commit-input"
-                placeholder="Message (Ctrl+Enter to commit)"
-                value={commitMessage}
-                onChange={(e) => setCommitMessage(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                    e.preventDefault();
-                    void commit();
-                  }
-                }}
-                rows={2}
-              />
+          {/* Commit input stays visible so AI commit generation is discoverable. */}
+          <div className="source-commit-area">
+            <textarea
+              className="input source-commit-input"
+              title="Commit message"
+              placeholder="Message (Ctrl+Enter to commit)"
+              value={commitMessage}
+              onChange={(e) => setCommitMessage(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  void commit();
+                }
+              }}
+              rows={2}
+            />
+            <div className="row-between">
+              <button
+                className="btn btn-ghost btn-sm"
+                title="Generate commit message with AI"
+                disabled={totalChanges === 0 || generatingCommit}
+                onClick={() => void generateCommitMessage()}
+                type="button"
+              >
+                <Sparkles size={12} /> {generatingCommit ? "Generating…" : "Generate commit"}
+              </button>
               <button
                 className="btn btn-primary source-commit-btn"
                 title="Commit (Ctrl+Enter)"
-                disabled={!commitMessage.trim()}
+                disabled={!commitMessage.trim() || stagedCount === 0}
                 onClick={() => void commit()}
                 type="button"
               >
                 <Check size={13} /> Commit
               </button>
             </div>
-          ) : null}
+          </div>
 
           {/* Staged Changes - collapsible */}
           {stagedCount > 0 ? (
