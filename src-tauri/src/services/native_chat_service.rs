@@ -35,6 +35,14 @@ impl NativeChatService {
         crate::services::provider_model_catalog_service::ProviderModelCatalogService::catalog()
     }
 
+    /// Check whether a model supports tool calling.
+    fn model_supports_tools(provider_id: &str, model_id: &str) -> bool {
+        let catalog = Self::provider_catalog();
+        catalog
+            .models
+            .iter()
+            .any(|m| m.provider_id == provider_id && m.id == model_id && m.supports_tools)
+    }
     // ─── Chat Model Defaults ───
 
     /// Get the persisted chat model default for a project, or None if no
@@ -414,6 +422,9 @@ impl NativeChatService {
             .map(|m| ChatMsg {
                 role: m.role.clone(),
                 content: m.content.clone(),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
+                name: None,
             })
             .collect();
         let system = Self::system_prompt(&session.project_path, None);
@@ -424,16 +435,97 @@ impl NativeChatService {
             .unwrap_or_else(|| model_id.clone());
 
         let req = ProviderRequest {
-            model_id: resolved_model_id,
+            model_id: resolved_model_id.clone(),
             effort_level: effort_level.clone(),
-            system: Some(system),
-            messages,
+            system: Some(system.clone()),
+            messages: messages.clone(),
             api_key: credential.as_ref().map(|c| c.api_key.clone()),
             base_url: credential.as_ref().and_then(|c| c.base_url.clone()),
+            tools: Vec::new(),
         };
 
-        let client = resolve_client(&provider_id, req.base_url.as_deref());
         let started_at = now_millis();
+
+        // Check if the model supports tools → use the agent loop.
+        let supports_tools = !is_local
+            && Self::model_supports_tools(&provider_id, &model_id);
+
+        if supports_tools {
+            // Run the agentic loop: stream → tool calls → approval → execute → repeat.
+            let run_result = crate::services::agent_loop_service::run_agent_turn(
+                &request.session_id,
+                &session.project_path,
+                &provider_id,
+                &resolved_model_id,
+                &effort_level,
+                credential.as_ref().map(|c| c.api_key.clone()),
+                credential.as_ref().and_then(|c| c.base_url.clone()),
+                system,
+                messages,
+                app.clone(),
+                true,
+            );
+
+            let completed_at = now_millis();
+            let duration_ms = completed_at.saturating_sub(started_at).max(1);
+            let assistant_message = Self::insert_message(
+                &request.session_id,
+                "assistant",
+                &run_result.content,
+                Some(&provider_id),
+                Some(&model_id),
+                Some(&effort_level),
+            )?;
+
+            // Record tool events from the loop.
+            let mut tool_events = Vec::new();
+            for te in &run_result.tool_events {
+                let event = Self::insert_tool_event(
+                    &request.session_id,
+                    Some(&assistant_message.id),
+                    &te.tool_name,
+                    &te.status,
+                    &te.summary,
+                )?;
+                tool_events.push(event);
+            }
+
+            let metric = NativeRequestMetric {
+                id: gen_id("nreq"),
+                session_id: request.session_id.clone(),
+                provider_id: provider_id.clone(),
+                model_id: model_id.clone(),
+                effort_level: effort_level.clone(),
+                started_at,
+                completed_at: Some(completed_at),
+                duration_ms: Some(duration_ms),
+                ttft_ms: None,
+                ttlt_ms: Some(duration_ms),
+                input_tokens: 0,
+                output_tokens: estimate_tokens(&run_result.content),
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                tokens_per_second: None,
+                cost_total: Some(0.0),
+                outcome: if run_result.cancelled { "cancelled" } else { "success" }.to_string(),
+                error_class: None,
+                created_at: now_seconds(),
+            };
+            Self::insert_metric(&metric)?;
+            Self::touch_session(&request.session_id)?;
+
+            return Ok(NativeChatSendResult {
+                user_message,
+                assistant_message: Some(assistant_message),
+                metrics: Some(metric),
+                tool_events,
+                setup_required: None,
+                offline: false,
+            });
+        }
+
+        // Plain chat turn (no tools support, or local coordinator).
+        let client = resolve_client(&provider_id, req.base_url.as_deref());
         let session_id_for_emit = request.session_id.clone();
         let app_for_emit = app.clone();
         let emit = move |delta: &str, channel: &str| {
@@ -605,9 +697,13 @@ impl NativeChatService {
             messages: vec![ChatMsg {
                 role: "user".to_string(),
                 content: prompt,
+                tool_calls: Vec::new(),
+                tool_call_id: None,
+                name: None,
             }],
             api_key: credential.as_ref().map(|c| c.api_key.clone()),
             base_url: credential.as_ref().and_then(|c| c.base_url.clone()),
+            tools: Vec::new(),
         };
 
         let client = resolve_client(&provider_id, req.base_url.as_deref());

@@ -1,8 +1,8 @@
 mod app_state;
 mod commands;
 mod events;
-mod models;
-mod services;
+pub mod models;
+pub mod services;
 
 use std::sync::{LazyLock, Mutex};
 use tauri::{AppHandle, Emitter};
@@ -46,7 +46,7 @@ use commands::{
     },
     native_chat::{
         native_chat_get, native_chat_list, native_chat_messages, native_chat_send,
-        native_chat_start, native_chat_model_default, native_chat_set_project_model_default,
+        native_chat_start, native_chat_cancel, native_chat_model_default, native_chat_set_project_model_default,
         native_chat_set_global_model_default, native_catalog_sync,
         native_delete_provider_credential, native_generate_ideas,
         native_list_provider_credentials, native_provider_catalog,
@@ -73,10 +73,11 @@ use commands::{
     requirements::list_requirements,
      schematic::{get_project_schematic, has_project_schematic, set_project_schematic},
     settings::{
-        clear_audit_trail, delete_runtime_profile, get_permission_rules, get_runtime_defaults,
-        list_audit_trail, list_runtime_profiles, reset_permission_rules, reset_runtime_defaults,
-        set_permission_rules, set_runtime_defaults, upsert_runtime_profile,
-        validate_runtime_profile,
+        add_approval_rule, clear_audit_trail, delete_runtime_profile, get_approval_mode,
+        get_permission_rules, get_runtime_defaults, list_approval_rules, list_audit_trail,
+        list_runtime_profiles, remove_approval_rule, reset_permission_rules,
+        reset_runtime_defaults, set_approval_mode, set_permission_rules, set_runtime_defaults,
+        upsert_runtime_profile, validate_runtime_profile,
     },
     sessions::{
         create_session, create_tab, delete_session, delete_tab, list_sessions, list_tabs,
@@ -338,8 +339,8 @@ pub fn run() {
             native_chat_send,
             native_request_metrics,
             native_request_metrics_summary,
-            native_request_tool_approval,
-            native_save_provider_credential,
+            native_chat_send,
+            native_chat_cancel,
             native_list_provider_credentials,
             native_delete_provider_credential,
             native_generate_ideas,
@@ -361,6 +362,11 @@ pub fn run() {
             reset_permission_rules,
             list_audit_trail,
             clear_audit_trail,
+            get_approval_mode,
+            set_approval_mode,
+            list_approval_rules,
+            add_approval_rule,
+            remove_approval_rule,
             get_analytics_consent,
             set_analytics_consent,
             list_analytics_events,

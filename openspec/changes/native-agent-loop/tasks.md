@@ -8,12 +8,10 @@
 
 ## 2. Provider Tool Protocol
 
-- [ ] 2.1 Add `ToolSchema`, `ToolCallRequest`, tool-result `ChatMsg` role, `ProviderRequest.tools`, `ProviderResponse.tool_calls`, and a `tool_call` emit channel to `provider_client.rs` types and trait.
-- [ ] 2.2 OpenAI-compatible adapter: send `tools`, assemble fragmented `tool_calls` argument deltas, round-trip role-`tool` results; SSE-fixture unit tests.
-- [ ] 2.3 Anthropic adapter: send `tools`, parse `tool_use` / `input_json_delta` blocks, return `tool_result` blocks; verify ordering with extended-thinking responses; SSE-fixture unit tests.
-- [ ] 2.4 Catalog capability gate: `supports_tools` flag on models (default true for network providers, false for `basebuild-local`); plain-chat degradation path.
-
-## 3. Tool Runtime
+- [x] 2.1 Add `ToolSchema`, `ToolCallRequest`, tool-result `ChatMsg`, `ProviderRequest.tools`, `ProviderResponse.tool_calls`, and a `tool_call` emit channel to `provider_client.rs` types and trait.
+- [x] 2.2 OpenAI-compatible adapter: send `tools`, assemble fragmented `tool_calls` argument deltas, round-trip role-`tool` results; SSE-fixture unit tests.
+- [x] 2.3 Anthropic adapter: send `tools`, parse `tool_use` / `input_json_delta` blocks, return `tool_result` blocks; verify ordering with extended-thinking responses; SSE-fixture unit tests.
+- [x] 2.4 Catalog capability gate: `supports_tools` flag on models (default true for network providers, false for `basebuild-local`); plain-chat degradation path.
 
 - [ ] 3.1 `tool_runtime_service.rs`: `ToolDef` registry (schema, ReadOnly/Mutating kind, execute fn); JSON-schema definitions for all six tools.
 - [ ] 3.2 Implement `read_file` (ranges, truncation markers), `write_file`, `edit_file` (exact-match + occurrence validation), `list_files` (glob), `search_files` (Rust regex walker, workspace-scoped).

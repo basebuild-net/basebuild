@@ -85,6 +85,11 @@ pub fn native_request_tool_approval(
 }
 
 #[tauri::command]
+pub fn native_chat_cancel(session_id: String) -> Result<bool, String> {
+    Ok(crate::services::agent_loop_service::cancel_run(&session_id))
+}
+
+#[tauri::command]
 pub fn native_save_provider_credential(
     input: NativeProviderCredentialInput,
 ) -> Result<NativeProviderCredential, String> {

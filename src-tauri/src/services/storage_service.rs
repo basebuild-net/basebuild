@@ -190,6 +190,16 @@ impl StorageService {
                 );
                 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_trail(created_at);
 
+                CREATE TABLE IF NOT EXISTS approval_rules (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    project_path TEXT NOT NULL,
+                    tool_name TEXT NOT NULL,
+                    command_prefix TEXT,
+                    decision TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_approval_project ON approval_rules(project_path);
+
                 CREATE TABLE IF NOT EXISTS analytics_events (
                     id TEXT PRIMARY KEY NOT NULL,
                     event_name TEXT NOT NULL,
@@ -211,6 +221,7 @@ impl StorageService {
                     model_id TEXT NOT NULL,
                     effort_level TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'ready',
+                    run_state TEXT NOT NULL DEFAULT 'idle',
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL
                 );
@@ -544,6 +555,43 @@ impl StorageService {
              WHERE status IN ('running','pending')",
             params![now],
         );
+
+        // Migration (native-agent-loop): add run_state column to
+        // native_chat_sessions for crash-safe agent loop state. Existing
+        // sessions default to 'idle'. Any session left 'running' from a
+        // crash is marked 'interrupted' so the UI shows a recovery notice.
+        let has_run_state = connection
+            .prepare("SELECT run_state FROM native_chat_sessions LIMIT 0")
+            .is_ok();
+        if !has_run_state {
+            let _ = connection.execute(
+                "ALTER TABLE native_chat_sessions ADD COLUMN run_state TEXT NOT NULL DEFAULT 'idle'",
+                [],
+            );
+        }
+        let _ = connection.execute(
+            "UPDATE native_chat_sessions SET run_state = 'interrupted' WHERE run_state = 'running'",
+            [],
+        );
+
+        // Migration (native-agent-loop): create approval_rules table for
+        // persistent per-project tool-approval rules. Additive only.
+        let _ = connection.execute(
+            "CREATE TABLE IF NOT EXISTS approval_rules (
+                id TEXT PRIMARY KEY NOT NULL,
+                project_path TEXT NOT NULL,
+                tool_name TEXT NOT NULL,
+                command_prefix TEXT,
+                decision TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )",
+            [],
+        );
+        let _ = connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_approval_project ON approval_rules(project_path)",
+            [],
+        );
+
         // Seed built-in runtime profiles individually so existing databases gain
         // newly-added built-ins without losing user-edited profiles.
         for profile in crate::models::runtime::RuntimeProfile::built_ins() {

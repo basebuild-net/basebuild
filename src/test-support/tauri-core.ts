@@ -191,8 +191,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "write_terminal":
     case "resize_terminal":
     case "close_terminal":
-    case "agent_send":
     case "agent_stop":
+    case "native_chat_cancel":
       return undefined as T;
     case "detect_project":
       return { path: args.path as string, gitRoot: args.path as string, hasGit: true, hasOpenSpec: true, hasBasebuild: true } as T;
@@ -278,9 +278,9 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
           { id: "umans", label: "Umans", status: "ready", credentialOwner: "user", configured: true, localOnly: false, detail: "Connected", authMethod: "api_key", apiKeyUrl: "https://app.umans.ai/billing?context=personal&tab=api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "provider_discovered", error: null },
         ],
         models: [
-          { id: "basebuild-local-coordinator", providerId: "basebuild-local", label: "Local Coordinator", supportsEffort: true, supportsStreaming: false, localOnly: true, contextWindow: null, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "bundled" },
-          { id: "gpt-5.1", providerId: "openai", label: "GPT-5.1", supportsEffort: true, supportsStreaming: true, localOnly: false, contextWindow: 400000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: true, source: "bundled" },
-          { id: "umans-glm-5.2", providerId: "umans", label: "Umans GLM 5.2", supportsEffort: true, supportsStreaming: true, localOnly: false, contextWindow: 128000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "provider_discovered" },
+          { id: "basebuild-local-coordinator", providerId: "basebuild-local", label: "Local Coordinator", supportsEffort: true, supportsStreaming: false, supportsTools: false, localOnly: true, contextWindow: null, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "bundled" },
+          { id: "gpt-5.1", providerId: "openai", label: "GPT-5.1", supportsEffort: true, supportsStreaming: true, supportsTools: true, localOnly: false, contextWindow: 400000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: true, source: "bundled" },
+          { id: "umans-glm-5.2", providerId: "umans", label: "Umans GLM 5.2", supportsEffort: true, supportsStreaming: true, supportsTools: true, localOnly: false, contextWindow: 128000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "provider_discovered" },
         ],
         effortLevels: [
           { id: "low", label: "Low", description: "Fast" },
@@ -480,6 +480,17 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return { installed: true, version: "omp 1.2.3", configPath: "C:\\basebuild-e2e\\.omp\\config.yml", message: null } as T;
     case "omp_debug_context":
       return { stats: null, usage: null, config: null } as T;
+    case "native_chat_model_default":
+      return {
+        providerId: "basebuild-local",
+        modelId: "basebuild-local-coordinator",
+        effortLevel: "medium",
+        source: "fallback",
+        notice: null,
+      } as T;
+    case "native_chat_set_project_model_default":
+    case "native_chat_set_global_model_default":
+      return undefined as T;
     case "list_requirements":
       return [] as T;
     case "get_runtime_defaults":
@@ -544,6 +555,15 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return undefined as T;
     case "usage_sync_set_enabled":
       s.autoSyncEnabled = args.enabled as boolean;
+      return undefined as T;
+    case "get_approval_mode":
+      return "balanced" as T;
+    case "set_approval_mode":
+      return undefined as T;
+    case "list_approval_rules":
+      return [] as T;
+    case "add_approval_rule":
+    case "remove_approval_rule":
       return undefined as T;
     case "usage_sync_status":
       return {

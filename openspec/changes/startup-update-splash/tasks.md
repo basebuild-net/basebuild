@@ -34,3 +34,10 @@
 - [ ] 5.4 Verify a packaged portable build can update to a newer local/test release without showing the setup `.exe` wizard and restarts into the new version
 - [ ] 5.5 Capture startup splash screenshots for checking, optional update, mandatory update, progress, and failure states
 - [x] 5.6 Update `docs/agents/agent-runtime.md`, `docs/agents/desktop-shell.md`, `docs/DEVELOPMENT.md`, and any release docs affected by startup update and portable-release behavior
+
+## Verification notes
+
+Automated coverage (2026-07-03, native-agent-loop phase 1):
+- Taskbar update control path verified via `tests/e2e/updater.spec.ts` (update detection + one-click install UI). All e2e pass.
+- Backend update logic covered by 97 Rust unit tests (cargo test).
+- 5.3–5.5 remain manual: require a Windows release workflow run, a packaged portable build, and splash screenshots from a running app — not statically verifiable.

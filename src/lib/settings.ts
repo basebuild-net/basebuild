@@ -114,3 +114,36 @@ export async function listAuditTrail(limit?: number): Promise<AuditEntry[]> {
 export async function clearAuditTrail(): Promise<void> {
   return invoke("clear_audit_trail");
 }
+
+// ─── Approval Gateway ───
+
+export type ApprovalMode = "safe" | "balanced" | "auto";
+
+export type ApprovalRule = {
+  id: string;
+  projectPath: string;
+  toolName: string;
+  commandPrefix: string | null;
+  decision: PermissionDecision;
+  createdAt: number;
+};
+
+export async function getApprovalMode(projectPath: string): Promise<ApprovalMode> {
+  return invoke<ApprovalMode>("get_approval_mode", { projectPath });
+}
+
+export async function setApprovalMode(projectPath: string, mode: ApprovalMode): Promise<void> {
+  return invoke("set_approval_mode", { projectPath, mode });
+}
+
+export async function listApprovalRules(projectPath: string): Promise<ApprovalRule[]> {
+  return invoke<ApprovalRule[]>("list_approval_rules", { projectPath });
+}
+
+export async function addApprovalRule(rule: ApprovalRule): Promise<void> {
+  return invoke("add_approval_rule", { rule });
+}
+
+export async function removeApprovalRule(id: string): Promise<void> {
+  return invoke("remove_approval_rule", { id });
+}

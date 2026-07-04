@@ -99,6 +99,9 @@ pub struct NativeModel {
     pub label: String,
     pub supports_effort: bool,
     pub supports_streaming: bool,
+    /// Whether the model accepts tool schemas (function calling). False for
+    /// the local coordinator; true for network providers by default.
+    pub supports_tools: bool,
     pub local_only: bool,
     pub context_window: Option<i64>,
     pub max_tokens: Option<i64>,

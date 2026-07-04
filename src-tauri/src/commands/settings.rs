@@ -1,5 +1,5 @@
 use crate::models::{
-    permission::{AuditEntry, PermissionRules},
+    permission::{ApprovalMode, ApprovalRule, AuditEntry, PermissionRules},
     runtime::RuntimeProfile,
 };
 use crate::services::settings_service::{ProfileValidation, SettingsService};
@@ -64,6 +64,33 @@ pub fn list_audit_trail(limit: Option<u32>) -> Result<Vec<AuditEntry>, String> {
 #[tauri::command]
 pub fn clear_audit_trail() -> Result<(), String> {
     SettingsService::clear_audit()
+}
+
+// ─── Approval Gateway ───
+
+#[tauri::command]
+pub fn get_approval_mode(project_path: String) -> Result<ApprovalMode, String> {
+    SettingsService::get_approval_mode(&project_path)
+}
+
+#[tauri::command]
+pub fn set_approval_mode(project_path: String, mode: ApprovalMode) -> Result<(), String> {
+    SettingsService::set_approval_mode(&project_path, mode)
+}
+
+#[tauri::command]
+pub fn list_approval_rules(project_path: String) -> Result<Vec<ApprovalRule>, String> {
+    SettingsService::list_approval_rules(&project_path)
+}
+
+#[tauri::command]
+pub fn add_approval_rule(rule: ApprovalRule) -> Result<(), String> {
+    SettingsService::add_approval_rule(&rule)
+}
+
+#[tauri::command]
+pub fn remove_approval_rule(id: String) -> Result<(), String> {
+    SettingsService::remove_approval_rule(&id)
 }
 
 // Placeholder state to keep the command signature stable; not used yet.

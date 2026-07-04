@@ -60,6 +60,77 @@ impl PermissionRules {
     }
 }
 
+/// Per-project approval mode controlling how tool calls are gated.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ApprovalMode {
+    /// Every tool call prompts the user.
+    Safe,
+    /// Read-only tools auto-allowed; writes and commands prompt.
+    Balanced,
+    /// No prompts; everything auto-allowed within workspace scoping.
+    Auto,
+}
+
+impl Default for ApprovalMode {
+    fn default() -> Self {
+        Self::Balanced
+    }
+}
+
+impl ApprovalMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Safe => "safe",
+            Self::Balanced => "balanced",
+            Self::Auto => "auto",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "safe" => Self::Safe,
+            "auto" => Self::Auto,
+            _ => Self::Balanced,
+        }
+    }
+}
+
+/// A persistent per-project approval rule (e.g. "always allow run_command
+/// starting with `npm test`").
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovalRule {
+    pub id: String,
+    pub project_path: String,
+    pub tool_name: String,
+    /// For `run_command`: command prefix to match. Empty for other tools.
+    pub command_prefix: Option<String>,
+    pub decision: PermissionDecision,
+    pub created_at: i64,
+}
+
+/// A session-scoped rule (in-memory, not persisted). Created when the user
+/// picks "allow for session" on an approval prompt.
+#[derive(Debug, Clone)]
+pub struct SessionRule {
+    pub tool_name: String,
+    pub command_prefix: Option<String>,
+    pub decision: PermissionDecision,
+}
+
+/// The result of gateway resolution for a tool call.
+#[derive(Debug, Clone)]
+pub struct GatewayDecision {
+    /// `allow`, `deny`, or `ask` (prompt the user).
+    pub decision: PermissionDecision,
+    /// Whether a UI prompt is needed.
+    pub requires_prompt: bool,
+    /// Human-readable reason for the decision.
+    pub reason: String,
+    /// The rule that matched, if any (for audit).
+    pub rule_source: Option<String>,
+}
 /// A single audit entry recording a permission decision.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

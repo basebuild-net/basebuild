@@ -57,6 +57,7 @@ export type NativeModel = {
   label: string;
   supportsEffort: boolean;
   supportsStreaming: boolean;
+  supportsTools: boolean;
   localOnly: boolean;
   contextWindow: number | null;
   maxTokens: number | null;
@@ -283,6 +284,11 @@ export type ResolvedChatModelDefault = {
 /** Resolve the chat model default for a project (project → global → fallback). */
 export async function nativeChatModelDefault(projectPath: string): Promise<ResolvedChatModelDefault> {
   return invoke<ResolvedChatModelDefault>("native_chat_model_default", { projectPath });
+}
+
+/** Cancel a running agent loop for a session. Returns true if a run was found. */
+export async function nativeChatCancel(sessionId: string): Promise<boolean> {
+  return invoke<boolean>("native_chat_cancel", { sessionId });
 }
 
 /** Persist the per-project chat model default (called on manual composer selection). */

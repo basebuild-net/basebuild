@@ -42,8 +42,7 @@ _Last refreshed: 2026-07-03 (`node scripts/openspec-status.mjs --write`)_
 |Change|Progress|Status|Next command|
 |---|---|---|---|
 |`omp-ide-sync`|22/23|in progress|`/apply omp-ide-sync`|
-|`plan-pipeline-harness`|25/51|in progress|`/apply plan-pipeline-harness`|
-|`stabilize-and-agent-chat`|37/42|in progress|`/apply stabilize-and-agent-chat`|
+|`plan-pipeline-harness`|27/51|in progress|`/apply plan-pipeline-harness`|
 |`startup-update-splash`|17/20|in progress|`/apply startup-update-splash`|
 |`connector-permission-gateway`|0/29|not started|`/apply connector-permission-gateway`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|

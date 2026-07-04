@@ -616,9 +616,13 @@ impl PipelineService {
             messages: vec![ChatMsg {
                 role: "user".to_string(),
                 content: prompt,
+                tool_calls: Vec::new(),
+                tool_call_id: None,
+                name: None,
             }],
             api_key: credential.as_ref().map(|c| c.api_key.clone()),
             base_url: credential.as_ref().and_then(|c| c.base_url.clone()),
+            tools: Vec::new(),
         };
 
         let client = resolve_client(provider_id, req.base_url.as_deref());

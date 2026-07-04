@@ -84,3 +84,10 @@
 - [x] 6.4 Update `docs/agents/agent-runtime.md` (telemetry + account sync + triggers),
   `docs/agents/desktop-shell.md` (tab kinds + new-tab menu), and `AGENTS.md` where tab
   kinds/runtime are described.
+
+## Verification notes
+
+Automated coverage (2026-07-03, native-agent-loop phase 1):
+- OMP tab detection + telemetry HUD rendering and Account-page projected usage + auto-sync toggle UI verified via `tests/e2e/omp-sync.spec.ts` (2 tests). All e2e pass.
+- Backend telemetry parsing + freshness/trigger gate logic covered by Rust unit tests in `omp_telemetry_service.rs` (cargo test, 97 tests pass).
+- 6.3 remains partially manual: the live autosync trigger matrix (window hide, system shutdown, network offline→online) and per-message telemetry from a real running OMP session require a live OMP install + running Tauri app — not statically verifiable.
