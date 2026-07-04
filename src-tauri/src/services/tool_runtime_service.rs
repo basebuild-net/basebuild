@@ -871,8 +871,15 @@ mod tests {
     fn run_command_times_out() {
         let dir = workspace();
         let root = dir.path();
+        // Cross-platform long-running command:
+        //   Windows: `ping -t 127.0.0.1` pings forever until killed
+        //   Unix: `sleep 30` blocks for 30 seconds
+        #[cfg(windows)]
+        let command = "ping -t 127.0.0.1";
+        #[cfg(not(windows))]
+        let command = "sleep 30";
         let args = json!({
-            "command": "ping -t 127.0.0.1",
+            "command": command,
             "timeout_secs": 2
         });
         let result = run_command(root, &args);
