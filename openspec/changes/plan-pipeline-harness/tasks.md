@@ -52,31 +52,29 @@
 
 ## 7. Plan Run Queue & Sessions
 
-- [ ] 7.1 `plan_runner_service.rs`: queue CRUD (enqueue/reorder/remove), execution profile `N × provider/model[/effort]` persistence, tokio-semaphore scheduler, `plan_run://` events; commands + `src/lib/planRuns.ts`.
-- [ ] 7.2 Session provisioning: `create_session_for_plan` in `native_chat_service.rs` — fresh session, title `<ref> — <plan title>`, opening context from plan + linked change + schematic, bound model; plan `ready → running`.
-- [ ] 7.3 Run lifecycle: completion detection (all tasks checked or explicit user done), cancel (abort turn, plan back to `ready` or `cancelled` per user choice, artifacts kept), pause queue, `finished_at` stamping.
-- [ ] 7.4 OMP runner path: "Run with OMP" opens terminal tab seeded with reference id + change path; plan → `running`.
-- [ ] 7.5 Queue UI in `PlanPanel.tsx`: profile selector at top (`N ×` + model picker), queue ordering, per-run status, cancel/pause controls, links to run sessions.
-- [ ] 7.6 Tests: scheduler respects N, cancel semantics, session provisioning fields, queue survives panel unmount (backend-owned) — Rust unit + dev-app smoke.
+- [x] 7.1 `plan_runner_service.rs`: queue CRUD (enqueue/reorder/remove), execution profile `N × provider/model[/effort]` persistence, tokio-semaphore scheduler, `plan_run://` events; commands + `src/lib/planRuns.ts`.
+- [x] 7.2 Session provisioning: `create_session_for_plan` in `native_chat_service.rs` — fresh session, title `<ref> — <plan title>`, opening context from plan + linked change + schematic, bound model; plan `ready → running`.
+- [x] 7.3 Run lifecycle: completion detection (all tasks checked or explicit user done), cancel (abort turn, plan back to `ready` or `cancelled` per user choice, artifacts kept), pause queue, `finished_at` stamping.
+- [x] 7.4 OMP runner path: "Run with OMP" opens terminal tab seeded with reference id + change path; plan → `running`.
+- [x] 7.5 Queue UI in `PlanPanel.tsx`: profile selector at top (`N ×` + model picker), queue ordering, per-run status, cancel/pause controls, links to run sessions.
+- [x] 7.6 Tests: scheduler respects N, cancel semantics, session provisioning fields, queue survives panel unmount (backend-owned) — Rust unit + dev-app smoke.
 
 ## 8. Final Touches
 
-- [ ] 8.1 `final_touches_service.rs` + step config CRUD (kinds: `shell`, `validate`, `commit`, `pull_request`; ordered, per-project, remote-writing kinds default disabled).
-- [ ] 8.2 Execution after run completion: sequential steps, per-step status/output on the run, halt-on-failure with retry/skip/send-to-chat actions; `finished` gated on pipeline success.
-- [ ] 8.3 Step implementations: shell via `process_helpers`, validate via harness diff-review turn, commit/PR via `git_service.rs` extensions.
-- [ ] 8.4 Settings UI for step configuration showing exact commands to run; tooltips.
-- [ ] 8.5 Tests: ordering, failure halts, disabled-by-default guarantees (no commit/PR on unconfigured project).
+- [x] 8.1 `final_touches_service.rs` + step config CRUD (kinds: `shell`, `validate`, `commit`, `pull_request`; ordered, per-project, remote-writing kinds default disabled).
+- [x] 8.2 Execution after run completion: sequential steps, per-step status/output on the run, halt-on-failure with retry/skip/send-to-chat actions; `finished` gated on pipeline success.
+- [x] 8.3 Step implementations: shell via `process_helpers`, validate via harness diff-review turn, commit/PR via `git_service.rs` extensions.
+- [x] 8.4 Settings UI for step configuration showing exact commands to run; tooltips.
+- [x] 8.5 Tests: ordering, failure halts, disabled-by-default guarantees (no commit/PR on unconfigured project).
 
 ## 9. Parallel Workspaces
-
-- [ ] 9.1 `worktree_service.rs`: create worktree under managed dir with branch `bb/<ref>-<slug>`, list, remove via `git worktree remove` (confirmation before `--force`); `src/lib/workspaces.ts`.
-- [ ] 9.2 Queue integration: acquire worktree per run when concurrency > 1 and repo is git; sequential fallback + notice otherwise; hard-cap concurrency 1 without worktrees.
-- [ ] 9.3 Workspace UI: list with plan/branch/path, prune action, uncommitted-changes warning.
-- [ ] 9.4 Tests: worktree create/remove round-trip in a temp repo, non-git fallback.
-
+- [x] 9.1 `worktree_service.rs`: create worktree under managed dir with branch `bb/<ref>-<slug>`, list, remove via `git worktree remove` (confirmation before `--force`); `src/lib/workspaces.ts`.
+- [x] 9.2 Queue integration: acquire worktree per run when concurrency > 1 and repo is git; sequential fallback + notice otherwise; hard-cap concurrency 1 without worktrees.
+- [x] 9.3 Workspace UI: list with plan/branch/path, prune action, uncommitted-changes warning.
+- [x] 9.4 Tests: worktree create/remove round-trip in a temp repo, non-git fallback.
 ## 10. Docs, Polish & Verification
 
-- [ ] 10.1 Update `docs/agents/agent-runtime.md` (harness commands, MCP, defaults), `docs/agents/desktop-shell.md` (queue/workspace surfaces), `DESIGN.md` (new UI states/classes).
-- [ ] 10.2 Verify design contract: zero radius, tooltips on every new control, styles only in `globals.css`.
-- [ ] 10.3 Full pass: `npx tsc --noEmit`, `npm run build`, `cargo check`, `cargo test`; end-to-end smoke: categories → ideas → pick → openspec → ready → queue run (1× and 2× with worktrees) → final touches → finished; cancel at each stage.
-- [ ] 10.4 Suggest commit points per completed phase (no silent commits).
+- [x] 10.1 Update `docs/agents/agent-runtime.md` (harness commands, MCP, defaults), `docs/agents/desktop-shell.md` (queue/workspace surfaces), `DESIGN.md` (new UI states/classes).
+- [x] 10.2 Verify design contract: zero radius, tooltips on every new control, styles only in `globals.css`.
+- [x] 10.3 Full pass: `npx tsc --noEmit`, `npm run build`, `cargo check`, `cargo test`; end-to-end smoke: categories → ideas → pick → openspec → ready → queue run (1× and 2× with worktrees) → final touches → finished; cancel at each stage.
+- [x] 10.4 Suggest commit points per completed phase (no silent commits).

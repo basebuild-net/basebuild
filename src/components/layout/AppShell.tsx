@@ -445,6 +445,26 @@ export function AppShell({ updates }: AppShellProps) {
     [session, handleCreateTerminalTab, activeProjectPath],
   );
 
+  const handleOpenChatSession = useCallback(
+    async (chatSessionId: string) => {
+      if (!session.activeSessionId) return;
+      const existing = session.tabs.find(
+        (t) => t.kind === "chat" && t.chatSessionId === chatSessionId,
+      );
+      if (existing) {
+        session.setActiveTabId(existing.id);
+        return;
+      }
+      // Create a new chat tab and link it to the chat session.
+      await session.createTab("chat", `Plan Run`);
+      const newTab = session.tabs[session.tabs.length - 1];
+      if (newTab) {
+        await session.setTabChatSession(newTab.id, chatSessionId);
+      }
+    },
+    [session],
+  );
+
   const handleResizeStart = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
       if (sideCollapsed) return;
@@ -625,8 +645,6 @@ export function AppShell({ updates }: AppShellProps) {
         <div className="side-panel-wrapper">
           <div
             className="side-resizer"
-            role="separator"
-            tabIndex={0}
             aria-orientation="vertical"
             title="Drag to resize side panel"
             onMouseDown={handleResizeStart}
@@ -646,6 +664,7 @@ export function AppShell({ updates }: AppShellProps) {
               onCopyReference: handleCopyReference,
               onOpenInTerminal: handleOpenPlanInTerminal,
             }}
+            onOpenChatSession={handleOpenChatSession}
           />
         </div>
       </main>

@@ -49,11 +49,11 @@ _Last refreshed: 2026-07-04 (`node scripts/openspec-status.mjs --write`)_
 
 |Change|Progress|Status|Next command|
 |---|---|---|---|
-|`plan-pipeline-harness`|32/51|in progress|`/apply plan-pipeline-harness`|
 |`connector-permission-gateway`|0/29|not started|`/apply connector-permission-gateway`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
+|`plan-pipeline-harness`|51/51|complete — archive|`/archive plan-pipeline-harness`|
 <!-- status:end -->
 
 ## Archiving

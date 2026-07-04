@@ -63,6 +63,21 @@ The composer must be structurally impossible to clip:
 - Assistant streaming arrives on the `native-chat://chunk` Tauri event and is
   appended live; offline turns are flagged with `.chat-offline-tag`.
 
+## Plan run queue and final touches (technical)
+
+The plans side panel includes a run queue section (`.plan-queue-section`)
+below the plan list. It contains:
+- A profile selector (`.plan-queue-concurrency` input + `.plan-queue-start` /
+  `.plan-queue-pause` buttons) with tooltips.
+- Enqueue buttons for ready plans (`.plan-queue-enqueue-btn`).
+- A queue list (`.plan-queue-list`) with per-entry status
+  (`.plan-queue-run-status-*` classes for running/succeeded/failed/cancelled).
+  All interactive elements have `title=` tooltips and 0px radius.
+
+Settings → Final Touches tab uses `.final-touch-list`, `.final-touch-step`,
+`.final-touch-toggle`, and `.final-touch-add` classes. All inputs, selects,
+and buttons use 0px radius and `var(--bb-surface)` backgrounds.
+
 ## Screenshot verification
 
 Every UI change requires a screenshot. See

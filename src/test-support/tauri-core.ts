@@ -107,6 +107,8 @@ type E2eState = {
   nativeRequestMetrics: NativeRequestMetric[];
   ideas: Idea[];
   nextIdeaId: number;
+  planQueue: { id: string; sessionId: string; planId: string; sortOrder: number; createdAt: number }[];
+  planRuns: { id: string; planId: string; sessionId: string; chatSessionId?: string; status: string; runnerKind: string; error?: string; stepsOutput: unknown[]; startedAt?: number; finishedAt?: number; createdAt: number }[];
   workspaceRestoreByProject: Map<string, unknown>;
   auth: { accessToken: string; expiresAt: string; scopes: string[]; user: { id: string; username: string; email: string; image: string | null; isAdmin: boolean; isEditor: boolean } | null } | null;
   updateInstallCount: number;
@@ -135,13 +137,15 @@ function state(): E2eState {
       nativeRequestMetrics: [],
       ideas: [],
       nextIdeaId: 1,
+      planQueue: [],
+      planRuns: [],
       workspaceRestoreByProject: new Map(),
       auth: null,
       updateInstallCount: 0,
       autoSyncEnabled: false,
     };
   }
-  return globalState.__BASEBUILD_E2E_STATE__;
+  return globalState.__BASEBUILD_E2E_STATE__!;
 }
 
 function makeSession(projectPath: string, title: string): Session {
@@ -273,6 +277,44 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "delete_plan":
       s.plans = s.plans.filter((plan) => plan.id !== args.id);
       return undefined as T;
+    case "plan_run_enqueue": {
+      const { sessionId, planId } = args.request as { sessionId: string; planId: string };
+      const entry = { id: `pq-${Date.now()}`, sessionId, planId, sortOrder: s.planQueue.filter((q) => q.sessionId === sessionId).length, createdAt: Date.now() };
+      s.planQueue.push(entry);
+      return entry as T;
+    }
+    case "plan_run_list_queue":
+      return s.planQueue.filter((q) => q.sessionId === args.sessionId).sort((a, b) => a.sortOrder - b.sortOrder) as T;
+    case "plan_run_reorder":
+    case "plan_run_remove": {
+      if (command === "plan_run_remove") {
+        s.planQueue = s.planQueue.filter((q) => q.id !== args.entryId);
+      } else {
+        const entry = s.planQueue.find((q) => q.id === args.entryId);
+        if (entry) entry.sortOrder = args.newOrder as number;
+      }
+      return undefined as T;
+    }
+    case "plan_run_start":
+      return undefined as T;
+    case "plan_run_pause":
+      return undefined as T;
+    case "plan_run_cancel":
+      return undefined as T;
+    case "plan_run_complete":
+      return undefined as T;
+    case "plan_run_check_completion":
+      return [0, 0] as T;
+    case "plan_run_list":
+      return s.planRuns.filter((r) => r.sessionId === args.sessionId) as T;
+    case "plan_run_get":
+      return (s.planRuns.find((r) => r.id === args.runId) ?? null) as T;
+    case "plan_run_start_omp": {
+      const { sessionId, planId } = args as { sessionId: string; planId: string };
+      const run = { id: `run-${Date.now()}`, planId, sessionId, status: "running", runnerKind: "omp", error: undefined, stepsOutput: [], createdAt: Date.now() };
+      s.planRuns.push(run);
+      return run as T;
+    }
     case "list_files":
       return [] as T;
     case "read_file":

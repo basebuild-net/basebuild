@@ -14,9 +14,11 @@ use crate::{
             NativeToolApprovalResult, NativeToolEvent, ResolvedChatModelDefault,
         },
         permission::PermissionDecision,
+        plan::Plan,
     },
     services::{
         provider_client::{resolve_client, ChatMsg, ProviderRequest},
+        session_service::SessionService,
         settings_service::SettingsService,
         storage_service::StorageService,
     },
@@ -309,6 +311,120 @@ impl NativeChatService {
         Ok(session)
     }
 
+    /// Provision a fresh native chat session for a plan run. The session is
+    /// titled `<reference_id> — <plan title>`, bound to the given model
+    /// (falling back to project/global defaults), and primed with an opening
+    /// context message assembled from the plan, its linked OpenSpec change,
+    /// and the project schematic. Called by `plan_runner_service` when
+    /// dispatching a run.
+    pub fn create_session_for_plan(
+        plan: &Plan,
+        provider_id: &str,
+        model_id: &str,
+        effort_level: Option<&str>,
+    ) -> DbResult<NativeChatSession> {
+        // Resolve the project path from the plan's session.
+        let session = SessionService::get(&plan.session_id)
+            .map_err(|e| format!("Failed to load plan's session: {e}"))?
+            .ok_or_else(|| "Plan's session not found".to_string())?;
+        let project_path = session.project_path.clone();
+
+        // Resolve model defaults: explicit > project > global.
+        let resolved = Self::resolve_model_default(&project_path)?;
+        let provider_id = if provider_id.is_empty() {
+            resolved.provider_id
+        } else {
+            provider_id.to_string()
+        };
+        let model_id = if model_id.is_empty() {
+            resolved.model_id
+        } else {
+            model_id.to_string()
+        };
+        let effort_level = effort_level
+            .map(str::to_string)
+            .unwrap_or(resolved.effort_level);
+        Self::validate_provider_model(&provider_id, &model_id, true)?;
+
+        let title = format!("{} — {}", plan.reference_id, plan.title);
+        let now = now_seconds();
+        let chat_session = NativeChatSession {
+            id: gen_id("nchat"),
+            project_path: project_path.clone(),
+            title,
+            profile_id: NATIVE_PROFILE_ID.to_string(),
+            provider_id,
+            model_id,
+            effort_level,
+            status: "ready".to_string(),
+            created_at: now,
+            updated_at: now,
+        };
+
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO native_chat_sessions (id, project_path, title, profile_id, provider_id, model_id, effort_level, status, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                chat_session.id,
+                chat_session.project_path,
+                chat_session.title,
+                chat_session.profile_id,
+                chat_session.provider_id,
+                chat_session.model_id,
+                chat_session.effort_level,
+                chat_session.status,
+                chat_session.created_at,
+                chat_session.updated_at,
+            ],
+        )
+        .map_err(|e| format!("Failed to create plan chat session: {e}"))?;
+
+        // Prime the session with an opening context message built from the
+        // plan + linked OpenSpec change + project schematic. This is a system
+        // message so the model treats it as context, not a user turn.
+        let opening = Self::build_plan_opening_context(plan, &project_path);
+        if !opening.is_empty() {
+            Self::insert_message(
+                &chat_session.id,
+                "system",
+                &opening,
+                Some(&chat_session.provider_id),
+                Some(&chat_session.model_id),
+                Some(&chat_session.effort_level),
+            )?;
+        }
+
+        Ok(chat_session)
+    }
+
+    /// Assemble the opening context for a plan run session: plan title/goal,
+    /// linked OpenSpec change path, and project schematic summary.
+    fn build_plan_opening_context(plan: &Plan, project_path: &str) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        parts.push(format!("# Plan: {}\n{}", plan.title, plan.description));
+        if let Some(goal) = &plan.goal {
+            if !goal.trim().is_empty() {
+                parts.push(format!("**Goal:** {goal}"));
+            }
+        }
+        if let Some(change_name) = &plan.change_name {
+            let change_path = format!("{project_path}/openspec/changes/{change_name}");
+            parts.push(format!(
+                "**OpenSpec change:** `{change_path}` — read the proposal, specs, design, and tasks.md there for the full plan. Work through tasks.md checkboxes in order."
+            ));
+        }
+        // Append project schematic if it exists.
+        let project = std::path::Path::new(project_path);
+        if crate::services::schematic_service::exists(project) {
+            if let Ok(schematic) = crate::services::schematic_service::read(project) {
+                if !schematic.trim().is_empty() {
+                    parts.push(format!("**Project schematic:**\n{schematic}"));
+                }
+            }
+        }
+        parts.join("\n\n")
+    }
     pub fn get_session(session_id: &str) -> DbResult<Option<NativeChatSession>> {
         let conn = StorageService::connect()?;
         conn.query_row(
