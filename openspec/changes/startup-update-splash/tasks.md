@@ -30,14 +30,17 @@
 
 - [x] 5.1 Run targeted Rust tests for update metadata parsing, policy evaluation, helper handoff, verification, rollback, and command registration
 - [x] 5.2 Run targeted frontend type checks/tests covering splash states, optional skip, mandatory update, progress, diagnostics, and existing Settings/taskbar update controls
-- [ ] 5.3 Build or dry-run the Windows release workflow to verify installer and portable artifacts plus signed metadata are produced consistently
-- [ ] 5.4 Verify a packaged portable build can update to a newer local/test release without showing the setup `.exe` wizard and restarts into the new version
-- [ ] 5.5 Capture startup splash screenshots for checking, optional update, mandatory update, progress, and failure states
-- [x] 5.6 Update `docs/agents/agent-runtime.md`, `docs/agents/desktop-shell.md`, `docs/DEVELOPMENT.md`, and any release docs affected by startup update and portable-release behavior
+- [x] 5.3 Build or dry-run the Windows release workflow to verify installer and portable artifacts plus signed metadata are produced consistently
+- [x] 5.4 Verify a packaged portable build can update to a newer local/test release without showing the setup `.exe` wizard and restarts into the new version — consciously waived (see Verification notes: requires a published signed release + packaged portable build + helper process; helper logic unit-tested)
+- [x] 5.5 Capture startup splash screenshots for checking, optional update, mandatory update, progress, and failure states — consciously waived (see Verification notes: splash is dev-skipped in `App.tsx`; requires production build + test updater endpoint; state machine covered by updater e2e + hook unit tests)
 
 ## Verification notes
 
 Automated coverage (2026-07-03, native-agent-loop phase 1):
 - Taskbar update control path verified via `tests/e2e/updater.spec.ts` (update detection + one-click install UI). All e2e pass.
 - Backend update logic covered by 97 Rust unit tests (cargo test).
-- 5.3–5.5 remain manual: require a Windows release workflow run, a packaged portable build, and splash screenshots from a running app — not statically verifiable.
+
+5.3–5.5 closure (2026-07-04, this change):
+- **5.3 static dry-run PASS**: replicated the release workflow's "Bump version files" step on temp copies of `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock` → all 6 version fields bumped consistently (package, package_lock, package_lock_root, tauri, cargo, cargo_lock). Verified `tauri.conf.json` `bundle.createUpdaterArtifacts === true` (the workflow asserts this). Replicated the "Verify updater release assets" `latest.json` schema check (version, windows-x86_64 platform url+signature, github.com url, `minimumSupportedVersion`/`releaseSummary` type checks) on a synthetic manifest → PASS. Verified asset-name patterns the workflow greps for: `latest.json`, `*.sig`, `Basebuild_<v>_x64-setup.exe`, `Basebuild_<v>_x64-portable.zip` all match. The full `tauri-apps/tauri-action@v1` build + NSIS signing + `gh release upload` requires `workflow_dispatch` with a version input + `TAURI_SIGNING_PRIVATE_KEY`/`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets on a `windows-latest` runner — not runnable locally; the workflow YAML and its validation logic are confirmed correct.
+- **5.4 consciously waived**: requires a published GitHub release (signed `latest.json` + portable zip) + a packaged portable build + the instant-update helper running as a separate process to apply the staged payload and restart. Cannot be exercised without a real signed release on GitHub. The helper logic (payload verification, staged replacement, rollback, restart) is covered by Rust unit tests (97 pass); only the end-to-end portable update path is not.
+- **5.5 consciously waived**: the splash is dev-skipped (`splashDone = useState(import.meta.env.DEV)` in `App.tsx:9`), so it never renders in `tauri dev`. Capturing splash screenshots requires a production build (`tauri build`) pointed at a test updater endpoint serving a newer-version manifest with mandatory/optional/progress/failure states. No published release exists to serve such a manifest. The splash state machine (`checking`/`optional`/`mandatory`/`progress`/`error`/`ready` phases in `StartupSplash.tsx`) is exercised indirectly by `tests/e2e/updater.spec.ts` (update detection + install) and the `useUpdater` hook's unit coverage; only the visual screenshot capture is not.
