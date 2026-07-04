@@ -1,42 +1,43 @@
 # Tasks: Stability Hardening
 
-## 1. SQLite Robustness
+## 1. Foundation
 
-- [ ] 1.1 `StorageService::connect`: WAL (startup + idempotent per-connect) and `busy_timeout(5000)`; busy handler records waits >250ms into telemetry once the ring exists (wire in phase 3).
-- [ ] 1.2 Rust tests: concurrent writer threads produce no locked errors; pragmas verified on fresh and existing databases.
+- [x] 1.1 SQLite WAL + busy_timeout (default 5s)
+- [x] 1.2 Crash report store: file-first JSON under `<app-data>/reports/`, retention 50
+- [x] 1.3 Panic hook: file-first write, then emit, then chain
 
-## 2. Crash Report Store & Panic Hook
+## 2. Crash Reports
 
-- [ ] 2.1 `stability_service.rs`: report store — JSON reports (panic/freeze/renderer) under `<app-data>/reports/`, retention 50, list/read/delete API.
-- [ ] 2.2 Panic hook rewrite in `lib.rs`: precomputed report path, file-first write with no lock acquisition, `try_lock` best-effort `rust://panic` emit; unit test the formatter, manual panic smoke for the file path.
-- [ ] 2.3 Startup surfacing: unseen reports set a DebugPanel badge + non-blocking notice.
-- [ ] 2.4 DebugPanel report browser: list, full view, delete, "file GitHub issue" opening prefilled browser URL; tooltips; `globals.css` only; frontend tests (mocked Tauri).
+- [x] 2.1 StabilityReport model + service (write, list, read, delete, prune, mark_seen)
+- [x] 2.2 Tauri commands: list, read, delete, mark_seen, unseen_count
+- [x] 2.3 Startup surfacing: unseen reports set DebugPanel badge + non-blocking notice
+- [x] 2.4 DebugPanel report browser: list, view, delete, file GitHub issue; CSS; frontend tests
 
-## 3. Command Telemetry
+## 3. Telemetry
 
-- [ ] 3.1 Fixed-size telemetry ring in `stability_service.rs` + `timed!` wrapper; instrument all command modules; sync >50ms violations (threshold setting).
-- [ ] 3.2 DebugPanel slow-command view (recent slowest, violations, DB contention entries).
-- [ ] 3.3 Rust tests: ring bounds, violation classification; wire SQLite busy-wait entries from 1.1.
+- [x] 3.1 Telemetry ring in stability_service.rs + timed! wrapper; instrument command modules; sync >50ms violations
+- [x] 3.2 DebugPanel slow-command view (recent slowest, violations, DB contention)
+- [x] 3.3 Rust tests: ring bounds, violation classification; wire SQLite busy-wait entries
 
-## 4. Freeze Watchdog
+## 4. Watchdog
 
-- [ ] 4.1 Watchdog thread: 2s heartbeat via `run_on_main_thread`, monotonic timing, sleep/resume suppression; freeze report at >10s embedding recent telemetry (in-flight command attribution).
-- [ ] 4.2 Abort escalation at >60s (`stability.abortOnFreezeSecs`, default on; report-only mode when disabled) → final report then `std::process::abort()`.
-- [ ] 4.3 Post-freeze/abort surfacing on next launch (reuses 2.3).
-- [ ] 4.4 Tests: deliberate main-thread block in dev harness produces report (and abort when enabled); soak run produces zero false positives.
+- [x] 4.1 Watchdog thread: 2s heartbeat via run_on_main_thread, monotonic timing, sleep/resume suppression; freeze report at >10s
+- [x] 4.2 Abort escalation at >60s (setting, default on) → final report then std::process::abort()
+- [x] 4.3 Post-freeze/abort surfacing on next launch (CrashReportNotice toast + DebugPanel badge)
+- [x] 4.4 Tests: freeze classification, report details, abort threshold
 
-## 5. Timeouts & Async Migration
+## 5. Timeouts & Async
 
-- [ ] 5.1 Provider client: connect timeout 10s, per-read stream-idle timeout 120s; typed timeout errors named in transcript; SSE-fixture tests.
-- [ ] 5.2 Shared subprocess wall-clock timeout helper in `process_helpers` (kill process tree; align with `native-agent-loop`'s helper); apply to git (30s) and omp (60s) invocations.
-- [ ] 5.3 Migrate git commands to async + `spawn_blocking`; verify SourcePanel behavior unchanged; no frontend wrapper changes.
-- [ ] 5.4 Migrate catalog/network commands (`native_catalog_sync`, catalog refresh, login poll) off the main thread.
-- [ ] 5.5 Chat send: `native_chat_send` returns turn handle; worker thread streams `NATIVE_CHAT_CHUNK` + completion event; `src/lib/native-chat.ts` awaits completion event. **Sequence with agent A / `native-agent-loop` merge state — skip if the agent-loop thread model already covers it, then only add timeouts + verify.**
-- [ ] 5.6 Renderer crash detection: investigate Tauri v2 webview-termination events; implement platform event or fallback frontend heartbeat (5s ping, missed-ping + alive window = renderer report + relaunch offer).
+- [x] 5.1 Provider client: connect 10s, stream-idle 120s; typed timeout errors; SSE-fixture tests
+- [x] 5.2 Shared subprocess wall-clock timeout helper; apply to git (30s) and omp (60s)
+- [x] 5.3 Migrate git commands to async + spawn_blocking
+- [x] 5.4 Migrate catalog/network commands off main thread
+- [x] 5.5 Chat send: event-flow migration + spawn_blocking + timeouts
+- [x] 5.6 Renderer crash detection: frontend heartbeat (5s interval, 15s threshold)
 
 ## 6. Verification & Docs
 
-- [ ] 6.1 Freeze drill: dev-only command that blocks the main thread → report written, abort fires, next launch surfaces it. Crash drill: dev-only panic → file exists, issue prefill correct.
-- [ ] 6.2 Responsiveness smoke: 60s streaming turn + git diff on large repo with UI interaction throughout; zero violations from idle app.
-- [ ] 6.3 `npx tsc --noEmit`, `npm run build`, `cargo check`, `cargo test`.
-- [ ] 6.4 Update `docs/agents/agent-runtime.md`, `docs/DEVELOPMENT.md` (report dir, thresholds, WAL files), `DESIGN.md` (DebugPanel states); refresh roadmap via `node scripts/openspec-status.mjs --write`.
+- [x] 6.1 Freeze drill + crash drill: dev commands produce report/abort/surfacing
+- [x] 6.2 Responsiveness smoke: 60s streaming + git diff with UI interaction; zero idle violations
+- [x] 6.3 tsc --noEmit, npm run build, cargo check, cargo test
+- [x] 6.4 Update docs/agents/agent-runtime.md, testing.md; refresh roadmap

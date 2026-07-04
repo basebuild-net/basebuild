@@ -18,18 +18,26 @@ pub fn native_provider_catalog() -> Result<NativeProviderCatalog, String> {
 }
 
 #[tauri::command]
-pub fn native_provider_catalog_refresh(
+pub async fn native_provider_catalog_refresh(
     request: Option<NativeProviderCatalogRefreshRequest>,
 ) -> Result<NativeProviderCatalog, String> {
-    crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh(
-        request.as_ref().and_then(|r| r.provider_id.clone()),
-        request.and_then(|r| r.force).unwrap_or(false),
-    )
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh(
+            request.as_ref().and_then(|r| r.provider_id.clone()),
+            request.and_then(|r| r.force).unwrap_or(false),
+        )
+    })
+    .await
+    .map_err(|e| format!("Catalog refresh task panicked: {e}"))?
 }
 
 #[tauri::command]
-pub fn native_catalog_sync() -> Result<crate::services::catalog_sync_service::CatalogSyncResult, String> {
-    Ok(crate::services::catalog_sync_service::sync_catalog())
+pub async fn native_catalog_sync() -> Result<crate::services::catalog_sync_service::CatalogSyncResult, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        crate::services::catalog_sync_service::sync_catalog()
+    })
+    .await
+    .map_err(|e| format!("Catalog sync task panicked: {e}"))
 }
 #[tauri::command]
 pub fn native_chat_start(request: NativeChatStartRequest) -> Result<NativeChatSession, String> {
@@ -52,20 +60,28 @@ pub fn native_chat_messages(session_id: String) -> Result<Vec<NativeChatMessage>
 }
 
 #[tauri::command]
-pub fn native_chat_send(
+pub async fn native_chat_send(
     app: AppHandle,
     request: NativeChatSendRequest,
 ) -> Result<NativeChatSendResult, String> {
-    NativeChatService::send_message(&app, request)
+    tauri::async_runtime::spawn_blocking(move || {
+        NativeChatService::send_message(&app, request)
+    })
+    .await
+    .map_err(|e| format!("Chat send task panicked: {e}"))?
 }
-
 #[tauri::command]
-pub fn native_generate_ideas(
+pub async fn native_generate_ideas(
     app: AppHandle,
     request: NativeGenerateIdeasRequest,
 ) -> Result<NativeGenerateIdeasResult, String> {
-    NativeChatService::generate_ideas(&app, request)
+    tauri::async_runtime::spawn_blocking(move || {
+        NativeChatService::generate_ideas(&app, request)
+    })
+    .await
+    .map_err(|e| format!("Generate ideas task panicked: {e}"))?
 }
+
 
 #[tauri::command]
 pub fn native_request_metrics(limit: Option<u32>) -> Result<Vec<NativeRequestMetric>, String> {

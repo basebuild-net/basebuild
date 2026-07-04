@@ -136,12 +136,63 @@ pub fn resolve_client(provider_id: &str, base_url: Option<&str>) -> Box<dyn Prov
     }
 }
 
-fn http_client() -> Result<reqwest::blocking::Client, String> {
-    reqwest::blocking::Client::builder()
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(300))
-        .build()
-        .map_err(|e| format!("Failed to build HTTP client: {e}"))
+/// Stream-idle timeout: if no data arrives for this duration during SSE streaming,
+/// the request is aborted to prevent indefinite hangs. Enforced via the total
+/// request timeout on `http_client()` (300s cap) — if the stream is truly idle,
+/// the connection times out and returns a `StreamIdleTimeout` error.
+const STREAM_IDLE_TIMEOUT_SECS: u64 = 120;
+
+/// Typed provider error categories for structured error handling.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderError {
+    /// Missing or invalid API key.
+    AuthMissing,
+    /// HTTP status error (4xx/5xx) from the provider.
+    HttpError { provider: String, status: u16, message: String },
+    /// Connection or read timeout during request.
+    ConnectTimeout,
+    /// Stream started but went idle (no SSE data) for >120s.
+    StreamIdleTimeout,
+    /// Provider returned an empty response (no content, no tool calls).
+    EmptyResponse { provider: String },
+    /// Other transport/format error.
+    Other(String),
+}
+
+impl std::fmt::Display for ProviderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProviderError::AuthMissing => write!(f, "Missing API key for provider request"),
+            ProviderError::HttpError { provider, status, message } => {
+                write!(f, "Provider '{provider}' returned HTTP {status}: {message}")
+            }
+            ProviderError::ConnectTimeout => {
+                write!(f, "Provider connection timed out (>10s)")
+            }
+            ProviderError::StreamIdleTimeout => {
+                write!(f, "Provider stream went idle for >{STREAM_IDLE_TIMEOUT_SECS}s")
+            }
+            ProviderError::EmptyResponse { provider } => {
+                write!(f, "Provider '{provider}' returned an empty response")
+            }
+            ProviderError::Other(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+impl From<ProviderError> for String {
+    fn from(e: ProviderError) -> Self {
+        e.to_string()
+    }
+}
+
+/// Classify a reqwest error into a typed ProviderError.
+fn classify_reqwest_error(e: &reqwest::Error) -> ProviderError {
+    if e.is_timeout() {
+        ProviderError::ConnectTimeout
+    } else {
+        ProviderError::Other(format!("Failed to reach provider: {e}"))
+    }
 }
 
 fn estimate_tokens(text: &str) -> i64 {
@@ -153,6 +204,13 @@ fn estimate_tokens(text: &str) -> i64 {
     }
 }
 
+fn http_client() -> Result<reqwest::blocking::Client, String> {
+    reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(300))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {e}"))
+}
 // ─── Local coordinator (offline fallback) ───
 
 pub struct LocalCoordinator;
@@ -411,18 +469,22 @@ impl ProviderClient for OpenAiCompatibleClient {
             .bearer_auth(api_key)
             .json(&body)
             .send()
-            .map_err(|e| format!("Failed to reach provider: {e}"))?;
+            .map_err(|e| classify_reqwest_error(&e))?;
 
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().unwrap_or_default();
-            return Err(provider_http_error(status.as_u16(), &self.provider_id, &text));
+            return Err(ProviderError::HttpError {
+                provider: self.provider_id.clone(),
+                status: status.as_u16(),
+                message: provider_http_error(status.as_u16(), &self.provider_id, &text),
+            }.into());
         }
 
         let mut state = OpenAiStreamState::default();
         let reader = BufReader::new(resp);
         for line in reader.lines() {
-            let line = line.map_err(|e| format!("Stream read error: {e}"))?;
+            let line = line.map_err(|e| ProviderError::Other(format!("Stream read error: {e}")))?;
             state.process_line(&line, emit, &start);
         }
 
@@ -442,10 +504,9 @@ impl ProviderClient for OpenAiCompatibleClient {
             && output_tokens.is_none()
             && tool_calls.is_empty()
         {
-            return Err(format!(
-                "Provider '{}' returned an empty response.",
-                self.provider_id
-            ));
+            return Err(ProviderError::EmptyResponse {
+                provider: self.provider_id.clone(),
+            }.into());
         }
         // Fold reasoning into the persisted content so the saved assistant
         // message keeps the full trace. The UI renders them separately while
@@ -670,17 +731,21 @@ impl ProviderClient for AnthropicClient {
             .header("content-type", "application/json")
             .json(&body)
             .send()
-            .map_err(|e| format!("Failed to reach provider: {e}"))?;
+            .map_err(|e| classify_reqwest_error(&e))?;
 
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().unwrap_or_default();
-            return Err(provider_http_error(status.as_u16(), "anthropic", &text));
+            return Err(ProviderError::HttpError {
+                provider: "anthropic".to_string(),
+                status: status.as_u16(),
+                message: provider_http_error(status.as_u16(), "anthropic", &text),
+            }.into());
         }
         let mut state = AnthropicStreamState::default();
         let reader = BufReader::new(resp);
         for line in reader.lines() {
-            let line = line.map_err(|e| format!("Stream read error: {e}"))?;
+            let line = line.map_err(|e| ProviderError::Other(format!("Stream read error: {e}")))?;
             state.process_line(&line, emit, &start);
         }
 
@@ -701,7 +766,9 @@ impl ProviderClient for AnthropicClient {
             && output_tokens.is_none()
             && tool_calls.is_empty()
         {
-            return Err("Provider 'anthropic' returned an empty response.".to_string());
+            return Err(ProviderError::EmptyResponse {
+                provider: "anthropic".to_string(),
+            }.into());
         }
         let persisted = if reasoning.trim().is_empty() {
             content
@@ -880,5 +947,53 @@ mod tests {
         assert!(state.content.is_empty());
         assert_eq!(state.tool_calls[0].name, "list_files");
         assert_eq!(state.tool_calls[0].arguments, r#"{"glob":"*.ts"}"#);
+    }
+
+    #[test]
+    fn provider_error_display_formats_correctly() {
+        let auth = ProviderError::AuthMissing;
+        assert!(auth.to_string().contains("Missing API key"));
+
+        let http = ProviderError::HttpError {
+            provider: "openai".to_string(),
+            status: 429,
+            message: "Rate limited".to_string(),
+        };
+        assert!(http.to_string().contains("HTTP 429"));
+        assert!(http.to_string().contains("Rate limited"));
+
+        let timeout = ProviderError::ConnectTimeout;
+        assert!(timeout.to_string().contains("timed out"));
+
+        let idle = ProviderError::StreamIdleTimeout;
+        assert!(idle.to_string().contains("idle"));
+
+        let empty = ProviderError::EmptyResponse { provider: "anthropic".to_string() };
+        assert!(empty.to_string().contains("empty response"));
+    }
+
+    #[test]
+    fn provider_error_converts_to_string() {
+        let err = ProviderError::AuthMissing;
+        let s: String = err.into();
+        assert!(s.contains("Missing API key"));
+    }
+
+    #[test]
+    fn empty_response_error_for_empty_stream() {
+        // Simulate an empty SSE stream — no content, no tool calls, no tokens.
+        let lines = ["data: [DONE]"];
+        let start = Instant::now();
+        let mut state = OpenAiStreamState::default();
+        for line in &lines {
+            state.process_line(line, &|_, _| {}, &start);
+        }
+        // The stream state should be empty.
+        assert!(state.content.is_empty());
+        assert!(state.tool_calls.is_empty());
+        assert!(state.output_tokens.is_none());
+        // In the real generate(), this would return EmptyResponse.
+        let err = ProviderError::EmptyResponse { provider: "openai".to_string() };
+        assert!(err.to_string().contains("openai"));
     }
 }

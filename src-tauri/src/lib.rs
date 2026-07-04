@@ -87,8 +87,8 @@ use commands::{
     skills::read_skill,
     stability::{
         stability_delete_report, stability_list_reports, stability_mark_seen,
-        stability_read_report, stability_recent_telemetry, stability_unseen_count,
-        stability_violations,
+        stability_read_report, stability_recent_telemetry, stability_renderer_heartbeat,
+        stability_unseen_count, stability_violations,
     },
     sync::{
         sync_raw_usage_native, usage_sync_projected_usage, usage_sync_set_enabled,
@@ -297,8 +297,8 @@ pub fn run() {
             stability_delete_report,
             stability_mark_seen,
             stability_unseen_count,
-            stability_recent_telemetry,
             stability_violations,
+            stability_renderer_heartbeat,
             openspec_task_progress,
             openspec_parse_task_progress,
             list_slash_commands,

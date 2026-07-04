@@ -39,3 +39,9 @@ pub fn stability_recent_telemetry(limit: Option<u32>) -> Result<Vec<CommandTelem
 pub fn stability_violations() -> Result<Vec<CommandTelemetryEntry>, String> {
     Ok(stability_service::violations())
 }
+
+#[tauri::command]
+pub fn stability_renderer_heartbeat() -> Result<(), String> {
+    stability_service::renderer_heartbeat();
+    Ok(())
+}

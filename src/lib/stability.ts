@@ -45,3 +45,7 @@ export async function stabilityRecentTelemetry(limit?: number): Promise<CommandT
 export async function stabilityViolations(): Promise<CommandTelemetryEntry[]> {
   return invoke<CommandTelemetryEntry[]>("stability_violations");
 }
+
+export async function stabilityRendererHeartbeat(): Promise<void> {
+  return invoke("stability_renderer_heartbeat");
+}

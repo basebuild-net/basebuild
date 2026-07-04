@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LayoutTemplate, Settings2, TerminalSquare } from "lucide-react";
+import { LayoutTemplate, Settings2, TerminalSquare, X } from "lucide-react";
 
 import { useSessionState } from "../../state/sessions";
 import { usePlans } from "../../state/plans";
@@ -28,9 +28,12 @@ import { FileViewer } from "../panels/FileViewer";
 import { ProjectSchematicTab } from "../panels/ProjectSchematicTab";
 import { ChatPanel } from "../panels/ChatPanel";
 import { ompStatus } from "../../lib/omp";
+import { stabilityRendererHeartbeat } from "../../lib/stability";
 import { SidePanel } from "./SidePanel";
 import { StatusBar } from "./StatusBar";
 import { LogPanel } from "./LogPanel";
+import { CrashReportNotice } from "./CrashReportNotice";
+import { DebugPanel } from "../panels/DebugPanel";
 import { useLogs } from "../../state/log";
 import { useAccount } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
@@ -53,6 +56,7 @@ export function AppShell({ updates }: AppShellProps) {
   const [gridView, setGridView] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logPanelOpen, setLogPanelOpen] = useState(false);
+  const [debugPanelOpen, setDebugPanelOpen] = useState(false);
   const { addLog } = useLogs();
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [focusingPlan, setFocusingPlan] = useState<Plan | null>(null);
@@ -77,11 +81,20 @@ export function AppShell({ updates }: AppShellProps) {
   const schematic = useProjectSchematic(activeProjectPath);
   const account = useAccount();
   const [ompInstalled, setOmpInstalled] = useState(false);
-
   useEffect(() => {
     ompStatus()
       .then((s) => setOmpInstalled(s.installed))
       .catch(() => setOmpInstalled(false));
+  }, []);
+
+  // Renderer heartbeat: call every 5s so the backend can detect renderer crashes.
+  useEffect(() => {
+    const sendHeartbeat = () => {
+      stabilityRendererHeartbeat().catch(() => {});
+    };
+    sendHeartbeat(); // Send immediately on mount
+    const interval = setInterval(sendHeartbeat, 5000);
+    return () => clearInterval(interval);
   }, []);
   useEffect(() => {
     if (activeProjectPath && session.sessions.length === 0 && !session.activeSessionId) {
@@ -637,7 +650,29 @@ export function AppShell({ updates }: AppShellProps) {
         </div>
       </main>
       <StatusBar onClick={() => setLogPanelOpen(true)} />
+      <CrashReportNotice onViewReports={() => setDebugPanelOpen(true)} />
       <LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} />
+      {debugPanelOpen ? (
+        <div className="debug-panel-overlay" role="dialog" aria-label="Debug Panel">
+          <div className="debug-panel-modal">
+            <div className="debug-panel-header">
+              <h2>Debug Panel</h2>
+              <button
+                className="btn-icon"
+                type="button"
+                title="Close debug panel"
+                aria-label="Close debug panel"
+                onClick={() => setDebugPanelOpen(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="debug-panel-body">
+              <DebugPanel />
+            </div>
+          </div>
+        </div>
+      ) : null}
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} account={account} updates={updates} />
       <EditPlanModal
         plan={editingPlan}

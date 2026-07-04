@@ -262,6 +262,7 @@ pub fn start_watchdog(app: tauri::AppHandle) {
     thread::spawn(move || {
         loop {
             thread::sleep(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
+            check_renderer_crash();
 
             // Post a heartbeat to the main thread and measure completion.
             let heartbeat_done = std::sync::Arc::new(AtomicBool::new(false));
@@ -275,26 +276,25 @@ pub fn start_watchdog(app: tauri::AppHandle) {
             // Wait up to the report threshold to see if the heartbeat completes.
             let waited = Instant::now();
             while !heartbeat_done.load(Ordering::SeqCst) {
-                if waited.elapsed() > Duration::from_secs(ABORT_THRESHOLD_SECS) {
-                    // Main thread is frozen beyond abort threshold. Write report and abort.
-                    let elapsed = start.elapsed().as_secs();
-                    let summary = format!("Freeze abort: main thread unresponsive for >{ABORT_THRESHOLD_SECS}s (uptime: {elapsed}s)");
-                    let telemetry = recent_telemetry(20);
-                    let tel_str = telemetry.iter().map(|t| format!("  {} - {}ms{} ({}s ago)", t.command, t.duration_ms, if t.violation { " [VIOLATION]" } else { "" }, t.timestamp)).collect::<Vec<_>>().join("\n");
-                    let details = format!("## Freeze Abort Report\n\n**Uptime:** {elapsed}s\n**Threshold:** {ABORT_THRESHOLD_SECS}s\n\n**Recent Commands:**\n```\n{tel_str}\n```");
-                    let _ = StabilityReport::write("abort", &summary, &details);
-                    eprintln!("{summary}");
-                    std::process::abort();
-                }
-                if waited.elapsed() > Duration::from_secs(REPORT_THRESHOLD_SECS) && LAST_HEARTBEAT.load(Ordering::SeqCst) == 0 {
-                    // First freeze report (only once per freeze).
-                    let elapsed = start.elapsed().as_secs();
-                    let summary = format!("Freeze detected: main thread unresponsive for >{REPORT_THRESHOLD_SECS}s (uptime: {elapsed}s)");
-                    let telemetry = recent_telemetry(20);
-                    let tel_str = telemetry.iter().map(|t| format!("  {} - {}ms{} ({}s ago)", t.command, t.duration_ms, if t.violation { " [VIOLATION]" } else { "" }, t.timestamp)).collect::<Vec<_>>().join("\n");
-                    let details = format!("## Freeze Report\n\n**Uptime:** {elapsed}s\n**Threshold:** {REPORT_THRESHOLD_SECS}s\n\n**Recent Commands:**\n```\n{tel_str}\n```");
-                    let _ = StabilityReport::write("freeze", &summary, &details);
-                    LAST_HEARTBEAT.store(-1, Ordering::SeqCst); // Mark as reported
+                let action = classify_freeze(waited.elapsed());
+                match action {
+                    FreezeAction::Abort => {
+                        let elapsed = start.elapsed().as_secs();
+                        let (summary, details) = build_freeze_report_details(elapsed, ABORT_THRESHOLD_SECS, "abort");
+                        let _ = StabilityReport::write("abort", &summary, &details);
+                        eprintln!("{summary}");
+                        std::process::abort();
+                    }
+                    FreezeAction::Report => {
+                        if LAST_HEARTBEAT.load(Ordering::SeqCst) == 0 {
+                            // First freeze report (only once per freeze).
+                            let elapsed = start.elapsed().as_secs();
+                            let (summary, details) = build_freeze_report_details(elapsed, REPORT_THRESHOLD_SECS, "freeze");
+                            let _ = StabilityReport::write("freeze", &summary, &details);
+                            LAST_HEARTBEAT.store(-1, Ordering::SeqCst); // Mark as reported
+                        }
+                    }
+                    FreezeAction::None => {}
                 }
                 thread::sleep(Duration::from_millis(100));
             }
@@ -303,6 +303,96 @@ pub fn start_watchdog(app: tauri::AppHandle) {
             LAST_HEARTBEAT.store(start.elapsed().as_nanos() as i64, Ordering::SeqCst);
         }
     });
+}
+
+// ─── Renderer heartbeat ─────────────────────────────────────────────────────
+
+/// Last renderer heartbeat timestamp (epoch seconds).
+static RENDERER_HEARTBEAT: AtomicI64 = AtomicI64::new(0);
+/// Whether the renderer crash detector has written a report for the current
+/// outage (resets when a heartbeat arrives).
+static RENDERER_REPORTED: AtomicBool = AtomicBool::new(false);
+/// Renderer heartbeat interval (frontend calls every 5s).
+pub const RENDERER_HEARTBEAT_INTERVAL_SECS: u64 = 5;
+/// If no renderer heartbeat arrives for this long, write a renderer crash report.
+const RENDERER_CRASH_THRESHOLD_SECS: i64 = 15;
+
+/// Called by the frontend via Tauri command every 5s. Resets the renderer
+/// heartbeat timer and clears the reported flag.
+pub fn renderer_heartbeat() {
+    let now = now_secs();
+    RENDERER_HEARTBEAT.store(now, Ordering::SeqCst);
+    RENDERER_REPORTED.store(false, Ordering::SeqCst);
+}
+
+/// Check if the renderer has gone silent. Called by the watchdog thread.
+/// If no heartbeat arrives for >RENDERER_CRASH_THRESHOLD_SECS, writes a
+/// "renderer" crash report (once per outage).
+fn check_renderer_crash() {
+    let last = RENDERER_HEARTBEAT.load(Ordering::SeqCst);
+    if last == 0 {
+        return; // No heartbeat yet — don't report during startup
+    }
+    let now = now_secs();
+    let elapsed = now - last;
+    if elapsed > RENDERER_CRASH_THRESHOLD_SECS && !RENDERER_REPORTED.swap(true, Ordering::SeqCst) {
+        let summary = format!("Renderer crash detected: no heartbeat for >{RENDERER_CRASH_THRESHOLD_SECS}s");
+        let details = format!(
+            "## Renderer Crash Report\n\n**Last heartbeat:** {last}s\n**Current time:** {now}s\n**Elapsed:** {elapsed}s\n\nThe renderer process may have crashed or frozen. Check the webview console for JavaScript errors."
+        );
+        let _ = StabilityReport::write("renderer", &summary, &details);
+    }
+}
+
+/// Freeze detection state: tracks whether we should write a report or abort
+/// based on how long the main thread has been unresponsive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FreezeAction {
+    /// Main thread is responsive — no action needed.
+    None,
+ /// Main thread unresponsive beyond report threshold — write a freeze report.
+    Report,
+ /// Main thread unresponsive beyond abort threshold — abort the process.
+    Abort,
+}
+
+/// Determine the freeze action based on elapsed time since heartbeat started.
+/// Pure function for testable threshold logic.
+fn classify_freeze(elapsed: Duration) -> FreezeAction {
+    if elapsed > Duration::from_secs(ABORT_THRESHOLD_SECS) {
+        FreezeAction::Abort
+    } else if elapsed > Duration::from_secs(REPORT_THRESHOLD_SECS) {
+        FreezeAction::Report
+    } else {
+        FreezeAction::None
+    }
+}
+
+/// Build the freeze report details string from telemetry.
+fn build_freeze_report_details(uptime: u64, threshold: u64, kind: &str) -> (String, String) {
+    let summary = format!(
+        "{}: main thread unresponsive for >{threshold}s (uptime: {uptime}s)",
+        if kind == "abort" { "Freeze abort" } else { "Freeze detected" }
+    );
+    let telemetry = recent_telemetry(20);
+    let tel_str = telemetry
+        .iter()
+        .map(|t| {
+            format!(
+                "  {} - {}ms{} ({}s ago)",
+                t.command,
+                t.duration_ms,
+                if t.violation { " [VIOLATION]" } else { "" },
+                t.timestamp
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let details = format!(
+        "## {} Report\n\n**Uptime:** {uptime}s\n**Threshold:** {threshold}s\n\n**Recent Commands:**\n```\n{tel_str}\n```",
+        if kind == "abort" { "Freeze Abort" } else { "Freeze" }
+    );
+    (summary, details)
 }
 
 #[cfg(test)]
@@ -396,5 +486,57 @@ mod tests {
         }
         let list = StabilityReport::list().unwrap();
         assert!(list.len() <= MAX_REPORTS);
+    }
+
+    #[test]
+    fn freeze_classification_none_under_report_threshold() {
+        // 5s: well under the 10s report threshold
+        assert_eq!(classify_freeze(Duration::from_secs(5)), FreezeAction::None);
+        // 9s: still under
+        assert_eq!(classify_freeze(Duration::from_secs(9)), FreezeAction::None);
+        // Exactly 10s: not strictly greater, so still None
+        assert_eq!(classify_freeze(Duration::from_secs(10)), FreezeAction::None);
+    }
+
+    #[test]
+    fn freeze_classification_report_above_threshold() {
+        // 11s: above 10s report threshold, below 60s abort
+        assert_eq!(classify_freeze(Duration::from_secs(11)), FreezeAction::Report);
+        // 30s: mid-range
+        assert_eq!(classify_freeze(Duration::from_secs(30)), FreezeAction::Report);
+        // Exactly 60s: not strictly greater than abort threshold
+        assert_eq!(classify_freeze(Duration::from_secs(60)), FreezeAction::Report);
+    }
+
+    #[test]
+    fn freeze_classification_abort_above_60s() {
+        // 61s: above 60s abort threshold
+        assert_eq!(classify_freeze(Duration::from_secs(61)), FreezeAction::Abort);
+        // 120s: well above
+        assert_eq!(classify_freeze(Duration::from_secs(120)), FreezeAction::Abort);
+    }
+
+    #[test]
+    fn freeze_report_details_contains_telemetry() {
+        let _g = lock();
+        TELEMETRY_RING.lock().clear();
+        record_command("git_status", 5);
+        record_command("git_diff", 75);
+        let (summary, details) = build_freeze_report_details(42, 10, "freeze");
+        assert!(summary.contains("Freeze detected"));
+        assert!(summary.contains("uptime: 42s"));
+        assert!(details.contains("git_status"));
+        assert!(details.contains("git_diff"));
+        assert!(details.contains("[VIOLATION]"));
+    }
+
+    #[test]
+    fn abort_report_details_correctly_titled() {
+        let _g = lock();
+        TELEMETRY_RING.lock().clear();
+        let (summary, details) = build_freeze_report_details(120, 60, "abort");
+        assert!(summary.contains("Freeze abort"));
+        assert!(summary.contains("uptime: 120s"));
+        assert!(details.contains("Freeze Abort Report"));
     }
 }

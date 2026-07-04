@@ -85,3 +85,31 @@ BASEBUILD_E2E=1 npm run test:e2e  # check-e2e
 Renderer crashes produce JSON reports under `<app-data>/reports/` (see
 `stability_service.rs`). The DebugPanel shows unseen reports with a badge.
 E2e tests should assert crash report visibility for renderer failure paths.
+
+### Freeze drill
+
+To test freeze detection locally:
+
+1. Run `npm run tauri dev`.
+2. Open the DebugPanel (click the warning icon in the status bar).
+3. Trigger a main-thread block (e.g., run a long synchronous operation in the
+   Tauri dev console or add a `std::thread::sleep` in a command handler).
+4. After 10s, a freeze report should appear in the DebugPanel.
+5. After 60s, the process should abort with a final report.
+
+### Crash drill
+
+To test panic/crash detection:
+
+1. Run `npm run tauri dev`.
+2. Trigger a panic (e.g., add `panic!("drill")` in a command handler).
+3. The panic hook writes a report to `<app-data>/reports/`.
+4. On next launch, the `CrashReportNotice` toast should surface the unseen report.
+5. Open the DebugPanel to view, dismiss, or delete the report.
+
+### Responsiveness smoke
+
+Run a 60s streaming chat session while performing UI interactions (open tabs,
+run `git diff`, resize panels). The freeze watchdog should not trigger (no
+freeze reports). Command telemetry should show no >50ms violations for UI
+interactions.

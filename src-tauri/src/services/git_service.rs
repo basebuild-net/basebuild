@@ -166,20 +166,18 @@ fn parse_decorate_refs(raw: &str) -> Vec<String> {
 }
 
 fn run_git(path: &Path, args: &[&str]) -> Result<String, String> {
-    let output = hidden_command("git")
-        .args(args)
-        .current_dir(path)
-        .output()
-        .map_err(|error| format!("Failed to run git: {error}"))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    if !output.status.success() {
-        return Err(format!("Git command failed: {stderr}"));
-    }
-
-    Ok(stdout)
+    let mut cmd = hidden_command("git");
+    cmd.args(args).current_dir(path);
+    crate::services::process_helpers::run_with_timeout(cmd, crate::services::process_helpers::GIT_TIMEOUT, "git")
+        .map_err(|e| {
+            // The timeout helper returns a generic error; classify git-specific
+            // failures with the stderr output for actionable messages.
+            if e.contains("git failed") {
+                e
+            } else {
+                format!("Git command failed: {e}")
+            }
+        })
 }
 
 fn parse_porcelain_v2(output: &str) -> GitStatus {
