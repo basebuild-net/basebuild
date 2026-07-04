@@ -6,30 +6,24 @@ import type { IdeaStatus } from "../../lib/ideas";
 
 const STATUS_LABELS: Record<IdeaStatus, string> = {
   concept: "Concept",
-  planReady: "Plan Ready",
-  inProgress: "In Progress",
-  finished: "Finished",
-  paused: "Paused",
-  cancelled: "Cancelled",
+  picked: "Picked",
+  archived: "Archived",
 };
 
 const STATUS_CLASS: Record<IdeaStatus, string> = {
   concept: "is-concept",
-  planReady: "is-plan-ready",
-  inProgress: "is-in-progress",
-  finished: "is-finished",
-  paused: "is-paused",
-  cancelled: "is-cancelled",
+  picked: "is-picked",
+  archived: "is-archived",
 };
 
-const STATUS_ORDER: IdeaStatus[] = ["concept", "planReady", "inProgress", "finished", "paused", "cancelled"];
+const STATUS_ORDER: IdeaStatus[] = ["concept", "picked", "archived"];
 
 type IdeasPanelProps = {
   sessionId: string | null;
 };
 
 export function IdeasPanel({ sessionId }: IdeasPanelProps) {
-  const { ideas, categories, createIdea, updateIdeaStatus, removeIdea, createCategory } = useIdeaState(sessionId);
+  const { ideas, categories, createIdea, updateIdeaStatus, removeIdea, createCategory, promoteIdeas } = useIdeaState(sessionId);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [newIdeaTitle, setNewIdeaTitle] = useState("");
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -65,6 +59,16 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
     setShowCategoryInput(false);
   }
 
+  async function promoteSelected() {
+    if (selectedIds.size === 0 || !sessionId) return;
+    try {
+      await promoteIdeas(Array.from(selectedIds));
+      setSelectedIds(new Set());
+    } catch (e) {
+      console.error("Failed to promote ideas:", e);
+    }
+  }
+
   if (!sessionId) {
     return (
       <div className="empty-state">
@@ -93,6 +97,16 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
             <>
               <button className="btn btn-ghost text-sm" title="Select all" onClick={selectAll} type="button">Select all</button>
               <button className="btn btn-ghost text-sm" title="Deselect" onClick={selectNone} type="button">Clear</button>
+              {selectedIds.size > 0 ? (
+                <button
+                  className="btn btn-primary text-sm"
+                  title="Promote selected ideas to draft plans"
+                  onClick={() => void promoteSelected()}
+                  type="button"
+                >
+                  Promote ({selectedIds.size})
+                </button>
+              ) : null}
             </>
           ) : null}
         </div>

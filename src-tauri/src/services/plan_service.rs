@@ -52,8 +52,9 @@ impl PlanService {
         conn.execute(
             "INSERT INTO plans (
                 id, session_id, reference_id, title, description, goal, status,
-                priority, tags, ai_enhanced, context, created_at, updated_at, finished_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                priority, tags, ai_enhanced, context, idea_id, change_name,
+                created_at, updated_at, finished_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 id,
                 session_id,
@@ -65,6 +66,8 @@ impl PlanService {
                 priority,
                 tags_json,
                 false,
+                None::<String>,
+                plan.idea_id,
                 None::<String>,
                 created,
                 created,
@@ -85,6 +88,8 @@ impl PlanService {
             tags: plan.tags.clone(),
             ai_enhanced: false,
             context: None,
+            idea_id: plan.idea_id.clone(),
+            change_name: None,
             created_at: created,
             updated_at: created,
             finished_at: None,
@@ -96,33 +101,14 @@ impl PlanService {
         let mut stmt = conn
             .prepare(
                 "SELECT id, session_id, reference_id, title, description, goal, status,
-                        priority, tags, ai_enhanced, context, created_at, updated_at, finished_at
+                        priority, tags, ai_enhanced, context, idea_id, change_name,
+                        created_at, updated_at, finished_at
                  FROM plans WHERE session_id = ?1 ORDER BY priority DESC, updated_at DESC",
             )
             .map_err(|e| e.to_string())?;
 
         let rows = stmt
-            .query_map(params![session_id], |row| {
-                let status_str: String = row.get(6)?;
-                let tags_json: String = row.get(8)?;
-                let context_json: Option<String> = row.get(10)?;
-                Ok(Plan {
-                    id: row.get(0)?,
-                    session_id: row.get(1)?,
-                    reference_id: row.get(2)?,
-                    title: row.get(3)?,
-                    description: row.get(4)?,
-                    goal: row.get(5)?,
-                    status: PlanStatus::from_str(&status_str),
-                    priority: row.get(7)?,
-                    tags: serde_json::from_str(&tags_json).unwrap_or_default(),
-                    ai_enhanced: row.get(9)?,
-                    context: context_json.and_then(|j| serde_json::from_str(&j).ok()),
-                    created_at: row.get(11)?,
-                    updated_at: row.get(12)?,
-                    finished_at: row.get(13)?,
-                })
-            })
+            .query_map(params![session_id], row_to_plan)
             .map_err(|e| e.to_string())?;
 
         rows.collect::<Result<Vec<_>, _>>()
@@ -134,33 +120,14 @@ impl PlanService {
         let mut stmt = conn
             .prepare(
                 "SELECT id, session_id, reference_id, title, description, goal, status,
-                        priority, tags, ai_enhanced, context, created_at, updated_at, finished_at
+                        priority, tags, ai_enhanced, context, idea_id, change_name,
+                        created_at, updated_at, finished_at
                  FROM plans WHERE id = ?1 LIMIT 1",
             )
             .map_err(|e| e.to_string())?;
 
         let mut rows = stmt
-            .query_map(params![id], |row| {
-                let status_str: String = row.get(6)?;
-                let tags_json: String = row.get(8)?;
-                let context_json: Option<String> = row.get(10)?;
-                Ok(Plan {
-                    id: row.get(0)?,
-                    session_id: row.get(1)?,
-                    reference_id: row.get(2)?,
-                    title: row.get(3)?,
-                    description: row.get(4)?,
-                    goal: row.get(5)?,
-                    status: PlanStatus::from_str(&status_str),
-                    priority: row.get(7)?,
-                    tags: serde_json::from_str(&tags_json).unwrap_or_default(),
-                    ai_enhanced: row.get(9)?,
-                    context: context_json.and_then(|j| serde_json::from_str(&j).ok()),
-                    created_at: row.get(11)?,
-                    updated_at: row.get(12)?,
-                    finished_at: row.get(13)?,
-                })
-            })
+            .query_map(params![id], row_to_plan)
             .map_err(|e| e.to_string())?;
 
         rows.next().transpose().map_err(|e| e.to_string())
@@ -222,10 +189,48 @@ impl PlanService {
         Self::get(id)?.ok_or("Plan not found".to_string())
     }
 
+    /// Link a plan to a generated OpenSpec change directory. Used by the
+    /// openspec pipeline stage after artifacts are written atomically.
+    pub fn set_change_name(id: &str, change_name: &str) -> DbResult<Plan> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "UPDATE plans SET change_name = ?1, updated_at = ?2 WHERE id = ?3",
+            params![change_name, now(), id],
+        )
+        .map_err(|e| e.to_string())?;
+        Self::get(id)?.ok_or("Plan not found".to_string())
+    }
+
     pub fn delete(id: &str) -> DbResult<()> {
         let conn = StorageService::connect()?;
         conn.execute("DELETE FROM plans WHERE id = ?1", params![id])
             .map_err(|e| e.to_string())?;
         Ok(())
     }
+}
+
+/// Map a rusqlite row (in the column order used by `list`/`get`) to a `Plan`.
+/// Centralized so both read paths stay in sync with the schema.
+fn row_to_plan(row: &rusqlite::Row<'_>) -> rusqlite::Result<Plan> {
+    let status_str: String = row.get(6)?;
+    let tags_json: String = row.get(8)?;
+    let context_json: Option<String> = row.get(10)?;
+    Ok(Plan {
+        id: row.get(0)?,
+        session_id: row.get(1)?,
+        reference_id: row.get(2)?,
+        title: row.get(3)?,
+        description: row.get(4)?,
+        goal: row.get(5)?,
+        status: PlanStatus::from_str(&status_str),
+        priority: row.get(7)?,
+        tags: serde_json::from_str(&tags_json).unwrap_or_default(),
+        ai_enhanced: row.get(9)?,
+        context: context_json.and_then(|j| serde_json::from_str(&j).ok()),
+        idea_id: row.get(11)?,
+        change_name: row.get(12)?,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
+        finished_at: row.get(15)?,
+    })
 }

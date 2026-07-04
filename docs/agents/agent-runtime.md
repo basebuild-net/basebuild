@@ -234,3 +234,82 @@ progress bar, no wizard dialogs). The Tauri updater plugin verifies the
 downloaded payload signature before applying. Progress events are emitted
 to the frontend via `updater://progress` events with step, downloaded bytes,
 total bytes, and a message.
+
+## Native Agent Loop
+
+The native harness includes a backend-owned agent loop (`agent_loop_service.rs`)
+that runs on a dedicated thread per turn. When a tools-capable model is selected,
+`native_chat_service::send` delegates to `run_agent_turn` instead of a single
+provider call.
+
+### Loop lifecycle
+
+1. **Stream**: The provider streams an assistant response. Reasoning and text
+   deltas are emitted to the frontend in real time.
+2. **Tool calls**: If the provider returns `tool_calls`, the loop collects them
+   and resolves each through the approval gateway.
+3. **Execute**: Approved tool calls run through the `ToolRuntimeService` —
+   read-only calls run in parallel, mutating calls run sequentially.
+4. **Append + repeat**: Tool results are appended as `role: "tool"` messages,
+   and the loop re-requests the provider. This continues until the model returns
+   no tool calls or the iteration cap (25) is reached.
+
+### Cancellation
+
+Each run has a `CancellationToken`. The `native_chat_cancel` command cancels the
+active run for a session — aborting the provider stream and killing in-flight
+tool processes. On startup, an interrupted-run sweep marks any orphaned runs.
+
+### Context budget guard
+
+Before each provider request, the loop estimates tokens (4 chars ≈ 1 token) and
+truncates oldest turns first if the conversation exceeds the model's context
+window minus an output margin. The system prompt and latest user turn are always
+preserved. Oversized tool results are head+tail capped (full output stored locally).
+
+## Tool Runtime
+
+The `ToolRuntimeService` provides six built-in tools:
+
+| Tool | Kind | Description |
+|------|------|-------------|
+| `read_file` | ReadOnly | Read file contents with optional range support |
+| `write_file` | Mutating | Create or overwrite a file |
+| `edit_file` | Mutating | Exact-match string replacement with occurrence validation |
+| `list_files` | ReadOnly | Glob-based file listing |
+| `search_files` | ReadOnly | Rust regex content search, workspace-scoped |
+| `run_command` | Mutating | Supervised child process with timeout and output capping |
+
+All file tools enforce workspace scoping: paths are canonicalized and
+symlink-resolved before a prefix check against the project root. Denials are
+recorded as audit events.
+
+## Approval Gateway
+
+The approval gateway controls which tool calls require user confirmation.
+
+### Modes
+
+| Mode | Behavior |
+|------|----------|
+| `safe` | Every tool call prompts for approval |
+| `balanced` | Read-only tools auto-allow; mutating tools prompt (default) |
+| `auto` | All tools auto-allow |
+
+### Custom rules
+
+Per-project rules can override the mode for specific tools or command prefixes.
+Each rule specifies: tool name, optional command prefix, and decision
+(`ask`, `allow`, `deny`).
+
+### Audit trail
+
+All approval decisions are recorded in the audit trail with action, scope,
+decision, and timestamp. The trail is viewable in Settings → Permissions →
+Approval Gateway → Audit Trail.
+
+### Pending approvals
+
+When a tool call requires approval, the loop emits an approval-request event.
+The frontend renders inline approval cards (allow once / allow session / deny).
+If no response within 10 minutes, the call is auto-denied and the run pauses.

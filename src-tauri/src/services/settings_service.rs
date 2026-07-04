@@ -1,8 +1,13 @@
+use std::collections::HashMap;
+
 use rusqlite::params;
 
 use crate::{
     models::{
-        permission::{AuditEntry, PermissionRules, UsageSyncSettings},
+        permission::{
+            ApprovalMode, ApprovalRule, AuditEntry, GatewayDecision, PermissionDecision,
+            PermissionRules, SessionRule, UsageSyncSettings,
+        },
         runtime::{RuntimeDefaults, RuntimeProfile, RuntimeProfileKind, WorkingDirectoryMode},
     },
     services::process_helpers::hidden_command,
@@ -326,6 +331,183 @@ impl SettingsService {
         .map_err(|e| e.to_string())?;
         Ok(())
     }
+
+    // ─── Approval Gateway ───
+
+    /// Get the per-project approval mode (default: Balanced).
+    pub fn get_approval_mode(project_path: &str) -> DbResult<ApprovalMode> {
+        let conn = StorageService::connect()?;
+        let value: Option<String> = conn
+            .query_row(
+                "SELECT value FROM app_defaults WHERE key = ?1",
+                params![format!("approval_mode:{project_path}")],
+                |r| r.get(0),
+            )
+            .ok();
+        Ok(value
+            .as_deref()
+            .map(ApprovalMode::from_str)
+            .unwrap_or_default())
+    }
+
+    /// Set the per-project approval mode.
+    pub fn set_approval_mode(project_path: &str, mode: ApprovalMode) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO app_defaults (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![format!("approval_mode:{project_path}"), mode.as_str()],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// List persistent per-project approval rules.
+    pub fn list_approval_rules(project_path: &str) -> DbResult<Vec<ApprovalRule>> {
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, project_path, tool_name, command_prefix, decision, created_at
+                 FROM approval_rules WHERE project_path = ?1 ORDER BY created_at",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![project_path], |row| {
+                Ok(ApprovalRule {
+                    id: row.get(0)?,
+                    project_path: row.get(1)?,
+                    tool_name: row.get(2)?,
+                    command_prefix: row.get(3)?,
+                    decision: match row.get::<_, String>(4)?.as_str() {
+                        "allow" => PermissionDecision::Allow,
+                        "deny" => PermissionDecision::Deny,
+                        _ => PermissionDecision::Ask,
+                    },
+                    created_at: row.get(5)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    /// Add a persistent per-project approval rule.
+    pub fn add_approval_rule(rule: &ApprovalRule) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO approval_rules (id, project_path, tool_name, command_prefix, decision, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                rule.id,
+                rule.project_path,
+                rule.tool_name,
+                rule.command_prefix,
+                rule.decision.as_str(),
+                rule.created_at,
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Remove a persistent approval rule by id.
+    pub fn remove_approval_rule(id: &str) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute("DELETE FROM approval_rules WHERE id = ?1", params![id])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Resolve a tool call through the approval gateway.
+    /// Checks: mode → session rules → persistent rules → default by mode.
+    /// Returns `ask` when a UI prompt is needed.
+    pub fn resolve_tool_call(
+        project_path: &str,
+        tool_name: &str,
+        command: Option<&str>,
+        session_rules: &[SessionRule],
+    ) -> GatewayDecision {
+        let mode = Self::get_approval_mode(project_path).unwrap_or_default();
+
+        // Auto mode: allow everything (workspace scoping still enforced by tools).
+        if mode == ApprovalMode::Auto {
+            return GatewayDecision {
+                decision: PermissionDecision::Allow,
+                requires_prompt: false,
+                reason: "Auto mode: all tools auto-allowed.".to_string(),
+                rule_source: Some("mode:auto".to_string()),
+            };
+        }
+
+        // Check session rules first (highest priority).
+        for rule in session_rules {
+            if rule.tool_name != tool_name {
+                continue;
+            }
+            if let (Some(prefix), Some(cmd)) = (&rule.command_prefix, command) {
+                if !cmd.starts_with(prefix) {
+                    continue;
+                }
+            }
+            return GatewayDecision {
+                decision: rule.decision,
+                requires_prompt: false,
+                reason: format!("Matched session rule for {}.", rule.tool_name),
+                rule_source: Some(format!("session:{}", rule.tool_name)),
+            };
+        }
+
+        // Check persistent rules.
+        if let Ok(rules) = Self::list_approval_rules(project_path) {
+            for rule in &rules {
+                if rule.tool_name != tool_name {
+                    continue;
+                }
+                if let (Some(prefix), Some(cmd)) = (&rule.command_prefix, command) {
+                    if !cmd.starts_with(prefix) {
+                        continue;
+                    }
+                }
+                return GatewayDecision {
+                    decision: rule.decision,
+                    requires_prompt: false,
+                    reason: format!("Matched persistent rule for {}.", rule.tool_name),
+                    rule_source: Some(format!("persistent:{}", rule.id)),
+                };
+            }
+        }
+
+        // Default by mode.
+        let is_read_only = matches!(
+            tool_name,
+            "read_file" | "list_files" | "search_files"
+        );
+        match mode {
+            ApprovalMode::Safe => GatewayDecision {
+                decision: PermissionDecision::Ask,
+                requires_prompt: true,
+                reason: "Safe mode: all tools prompt.".to_string(),
+                rule_source: Some("mode:safe".to_string()),
+            },
+            ApprovalMode::Balanced => {
+                if is_read_only {
+                    GatewayDecision {
+                        decision: PermissionDecision::Allow,
+                        requires_prompt: false,
+                        reason: "Balanced mode: read-only tools auto-allowed.".to_string(),
+                        rule_source: Some("mode:balanced".to_string()),
+                    }
+                } else {
+                    GatewayDecision {
+                        decision: PermissionDecision::Ask,
+                        requires_prompt: true,
+                        reason: "Balanced mode: mutating tools prompt.".to_string(),
+                        rule_source: Some("mode:balanced".to_string()),
+                    }
+                }
+            }
+            ApprovalMode::Auto => unreachable!(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -335,3 +517,5 @@ pub struct ProfileValidation {
     pub version: Option<String>,
     pub error: Option<String>,
 }
+
+

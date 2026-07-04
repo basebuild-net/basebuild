@@ -1,8 +1,8 @@
 mod app_state;
 mod commands;
 mod events;
-mod models;
-mod services;
+pub mod models;
+pub mod services;
 
 use std::sync::{LazyLock, Mutex};
 use tauri::{AppHandle, Emitter};
@@ -23,7 +23,12 @@ use commands::{
         set_analytics_consent,
      },
     config_packs::{create_user_config_pack, list_config_packs},
-     files::{list_files, read_file},
+    files::{list_files, read_file},
+    mcp::{
+        mcp_call_tool, mcp_disconnect, mcp_get_prompt, mcp_list_prompts, mcp_list_servers,
+        mcp_list_tools, mcp_oauth_cancel, mcp_oauth_clear, mcp_oauth_poll, mcp_oauth_start,
+        mcp_reload, mcp_shutdown_all,
+    },
     git::{
         git_add, git_branch_create, git_branch_list, git_branch_switch, git_commit, git_diff,
         git_discard, git_fetch, git_log, git_pull, git_push, git_reset, git_stage_all, git_status,
@@ -31,7 +36,7 @@ use commands::{
     },
     ideas::{
         create_category, create_idea, delete_category, delete_idea, list_categories, list_ideas,
-        update_idea_status,
+        promote_ideas, update_idea_status,
     },
     omp::{
         omp_config_list, omp_debug_context, omp_stats, omp_status, omp_stream_command, omp_usage,
@@ -41,16 +46,25 @@ use commands::{
     },
     native_chat::{
         native_chat_get, native_chat_list, native_chat_messages, native_chat_send,
-        native_chat_start, native_catalog_sync, native_delete_provider_credential,
-        native_generate_ideas, native_list_provider_credentials, native_provider_catalog,
-        native_provider_catalog_refresh, native_provider_login_cancel, native_provider_login_poll,
-        native_provider_login_start, native_request_metrics, native_request_metrics_summary,
-        native_request_tool_approval, native_save_provider_credential,
+        native_chat_start, native_chat_cancel, native_chat_tool_events, native_chat_model_default, native_chat_set_project_model_default,
+        native_chat_set_global_model_default, native_catalog_sync,
+        native_delete_provider_credential, native_generate_ideas,
+        native_list_provider_credentials, native_provider_catalog,
+        native_provider_catalog_refresh, native_provider_login_cancel,
+        native_provider_login_poll, native_provider_login_start, native_request_metrics,
+        native_request_metrics_summary, native_request_tool_approval,
+        native_save_provider_credential,
     },
     plans::{
         create_plan, delete_plan, get_plan, list_plans, set_plan_context, set_plan_status,
         update_plan,
     },
+    pipeline::{pipeline_cancel, pipeline_get_run, pipeline_list_runs, pipeline_start},
+    openspec::{
+        openspec_derive_change_name, openspec_parse_task_progress, openspec_resolve_change_name,
+        openspec_task_progress,
+    },
+    slash_commands::{expand_slash_command, list_slash_commands},
     projects::{
         create_project_basebuild_config, detect_project, list_recent_projects, pick_context_file,
         pick_context_folder, pick_project_directory, remember_recent_project, remove_recent_project,
@@ -59,10 +73,11 @@ use commands::{
     requirements::list_requirements,
      schematic::{get_project_schematic, has_project_schematic, set_project_schematic},
     settings::{
-        clear_audit_trail, delete_runtime_profile, get_permission_rules, get_runtime_defaults,
-        list_audit_trail, list_runtime_profiles, reset_permission_rules, reset_runtime_defaults,
-        set_permission_rules, set_runtime_defaults, upsert_runtime_profile,
-        validate_runtime_profile,
+        add_approval_rule, clear_audit_trail, delete_runtime_profile, get_approval_mode,
+        get_permission_rules, get_runtime_defaults, list_approval_rules, list_audit_trail,
+        list_runtime_profiles, remove_approval_rule, reset_permission_rules,
+        reset_runtime_defaults, set_approval_mode, set_permission_rules, set_runtime_defaults,
+        upsert_runtime_profile, validate_runtime_profile,
     },
     sessions::{
         create_session, create_tab, delete_session, delete_tab, list_sessions, list_tabs,
@@ -245,6 +260,29 @@ pub fn run() {
             set_plan_status,
             set_plan_context,
             delete_plan,
+            pipeline_start,
+            pipeline_cancel,
+            pipeline_list_runs,
+            pipeline_get_run,
+            openspec_derive_change_name,
+            expand_slash_command,
+            mcp_reload,
+            mcp_list_servers,
+            mcp_list_tools,
+            mcp_list_prompts,
+            mcp_disconnect,
+            mcp_call_tool,
+            mcp_get_prompt,
+            mcp_oauth_start,
+            mcp_oauth_poll,
+            mcp_oauth_cancel,
+            mcp_oauth_clear,
+            mcp_shutdown_all,
+            read_skill,
+            openspec_task_progress,
+            openspec_parse_task_progress,
+            list_slash_commands,
+            expand_slash_command,
             read_skill,
             create_terminal,
             write_terminal,
@@ -286,6 +324,7 @@ pub fn run() {
             list_ideas,
             update_idea_status,
             delete_idea,
+            promote_ideas,
              agent_start,
              agent_send,
             agent_capabilities,
@@ -300,11 +339,15 @@ pub fn run() {
             native_chat_send,
             native_request_metrics,
             native_request_metrics_summary,
-            native_request_tool_approval,
-            native_save_provider_credential,
+            native_chat_send,
+            native_chat_cancel,
+            native_chat_tool_events,
             native_list_provider_credentials,
             native_delete_provider_credential,
             native_generate_ideas,
+            native_chat_model_default,
+            native_chat_set_project_model_default,
+            native_chat_set_global_model_default,
             native_provider_login_start,
             native_provider_login_poll,
             native_provider_login_cancel,
@@ -320,6 +363,11 @@ pub fn run() {
             reset_permission_rules,
             list_audit_trail,
             clear_audit_trail,
+            get_approval_mode,
+            set_approval_mode,
+            list_approval_rules,
+            add_approval_rule,
+            remove_approval_rule,
             get_analytics_consent,
             set_analytics_consent,
             list_analytics_events,

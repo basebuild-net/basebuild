@@ -6,12 +6,12 @@ use crate::{
     events::NATIVE_CHAT_CHUNK,
     models::{
         native_chat::{
-            NativeChatMessage, NativeChatSendRequest, NativeChatSendResult, NativeChatSession,
-            NativeChatStartRequest, NativeGenerateIdeasRequest, NativeGenerateIdeasResult,
-            NativeGeneratedIdea, NativeProviderCatalog, NativeProviderCredential,
-            NativeProviderCredentialInput, NativeRequestMetric, NativeRequestMetricsSummary,
-            NativeSetupRequired, NativeToolApprovalRequest, NativeToolApprovalResult,
-            NativeToolEvent,
+            ChatModelDefault, NativeChatMessage, NativeChatSendRequest, NativeChatSendResult,
+            NativeChatSession, NativeChatStartRequest, NativeGenerateIdeasRequest,
+            NativeGenerateIdeasResult, NativeGeneratedIdea, NativeProviderCatalog,
+            NativeProviderCredential, NativeProviderCredentialInput, NativeRequestMetric,
+            NativeRequestMetricsSummary, NativeSetupRequired, NativeToolApprovalRequest,
+            NativeToolApprovalResult, NativeToolEvent, ResolvedChatModelDefault,
         },
         permission::PermissionDecision,
     },
@@ -35,6 +35,187 @@ impl NativeChatService {
         crate::services::provider_model_catalog_service::ProviderModelCatalogService::catalog()
     }
 
+    /// Check whether a model supports tool calling.
+    fn model_supports_tools(provider_id: &str, model_id: &str) -> bool {
+        let catalog = Self::provider_catalog();
+        catalog
+            .models
+            .iter()
+            .any(|m| m.provider_id == provider_id && m.id == model_id && m.supports_tools)
+    }
+    // ─── Chat Model Defaults ───
+
+    /// Get the persisted chat model default for a project, or None if no
+    /// per-project default has been set.
+    pub fn get_project_model_default(project_path: &str) -> DbResult<Option<ChatModelDefault>> {
+        let conn = StorageService::connect()?;
+        let row = conn
+            .query_row(
+                "SELECT provider_id, model_id, effort_level FROM chat_model_defaults WHERE project_path = ?1",
+                params![project_path],
+                |r| {
+                    Ok(ChatModelDefault {
+                        provider_id: r.get(0)?,
+                        model_id: r.get(1)?,
+                        effort_level: r.get(2)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        Ok(row)
+    }
+
+    /// Persist (or update) the chat model default for a project. Called when
+    /// the user manually selects a model in the composer.
+    pub fn set_project_model_default(
+        project_path: &str,
+        default: &ChatModelDefault,
+    ) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO chat_model_defaults (project_path, provider_id, model_id, effort_level, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(project_path) DO UPDATE SET
+               provider_id = excluded.provider_id, model_id = excluded.model_id,
+               effort_level = excluded.effort_level, updated_at = excluded.updated_at",
+            params![
+                project_path,
+                default.provider_id,
+                default.model_id,
+                default.effort_level,
+                now_seconds(),
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Get the global chat model default stored in `app_defaults` under
+    /// `chat.defaultModel`. Returns None if unset.
+    pub fn get_global_model_default() -> DbResult<Option<ChatModelDefault>> {
+        let conn = StorageService::connect()?;
+        let value: Option<String> = conn
+            .query_row(
+                "SELECT value FROM app_defaults WHERE key = 'chat.defaultModel'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?
+            .flatten();
+        match value {
+            Some(v) => {
+                let d: ChatModelDefault =
+                    serde_json::from_str(&v).map_err(|e| e.to_string())?;
+                Ok(Some(d))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Persist the global chat model default.
+    pub fn set_global_model_default(default: &ChatModelDefault) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        let value =
+            serde_json::to_string(default).map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO app_defaults (key, value) VALUES ('chat.defaultModel', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![value],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Resolve the chat model default for a project, falling back through:
+    /// project default → global default → first connected provider's default
+    /// model. Returns a notice when the stored default was unavailable.
+    pub fn resolve_model_default(project_path: &str) -> DbResult<ResolvedChatModelDefault> {
+        let catalog = Self::provider_catalog();
+
+        // 1. Per-project default.
+        if let Some(project_default) = Self::get_project_model_default(project_path)? {
+            if let Some(resolved) = Self::try_resolve(&catalog, &project_default, "project") {
+                return Ok(resolved);
+            }
+            // Stored project default is unavailable — fall through with a notice.
+            let fallback = Self::first_connected_default(&catalog);
+            let notice = format!(
+                "Project default provider '{}' or model '{}' is unavailable; using {}.",
+                project_default.provider_id, project_default.model_id, fallback.provider_id
+            );
+            return Ok(ResolvedChatModelDefault {
+                provider_id: fallback.provider_id,
+                model_id: fallback.model_id,
+                effort_level: fallback.effort_level,
+                source: "fallback".to_string(),
+                notice: Some(notice),
+            });
+        }
+
+        // 2. Global default.
+        if let Some(global_default) = Self::get_global_model_default()? {
+            if let Some(resolved) = Self::try_resolve(&catalog, &global_default, "global") {
+                return Ok(resolved);
+            }
+        }
+
+        // 3. First connected provider's default model.
+        let fallback = Self::first_connected_default(&catalog);
+        Ok(ResolvedChatModelDefault {
+            provider_id: fallback.provider_id,
+            model_id: fallback.model_id,
+            effort_level: fallback.effort_level,
+            source: "fallback".to_string(),
+            notice: None,
+        })
+    }
+
+    /// Check whether a stored default's provider is connected and model is in
+    /// the catalog. Returns `Some(resolved)` if available, `None` if not.
+    fn try_resolve(
+        catalog: &NativeProviderCatalog,
+        default: &ChatModelDefault,
+        source: &str,
+    ) -> Option<ResolvedChatModelDefault> {
+        let provider = catalog
+            .providers
+            .iter()
+            .find(|p| p.id == default.provider_id)?;
+        if !provider.configured {
+            return None;
+        }
+        let model_exists = catalog
+            .models
+            .iter()
+            .any(|m| m.id == default.model_id && m.provider_id == default.provider_id);
+        if !model_exists {
+            return None;
+        }
+        Some(ResolvedChatModelDefault {
+            provider_id: default.provider_id.clone(),
+            model_id: default.model_id.clone(),
+            effort_level: default.effort_level.clone(),
+            source: source.to_string(),
+            notice: None,
+        })
+    }
+
+    /// Pick the first connected provider's default model as a last resort.
+    fn first_connected_default(catalog: &NativeProviderCatalog) -> ChatModelDefault {
+        let provider_id = catalog
+            .providers
+            .iter()
+            .find(|p| p.configured)
+            .map(|p| p.id.clone())
+            .unwrap_or_else(|| catalog.providers[0].id.clone());
+        ChatModelDefault {
+            provider_id,
+            model_id: catalog.default_model_id.clone(),
+            effort_level: catalog.default_effort_level.clone(),
+        }
+    }
     pub fn save_credential(input: NativeProviderCredentialInput) -> DbResult<NativeProviderCredential> {
         let now = now_seconds();
         let cred = NativeProviderCredential {
@@ -86,14 +267,10 @@ impl NativeChatService {
             return Err("Project path is required.".to_string());
         }
 
-        let catalog = Self::provider_catalog();
-        let provider_id = request
-            .provider_id
-            .unwrap_or_else(|| catalog.default_provider_id.clone());
-        let model_id = request.model_id.unwrap_or_else(|| catalog.default_model_id.clone());
-        let effort_level = request
-            .effort_level
-            .unwrap_or_else(|| catalog.default_effort_level.clone());
+        let resolved = Self::resolve_model_default(&request.project_path)?;
+        let provider_id = request.provider_id.unwrap_or(resolved.provider_id);
+        let model_id = request.model_id.unwrap_or(resolved.model_id);
+        let effort_level = request.effort_level.unwrap_or(resolved.effort_level);
         Self::validate_provider_model(&provider_id, &model_id, true)?;
 
         let now = now_seconds();
@@ -245,6 +422,9 @@ impl NativeChatService {
             .map(|m| ChatMsg {
                 role: m.role.clone(),
                 content: m.content.clone(),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
+                name: None,
             })
             .collect();
         let system = Self::system_prompt(&session.project_path, None);
@@ -255,16 +435,97 @@ impl NativeChatService {
             .unwrap_or_else(|| model_id.clone());
 
         let req = ProviderRequest {
-            model_id: resolved_model_id,
+            model_id: resolved_model_id.clone(),
             effort_level: effort_level.clone(),
-            system: Some(system),
-            messages,
+            system: Some(system.clone()),
+            messages: messages.clone(),
             api_key: credential.as_ref().map(|c| c.api_key.clone()),
             base_url: credential.as_ref().and_then(|c| c.base_url.clone()),
+            tools: Vec::new(),
         };
 
-        let client = resolve_client(&provider_id, req.base_url.as_deref());
         let started_at = now_millis();
+
+        // Check if the model supports tools → use the agent loop.
+        let supports_tools = !is_local
+            && Self::model_supports_tools(&provider_id, &model_id);
+
+        if supports_tools {
+            // Run the agentic loop: stream → tool calls → approval → execute → repeat.
+            let run_result = crate::services::agent_loop_service::run_agent_turn(
+                &request.session_id,
+                &session.project_path,
+                &provider_id,
+                &resolved_model_id,
+                &effort_level,
+                credential.as_ref().map(|c| c.api_key.clone()),
+                credential.as_ref().and_then(|c| c.base_url.clone()),
+                system,
+                messages,
+                app.clone(),
+                true,
+            );
+
+            let completed_at = now_millis();
+            let duration_ms = completed_at.saturating_sub(started_at).max(1);
+            let assistant_message = Self::insert_message(
+                &request.session_id,
+                "assistant",
+                &run_result.content,
+                Some(&provider_id),
+                Some(&model_id),
+                Some(&effort_level),
+            )?;
+
+            // Record tool events from the loop.
+            let mut tool_events = Vec::new();
+            for te in &run_result.tool_events {
+                let event = Self::insert_tool_event(
+                    &request.session_id,
+                    Some(&assistant_message.id),
+                    &te.tool_name,
+                    &te.status,
+                    &te.summary,
+                )?;
+                tool_events.push(event);
+            }
+
+            let metric = NativeRequestMetric {
+                id: gen_id("nreq"),
+                session_id: request.session_id.clone(),
+                provider_id: provider_id.clone(),
+                model_id: model_id.clone(),
+                effort_level: effort_level.clone(),
+                started_at,
+                completed_at: Some(completed_at),
+                duration_ms: Some(duration_ms),
+                ttft_ms: None,
+                ttlt_ms: Some(duration_ms),
+                input_tokens: 0,
+                output_tokens: estimate_tokens(&run_result.content),
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                tokens_per_second: None,
+                cost_total: Some(0.0),
+                outcome: if run_result.cancelled { "cancelled" } else { "success" }.to_string(),
+                error_class: None,
+                created_at: now_seconds(),
+            };
+            Self::insert_metric(&metric)?;
+            Self::touch_session(&request.session_id)?;
+
+            return Ok(NativeChatSendResult {
+                user_message,
+                assistant_message: Some(assistant_message),
+                metrics: Some(metric),
+                tool_events,
+                setup_required: None,
+                offline: false,
+            });
+        }
+
+        // Plain chat turn (no tools support, or local coordinator).
+        let client = resolve_client(&provider_id, req.base_url.as_deref());
         let session_id_for_emit = request.session_id.clone();
         let app_for_emit = app.clone();
         let emit = move |delta: &str, channel: &str| {
@@ -436,9 +697,13 @@ impl NativeChatService {
             messages: vec![ChatMsg {
                 role: "user".to_string(),
                 content: prompt,
+                tool_calls: Vec::new(),
+                tool_call_id: None,
+                name: None,
             }],
             api_key: credential.as_ref().map(|c| c.api_key.clone()),
             base_url: credential.as_ref().and_then(|c| c.base_url.clone()),
+            tools: Vec::new(),
         };
 
         let client = resolve_client(&provider_id, req.base_url.as_deref());
@@ -553,7 +818,7 @@ impl NativeChatService {
     /// the cache for a (provider_id, canonical model_id) pair. Returns None
     /// when the row has no model_api_id (legacy bundled/discovered rows) or
     /// the row doesn't exist — callers fall back to the canonical model_id.
-    fn resolve_model_api_id(provider_id: &str, model_id: &str) -> Option<String> {
+    pub fn resolve_model_api_id(provider_id: &str, model_id: &str) -> Option<String> {
         let conn = StorageService::connect().ok()?;
         conn.query_row(
             "SELECT model_api_id FROM native_provider_model_cache
@@ -662,6 +927,30 @@ impl NativeChatService {
         Ok(event)
     }
 
+    pub fn list_tool_events(session_id: &str) -> DbResult<Vec<NativeToolEvent>> {
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, session_id, message_id, kind, status, summary, created_at
+                 FROM native_tool_events WHERE session_id = ?1 ORDER BY created_at ASC",
+            )
+            .map_err(|e| format!("Failed to prepare tool event query: {e}"))?;
+        let rows = stmt
+            .query_map(params![session_id], |row| {
+                Ok(NativeToolEvent {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    message_id: row.get(2)?,
+                    kind: row.get(3)?,
+                    status: row.get(4)?,
+                    summary: row.get(5)?,
+                    created_at: row.get(6)?,
+                })
+            })
+            .map_err(|e| format!("Failed to query tool events: {e}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to collect tool events: {e}"))
+    }
     fn insert_metric(metric: &NativeRequestMetric) -> DbResult<()> {
         let conn = StorageService::connect()?;
         conn.execute(
@@ -707,7 +996,7 @@ impl NativeChatService {
 
     /// Build the system prompt for a turn: harness identity, project path, and
     /// optionally the project schematic (clipped) for grounding.
-    fn system_prompt(project_path: &str, schematic: Option<&str>) -> String {
+    pub fn system_prompt(project_path: &str, schematic: Option<&str>) -> String {
         let mut s = format!(
             "You are the Basebuild native chat harness, an assistant embedded in a local desktop \
              IDE.\nActive project path: {project_path}\nBe concise and practical. Do not modify \
@@ -725,8 +1014,9 @@ impl NativeChatService {
 
     /// Parse a provider response into structured ideas. Extracts the first JSON
     /// array and reads `title`/`description` from each object; tolerant of
+    /// Parse the model's response into a list of ideas, tolerating
     /// surrounding prose or code fences.
-    fn parse_ideas(raw: &str) -> Vec<NativeGeneratedIdea> {
+    pub fn parse_ideas(raw: &str) -> Vec<NativeGeneratedIdea> {
         let text = raw.trim();
         let (start, end) = match (text.find('['), text.rfind(']')) {
             (Some(s), Some(e)) if e > s => (s, e),
@@ -859,5 +1149,51 @@ mod tests {
     fn token_estimate_never_counts_empty_content() {
         assert_eq!(estimate_tokens(""), 0);
         assert_eq!(estimate_tokens("one two"), 2);
+    }
+
+    #[test]
+    fn resolve_model_default_falls_back_when_no_project_or_global_default() {
+        // With no project default and no global default set, resolution falls
+        // back to the first connected provider (the local coordinator) and
+        // reports source "fallback" with no notice.
+        let resolved = NativeChatService::resolve_model_default("/test/no-defaults").unwrap();
+        assert_eq!(resolved.source, "fallback");
+        assert!(resolved.notice.is_none());
+        assert!(!resolved.provider_id.is_empty());
+        assert!(!resolved.model_id.is_empty());
+    }
+
+    #[test]
+    fn resolve_model_default_uses_project_default_when_set() {
+        let project_path = "/test/project-default";
+        let default = ChatModelDefault {
+            provider_id: LOCAL_PROVIDER_ID.to_string(),
+            model_id: "basebuild-local-coordinator".to_string(),
+            effort_level: "medium".to_string(),
+        };
+        NativeChatService::set_project_model_default(project_path, &default).unwrap();
+        let resolved = NativeChatService::resolve_model_default(project_path).unwrap();
+        assert_eq!(resolved.source, "project");
+        assert_eq!(resolved.provider_id, LOCAL_PROVIDER_ID);
+        assert_eq!(resolved.model_id, "basebuild-local-coordinator");
+        assert!(resolved.notice.is_none());
+    }
+
+    #[test]
+    fn resolve_model_default_falls_back_when_project_default_unavailable() {
+        // A project default pointing at a disconnected provider should fall
+        // back to the first connected provider and include a notice naming
+        // the unavailable default.
+        let project_path = "/test/project-unavailable";
+        let default = ChatModelDefault {
+            provider_id: "nonexistent-provider".to_string(),
+            model_id: "nonexistent-model".to_string(),
+            effort_level: "high".to_string(),
+        };
+        NativeChatService::set_project_model_default(project_path, &default).unwrap();
+        let resolved = NativeChatService::resolve_model_default(project_path).unwrap();
+        assert_eq!(resolved.source, "fallback");
+        assert!(resolved.notice.is_some());
+        assert!(resolved.notice.as_ref().unwrap().contains("nonexistent-provider"));
     }
 }

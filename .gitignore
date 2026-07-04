@@ -9,7 +9,6 @@ src-tauri/target-verify/
 .env
 .env.*
 .env.local
-openspec/
 screenshots/test-results/
 playwright-report/
 test-results/

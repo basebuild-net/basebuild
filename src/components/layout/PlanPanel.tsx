@@ -219,7 +219,7 @@ function PlanCard({
     : PLAN_STATUSES.filter((s) => s !== plan.status && !isTerminalStatus(s));
 
   return (
-    <div className={`plan-card${plan.status === "in_progress" ? " is-active" : ""}`}>
+    <div className={`plan-card${plan.status === "running" ? " is-active" : ""}`}>
       <button
         className="plan-card-main"
         type="button"

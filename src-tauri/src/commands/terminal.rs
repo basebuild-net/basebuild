@@ -13,7 +13,6 @@ pub fn create_terminal(
     state
         .terminals
         .lock()
-        .map_err(|_| "Terminal manager poisoned")?
         .create(app, &shell, cwd_ref)
 }
 
@@ -22,7 +21,6 @@ pub fn write_terminal(state: State<AppState>, id: u64, data: String) -> Result<(
     state
         .terminals
         .lock()
-        .map_err(|_| "Terminal manager poisoned")?
         .write(id, &data)
 }
 
@@ -36,7 +34,6 @@ pub fn resize_terminal(
     state
         .terminals
         .lock()
-        .map_err(|_| "Terminal manager poisoned")?
         .resize(id, rows, cols)
 }
 
@@ -45,7 +42,6 @@ pub fn close_terminal(state: State<AppState>, id: u64) -> Result<(), String> {
     state
         .terminals
         .lock()
-        .map_err(|_| "Terminal manager poisoned")?
         .close(id)
 }
 
@@ -54,6 +50,5 @@ pub fn list_terminals(state: State<AppState>) -> Result<Vec<TerminalSession>, St
     Ok(state
         .terminals
         .lock()
-        .map_err(|_| "Terminal manager poisoned")?
         .list())
 }

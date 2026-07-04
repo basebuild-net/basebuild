@@ -11,6 +11,7 @@ import {
   Unplug,
   X,
 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 import { agentStart, agentSend, agentStop } from "../../lib/agent";
@@ -18,8 +19,11 @@ import { getRuntimeDefaults } from "../../lib/settings";
 import { openUrl } from "../../lib/app";
 import {
   nativeChatMessages,
+  nativeChatModelDefault,
   nativeChatSend,
+  nativeChatSetProjectModelDefault,
   nativeChatStart,
+  nativeChatToolEvents,
   nativeDeleteProviderCredential,
   nativeGenerateIdeas,
   nativeProviderCatalog,
@@ -29,10 +33,12 @@ import {
   nativeProviderLoginStart,
   nativeRequestMetricsSummary,
   nativeSaveProviderCredential,
+  type ChatModelDefault,
   type NativeChatMessage,
   type NativeProviderCatalog,
   type NativeRequestMetricsSummary,
   type NativeSetupRequired,
+  type NativeToolEvent,
 } from "../../lib/native-chat";
 import { useIdeaState } from "../../state/ideas";
 import type { Idea } from "../../lib/ideas";
@@ -65,6 +71,67 @@ function formatMetric(value: number | null | undefined, suffix = "") {
   return `${Math.round(value * 10) / 10}${suffix}`;
 }
 
+function ToolEventCard({ event }: { event: NativeToolEvent }) {
+  const [expanded, setExpanded] = useState(false);
+  const isRunning = event.status === "running" || event.status === "pending";
+  const isError = event.status === "error" || event.status === "denied";
+  const isApproval = event.kind === "approval" || event.kind === "request_tool_approval";
+  const isCommand = event.kind === "run_command" || event.kind === "command";
+  const isEdit = event.kind === "edit_file" || event.kind === "write_file";
+  const isMetrics = event.kind === "request_metrics";
+  const icon = isApproval ? "🔐" : isCommand ? "▶" : isEdit ? "✎" : isMetrics ? "📊" : "🔧";
+  const statusClass = isRunning ? "running" : isError ? "error" : event.status === "success" || event.status === "recorded" || event.status === "allow" ? "success" : "info";
+
+  // Detect diff content in summary for edit_file/write_file
+  const hasDiff = isEdit && /^\+|-/m.test(event.summary);
+  const diffLines = hasDiff ? event.summary.split("\n") : [];
+
+  // Extract file path from summary (e.g. "Edited src/foo.ts: ..." or "Wrote src/bar.ts")
+  const filePathMatch = event.summary.match(/(?:Edited|Wrote|Modified)\s+(.+?)(?::|\s)/);
+  const filePath = filePathMatch?.[1] ?? null;
+
+  return (
+    <div className={`tool-card tool-card-${statusClass}`} title={`${event.kind}: ${event.status}`}>
+      <div className="tool-card-header" onClick={() => setExpanded(!expanded)} role="button" tabIndex={0}>
+        <span className="tool-card-icon">{icon}</span>
+        <span className="tool-card-name">{event.kind.replace(/_/g, " ")}</span>
+        {filePath ? <code className="tool-card-filepath text-muted">{filePath}</code> : null}
+        <span className={`tool-card-status tool-card-status-${statusClass}`}>{event.status}</span>
+        <span className="tool-card-expand">{expanded ? "▼" : "▶"}</span>
+      </div>
+      {expanded ? (
+        <div className="tool-card-body">
+          {hasDiff ? (
+            <pre className="tool-card-diff">
+              {diffLines.map((line, i) => (
+                <span key={i} className={line.startsWith("+") ? "diff-add" : line.startsWith("-") ? "diff-del" : "diff-ctx"}>{line}{"\n"}</span>
+              ))}
+            </pre>
+          ) : (
+            <pre className="tool-card-summary">{event.summary}</pre>
+          )}
+        </div>
+      ) : null}
+      {!expanded && event.summary ? (
+        <div className="tool-card-summary-truncated text-muted text-sm">{event.summary.slice(0, 120)}{event.summary.length > 120 ? "…" : ""}</div>
+      ) : null}
+      {/* Inline approval buttons for pending approvals */}
+      {isApproval && isRunning ? (
+        <div className="tool-card-actions">
+          <button className="btn btn-sm btn-primary" title="Allow this tool call once" type="button">
+            Allow Once
+          </button>
+          <button className="btn btn-sm" title="Allow all calls to this tool for this session" type="button">
+            Allow Session
+          </button>
+          <button className="btn btn-sm" title="Deny this tool call" type="button">
+            Deny
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 export function ChatPanel({
   projectPath,
   chatSessionId,
@@ -78,20 +145,21 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
+  const [metrics, setMetrics] = useState<NativeRequestMetricsSummary | null>(null);
   const [nativeSessionId, setNativeSessionId] = useState<string | null>(chatSessionId ?? null);
   const [nativeMessages, setNativeMessages] = useState<NativeChatMessage[]>([]);
+  const [toolEvents, setToolEvents] = useState<NativeToolEvent[]>([]);
   const [legacyMessages, setLegacyMessages] = useState<LegacyChatMessage[]>([]);
-  const [metrics, setMetrics] = useState<NativeRequestMetricsSummary | null>(null);
   const [providerId, setProviderId] = useState(LOCAL_PROVIDER_ID);
   const [modelId, setModelId] = useState("basebuild-local-coordinator");
   const [effortLevel, setEffortLevel] = useState("medium");
+  const [modelNotice, setModelNotice] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [stuck, setStuck] = useState(false);
   const [agentId, setAgentId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [setupRequired, setSetupRequired] = useState<NativeSetupRequired | null>(null);
-  // Streaming assistant output for the in-flight turn.
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [reasoningText, setReasoningText] = useState("");
@@ -154,18 +222,20 @@ export function ChatPanel({
     let cancelled = false;
     async function load() {
       try {
-        const [defaults, cat, met] = await Promise.all([
+        const [defaults, cat, met, resolved] = await Promise.all([
           getRuntimeDefaults(),
           nativeProviderCatalog(),
           nativeRequestMetricsSummary(),
+          nativeChatModelDefault(projectPath),
         ]);
         if (cancelled) return;
         setProfileId(defaults.defaultChatProfileId ?? NATIVE_PROFILE_ID);
         setCatalog(cat);
         setMetrics(met);
-        setProviderId(cat.defaultProviderId);
-        setModelId(defaults.defaultModel ?? cat.defaultModelId);
-        setEffortLevel(cat.defaultEffortLevel);
+        setProviderId(resolved.providerId);
+        setModelId(resolved.modelId);
+        setEffortLevel(resolved.effortLevel);
+        setModelNotice(resolved.notice);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to load chat config", msg);
@@ -176,7 +246,7 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [addLog]);
+  }, [addLog, projectPath]);
 
   // Fix model when provider changes
   useEffect(() => {
@@ -198,8 +268,14 @@ export function ChatPanel({
     async function loadOrCreate() {
       try {
         if (nativeSessionId) {
-          const msgs = await nativeChatMessages(nativeSessionId);
-          if (!cancelled) setNativeMessages(msgs);
+          const [msgs, events] = await Promise.all([
+            nativeChatMessages(nativeSessionId),
+            nativeChatToolEvents(nativeSessionId),
+          ]);
+          if (!cancelled) {
+            setNativeMessages(msgs);
+            setToolEvents(events);
+          }
           return;
         }
         const session = await nativeChatStart({
@@ -213,6 +289,7 @@ export function ChatPanel({
         setNativeSessionId(session.id);
         onChatSessionCreated?.(session.id);
         setNativeMessages([]);
+        setToolEvents([]);
         setError(null);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -352,6 +429,10 @@ export function ChatPanel({
             if (result.assistantMessage) next.push(result.assistantMessage);
             return next;
           });
+          // Reload tool events from the result
+          if (result.toolEvents.length > 0 && nativeSessionId) {
+            setToolEvents(await nativeChatToolEvents(nativeSessionId));
+          }
           if (result.setupRequired) {
             setSetupRequired(result.setupRequired);
             setShowLogin(true);
@@ -360,11 +441,9 @@ export function ChatPanel({
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           addLog("error", "Failed to send native message", msg);
-          setError(msg);
-          // The backend persists the user message before contacting the provider;
-          // reload to reflect the real conversation state.
           try {
             setNativeMessages(await nativeChatMessages(nativeSessionId));
+            setToolEvents(await nativeChatToolEvents(nativeSessionId));
           } catch {
             /* ignore */
           }
@@ -443,27 +522,49 @@ export function ChatPanel({
       const command = rawCommand.toLowerCase();
       const rest = parts.join(" ").trim();
       setCommandNotice(null);
-      if (command === "login") {
-        const provider = rest
-          ? catalog?.providers.find((p) => p.id.toLowerCase() === rest.toLowerCase() || p.label.toLowerCase() === rest.toLowerCase())
-          : null;
-        if (provider) {
-          setProviderId(provider.id);
-          setShowLogin(provider.id !== LOCAL_PROVIDER_ID);
-          setShowProviderPicker(false);
-        } else {
-          setShowProviderPicker(true);
-          setShowLogin(false);
-        }
+
+      // Builtin-action dispatch map: commands that execute UI actions
+      // immediately rather than expanding into a prompt.
+      const builtinActions: Record<string, () => void | Promise<void>> = {
+        login: () => {
+          const provider = rest
+            ? catalog?.providers.find((p) => p.id.toLowerCase() === rest.toLowerCase() || p.label.toLowerCase() === rest.toLowerCase())
+            : null;
+          if (provider) {
+            setProviderId(provider.id);
+            setShowLogin(provider.id !== LOCAL_PROVIDER_ID);
+            setShowProviderPicker(false);
+          } else {
+            setShowProviderPicker(true);
+            setShowLogin(false);
+          }
+        },
+        model: () => {
+          setModelFilter(rest);
+          setShowModelPicker(true);
+        },
+        mcp: () => {
+          // MCP management is opened via Settings — show a notice.
+          setCommandNotice("MCP servers are managed in Settings.");
+        },
+        plan: () => {
+          setCommandNotice(rest ? `Plan: ${rest}` : "Plan commands: list, run <ref>, status");
+        },
+        idea: () => {
+          setCommandNotice(rest ? `Idea: ${rest}` : "Idea commands: generate, promote");
+        },
+        openspec: () => {
+          setCommandNotice(rest ? `OpenSpec: ${rest}` : "OpenSpec commands: generate <ref>, progress <ref>");
+        },
+      };
+
+      if (command in builtinActions) {
+        await builtinActions[command]();
         setInput("");
         return;
       }
-      if (command === "model") {
-        setModelFilter(rest);
-        setShowModelPicker(true);
-        setInput("");
-        return;
-      }
+
+      // /models refresh — special-cased because it's async.
       if (command === "models" && rest.toLowerCase() === "refresh") {
         setCatalogRefreshing(true);
         try {
@@ -480,7 +581,27 @@ export function ChatPanel({
         }
         return;
       }
-      setCommandNotice(`Unknown slash command: /${command}. Use /login, /model, or /models refresh.`);
+
+      // /skill:<name> — inject skill content.
+      if (command.startsWith("skill:")) {
+        const skillName = command.slice(6);
+        if (skillName) {
+          // Skill injection: fetch skill body and send as context.
+          try {
+            const skillBody = await invoke<string>("read_skill", { name: skillName });
+            const prompt = `${skillBody}\n\n${rest}`;
+            await sendMessage(prompt);
+            setInput("");
+            return;
+          } catch {
+            setCommandNotice(`Skill '${skillName}' not found.`);
+            return;
+          }
+        }
+      }
+
+      // Unknown command fallthrough: show notice + send-as-text action.
+      setCommandNotice(`Unknown slash command: /${command}. Send as text or use /login, /model, /plan, /idea, /openspec.`);
       return;
     }
     await sendMessage(text);
@@ -666,7 +787,7 @@ export function ChatPanel({
     async (idea: Idea) => {
       try {
         await onCreatePlanFromIdea?.(idea.title, idea.description, nativeSessionId);
-        await ideaState.updateIdeaStatus(idea.id, "planReady");
+        await ideaState.updateIdeaStatus(idea.id, "picked");
       } catch (e) {
         addLog("error", "Failed to promote idea to plan", e instanceof Error ? e.message : String(e));
       }
@@ -735,6 +856,15 @@ export function ChatPanel({
           );
         })}
 
+        {nativeMode && toolEvents.length > 0 ? (
+          <div className="chat-tool-events">
+            {toolEvents.map((ev) => (
+              <ToolEventCard key={ev.id} event={ev} />
+            ))}
+          </div>
+        ) : null}
+
+
         {streaming && reasoningText ? (
           <div className="chat-message chat-message-assistant chat-message-reasoning" title="Live chain-of-thought from the model. Final answer follows.">
             <span className="chat-message-role">Thinking…</span>
@@ -784,12 +914,22 @@ export function ChatPanel({
                     Promote to Plan
                   </button>
                 ) : (
-                  <span className="chat-idea-status">{idea.status === "planReady" ? "Planned" : idea.status}</span>
+                  <span className="chat-idea-status">{idea.status === "picked" ? "Planned" : idea.status}</span>
                 )}
               </div>
               {idea.description ? <p className="chat-idea-desc">{idea.description}</p> : null}
             </div>
           ))}
+        </div>
+      ) : null}
+      {/* Model default notice (unavailable default fell back) */}
+      {nativeMode && modelNotice ? (
+        <div className="chat-notice-bar" title={modelNotice}>
+          <AlertCircle size={12} />
+          <span className="text-sm">{modelNotice}</span>
+          <button className="btn-icon btn-icon-sm" title="Dismiss" type="button" onClick={() => setModelNotice(null)}>
+            <X size={11} />
+          </button>
         </div>
       ) : null}
 
@@ -923,7 +1063,15 @@ export function ChatPanel({
                     className="input chat-select chat-effort-select"
                     title="Select effort level"
                     value={effortLevel}
-                    onChange={(e) => setEffortLevel(e.target.value)}
+                    onChange={(e) => {
+                      setEffortLevel(e.target.value);
+                      const next: ChatModelDefault = {
+                        providerId,
+                        modelId,
+                        effortLevel: e.target.value,
+                      };
+                      void nativeChatSetProjectModelDefault(projectPath, next);
+                    }}
                   >
                     {catalog.effortLevels.map((ef) => (
                       <option key={ef.id} value={ef.id}>
@@ -1061,6 +1209,13 @@ export function ChatPanel({
                           setModelId(model.id);
                           setShowModelPicker(false);
                           setSetupRequired(null);
+                          setModelNotice(null);
+                          const next: ChatModelDefault = {
+                            providerId: model.providerId,
+                            modelId: model.id,
+                            effortLevel,
+                          };
+                          void nativeChatSetProjectModelDefault(projectPath, next);
                         }}
                       >
                         <span className="chat-picker-main">{model.label}</span>

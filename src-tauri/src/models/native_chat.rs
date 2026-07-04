@@ -99,6 +99,9 @@ pub struct NativeModel {
     pub label: String,
     pub supports_effort: bool,
     pub supports_streaming: bool,
+    /// Whether the model accepts tool schemas (function calling). False for
+    /// the local coordinator; true for network providers by default.
+    pub supports_tools: bool,
     pub local_only: bool,
     pub context_window: Option<i64>,
     pub max_tokens: Option<i64>,
@@ -266,4 +269,31 @@ pub struct ProviderLoginPoll {
     /// One of: "pending", "success", "error", "cancelled".
     pub status: String,
     pub message: Option<String>,
+}
+
+/// Persisted chat model default (provider/model/effort triple). Stored per
+/// project; a global default lives in `app_defaults` under the key
+/// `chat.defaultModel`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatModelDefault {
+    pub provider_id: String,
+    pub model_id: String,
+    pub effort_level: String,
+}
+
+/// Resolved default for a project, with provenance for UI display. Falls back
+/// through project → global → first connected provider/model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedChatModelDefault {
+    pub provider_id: String,
+    pub model_id: String,
+    pub effort_level: String,
+    /// Where the resolved value came from: "project", "global", or
+    /// "fallback" (first connected provider's default model).
+    pub source: String,
+    /// Non-empty when the stored default was unavailable (disconnected
+    /// provider or missing model) and a fallback was used instead.
+    pub notice: Option<String>,
 }

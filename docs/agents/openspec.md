@@ -43,3 +43,19 @@ into `openspec/specs/`.
 - Check `openspec/specs/` for existing capabilities before creating new ones.
 - The `openspec/changes/` directory is the source of truth for in-progress work.
 - `openspec/config.yaml` has project context that is injected into all artifacts.
+
+## Tracking and remote sync
+
+`openspec/` is committed and pushed — it is the source of truth for planned
+work, so plans survive machine changes and are reviewable in PRs.
+
+- `openspec/ROADMAP.md` is the execution queue: what's in flight, what's next,
+  what needs re-scoping, and proposed plans that have no artifacts yet.
+- Refresh its status table after completing tasks:
+
+```bash
+node scripts/openspec-status.mjs --write
+```
+
+- Do not pre-generate artifacts for proposed plans whose dependencies are still
+  in flight; generate them with `/propose` when their turn comes.

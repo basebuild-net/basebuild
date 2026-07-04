@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Download, Globe, Key, Lock, LogOut, RefreshCw, Settings2, Shield, Trash2, Unplug, User, X } from "lucide-react";
+import { AlertTriangle, Check, Download, Globe, Key, Lock, LogOut, Plug, RefreshCw, Settings2, Shield, Trash2, Unplug, User, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { CopyButton } from "./CopyButton";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
@@ -31,6 +31,16 @@ import {
   type PermissionDecision,
   type RuntimeProfile,
   type ProfileValidation,
+  getApprovalMode,
+  setApprovalMode,
+  listApprovalRules,
+  addApprovalRule,
+  removeApprovalRule,
+  listAuditTrail,
+  clearAuditTrail,
+  type ApprovalMode,
+  type ApprovalRule,
+  type AuditEntry,
 } from "../../lib/settings";
 import {
   getAnalyticsConsent,
@@ -40,6 +50,16 @@ import {
   exportAnalyticsJson,
   type AnalyticsConsent,
 } from "../../lib/analytics";
+import {
+  mcpReload,
+  mcpListServers,
+  mcpDisconnect,
+  mcpOAuthStart,
+  mcpOAuthPoll,
+  mcpOAuthCancel,
+  type ServerState as McpServerState,
+  type LoadResult as McpLoadResult,
+} from "../../lib/mcp";
 
 type SettingsModalProps = {
   open: boolean;
@@ -49,7 +69,7 @@ type SettingsModalProps = {
   updates: UpdaterState;
 };
 
-type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "about";
+type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "mcp" | "about";
 
 export function SettingsModal({ open, onClose, projectPath, account, updates }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
@@ -67,18 +87,33 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
   // Permissions state
   const [permissions, setPermissions] = useState<PermissionRules | null>(null);
 
+  // Approval gateway state
+  const [approvalMode, setApprovalModeState] = useState<ApprovalMode>("balanced");
+  const [approvalRules, setApprovalRules] = useState<ApprovalRule[]>([]);
+  const [auditTrail, setAuditTrail] = useState<AuditEntry[]>([]);
+  const [newRuleTool, setNewRuleTool] = useState("");
+  const [newRulePrefix, setNewRulePrefix] = useState("");
+  const [newRuleDecision, setNewRuleDecision] = useState<PermissionDecision>("ask");
+
   // Analytics state
   const [consent, setConsent] = useState<AnalyticsConsent | null>(null);
   const [eventCount, setEventCount] = useState(0);
+
+  // MCP state
+  const [mcpServers, setMcpServers] = useState<McpServerState[]>([]);
+  const [mcpErrors, setMcpErrors] = useState<string[]>([]);
+  const [mcpLoading, setMcpLoading] = useState(false);
+  const [oauthPollUrl, setOauthPollUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     void refreshReq();
     void appVersion().then(setVersion).catch(() => {});
     void refreshDefaults();
-    void refreshPermissions();
     void refreshAnalytics();
-  }, [open]);
+    void refreshApproval(projectPath);
+    if (projectPath) void refreshMcp();
+  }, [open, projectPath]);
 
   async function refreshReq() {
     setLoading(true);
@@ -88,6 +123,20 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
       // ignore
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function refreshMcp() {
+    if (!projectPath) return;
+    setMcpLoading(true);
+    try {
+      const result = await mcpReload(projectPath);
+      setMcpServers(await mcpListServers(projectPath));
+      setMcpErrors(result.errors.map((e) => `${e.file}: ${e.server}: ${e.message}`));
+    } catch {
+      // ignore
+    } finally {
+      setMcpLoading(false);
     }
   }
 
@@ -114,6 +163,22 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
   async function refreshPermissions() {
     try {
       setPermissions(await getPermissionRules());
+    } catch {
+      // ignore
+    }
+  }
+
+  async function refreshApproval(projectPath: string | null) {
+    if (!projectPath) return;
+    try {
+      const [mode, rules, audit] = await Promise.all([
+        getApprovalMode(projectPath),
+        listApprovalRules(projectPath),
+        listAuditTrail(50),
+      ]);
+      setApprovalModeState(mode);
+      setApprovalRules(rules);
+      setAuditTrail(audit);
     } catch {
       // ignore
     }
@@ -194,11 +259,17 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
     { id: "privacy", label: "Privacy", icon: Shield },
     { id: "account", label: "Account", icon: User },
     { id: "configs", label: "Config Packs", icon: Settings2 },
+    { id: "mcp", label: "MCP Servers", icon: Plug },
     { id: "about", label: "About", icon: Check },
   ];
 
   const updateChecking = updates.status === "checking";
   const updateInstalling = updates.status === "installing";
+  // Latest version: explicit when an update is available; otherwise the
+  // running version is the latest (up-to-date). Unknown until checked.
+  const latestVersion =
+    updates.info?.version ??
+    (updates.status === "up_to_date" ? (version || "—") : "—");
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -242,6 +313,16 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                   >
                     <RefreshCw size={12} className={updateChecking ? "spin" : ""} /> Check for updates
                   </button>
+                </div>
+                <div className="update-version-grid">
+                  <div className="update-version-cell">
+                    <div className="text-muted text-sm">Installed</div>
+                    <div className="mono">{version || "—"}</div>
+                  </div>
+                  <div className="update-version-cell">
+                    <div className="text-muted text-sm">Latest</div>
+                    <div className="mono">{latestVersion}</div>
+                  </div>
                 </div>
                 {updates.info?.available ? (
                   <div className="requirement-row is-ok">
@@ -426,7 +507,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                 <button
                   className="btn btn-sm"
                   type="button"
-                  title="Reset defaults to conservative values"
+                  title="Reset runtime defaults to factory values"
                   onClick={() => void resetRuntimeDefaults().then(() => void refreshDefaults())}
                 >
                   <RefreshCw size={12} /> Reset to defaults
@@ -473,6 +554,157 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                 >
                   <RefreshCw size={12} /> Reset to defaults
                 </button>
+
+                {/* Approval Gateway */}
+                <div className="stack" style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+                  <h4>Approval Gateway</h4>
+                  <p className="text-muted text-sm">
+                    Controls how the agent loop handles tool calls that need approval.
+                  </p>
+
+                  <div className="row gap-sm">
+                    {(["safe", "balanced", "auto"] as ApprovalMode[]).map((m) => (
+                      <button
+                        key={m}
+                        className={`btn btn-sm ${approvalMode === m ? "btn-primary" : ""}`}
+                        type="button"
+                        title={`Set approval mode to ${m}`}
+                        onClick={() => {
+                          setApprovalModeState(m);
+                          if (projectPath) void setApprovalMode(projectPath, m).then(() => void refreshApproval(projectPath));
+                        }}
+                      >
+                        {m === "safe" && <Lock size={12} />}
+                        {m === "balanced" && <Shield size={12} />}
+                        {m === "auto" && <Check size={12} />}
+                        {m.charAt(0).toUpperCase() + m.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-muted text-sm">
+                    {approvalMode === "safe" && "Every tool call prompts for approval. Most secure, most interruptions."}
+                    {approvalMode === "balanced" && "Read-only tools auto-allow; mutating tools prompt. Recommended."}
+                    {approvalMode === "auto" && "All tools auto-allow. Fastest but least secure. Use only for trusted workflows."}
+                  </p>
+
+                  {/* Custom rules */}
+                  <div className="stack" style={{ marginTop: 8 }}>
+                    <h5>Custom Rules</h5>
+                    {approvalRules.length === 0 ? (
+                      <p className="text-muted text-sm">No custom rules. Default mode behavior applies.</p>
+                    ) : (
+                      <div className="stack">
+                        {approvalRules.map((rule) => (
+                          <div key={rule.id} className="row gap-sm align-center" style={{ justifyContent: "space-between" }}>
+                            <span className="text-sm">
+                              <strong>{rule.toolName}</strong>
+                              {rule.commandPrefix ? <code className="text-muted"> {rule.commandPrefix}*</code> : null}
+                              {" → "}
+                              <span className={`badge badge-${rule.decision === "allow" ? "success" : rule.decision === "deny" ? "error" : "warning"}`}>
+                              </span>
+                            </span>
+                            <button
+                              className="btn btn-sm"
+                              type="button"
+                              title="Remove this rule"
+                              onClick={() => void removeApprovalRule(rule.id).then(() => projectPath && void refreshApproval(projectPath))}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Add new rule */}
+                    {projectPath ? (
+                      <div className="row gap-sm align-center" style={{ flexWrap: "wrap" }}>
+                        <input
+                          className="input"
+                          style={{ width: 140 }}
+                          placeholder="tool name"
+                          value={newRuleTool}
+                          title="Tool name (e.g. run_command, edit_file)"
+                          onChange={(e) => setNewRuleTool(e.target.value)}
+                        />
+                        <input
+                          className="input"
+                          style={{ width: 140 }}
+                          placeholder="command prefix (optional)"
+                          value={newRulePrefix}
+                          title="Only apply to commands starting with this prefix"
+                          onChange={(e) => setNewRulePrefix(e.target.value)}
+                        />
+                        <select
+                          className="input"
+                          style={{ width: 100 }}
+                          value={newRuleDecision}
+                          title="Decision for this rule"
+                          onChange={(e) => setNewRuleDecision(e.target.value as PermissionDecision)}
+                        >
+                          <option value="ask">Ask</option>
+                          <option value="allow">Allow</option>
+                          <option value="deny">Deny</option>
+                        </select>
+                        <button
+                          className="btn btn-sm btn-primary"
+                          type="button"
+                          title="Add custom approval rule"
+                          onClick={() => {
+                            if (!newRuleTool.trim() || !projectPath) return;
+                            void addApprovalRule({
+                              id: `rule-${Date.now()}`,
+                              projectPath,
+                              toolName: newRuleTool.trim(),
+                              commandPrefix: newRulePrefix.trim() || null,
+                              decision: newRuleDecision,
+                              createdAt: Math.floor(Date.now() / 1000),
+                            }).then(() => {
+                              setNewRuleTool("");
+                              setNewRulePrefix("");
+                              void refreshApproval(projectPath);
+                            });
+                          }}
+                        >
+                          Add Rule
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {/* Audit trail */}
+                  <div className="stack" style={{ marginTop: 12 }}>
+                    <div className="row align-center" style={{ justifyContent: "space-between" }}>
+                      <h5>Audit Trail</h5>
+                      <button
+                        className="btn btn-sm"
+                        type="button"
+                        title="Clear audit trail"
+                        onClick={() => void clearAuditTrail().then(() => void refreshApproval(projectPath))}
+                      >
+                        <Trash2 size={12} /> Clear
+                      </button>
+                    </div>
+                    {auditTrail.length === 0 ? (
+                      <p className="text-muted text-sm">No audit entries yet.</p>
+                    ) : (
+                      <div className="stack" style={{ maxHeight: 200, overflowY: "auto" }}>
+                        {auditTrail.map((entry) => (
+                          <div key={entry.id} className="text-sm" style={{ borderBottom: "1px solid var(--border)", paddingBottom: 4 }}>
+                            <span className={`badge badge-${entry.decision === "allow" ? "success" : entry.decision === "deny" ? "error" : "warning"}`}>
+                              {entry.decision}
+                            </span>{" "}
+                            <strong>{entry.action}</strong>
+                            {entry.scope ? <code className="text-muted"> {entry.scope}</code> : null}
+                            {entry.sourceWorkflow ? <span className="text-muted"> ({entry.sourceWorkflow})</span> : null}
+                            {" "}
+                            <span className="text-muted text-xs">{new Date(entry.createdAt * 1000).toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                </div>
+                </div>
               </div>
             ) : null}
 
@@ -548,7 +780,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                     <span className="requirement-badge is-ok">✓</span>
                     <div>
                       <div className="requirement-name">Analytics disabled</div>
-                      <div className="requirement-detail text-muted text-sm">No usage data is being collected or uploaded.</div>
+                      <div className="text-muted text-sm">No data leaves this device.</div>
                     </div>
                   </div>
                 ) : null}
@@ -557,6 +789,82 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
 
             {/* ─── Config Packs ─── */}
             {tab === "configs" ? <ConfigPanel projectPath={projectPath} /> : null}
+
+            {/* ─── MCP Servers ─── */}
+            {tab === "mcp" ? (
+              <div className="stack">
+                <div className="settings-section-header">
+                  <h3>MCP Servers</h3>
+                  <button
+                    className="btn btn-sm"
+                    type="button"
+                    title="Reload MCP server configs from disk"
+                    disabled={mcpLoading || !projectPath}
+                    onClick={() => void refreshMcp()}
+                  >
+                    <RefreshCw size={14} />
+                    Reload
+                  </button>
+                </div>
+                <p className="text-muted text-sm">
+                  MCP servers are defined in <code>.omp/mcp.json</code> (project) or <code>~/.omp/agent/mcp.json</code> (user). Configure once — shared with oh-my-pi.
+                </p>
+                {mcpErrors.length > 0 ? (
+                  <div className="callout callout-warn">
+                    {mcpErrors.map((e, i) => (
+                      <div key={i}>{e}</div>
+                    ))}
+                  </div>
+                ) : null}
+                {mcpServers.length === 0 ? (
+                  <p className="text-muted text-sm">No MCP servers configured.</p>
+                ) : (
+                  <div className="stack">
+                    {mcpServers.map((s) => (
+                      <div key={s.name} className="settings-row">
+                        <div className="settings-row-info">
+                          <div className="settings-row-label">{s.name}</div>
+                          <div className="text-muted text-sm">
+                            {s.source} · {s.state}
+                            {s.toolCount > 0 ? ` · ${s.toolCount} tools` : ""}
+                            {s.promptCount > 0 ? ` · ${s.promptCount} prompts` : ""}
+                            {s.error ? ` · ${s.error}` : ""}
+                          </div>
+                        </div>
+                        <div className="settings-row-actions">
+                          {s.state === "connected" ? (
+                            <button
+                              className="btn btn-sm"
+                              type="button"
+                              title="Disconnect this server"
+                              disabled={!projectPath}
+                              onClick={() => {
+                                if (!projectPath) return;
+                                void mcpDisconnect(projectPath, s.name).then(() => refreshMcp());
+                              }}
+                            >
+                              <Unplug size={14} />
+                              Disconnect
+                            </button>
+                          ) : (
+                            <button
+                              className="btn btn-sm"
+                              type="button"
+                              title="Reconnect this server"
+                              disabled={mcpLoading || !projectPath}
+                              onClick={() => void refreshMcp()}
+                            >
+                              <RefreshCw size={14} />
+                              Connect
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
 
             {/* ─── Account ─── */}
             {tab === "account" ? (

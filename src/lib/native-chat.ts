@@ -57,6 +57,7 @@ export type NativeModel = {
   label: string;
   supportsEffort: boolean;
   supportsStreaming: boolean;
+  supportsTools: boolean;
   localOnly: boolean;
   contextWindow: number | null;
   maxTokens: number | null;
@@ -260,4 +261,50 @@ export async function nativeProviderLoginPoll(providerId: string): Promise<Provi
 
 export async function nativeProviderLoginCancel(providerId: string): Promise<void> {
   return invoke("native_provider_login_cancel", { providerId });
+}
+
+// ─── Chat Model Defaults ───
+
+export type ChatModelDefault = {
+  providerId: string;
+  modelId: string;
+  effortLevel: string;
+};
+
+export type ResolvedChatModelDefault = {
+  providerId: string;
+  modelId: string;
+  effortLevel: string;
+  /** Where the resolved value came from: "project", "global", or "fallback". */
+  source: string;
+  /** Non-empty when the stored default was unavailable and a fallback was used. */
+  notice: string | null;
+};
+
+/** Resolve the chat model default for a project (project → global → fallback). */
+export async function nativeChatModelDefault(projectPath: string): Promise<ResolvedChatModelDefault> {
+  return invoke<ResolvedChatModelDefault>("native_chat_model_default", { projectPath });
+}
+
+/** Cancel a running agent loop for a session. Returns true if a run was found. */
+export async function nativeChatCancel(sessionId: string): Promise<boolean> {
+  return invoke<boolean>("native_chat_cancel", { sessionId });
+}
+
+/** List tool events for a session (tool calls, approvals, metrics). */
+export async function nativeChatToolEvents(sessionId: string): Promise<NativeToolEvent[]> {
+  return invoke<NativeToolEvent[]>("native_chat_tool_events", { sessionId });
+}
+
+/** Persist the per-project chat model default (called on manual composer selection). */
+export async function nativeChatSetProjectModelDefault(
+  projectPath: string,
+  defaultModel: ChatModelDefault,
+): Promise<void> {
+  return invoke("native_chat_set_project_model_default", { projectPath, default: defaultModel });
+}
+
+/** Persist the global chat model default. */
+export async function nativeChatSetGlobalModelDefault(defaultModel: ChatModelDefault): Promise<void> {
+  return invoke("native_chat_set_global_model_default", { default: defaultModel });
 }

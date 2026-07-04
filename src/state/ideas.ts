@@ -3,6 +3,7 @@ import {
   createIdea as createIdeaApi,
   deleteIdea as deleteIdeaApi,
   listIdeas,
+  promoteIdeas as promoteIdeasApi,
   updateIdeaStatus as updateIdeaStatusApi,
   createCategory as createCategoryApi,
   deleteCategory as deleteCategoryApi,
@@ -80,6 +81,15 @@ export function useIdeaState(sessionId: string | null) {
     [refresh],
   );
 
+  const promoteIdeas = useCallback(
+    async (ideaIds: string[]) => {
+      if (!sessionId || ideaIds.length === 0) return;
+      await promoteIdeasApi(sessionId, ideaIds);
+      await refresh();
+    },
+    [sessionId, refresh],
+  );
+
   return {
     ideas,
     categories,
@@ -89,5 +99,6 @@ export function useIdeaState(sessionId: string | null) {
     removeIdea,
     createCategory,
     removeCategory,
+    promoteIdeas,
   };
 }
