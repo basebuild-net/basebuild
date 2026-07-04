@@ -40,6 +40,7 @@ type SidePanelProps = {
     onCopyReference: (refId: string) => void;
     onOpenInTerminal: (plan: Plan) => void;
   };
+  onOpenChatSession: (chatSessionId: string) => void;
 };
 
 function loadOrder(): SideSectionId[] {
@@ -122,6 +123,7 @@ export function SidePanel({
   onOpenFile,
   plans,
   planCallbacks,
+  onOpenChatSession,
 }: SidePanelProps) {
   const [order, setOrder] = useState<SideSectionId[]>(() => loadOrder());
   const [expanded, setExpanded] = useState<Record<SideSectionId, boolean>>({
@@ -277,6 +279,7 @@ export function SidePanel({
                 {id === "plans" ? (
                   <PlanPanel
                     sessionId={sessionId}
+                    projectPath={projectPath}
                     plans={plans.plans}
                     loading={plans.loading}
                     collapsed={false}
@@ -284,6 +287,7 @@ export function SidePanel({
                     {...planCallbacks}
                     onSetPlanStatus={plans.setPlanStatus}
                     onDeletePlan={plans.deletePlan}
+                    onOpenChatSession={onOpenChatSession}
                     showHeader={false}
                   />
                 ) : id === "files" ? (

@@ -10,15 +10,15 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
-use crate::models::permission::{GatewayDecision, PermissionDecision, SessionRule};
+use crate::models::permission::{PermissionDecision, SessionRule};
 use crate::services::provider_client::{
-    resolve_client, ChatMsg, ProviderClient, ProviderRequest, ProviderResponse, ToolCallRequest,
+    resolve_client, ChatMsg, ProviderRequest, ToolCallRequest,
     ToolSchema,
 };
 use crate::services::settings_service::SettingsService;
@@ -31,8 +31,6 @@ const DEFAULT_CONTEXT_WINDOW: i64 = 32_000;
 /// Output margin reserved for the model's response.
 const OUTPUT_MARGIN_MIN: i64 = 8_000;
 const OUTPUT_MARGIN_RATIO: f64 = 0.2;
-/// Maximum tool result sent to the model before head+tail truncation.
-const MAX_TOOL_RESULT_TOKENS: i64 = 4_000;
 
 /// Tracks active runs so cancellation can find them. Keyed by session id.
 static ACTIVE_RUNS: LazyLock<Mutex<std::collections::HashMap<String, Arc<RunHandle>>>> =
@@ -125,7 +123,6 @@ pub fn run_agent_turn(
     app: AppHandle,
     supports_tools: bool,
 ) -> RunResult {
-    let token = Arc::new(CancellationToken::new());
     let handle = Arc::new(RunHandle {
         token: CancellationToken::new(),
     });
@@ -553,8 +550,8 @@ fn execute_with_gateway(
 
 /// Record a tool event in the tool_events list (caller persists to DB).
 fn record_tool_event(
-    app: &AppHandle,
-    session_id: &str,
+    _app: &AppHandle,
+    _session_id: &str,
     call: &ToolCallRequest,
     result: &ToolResult,
     _db_events: &mut Vec<ToolEventRecord>,

@@ -358,3 +358,74 @@ next launch (non-blocking, auto-dismisses after 15s).
 Git commands run with a 30s wall-clock timeout via `spawn_blocking`. OMP
 commands have a 60s timeout. All git/catalog/chat commands are async Tauri
 commands that run on a blocking thread pool to prevent main-thread freezes.
+
+## Plan Run Queue
+
+The plan run queue (`plan_runner_service.rs`) dispatches ready plans through the
+native harness or OMP runner. The queue is backend-owned and survives frontend
+unmounts.
+
+- **Queue CRUD**: enqueue, reorder, remove. Stored in `plan_queue` table.
+- **Execution profile**: `N × provider/model[/effort]`. Drives the tokio
+  semaphore size for parallel runs.
+- **Session provisioning**: `create_session_for_plan` in `native_chat_service.rs`
+  creates a fresh chat session titled `<ref> — <plan title>`, bound to the
+  profile's model, primed with an opening context message from the plan +
+  linked OpenSpec change + project schematic.
+- **Completion detection**: `tasks.md` checkbox polling via
+  `openspec_service::read_task_progress`. When all tasks are checked, the run
+  auto-completes as succeeded.
+- **Cancel/pause**: cancel aborts the run and returns the plan to `ready` (or
+  `cancelled` per user choice). Pause stops dispatching new runs; in-flight
+  runs continue.
+- **OMP runner**: `start_omp_run` records a run with `runner_kind=omp` and
+  emits an event so the frontend opens an OMP terminal tab seeded with the
+  plan's reference id + change path.
+- **Events**: `plan_run://event` carries run_id, session_id, plan_id, status,
+  chat_session_id, error.
+
+## Final Touches
+
+Per-project post-completion steps (`final_touches_service.rs`) execute
+sequentially after a run completes. Kinds: `shell` (run a command),
+`validate` (harness turn over diff — placeholder pending diff-review-workflow),
+`commit` (git commit), `pull_request` (git push). Remote-writing kinds default
+disabled. `finished` is gated on pipeline success: if any step fails, the run
+is marked failed and the plan stays `ready`.
+
+## Parallel Workspaces
+
+`worktree_service.rs` creates git worktrees under
+`<data-dir>/worktrees/<project-hash>/<reference-id>` with branch
+`bb/<ref>-<slug>`. The queue acquires a worktree per run when concurrency > 1
+execution (concurrency capped at 1).
+
+## Connector Permission Gateway
+
+Connectors are local-first tool integrations (OMP, Claude Code, Codex, etc.)
+that plug into Basebuild's UI without being modified. The gateway extends the
+native-agent-loop approval substrate — one rules store, one prompt stack, one
+audit trail — with connector identity as an additional scope dimension.
+
+### Local-first constraints
+- No remote plugin marketplace. Connectors are local processes only.
+- No unreviewed remote code execution. Connector manifests must be registered
+  and enabled explicitly.
+- No silent startup launch. Connectors are NOT auto-started on app launch;
+  restore shows them as `disconnected` until the user explicitly starts them.
+- Provider claims (e.g. "OMP has OpenAI connected") require explicit user
+  approval before Basebuild adopts them. Credentials are never auto-imported.
+- Web/collab bridge origins require explicit allowlisting.
+
+### Permission broker
+The broker extends `settings_service.rs`'s approval modes (Safe/Balanced/Auto)
+and rules storage with connector-scoped grants. Capabilities: command,
+file_access, provider_claim, chat_sync, web_bridge, diagnostics, analytics,
+skills. Grant scopes: once, session, project.
+
+### Connector tables
+- `connectors` — registry entries with manifest, state, capabilities, trust.
+- `connector_grants` — per-connector per-capability grants (reuses
+  `PermissionDecision` from the native approval gateway).
+- `provider_claims` — provider subscription claims from connectors, with
+  approved/denied flags.

@@ -2,21 +2,40 @@
 
 ## 1. Gateway Contract And Storage
 
-- [ ] 1.1 Confirm `native-agent-loop` is merged; document its approval-gateway extension seams (rules schema, prompt components, audit trail, decision provenance) for connector scopes
-- [ ] 1.2 Define connector manifest fields, capability names, lifecycle states, event schemas, transport options, permission request shapes, and error codes
-- [ ] 1.3 Add SQLite migrations for connectors, capabilities, lifecycle state, provider claims, and sync sessions; extend the `native-agent-loop` rules/audit schema with connector identity scope (no parallel tables)
-- [ ] 1.4 Document local-first connector constraints and unsupported remote/plugin marketplace behavior
+- [x] 1.1 Confirm `native-agent-loop` is merged; document its approval-gateway extension seams (rules schema, prompt components, audit trail, decision provenance) for connector scopes
+- [x] 1.2 Define connector manifest fields, capability names, lifecycle states, event schemas, transport options, permission request shapes, and error codes
+- [x] 1.3 Add SQLite migrations for connectors, capabilities, lifecycle state, provider claims, and sync sessions; extend the `native-agent-loop` rules/audit schema with connector identity scope (no parallel tables)
+- [x] 1.4 Document local-first connector constraints and unsupported remote/plugin marketplace behavior
 
 ## 2. Backend Gateway And Permission Broker
 
-- [ ] 2.1 Implement connector registry service for manifest registration, enable/disable, validation, trust status, and project binding
-- [ ] 2.2 Implement connector lifecycle service for launch, attach, disconnect, restart, crash handling, and no-silent-startup restore
-- [ ] 2.3 Implement capability negotiation and typed unsupported-capability responses
-- [ ] 2.4 Implement permission-provider broker flows for commands, files, provider claims, chat sync, web UI/collab bridge, diagnostics, and analytics as extensions of the native tool-approval gateway (shared rules store, prompt cards, audit trail)
-- [ ] 2.5 Add connector grant revocation commands reusing the shared audit/rules surfaces
-- [ ] 2.6 Add thin Tauri command modules and `src/lib/*.ts` wrappers for connector registry, lifecycle, permissions, sync events, and provider claims
+- [x] 2.1 Implement connector registry service for manifest registration, enable/disable, validation, trust status, and project binding
+- [ ] 2.2 Implement connector lifecycle service for launch, attach, disconnect, restart, crash handling, and no-silent-startup restore _(partial in PR #17: `restore_on_startup` + `set_state` only; launch/attach/disconnect/restart/crash-handling deferred to phase 3 with OMP connector integration)_
+- [x] 2.3 Implement capability negotiation and typed unsupported-capability responses
+- [x] 2.4 Implement permission-provider broker flows for commands, files, provider claims, chat sync, web UI/collab bridge, diagnostics, and analytics as extensions of the native tool-approval gateway (shared rules store, prompt cards, audit trail)
+- [x] 2.5 Add connector grant revocation commands reusing the shared audit/rules surfaces
+- [x] 2.6 Add thin Tauri command modules and `src/lib/*.ts` wrappers for connector registry, lifecycle, permissions, sync events, and provider claims
 
-## 3. OMP Connector
+<!-- Verification notes (phase 1+2 PR #17):
+  - models/connector.rs: ConnectorManifest, Connector, ConnectorState,
+    ConnectorCapability, ConnectorPermissionRequest, ConnectorGrantDecision,
+    ConnectorGrantScope, ProviderClaim, ConnectorEvent, ConnectorError.
+  - storage_service.rs: connectors, connector_grants, provider_claims tables;
+    shared audit_trail via connector scope (no parallel tables).
+  - events.rs: CONNECTOR_EVENT channel.
+  - connector_service.rs: register/list/get/set_enabled/set_state/delete,
+    negotiate, resolve_permission, record_grant, revoke_grants, list_grants,
+    claim_provider, approve/deny_claim, restore_on_startup (no auto-launch).
+  - commands/connectors.rs: 11 Tauri commands wired into invoke_handler.
+  - src/lib/connectors.ts: thin invoke wrappers + onConnectorEvent listener.
+  - docs/agents/agent-runtime.md: Connector Permission Gateway section.
+  - 9 Rust tests pass (state round-trip, capability round-trip, list empty,
+    register+get, negotiate supported, negotiate disabled fails, restore
+    marks disconnected, provider claim round-trip, grant record+revoke).
+  - tsc --noEmit pass, npm run build pass, cargo check pass, cargo test pass.
+-->
+
+## 3. OMP Connector (phase 2 — next PR)
 
 - [ ] 3.1 Build OMP connector registration/detection using existing OMP executable/version and project launch paths without modifying OMP
 - [ ] 3.2 Attach OMP connector sessions to a single PTY/process association that can back both raw terminal and native projection views

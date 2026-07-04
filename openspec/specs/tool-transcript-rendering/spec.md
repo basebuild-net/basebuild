@@ -1,0 +1,28 @@
+# tool-transcript-rendering Specification
+
+## Requirements
+
+### Requirement: Tool cards in the transcript
+Tool calls SHALL render as collapsed cards in message order showing tool name, argument summary, status, and duration; expanding reveals full arguments and results. Cards SHALL update live while streaming/executing. All interactive elements SHALL have tooltips and 0px radius per the design contract.
+
+#### Scenario: Live tool card
+- **WHEN** a `run_command` call executes
+- **THEN** its card shows a running state with streaming output, then final exit code and duration on completion
+
+### Requirement: Edit diffs and command output
+`edit_file`/`write_file` cards SHALL show a unified diff (added/removed lines); `run_command` cards SHALL show command text, size-capped interleaved output, exit code, and an "open in terminal" action that opens a workspace terminal tab at the same cwd. `read_file`/`search_files`/`list_files` cards SHALL summarize (path + ranges, match counts) without dumping full content.
+
+#### Scenario: Edit diff
+- **WHEN** an `edit_file` call succeeds
+- **THEN** the card renders a diff of exactly the changed region and the file path links to the file viewer
+
+#### Scenario: Open in terminal
+- **WHEN** the user clicks "open in terminal" on a command card
+- **THEN** a terminal tab opens at the command's cwd without re-running the command automatically
+
+### Requirement: Budget and interruption signals
+The transcript SHALL surface context-budget truncation notices, iteration-cap notices, and run-interrupted notices as distinct system rows, never silently.
+
+#### Scenario: Truncation notice
+- **WHEN** the context guard drops old turns to fit the model budget
+- **THEN** a system row states that older messages were truncated for this request

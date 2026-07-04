@@ -103,6 +103,10 @@ jobs:
           retention-days: 7
 
   release:
+    # Only runs for manual releases (workflow_dispatch with a version input).
+    # On push / pull_request there is no version, so the job is skipped
+    # instead of failing the version-bump verification.
+    if: github.event_name == 'workflow_dispatch' && inputs.version != ''
     needs: [check-frontend, check-rust, check-e2e]
     runs-on: windows-latest
     permissions:
@@ -225,7 +229,6 @@ jobs:
           echo "portable_artifact=$portable_name" >> "$GITHUB_ENV"
 
       - name: Upload portable artifact
-        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -234,7 +237,6 @@ jobs:
           gh release upload "$tag" --repo "${{ github.repository }}" "$portable_artifact" --clobber
 
       - name: Verify updater release assets
-        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -316,7 +318,6 @@ jobs:
           "
 
       - name: Record post-publish updater check
-        if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           endpoint="https://github.com/${{ github.repository }}/releases/latest/download/latest.json"

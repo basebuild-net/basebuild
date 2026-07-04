@@ -51,11 +51,18 @@ work, so plans survive machine changes and are reviewable in PRs.
 
 - `openspec/ROADMAP.md` is the execution queue: what's in flight, what's next,
   what needs re-scoping, and proposed plans that have no artifacts yet.
-- Refresh its status table after completing tasks:
+- **MUST, same commit** (AGENTS.md Invariant 12): any edit under
+  `openspec/changes/**` — checkbox flip, new proposal, re-scope, or archive —
+  is accompanied by:
 
 ```bash
 node scripts/openspec-status.mjs --write
 ```
 
+  plus a manual pass over the ROADMAP narrative sections (Now / Merged —
+  awaiting archive / Next / Proposed) so dependency gates and merge state match
+  reality. The script only refreshes the status table; the narrative is yours.
+- A PR that completes a change MUST move that change's roadmap entry and cite
+  the PR number.
 - Do not pre-generate artifacts for proposed plans whose dependencies are still
   in flight; generate them with `/propose` when their turn comes.

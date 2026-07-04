@@ -10,7 +10,6 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -18,11 +17,11 @@ use serde_json::Value;
 use tokio::process::Command;
 
 use rmcp::model::{
-    CallToolRequestParams, GetPromptRequestParams, JsonObject, Prompt,
+    CallToolRequestParams, GetPromptRequestParams, Prompt,
     Tool,
 };
-use rmcp::service::{Peer, RoleClient, RunningService};
-use rmcp::transport::{TokioChildProcess, StreamableHttpClientTransport};
+use rmcp::service::{RoleClient, RunningService};
+use rmcp::transport::TokioChildProcess;
 
 // ---------------------------------------------------------------------------
 // Config schema — omp-compatible `mcp.json`

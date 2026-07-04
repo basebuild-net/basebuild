@@ -144,6 +144,18 @@ impl GitService {
             })
             .collect())
     }
+
+    /// Check if a path is inside a git repository.
+    pub fn is_repo(path: impl AsRef<Path>) -> bool {
+        let output = std::process::Command::new("git")
+            .args(["rev-parse", "--is-inside-work-tree"])
+            .current_dir(path.as_ref())
+            .output();
+        match output {
+            Ok(out) => out.status.success(),
+            Err(_) => false,
+        }
+    }
 }
 
 /// Parse git's `%d` decorate output: ` (HEAD -> main, origin/main, tag: v1.0)`
