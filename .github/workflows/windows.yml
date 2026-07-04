@@ -62,6 +62,8 @@ jobs:
         working-directory: src-tauri
         run: cargo check
 
+      - name: Test
+        working-directory: src-tauri
         run: cargo test
 
   check-e2e:
