@@ -471,10 +471,52 @@ impl StorageService {
                     effort_level TEXT NOT NULL,
                     updated_at INTEGER NOT NULL
                 );
+
+                -- Connector permission gateway tables (additive).
+                CREATE TABLE IF NOT EXISTS connectors (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    manifest_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    transport TEXT NOT NULL DEFAULT 'pty',
+                    capabilities TEXT NOT NULL DEFAULT '[]',
+                    state TEXT NOT NULL DEFAULT 'registered',
+                    trusted INTEGER NOT NULL DEFAULT 0,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    project_path TEXT,
+                    last_error TEXT,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_connectors_project ON connectors(project_path);
+
+                CREATE TABLE IF NOT EXISTS connector_grants (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    connector_id TEXT NOT NULL,
+                    capability TEXT NOT NULL,
+                    decision TEXT NOT NULL,
+                    scope TEXT NOT NULL DEFAULT 'once',
+                    project_path TEXT,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_connector_grants_connector ON connector_grants(connector_id);
+
+                CREATE TABLE IF NOT EXISTS provider_claims (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    connector_id TEXT NOT NULL,
+                    provider_id TEXT NOT NULL,
+                    provider_label TEXT NOT NULL,
+                    approved INTEGER NOT NULL DEFAULT 0,
+                    denied INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_provider_claims_connector ON provider_claims(connector_id);
                 ",
             )
             .map_err(|error| format!("Failed to initialize Basebuild state database: {error}"))?;
-
         // Migration: add last_active_session_id to existing databases
         let has_column = connection
             .prepare("SELECT last_active_session_id FROM recent_projects LIMIT 0")

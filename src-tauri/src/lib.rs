@@ -13,7 +13,12 @@ static APP_HANDLE: LazyLock<Mutex<Option<AppHandle>>> = LazyLock::new(|| Mutex::
 use app_state::AppState;
 use commands::{
     agent::{agent_capabilities, agent_send, agent_start, agent_stop},
-     app::{app_version, open_url},
+    app::{app_version, open_url},
+    connectors::{
+        connector_approve_claim, connector_delete, connector_deny_claim, connector_get,
+        connector_list, connector_list_claims, connector_list_grants, connector_record_grant,
+        connector_register, connector_revoke_grants, connector_set_enabled,
+    },
     auth::{
         auth_fetch_profile, auth_get_token, auth_poll_device_flow, auth_sign_out,
         auth_start_device_flow, auth_status,
@@ -207,10 +212,9 @@ pub fn run() {
                     _ => {}
                 })
                 .build(app)?;
-
-            // Start the OMP telemetry polling loop (publishes omp-telemetry://update).
-            // Cheap: only polls when OMP is installed; otherwise emits detached state.
             crate::services::omp_telemetry_service::OmpTelemetryService::start_loop(app.handle().clone());
+            // Restore connectors: mark all as disconnected (no silent auto-launch).
+            let _ = crate::services::connector_service::ConnectorService::restore_on_startup();
             // Start the auto-sync loop (off by default; gates re-checked each tick).
             crate::services::sync_service::start_autosync_loop(app.handle().clone());
             // Start the freeze watchdog (heartbeat + freeze report + abort).
@@ -285,6 +289,18 @@ pub fn run() {
             pipeline_start,
             pipeline_cancel,
             pipeline_list_runs,
+            final_touch_delete_step,
+            connector_register,
+            connector_list,
+            connector_get,
+            connector_set_enabled,
+            connector_delete,
+            connector_list_grants,
+            connector_revoke_grants,
+            connector_record_grant,
+            connector_list_claims,
+            connector_approve_claim,
+            connector_deny_claim,
             pipeline_get_run,
             final_touch_list_steps,
             final_touch_create_step,

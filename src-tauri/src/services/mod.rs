@@ -6,6 +6,7 @@ pub mod command_discovery_service;
 pub mod catalog_sync_service;
 pub mod auth_service;
  pub mod config_pack_service;
+pub mod connector_service;
  pub mod file_service;
  pub mod git_service;
 pub mod omp_service;
