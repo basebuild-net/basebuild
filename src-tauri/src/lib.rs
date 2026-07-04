@@ -115,7 +115,9 @@ impl Default for CloseToTrayState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Install panic hook to capture crash info and open a GitHub issue
+    // Install panic hook: file-first, deadlock-free.
+    // Writes a crash report to disk before any lock/emit, then best-effort
+    // emits to the frontend via try_lock (never blocks on APP_HANDLE).
     std::panic::set_hook(Box::new(|info| {
         let payload = info.payload();
         let msg = if let Some(s) = payload.downcast_ref::<&str>() {
@@ -125,28 +127,32 @@ pub fn run() {
         } else {
             "Unknown panic".to_string()
         };
-        let location = info.location().map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column())).unwrap_or_default();
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_default();
         let backtrace = std::backtrace::Backtrace::force_capture();
-        let report = format!(
+        let summary = format!("Panic: {msg} at {location}");
+        let details = format!(
             "## Rust Crash Report\n\n**Message:** {msg}\n\n**Location:** {location}\n\n**Backtrace:**\n```\n{backtrace}\n```"
         );
-        let title = format!("Crash: {msg}");
-        let url = format!(
-            "https://github.com/basebuild-net/basebuild/issues/new?title={}&body={}",
-            urlencoding::encode(&title),
-            urlencoding::encode(&report)
-        );
-        eprintln!("{report}");
 
-        // Emit to the frontend so the ErrorBoundary can display the crash
-        if let Ok(handle) = APP_HANDLE.lock() {
+        // 1. File-first: write to disk before any lock acquisition.
+        let _ = crate::services::stability_service::StabilityReport::write(
+            "panic",
+            &summary,
+            &details,
+        );
+
+        // 2. Best-effort frontend emit via try_lock (never deadlocks).
+        if let Ok(handle) = APP_HANDLE.try_lock() {
             if let Some(app) = handle.as_ref() {
-                let _ = app.emit("rust://panic", &report);
+                let _ = app.emit("rust://panic", &details);
             }
         }
 
-
-        let _ = open::that(&url);
+        // 3. stderr for debugging.
+        eprintln!("{details}");
     }));
 
     tauri::Builder::default()

@@ -281,6 +281,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::create_dir_all(&dir);
 
+        std::env::set_var("BASEBUILD_HOME", SHARED_DIR.path());
         let report = StabilityReport::write(
             "panic",
             "Test panic summary",
@@ -290,15 +291,19 @@ mod tests {
         assert_eq!(report.kind, "panic");
         assert_eq!(report.summary, "Test panic summary");
 
+        std::env::set_var("BASEBUILD_HOME", SHARED_DIR.path());
         let read = StabilityReport::read(&report.id).unwrap();
         assert_eq!(read.summary, "Test panic summary");
         assert_eq!(read.details, "Test panic details\nwith backtrace");
 
+        std::env::set_var("BASEBUILD_HOME", SHARED_DIR.path());
         let list = StabilityReport::list().unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, report.id);
 
+        std::env::set_var("BASEBUILD_HOME", SHARED_DIR.path());
         StabilityReport::delete(&report.id).unwrap();
+        std::env::set_var("BASEBUILD_HOME", SHARED_DIR.path());
         let list_after = StabilityReport::list().unwrap();
         assert!(list_after.is_empty());
     }

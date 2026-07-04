@@ -196,6 +196,18 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return undefined as T;
     case "native_chat_tool_events":
       return [] as T;
+    case "stability_list_reports":
+      return [] as T;
+    case "stability_read_report":
+      return { id: "test", kind: "panic", timestamp: 0, summary: "Test", details: "Test", seen: false } as T;
+    case "stability_delete_report":
+    case "stability_mark_seen":
+      return undefined as T;
+    case "stability_unseen_count":
+      return 0 as T;
+    case "stability_recent_telemetry":
+    case "stability_violations":
+      return [] as T;
     case "detect_project":
       return { path: args.path as string, gitRoot: args.path as string, hasGit: true, hasOpenSpec: true, hasBasebuild: true } as T;
     case "list_sessions":

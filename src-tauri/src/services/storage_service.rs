@@ -938,10 +938,13 @@ mod tests {
         std::env::set_var("BASEBUILD_HOME", dir.path());
         // Initialize schema.
         let _ = StorageService::connect().unwrap();
+        let dir_path = dir.path().to_path_buf();
 
         let mut handles = Vec::new();
         for i in 0..4 {
+            let dp = dir_path.clone();
             handles.push(std::thread::spawn(move || {
+                std::env::set_var("BASEBUILD_HOME", &dp);
                 let conn = StorageService::connect().unwrap();
                 for j in 0..20 {
                     conn.execute(
@@ -956,7 +959,8 @@ mod tests {
             h.join().unwrap();
         }
 
-        // Verify all 80 rows landed.
+        // Re-set BASEBUILD_HOME in case another test clobbered it.
+        std::env::set_var("BASEBUILD_HOME", &dir_path);
         let conn = StorageService::connect().unwrap();
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM recent_projects", [], |row| row.get(0))
