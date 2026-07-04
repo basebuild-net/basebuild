@@ -226,6 +226,85 @@ macro_rules! timed {
     }};
 }
 
+// ─── Freeze watchdog ─────────────────────────────────────────────────────────
+
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
+
+/// Heartbeat interval: how often the watchdog posts a heartbeat to the main thread.
+const HEARTBEAT_INTERVAL_SECS: u64 = 2;
+/// Report threshold: if the main thread is unresponsive for this long, write a freeze report.
+const REPORT_THRESHOLD_SECS: u64 = 10;
+/// Abort threshold: if the main thread is unresponsive for this long, abort the process.
+const ABORT_THRESHOLD_SECS: u64 = 60;
+
+/// Last heartbeat completion timestamp (monotonic, nanos since watchdog start).
+static LAST_HEARTBEAT: AtomicI64 = AtomicI64::new(0);
+/// Whether the watchdog is running.
+static WATCHDOG_RUNNING: AtomicBool = AtomicBool::new(false);
+/// Watchdog start time (monotonic).
+static WATCHDOG_START: LazyLock<Mutex<Option<Instant>>> = LazyLock::new(|| Mutex::new(None));
+
+/// Start the freeze watchdog. Posts a heartbeat closure to the main thread every
+/// 2s and measures completion. If unresponsive beyond thresholds, writes a freeze
+/// report and optionally aborts.
+///
+/// Call from `app.setup()` after the Tauri app is ready.
+pub fn start_watchdog(app: tauri::AppHandle) {
+    if WATCHDOG_RUNNING.swap(true, Ordering::SeqCst) {
+        return; // Already running
+    }
+    let start = Instant::now();
+    *WATCHDOG_START.lock() = Some(start);
+    LAST_HEARTBEAT.store(0, Ordering::SeqCst);
+
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
+
+            // Post a heartbeat to the main thread and measure completion.
+            let heartbeat_done = std::sync::Arc::new(AtomicBool::new(false));
+            let done_clone = heartbeat_done.clone();
+            let app_clone = app.clone();
+
+            let _ = app_clone.run_on_main_thread(move || {
+                done_clone.store(true, Ordering::SeqCst);
+            });
+
+            // Wait up to the report threshold to see if the heartbeat completes.
+            let waited = Instant::now();
+            while !heartbeat_done.load(Ordering::SeqCst) {
+                if waited.elapsed() > Duration::from_secs(ABORT_THRESHOLD_SECS) {
+                    // Main thread is frozen beyond abort threshold. Write report and abort.
+                    let elapsed = start.elapsed().as_secs();
+                    let summary = format!("Freeze abort: main thread unresponsive for >{ABORT_THRESHOLD_SECS}s (uptime: {elapsed}s)");
+                    let telemetry = recent_telemetry(20);
+                    let tel_str = telemetry.iter().map(|t| format!("  {} - {}ms{} ({}s ago)", t.command, t.duration_ms, if t.violation { " [VIOLATION]" } else { "" }, t.timestamp)).collect::<Vec<_>>().join("\n");
+                    let details = format!("## Freeze Abort Report\n\n**Uptime:** {elapsed}s\n**Threshold:** {ABORT_THRESHOLD_SECS}s\n\n**Recent Commands:**\n```\n{tel_str}\n```");
+                    let _ = StabilityReport::write("abort", &summary, &details);
+                    eprintln!("{summary}");
+                    std::process::abort();
+                }
+                if waited.elapsed() > Duration::from_secs(REPORT_THRESHOLD_SECS) && LAST_HEARTBEAT.load(Ordering::SeqCst) == 0 {
+                    // First freeze report (only once per freeze).
+                    let elapsed = start.elapsed().as_secs();
+                    let summary = format!("Freeze detected: main thread unresponsive for >{REPORT_THRESHOLD_SECS}s (uptime: {elapsed}s)");
+                    let telemetry = recent_telemetry(20);
+                    let tel_str = telemetry.iter().map(|t| format!("  {} - {}ms{} ({}s ago)", t.command, t.duration_ms, if t.violation { " [VIOLATION]" } else { "" }, t.timestamp)).collect::<Vec<_>>().join("\n");
+                    let details = format!("## Freeze Report\n\n**Uptime:** {elapsed}s\n**Threshold:** {REPORT_THRESHOLD_SECS}s\n\n**Recent Commands:**\n```\n{tel_str}\n```");
+                    let _ = StabilityReport::write("freeze", &summary, &details);
+                    LAST_HEARTBEAT.store(-1, Ordering::SeqCst); // Mark as reported
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+
+            // Heartbeat completed — update timestamp.
+            LAST_HEARTBEAT.store(start.elapsed().as_nanos() as i64, Ordering::SeqCst);
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

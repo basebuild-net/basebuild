@@ -202,7 +202,8 @@ pub fn run() {
             crate::services::omp_telemetry_service::OmpTelemetryService::start_loop(app.handle().clone());
             // Start the auto-sync loop (off by default; gates re-checked each tick).
             crate::services::sync_service::start_autosync_loop(app.handle().clone());
-
+            // Start the freeze watchdog (heartbeat + freeze report + abort).
+            crate::services::stability_service::start_watchdog(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
