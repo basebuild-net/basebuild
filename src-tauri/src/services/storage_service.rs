@@ -586,6 +586,22 @@ impl StorageService {
             let _ = connection
                 .execute("ALTER TABLE plans ADD COLUMN change_name TEXT", []);
         }
+        // Migration (schematic-grounded-planning): add grounding + anchor to
+        // ideas. Both nullable: legacy ideas and freeform captures carry none.
+        let has_grounding = connection
+            .prepare("SELECT grounding FROM ideas LIMIT 0")
+            .is_ok();
+        if !has_grounding {
+            let _ = connection
+                .execute("ALTER TABLE ideas ADD COLUMN grounding TEXT NOT NULL DEFAULT ''", []);
+        }
+        let has_anchor = connection
+            .prepare("SELECT anchor FROM ideas LIMIT 0")
+            .is_ok();
+        if !has_anchor {
+            let _ = connection
+                .execute("ALTER TABLE ideas ADD COLUMN anchor TEXT", []);
+        }
 
         // Migration (plan-pipeline-harness): rename plan statuses
         // waiting → ready and in_progress → running. Idempotent: re-running

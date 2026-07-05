@@ -1023,6 +1023,8 @@ impl NativeChatService {
                 title,
                 &description,
                 category_id,
+                "",
+                None,
             );
         }
     }

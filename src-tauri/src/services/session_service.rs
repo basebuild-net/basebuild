@@ -326,24 +326,11 @@ impl SessionService {
         Ok(())
     }
 
-    /// Seed default idea categories (SEO, Optimization, Design, New Features)
-    /// for a session IF it has none. Idempotent: never duplicates existing
-    /// categories. Called before category-directed generation and on the
-    /// Categories tab open.
-    pub fn ensure_default_categories(session_id: &str) -> DbResult<()> {
-        let existing = Self::list_categories(session_id)?;
-        if !existing.is_empty() {
-            return Ok(());
-        }
-        let defaults = [
-            ("SEO", "Search engine optimization: rankings, structured data, crawlability, page speed."),
-            ("Optimization", "Performance, efficiency, refactors, caching, resource usage."),
-            ("Design", "UI/UX, visual polish, accessibility, interaction quality."),
-            ("New Features", "New capabilities, workflows, and product surfaces."),
-        ];
-        for (name, desc) in defaults {
-            Self::create_category(session_id, name, desc)?;
-        }
+    /// No-op retained for API compatibility. Default category seeding was
+    /// removed (schematic-grounded-planning): categories are project-derived
+    /// via "Generate categories from project" or manual add. Existing seeded
+    /// categories in old sessions are preserved as user data.
+    pub fn ensure_default_categories(_session_id: &str) -> DbResult<()> {
         Ok(())
     }
     pub fn create_idea(
@@ -351,6 +338,8 @@ impl SessionService {
         title: &str,
         description: &str,
         category_id: Option<&str>,
+        grounding: &str,
+        anchor: Option<&str>,
     ) -> DbResult<Idea> {
         let idea = Idea {
             id: gen_id(),
@@ -359,13 +348,15 @@ impl SessionService {
             title: title.to_string(),
             description: description.to_string(),
             status: IdeaStatus::Concept,
+            grounding: grounding.to_string(),
+            anchor: anchor.map(str::to_string),
             created_at: now(),
             updated_at: now(),
         };
         let conn = StorageService::connect()?;
         conn.execute(
-            "INSERT INTO ideas (id, session_id, category_id, title, description, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![idea.id, idea.session_id, idea.category_id, idea.title, idea.description, idea.status.as_str(), idea.created_at, idea.updated_at],
+            "INSERT INTO ideas (id, session_id, category_id, title, description, status, grounding, anchor, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![idea.id, idea.session_id, idea.category_id, idea.title, idea.description, idea.status.as_str(), idea.grounding, idea.anchor, idea.created_at, idea.updated_at],
         ).map_err(|e| e.to_string())?;
         Self::touch_session(session_id)?;
         Ok(idea)
@@ -374,7 +365,7 @@ impl SessionService {
     pub fn list_ideas(session_id: &str) -> DbResult<Vec<Idea>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, category_id, title, description, status, created_at, updated_at FROM ideas WHERE session_id = ?1 ORDER BY created_at ASC",
+            "SELECT id, session_id, category_id, title, description, status, grounding, anchor, created_at, updated_at FROM ideas WHERE session_id = ?1 ORDER BY created_at ASC",
         ).map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map(params![session_id], |row| {
@@ -386,8 +377,10 @@ impl SessionService {
                     title: row.get(3)?,
                     description: row.get(4)?,
                     status: IdeaStatus::from_str(&status_str),
-                    created_at: row.get(6)?,
-                    updated_at: row.get(7)?,
+                    grounding: row.get(6)?,
+                    anchor: row.get(7)?,
+                    created_at: row.get(8)?,
+                    updated_at: row.get(9)?,
                 })
             })
             .map_err(|e| e.to_string())?;

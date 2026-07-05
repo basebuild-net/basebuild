@@ -11,7 +11,6 @@ pub struct IdeaCategory {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Idea {
     pub id: String,
     pub session_id: String,
@@ -19,6 +18,12 @@ pub struct Idea {
     pub title: String,
     pub description: String,
     pub status: IdeaStatus,
+    /// Concrete evidence (real files, functions, observed gaps) justifying the
+    /// idea. Required by the capture tool; persisted for display and audit.
+    pub grounding: String,
+    /// Optional schematic element the idea serves (Vision / End goal / Current
+    /// priority). When empty, the UI flags the idea "outside current focus".
+    pub anchor: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }

@@ -175,7 +175,7 @@ pub fn registry() -> Vec<ToolDef> {
         ToolDef {
             schema: ToolSchema {
                 name: "propose_ideas".to_string(),
-                description: "Capture one or more structured ideas during a generate-ideas run. Each idea has a title and a short description, and is optionally tagged with a category. Call this tool with the ideas as they are formed; do not emit them as prose. The user promotes or rejects each card in the UI.".to_string(),
+                description: "Capture one or more structured ideas during a generate-ideas run. Each idea must cite concrete grounding (real files, functions, or observed gaps); ideas without grounding are rejected. An optional anchor names the schematic element (Vision / End goal / Current priority) the idea serves. Call this tool with ideas as they are formed; do not emit them as prose.".to_string(),
                 parameters: json!({
                     "type": "object",
                     "properties": {
@@ -186,9 +186,11 @@ pub fn registry() -> Vec<ToolDef> {
                                 "type": "object",
                                 "properties": {
                                     "title": { "type": "string", "description": "Short title (max 12 words)." },
-                                    "description": { "type": "string", "description": "1-2 sentence description of the idea." }
+                                    "description": { "type": "string", "description": "1-2 sentence description of the idea." },
+                                    "grounding": { "type": "string", "description": "Concrete evidence justifying the idea: real files, functions, or observed gaps. Required." },
+                                    "anchor": { "type": "string", "description": "Optional schematic element served (Vision / End goal / Current priority). Omit if outside current focus." }
                                 },
-                                "required": ["title", "description"]
+                                "required": ["title", "description", "grounding"]
                             }
                         },
                         "categoryId": { "type": "string", "description": "Optional category id to tag every idea in this batch with (e.g. for category-directed generation)." }

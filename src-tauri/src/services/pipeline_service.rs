@@ -320,6 +320,8 @@ impl PipelineService {
                 &idea.title,
                 &idea.description,
                 category_id.as_deref(),
+                "",
+                None,
             )?;
             idea_ids.push(created.id);
         }
