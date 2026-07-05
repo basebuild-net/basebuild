@@ -33,10 +33,18 @@ node scripts/openspec-status.mjs --write
    bridge + verification remain (tasks 2.2 partial, 3.1–6.5). Permission broker
    extends the merged `native-agent-loop` approval substrate (modes, rules,
    prompts, audit trail); the task 1.1 merge gate is satisfied as of PR #9.
-
+3. `basebuild-planning-skill` — portable planning suite: `skills/basebuild-planning`
+   (categories → ideas → iterative picking → executor-proof plans stored under
+   `.basebuild/`; engine-pluggable — native artifacts or detected planning
+   skills like OpenSpec), schematic skill v2 (Vision section, repo-fact
+   prefill, re-alignment mode, planning pairing), removes the stale
+   `basebuild-idea-generation` skill. The `.basebuild` file schema is the
+   future app interop contract. Proposal + references complete; `SKILL.md`
+   implementation in progress. No app-code overlap with
+   `unified-planning-workspace` (SQLite/UI vs files).
 ### Next (specced, ready to start)
 
-3. `omp-terminal-usage-sync` — day-one OMP workflow on the installed build:
+4. `omp-terminal-usage-sync` — day-one OMP workflow on the installed build:
    fix dead PTY output/input/resize plumbing (omp.exe spawns but renders
    nothing), stale-tab disconnected states, omp 16.x telemetry parser drift
    (`reports[].limits[]`), manual Sync-now ungated from auto-sync with
@@ -46,17 +54,17 @@ node scripts/openspec-status.mjs --write
    empty-chat hygiene. Diagnosis-complete from 2026-07-05 installed-build
    (v0.0.12) testing. `session-lifecycle` canonical spec landed via
    `planning-system-qol` archive (PR #19) — dependency satisfied.
-4. `file-viewer-editor` — file tabs become the single view/edit/diff
+5. `file-viewer-editor` — file tabs become the single view/edit/diff
    surface: syntax-highlighted virtualized viewing, markdown preview,
    images, explicit-save editing with mtime conflict guard, and unified
    diff mode fed from the Source panel (staged/unstaged/untracked).
    Provides the rendering surface `diff-review-workflow` can reuse.
-5. `harness-context-files` — system-prompt assembly: AGENTS.md discovery,
+6. `harness-context-files` — system-prompt assembly: AGENTS.md discovery,
    schematic injection, skills metadata, context inspector. Feeds the merged
    budget guard; no remaining gate.
-6. `native-app-login-mcp` — device-auth account connection + first-party usage
+7. `native-app-login-mcp` — device-auth account connection + first-party usage
    sync with basebuild.net. Independent of everything above.
-7. `diff-review-workflow` — per-run changeset baseline, file-level review
+8. `diff-review-workflow` — per-run changeset baseline, file-level review
    (approve/revert/send-back), review gate before commit/PR final touches.
    **After `plan-pipeline-harness`** (archived PR #15 — gate satisfied);
    pairs with `file-viewer-editor`'s diff surface.
@@ -67,6 +75,9 @@ node scripts/openspec-status.mjs --write
 |---|---|---|
 |`session-compaction`|Summarize-and-continue history compaction past the truncation guard; explicitly deferred out of `native-agent-loop`.|unblocked — `native-agent-loop` archived (PR #9)|
 |`harness-subagents`|Delegate scoped subtasks to parallel native sessions (omp task-tool parity) on top of the run queue + worktrees.|`plan-pipeline-harness` archived (PR #15) — gate satisfied|
+|`plan-status-rename`|App DB/UI status rename `openspec → planned` + AGENTS.md Invariant 9, matching the `.basebuild` file schema.|`basebuild-planning-skill`|
+|`planning-file-ingestion`|App reads/syncs `.basebuild` planning files (ideas/plans/categories) into the planning workspace.|`basebuild-planning-skill`, `unified-planning-workspace`|
+|`plan-import`|Import pre-existing external plans (unexecuted openspec changes etc.) into `.basebuild` plan records.|`basebuild-planning-skill`|
 
 Full artifacts are deliberately **not** pre-generated for proposed plans —
 stale specs are worse than none.
@@ -81,6 +92,7 @@ _Last refreshed: 2026-07-05 (`node scripts/openspec-status.mjs --write`)_
 |---|---|---|---|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
 |`unified-planning-workspace`|32/34|in progress|`/apply unified-planning-workspace`|
+|`basebuild-planning-skill`|0/18|not started|`/apply basebuild-planning-skill`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
