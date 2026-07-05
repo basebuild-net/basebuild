@@ -97,10 +97,16 @@ export function AppShell({ updates }: AppShellProps) {
     return () => clearInterval(interval);
   }, []);
   useEffect(() => {
-    if (activeProjectPath && session.sessions.length === 0 && !session.activeSessionId) {
+    // Launch does not mint sessions: if sessions exist, select the most
+    // recent (created_at DESC from the backend). Only create a session when
+    // the project has zero sessions (first open) — never on restart.
+    if (!activeProjectPath || session.activeSessionId) return;
+    if (session.sessions.length > 0) {
+      void session.selectSession(session.sessions[0].id);
+    } else if (!session.activeSession) {
       void session.createSession();
     }
-  }, [activeProjectPath, session.sessions.length]);
+  }, [activeProjectPath, session.sessions.length, session.activeSessionId, session.activeSession, session]);
 
   // Auto-create a chat tab when a session is active but has no tabs
   useEffect(() => {
@@ -306,7 +312,8 @@ export function AppShell({ updates }: AppShellProps) {
       if (existingChat) {
         session.setActiveTabId(existingChat.id);
       } else {
-        await session.createTab("chat", `Chat ${session.tabs.length + 1}`);
+        const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
+        await session.createTab("chat", `Chat ${chatCount}`);
       }
       // Inject the draft prompt — ChatPanel consumes it once
       setChatDraft(draftPrompt);
@@ -431,7 +438,8 @@ export function AppShell({ updates }: AppShellProps) {
         return;
       }
       if (kind === "chat") {
-        await session.createTab("chat", `Chat ${session.tabs.length + 1}`);
+        const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
+        await session.createTab("chat", `Chat ${chatCount}`);
         return;
       }
       if (kind === "omp") {
@@ -702,6 +710,7 @@ export function AppShell({ updates }: AppShellProps) {
       <FocusPlanModal
         plan={focusingPlan}
         open={!!focusingPlan}
+        projectPath={activeProjectPath ?? ""}
         onClose={() => setFocusingPlan(null)}
         onSetStatus={plans.setPlanStatus}
         onCopyReference={handleCopyReference}

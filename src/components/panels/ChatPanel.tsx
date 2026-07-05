@@ -40,6 +40,7 @@ import {
   type NativeSetupRequired,
   type NativeToolEvent,
 } from "../../lib/native-chat";
+import { resolveToolApproval, listPlanProposals, acceptPlanProposal, dismissPlanProposal, type PlanProposal } from "../../lib/planProposals";
 import { useIdeaState } from "../../state/ideas";
 import type { Idea } from "../../lib/ideas";
 import { useLogs } from "../../state/log";
@@ -71,22 +72,60 @@ function formatMetric(value: number | null | undefined, suffix = "") {
   return `${Math.round(value * 10) / 10}${suffix}`;
 }
 
-function ToolEventCard({ event }: { event: NativeToolEvent }) {
+function ToolEventGroup({ events }: { events: NativeToolEvent[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const runningCount = events.filter((e) => e.status === "running" || e.status === "pending").length;
+  const latest = events[events.length - 1];
+  const statusLabel = runningCount > 0 ? "running" : latest.status;
+  return (
+    <div className="tool-card tool-card-group" title={`${events.length} tool calls in this group`}>
+      <div className="tool-card-header" onClick={() => setExpanded(!expanded)} role="button" tabIndex={0}>
+        <span className="tool-card-icon">🔧</span>
+        <span className="tool-card-name">{events.length} tool calls</span>
+        <span className={`tool-card-status tool-card-status-${runningCount > 0 ? "running" : "success"}`}>{statusLabel}</span>
+        <span className="tool-card-summary-truncated text-muted text-sm">latest: {latest.kind.replace(/_/g, " ")} — {latest.summary.slice(0, 80)}{latest.summary.length > 80 ? "…" : ""}</span>
+        <span className="tool-card-expand">{expanded ? "▼" : "▶"}</span>
+      </div>
+      {expanded ? (
+        <div className="tool-card-body tool-card-group-list">
+          {events.map((ev) => <ToolEventCard key={ev.id} event={ev} />)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ReasoningFold({ reasoning }: { reasoning: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="chat-reasoning-fold" title="Model thinking — click to expand">
+      <button
+        className="chat-reasoning-toggle"
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+      >
+        {expanded ? "▼" : "▶"} Thinking…
+      </button>
+      {expanded ? (
+        <pre className="chat-reasoning-content">{reasoning}</pre>
+      ) : null}
+    </div>
+  );
+}
+
+function ToolEventCard({ event, onResolveApproval }: { event: NativeToolEvent; onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void }) {
   const [expanded, setExpanded] = useState(false);
   const isRunning = event.status === "running" || event.status === "pending";
   const isError = event.status === "error" || event.status === "denied";
-  const isApproval = event.kind === "approval" || event.kind === "request_tool_approval";
+  const isApproval = event.kind === "approval" || event.kind === "request_tool_approval" || event.status === "pending";
   const isCommand = event.kind === "run_command" || event.kind === "command";
   const isEdit = event.kind === "edit_file" || event.kind === "write_file";
   const isMetrics = event.kind === "request_metrics";
   const icon = isApproval ? "🔐" : isCommand ? "▶" : isEdit ? "✎" : isMetrics ? "📊" : "🔧";
   const statusClass = isRunning ? "running" : isError ? "error" : event.status === "success" || event.status === "recorded" || event.status === "allow" ? "success" : "info";
 
-  // Detect diff content in summary for edit_file/write_file
   const hasDiff = isEdit && /^\+|-/m.test(event.summary);
   const diffLines = hasDiff ? event.summary.split("\n") : [];
-
-  // Extract file path from summary (e.g. "Edited src/foo.ts: ..." or "Wrote src/bar.ts")
   const filePathMatch = event.summary.match(/(?:Edited|Wrote|Modified)\s+(.+?)(?::|\s)/);
   const filePath = filePathMatch?.[1] ?? null;
 
@@ -115,18 +154,11 @@ function ToolEventCard({ event }: { event: NativeToolEvent }) {
       {!expanded && event.summary ? (
         <div className="tool-card-summary-truncated text-muted text-sm">{event.summary.slice(0, 120)}{event.summary.length > 120 ? "…" : ""}</div>
       ) : null}
-      {/* Inline approval buttons for pending approvals */}
-      {isApproval && isRunning ? (
+      {isApproval && isRunning && onResolveApproval ? (
         <div className="tool-card-actions">
-          <button className="btn btn-sm btn-primary" title="Allow this tool call once" type="button">
-            Allow Once
-          </button>
-          <button className="btn btn-sm" title="Allow all calls to this tool for this session" type="button">
-            Allow Session
-          </button>
-          <button className="btn btn-sm" title="Deny this tool call" type="button">
-            Deny
-          </button>
+          <button className="btn btn-sm btn-primary" title="Allow this tool call once" type="button" onClick={() => onResolveApproval("allow")}>Allow Once</button>
+          <button className="btn btn-sm" title="Allow all calls to this tool for this session" type="button" onClick={() => onResolveApproval("allow_session")}>Allow Session</button>
+          <button className="btn btn-sm" title="Deny this tool call" type="button" onClick={() => onResolveApproval("deny")}>Deny</button>
         </div>
       ) : null}
     </div>
@@ -181,7 +213,7 @@ export function ChatPanel({
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelFilter, setModelFilter] = useState("");
-
+  const [proposals, setProposals] = useState<PlanProposal[]>([]);
   const sendTimerRef = useRef<number | null>(null);
   const assistantBufferRef = useRef("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -326,7 +358,99 @@ export function ChatPanel({
     };
   }, [nativeMode, nativeSessionId]);
 
-  // Legacy mode: start agent
+  // Native mode: listen for live tool events (approval requests + tool cards)
+  useEffect(() => {
+    if (!nativeMode || !nativeSessionId) return;
+    const unlistenTool = listen<{
+      sessionId: string;
+      toolCallId?: string;
+      toolName: string;
+      status: string;
+      summary: string;
+      decision?: string;
+      ruleSource?: string;
+    }>("native-chat://tool-event", (event) => {
+      if (event.payload.sessionId !== nativeSessionId) return;
+      const id = event.payload.toolCallId ?? `te-${Date.now()}-${Math.random()}`;
+      setToolEvents((prev) => {
+        const existing = prev.find((e) => e.id === id);
+        if (existing) {
+          return prev.map((e) => e.id === id ? { ...e, status: event.payload.status, summary: event.payload.summary, kind: event.payload.toolName } : e);
+        }
+        return [...prev, {
+          id,
+          sessionId: nativeSessionId,
+          messageId: null,
+          kind: event.payload.toolName,
+          status: event.payload.status,
+          summary: event.payload.summary,
+          createdAt: Math.floor(Date.now() / 1000),
+        }];
+      });
+    });
+    const unlistenApproval = listen<{
+      sessionId: string;
+      toolCallId: string;
+      toolName: string;
+      command?: string;
+      arguments: string;
+    }>("native-chat://approval-request", (event) => {
+      if (event.payload.sessionId !== nativeSessionId) return;
+      const cmd = event.payload.command ?? "";
+      const summary = cmd ? `${event.payload.toolName}: ${cmd}` : `${event.payload.toolName} approval required`;
+      setToolEvents((prev) => [...prev, {
+        id: event.payload.toolCallId,
+        sessionId: nativeSessionId,
+        messageId: null,
+        kind: "approval",
+        status: "pending",
+        summary,
+        createdAt: Math.floor(Date.now() / 1000),
+      }]);
+    });
+    return () => {
+      void unlistenTool.then((fn) => fn());
+      void unlistenApproval.then((fn) => fn());
+    };
+  }, [nativeMode, nativeSessionId]);
+
+  // Handle approval resolution from the UI
+  const handleResolveApproval = useCallback(async (toolCallId: string, decision: "allow" | "allow_session" | "deny") => {
+    try {
+      await resolveToolApproval(toolCallId, decision);
+      // Update the tool event status optimistically
+      setToolEvents((prev) => prev.map((e) => e.id === toolCallId ? { ...e, status: decision === "deny" ? "denied" : "approved" } : e));
+    } catch (e) {
+      addLog("error", "Failed to resolve approval", e instanceof Error ? e.message : String(e));
+    }
+  }, [addLog]);
+
+  // Load proposals when the session changes
+  useEffect(() => {
+    if (!nativeSessionId) {
+      setProposals([]);
+      return;
+    }
+    listPlanProposals(nativeSessionId).then(setProposals).catch(() => setProposals([]));
+  }, [nativeSessionId]);
+
+  const handleAcceptProposal = useCallback(async (proposalId: string) => {
+    try {
+      const updated = await acceptPlanProposal(proposalId);
+      setProposals((prev) => prev.map((p) => p.id === proposalId ? updated : p));
+    } catch (e) {
+      addLog("error", "Failed to accept proposal", e instanceof Error ? e.message : String(e));
+    }
+  }, [addLog]);
+
+  const handleDismissProposal = useCallback(async (proposalId: string) => {
+    try {
+      const updated = await dismissPlanProposal(proposalId);
+      setProposals((prev) => prev.map((p) => p.id === proposalId ? updated : p));
+    } catch (e) {
+      addLog("error", "Failed to dismiss proposal", e instanceof Error ? e.message : String(e));
+    }
+  }, [addLog]);
   useEffect(() => {
     if (nativeMode) return;
     let cancelled = false;
@@ -816,54 +940,67 @@ export function ChatPanel({
             <span>TTLT {formatMetric(metrics.avgTtltMs, "ms")}</span>
           </div>
         ) : null}
-
-        {renderMessages.length === 0 && !streaming && nativeMode ? (
-          <div className="chat-empty-state">
-            <Brain size={24} />
-            <h3>Chat ready — {providerName} · {modelName}</h3>
-            <p>
-              Type below and press Enter to send. Turns run against the selected provider and model, and are
-              stored locally with real metrics.
-            </p>
-            {providerDegraded ? (
-              <button
-                className="btn btn-sm"
-                type="button"
-                title={`Connect ${providerName} to enable this model`}
-                onClick={() => {
-                  setLoginError(null);
-                  setShowLogin(true);
-                }}
-              >
-                <Key size={11} /> Connect {providerName}
-              </button>
-            ) : null}
+        {nativeMode && toolEvents.length > 0 ? (
+          <div className="chat-tool-events">
+            {(() => {
+              const groups: { type: "single" | "group"; events: typeof toolEvents }[] = [];
+              for (const ev of toolEvents) {
+                const isApproval = ev.kind === "approval" || ev.status === "pending";
+                if (isApproval) {
+                  groups.push({ type: "single", events: [ev] });
+                } else {
+                  const last = groups[groups.length - 1];
+                  if (last && last.type === "group") {
+                    last.events.push(ev);
+                  } else {
+                    groups.push({ type: "group", events: [ev] });
+                  }
+                }
+              }
+              return groups.map((g, i) => {
+                if (g.type === "single" || g.events.length === 1) {
+                  const ev = g.events[0];
+                  return <ToolEventCard key={ev.id} event={ev} onResolveApproval={ev.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined} />;
+                }
+                return <ToolEventGroup key={`group-${i}`} events={g.events} />;
+              });
+            })()}
           </div>
         ) : null}
 
+        {nativeMode && proposals.length > 0 ? (
+          <div className="chat-proposals">
+            {proposals.filter((p) => p.state === "proposed").map((p) => (
+              <div key={p.id} className="proposal-card" title={`Plan proposal: ${p.title}`}>
+                <div className="proposal-card-header">
+                  <span className="proposal-card-title">{p.title}</span>
+                </div>
+                <p className="proposal-card-description text-sm text-muted">{p.description}</p>
+                {p.goal ? <p className="proposal-card-goal text-sm"><strong>Goal:</strong> {p.goal}</p> : null}
+                <div className="proposal-card-actions">
+                  <button className="btn btn-sm btn-primary" title="Accept this proposal and create a draft plan" type="button" onClick={() => void handleAcceptProposal(p.id)}>Accept</button>
+                  <button className="btn btn-sm" title="Dismiss this proposal" type="button" onClick={() => void handleDismissProposal(p.id)}>Dismiss</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {renderMessages.map((msg, index) => {
           const key = "id" in msg ? String(msg.id) : `legacy-${index}`;
           const isOfflineTurn =
             "providerId" in msg && msg.role === "assistant" && msg.providerId === LOCAL_PROVIDER_ID;
+          const reasoning = "reasoning" in msg ? (msg as NativeChatMessage).reasoning : null;
           return (
             <div key={key} className={`chat-message chat-message-${msg.role}`}>
               <span className="chat-message-role">
                 {msg.role === "user" ? "You" : msg.role === "assistant" ? "Basebuild" : "System"}
                 {isOfflineTurn ? <span className="chat-offline-tag" title="No external model was contacted">Offline</span> : null}
               </span>
+              {reasoning ? <ReasoningFold reasoning={reasoning} /> : null}
               <pre className="chat-message-content">{msg.content}</pre>
             </div>
           );
         })}
-
-        {nativeMode && toolEvents.length > 0 ? (
-          <div className="chat-tool-events">
-            {toolEvents.map((ev) => (
-              <ToolEventCard key={ev.id} event={ev} />
-            ))}
-          </div>
-        ) : null}
-
 
         {streaming && reasoningText ? (
           <div className="chat-message chat-message-assistant chat-message-reasoning" title="Live chain-of-thought from the model. Final answer follows.">

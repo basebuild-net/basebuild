@@ -989,7 +989,18 @@ a { color: inherit; text-decoration: none; }
 .diff-del { color: var(--bb-danger, #c53030); background: rgba(197,48,48,0.1); display: block; }
 .diff-ctx { color: var(--bb-muted); display: block; }
 .tool-card-actions { display: flex; gap: 4px; padding: 4px 8px; border-top: 1px solid var(--bb-border); }
-.chat-system-row { font-size: 10px; color: var(--bb-muted); padding: 2px 8px; font-style: italic; align-self: center; }
+.chat-reasoning-fold { border-left: 2px solid var(--bb-border); margin: 4px 0; opacity: 0.8; }
+.chat-reasoning-toggle { background: none; border: 0; color: var(--bb-muted); font-size: 10px; font-weight: 600; cursor: pointer; padding: 2px 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+.chat-reasoning-toggle:hover { color: var(--bb-text); }
+.chat-reasoning-content { font-family: var(--bb-font); font-size: 11px; font-style: italic; color: var(--bb-muted); white-space: pre-wrap; word-break: break-word; margin: 4px 6px; max-height: 200px; overflow-y: auto; }
+.chat-proposals { display: flex; flex-direction: column; gap: 6px; padding: 4px; }
+.proposal-card { border: 1px solid var(--bb-border); background: var(--bb-surface); border-radius: 0; padding: 8px; }
+.proposal-card-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.proposal-card-title { font-size: 12px; font-weight: 600; flex: 1; }
+.proposal-card-description { margin: 0 0 4px; font-size: 11px; color: var(--bb-muted); }
+.proposal-card-actions { display: flex; gap: 4px; }
+.tool-card-group { border: 1px solid var(--bb-border); background: var(--bb-surface); border-radius: 0; font-size: 11px; }
+.tool-card-group-list { display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow-y: auto; padding: 4px; }
 .chat-loading { padding: 8px; color: var(--bb-muted); font-size: 11px; font-style: italic; }
 .chat-login-header { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
 .chat-login-header span { flex: 1; }

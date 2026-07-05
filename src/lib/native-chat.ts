@@ -18,6 +18,7 @@ export type NativeChatMessage = {
   sessionId: string;
   role: "user" | "assistant" | "system";
   content: string;
+  reasoning?: string | null;
   sortOrder: number;
   providerId: string | null;
   modelId: string | null;

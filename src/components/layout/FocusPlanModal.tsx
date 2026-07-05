@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { CheckCircle, Clock, Copy, TerminalSquare, X } from "lucide-react";
 import type { Plan, PlanFocusContext, PlanStatus } from "../../lib/plans";
 import { PLAN_STATUS_LABEL } from "../../lib/plans";
-
+import { openspecTaskProgress } from "../../lib/openspec";
 type FocusPlanModalProps = {
   plan: Plan | null;
   open: boolean;
+  projectPath: string;
   onClose: () => void;
   onSetStatus: (id: string, status: PlanStatus) => void;
   onCopyReference: (refId: string) => void;
@@ -16,6 +17,7 @@ type FocusPlanModalProps = {
 export function FocusPlanModal({
   plan,
   open,
+  projectPath,
   onClose,
   onSetStatus,
   onCopyReference,
@@ -25,17 +27,21 @@ export function FocusPlanModal({
   const [notes, setNotes] = useState("");
   const [files, setFiles] = useState("");
   const [terminalTail, setTerminalTail] = useState("");
+  const [taskProgress, setTaskProgress] = useState<{ completed: number; total: number } | null>(null);
 
   useEffect(() => {
     if (!plan) {
-      setNotes("");
-      setFiles("");
-      setTerminalTail("");
+      setTaskProgress(null);
       return;
     }
     setNotes(plan.context?.notes ?? "");
-    setFiles(plan.context?.files?.join("\n") ?? "");
-    setTerminalTail(plan.context?.terminalOutputTail ?? "");
+    if (plan.changeName) {
+      openspecTaskProgress(projectPath, plan.changeName)
+        .then(setTaskProgress)
+        .catch(() => setTaskProgress(null));
+    } else {
+      setTaskProgress(null);
+    }
   }, [plan, open]);
 
   if (!open || !plan) return null;
@@ -74,8 +80,12 @@ export function FocusPlanModal({
           <div className="card stack-sm" style={{ background: "var(--bb-surface)" }}>
             <span className="text-sm text-muted">Status</span>
             <span className="pill">{PLAN_STATUS_LABEL[plan.status]}</span>
+            {taskProgress && taskProgress.total > 0 ? (
+              <span className="text-sm text-muted" title="OpenSpec task progress from tasks.md">
+                · {taskProgress.completed}/{taskProgress.total} tasks
+              </span>
+            ) : null}
           </div>
-
           <div className="card stack-sm">
             <span className="text-sm text-muted">Description</span>
             <p>{plan.description}</p>
