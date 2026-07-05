@@ -17,21 +17,32 @@ impl StorageService {
     }
 
     pub fn connect() -> Result<Connection, String> {
+        // Test isolation guard: in cfg(test) builds, BASEBUILD_HOME MUST be set
+        // to an isolated temp dir. This catches tests that write to the user's
+        // real ~/.basebuild/state.db (observed: /test/project-* rows in prod DB).
+        #[cfg(test)]
+        if std::env::var_os("BASEBUILD_HOME").is_none() {
+            return Err(
+                "StorageService::connect() called in a test without BASEBUILD_HOME set. \
+                 Use crate::test_util::test::lock_db(&tempdir) to isolate the DB."
+                    .to_string(),
+            );
+        }
         let db_path = Self::state_db_path()?;
         let connection = Connection::open(db_path)
             .map_err(|error| format!("Failed to open Basebuild state database: {error}"))?;
 
         // ── SQLite robustness pragmas ──────────────────────────────────────
-        // WAL: readers don't block writers; sticky (set once at startup, but
-        // idempotent per-connect so every connection sees the right mode).
-        connection
-            .pragma_update(None, "journal_mode", "WAL")
-            .map_err(|e| format!("Failed to set WAL journal mode: {e}"))?;
-        // busy_timeout: absorb writer bursts from multiple threads (queue,
-        // telemetry, agent loop) without returning SQLITE_BUSY immediately.
+        // busy_timeout FIRST: absorb writer bursts from multiple threads so
+        // subsequent pragma_update calls wait instead of returning SQLITE_BUSY.
         connection
             .busy_timeout(std::time::Duration::from_millis(5000))
             .map_err(|e| format!("Failed to set busy_timeout: {e}"))?;
+        // WAL: readers don't block writers; sticky (set once at startup, but
+        // idempotent per-connect so every connection sees the right mode).
+        // Ignore "database is locked" here — WAL is already set by the first
+        // connection; a concurrent set just confirms the mode.
+        let _ = connection.pragma_update(None, "journal_mode", "WAL");
         // Normal synchronous is safe with WAL and avoids the fsync-per-commit
         // cost of FULL.
         connection
@@ -514,6 +525,24 @@ impl StorageService {
                     FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE
                 );
                 CREATE INDEX IF NOT EXISTS idx_provider_claims_connector ON provider_claims(connector_id);
+
+                -- Structured plan proposals captured from generate-plans runs.
+                -- Append-only across regenerations; accepted proposals link a
+                -- draft plan via plan_id. Reloads with the session.
+                CREATE TABLE IF NOT EXISTS plan_proposals (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    session_id TEXT NOT NULL,
+                    run_id TEXT,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    goal TEXT NOT NULL DEFAULT '',
+                    suggested_change_name TEXT NOT NULL DEFAULT '',
+                    state TEXT NOT NULL DEFAULT 'proposed',
+                    plan_id TEXT,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_plan_proposals_session ON plan_proposals(session_id, created_at);
                 ",
             )
             .map_err(|error| format!("Failed to initialize Basebuild state database: {error}"))?;
@@ -652,6 +681,44 @@ impl StorageService {
             [],
         );
 
+        // Migration (planning-system-qol): add reasoning column to
+        // native_chat_messages. Stores chain-of-thought separately from
+        // content so it is never folded into the persisted assistant text
+        // nor replayed to providers. Null for legacy rows.
+        let has_reasoning = connection
+            .prepare("SELECT reasoning FROM native_chat_messages LIMIT 0")
+            .is_ok();
+        if !has_reasoning {
+            let _ = connection.execute(
+                "ALTER TABLE native_chat_messages ADD COLUMN reasoning TEXT",
+                [],
+            );
+        }
+
+        // Migration (planning-system-qol): add title_locked to sessions so
+        // auto-titling never overwrites a user-set title. Default 0 (unset).
+        let has_title_locked = connection
+            .prepare("SELECT title_locked FROM sessions LIMIT 0")
+            .is_ok();
+        if !has_title_locked {
+            let _ = connection.execute(
+                "ALTER TABLE sessions ADD COLUMN title_locked INTEGER NOT NULL DEFAULT 0",
+                [],
+            );
+        }
+
+        // Migration (planning-system-qol): add last_selected_at to sessions so
+        // selecting a session no longer touches updated_at (which would reshuffle
+        // the sidebar ordered by updated_at). Default null.
+        let has_last_selected_at = connection
+            .prepare("SELECT last_selected_at FROM sessions LIMIT 0")
+            .is_ok();
+        if !has_last_selected_at {
+            let _ = connection.execute(
+                "ALTER TABLE sessions ADD COLUMN last_selected_at INTEGER",
+                [],
+            );
+        }
         // Seed built-in runtime profiles individually so existing databases gain
         // newly-added built-ins without losing user-edited profiles.
         for profile in crate::models::runtime::RuntimeProfile::built_ins() {
@@ -984,6 +1051,9 @@ mod tests {
         for i in 0..4 {
             let dp = dir_path.clone();
             handles.push(std::thread::spawn(move || {
+                // Don't set BASEBUILD_HOME here — the main thread already set
+                // it via lock_db. Setting it here races with other tests.
+                // Just open the connection and write.
                 std::env::set_var("BASEBUILD_HOME", &dp);
                 let conn = StorageService::connect().unwrap();
                 for j in 0..20 {

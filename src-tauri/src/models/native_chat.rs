@@ -22,6 +22,8 @@ pub struct NativeChatMessage {
     pub session_id: String,
     pub role: String,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
     pub sort_order: i64,
     pub provider_id: Option<String>,
     pub model_id: Option<String>,
