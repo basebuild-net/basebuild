@@ -1,10 +1,14 @@
 import { useState } from "react";
+import { Sparkles, Wand2 } from "lucide-react";
 import { useProjectSchematic } from "../../state/schematic";
-import type { SchematicReport, SectionReport, SectionState } from "../../lib/schematic";
+import type { SchematicReport, SectionReport } from "../../lib/schematic";
 
 export type ProjectSchematicTabProps = {
   projectPath: string | null;
-  onOpenDescription: () => void;
+  /** Start the guided schematic wizard in chat (optional section to focus). */
+  onStartWizard: (section?: string) => void;
+  /** Open the raw markdown editor modal. */
+  onOpenRaw: () => void;
 };
 
 const SECTION_GUIDE: Record<string, string> = {
@@ -27,7 +31,7 @@ const HEALTH_LABEL: Record<string, string> = {
   missing: "Missing",
 };
 
-export function ProjectSchematicTab({ projectPath, onOpenDescription }: ProjectSchematicTabProps) {
+export function ProjectSchematicTab({ projectPath, onStartWizard, onOpenRaw }: ProjectSchematicTabProps) {
   const schematic = useProjectSchematic(projectPath);
   const [raw, setRaw] = useState(false);
 
@@ -53,9 +57,12 @@ export function ProjectSchematicTab({ projectPath, onOpenDescription }: ProjectS
       <div className="empty-state">
         <h3>Project description missing</h3>
         <p>This project has no <code>.basebuild/project-schematic.md</code> yet.</p>
-        <button className="btn btn-primary" type="button" onClick={onOpenDescription}>
-          Create project description
-        </button>
+        <div className="empty-state-actions">
+          <button className="btn btn-primary" type="button" onClick={() => onStartWizard()}>
+            <Sparkles size={12} /> Start wizard
+          </button>
+          <button className="btn" type="button" onClick={onOpenRaw}>Edit raw</button>
+        </div>
       </div>
     );
   }
@@ -68,13 +75,23 @@ export function ProjectSchematicTab({ projectPath, onOpenDescription }: ProjectS
       <div className="project-schematic-toolbar">
         <span className="project-schematic-toolbar-title">.basebuild/project-schematic.md</span>
         {report && (
-          <span
+          <button
             className={`schematic-health-badge is-${report.health}`}
-            title={report.health === "complete" ? "All core sections filled" : "Some sections missing or placeholder"}
+            type="button"
+            title={`Schematic ${report.health}: ${report.health === "complete" ? "all core sections filled" : report.sections.filter((s) => s.state !== "filled").map((s) => s.name).join(", ") || "all filled"} — click for raw view`}
+            onClick={onOpenRaw}
           >
             {HEALTH_LABEL[report.health]}
-          </span>
+          </button>
         )}
+        <button
+          className="btn btn-sm btn-primary"
+          type="button"
+          title="Start the guided schematic wizard — asks questions one at a time, prefills from the repo, and writes only after approval"
+          onClick={() => onStartWizard()}
+        >
+          <Wand2 size={11} /> Start wizard
+        </button>
         <button
           className="btn btn-sm"
           type="button"
@@ -83,7 +100,7 @@ export function ProjectSchematicTab({ projectPath, onOpenDescription }: ProjectS
         >
           {raw ? "Cards" : "Raw"}
         </button>
-        <button className="btn btn-sm" type="button" title="Edit the schematic file" onClick={onOpenDescription}>
+        <button className="btn btn-sm" type="button" title="Edit the raw schematic markdown" onClick={onOpenRaw}>
           Edit
         </button>
       </div>
@@ -99,7 +116,12 @@ export function ProjectSchematicTab({ projectPath, onOpenDescription }: ProjectS
                   ? "Set a month-end goal to keep things on track."
                   : "An end goal's period has passed — refresh it."}
           </span>
-          <button className="btn btn-sm" type="button" title="Open the schematic wizard" onClick={onOpenDescription}>
+          <button
+            className="btn btn-sm"
+            type="button"
+            title="Open the schematic wizard to fix this"
+            onClick={() => onStartWizard("End goals")}
+          >
             Fix
           </button>
         </div>
@@ -110,7 +132,7 @@ export function ProjectSchematicTab({ projectPath, onOpenDescription }: ProjectS
           <pre className="schematic-raw">{schematic.content}</pre>
         ) : (
           report.sections.map((section) => (
-            <SectionCard key={section.name} section={section} report={report} onFix={onOpenDescription} />
+            <SectionCard key={section.name} section={section} report={report} onFill={(name) => onStartWizard(name)} />
           ))
         )}
       </div>
@@ -121,11 +143,11 @@ export function ProjectSchematicTab({ projectPath, onOpenDescription }: ProjectS
 function SectionCard({
   section,
   report,
-  onFix,
+  onFill,
 }: {
   section: SectionReport;
   report: SchematicReport;
-  onFix: () => void;
+  onFill: (section: string) => void;
 }) {
   const isEndGoals = section.name === "End goals";
   const isFilled = section.state === "filled";
@@ -142,8 +164,8 @@ function SectionCard({
             <button
               className="btn btn-sm"
               type="button"
-              title={`Open the wizard to fill in ${section.name}`}
-              onClick={onFix}
+              title={`Run the wizard for the ${section.name} section — asks one question at a time, prefills from the repo`}
+              onClick={() => onFill(section.name)}
             >
               Fill
             </button>

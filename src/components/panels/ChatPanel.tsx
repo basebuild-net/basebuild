@@ -70,6 +70,8 @@ type ChatPanelProps = {
   onCreatePlanFromIdea?: (title: string, description: string, chatSessionId: string | null) => Promise<void> | void;
   /** Open the planning inspector (side panel). */
   onOpenPlanningInspector?: () => void;
+  /** Open the schematic tab (focus or create). */
+  onOpenSchematic?: () => void;
 };
 
 function formatMetric(value: number | null | undefined, suffix = "") {
@@ -180,6 +182,7 @@ export function ChatPanel({
   schematicContent,
   onCreatePlanFromIdea,
   onOpenPlanningInspector,
+  onOpenSchematic,
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
@@ -1284,10 +1287,15 @@ export function ChatPanel({
             {showPlanningMenu ? (
               <div className="chat-inline-menu">
                 {schematicReport && schematicReport.health !== "complete" && (
-                  <div className="chat-command-notice" title={`Schematic ${schematicReport.health}: incomplete sections may lead to ungrounded generation`}>
+                  <button
+                    className="chat-command-notice chat-command-notice-button"
+                    type="button"
+                    title={`Schematic ${schematicReport.health}: incomplete sections may lead to ungrounded generation — click to open the schematic`}
+                    onClick={() => onOpenSchematic?.()}
+                  >
                     <AlertCircle size={11} />
                     <span>Schematic {schematicReport.health} — fix for better grounding</span>
-                  </div>
+                  </button>
                 )}
                 <button
                   className="chat-inline-menu-item"

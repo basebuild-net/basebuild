@@ -10,7 +10,7 @@ import { FocusPlanModal } from "./FocusPlanModal";
 import { ProjectDescriptionModal } from "./ProjectDescriptionModal";
 import { useProjectSchematic } from "../../state/schematic";
 import { revealInExplorer } from "../../lib/projects";
-import { generateSessionTitle } from "../../lib/skills";
+import { generateSessionTitle, readSkill } from "../../lib/skills";
 import { getWorkspaceRestoreState, saveWorkspaceRestoreState, type WorkspaceRestoreState } from "../../lib/workspace";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import { MenuBar, type MenuConfig } from "./MenuBar";
@@ -64,6 +64,7 @@ export function AppShell({ updates }: AppShellProps) {
   const firstRun = useFirstRun();
   const [chatDraft, setChatDraft] = useState<string | null>(null);
   const [chatDraftTabId, setChatDraftTabId] = useState<string | null>(null);
+  const [autoSendDraft, setAutoSendDraft] = useState(false);
   const [terminalOutputBuffer, setTerminalOutputBuffer] = useState("");
   const titleDebounceRef = useRef<number | null>(null);
   const workspacePersistTimerRef = useRef<number | null>(null);
@@ -334,7 +335,59 @@ export function AppShell({ updates }: AppShellProps) {
     },
     [openOrFocusChat],
   );
-  const handleOpenSchematicFile = useCallback(async () => {
+  const handleStartSchematicWizard = useCallback(
+    async (section?: string) => {
+      if (!session.activeSessionId) return;
+      let skillBody = "";
+      try {
+        const skill = await readSkill("basebuild-project-schematic");
+        skillBody = skill.content;
+      } catch {
+        skillBody = "";
+      }
+      const target = section
+        ? `Focus on the "${section}" section only. Read what the repository already says about it, prefill what you can, then ask the user one focused question to confirm or fill the gap. Do not rewrite other sections.`
+        : `Start in Create mode (or Update mode if a schematic already exists). Begin with the Blueprint questions — archetype, team size, stage — since they scope every later answer. Then work through the remaining sections in template order.`;
+      const prompt = `${skillBody}
+
+---
+
+You are now running the Project Schematic skill for this project. ${target}
+
+Rules:
+- Read the repository first (manifests, README, AGENTS.md, directory structure, recent git history) and prefill observable facts for confirmation instead of asking the user to recite them.
+- Ask ONE question at a time. Wait for the user's answer before moving on.
+- Let the user finish whenever they want — they can say "done" to stop, or keep going to add more context.
+- Never fabricate facts. If something is not observable, ask.
+- Do not write the schematic file until the user explicitly approves. When ready, show the full proposed document (or per-section diff) and ask for approval before writing to .basebuild/project-schematic.md.
+- Keep it concise — readable in under three minutes.`;
+      // Focus or create a chat tab, inject the prompt, and auto-send.
+      const activeChat = session.tabs.find((t) => t.id === session.activeTabId && t.kind === "chat");
+      const existingChat = activeChat ?? session.tabs.filter((t) => t.kind === "chat").slice(-1)[0] ?? null;
+      if (existingChat) {
+        session.setActiveTabId(existingChat.id);
+      } else {
+        const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
+        await session.createTab("chat", `Chat ${chatCount}`);
+      }
+      setChatDraft(prompt);
+      setChatDraftTabId(session.activeTabId);
+      setAutoSendDraft(true);
+    },
+    [session],
+  );
+
+  const handleOpenSchematic = useCallback(() => {
+    // Focus or create an "empty" tab (the schematic tab).
+    const existingEmpty = session.tabs.find((t) => t.kind === "empty");
+    if (existingEmpty) {
+      session.setActiveTabId(existingEmpty.id);
+    } else {
+      void session.createTab("empty", "Schematic");
+    }
+  }, [session]);
+
+   const handleOpenSchematicFile = useCallback(async () => {
     if (!activeProjectPath) return;
     await schematic.write(schematic.content ?? `# Project Schematic\n\n## Purpose\n`);
     await revealInExplorer(`${activeProjectPath}/.basebuild/project-schematic.md`);
@@ -572,7 +625,11 @@ export function AppShell({ updates }: AppShellProps) {
                   <p>Click + in the tab bar to create a terminal, schematic, or chat tab.</p>
                 </div>
               ) : activeTab.kind === "empty" ? (
-                <ProjectSchematicTab projectPath={activeProjectPath} onOpenDescription={() => setDescriptionOpen(true)} />
+                <ProjectSchematicTab
+                  projectPath={activeProjectPath}
+                  onStartWizard={handleStartSchematicWizard}
+                  onOpenRaw={() => setDescriptionOpen(true)}
+                />
               ) : activeTab.kind === "omp" ? (
                 <OmpTerminalTab terminalId={activeTab.terminalId} onOutput={handleTerminalOutput} />
               ) : activeTab.kind === "chat" ? (
@@ -581,11 +638,13 @@ export function AppShell({ updates }: AppShellProps) {
                   chatSessionId={activeTab.chatSessionId}
                   onChatSessionCreated={handleChatSessionCreated(activeTab.id)}
                   draftPrompt={chatDraft}
-                  onDraftConsumed={() => { setChatDraft(null); setChatDraftTabId(null); }}
+                  autoSendDraft={autoSendDraft}
+                  onDraftConsumed={() => { setChatDraft(null); setChatDraftTabId(null); setAutoSendDraft(false); }}
                   activeSessionId={session.activeSessionId}
                   schematicContent={schematic.content}
                   onCreatePlanFromIdea={handleCreatePlanFromIdea}
                   onOpenPlanningInspector={handleOpenPlanningInspector}
+                  onOpenSchematic={handleOpenSchematic}
                 />
               ) : activeTab.kind === "file" ? (
                 <FileViewer path={activeTab.filePath} />
