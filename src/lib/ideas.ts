@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type IdeaStatus = "concept" | "picked" | "archived";
+export type IdeaStatus = "concept" | "picked" | "rejected" | "archived";
 
 export type IdeaCategory = {
   id: string;

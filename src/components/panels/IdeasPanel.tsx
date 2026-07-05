@@ -7,16 +7,18 @@ import type { IdeaStatus } from "../../lib/ideas";
 const STATUS_LABELS: Record<IdeaStatus, string> = {
   concept: "Concept",
   picked: "Picked",
+  rejected: "Rejected",
   archived: "Archived",
 };
 
 const STATUS_CLASS: Record<IdeaStatus, string> = {
   concept: "is-concept",
   picked: "is-picked",
+  rejected: "is-rejected",
   archived: "is-archived",
 };
 
-const STATUS_ORDER: IdeaStatus[] = ["concept", "picked", "archived"];
+const STATUS_ORDER: IdeaStatus[] = ["concept", "picked", "rejected", "archived"];
 
 type IdeasPanelProps = {
   sessionId: string | null;

@@ -3,7 +3,9 @@ import {
   AlertCircle,
   BarChart3,
   Brain,
+  FolderTree,
   Key,
+  LayoutGrid,
   Lightbulb,
   RefreshCw,
   Send,
@@ -209,7 +211,8 @@ export function ChatPanel({
   const [generatingIdeas, setGeneratingIdeas] = useState(false);
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
-  const [showActionMenu, setShowActionMenu] = useState(false);
+  const [showPlanningMenu, setShowPlanningMenu] = useState(false);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelFilter, setModelFilter] = useState("");
@@ -859,14 +862,10 @@ export function ChatPanel({
         setShowLogin(!!selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID);
         return;
       }
-      if (result.ideas.length === 0) {
-        setError("No ideas were generated. Add more detail to the conversation and try again.");
-        return;
-      }
+      // Generation now runs as a chat turn: the backend captures ideas via the
+      // propose_ideas tool (or fallback parser) during the turn, so they appear
+      // as idea cards incrementally. We just refresh the catalog after.
       if (activeSessionId) {
-        for (const idea of result.ideas) {
-          await ideaState.createIdea(idea.title, idea.description);
-        }
         await ideaState.refresh();
       } else {
         setError("Open a project session to save generated ideas.");
@@ -879,6 +878,36 @@ export function ChatPanel({
       setGeneratingIdeas(false);
     }
   }, [nativeSessionId, generatingIdeas, schematicContent, providerId, modelId, effortLevel, activeSessionId, ideaState, addLog, selectedProvider]);
+
+  const handleGenerateForCategory = useCallback(async (categoryId: string | undefined) => {
+    if (!nativeSessionId || generatingIdeas) return;
+    setShowCategoryPicker(false);
+    setGeneratingIdeas(true);
+    setError(null);
+    try {
+      const result = await nativeGenerateIdeas({
+        sessionId: nativeSessionId,
+        schematic: schematicContent ?? undefined,
+        providerId,
+        modelId,
+        effortLevel,
+        categoryId: categoryId ?? null,
+      });
+      if (result.setupRequired) {
+        setSetupRequired(result.setupRequired);
+        setShowLogin(!!selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID);
+        return;
+      }
+      await ideaState.refresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to generate ideas for category", msg);
+      setError(msg);
+    } finally {
+      setGeneratingIdeas(false);
+    }
+  }, [nativeSessionId, generatingIdeas, schematicContent, providerId, modelId, effortLevel, ideaState, addLog, selectedProvider]);
+
 
   const handlePromoteIdea = useCallback(
     async (idea: Idea) => {
@@ -998,16 +1027,26 @@ export function ChatPanel({
               <div className="chat-idea-card-top">
                 <span className="chat-idea-title">{idea.title}</span>
                 {idea.status === "concept" ? (
-                  <button
-                    className="btn btn-sm"
-                    type="button"
-                    title="Promote this idea into the plan pipeline"
-                    onClick={() => void handlePromoteIdea(idea)}
-                  >
-                    Promote to Plan
-                  </button>
+                  <div className="chat-idea-card-actions">
+                    <button
+                      className="btn btn-sm"
+                      type="button"
+                      title="Promote this idea into the plan pipeline"
+                      onClick={() => void handlePromoteIdea(idea)}
+                    >
+                      Promote to Plan
+                    </button>
+                    <button
+                      className="btn btn-sm"
+                      type="button"
+                      title="Reject this idea"
+                      onClick={() => void ideaState.rejectIdea(idea.id)}
+                    >
+                      Reject
+                    </button>
+                  </div>
                 ) : (
-                  <span className="chat-idea-status">{idea.status === "picked" ? "Planned" : idea.status}</span>
+                  <span className="chat-idea-status">{idea.status === "picked" ? "Planned" : idea.status === "rejected" ? "Rejected" : idea.status}</span>
                 )}
               </div>
               {idea.description ? <p className="chat-idea-desc">{idea.description}</p> : null}
@@ -1133,7 +1172,7 @@ export function ChatPanel({
                     onClick={() => {
                       setShowProviderPicker((value) => !value);
                       setShowModelPicker(false);
-                      setShowActionMenu(false);
+                      setShowPlanningMenu(false);
                     }}
                   >
                     <span className={`chat-health-dot ${providerDegraded ? "is-warn" : "is-ok"}`} />
@@ -1146,7 +1185,7 @@ export function ChatPanel({
                     onClick={() => {
                       setShowModelPicker((value) => !value);
                       setShowProviderPicker(false);
-                      setShowActionMenu(false);
+                      setShowPlanningMenu(false);
                     }}
                   >
                     <span className="chat-trigger-kicker">Model</span>
@@ -1209,7 +1248,7 @@ export function ChatPanel({
                     type="button"
                     title="More chat actions"
                     onClick={() => {
-                      setShowActionMenu((value) => !value);
+                      setShowPlanningMenu((value) => !value);
                       setShowProviderPicker(false);
                       setShowModelPicker(false);
                     }}
@@ -1225,20 +1264,79 @@ export function ChatPanel({
                 </div>
               )}
             </div>
-            {showActionMenu ? (
+            {showPlanningMenu ? (
               <div className="chat-inline-menu">
                 <button
                   className="chat-inline-menu-item"
                   type="button"
-                  title="Generate ideas from this conversation"
+                  title="Quick freeform idea generation in the chat"
                   disabled={generatingIdeas || !nativeSessionId}
                   onClick={() => {
-                    setShowActionMenu(false);
+                    setShowPlanningMenu(false);
                     void handleGenerateIdeas();
                   }}
                 >
-                  <Sparkles size={11} /> {generatingIdeas ? "Generating…" : "Generate ideas"}
+                  <Sparkles size={11} /> Quick ideas
                 </button>
+                <button
+                  className="chat-inline-menu-item"
+                  type="button"
+                  title="Pick a category and generate ideas for it"
+                  disabled={generatingIdeas || !nativeSessionId}
+                  onClick={() => {
+                    setShowPlanningMenu(false);
+                    void ideaState.ensureDefaultCategories();
+                    setShowCategoryPicker(true);
+                  }}
+                >
+                  <FolderTree size={11} /> By category…
+                </button>
+                <button
+                  className="chat-inline-menu-item"
+                  type="button"
+                  title="Open the planning inspector in the right side panel"
+                  onClick={() => setShowPlanningMenu(false)}
+                >
+                  <LayoutGrid size={11} /> Open planning inspector
+                </button>
+              </div>
+            ) : null}
+            {showCategoryPicker ? (
+              <div className="chat-picker" role="dialog" aria-label="Pick a category">
+                <div className="chat-picker-header">
+                  <span>Pick a category</span>
+                  <button className="btn-icon btn-icon-sm" type="button" title="Close category picker" onClick={() => setShowCategoryPicker(false)}>
+                    <X size={11} />
+                  </button>
+                </div>
+                <div className="chat-picker-list">
+                  {ideaState.categories.length === 0 ? (
+                    <div className="chat-picker-empty text-muted text-sm">No categories yet.</div>
+                  ) : null}
+                  {ideaState.categories.map((cat) => (
+                    <button
+                      key={cat.id}
+                      className="chat-picker-item"
+                      type="button"
+                      title={`Generate ideas for ${cat.name}`}
+                      disabled={generatingIdeas}
+                      onClick={() => void handleGenerateForCategory(cat.id)}
+                    >
+                      <span className="chat-picker-item-label">{cat.name}</span>
+                      <span className="chat-picker-item-desc text-muted text-sm">{cat.description}</span>
+                    </button>
+                  ))}
+                  <button
+                    className="chat-picker-item"
+                    type="button"
+                    title="Freeform generation (no category)"
+                    disabled={generatingIdeas}
+                    onClick={() => void handleGenerateForCategory(undefined)}
+                  >
+                    <span className="chat-picker-item-label">Freeform</span>
+                    <span className="chat-picker-item-desc text-muted text-sm">No specific category</span>
+                  </button>
+                </div>
               </div>
             ) : null}
             {showProviderPicker && catalog ? (

@@ -1066,8 +1066,11 @@ a { color: inherit; text-decoration: none; }
 .chat-idea-card { display: flex; flex-direction: column; gap: 3px; padding: 6px 8px; background: var(--bb-bg); border-left: 2px solid var(--bb-cta); }
 .chat-idea-card-top { display: flex; align-items: center; gap: 6px; }
 .chat-idea-title { flex: 1; font-size: 12px; font-weight: 600; color: var(--bb-text); }
-.chat-idea-desc { font-size: 11px; color: var(--bb-muted); margin: 0; white-space: pre-wrap; word-break: break-word; }
+.chat-idea-card-actions { display: flex; gap: 4px; }
 .chat-idea-status { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--bb-positive, #16a34a); }
+.chat-idea-status.is-rejected { color: var(--bb-danger); }
+.chat-picker-item-label { font-size: 11px; font-weight: 600; color: var(--bb-text); }
+.chat-picker-item-desc { font-size: 10px; color: var(--bb-muted); }
 /* Side panel resizer */
 .side-resizer {
   width: 4px; cursor: col-resize; background: transparent;
