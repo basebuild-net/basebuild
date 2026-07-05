@@ -96,12 +96,21 @@ the effort selector.
 
 ## In-chat idea generation
 
-`native_generate_ideas` sends the conversation plus the project schematic to a
-**configured** provider and parses the structured JSON result into Idea records
-(persisted via the existing ideas store). The offline local coordinator does not
-fabricate ideas — with no configured provider the command returns a setup prompt.
-Generated ideas render inline in the composer and can be promoted into the
-existing plan pipeline, tagged with the originating chat session (`chat:<id>`).
+`native_generate_ideas` runs idea generation as a chat turn through the agent
+loop. The conversation plus the project schematic is sent to a **configured**
+provider with a category-aware system prompt. A `propose_ideas` tool is exposed
+to the agent loop; when the model calls it, each idea is persisted via the
+existing ideas store (`create_idea`) and rendered incrementally as a card in
+the chat transcript. A fallback structured-output parser captures ideas if the
+model emits proposal-shaped JSON in its text response instead of calling the
+tool.
+
+Ideas can be promoted into the plan pipeline (tagged with the originating chat
+session `chat:<id>`) or rejected. Rejected ideas are retained for history but
+hidden from the active concept list. The offline local coordinator does not
+fabricate ideas — with no configured provider the command returns a setup
+prompt. Categories (seeded with defaults) organize ideas and can be managed in
+the Planning Inspector.
 
 ## Defaults
 
@@ -445,22 +454,38 @@ DeepSeek-style models) are stored separately from the assistant message content:
 - Stray think-tag markers are stripped from content and routed to the
   reasoning store via `strip_think_tags`.
 
-## Structured plan proposals
+## Structured idea capture
 
-Generate-plans runs capture proposals as structured data rendered as
-selectable cards, never as chat prose alone:
+Generate-ideas runs capture ideas as structured data rendered as inline cards,
+never as chat prose alone:
 
-- `propose_plans` tool is exposed to the agent loop during generate-plans
-  runs. The tool accepts an array of `{title, description, goal,
-  suggested_change_name}` and persists each as a `plan_proposals` row.
-- Fallback: if the model emits proposal-shaped JSON in its text response
-  instead of calling the tool, `parse_and_capture_proposals` captures them.
-- Accepted proposals create a draft plan and link `plan_id`. Dismissed
-  proposals persist (append-only across regenerations).
-- Proposal state reloads with the session across restarts.
+- `propose_ideas` tool is exposed to the agent loop during generate-ideas
+  runs. The tool accepts an array of `{title, description, categoryId?}` and
+  persists each as an idea row.
+- Fallback: if the model emits idea-shaped JSON in its text response
+  instead of calling the tool, the structured-output parser captures them.
+- Promoted ideas create a draft plan (tagged `chat:<id>`). Rejected ideas
+  persist for history (append-only across regenerations).
+- Idea state reloads with the session across restarts.
 - Generate-ideas runs are recorded as `pipeline_runs` stage rows.
 
-## Tool transcript rendering
+## Planning Inspector
+
+The side panel's Planning section is a three-tab inspector:
+
+- **Plans** — the existing plan pipeline (create, generate, focus, queue).
+- **Ideas** — filterable idea history (all/concept/picked/rejected/archived)
+  with promote, reject, and delete actions.
+- **Categories** — list with idea counts, drill-down detail, add-category
+  form, and "Suggest more ideas" which opens a chat turn scoped to the
+  category.
+
+## Planning prompts
+
+System prompts for chat, idea generation, plan generation, and category
+suggestion are stored in the `planning_prompts` table and editable in
+Settings → Planning. Each prompt has a default; resetting restores it.
+`planning_prompt_service.rs` serves get/set/reset/list operations.
 
 Tool calls render as collapsed cards in message order from the event stream:
 

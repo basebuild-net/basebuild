@@ -6,7 +6,8 @@ Basebuild's app shell is a three-column grid:
 2. **Center workspace** — session header, workspace tabs, and the active tab
    view (terminal, file viewer, chat, or project schematic).
 3. **Right side panel** (260px → 36px collapsed) — stacked accordion sections
-   for Plans, Files, and Source.
+   for Plans, Files, and Source. The Plans section is a Planning Inspector
+   with three tabs: Plans, Ideas, and Categories.
 
 
 The global taskbar sits above the shell. Its right side contains the update
@@ -124,12 +125,12 @@ project open. Side panel width is resizable via a drag handle between the center
 workspace and the right panel, clamped to 180–520px. Restoring never auto-spawns
 terminals or agents; stale process-backed tabs show a disconnected state until
 the user explicitly reconnects.
-
 ## Plan pipeline
 
 Plans move through: `draft → openspec → ready → running → finished`.
-`cancelled` may terminate from any status. See `AGENTS.md` for plan field
-details.
+`cancelled` may terminate from any status. Ideas generated in chat can be
+promoted into the plan pipeline (tagged `chat:<id>`) or rejected. See
+`AGENTS.md` for plan field details.
 
 ## Plan run queue
 

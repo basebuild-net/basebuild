@@ -99,10 +99,10 @@
       run)
 - [x] 7.3 `BASEBUILD_E2E=1 npm run test:e2e` including new coverage:
       proposal cards, approval card, reasoning fold, session reuse
-- [ ] 7.4 UI smoke on the running app: generate → accept 2/5 proposals →
+- [x] 7.4 UI smoke on the running app: generate → accept 2/5 proposals →
       Start OpenSpec writes artifacts → restart → proposals, plans, model
       default, and progress all restored; screenshot changed views
-- [ ] 7.5 Freeze watchdog: 60s streaming run with UI interaction produces no
+- [x] 7.5 Freeze watchdog: 60s streaming run with UI interaction produces no
       freeze reports
 
 ## 8. Docs & Roadmap
@@ -112,5 +112,5 @@
       lifecycle, single instance)
 - [x] 8.2 Update `DESIGN.md` (proposal cards, thinking fold — visual
       language only) and `docs/agents/design-system.md` (selectors/classes)
-- [ ] 8.3 Refresh roadmap: `node scripts/openspec-status.mjs --write` +
+- [x] 8.3 Refresh roadmap: `node scripts/openspec-status.mjs --write` +
       ROADMAP narrative update in the same commit

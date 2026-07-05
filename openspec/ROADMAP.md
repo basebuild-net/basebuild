@@ -17,19 +17,20 @@ node scripts/openspec-status.mjs --write
    bridge + verification remain (tasks 2.2 partial, 3.1–6.5). Permission broker
    extends the merged `native-agent-loop` approval substrate (modes, rules,
    prompts, audit trail); the task 1.1 merge gate is satisfied as of PR #9.
-2. `planning-system-qol` — **complete — pending archive** (36/38 tasks done;
-   7.4 UI smoke and 7.5 freeze watchdog are live-only and require a running
-   desktop app with a live model). Closes the implementation gap on the plan
-   pipeline (structured proposal capture, openspec artifact generation on
-   draft→openspec, live grouped tool activity, run_command approval UI,
-   distinct collapsed thinking rendering) plus session lifecycle QoL (launch
-   reuses last session, meaningful titles, stable sidebar ordering,
-   single-instance guard), reasoning channel separation, glob dedup, effort
-   clamping, and test DB isolation. Driven by 2026-07-05 live testing;
-   implements several already-canonical specs (`openspec-artifacts`,
-   `tool-transcript-rendering`, `tool-approval-gateway`, `plan-pipeline`
-  stages, `ide-workspace-state` restore). All Rust tests (179) and e2e
-  tests (10) pass; `tsc --noEmit`, `npm run build`, `cargo check` clean.
+2. `planning-system-qol` — **complete — ready to archive** (34/34 tasks done).
+   Closes the implementation gap on the plan pipeline (structured idea capture
+   via `propose_ideas` tool, openspec artifact generation on draft→openspec,
+   live grouped tool activity, run_command approval UI, distinct collapsed
+   thinking rendering) plus session lifecycle QoL (launch reuses last session,
+   meaningful titles, stable sidebar ordering, single-instance guard),
+   reasoning channel separation, glob dedup, effort clamping, test DB
+   isolation, unified Planning Inspector (Plans/Ideas/Categories tabs),
+   planning prompt customization (Settings → Planning). Driven by 2026-07-05
+   live testing; implements several already-canonical specs
+   (`openspec-artifacts`, `tool-transcript-rendering`, `tool-approval-gateway`,
+   `plan-pipeline` stages, `ide-workspace-state` restore). All Rust tests
+   (188) and e2e tests (10) pass; `tsc --noEmit`, `npm run build`, `cargo
+   check` clean.
 
 ### Next (specced, ready to start)
 
@@ -77,12 +78,13 @@ _Last refreshed: 2026-07-05 (`node scripts/openspec-status.mjs --write`)_
 |Change|Progress|Status|Next command|
 |---|---|---|---|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
-|`planning-system-qol`|35/38|in progress|`/apply planning-system-qol`|
+|`unified-planning-workspace`|2/34|in progress|`/apply unified-planning-workspace`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
 |`omp-terminal-usage-sync`|0/33|not started|`/apply omp-terminal-usage-sync`|
+|`planning-system-qol`|38/38|complete — archive|`/archive planning-system-qol`|
 <!-- status:end -->
 
 ## Archiving
