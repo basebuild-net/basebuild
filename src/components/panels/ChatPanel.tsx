@@ -45,6 +45,7 @@ import {
 import { resolveToolApproval } from "../../lib/native-chat";
 import { useIdeaState } from "../../state/ideas";
 import type { Idea } from "../../lib/ideas";
+import { inspectProjectSchematic, type SchematicReport } from "../../lib/schematic";
 import { useLogs } from "../../state/log";
 
 const SEND_TIMEOUT_MS = 45_000;
@@ -216,12 +217,19 @@ export function ChatPanel({
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
   const [showPlanningMenu, setShowPlanningMenu] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  const [schematicReport, setSchematicReport] = useState<SchematicReport | null>(null);
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelFilter, setModelFilter] = useState("");
   const sendTimerRef = useRef<number | null>(null);
   const assistantBufferRef = useRef("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Soft gate: load schematic health when the planning menu opens.
+  useEffect(() => {
+    if (showPlanningMenu && projectPath) {
+      void inspectProjectSchematic(projectPath).then(setSchematicReport).catch(() => setSchematicReport(null));
+    }
+  }, [showPlanningMenu, projectPath]);
   const { addLog } = useLogs();
   const ideaState = useIdeaState(activeSessionId ?? null);
 
@@ -1275,6 +1283,12 @@ export function ChatPanel({
             </div>
             {showPlanningMenu ? (
               <div className="chat-inline-menu">
+                {schematicReport && schematicReport.health !== "complete" && (
+                  <div className="chat-command-notice" title={`Schematic ${schematicReport.health}: incomplete sections may lead to ungrounded generation`}>
+                    <AlertCircle size={11} />
+                    <span>Schematic {schematicReport.health} — fix for better grounding</span>
+                  </div>
+                )}
                 <button
                   className="chat-inline-menu-item"
                   type="button"
@@ -1291,10 +1305,8 @@ export function ChatPanel({
                   className="chat-inline-menu-item"
                   type="button"
                   title="Pick a category and generate ideas for it"
-                  disabled={generatingIdeas || !nativeSessionId}
                   onClick={() => {
                     setShowPlanningMenu(false);
-                    void ideaState.ensureDefaultCategories();
                     setShowCategoryPicker(true);
                   }}
                 >
