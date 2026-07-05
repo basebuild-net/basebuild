@@ -9,7 +9,7 @@ layouts. A packaged build MUST NOT ship with zero readable skills.
 
 #### Scenario: Installed build reads a skill
 
-- **WHEN** the installed app calls `read_skill("basebuild-idea-generation")`
+- **WHEN** the installed app calls `read_skill("basebuild-planning")`
 - **THEN** the skill's frontmatter and content load successfully from the
   bundled resources
 

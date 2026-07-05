@@ -61,7 +61,7 @@ New/modified requirements (spec deltas in this change):
   ADDED to `omp-session-telemetry`.
 - **Skills ship with the app**: the installed bundle has NO
   `resources/skills` directory, so `read_skill` fails for all four repo
-  skills (`basebuild-autonomous`, `basebuild-idea-generation`,
+  skills (`basebuild-autonomous`, `basebuild-planning`,
   `basebuild-project-schematic`, `basebuild-session-title`) in production.
   Bundle skills into the installer, keep them readable at runtime, and
   surface load failures. NEW capability `skills-distribution`.
