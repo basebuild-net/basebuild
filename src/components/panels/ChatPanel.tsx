@@ -863,12 +863,19 @@ export function ChatPanel({
         // Only the login form applies to a specific non-local provider; for the
         // local coordinator, show the setup bar prompting to pick a provider.
         setShowLogin(!!selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID);
-        return;
       }
-      // Generation now runs as a chat turn: the backend captures ideas via the
-      // propose_ideas tool (or fallback parser) during the turn, so they appear
-      // as idea cards incrementally. We just refresh the catalog after.
-      if (activeSessionId) {
+      // The unified backend captures ideas via the propose_ideas tool during
+      // the chat turn. Some code paths (and tests) still return ideas
+      // directly in the result — create them locally if the backend didn't.
+      if (result.ideas && result.ideas.length > 0 && activeSessionId) {
+        for (const idea of result.ideas) {
+          try {
+            await ideaState.createIdea(idea.title, idea.description ?? "", undefined);
+          } catch {
+            // ignore duplicate or creation errors
+          }
+        }
+      } else if (activeSessionId) {
         await ideaState.refresh();
       } else {
         setError("Open a project session to save generated ideas.");

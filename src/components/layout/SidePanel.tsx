@@ -297,6 +297,8 @@ export function SidePanel({
                     activeChatSessionId={activeChatSessionId}
                     showHeader={false}
                   />
+                ) : id === "files" ? (
+                  <FilesPanel projectPath={projectPath} onOpenFile={onOpenFile} />
                 ) : (
                   <SourcePanel projectPath={projectPath} />
                 )}

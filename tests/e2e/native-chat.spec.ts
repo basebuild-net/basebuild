@@ -106,13 +106,13 @@ test.describe("native chat workspace", () => {
     await page.locator(".chat-provider-trigger").click();
     await page.locator(".chat-picker-item", { hasText: "Umans" }).click();
     await page.getByTitle("More chat actions").click();
-    await page.getByTitle("Generate ideas from this conversation").click();
+    await page.getByTitle("Quick freeform idea generation in the chat").click();
     // Two idea cards render with promote actions.
     await expect(page.locator(".chat-idea-card")).toHaveCount(2);
     await expect(page.locator(".chat-idea-title").first()).toHaveText("Improve onboarding");
 
     // Promote the first idea → it becomes planned and appears in the plan pipeline.
-    await page.locator(".chat-idea-card button", { hasText: "Promote to Plan" }).first().click();
+    await page.locator(".chat-idea-card button", { hasText: "Promote" }).first().click();
     await expect(page.locator(".chat-idea-status", { hasText: "Planned" })).toBeVisible();
 
     expect(consoleErrors).toEqual([]);
