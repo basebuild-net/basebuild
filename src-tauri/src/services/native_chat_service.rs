@@ -177,6 +177,7 @@ impl NativeChatService {
 
     /// Check whether a stored default's provider is connected and model is in
     /// the catalog. Returns `Some(resolved)` if available, `None` if not.
+    /// Clamps the effort level to the model's supported efforts.
     fn try_resolve(
         catalog: &NativeProviderCatalog,
         default: &ChatModelDefault,
@@ -189,17 +190,25 @@ impl NativeChatService {
         if !provider.configured {
             return None;
         }
-        let model_exists = catalog
+        let model = catalog
             .models
             .iter()
-            .any(|m| m.id == default.model_id && m.provider_id == default.provider_id);
-        if !model_exists {
-            return None;
-        }
+            .find(|m| m.id == default.model_id && m.provider_id == default.provider_id)?;
+        // Clamp effort to a supported level. If the stored effort is
+        // unsupported, pick the nearest supported level (preferring the
+        // model's first supported effort as the default).
+        let clamped_effort = if model.supported_efforts.is_empty() {
+            default.effort_level.clone()
+        } else if model.supported_efforts.iter().any(|e| e == &default.effort_level) {
+            default.effort_level.clone()
+        } else {
+            // Stored effort is unsupported — clamp to the first supported.
+            model.supported_efforts[0].clone()
+        };
         Some(ResolvedChatModelDefault {
             provider_id: default.provider_id.clone(),
             model_id: default.model_id.clone(),
-            effort_level: default.effort_level.clone(),
+            effort_level: clamped_effort,
             source: source.to_string(),
             notice: None,
         })
@@ -475,6 +484,7 @@ impl NativeChatService {
                 &chat_session.id,
                 "system",
                 &opening,
+                None,
                 Some(&chat_session.provider_id),
                 Some(&chat_session.model_id),
                 Some(&chat_session.effort_level),
@@ -541,7 +551,7 @@ impl NativeChatService {
         let conn = StorageService::connect()?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, session_id, role, content, sort_order, provider_id, model_id, effort_level, created_at
+                "SELECT id, session_id, role, content, reasoning, sort_order, provider_id, model_id, effort_level, created_at
                  FROM native_chat_messages WHERE session_id = ?1 ORDER BY sort_order ASC",
             )
             .map_err(|e| e.to_string())?;
@@ -578,11 +588,14 @@ impl NativeChatService {
             &request.session_id,
             "user",
             content,
+            None,
             Some(&provider_id),
             Some(&model_id),
             Some(&effort_level),
         )?;
         Self::touch_session(&request.session_id)?;
+        // Auto-title the session from the first user message (no-ops if already titled).
+        let _ = SessionService::auto_title(&request.session_id, content);
 
         let catalog = Self::provider_catalog();
         let provider_label = catalog
@@ -678,6 +691,7 @@ impl NativeChatService {
                 &request.session_id,
                 "assistant",
                 &run_result.content,
+                run_result.reasoning.as_deref(),
                 Some(&provider_id),
                 Some(&model_id),
                 Some(&effort_level),
@@ -775,6 +789,7 @@ impl NativeChatService {
             &request.session_id,
             "assistant",
             &response.content,
+            response.reasoning.as_deref(),
             Some(&provider_id),
             Some(&model_id),
             Some(&effort_level),
@@ -844,8 +859,15 @@ impl NativeChatService {
         app: &AppHandle,
         request: NativeGenerateIdeasRequest,
     ) -> DbResult<NativeGenerateIdeasResult> {
+        // Record this as a pipeline_runs row (generate_ideas stage).
         let session = Self::get_session(&request.session_id)?
             .ok_or_else(|| format!("Native chat session '{}' not found", request.session_id))?;
+        let run_id = format!("run-{:x}", std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0));
+        let now = now_seconds();
+        let _ = Self::record_pipeline_run(&run_id, &request.session_id, &session.project_path, "generate_ideas", "running", now);
         let provider_id = request
             .provider_id
             .unwrap_or_else(|| session.provider_id.clone());
@@ -927,10 +949,60 @@ impl NativeChatService {
         };
         let response = client.generate(&req, &emit)?;
         let ideas = Self::parse_ideas(&response.content);
+        let _ = Self::parse_and_capture_proposals(&response.content, &request.session_id);
+        // Mark the pipeline run as succeeded.
+        let _ = Self::record_pipeline_run(&run_id, &request.session_id, &session.project_path, "generate_ideas", "succeeded", now_seconds());
         Ok(NativeGenerateIdeasResult {
             ideas,
             setup_required: None,
         })
+    }
+
+    /// Record a pipeline_runs row for a generate-ideas/generate-plans stage.
+    fn record_pipeline_run(run_id: &str, session_id: &str, project_path: &str, kind: &str, status: &str, ts: i64) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO pipeline_runs (id, session_id, project_path, kind, input_summary, status, output_refs, started_at, completed_at, created_at)
+             VALUES (?1, ?2, ?3, ?4, '', ?5, '[]', ?6, CASE WHEN ?5 IN ('succeeded','failed','cancelled') THEN ?6 ELSE NULL END, ?6)
+             ON CONFLICT(id) DO UPDATE SET status = excluded.status, completed_at = excluded.completed_at",
+            rusqlite::params![run_id, session_id, project_path, kind, status, ts],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Parse plan-proposal-shaped JSON from a model response and capture each
+    /// as a plan_proposals row. Fallback for models that emit proposals as
+    /// prose/JSON instead of calling the propose_plans tool.
+    fn parse_and_capture_proposals(content: &str, session_id: &str) {
+        let text = content.trim();
+        let (start, end) = match (text.find('['), text.rfind(']')) {
+            (Some(s), Some(e)) if e > s => (s, e),
+            _ => return,
+        };
+        let parsed: serde_json::Value = match serde_json::from_str(&text[start..=end]) {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        let Some(arr) = parsed.as_array() else { return };
+        for item in arr {
+            let title = item.get("title").and_then(serde_json::Value::as_str).unwrap_or("");
+            if title.trim().is_empty() {
+                continue;
+            }
+            let input = crate::models::plan_proposal::PlanProposalInput {
+                session_id: session_id.to_string(),
+                run_id: None,
+                title: title.to_string(),
+                description: item.get("description").and_then(serde_json::Value::as_str).unwrap_or("").to_string(),
+                goal: item.get("goal").and_then(serde_json::Value::as_str).unwrap_or("").to_string(),
+                suggested_change_name: item.get("suggested_change_name")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            };
+            let _ = crate::services::plan_proposal_service::PlanProposalService::capture(input);
+        }
     }
 
     pub fn list_metrics(limit: u32) -> DbResult<Vec<NativeRequestMetric>> {
@@ -1065,6 +1137,7 @@ impl NativeChatService {
         session_id: &str,
         role: &str,
         content: &str,
+        reasoning: Option<&str>,
         provider_id: Option<&str>,
         model_id: Option<&str>,
         effort_level: Option<&str>,
@@ -1082,6 +1155,7 @@ impl NativeChatService {
             session_id: session_id.to_string(),
             role: role.to_string(),
             content: content.to_string(),
+            reasoning: reasoning.map(str::to_string),
             sort_order,
             provider_id: provider_id.map(str::to_string),
             model_id: model_id.map(str::to_string),
@@ -1089,13 +1163,14 @@ impl NativeChatService {
             created_at: now_seconds(),
         };
         conn.execute(
-            "INSERT INTO native_chat_messages (id, session_id, role, content, sort_order, provider_id, model_id, effort_level, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO native_chat_messages (id, session_id, role, content, reasoning, sort_order, provider_id, model_id, effort_level, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 message.id,
                 message.session_id,
                 message.role,
                 message.content,
+                message.reasoning,
                 message.sort_order,
                 message.provider_id,
                 message.model_id,
@@ -1275,11 +1350,12 @@ fn map_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<NativeChatMessage> {
         session_id: row.get(1)?,
         role: row.get(2)?,
         content: row.get(3)?,
-        sort_order: row.get(4)?,
-        provider_id: row.get(5)?,
-        model_id: row.get(6)?,
-        effort_level: row.get(7)?,
-        created_at: row.get(8)?,
+        reasoning: row.get(4)?,
+        sort_order: row.get(5)?,
+        provider_id: row.get(6)?,
+        model_id: row.get(7)?,
+        effort_level: row.get(8)?,
+        created_at: row.get(9)?,
     })
 }
 
@@ -1534,5 +1610,33 @@ mod tests {
         assert_eq!(omp_to_basebuild_provider("anthropic"), Some("anthropic"));
         assert_eq!(omp_to_basebuild_provider("umans"), Some("umans"));
         assert_eq!(omp_to_basebuild_provider("something-else"), None);
+    }
+
+    #[test]
+    fn try_resolve_clamps_unsupported_effort_to_supported() {
+        let catalog = NativeChatService::provider_catalog();
+        // Find a configured provider's model with restricted supported_efforts.
+        let configured_providers: Vec<&str> = catalog
+            .providers
+            .iter()
+            .filter(|p| p.configured)
+            .map(|p| p.id.as_str())
+            .collect();
+        let Some(model) = catalog.models.iter().find(|m| {
+            configured_providers.contains(&m.provider_id.as_str())
+                && !m.supported_efforts.is_empty()
+                && !m.supported_efforts.iter().any(|e| e == "medium")
+        }) else {
+            return; // No restricted-effort configured model — skip.
+        };
+        let default = ChatModelDefault {
+            provider_id: model.provider_id.clone(),
+            model_id: model.id.clone(),
+            effort_level: "medium".to_string(),
+        };
+        let resolved = NativeChatService::try_resolve(&catalog, &default, "test");
+        let resolved = resolved.expect("configured model should resolve");
+        assert_ne!(resolved.effort_level, "medium");
+        assert!(model.supported_efforts.contains(&resolved.effort_level));
     }
 }

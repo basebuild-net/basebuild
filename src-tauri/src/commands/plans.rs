@@ -1,10 +1,10 @@
 use crate::{
     models::plan::{NewPlan, Plan, PlanFocusContext, PlanStatus},
-    services::plan_service::PlanService,
+    services::{plan_service::PlanService, session_service::SessionService},
 };
 
 use serde::Deserialize;
-
+use tauri::AppHandle;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreatePlanInput {
@@ -72,8 +72,30 @@ pub fn update_plan(id: String, input: UpdatePlanInput) -> Result<Plan, String> {
 }
 
 #[tauri::command]
-pub fn set_plan_status(id: String, status: String) -> Result<Plan, String> {
-    PlanService::set_status(&id, parse_status(&status))
+pub async fn set_plan_status(app: AppHandle, id: String, status: String) -> Result<Plan, String> {
+    let status = parse_status(&status);
+    // draft → openspec: run the generate_openspec pipeline stage to write
+    // artifacts atomically, set change_name, and only then flip status. On
+    // failure, the plan stays in draft with a surfaced error.
+    if status == PlanStatus::Openspec {
+        let plan = PlanService::get(&id)?.ok_or("Plan not found".to_string())?;
+        if plan.status != PlanStatus::Openspec {
+            let session = SessionService::get(&plan.session_id)?
+                .ok_or("Plan's session not found".to_string())?
+                .project_path;
+            let request = crate::models::pipeline::PipelineStartRequest {
+                session_id: plan.session_id.clone(),
+                project_path: session,
+                kind: "generate_openspec".to_string(),
+                idea_id: None,
+                plan_id: Some(id.clone()),
+                input: None,
+                chat_session_id: None,
+            };
+            crate::services::pipeline_service::PipelineService::start_stage(&app, request)?;
+        }
+    }
+    PlanService::set_status(&id, status)
 }
 
 #[tauri::command]

@@ -36,6 +36,93 @@ const OUTPUT_MARGIN_RATIO: f64 = 0.2;
 static ACTIVE_RUNS: LazyLock<Mutex<std::collections::HashMap<String, Arc<RunHandle>>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
+/// A pending approval request waiting for UI resolution. The agent loop
+/// blocks on `rx` until the UI calls `resolve_approval` with a decision.
+#[allow(dead_code)]
+struct PendingApproval {
+    tool_name: String,
+    command: Option<String>,
+    arguments: String,
+    tx: std::sync::mpsc::Sender<ApprovalResolution>,
+}
+
+/// The UI's resolution of a pending approval request.
+#[derive(Debug, Clone)]
+pub struct ApprovalResolution {
+    pub decision: PermissionDecision,
+    /// When the user picks "allow for session", a session rule is added so
+    /// subsequent matching calls skip the prompt.
+    pub session_rule: Option<SessionRule>,
+}
+
+/// Global registry of pending approvals keyed by tool call id. The agent loop
+/// inserts here and blocks on the channel; the UI's `resolve_approval` command
+/// removes and resolves.
+static PENDING_APPROVALS: LazyLock<Mutex<std::collections::HashMap<String, PendingApproval>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Register a pending approval and block until the UI resolves it (or timeout).
+/// Returns the resolution, or a timeout denial if no response within 10 minutes.
+fn await_approval(
+    call: &ToolCallRequest,
+    args: &Value,
+    app: &AppHandle,
+    session_id: &str,
+) -> ApprovalResolution {
+    let (tx, rx) = std::sync::mpsc::channel::<ApprovalResolution>();
+    let command = args.get("command").and_then(Value::as_str).map(str::to_string);
+    {
+        let mut pending = PENDING_APPROVALS.lock();
+        pending.insert(
+            call.id.clone(),
+            PendingApproval {
+                tool_name: call.name.clone(),
+                command: command.clone(),
+                arguments: call.arguments.clone(),
+                tx,
+            },
+        );
+    }
+    let _ = app.emit(
+        "native-chat://approval-request",
+        json!({
+            "sessionId": session_id,
+            "toolCallId": call.id,
+            "toolName": call.name,
+            "command": command,
+            "arguments": call.arguments,
+        }),
+    );
+    match rx.recv_timeout(std::time::Duration::from_secs(600)) {
+        Ok(resolution) => resolution,
+        Err(_) => {
+            PENDING_APPROVALS.lock().remove(&call.id);
+            ApprovalResolution {
+                decision: PermissionDecision::Deny,
+                session_rule: None,
+            }
+        }
+    }
+}
+
+/// Resolve a pending approval by tool call id. Called by the UI's approve/deny
+/// command. Returns true if a pending approval was found and resolved.
+pub fn resolve_approval(tool_call_id: &str, resolution: ApprovalResolution) -> bool {
+    let pending = PENDING_APPROVALS.lock().remove(tool_call_id);
+    match pending {
+        Some(p) => {
+            let _ = p.tx.send(resolution);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Cancel all pending approvals for a session (e.g. on run cancel).
+pub fn cancel_pending_approvals(_session_id: &str) {
+    let mut pending = PENDING_APPROVALS.lock();
+    pending.clear();
+}
 /// A cancellation token for a running agent loop.
 pub struct CancellationToken {
     cancelled: AtomicBool,
@@ -74,6 +161,10 @@ pub struct RunResult {
     /// Final assistant content (may be empty if the loop ended on a tool call
     /// that hit the iteration cap).
     pub content: String,
+    /// Final reasoning/thinking content from the last assistant turn, if any.
+    /// Stored separately so it is never replayed to providers nor folded into
+    /// the persisted assistant message content.
+    pub reasoning: Option<String>,
     /// Whether the loop completed normally (no tool calls in the last response).
     pub completed: bool,
     /// Whether the run was cancelled.
@@ -219,7 +310,7 @@ fn run_loop_inner(
         Vec::new()
     };
     let workspace_root = PathBuf::from(project_path);
-    let session_rules: Vec<SessionRule> = Vec::new();
+    let mut session_rules: Vec<SessionRule> = Vec::new();
     let mut tool_events: Vec<ToolEventRecord> = Vec::new();
     let mut truncated = false;
     let mut iteration = 0;
@@ -229,6 +320,7 @@ fn run_loop_inner(
         if token.is_cancelled() {
             return RunResult {
                 content: String::new(),
+                reasoning: None,
                 completed: false,
                 cancelled: true,
                 hit_cap: false,
@@ -237,9 +329,9 @@ fn run_loop_inner(
             };
         }
         if iteration > MAX_ITERATIONS {
-            emit_system_row(app, session_id, "iteration-cap", MAX_ITERATIONS);
             return RunResult {
                 content: String::new(),
+                reasoning: None,
                 completed: false,
                 cancelled: false,
                 hit_cap: true,
@@ -284,6 +376,7 @@ fn run_loop_inner(
             Err(e) => {
                 return RunResult {
                     content: format!("Error: {e}"),
+                    reasoning: None,
                     completed: false,
                     cancelled: false,
                     hit_cap: false,
@@ -302,6 +395,7 @@ fn run_loop_inner(
         if response.tool_calls.is_empty() {
             return RunResult {
                 content: response.content,
+                reasoning: response.reasoning,
                 completed: true,
                 cancelled: false,
                 hit_cap: false,
@@ -316,7 +410,7 @@ fn run_loop_inner(
             &tool_defs,
             &workspace_root,
             project_path,
-            &session_rules,
+            &mut session_rules,
             token,
             app,
             session_id,
@@ -343,28 +437,44 @@ fn process_tool_calls(
     tool_defs: &[ToolDef],
     workspace_root: &Path,
     project_path: &str,
-    session_rules: &[SessionRule],
+    session_rules: &mut Vec<SessionRule>,
     token: &CancellationToken,
     app: &AppHandle,
     session_id: &str,
     tool_events: &mut Vec<ToolEventRecord>,
 ) -> Vec<(ToolCallRequest, ToolResult)> {
-    // Partition into read-only and mutating.
     let mut results: Vec<(ToolCallRequest, ToolResult)> = Vec::with_capacity(calls.len());
 
-    // Execute read-only calls (concurrently via threads).
-    let read_only: Vec<(usize, &ToolCallRequest)> = calls
+    // Intercept propose_plans calls: capture structured proposals to the DB
+    // and return a success result. This tool is never executed by the generic
+    // executor — it's a structured-data channel for generate-plans runs.
+    for (idx, call) in calls.iter().enumerate() {
+        if call.name == "propose_plans" {
+            let result = execute_propose_plans(session_id, call);
+            record_tool_event(app, session_id, call, &result, tool_events);
+            results.push((calls[idx].clone(), result));
+        }
+    }
+    // Filter out intercepted calls so they aren't double-processed.
+    let remaining: Vec<(usize, &ToolCallRequest)> = calls
         .iter()
         .enumerate()
-        .filter(|(_, c)| tool_def_for(&c.name, tool_defs).map(|d| d.kind == ToolKind::ReadOnly).unwrap_or(false))
-        .collect();
-    let mutating: Vec<(usize, &ToolCallRequest)> = calls
-        .iter()
-        .enumerate()
-        .filter(|(_, c)| tool_def_for(&c.name, tool_defs).map(|d| d.kind == ToolKind::Mutating).unwrap_or(false))
+        .filter(|(_, c)| c.name != "propose_plans")
         .collect();
 
-    // Read-only: spawn threads for concurrency.
+    let read_only: Vec<(usize, &ToolCallRequest)> = remaining
+        .iter()
+        .filter(|(_, c)| tool_def_for(&c.name, tool_defs).map(|d| d.kind == ToolKind::ReadOnly).unwrap_or(false))
+        .cloned()
+        .collect();
+    let mutating: Vec<(usize, &ToolCallRequest)> = remaining
+        .iter()
+        .filter(|(_, c)| tool_def_for(&c.name, tool_defs).map(|d| d.kind == ToolKind::Mutating).unwrap_or(false))
+        .cloned()
+        .collect();
+    // Read-only: spawn threads for concurrency. Each thread gets its own
+    // mutable clone of session rules (read-only calls won't prompt in balanced
+    // mode, but the gateway still consults the rules for matching).
     let read_results: Arc<Mutex<Vec<(usize, ToolResult)>>> = Arc::new(Mutex::new(Vec::new()));
     let mut threads = Vec::new();
     for (idx, call) in &read_only {
@@ -375,13 +485,14 @@ fn process_tool_calls(
         let workspace = workspace_root.to_path_buf();
         let def = tool_def_for(&call.name, tool_defs).cloned();
         let project = project_path.to_string();
-        let rules = session_rules.to_vec();
+        let rules = session_rules.clone();
         let app = app.clone();
         let session = session_id.to_string();
         let results = read_results.clone();
         let idx = *idx;
         let token_cancelled = token.is_cancelled();
         threads.push(thread::spawn(move || {
+            let mut rules = rules;
             let result = if token_cancelled {
                 ToolResult {
                     content: "Cancelled".to_string(),
@@ -394,7 +505,7 @@ fn process_tool_calls(
                     &call,
                     &workspace,
                     &project,
-                    &rules,
+                    &mut rules,
                     &app,
                     &session,
                 )
@@ -415,13 +526,12 @@ fn process_tool_calls(
     read_results.sort_by_key(|(i, _)| *i);
     for (idx, result) in read_results {
         let call = &calls[idx];
-        record_tool_event(
-            app, session_id, call, &result, &mut Vec::new(), tool_events,
-        );
+        record_tool_event(app, session_id, call, &result, tool_events);
         results.push((calls[idx].clone(), result));
     }
 
-    // Mutating: sequential in order.
+    // Mutating: sequential in order, sharing the session rules so "allow for
+    // session" additions apply to subsequent calls in the same batch.
     for (idx, call) in &mutating {
         if token.is_cancelled() {
             let result = ToolResult {
@@ -442,76 +552,99 @@ fn process_tool_calls(
                 full_content: None,
             }
         };
-        record_tool_event(app, session_id, call, &result, &mut Vec::new(), tool_events);
+        record_tool_event(app, session_id, call, &result, tool_events);
         results.push((calls[*idx].clone(), result));
     }
 
     results
 }
 
-/// Execute a tool call through the approval gateway.
+/// Intercept the propose_plans tool: parse arguments and capture each proposal
+/// to the plan_proposals table. Returns a success result with the count.
+fn execute_propose_plans(session_id: &str, call: &ToolCallRequest) -> ToolResult {
+    let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
+    let proposals = args.get("proposals").and_then(Value::as_array);
+    let Some(proposals) = proposals else {
+        return ToolResult::failure("propose_plans requires a 'proposals' array.".to_string());
+    };
+    let mut captured = 0usize;
+    for p in proposals {
+        let title = p.get("title").and_then(Value::as_str).unwrap_or("");
+        if title.trim().is_empty() {
+            continue;
+        }
+        let input = crate::models::plan_proposal::PlanProposalInput {
+            session_id: session_id.to_string(),
+            run_id: None,
+            title: title.to_string(),
+            description: p.get("description").and_then(Value::as_str).unwrap_or("").to_string(),
+            goal: p.get("goal").and_then(Value::as_str).unwrap_or("").to_string(),
+            suggested_change_name: p.get("suggested_change_name").and_then(Value::as_str).unwrap_or("").to_string(),
+        };
+        if crate::services::plan_proposal_service::PlanProposalService::capture(input).is_ok() {
+            captured += 1;
+        }
+    }
+    ToolResult::success(format!("Captured {captured} plan proposal(s)."))
+}
+
+/// Execute a tool call through the approval gateway. When the gateway requires
+/// a prompt, blocks on `await_approval` until the UI resolves it. Tool events
+/// are emitted live and persisted to `native_tool_events` via the caller.
 fn execute_with_gateway(
     def: &ToolDef,
     call: &ToolCallRequest,
     workspace: &Path,
     project_path: &str,
-    session_rules: &[SessionRule],
+    session_rules: &mut Vec<SessionRule>,
     app: &AppHandle,
     session_id: &str,
 ) -> ToolResult {
     let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
     let command = args.get("command").and_then(Value::as_str);
 
-    let decision = SettingsService::resolve_tool_call(
+    let mut decision = SettingsService::resolve_tool_call(
         project_path,
         &call.name,
         command,
         session_rules,
     );
 
-    // Record the decision as a tool event.
+    // If the gateway requires a prompt, block on the UI's approval decision.
+    if decision.requires_prompt {
+        let resolution = await_approval(call, &args, app, session_id);
+        decision.decision = resolution.decision;
+        decision.reason = match resolution.decision {
+            PermissionDecision::Allow => "Approved by user.".to_string(),
+            PermissionDecision::Deny => "Denied by user.".to_string(),
+            PermissionDecision::Ask => "Approval required.".to_string(),
+        };
+        // Apply "allow for session" rules so subsequent matching calls skip.
+        if let Some(rule) = resolution.session_rule {
+            session_rules.push(rule);
+        }
+    }
+
     let decision_str = match decision.decision {
         PermissionDecision::Allow => "approved",
         PermissionDecision::Deny => "denied",
         PermissionDecision::Ask => "pending",
     };
 
-    if decision.requires_prompt {
-        // Emit approval request event for the UI.
-        let _ = app.emit(
-            "native-chat://approval-request",
-            json!({
-                "sessionId": session_id,
-                "toolName": call.name,
-                "arguments": call.arguments,
-                "toolCallId": call.id,
-            }),
-        );
-        // In a real implementation, this would block on a channel waiting for
-        // the UI to resolve. For now, auto-allow in balanced mode for read-only
-        // (the gateway already allowed those) and auto-deny prompted calls
-        // after a timeout. The full blocking flow is wired in the chat service.
-        // TODO: wire the pending-approval channel when the UI is built.
-        return ToolResult {
-            content: format!("Approval required for {}. Pending UI integration.", call.name),
-            status: "denied".to_string(),
-            full_content: None,
-        };
-    }
-
     match decision.decision {
         PermissionDecision::Allow => {
             let start = Instant::now();
             let result = (def.execute)(workspace, &args);
             let duration_ms = start.elapsed().as_millis() as i64;
-            // Emit tool event for the UI.
+            let summary = &result.content[..result.content.len().min(200)];
             let _ = app.emit(
                 "native-chat://tool-event",
                 json!({
                     "sessionId": session_id,
+                    "toolCallId": call.id,
                     "toolName": call.name,
                     "status": result.status,
-                    "summary": &result.content[..result.content.len().min(200)],
+                    "summary": summary,
                     "durationMs": duration_ms,
                     "decision": decision_str,
                     "ruleSource": decision.rule_source,
@@ -524,6 +657,7 @@ fn execute_with_gateway(
                 "native-chat://tool-event",
                 json!({
                     "sessionId": session_id,
+                    "toolCallId": call.id,
                     "toolName": call.name,
                     "status": "denied",
                     "summary": decision.reason,
@@ -554,7 +688,6 @@ fn record_tool_event(
     _session_id: &str,
     call: &ToolCallRequest,
     result: &ToolResult,
-    _db_events: &mut Vec<ToolEventRecord>,
     tool_events: &mut Vec<ToolEventRecord>,
 ) {
     tool_events.push(ToolEventRecord {

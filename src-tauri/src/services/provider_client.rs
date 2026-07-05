@@ -90,6 +90,10 @@ pub struct ProviderRequest {
 #[derive(Debug, Clone, Default)]
 pub struct ProviderResponse {
     pub content: String,
+    /// Chain-of-thought / thinking tokens streamed ahead of the answer.
+    /// Stored separately from `content` so it is never replayed to providers
+    /// nor folded into the persisted assistant message.
+    pub reasoning: Option<String>,
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
     pub ttft_ms: Option<i64>,
@@ -294,6 +298,7 @@ impl ProviderClient for OmpCodexRpcClient {
         let duration_ms = (start.elapsed().as_millis() as i64).max(1);
         Ok(ProviderResponse {
             content: final_content.clone(),
+            reasoning: None,
             input_tokens: Some(req.messages.iter().map(|m| estimate_tokens(&m.content)).sum()),
             output_tokens: Some(estimate_tokens(&final_content)),
             ttft_ms: ttft_ms.or(Some(duration_ms)),
@@ -455,6 +460,35 @@ fn estimate_tokens(text: &str) -> i64 {
         trimmed.split_whitespace().count().max(1) as i64
     }
 }
+fn strip_think_tags(content: &str) -> (String, String) {
+    let markers: &[(&str, &str)] = &[
+        ("\u{2764}", "\u{2764}"),
+        ("<thinking>", "</thinking>"),
+        ("<think>", "</think>"),
+    ];
+    let mut cleaned = content.to_string();
+    let mut extracted = String::new();
+    for (open, close) in markers {
+        loop {
+            if let Some(start) = cleaned.find(open) {
+                let after_start = &cleaned[start + open.len()..];
+                if let Some(end_rel) = after_start.find(close) {
+                    let inner = after_start[..end_rel].to_string();
+                    cleaned = format!("{}{}", &cleaned[..start], &after_start[end_rel + close.len()..]);
+                    if !inner.trim().is_empty() {
+                        if !extracted.is_empty() {
+                            extracted.push_str("\n\n");
+                        }
+                        extracted.push_str(&inner);
+                    }
+                    continue;
+                }
+            }
+            break;
+        }
+    }
+    (cleaned, extracted)
+}
 
 fn http_client() -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder()
@@ -509,6 +543,7 @@ impl ProviderClient for LocalCoordinator {
             ttft_ms: Some(elapsed),
             duration_ms: elapsed.max(1),
             content: text,
+            reasoning: None,
             tool_calls: Vec::new(),
         })
     }
@@ -750,7 +785,6 @@ impl ProviderClient for OpenAiCompatibleClient {
         } = state;
 
         let duration_ms = (start.elapsed().as_millis() as i64).max(1);
-        // A tool-call-only turn has no content/reasoning but is still valid.
         if content.trim().is_empty()
             && reasoning.trim().is_empty()
             && output_tokens.is_none()
@@ -760,28 +794,34 @@ impl ProviderClient for OpenAiCompatibleClient {
                 provider: self.provider_id.clone(),
             }.into());
         }
-        // Fold reasoning into the persisted content so the saved assistant
-        // message keeps the full trace. The UI renders them separately while
-        // streaming; the persisted form is a single string for searchability.
-        let persisted = if reasoning.trim().is_empty() {
-            content
+        let (clean_content, extracted_reasoning) = strip_think_tags(&content);
+        let mut final_reasoning = if reasoning.trim().is_empty() {
+            None
         } else {
-            format!("{reasoning}\n\n---\n\n{content}")
+            Some(reasoning)
         };
+        if !extracted_reasoning.is_empty() {
+            final_reasoning = Some(match final_reasoning {
+                Some(mut r) => {
+                    r.push_str("\n\n");
+                    r.push_str(&extracted_reasoning);
+                    r
+                }
+                None => extracted_reasoning,
+            });
+        }
         Ok(ProviderResponse {
-            output_tokens: output_tokens.or_else(|| Some(estimate_tokens(&persisted))),
+            output_tokens: output_tokens.or_else(|| Some(estimate_tokens(&clean_content))),
             input_tokens: input_tokens
                 .or_else(|| Some(req.messages.iter().map(|m| estimate_tokens(&m.content)).sum())),
             ttft_ms: ttft_ms.or(Some(duration_ms)),
             duration_ms,
-            content: persisted,
+            content: clean_content,
+            reasoning: final_reasoning,
             tool_calls,
         })
     }
 }
-
-// ─── Anthropic ───
-
 /// Accumulated state from an Anthropic SSE stream, extracted for fixture tests.
 #[derive(Default)]
 struct AnthropicStreamState {
@@ -1015,7 +1055,6 @@ impl ProviderClient for AnthropicClient {
         } = state;
 
         let duration_ms = (start.elapsed().as_millis() as i64).max(1);
-        // A tool-call-only turn has no content/reasoning but is still valid.
         if content.trim().is_empty()
             && reasoning.trim().is_empty()
             && output_tokens.is_none()
@@ -1025,18 +1064,30 @@ impl ProviderClient for AnthropicClient {
                 provider: "anthropic".to_string(),
             }.into());
         }
-        let persisted = if reasoning.trim().is_empty() {
-            content
+        let (clean_content, extracted_reasoning) = strip_think_tags(&content);
+        let mut final_reasoning = if reasoning.trim().is_empty() {
+            None
         } else {
-            format!("{reasoning}\n\n---\n\n{content}")
+            Some(reasoning)
         };
+        if !extracted_reasoning.is_empty() {
+            final_reasoning = Some(match final_reasoning {
+                Some(mut r) => {
+                    r.push_str("\n\n");
+                    r.push_str(&extracted_reasoning);
+                    r
+                }
+                None => extracted_reasoning,
+            });
+        }
         Ok(ProviderResponse {
-            output_tokens: output_tokens.or_else(|| Some(estimate_tokens(&persisted))),
+            output_tokens: output_tokens.or_else(|| Some(estimate_tokens(&clean_content))),
             input_tokens: input_tokens
                 .or_else(|| Some(req.messages.iter().map(|m| estimate_tokens(&m.content)).sum())),
             ttft_ms: ttft_ms.or(Some(duration_ms)),
             duration_ms,
-            content: persisted,
+            content: clean_content,
+            reasoning: final_reasoning,
             tool_calls,
         })
     }
@@ -1250,5 +1301,46 @@ mod tests {
         // In the real generate(), this would return EmptyResponse.
         let err = ProviderError::EmptyResponse { provider: "openai".to_string() };
         assert!(err.to_string().contains("openai"));
+    }
+
+    #[test]
+    fn strip_think_tags_extracts_thinking_block() {
+        let content = "Before. <thinking>hidden reasoning</thinking> After.";
+        let (cleaned, extracted) = strip_think_tags(content);
+        assert_eq!(cleaned, "Before.  After.");
+        assert_eq!(extracted, "hidden reasoning");
+    }
+
+    #[test]
+    fn strip_think_tags_handles_multiple_blocks() {
+        let content = "<thinking>first</thinking> mid <thinking>second</thinking>";
+        let (cleaned, extracted) = strip_think_tags(content);
+        assert_eq!(cleaned.trim(), "mid");
+        assert!(extracted.contains("first"));
+        assert!(extracted.contains("second"));
+    }
+
+    #[test]
+    fn strip_think_tags_preserves_content_without_markers() {
+        let content = "Just plain answer with no think tags.";
+        let (cleaned, extracted) = strip_think_tags(content);
+        assert_eq!(cleaned, content);
+        assert!(extracted.is_empty());
+    }
+
+    #[test]
+    fn local_coordinator_returns_no_reasoning() {
+        let client = LocalCoordinator;
+        let req = ProviderRequest {
+            model_id: "basebuild-local-coordinator".to_string(),
+            effort_level: "medium".to_string(),
+            system: None,
+            messages: vec![ChatMsg { role: "user".to_string(), content: "hi".to_string(), tool_calls: Vec::new(), tool_call_id: None, name: None }],
+            api_key: None,
+            base_url: None,
+            tools: Vec::new(),
+        };
+        let resp = client.generate(&req, &|_, _| {}).expect("local coordinator generate");
+        assert!(resp.reasoning.is_none());
     }
 }

@@ -70,7 +70,9 @@ impl SessionService {
     pub fn list_sessions(project_path: &str) -> DbResult<Vec<Session>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn.prepare(
-            "SELECT id, project_path, title, created_at, updated_at FROM sessions WHERE project_path = ?1 ORDER BY updated_at DESC",
+            // Stable ordering by created_at DESC: selection must not reshuffle
+            // the list (the old updated_at DESC ordering bumped selection).
+            "SELECT id, project_path, title, created_at, updated_at FROM sessions WHERE project_path = ?1 ORDER BY created_at DESC",
         ).map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map(params![project_path], |row| {
@@ -89,9 +91,58 @@ impl SessionService {
 
     pub fn rename_session(id: &str, title: &str) -> DbResult<()> {
         let conn = StorageService::connect()?;
+        // Manual rename sets title_locked so auto-titling never overwrites it.
         conn.execute(
-            "UPDATE sessions SET title = ?1, updated_at = ?2 WHERE id = ?3",
+            "UPDATE sessions SET title = ?1, title_locked = 1, updated_at = ?2 WHERE id = ?3",
             params![title, now(), id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Auto-title a session from its first meaningful activity (first user
+    /// message or generate-plans goal). No-ops when the session is title_locked
+    /// or already has a non-default title. Returns true if the title changed.
+    pub fn auto_title(id: &str, suggested_title: &str) -> DbResult<bool> {
+        if suggested_title.trim().is_empty() {
+            return Ok(false);
+        }
+        let conn = StorageService::connect()?;
+        let row: Option<(String, i64)> = conn
+            .query_row(
+                "SELECT title, title_locked FROM sessions WHERE id = ?1",
+                params![id],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+            )
+            .ok();
+        let Some((current_title, locked)) = row else {
+            return Ok(false);
+        };
+        // Never overwrite a manual title.
+        if locked != 0 {
+            return Ok(false);
+        }
+        // Only auto-title sessions still on the default "Session <ts>" title.
+        if !current_title.starts_with("Session ") {
+            return Ok(false);
+        }
+        // Truncate to a short phrase (max ~60 chars on a word boundary).
+        let truncated = truncate_title(suggested_title, 60);
+        conn.execute(
+            "UPDATE sessions SET title = ?1 WHERE id = ?2",
+            params![truncated, id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+
+    /// Record that a session was selected, using last_selected_at (not
+    /// updated_at) so the sidebar ordering stays stable.
+    pub fn set_last_selected(id: &str) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "UPDATE sessions SET last_selected_at = ?1 WHERE id = ?2",
+            params![now(), id],
         )
         .map_err(|e| e.to_string())?;
         Ok(())
@@ -340,4 +391,22 @@ impl SessionService {
             .map_err(|e| e.to_string())?;
         Ok(())
     }
+}
+
+/// Truncate a title to max_chars, breaking on a word boundary and adding an
+/// ellipsis when truncated. Used for auto-titling sessions from first message.
+fn truncate_title(s: &str, max_chars: usize) -> String {
+    let s = s.trim();
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    let truncated: String = s.chars().take(max_chars).collect();
+    // Try to break on a word boundary.
+    if let Some(last_space) = truncated.rfind(' ') {
+        let word_truncated: String = truncated.chars().take(last_space).collect();
+        if !word_truncated.is_empty() {
+            return format!("{word_truncated}…");
+        }
+    }
+    format!("{truncated}…")
 }

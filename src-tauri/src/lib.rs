@@ -10,7 +10,6 @@ use tauri::{AppHandle, Emitter};
 
 static APP_HANDLE: LazyLock<Mutex<Option<AppHandle>>> = LazyLock::new(|| Mutex::new(None));
 
-use app_state::AppState;
 use commands::{
     agent::{agent_capabilities, agent_send, agent_start, agent_stop},
     app::{app_version, open_url},
@@ -52,7 +51,9 @@ use commands::{
     },
     native_chat::{
         native_chat_get, native_chat_list, native_chat_messages, native_chat_send,
-        native_chat_start, native_chat_cancel, native_chat_tool_events, native_chat_model_default, native_chat_set_project_model_default,
+        native_chat_start, native_chat_cancel, native_chat_resolve_approval,
+        native_chat_tool_events, native_chat_model_default,
+        native_chat_set_project_model_default,
         native_chat_set_global_model_default, native_catalog_sync,
         native_delete_provider_credential, native_generate_ideas,
         native_list_provider_credentials, native_provider_catalog,
@@ -60,6 +61,7 @@ use commands::{
         native_provider_login_poll, native_provider_login_start, native_request_metrics,
         native_request_metrics_summary, native_request_tool_approval,
         native_save_provider_credential,
+        plan_proposal_accept, plan_proposal_dismiss, plan_proposal_list,
     },
     plans::{
         create_plan, delete_plan, get_plan, list_plans, set_plan_context, set_plan_status,
@@ -171,12 +173,21 @@ pub fn run() {
         eprintln!("{details}");
     }));
 
-    tauri::Builder::default()
-        .manage(AppState::default())
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build());
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        use tauri::Manager;
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
+    builder
+        .manage(app_state::AppState::default())
         .manage(std::sync::Mutex::new(crate::services::agent_service::AgentManager::default()))
         .manage(CloseToTrayState::default())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // Store handle so the panic hook can emit to the frontend
             if let Ok(mut handle) = APP_HANDLE.lock() {
@@ -403,12 +414,16 @@ pub fn run() {
             native_request_metrics,
             native_request_metrics_summary,
             native_chat_cancel,
+            native_chat_resolve_approval,
             native_chat_tool_events,
             native_list_provider_credentials,
             native_delete_provider_credential,
             native_save_provider_credential,
             native_request_tool_approval,
             native_generate_ideas,
+            plan_proposal_list,
+            plan_proposal_accept,
+            plan_proposal_dismiss,
             native_chat_model_default,
             native_chat_set_project_model_default,
             native_chat_set_global_model_default,
