@@ -105,7 +105,7 @@ test.describe("native chat workspace", () => {
     // Select the connected Umans provider and generate ideas from the overflow menu.
     await page.locator(".chat-provider-trigger").click();
     await page.locator(".chat-picker-item", { hasText: "Umans" }).click();
-    await page.getByTitle("More chat actions").click();
+    await page.getByTitle("Idea generation actions").click();
     await page.getByTitle("Quick freeform idea generation in the chat").click();
     // Two idea cards render with promote actions.
     await expect(page.locator(".chat-idea-card")).toHaveCount(2);

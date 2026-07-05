@@ -17,6 +17,8 @@ export type Idea = {
   title: string;
   description: string;
   status: IdeaStatus;
+  grounding: string;
+  anchor: string | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -33,8 +35,22 @@ export async function deleteCategory(id: string): Promise<void> {
   return invoke("delete_category", { id });
 }
 
-export async function createIdea(sessionId: string, title: string, description: string, categoryId?: string): Promise<Idea> {
-  return invoke<Idea>("create_idea", { sessionId, title, description, categoryId: categoryId ?? null });
+export async function createIdea(
+  sessionId: string,
+  title: string,
+  description: string,
+  categoryId?: string,
+  grounding?: string,
+  anchor?: string,
+): Promise<Idea> {
+  return invoke<Idea>("create_idea", {
+    sessionId,
+    title,
+    description,
+    categoryId: categoryId ?? null,
+    grounding: grounding ?? "",
+    anchor: anchor ?? null,
+  });
 }
 
 export async function listIdeas(sessionId: string): Promise<Idea[]> {

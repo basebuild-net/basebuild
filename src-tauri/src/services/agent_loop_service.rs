@@ -574,6 +574,7 @@ fn execute_propose_ideas(session_id: &str, call: &ToolCallRequest) -> ToolResult
         .and_then(Value::as_str)
         .map(|s| s.to_string());
     let mut captured = 0usize;
+    let mut rejected = 0usize;
     for idea in ideas {
         let title = idea.get("title").and_then(Value::as_str).unwrap_or("");
         if title.trim().is_empty() {
@@ -584,17 +585,40 @@ fn execute_propose_ideas(session_id: &str, call: &ToolCallRequest) -> ToolResult
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
+        let grounding = idea
+            .get("grounding")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if grounding.is_empty() {
+            // Grounding is required: an idea with no concrete evidence is
+            // rejected, no row created.
+            rejected += 1;
+            continue;
+        }
+        let anchor = idea
+            .get("anchor")
+            .and_then(Value::as_str)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
         let result = crate::services::session_service::SessionService::create_idea(
             session_id,
             title,
             &description,
             category_id.as_deref(),
+            &grounding,
+            anchor.as_deref(),
         );
         if result.is_ok() {
             captured += 1;
         }
     }
-    ToolResult::success(format!("Captured {captured} idea(s)."))
+    if rejected > 0 {
+        ToolResult::success(format!("Captured {captured} idea(s); rejected {rejected} without grounding."))
+    } else {
+        ToolResult::success(format!("Captured {captured} idea(s)."))
+    }
 }
 
 /// Execute a tool call through the approval gateway. When the gateway requires

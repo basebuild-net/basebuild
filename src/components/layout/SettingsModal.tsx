@@ -486,7 +486,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                       <span className="text-sm">Auto-send generated prompts</span>
                     </label>
                     <p className="text-muted text-sm" style={{ marginTop: -4 }}>
-                      When enabled, prompts from Generate from context are sent immediately. Disabled by default.
+                      When enabled, prompts from the chat planning menu are sent immediately. Disabled by default.
                     </p>
 
                     {/* GIT Ai — model used by Source → Generate commit */}

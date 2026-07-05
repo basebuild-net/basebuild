@@ -88,7 +88,10 @@ use commands::{
         reveal_in_explorer, set_last_active_session,
     },
     requirements::list_requirements,
-     schematic::{get_project_schematic, has_project_schematic, set_project_schematic},
+    schematic::{
+        get_project_schematic, has_project_schematic, inspect_project_schematic,
+        set_project_schematic,
+    },
     settings::{
         add_approval_rule, clear_audit_trail, delete_runtime_profile, get_approval_mode,
         get_permission_rules, get_runtime_defaults, list_approval_rules, list_audit_trail,
@@ -291,6 +294,7 @@ pub fn run() {
             get_project_schematic,
             has_project_schematic,
             set_project_schematic,
+            inspect_project_schematic,
             create_plan,
             list_plans,
             get_plan,

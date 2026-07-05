@@ -21,6 +21,7 @@ title: <Short imperative title>
 category: <category-slug>
 status: concept
 created: <YYYY-MM-DD>
+anchor: <Vision / End goal / Current priority this serves, or omit if outside focus>
 ---
 <1–3 sentences: what and why, specific to THIS project.>
 

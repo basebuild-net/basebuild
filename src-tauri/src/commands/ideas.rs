@@ -35,8 +35,17 @@ pub fn create_idea(
     title: String,
     description: String,
     category_id: Option<String>,
+    grounding: Option<String>,
+    anchor: Option<String>,
 ) -> Result<Idea, String> {
-    SessionService::create_idea(&session_id, &title, &description, category_id.as_deref())
+    SessionService::create_idea(
+        &session_id,
+        &title,
+        &description,
+        category_id.as_deref(),
+        grounding.as_deref().unwrap_or(""),
+        anchor.as_deref(),
+    )
 }
 
 #[tauri::command]

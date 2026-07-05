@@ -60,10 +60,11 @@ planning files are missing or the engine is unset.
 
 Ground everything in the actual project. Read, at minimum, whatever exists of:
 
-- `.basebuild/project-schematic.md` — purpose, Vision, constraints, current
-  priorities. This is the primary steering document; categories and ideas must
-  reflect it. If it is missing, suggest the `basebuild-project-schematic`
-  skill (once, briefly), then proceed without it.
+- `.basebuild/project-schematic.md` — Purpose, Vision, Blueprint (archetype,
+  team size, stage), End goals, constraints, and Current priorities. This is
+  the primary steering document; categories and ideas must reflect it. If it
+  is missing, suggest the `basebuild-project-schematic` skill (once, briefly),
+  then proceed without it.
 - Convention files (`AGENTS.md`, `CLAUDE.md`, or equivalents), the README,
   and manifests (`package.json`, `Cargo.toml`, `pyproject.toml`, …).
 - Recent git history and status — active direction and uncommitted work.
@@ -73,14 +74,25 @@ Ground everything in the actual project. Read, at minimum, whatever exists of:
 Never fabricate project facts. An idea you cannot ground in a real file,
 function, or observed gap does not get suggested.
 
+## Focus directive
+
+Keep the project grounded. Assemble every generation from the schematic: the
+primary goal, Vision, End goals, and Current priorities come first, and each
+idea SHOULD serve one of them. The Blueprint constrains scope — a solo-dev
+project is not planned like a team's; a SaaS, a game, and a library get
+different work. Decline generic filler that does not serve the goal; prefer the
+core MVP over adding features for their own sake. Record the schematic element
+an idea serves as its anchor; ideas with no anchor are "outside current focus"
+— allowed, but call them out.
+
 ## Categories
 
 1. `categories.md` exists → use it; offer (do not force) regeneration.
 2. Missing → generate 3–8 categories specific to this project (not a generic
-   taxonomy): derive them from the schematic's Vision/priorities and the
-   analysis above. Typical axes — optimization, bug fixes, new features,
-   refactoring, testing, docs, DevOps, SEO/content — but only where the
-   project actually has that surface.
+   taxonomy): derive them from the schematic's Blueprint, Vision, End goals,
+   and Current priorities, plus the analysis above. Typical axes —
+   optimization, bug fixes, new features, refactoring, testing, docs, DevOps,
+   SEO/content — but only where the project actually has that surface.
 3. Present them; let the user add, rename, remove. Persist per schema.md.
 4. Regeneration merges: user-authored sections and notes are preserved;
    removals require explicit confirmation.

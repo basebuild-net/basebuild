@@ -105,13 +105,13 @@ _Last refreshed: 2026-07-05 (`node scripts/openspec-status.mjs --write`)_
 |Change|Progress|Status|Next command|
 |---|---|---|---|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
+|`schematic-grounded-planning`|20/25|in progress|`/apply schematic-grounded-planning`|
 |`unified-planning-workspace`|32/34|in progress|`/apply unified-planning-workspace`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
 |`omp-terminal-usage-sync`|0/33|not started|`/apply omp-terminal-usage-sync`|
-|`schematic-grounded-planning`|0/25|not started|`/apply schematic-grounded-planning`|
 |`basebuild-planning-skill`|18/18|complete — archive|`/archive basebuild-planning-skill`|
 <!-- status:end -->
 

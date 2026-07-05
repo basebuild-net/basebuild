@@ -45,6 +45,7 @@ import {
 import { resolveToolApproval } from "../../lib/native-chat";
 import { useIdeaState } from "../../state/ideas";
 import type { Idea } from "../../lib/ideas";
+import { inspectProjectSchematic, type SchematicReport } from "../../lib/schematic";
 import { useLogs } from "../../state/log";
 
 const SEND_TIMEOUT_MS = 45_000;
@@ -69,6 +70,8 @@ type ChatPanelProps = {
   onCreatePlanFromIdea?: (title: string, description: string, chatSessionId: string | null) => Promise<void> | void;
   /** Open the planning inspector (side panel). */
   onOpenPlanningInspector?: () => void;
+  /** Open the schematic tab (focus or create). */
+  onOpenSchematic?: () => void;
 };
 
 function formatMetric(value: number | null | undefined, suffix = "") {
@@ -179,6 +182,7 @@ export function ChatPanel({
   schematicContent,
   onCreatePlanFromIdea,
   onOpenPlanningInspector,
+  onOpenSchematic,
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
@@ -216,12 +220,19 @@ export function ChatPanel({
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
   const [showPlanningMenu, setShowPlanningMenu] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  const [schematicReport, setSchematicReport] = useState<SchematicReport | null>(null);
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelFilter, setModelFilter] = useState("");
   const sendTimerRef = useRef<number | null>(null);
   const assistantBufferRef = useRef("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Soft gate: load schematic health when the planning menu opens.
+  useEffect(() => {
+    if (showPlanningMenu && projectPath) {
+      void inspectProjectSchematic(projectPath).then(setSchematicReport).catch(() => setSchematicReport(null));
+    }
+  }, [showPlanningMenu, projectPath]);
   const { addLog } = useLogs();
   const ideaState = useIdeaState(activeSessionId ?? null);
 
@@ -588,13 +599,29 @@ export function ChatPanel({
     [nativeMode, nativeSessionId, selectedProvider, loading, providerId, modelId, effortLevel, agentId, addLog],
   );
 
-  // Draft prompt injection
+  // Draft prompt injection. Wait for catalog to load before auto-sending
+  // so the resolved provider/model is used, not the initial local default.
+  // The schematic wizard needs a model that supports tools (read_file,
+  // write_file, etc.) — if the active model can't call tools, show a notice
+  // instead of sending a prompt the model can only echo back as text.
   useEffect(() => {
     if (!draftPrompt) return;
     setInput(draftPrompt);
     onDraftConsumed?.();
-    if (autoSendDraft) void sendMessage(draftPrompt.trim());
-  }, [draftPrompt, autoSendDraft, onDraftConsumed, sendMessage]);
+    if (autoSendDraft && catalog && !loading) {
+      const isWizardPrompt = draftPrompt.includes("basebuild-project-schematic");
+      const modelSupportsTools = selectedModel?.supportsTools ?? false;
+      if (isWizardPrompt && !modelSupportsTools) {
+        setCommandNotice(
+          selectedModel
+            ? `${selectedModel.label} does not support tool calling — the wizard needs a model that can read/write files. Pick a tool-capable model (e.g. Claude, GPT-4, umans-glm) and try again.`
+            : "The schematic wizard needs a model that supports tool calling. Pick a tool-capable model and try again.",
+        );
+        return;
+      }
+      void sendMessage(draftPrompt.trim());
+    }
+  }, [draftPrompt, autoSendDraft, onDraftConsumed, sendMessage, catalog, loading, selectedModel]);
 
   // Auto-scroll
   useEffect(() => {
@@ -978,17 +1005,22 @@ export function ChatPanel({
             })()}
           </div>
         ) : null}
-
         {renderMessages.map((msg, index) => {
           const key = "id" in msg ? String(msg.id) : `legacy-${index}`;
           const isOfflineTurn =
             "providerId" in msg && msg.role === "assistant" && msg.providerId === LOCAL_PROVIDER_ID;
           const reasoning = "reasoning" in msg ? (msg as NativeChatMessage).reasoning : null;
+          const ts: number | null = "createdAt" in msg ? (msg as NativeChatMessage).createdAt : null;
+          const timeStr = ts != null
+            ? new Date(ts * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+            : null;
+          const fullDate = ts != null ? new Date(ts * 1000).toLocaleString() : null;
           return (
             <div key={key} className={`chat-message chat-message-${msg.role}`}>
               <span className="chat-message-role">
                 {msg.role === "user" ? "You" : msg.role === "assistant" ? "Basebuild" : "System"}
                 {isOfflineTurn ? <span className="chat-offline-tag" title="No external model was contacted">Offline</span> : null}
+                {timeStr ? <span className="chat-message-time" title={fullDate ?? ""}>{timeStr}</span> : null}
               </span>
               {reasoning ? <ReasoningFold reasoning={reasoning} /> : null}
               <pre className="chat-message-content">{msg.content}</pre>
@@ -1253,16 +1285,16 @@ export function ChatPanel({
                     </button>
                   ) : null}
                   <button
-                    className="btn-icon btn-icon-sm"
+                    className="btn btn-sm chat-ideas-trigger"
                     type="button"
-                    title="More chat actions"
+                    title="Idea generation actions"
                     onClick={() => {
                       setShowPlanningMenu((value) => !value);
                       setShowProviderPicker(false);
                       setShowModelPicker(false);
                     }}
                   >
-                    ⋯
+                    <Lightbulb size={11} /> Ideas
                   </button>
                 </>
               ) : (
@@ -1274,9 +1306,30 @@ export function ChatPanel({
               )}
             </div>
             {showPlanningMenu ? (
-              <div className="chat-inline-menu">
+              <div className="chat-picker" role="dialog" aria-label="Idea actions">
+                <div className="chat-picker-header">
+                  <span>Ideas</span>
+                  <button className="btn-icon btn-icon-sm" type="button" title="Close ideas menu" onClick={() => setShowPlanningMenu(false)}>
+                    <X size={11} />
+                  </button>
+                </div>
+                {schematicReport && schematicReport.health !== "complete" && (
+                  <button
+                    className="chat-picker-item"
+                    type="button"
+                    title={`Schematic ${schematicReport.health}: incomplete sections may lead to ungrounded generation — click to open the schematic`}
+                    onClick={() => {
+                      setShowPlanningMenu(false);
+                      onOpenSchematic?.();
+                    }}
+                  >
+                    <AlertCircle size={11} className="chat-picker-item-icon" />
+                    <span className="chat-picker-main">Schematic {schematicReport.health}</span>
+                    <span className="chat-picker-meta">Fix</span>
+                  </button>
+                )}
                 <button
-                  className="chat-inline-menu-item"
+                  className="chat-picker-item"
                   type="button"
                   title="Quick freeform idea generation in the chat"
                   disabled={generatingIdeas || !nativeSessionId}
@@ -1285,30 +1338,32 @@ export function ChatPanel({
                     void handleGenerateIdeas();
                   }}
                 >
-                  <Sparkles size={11} /> Quick ideas
+                  <Sparkles size={11} className="chat-picker-item-icon" />
+                  <span className="chat-picker-main">Quick ideas</span>
                 </button>
                 <button
-                  className="chat-inline-menu-item"
+                  className="chat-picker-item"
                   type="button"
                   title="Pick a category and generate ideas for it"
-                  disabled={generatingIdeas || !nativeSessionId}
                   onClick={() => {
                     setShowPlanningMenu(false);
-                    void ideaState.ensureDefaultCategories();
                     setShowCategoryPicker(true);
                   }}
                 >
-                  <FolderTree size={11} /> By category…
+                  <FolderTree size={11} className="chat-picker-item-icon" />
+                  <span className="chat-picker-main">By category…</span>
                 </button>
                 <button
-                  className="chat-inline-menu-item"
+                  className="chat-picker-item"
                   type="button"
+                  title="Open the planning inspector (side panel)"
                   onClick={() => {
                     setShowPlanningMenu(false);
                     onOpenPlanningInspector?.();
                   }}
                 >
-                  <LayoutGrid size={11} /> Open planning inspector
+                  <LayoutGrid size={11} className="chat-picker-item-icon" />
+                  <span className="chat-picker-main">Planning inspector</span>
                 </button>
               </div>
             ) : null}

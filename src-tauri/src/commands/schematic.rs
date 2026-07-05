@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::services::schematic_service;
+use crate::services::schematic_service::{self, SchematicReport};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct SchematicPayload {
@@ -25,4 +25,12 @@ pub fn set_project_schematic(project_path: String, content: String) -> Result<()
     let path = PathBuf::from(project_path);
     schematic_service::write(&path, &content)?;
     Ok(())
+}
+
+/// Parse and validate the project schematic: per-section fill state, overall
+/// health, and end-goal staleness. Deterministic — no model calls.
+#[tauri::command]
+pub fn inspect_project_schematic(project_path: String) -> Result<SchematicReport, String> {
+    let path = PathBuf::from(project_path);
+    Ok(schematic_service::inspect(&path))
 }

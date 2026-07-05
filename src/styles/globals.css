@@ -746,10 +746,33 @@ a { color: inherit; text-decoration: none; }
 .project-schematic-content {
   flex: 1; overflow: auto;
   padding: 12px;
-  font-family: var(--bb-mono); font-size: 12px; line-height: 1.5;
-  background: var(--bb-bg); color: var(--bb-text);
-  white-space: pre-wrap;
+  display: flex; flex-direction: column; gap: 8px;
 }
+.project-schematic-toolbar { display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 28px; border-bottom: 1px solid var(--bb-border); background: var(--bb-surface); }
+.project-schematic-toolbar-title { flex: 1; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--bb-muted); }
+.schematic-health-badge { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; border: 1px solid var(--bb-border); }
+.schematic-health-badge.is-complete { color: var(--bb-positive); border-color: rgba(74, 222, 128, 0.4); }
+.schematic-health-badge.is-partial { color: var(--bb-warning); border-color: rgba(250, 204, 21, 0.4); }
+.schematic-health-badge.is-missing { color: var(--bb-negative); border-color: rgba(248, 113, 113, 0.4); }
+.schematic-nudge { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: color-mix(in srgb, var(--bb-warning) 10%, transparent); border-bottom: 1px solid var(--bb-warning); color: var(--bb-warning); font-size: 11px; }
+.schematic-nudge .text-sm { flex: 1; }
+.schematic-section-card { border: 1px solid var(--bb-border); padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.schematic-section-card.is-missing, .schematic-section-card.is-placeholder { border-color: rgba(250, 204, 21, 0.35); background: color-mix(in srgb, var(--bb-warning) 4%, transparent); }
+.schematic-section-header { display: flex; align-items: center; gap: 6px; }
+.schematic-section-title { flex: 1; font-size: 12px; font-weight: 600; }
+.schematic-section-state { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 5px; }
+.schematic-section-state.is-filled { color: var(--bb-muted); }
+.schematic-section-state.is-placeholder, .schematic-section-state.is-missing { color: var(--bb-warning); }
+.schematic-section-body { font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.schematic-section-placeholder { color: var(--bb-muted); font-style: italic; font-size: 11px; }
+.schematic-section-actions { display: flex; gap: 4px; }
+.schematic-raw { font-family: var(--bb-mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; padding: 12px; }
+.schematic-end-goal-row { display: flex; gap: 6px; font-size: 12px; }
+.schematic-end-goal-period { font-family: var(--bb-mono); color: var(--bb-muted); flex-shrink: 0; min-width: 120px; }
+.schematic-end-goal-stale { color: var(--bb-warning); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+.idea-grounding { font-size: 10px; color: var(--bb-muted); margin: 2px 0 0; }
+.idea-anchor { font-size: 10px; color: var(--bb-cta); margin: 2px 0 0; }
+.idea-outside-focus { font-size: 10px; color: var(--bb-warning); margin: 2px 0 0; font-style: italic; }
 
 /* ─── Debug ─── */
 .debug-section { margin-bottom: 12px; }
@@ -1052,6 +1075,11 @@ a { color: inherit; text-decoration: none; }
 .chat-picker-meta { flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--bb-mono); font-size: 10px; color: var(--bb-muted); }
 .chat-command-notice { display: flex; align-items: center; gap: 6px; padding: 5px 6px; color: var(--bb-warning); font-size: 11px; }
 .chat-command-notice span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-command-notice-button { cursor: pointer; border: none; background: none; text-align: left; width: 100%; }
+.chat-command-notice-button:hover { background: color-mix(in srgb, var(--bb-warning) 10%, transparent); }
+.chat-message-time { margin-left: auto; font-size: 9px; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--bb-muted); font-family: var(--bb-mono); flex-shrink: 0; }
+.chat-ideas-trigger { flex-shrink: 0; }
+.chat-picker-item-icon { color: var(--bb-muted); flex-shrink: 0; }
 .chat-setup-bar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: color-mix(in srgb, var(--bb-warning) 12%, transparent); border-top: 1px solid var(--bb-warning); color: var(--bb-warning); flex-shrink: 0; }
 .chat-setup-bar .text-sm { flex: 1; }
 .chat-setup-bar .btn { color: var(--bb-warning); border-color: var(--bb-warning); }
@@ -1163,6 +1191,7 @@ a { color: inherit; text-decoration: none; }
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 32px; text-align: center; flex: 1; overflow-y: auto; }
 .empty-state h3 { margin: 0; font-size: 14px; }
 .empty-state p { margin: 0; color: var(--bb-muted); font-size: 12px; }
+.empty-state-actions { display: flex; gap: 8px; margin-top: 4px; }
 
 /* ─── Scrollbar ─── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
