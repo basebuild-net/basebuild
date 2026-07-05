@@ -170,83 +170,103 @@ never costs clarity.
 
 ## Layout
 
-A three-column grid: left sidebar, center workspace, right side panel.
-**Both left and right columns are collapsible** to icon-only mode via toggle
-buttons at the top of each column.
+A **single global left column** and a **chat-focused center**. There is no
+right side panel — everything that used to live there (source, plans, ideas,
+files) now lives either in the left column or as a compact floating block over
+the chat. The app shell is a two-region grid: the left column (fixed width,
+collapsible to icon-only) and the center chat surface (fills the rest).
 
-- **Left sidebar (220px → 36px collapsed):** Projects list with add/remove/reveal.
-  Toggle button at top collapses to icon-only.
-- **Center workspace:** Session header with title, compact tool tabs, and status
-  pill. Below that are workspace tabs and the active tab view (terminal, file
-  viewer, or project schematic).
-- **Right side panel (260px → 36px collapsed):** Stacked accordion sections for
-  **Plans**, **Files**, and **Source**. Each section can be collapsed or
-  expanded; drag the handle to reorder them. Plans show lanes and AI
-  generation controls; Files is a small project explorer; Source shows git
-  status.
+- **Left sidebar (240px → 44px collapsed):** The global control surface for the
+  whole app, not per-chat. From top to bottom:
+  1. **Top action row** — `New chat`, `Search`, and the column collapse toggle.
+     These are the primary actions; no other top bar.
+  2. **Projects + chats list** — the body of the column. Each project is a
+     section with its chats listed underneath. **Only the 5 most recent chats
+     per project are shown**, each with a relative timestamp (`5s`, `1min`,
+     `2h`, `1mo`) and a pin toggle. A `Show more` row under each project expands
+     the older chats for that project. Pinned chats sit in their own section at
+     the top of the list (across all projects) and do not count against the 5.
+  3. **Bottom account row** — username / avatar and settings. The global update
+     indicator sits here too; when an update is detected it becomes a compact
+     blue (`#2563eb`) one-click install button beside the avatar. This is the
+     only non-orange CTA and is reserved for app updates.
 
-The global taskbar includes account controls and the update indicator. When an
-update is detected, the indicator becomes a compact blue (`#2563eb`) one-click
-download/install button beside the account avatar; this is the only non-orange
-CTA and is reserved for app updates.
+  Collapsing the column to icon-only hides the list and labels; tooltips carry
+  the full text.
 
-### Tool tabs
+- **Center chat surface:** The whole center is the active chat. No tool tabs,
+  no right panel. The session header is minimal (title, status pill). The chat
+  transcript fills the height, scrolling independently, with the composer pinned
+  to the bottom. Two things float over the chat on the top-right; everything
+  else is the conversation.
 
-Center tool selection is a compact tab bar inline with the session header:
-**Terminal / Debug**. Source control lives in the right side panel's `Source`
-accordion section. Workspace tabs are per-session and each has a `kind`:
-terminal, file, or empty (schematic view).
+### Floating environment info (top-right of chat)
 
-### Plan panel
+A compact, ~100px-tall block pinned to the top-right of the chat surface. It
+  surfaces the project environment at a glance and is the new home for the
+  panels that used to live in the right sidebar, each as a foldable tab inside
+  the block:
 
-The `Plans` section inside the right panel exposes:
-- Plan lanes grouped by status.
-- Generate / suggest / enhance AI actions.
-- Per-plan actions: focus, edit, open in terminal, copy reference.
-- Collapse toggle at the panel header.
+- **Changes / branch / source** — current git branch, ahead/behind, and the
+  staged/unstaged/untracked counts. Inline actions: commit, push, pull. The
+  diff/list view opens as a popover from the block, not a full column.
+- **Plans & Ideas** — the Planning Inspector (`Plans / Ideas / Categories`
+  tabs) lives here, folded by default. Schematic health badge and the End-goal
+  nudge render in this fold when relevant. Generation is still triggered from
+  the chat composer's planning menu and runs as a visible chat turn — the block
+  is for inspecting and managing, not for generation inputs.
+- **Files** — opens a **modal file explorer**, not an inline tree. A single
+  button in the block opens a full-window modal with a cleaner, purpose-built
+  file browser (tree on the left, preview/detail on the right, fuzzy path
+  search at the top). The giant always-visible file list is gone.
 
-### Idea cards
+The block is collapsible; when folded it shows just the branch name and a
+  health dot. It floats above the transcript and never pushes chat content.
 
-When a generate-ideas run captures ideas (via the `propose_ideas` tool or
-fallback parser), each renders as a square-cornered card inside the chat
-transcript: bold title, one-line description, an action row of `Promote`
-(orange CTA) and `Reject` (ghost) buttons. Promoted cards transition to a
-`Planned` status badge and reload with the session on restart - they are
-append-only and never mutate in place once rendered. Rejected cards show a
-muted `Rejected` badge. The cards obey the same density rules as other chat
-content (no padding > 8px, 0px radius, tooltip on every action).
+### Workspace tabs (terminal, file viewer, schematic)
 
-### Thinking fold
-
-Reasoning/thinking tokens render as a collapsed, visually distinct section
-above the assistant reply: a single muted row labelled `Thinking` with a
-chevron, indented 8px from the reply text. Expanded content uses `--bb-muted`
-text on `--bb-surface` with a 1px `--bb-border` top divider. The fold never
-touches the reply text styling, so thinking and reply are never confused at a
-glance. While streaming, the fold auto-expands; on completion it collapses.
+Terminal sessions, the file viewer, and the project schematic open as
+**workspace tabs over the center** — same surface as chat, switchable. They are
+per-session and each has a `kind` (`terminal`, `file`, `schematic`, `chat`).
+There is no always-visible tab bar; the active tab is indicated in the session
+header and switching is via the left column or keyboard. The default tab is the
+chat.
 
 ### Chat composer
 
-The chat message list scrolls; the composer stays pinned to the bottom of the
-panel and is always visible at any window size — it is never scrolled off or
-clipped. The composer footer has a subtle top divider and carries a persistent,
-single-line control rail with provider status, model picker, effort selector,
-actions like "Quick ideas", "By category", and "Open planning inspector". The
-rail truncates labels and moves secondary
-actions into overflow before it wraps. While the model catalog loads, the
-selectors show placeholder skeletons. Every control has a tooltip. `/login`,
-`/model`, and `/models refresh` are keyboard accelerators for the same visible
-UI. Offline (local-coordinator) assistant replies carry an amber "Offline" tag
-so local output is never mistaken for a provider answer.
+The composer is simple on purpose: a tall, roomy input and only the controls
+you need every turn — no crowded button bars, no overflow menus hiding the
+essentials.
+
+- **Tall, growing input.** The text field is multi-line by default and grows
+  as you type, expanding to a generous height so long prompts stay fully
+  readable while drafting before it scrolls internally. The message list above
+  yields space to the input, never the other way around.
+- **Model and effort always visible.** The model picker and effort selector
+  sit on one compact row with the input and are never tucked away. Provider /
+  connection status appears inline only when action is needed (e.g. connect).
+- **Context size + usage.** Next to model/effort, a compact readout shows the
+  active context window size and current usage (tokens used vs. the model's
+  context limit) so you can see how much headroom you have left.
+- **Voice input.** A microphone button on the input row toggles voice-to-text
+  into the chat box. While active, it shows a recording state; the transcript
+  is inserted at the cursor in the input field.
+- **Minimal chrome.** Send, model, effort, mic, and context readout are the
+  controls that matter. Rarer actions are reached through slash commands
+  (`/login`, `/model`, `/models refresh`) instead of adding more buttons.
+- **Pinned, never clipped.** The composer stays at the bottom of the chat
+  panel at any window size; the conversation scrolls, the composer does not.
+- While the catalog loads, the selectors show placeholder skeletons; every
+  control has a tooltip. Offline (local-coordinator) replies carry an amber
+  "Offline" tag so local output is never mistaken for a provider answer.
 
 ## Collapsible Columns
 
-At the top of both the left sidebar and right plan panel, a toggle button
-(chevron icon) collapses the column to icon-only width (36px). The transition
-is a smooth width animation. In collapsed mode:
-- Text labels, badges, and secondary content are hidden.
-- Icons and top action rows remain visible.
-- Tooltips become essential - hovering shows the full label.
+The left sidebar collapses to icon-only width (44px) via the toggle in its top
+action row. The transition is a smooth width animation. In collapsed mode:
+- The projects/chats list and all text labels are hidden.
+- Top action icons and the account row remain visible.
+- Tooltips become essential — hovering shows the full label.
 
 The collapsed state is stored in React state (not persisted yet).
 

@@ -1511,7 +1511,7 @@ export function ChatPanel({
               setInput(e.target.value);
               const el = e.target;
               el.style.height = "auto";
-              el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+              el.style.height = `${Math.min(el.scrollHeight, 360)}px`;
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -1519,7 +1519,7 @@ export function ChatPanel({
                 void handleSend();
               }
             }}
-            rows={2}
+            rows={3}
             disabled={inputDisabled}
             title={nativeMode ? "Chat input — type a message and press Enter to send" : "Chat input — start the agent to enable sending"}
           />
