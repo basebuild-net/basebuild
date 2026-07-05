@@ -63,6 +63,32 @@ persisted per project. On restore, stale terminal tabs (whose PTY processes
 are not alive after restart) are not auto-focused; the workspace prefers
 non-terminal tabs or shows a neutral "No tab open" empty state.
 
+### Launch does not mint sessions
+
+App launch and project auto-restore reuse the project's most recent session.
+A new session row is created only by an explicit user action (New Session). If
+the project has zero sessions (first open), one is created. Focusing the app,
+switching projects, or restarting never creates session rows.
+
+### Session titles
+
+New sessions start with a neutral placeholder title and are auto-titled from
+the first meaningful activity (first user chat message, truncated to a short
+phrase) unless the user has set a title manually. Inline rename sets
+`title_locked` so auto-titling never overwrites a manual title.
+
+### Stable sidebar ordering
+
+The session list is ordered by `created_at DESC`. Selecting a session does not
+bump its position — selection writes `last_selected_at` (not `updated_at`), so
+clicking through sessions never reshuffles the list.
+
+### Single instance guard
+
+`tauri-plugin-single-instance` ensures only one process holds the database. A
+second launch focuses the existing window and exits without starting a second
+process against `state.db`.
+
 ## Startup behavior
 
 Before the main shell renders, Basebuild shows a startup update splash

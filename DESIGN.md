@@ -205,6 +205,26 @@ The `Plans` section inside the right panel exposes:
 - Per-plan actions: focus, edit, open in terminal, copy reference.
 - Collapse toggle at the panel header.
 
+### Proposal cards
+
+When a generate-plans run returns structured proposals, each renders as a
+square-cornered card inside the chat transcript: bold title, one-line summary,
+an action row of `Accept` (orange CTA) and `Dismiss` (ghost) buttons, and a
+muted suggested change name in mono. Accepted cards transition to a `draft`
+plan link (orange text) and reload with the session on restart - they are
+append-only and never mutate in place once rendered. The cards obey the same
+density rules as other chat content (no padding > 8px, 0px radius, tooltip on
+every action).
+
+### Thinking fold
+
+Reasoning/thinking tokens render as a collapsed, visually distinct section
+above the assistant reply: a single muted row labelled `Thinking` with a
+chevron, indented 8px from the reply text. Expanded content uses `--bb-muted`
+text on `--bb-surface` with a 1px `--bb-border` top divider. The fold never
+touches the reply text styling, so thinking and reply are never confused at a
+glance. While streaming, the fold auto-expands; on completion it collapses.
+
 ### Chat composer
 
 The chat message list scrolls; the composer stays pinned to the bottom of the

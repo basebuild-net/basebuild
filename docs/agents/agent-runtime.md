@@ -429,3 +429,64 @@ skills. Grant scopes: once, session, project.
   `PermissionDecision` from the native approval gateway).
 - `provider_claims` — provider subscription claims from connectors, with
   approved/denied flags.
+
+## Reasoning channel separation
+
+Reasoning/thinking tokens (e.g. `reasoning_content` from Umans GLM or
+DeepSeek-style models) are stored separately from the assistant message content:
+
+- `provider_client.rs` returns reasoning as a separate field on
+  `ProviderResponse` (never folded into content).
+- `native_chat_messages.reasoning` column stores it alongside content.
+- The UI renders a collapsed "Thinking" section per message with visually
+  distinct muted styling — never confusable with the reply text.
+- Reasoning is excluded from provider request assembly (history replay sends
+  only content, never reasoning).
+- Stray think-tag markers are stripped from content and routed to the
+  reasoning store via `strip_think_tags`.
+
+## Structured plan proposals
+
+Generate-plans runs capture proposals as structured data rendered as
+selectable cards, never as chat prose alone:
+
+- `propose_plans` tool is exposed to the agent loop during generate-plans
+  runs. The tool accepts an array of `{title, description, goal,
+  suggested_change_name}` and persists each as a `plan_proposals` row.
+- Fallback: if the model emits proposal-shaped JSON in its text response
+  instead of calling the tool, `parse_and_capture_proposals` captures them.
+- Accepted proposals create a draft plan and link `plan_id`. Dismissed
+  proposals persist (append-only across regenerations).
+- Proposal state reloads with the session across restarts.
+- Generate-ideas runs are recorded as `pipeline_runs` stage rows.
+
+## Tool transcript rendering
+
+Tool calls render as collapsed cards in message order from the event stream:
+
+- Cards update live while streaming/executing via the `native-chat://tool-event`
+  and `native-chat://approval-request` event channels.
+- Consecutive non-approval tool calls collapse into one activity group showing
+  a running count, aggregate status, and the latest call's summary. Expansion
+  reveals individual cards in a height-capped scrollable list.
+- Approval-required calls render an inline card with allow once / allow session
+  / deny actions, wired to `native_chat_resolve_approval`.
+- `list_files` glob results are deduplicated and sorted (the `**`
+  zero-directory match is tried once per directory, not once per entry).
+
+## Effort level validity
+
+The composer only offers effort levels present in the selected model's
+`supportedEfforts`. Persisted defaults are clamped to a supported level
+(nearest supported, preferring the model's first supported effort) when
+restored or when the model changes. Requests are never sent with an effort
+the catalog marks unsupported.
+
+## Test database isolation
+
+All Rust tests run against an isolated `BASEBUILD_HOME` (temp directory).
+`StorageService::connect()` enforces this in `cfg(test)` builds by erroring
+when `BASEBUILD_HOME` is unset. A shared test-util constructor
+(`test_util::test::isolated_home`) provisions a fresh temp dir + global lock +
+env var. The user's real `~/.basebuild/state.db` is never read or written
+during tests.

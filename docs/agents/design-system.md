@@ -62,6 +62,20 @@ The composer must be structurally impossible to clip:
   `.chat-select-skeleton` placeholders.
 - Assistant streaming arrives on the `native-chat://chunk` Tauri event and is
   appended live; offline turns are flagged with `.chat-offline-tag`.
+- Reasoning/thinking tokens render in a `.reasoning-fold` collapsed section
+  above the reply (muted label + chevron; expanded body is `.text-muted` on
+  `var(--bb-surface)` with a top divider). The fold auto-expands while
+  streaming and collapses on completion; reasoning is never concatenated into
+  the persisted content string.
+- Consecutive tool calls in one assistant turn collapse into a
+  `.tool-card-group` row (running count + aggregate status + latest summary).
+  The expanded list `.tool-card-group-list` is height-capped and auto-follows
+  the newest call while the run is active; a long run must not push
+  conversation text out of view.
+- Structured plan proposals render as `.proposal-card` rows inside the chat
+  transcript (title, summary, `.proposal-card-actions` with `Accept` /
+  `Dismiss`, mono suggested change name). Accepted cards become a `draft`
+  plan link; cards are append-only and reload with the session.
 
 ## Plan run queue and final touches (technical)
 
