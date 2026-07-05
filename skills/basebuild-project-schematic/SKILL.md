@@ -9,7 +9,7 @@ A Project Schematic is a single markdown file at `.basebuild/project-schematic.m
 describing what a project is, what it should become, how to work on it, and
 what matters right now. Agents use it as the steering document; the
 `basebuild-planning` skill derives idea categories and grounded ideas from its
-Vision and Current priorities.
+Blueprint, Vision, End goals, and Current priorities.
 
 You are an interviewer and an auditor — never an author of fiction:
 
@@ -45,6 +45,12 @@ Emit exactly this structure, in this order:
 <what the project should become — the target state. The gap between Vision
 and today is deliberate fuel for idea generation>
 
+## Blueprint
+<archetype: SaaS, game, CLI, library, app, site; team size: solo or N people; stage: prototype, MVP, production>
+
+## End goals
+<time-boxed goals — "End goal of 2026: ..." and "End goal of July 2026: ...">
+
 ## Target users
 <one paragraph + primary user stories>
 
@@ -73,7 +79,9 @@ not aspirational ("clean code").
 
 ## Create mode
 
-Work one section at a time, in template order. For each section:
+Start with the **Blueprint** questions (archetype, team size, stage) — they
+scope every later answer and feed planning. Then work the remaining sections in
+template order. For each section:
 
 1. **Prefill**: read what the repository already says — manifests
    (`package.json`, `Cargo.toml`, …), README, convention files (`AGENTS.md`
@@ -83,6 +91,13 @@ Work one section at a time, in template order. For each section:
    - *Purpose*: one sentence of what it does; the problem existing tools miss.
    - *Vision*: what should this be in 6–18 months? What would make it done or
      great? What is deliberately out of ambition?
+   - *Blueprint*: which archetype (SaaS, game, CLI, library, app, site)? Ask
+     archetype-appropriate, real-world-blueprint questions (a SaaS is asked
+     about market/tenancy/pricing shape; a solo-dev game is scoped with solo
+     assumptions). Team size (solo or N people)? Stage (prototype, MVP,
+     production)?
+   - *End goals*: a year-end goal ("End goal of 2026: …") and a month-end goal
+     ("End goal of <month> 2026: …") in plain words. These keep work on track.
    - *Target users*: who, top three jobs, skill level, environment. Concrete
      stories beat personas.
    - *Tech stack*: confirm the derived stack; max ~5 critical dependencies;
@@ -108,8 +123,8 @@ Assemble the document, show it in full, write only after approval.
    "still accurate — what changed?".
 3. Rewrite only sections whose answers changed; preserve everything else
    **verbatim** — byte-for-byte.
-4. Legacy schematic without a `## Vision` section: offer to add it (one
-   interview question), never force it.
+4. Legacy schematic missing `## Vision`, `## Blueprint`, or `## End goals`:
+   offer to add them (one question each), never force them.
 5. Show a per-section diff; write after approval.
 
 ## Re-align mode
@@ -138,6 +153,15 @@ This is the re-alignment mode.
 
 After a re-alignment that changed priorities or Vision, suggest (once) running
 `basebuild-planning` to regenerate categories from the fresh fundamentals.
+
+## Enhance a section
+
+The app's per-section **Enhance** action calls this skill to turn a user's
+plain words into an agent-optimized description — precise, structured, and
+directly consumable by planning — without changing their meaning or losing
+their voice. Rewrite only the section given; keep it concise; preserve any
+concrete facts. Present the result as a before/after diff and apply only on
+approval. Never silently replace the user's text.
 
 ## Special case: Basebuild itself
 

@@ -68,6 +68,7 @@ YAML frontmatter followed by a markdown body.
 | `category` | string (slug)   | yes      | Must exist in `categories.md`                |
 | `status`   | enum            | yes      | `concept` \| `picked` \| `archived`          |
 | `created`  | date `YYYY-MM-DD` | yes    |                                              |
+| `anchor`   | string          | no       | Schematic element served (Vision / End goal / priority) |
 | `plan`     | string (path)   | no       | `plans/<plan-slug>/` — set when promoted     |
 
 Body: 1–3 sentence description, then a `## Grounding` section citing the real
