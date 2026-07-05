@@ -21,11 +21,12 @@ node scripts/openspec-status.mjs --write
    tunable in Settings → Planning. **BREAKING (internal, pre-1.0):** drops the
    just-shipped `plan_proposals` table/commands (`planning-system-qol` PR #19)
    in favor of the richer `ideas` catalog — see proposal's Supersedes note.
-   Tasks 1.1–7.2 done (storage foundation, planning prompt service, unified
-   generation via `propose_ideas`, idea reject lifecycle, chat transcript
-   idea cards + planning menu, PlanningInspector with Plans/Ideas/Categories
-   tabs, Settings → Planning tab); 26/34 tasks complete. Verification (8.x)
-   and docs (9.x) remain. Depends on `planning-system-qol` (archived below).
+   Tasks 1.1–7.2 + 8.1–8.3 + 9.1–9.3 done (32/34); 8.4 (UI smoke) + 8.5
+   (freeze watchdog) consciously waived — live-only, require running Tauri
+   app + connected provider. All static checks pass: `tsc --noEmit`,
+   `npm run build`, `cargo test` (188), e2e (10). Implementation-complete,
+   ready to archive on the next PR. Depends on `planning-system-qol`
+   (archived below).
 2. `connector-permission-gateway` — phases 1+2 merged in PR #17 (gateway
    contract, storage, backend permission broker, Tauri commands, TS wrappers;
    9/29 tasks done). Phase 2 OMP connector integration + frontend UX + web
@@ -79,7 +80,7 @@ _Last refreshed: 2026-07-05 (`node scripts/openspec-status.mjs --write`)_
 |Change|Progress|Status|Next command|
 |---|---|---|---|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
-|`unified-planning-workspace`|29/34|in progress|`/apply unified-planning-workspace`|
+|`unified-planning-workspace`|32/34|in progress|`/apply unified-planning-workspace`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|

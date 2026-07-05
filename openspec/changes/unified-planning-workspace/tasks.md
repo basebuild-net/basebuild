@@ -107,14 +107,13 @@
       turn reuses the existing streaming + agent-loop plumbing.)_
 
 ## 9. Docs & Roadmap
-
-- [ ] 9.1 `docs/agents/agent-runtime.md`: unified idea catalog, generation as a
+- [x] 9.1 `docs/agents/agent-runtime.md`: unified idea catalog, generation as a
       chat turn with `propose_ideas`, tunable planning prompts (remove
       `propose_plans`/`plan_proposals` references)
-- [ ] 9.2 `docs/agents/desktop-shell.md`: planning inspector tabs + category
+- [x] 9.2 `docs/agents/desktop-shell.md`: planning inspector tabs + category
       drill-down; `DESIGN.md` + `docs/agents/design-system.md`: inspector tabs,
       idea cards (Promote/Reject), chat planning menu, planning settings
       selectors/classes
-- [ ] 9.3 Refresh roadmap: `node scripts/openspec-status.mjs --write` +
+- [x] 9.3 Refresh roadmap: `node scripts/openspec-status.mjs --write` +
       ROADMAP narrative (mark `plan_proposals` superseded in
       `planning-system-qol`)
