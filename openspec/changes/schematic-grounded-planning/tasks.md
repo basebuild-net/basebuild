@@ -11,8 +11,8 @@
 ## 2. Schematic Wizard & Structured View
 
 - [x] 2.1 `ProjectSchematicTab.tsx`: structured section cards by default (Blueprint facts, End goals rows, ranked priorities, core rules), per-section fill states, raw-view toggle, edit retained
-- [ ] 2.2 Wizard entry points: create/fix from tab and per-section cards → dedicated wizard modal (deferred to follow-up; "Fill" buttons open the existing editor as a working fallback)
-- [ ] 2.3 Per-section Enhance action: plain words → agentic-optimized rewrite as before/after diff, approve/discard (deferred to follow-up; skill guidance landed in 1.3)
+- [x] 2.2 Wizard entry points: `Start wizard` (toolbar, whole doc) + per-section `Fill` + empty-state action + End-goal `Fix` nudge inject a guided chat turn driven by the `basebuild-project-schematic` skill (repo-fact prefill, one question at a time, approval-gated write). Matches the schematic-wizard spec's "visible chat turn" flow — no separate modal component required. Non-tool-capable models are guarded with an in-composer notice.
+- [ ] 2.3 Per-section Enhance action: plain words → agentic-optimized rewrite as before/after diff, approve/discard (**not shipped**; skill guidance landed in 1.3 but no per-section UI action exists — tracked as `schematic-enhance-ui` in ROADMAP Proposed)
 - [x] 2.4 End-goal nudges ("Set a year-end and a month-end goal…") in schematic tab and planning inspector, linking into the wizard; health badge in both surfaces, recomputed on open/write/wizard-finish
 - [x] 2.5 Verify: e2e (BASEBUILD_E2E) — structured default view, raw toggle, health badge states, nudge visibility; `npx tsc --noEmit` + `npm run build`
 
@@ -37,11 +37,10 @@
 
 - [x] 5.1 Full pass: `npx tsc --noEmit`, `npm run build`, `cargo check`, `cargo test`, `BASEBUILD_E2E=1 npm run test:e2e`
 - [ ] 5.2 UI smoke with screenshots: structured schematic view, wizard turn, health badge + nudges, generation turn with visible reads, idea card with anchor/outside-focus flag (deferred — live-only, requires running desktop app)
-- [ ] 5.3 Docs: `docs/agents/agent-runtime.md` (skill-sourced prompts, grounded turns, capture schema), `docs/agents/desktop-shell.md` (schematic tab, wizard, inspector), `DESIGN.md` + `docs/agents/design-system.md` (section cards, badges, flags, removed modal)
-- [ ] 5.4 `node scripts/openspec-status.mjs --write` + ROADMAP narrative pass in the same commit (Invariant 12)
+- [x] 5.3 Docs: `docs/agents/agent-runtime.md` (skill-sourced prompts, grounded turns, capture schema) + `docs/agents/desktop-shell.md` (schematic tab, wizard, inspector) landed in PR #22; `DESIGN.md` (Planning Inspector tabs, schematic tab, idea grounding/anchor flags) + `docs/agents/design-system.md` (schematic classes, health badge, section fill-states, flags) landed in the roadmap-truth pass
+- [x] 5.4 `node scripts/openspec-status.mjs --write` + ROADMAP narrative pass in the same commit (Invariant 12)
 
 ## Deferred to follow-up
 
-- **2.2 + 2.3** (Dedicated wizard modal + Enhance diff action): the schematic tab's "Fill" buttons open the existing `ProjectDescriptionModal` as a working fallback. The dedicated modal is a large new component (`SchematicWizardModal`) with section-by-section forms, Enhance buttons, and chat-turn integration — better as a focused follow-up change.
+- **2.3** (per-section Enhance diff action): **not shipped.** The `basebuild-project-schematic` skill carries Enhance guidance (task 1.3), but there is no per-section UI action that proposes a before/after rewrite. The schematic-wizard spec's "AI-enhanced descriptions" requirement is therefore **unmet** by this change — tracked as `schematic-enhance-ui` in `openspec/ROADMAP.md` (Proposed). Acknowledge this spec gap before archiving.
 - **5.2** (UI smoke): live-only, requires running desktop app with a connected provider.
-- **5.3** (Docs): behavior docs update — can be done in the archive commit.

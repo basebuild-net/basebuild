@@ -9,44 +9,66 @@ node scripts/openspec-status.mjs --write
 
 ## Execution order
 
+### Merged — awaiting archive
+
+Merged to `main` and implementation-complete; queued for `/archive` (delta
+specs → `openspec/specs/`, folder → `openspec/changes/archive/`).
+
+1. `unified-planning-workspace` — merged in **PR #20**. Unified the two
+   parallel planning surfaces (`plan_proposals` chat cards + right-panel
+   `ideas` catalog) into one `Categories → Ideas → Plans` model: generation
+   runs as a visible chat turn (reasoning fold + live transcript + incremental
+   idea cards via a `propose_ideas` tool), idea lifecycle gained `rejected`,
+   the right panel became a tabbed `Plans / Ideas / Categories` inspector, and
+   planning prompts became tunable in Settings → Planning. **BREAKING
+   (internal, pre-1.0):** dropped the `plan_proposals` table/commands
+   (`planning-system-qol` PR #19) in favor of the `ideas` catalog. 32/34 tasks
+   — 8.4 (UI smoke) + 8.5 (freeze watchdog) consciously waived (live-only).
+2. `basebuild-planning-skill` — merged in **PR #20**. Portable planning suite:
+   `skills/basebuild-planning` (categories → ideas → iterative picking →
+   executor-proof plans stored under `.basebuild/`; engine-pluggable — native
+   artifacts or detected planning skills like OpenSpec), schematic skill v2
+   (Vision section, repo-fact prefill, re-alignment mode, planning pairing),
+   removed the stale `basebuild-idea-generation` skill. The `.basebuild` file
+   schema is the future app interop contract. 18/18 tasks; no app code touched.
+3. `schematic-grounded-planning` — merged in **PR #22**. Reshaped the app
+   around a **schematic wizard** (blueprint questionnaire by archetype / team
+   size / stage; time-boxed End goals with nudges; structured section-card view
+   + health validation replacing the raw dump; the wizard runs as a guided
+   chat turn, not a modal) and **grounded generation** (turns run the bundled
+   skills agentically, read project context via the tool loop incl. MCP, and
+   capture ideas with required grounding + optional focus anchors). **BREAKING**:
+   removed hardcoded default categories (now project-derived) and the
+   `Generate plans` modal / input boxes. 23/25 tasks — 5.2 (UI smoke) waived
+   (live-only). **Spec gap:** the schematic-wizard "AI-enhanced descriptions"
+   requirement (task 2.3, per-section Enhance diff action) is **unshipped** —
+   `schematic-enhance-ui` in Proposed covers it; note this when archiving.
+
 ### Now (in flight)
 
-1. `unified-planning-workspace` — unifies the two parallel planning surfaces
-   (`plan_proposals` chat cards + right-panel `ideas` catalog) into one
-   `Categories → Ideas → Plans` model. Generation runs as a visible chat turn
-   (reasoning fold + live transcript + incremental idea cards via a
-   `propose_ideas` tool), the discarded `ideas` streaming channel is removed,
-   idea lifecycle gains `rejected`, the right panel becomes a tabbed
-   `Plans / Ideas / Categories` inspector, and planning prompts become
-   tunable in Settings → Planning. **BREAKING (internal, pre-1.0):** drops the
-   just-shipped `plan_proposals` table/commands (`planning-system-qol` PR #19)
-   in favor of the richer `ideas` catalog — see proposal's Supersedes note.
-   Tasks 1.1–7.2 + 8.1–8.3 + 9.1–9.3 done (32/34); 8.4 (UI smoke) + 8.5
-   (freeze watchdog) consciously waived — live-only, require running Tauri
-   app + connected provider. All static checks pass: `tsc --noEmit`,
-   `npm run build`, `cargo test` (188), e2e (10). Implementation-complete,
-   ready to archive on the next PR. Depends on `planning-system-qol`
-   (archived below).
-2. `connector-permission-gateway` — phases 1+2 merged in PR #17 (gateway
+1. `connector-permission-gateway` — phases 1+2 merged in PR #17 (gateway
    contract, storage, backend permission broker, Tauri commands, TS wrappers;
    9/29 tasks done). Phase 2 OMP connector integration + frontend UX + web
    bridge + verification remain (tasks 2.2 partial, 3.1–6.5). Permission broker
    extends the merged `native-agent-loop` approval substrate (modes, rules,
    prompts, audit trail); the task 1.1 merge gate is satisfied as of PR #9.
-3. `basebuild-planning-skill` — portable planning suite: `skills/basebuild-planning`
-   (categories → ideas → iterative picking → executor-proof plans stored under
-   `.basebuild/`; engine-pluggable — native artifacts or detected planning
-   skills like OpenSpec), schematic skill v2 (Vision section, repo-fact
-   prefill, re-alignment mode, planning pairing), removes the stale
-   `basebuild-idea-generation` skill. The `.basebuild` file schema is the
-   future app interop contract. **Complete — pending archive** (18/18 tasks):
-   skills + specs implemented and verified (schema dry-run, read_skill
-   frontmatter compat, tsc/build/cargo test 188 pass — no app code touched).
-   No app-code overlap with `unified-planning-workspace` (SQLite/UI vs files).
+2. `chat-first-shell` — full shell redesign around the conversation: one global
+   left column (top `New chat`/`Search`, projects+chats list showing 5 recent
+   per project with relative timestamps + pinning + `Show more`, bottom account
+   row), a chat-focused center, a floating top-right environment block (source/
+   branch with commit/push/pull, the relocated Planning Inspector, a Files
+   button), a **modal** file explorer replacing the inline tree, composer mic
+   (voice-to-text) + context-size/usage readout, and native Windows chrome +
+   `File/Edit/View` menu. **BREAKING (UI):** removes the right side panel, the
+   in-app top bar, and the always-visible file list. Artifacts complete (5 new
+   capabilities + `desktop-shell`/`chat-composer-controls` modified); 0/31
+   tasks. Relocates the `unified-planning-workspace` inspector unchanged; reuses
+   `file-viewer-editor`'s viewer for modal file content; pairs with
+   `diff-review-workflow` in the Changes fold.
 
 ### Next (specced, ready to start)
 
-4. `omp-terminal-usage-sync` — day-one OMP workflow on the installed build:
+2. `omp-terminal-usage-sync` — day-one OMP workflow on the installed build:
    fix dead PTY output/input/resize plumbing (omp.exe spawns but renders
    nothing), stale-tab disconnected states, omp 16.x telemetry parser drift
    (`reports[].limits[]`), manual Sync-now ungated from auto-sync with
@@ -56,42 +78,31 @@ node scripts/openspec-status.mjs --write
    empty-chat hygiene. Diagnosis-complete from 2026-07-05 installed-build
    (v0.0.12) testing. `session-lifecycle` canonical spec landed via
    `planning-system-qol` archive (PR #19) — dependency satisfied.
-5. `file-viewer-editor` — file tabs become the single view/edit/diff
+3. `file-viewer-editor` — file tabs become the single view/edit/diff
    surface: syntax-highlighted virtualized viewing, markdown preview,
    images, explicit-save editing with mtime conflict guard, and unified
    diff mode fed from the Source panel (staged/unstaged/untracked).
    Provides the rendering surface `diff-review-workflow` can reuse.
-6. `harness-context-files` — system-prompt assembly: AGENTS.md discovery,
+4. `harness-context-files` — system-prompt assembly: AGENTS.md discovery,
    schematic injection, skills metadata, context inspector. Feeds the merged
    budget guard; no remaining gate.
-7. `native-app-login-mcp` — device-auth account connection + first-party usage
+5. `native-app-login-mcp` — device-auth account connection + first-party usage
    sync with basebuild.net. Independent of everything above.
-8. `diff-review-workflow` — per-run changeset baseline, file-level review
+6. `diff-review-workflow` — per-run changeset baseline, file-level review
    (approve/revert/send-back), review gate before commit/PR final touches.
    **After `plan-pipeline-harness`** (archived PR #15 — gate satisfied);
    pairs with `file-viewer-editor`'s diff surface.
-9. `schematic-grounded-planning` — reshapes the app around two primary
-   features: a **schematic wizard** (blueprint questionnaire by archetype,
-   team size, stage; time-boxed End goals with nudges; AI-enhanced section
-   descriptions; structured section-card view + health validation replacing
-   the raw dump) and **schematic-grounded planning** (generation turns run the
-   bundled skills agentically, read project context via the tool loop incl.
-   MCP, and capture ideas with required grounding + optional focus anchors).
-   **BREAKING**: removes hardcoded default categories (now project-derived)
-   and the `Generate plans` modal / input boxes (inspector becomes an
-   input-free catalog; generation lives in the chat menu). **After
-   `unified-planning-workspace`** (builds on its catalog/prompts/menu/
-   inspector); uses the skills from `basebuild-planning-skill`.
 
 ### Proposed (no artifacts yet — run `/propose <name>` when its turn comes)
 
 |Plan|Scope|Depends on|
 |---|---|---|
+|`schematic-enhance-ui`|Per-section **Enhance** action on the schematic tab: plain words → agent-optimized rewrite shown as an approve/discard before/after diff. Fulfills the schematic-wizard "AI-enhanced descriptions" spec requirement left unshipped by `schematic-grounded-planning` (task 2.3).|`schematic-grounded-planning` merged (PR #22)|
 |`session-compaction`|Summarize-and-continue history compaction past the truncation guard; explicitly deferred out of `native-agent-loop`.|unblocked — `native-agent-loop` archived (PR #9)|
 |`harness-subagents`|Delegate scoped subtasks to parallel native sessions (omp task-tool parity) on top of the run queue + worktrees.|`plan-pipeline-harness` archived (PR #15) — gate satisfied|
-|`plan-status-rename`|App DB/UI status rename `openspec → planned` + AGENTS.md Invariant 9, matching the `.basebuild` file schema.|`basebuild-planning-skill`|
-|`planning-file-ingestion`|App reads/syncs `.basebuild` planning files (ideas/plans/categories) into the planning workspace.|`basebuild-planning-skill`, `unified-planning-workspace`|
-|`plan-import`|Import pre-existing external plans (unexecuted openspec changes etc.) into `.basebuild` plan records.|`basebuild-planning-skill`|
+|`plan-status-rename`|App DB/UI status rename `openspec → planned` + AGENTS.md Invariant 9, matching the `.basebuild` file schema.|`basebuild-planning-skill` merged (PR #20)|
+|`planning-file-ingestion`|App reads/syncs `.basebuild` planning files (ideas/plans/categories) into the planning workspace.|`basebuild-planning-skill` + `unified-planning-workspace` merged (PR #20)|
+|`plan-import`|Import pre-existing external plans (unexecuted openspec changes etc.) into `.basebuild` plan records.|`basebuild-planning-skill` merged (PR #20)|
 
 Full artifacts are deliberately **not** pre-generated for proposed plans —
 stale specs are worse than none.
@@ -105,8 +116,9 @@ _Last refreshed: 2026-07-05 (`node scripts/openspec-status.mjs --write`)_
 |Change|Progress|Status|Next command|
 |---|---|---|---|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
-|`schematic-grounded-planning`|20/25|in progress|`/apply schematic-grounded-planning`|
+|`schematic-grounded-planning`|23/25|in progress|`/apply schematic-grounded-planning`|
 |`unified-planning-workspace`|32/34|in progress|`/apply unified-planning-workspace`|
+|`chat-first-shell`|0/31|not started|`/apply chat-first-shell`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|

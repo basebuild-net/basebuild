@@ -141,7 +141,7 @@ Only the patch component is bumped by default. To move to `0.1.0` or `1.0.0`, ed
 
 ## Documentation
 
-- [`AGENTS.md`](./AGENTS.md) - agent guide, design system, and code conventions.
+- [`AGENTS.md`](./AGENTS.md) - agent guide: mandatory invariants and a router to the [`docs/agents/`](./docs/agents/) guides.
 - [`DESIGN.md`](./DESIGN.md) - Basebuild Mono Desktop visual design system.
 - [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) - development notes, architecture, and build scripts.
 - [`docs/SECRETS.md`](./docs/SECRETS.md) - release signing and infrastructure secrets.
@@ -151,8 +151,9 @@ Only the patch component is bumped by default. To move to `0.1.0` or `1.0.0`, ed
 ## Contributing
 
 Contributions are welcome. Please read [`AGENTS.md`](./AGENTS.md) before making
-changes - it describes the design system, project structure, and conventions
-used across the codebase.
+changes - it holds the mandatory invariants and routes to the detailed
+[`docs/agents/`](./docs/agents/) guides (workflow, testing, design system,
+runtime, desktop shell, and OpenSpec).
 
 ## License
 

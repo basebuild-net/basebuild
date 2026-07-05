@@ -31,6 +31,25 @@ npm run tauri dev       # Direct command
 
 ## Architecture
 
+```
+src/
+  components/
+    layout/          # Shell: AppShell, ProjectSidebar, SidePanel, ToolTabs, WorkspaceTabs, PlanPanel
+    panels/          # Feature panels: TerminalPanel, ChatPanel, SourcePanel, FilesPanel, FileViewer, DebugPanel, ProjectSchematicTab
+  lib/               # Thin Tauri invoke wrappers — one file per backend domain
+  state/             # React state hooks
+  styles/
+    globals.css      # The only stylesheet
+
+src-tauri/
+  src/
+    commands/        # Tauri command handlers — one file per domain
+    services/        # Business logic — one file per domain
+    models/          # Serializable data types
+    app_state.rs     # Tauri managed state
+    lib.rs           # Tauri builder + command registration
+```
+
 - `src/components/layout/*` - shell components (sidebar, workspace, tool tabs, plan panel).
 - `src/components/panels/*` - feature panels (Terminal, Source, Debug).
 - `src/lib/*` - thin Tauri invoke helpers for each backend service.
@@ -139,9 +158,10 @@ The existing in-app update UI (taskbar button + Settings → Updates tab)
 remains functional after startup for manual checks and installs.
 
 Never re-release a published version. If a release is broken, ship a hotfix as
-the next version (e.g. `0.0.7` after a broken `0.0.6`). See `AGENTS.md`
-"Release Discipline" for the full policy.
+the next version (e.g. `0.0.7` after a broken `0.0.6`). The full release policy
+is the [Releases](#releases) section above.
 
 ## Feature backlog pointer
 
-OpenSpec plan lives in `openspec/changes/basebuild-desktop-local-foundation/`.
+Planned and in-progress work lives in [`openspec/ROADMAP.md`](../openspec/ROADMAP.md)
+and `openspec/changes/`; see [`docs/agents/openspec.md`](./agents/openspec.md).
