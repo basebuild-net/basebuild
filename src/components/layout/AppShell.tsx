@@ -4,7 +4,7 @@ import { LayoutTemplate, Settings2, TerminalSquare, X } from "lucide-react";
 import { useSessionState } from "../../state/sessions";
 import { usePlans } from "../../state/plans";
 import { ProjectSidebar, useProjectSidebar } from "./ProjectSidebar";
-import { PlanPanel } from "./PlanPanel";
+
 import { EditPlanModal } from "./EditPlanModal";
 import { FocusPlanModal } from "./FocusPlanModal";
 import { GeneratePlanModal } from "./GeneratePlanModal";
@@ -38,6 +38,7 @@ import { useLogs } from "../../state/log";
 import { useAccount } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
 import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
+import type { IdeaCategory } from "../../lib/ideas";
 export type ToolId = "terminal";
 
 const DEFAULT_SHELL = () => {
@@ -303,6 +304,10 @@ export function AppShell({ updates }: AppShellProps) {
     [plans, session.activeSessionId],
   );
 
+  const handleOpenPlanningInspector = useCallback(() => {
+    setSideCollapsed(false);
+  }, []);
+
   const openOrFocusChat = useCallback(
     async (draftPrompt: string) => {
       if (!session.activeSessionId) return;
@@ -322,6 +327,15 @@ export function AppShell({ updates }: AppShellProps) {
     [session],
   );
 
+  const handleSuggestForCategory = useCallback(
+    (category: IdeaCategory | null) => {
+      const prompt = category
+        ? `Generate new ideas for the "${category.name}" category. ${category.description ?? ""}`.trim()
+        : "Generate ideas for this project.";
+      void openOrFocusChat(prompt);
+    },
+    [openOrFocusChat],
+  );
   const handleGenerateFromGoal = useCallback(
     (goal: string, contextFile?: string, contextContent?: string) => {
       if (!session.activeSessionId) {
@@ -615,6 +629,7 @@ export function AppShell({ updates }: AppShellProps) {
                   activeSessionId={session.activeSessionId}
                   schematicContent={schematic.content}
                   onCreatePlanFromIdea={handleCreatePlanFromIdea}
+                  onOpenPlanningInspector={handleOpenPlanningInspector}
                 />
               ) : activeTab.kind === "file" ? (
                 <FileViewer path={activeTab.filePath} />
@@ -673,6 +688,8 @@ export function AppShell({ updates }: AppShellProps) {
               onOpenInTerminal: handleOpenPlanInTerminal,
             }}
             onOpenChatSession={handleOpenChatSession}
+            onSuggestForCategory={handleSuggestForCategory}
+            activeChatSessionId={session.activeSessionId}
           />
         </div>
       </main>

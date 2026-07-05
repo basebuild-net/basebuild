@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Download, Globe, Key, Lock, LogOut, Plug, RefreshCw, Settings2, Shield, Trash2, Unplug, User, X } from "lucide-react";
+import { AlertTriangle, Check, Download, Globe, Key, Lightbulb, Lock, LogOut, Plug, RefreshCw, Settings2, Shield, Trash2, Unplug, User, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { CopyButton } from "./CopyButton";
 import { FinalTouchesTab } from "./FinalTouchesTab";
+import { PlanningTab } from "./PlanningTab";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
-import { type UpdaterState } from "../../state/updater";
 import { appVersion } from "../../lib/app";
+import type { UpdaterState } from "../../state/updater";
 import { authStartDeviceFlow, authPollDeviceFlow, type PollResult } from "../../lib/auth";
 import { useAccount, type AccountState } from "../../state/account";
 import { useUsageSync } from "../../state/usageSync";
@@ -70,7 +71,7 @@ type SettingsModalProps = {
   updates: UpdaterState;
 };
 
-type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "mcp" | "final_touches" | "about";
+type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "mcp" | "planning" | "final_touches" | "about";
 
 export function SettingsModal({ open, onClose, projectPath, account, updates }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
@@ -267,6 +268,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
     { id: "account", label: "Account", icon: User },
     { id: "configs", label: "Config Packs", icon: Settings2 },
     { id: "mcp", label: "MCP Servers", icon: Plug },
+    { id: "planning", label: "Planning", icon: Lightbulb },
     { id: "final_touches", label: "Final Touches", icon: Settings2 },
   ];
 
@@ -920,6 +922,11 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                 <UsageSyncPanel signedIn={!!account.profile} />
                 <ModelProvidersPanel />
               </div>
+            ) : null}
+
+            {/* ─── Planning ─── */}
+            {tab === "planning" ? (
+              <PlanningTab projectPath={projectPath} />
             ) : null}
 
             {/* ─── Final Touches ─── */}

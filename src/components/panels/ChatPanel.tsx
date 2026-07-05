@@ -67,6 +67,8 @@ type ChatPanelProps = {
   schematicContent?: string | null;
   /** Promote a generated idea into the plan pipeline (owned by AppShell). */
   onCreatePlanFromIdea?: (title: string, description: string, chatSessionId: string | null) => Promise<void> | void;
+  /** Open the planning inspector (side panel). */
+  onOpenPlanningInspector?: () => void;
 };
 
 function formatMetric(value: number | null | undefined, suffix = "") {
@@ -176,6 +178,7 @@ export function ChatPanel({
   activeSessionId,
   schematicContent,
   onCreatePlanFromIdea,
+  onOpenPlanningInspector,
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
@@ -1294,8 +1297,10 @@ export function ChatPanel({
                 <button
                   className="chat-inline-menu-item"
                   type="button"
-                  title="Open the planning inspector in the right side panel"
-                  onClick={() => setShowPlanningMenu(false)}
+                  onClick={() => {
+                    setShowPlanningMenu(false);
+                    onOpenPlanningInspector?.();
+                  }}
                 >
                   <LayoutGrid size={11} /> Open planning inspector
                 </button>
