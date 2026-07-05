@@ -105,12 +105,30 @@ the chat transcript. A fallback structured-output parser captures ideas if the
 model emits proposal-shaped JSON in its text response instead of calling the
 tool.
 
+Idea generation is **schematic-grounded** (schematic-grounded-planning):
+- Generation system prompts derive from the bundled `basebuild-planning` skill
+  content at read time (LazyLock-cached), not hardcoded strings. Planning
+  Settings overrides still take precedence.
+- Each turn prepends a **focus directive** assembled from the schematic inspect
+  report: Vision, End goals, and Current priorities serve first; the Blueprint
+  (archetype, team size, stage) constrains scope; missing or stale end goals
+  are flagged.
+- `propose_ideas` requires a `grounding` field (concrete evidence: real files,
+  functions, or observed gaps) per idea. Captures without grounding are
+  rejected by the agent loop. An optional `anchor` field names the schematic
+  element served (Vision / End goal / Current priority); ideas without an
+  anchor are flagged "outside current focus" in the UI.
+- Categories are **project-derived** (generated from the schematic's Blueprint,
+  Vision, and priorities), not hardcoded seeds. The empty state offers
+  "Generate categories from project" and manual add.
+- When schematic health is not `complete`, the chat planning menu shows a
+  nudge linking to the schematic wizard (soft gate — proceed is allowed).
+
 Ideas can be promoted into the plan pipeline (tagged with the originating chat
 session `chat:<id>`) or rejected. Rejected ideas are retained for history but
 hidden from the active concept list. The offline local coordinator does not
 fabricate ideas — with no configured provider the command returns a setup
-prompt. Categories (seeded with defaults) organize ideas and can be managed in
-the Planning Inspector.
+prompt. Categories organize ideas and can be managed in the Planning Inspector.
 
 ## Defaults
 
@@ -436,50 +454,54 @@ skills. Grant scopes: once, session, project.
 - `connectors` — registry entries with manifest, state, capabilities, trust.
 - `connector_grants` — per-connector per-capability grants (reuses
   `PermissionDecision` from the native approval gateway).
-- `provider_claims` — provider subscription claims from connectors, with
-  approved/denied flags.
-
-## Reasoning channel separation
-
-Reasoning/thinking tokens (e.g. `reasoning_content` from Umans GLM or
-DeepSeek-style models) are stored separately from the assistant message content:
-
-- `provider_client.rs` returns reasoning as a separate field on
-  `ProviderResponse` (never folded into content).
-- `native_chat_messages.reasoning` column stores it alongside content.
-- The UI renders a collapsed "Thinking" section per message with visually
-  distinct muted styling — never confusable with the reply text.
-- Reasoning is excluded from provider request assembly (history replay sends
-  only content, never reasoning).
-- Stray think-tag markers are stripped from content and routed to the
-  reasoning store via `strip_think_tags`.
-
 ## Structured idea capture
 
 Generate-ideas runs capture ideas as structured data rendered as inline cards,
 never as chat prose alone:
 
 - `propose_ideas` tool is exposed to the agent loop during generate-ideas
-  runs. The tool accepts an array of `{title, description, categoryId?}` and
-  persists each as an idea row.
+  runs. The tool accepts an array of `{title, description, grounding,
+  categoryId?, anchor?}` and persists each as an idea row. `grounding`
+  (concrete evidence) is required; captures without it are rejected.
+  `anchor` optionally names the schematic element served.
 - Fallback: if the model emits idea-shaped JSON in its text response
   instead of calling the tool, the structured-output parser captures them.
 - Promoted ideas create a draft plan (tagged `chat:<id>`). Rejected ideas
   persist for history (append-only across regenerations).
 - Idea state reloads with the session across restarts.
 - Generate-ideas runs are recorded as `pipeline_runs` stage rows.
+- Stray think-tag markers are stripped from content and routed to the
+  reasoning store via `strip_think_tags`.
+
+## Planning prompts
+
+System prompts for chat, idea generation, plan generation, and category
+suggestion are stored in the `planning_prompts` table and editable in
+Settings → Planning. Planning-kind defaults (idea/plan/category generation)
+derive from the bundled `basebuild-planning` skill content at read time;
+`chat_system` uses a compiled default. Resetting an override restores the
+skill-derived (or compiled) default. `planning_prompt_service.rs` serves
+get/set/reset/list operations.
 
 ## Planning Inspector
 
 The side panel's Planning section is a three-tab inspector:
 
-- **Plans** — the existing plan pipeline (create, generate, focus, queue).
+- **Plans** — the existing plan pipeline (create, edit, focus, queue). The
+  "Generate plans" modal and input boxes were removed
+  (schematic-grounded-planning); generation runs through the chat planning
+  menu instead.
 - **Ideas** — filterable idea history (all/concept/picked/rejected/archived)
-  with promote, reject, and delete actions.
+  with promote, reject, and delete actions. Each idea card shows its
+  `grounding` evidence and `anchor` (or an "outside current focus" flag when
+  no anchor is set).
 - **Categories** — list with idea counts, drill-down detail, add-category
   form, and "Suggest more ideas" which opens a chat turn scoped to the
-  category.
+  category. The empty state offers "Generate categories from project"
+  (no hardcoded seeds).
 
+A schematic health badge appears in the inspector header when health is not
+`complete`, with a tooltip naming incomplete sections.
 ## Planning prompts
 
 System prompts for chat, idea generation, plan generation, and category

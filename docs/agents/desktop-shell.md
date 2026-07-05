@@ -4,7 +4,12 @@ Basebuild's app shell is a three-column grid:
 
 1. **Left sidebar** (220px → 36px collapsed) — projects and sessions.
 2. **Center workspace** — session header, workspace tabs, and the active tab
-   view (terminal, file viewer, chat, or project schematic).
+   view (terminal, file viewer, chat, or project schematic). The schematic
+   tab renders structured section cards by default (Purpose, Vision, Blueprint,
+   End goals, Current priorities, core rules) with per-section fill states and
+   a health badge; a raw markdown toggle is available. The "Generate plans"
+   modal was removed (schematic-grounded-planning) — generation runs through
+   the chat planning menu.
 3. **Right side panel** (260px → 36px collapsed) — stacked accordion sections
    for Plans, Files, and Source. The Plans section is a Planning Inspector
    with three tabs: Plans, Ideas, and Categories.
