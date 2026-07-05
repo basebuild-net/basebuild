@@ -1,188 +1,149 @@
 ---
 name: basebuild-project-schematic
-description: Guided interviewer for creating and updating a .basebuild/project-schematic.md file. Asks focused questions, fills in blanks carefully, and never fabricates answers. Emits a markdown schematic that agents and the Basebuild app can use as the source of truth for project purpose, stack, conventions, and current priorities.
+description: Create, update, and re-align a .basebuild/project-schematic.md - the source of truth for what a project is, what it should become (Vision), its core rules, and current priorities. Guided section-by-section questionnaire with repository-fact prefill, per-section updates, and a re-alignment mode that diffs the schematic against repo reality and .basebuild planning data. Use when the user says "project schematic", "update the schematic", "re-align", "what is this project", or after major work finishes. Pairs with basebuild-planning, which consumes Vision and priorities.
 ---
 
-# Project Schematic Generator
+# Project Schematic
 
 A Project Schematic is a single markdown file at `.basebuild/project-schematic.md`
-that describes what a project is, why it exists, how to work on it, and what
-the team cares about right now. Basebuild uses it to generate useful plans,
-funnel context to OMP, and keep agents aligned.
+describing what a project is, what it should become, how to work on it, and
+what matters right now. Agents use it as the steering document; the
+`basebuild-planning` skill derives idea categories and grounded ideas from its
+Vision and Current priorities.
 
-You are an interviewer, not a reviewer. Your job is to help the user produce a
-complete, accurate schematic. Do not critique their answers - clarify and shape
-them into a useful document.
+You are an interviewer and an auditor — never an author of fiction:
 
-## Rules
+- **Never fabricate facts.** Derive from the repository or ask.
+- **Prefill before asking.** When a fact is observable (stack from manifests,
+  architecture from the tree), present it for confirmation instead of asking
+  the user to recite it.
+- **The user's language wins.** Shape answers; do not editorialize.
+- **Explicit approval before every write.** Show the full proposed document or
+  a per-section diff first. This file steers agents — silent edits are
+  sabotage.
+- **Concise.** Readable in under three minutes.
 
-- **Never fabricate facts.** If you do not know something, ask.
-- **Prefer questions over guesses.** Use the user's exact language when possible.
-- **Do not overwrite an existing schematic silently.** Read it first and offer to
-  update specific sections.
-- **Keep it concise.** A schematic should be readable in under three minutes.
-- **One section at a time.** Finish a section before moving to the next.
+## Modes
 
-## Output format
+| User intent | Mode |
+|---|---|
+| No schematic exists / "create a schematic" | **Create** |
+| "update the schematic", "priorities changed" | **Update** |
+| "re-align", "is the schematic still accurate", after big plans finish | **Re-align** |
 
-Always emit the final document as markdown with this exact structure:
+## Document template
+
+Emit exactly this structure, in this order:
 
 ```markdown
 # Project Schematic: <Project Name>
 
 ## Purpose
-<one paragraph>
+<one paragraph: what it does, for whom, why it exists>
+
+## Vision
+<what the project should become — the target state. The gap between Vision
+and today is deliberate fuel for idea generation>
 
 ## Target users
 <one paragraph + primary user stories>
 
 ## Tech stack
-<runtime, framework, languages, key libraries>
+<runtime, framework, languages, key libraries — only what shapes the work>
 
 ## Architecture notes
-<boundaries, invariants, data model, important folders>
+<boundaries, invariants, data model, folders an agent must know>
 
 ## Design constraints
-<visual system, CSS rules, component reuse rules, file conventions>
+<hard visual/system rules — part of the project's core rules>
 
 ## Development conventions
-<naming, error handling, testing, docs>
+<naming, error handling, testing, docs — the rest of the core rules>
 
 ## Current priorities
-<top 3–5 open concerns in priority order>
+<top 3–5 open concerns, ranked>
 
 ## Open questions
-<what is still unclear>
+<what is unclear; decisions needing a human>
 ```
 
-## Interview flow
+Core rules = Design constraints + Development conventions: the invariants an
+agent must never break. Make them actionable ("0px border radius everywhere"),
+not aspirational ("clean code").
 
-Conduct the interview in order. Only skip a question if the user explicitly says
-to skip it. If information already exists in the current schematic (when
-updating), read it, display the current value, and ask if it still applies.
+## Create mode
 
-### 1. Project identity
+Work one section at a time, in template order. For each section:
 
-Ask:
-- What is the one-line name of this project?
-- In one sentence, what does it do for its users?
-- What problem does it solve that existing tools do not?
+1. **Prefill**: read what the repository already says — manifests
+   (`package.json`, `Cargo.toml`, …), README, convention files (`AGENTS.md`
+   or equivalents), directory structure, recent git history. Present derived
+   facts for confirmation.
+2. **Ask** only what is not observable. Per section, the questions that matter:
+   - *Purpose*: one sentence of what it does; the problem existing tools miss.
+   - *Vision*: what should this be in 6–18 months? What would make it done or
+     great? What is deliberately out of ambition?
+   - *Target users*: who, top three jobs, skill level, environment. Concrete
+     stories beat personas.
+   - *Tech stack*: confirm the derived stack; max ~5 critical dependencies;
+     external CLIs/services (Git, Docker, OMP…).
+   - *Architecture notes*: major parts, UI/backend boundary, what persists
+     where, invariants that must never break, first folders to read.
+   - *Design constraints*: design system source of truth, hard visual rules,
+     reuse policy.
+   - *Development conventions*: error handling, when tests are required, docs
+     that must move with code, lint/format, commit style.
+   - *Current priorities*: most important next, in progress, blocked, risky,
+     avoid-for-now. Rank, cap at 5.
+   - *Open questions*: what needs a human decision; where agents must not
+     assume.
+3. Finish a section before the next. Skip only on explicit request.
 
-Guidance:
-- Push for one sentence. Avoid marketing language.
-- The purpose section should explain *why* someone would use this, not every
-  feature it has.
+Assemble the document, show it in full, write only after approval.
 
-### 2. Target users
+## Update mode
 
-Ask:
-- Who is the primary user? (e.g., frontend developer, solo founder, DevOps
-  engineer)
-- What are the top three things they want to accomplish here?
-- What skill level are they?
-- In what environment do they usually work? (OS, editor, terminal, IDE)
+1. Read the current schematic.
+2. For each section (or only the ones the user names): show current text, ask
+   "still accurate — what changed?".
+3. Rewrite only sections whose answers changed; preserve everything else
+   **verbatim** — byte-for-byte.
+4. Legacy schematic without a `## Vision` section: offer to add it (one
+   interview question), never force it.
+5. Show a per-section diff; write after approval.
 
-Guidance:
-- Concrete user stories win over personas.
-- Example: “A frontend developer wants to preview a component in isolation” is
-  better than “developers.”
+## Re-align mode
 
-### 3. Tech stack
+Audit the schematic against observable reality. No questionnaire — evidence.
+This is the re-alignment mode.
 
-Ask:
-- What runtime or language is this built in?
-- What framework or UI toolkit does it use?
-- What are the critical dependencies? (max 5)
-- What build/package tools are used?
-- Are there any external services or CLIs it depends on? (e.g., Git, Docker,
-  OMP)
+1. **Collect evidence**:
+   - Repository: structure, manifests, convention files, recent git history.
+   - Planning data (when `.basebuild/` planning files exist): categories,
+     picked-idea themes, plans and statuses — especially plans `finished`
+     since the schematic was last touched, and `running` work.
+2. **Diff per section**. Drift examples: a Current priority shipped
+   (finished plan slug is the evidence); a subsystem exists that Architecture
+   notes never mention; the stack gained/lost a critical dependency; Vision
+   already achieved or contradicted by direction.
+3. **Report**: per drifted section — current text, the evidence (file paths,
+   plan slugs), proposed replacement text. Sections without drift are listed
+   as verified.
+4. **No drift at all** → say so explicitly and change nothing.
+5. Apply only the edits the user approves, preserving untouched sections
+   verbatim.
+6. When finished plans made priorities stale, propose refreshed Current
+   priorities citing those plan slugs — and, when the gap between Vision and
+   reality shifted, offer a Vision touch-up.
 
-Guidance:
-- Only include dependencies that shape how you work on the project.
-- Distinguish between app stack and dev tooling.
+After a re-alignment that changed priorities or Vision, suggest (once) running
+`basebuild-planning` to regenerate categories from the fresh fundamentals.
 
-### 4. Architecture notes
+## Special case: Basebuild itself
 
-Ask:
-- What are the major parts or layers?
-- What is the boundary between the UI and the backend?
-- What data must be persisted? Where does it live?
-- Are there any invariants that must never be broken? (e.g., "plans always
-  belong to a session", "CSS is a single file")
-- What folders should an agent care about first?
-
-Guidance:
-- Use a short list. Do not dump the full directory tree.
-- Mention Basebuild-specific hooks if this is Basebuild itself.
-
-### 5. Design constraints
-
-Ask:
-- Is there a design system or single source of truth?
-- Are there hard visual rules? (colors, radius, spacing, no inline styles)
-- What is the component or CSS reuse policy?
-- Are there naming conventions for files or exports?
-
-Guidance:
-- If the project is Basebuild itself, point to `DESIGN.md` and `AGENTS.md` as
-  the contract and summarize the non-negotiables.
-- For other projects, make sure the constraints are actionable for an agent.
-
-### 6. Development conventions
-
-Ask:
-- How should errors be handled?
-- When are tests required?
-- What documentation must be updated when code changes?
-- Are there linting or formatting rules an agent should know?
-- What is the commit style?
-
-Guidance:
-- Be specific about test expectations. “Tests for new commands” is better than
-  “write tests.”
-
-### 7. Current priorities
-
-Ask:
-- What is the most important thing to get right next?
-- What is actively being worked on?
-- What is blocked?
-- What is risky and needs extra care?
-- What should be avoided for now?
-
-Guidance:
-- Keep the list to 3–5 items. Rank them.
-- If this is Basebuild itself, align with the active OpenSpec change.
-
-### 8. Open questions
-
-Ask:
-- What are you still unsure about?
-- What decisions need a human before work can proceed?
-- What context would an agent need to not overstep?
-
-Guidance:
-- This section protects the project from agents making assumptions.
-- Example: “We have not decided whether to support macOS native menus yet.”
-
-## Updating an existing schematic
-
-1. Read `.basebuild/project-schematic.md`.
-2. For each section, show the current text and ask: “Still accurate? If not, what
-   changed?”
-3. Only rewrite sections where the answer changes.
-4. Preserve unchanged sections verbatim.
-5. Update the `## Current priorities` section based on the new context.
-
-## Special instructions for Basebuild itself
-
-When generating or updating the schematic for the Basebuild project:
-
-- Reference the actual README, AGENTS.md, DESIGN.md, and active OpenSpec plan.
-- Make the wrapper nature explicit: Basebuild does not replace OMP/Git/editors,
-  it provides a visual control plane and plan pipeline for them.
-- Include the plan pipeline lifecycle and status semantics.
-- Include the rule that agents must not silently modify AGENTS.md or project
-  schematics without user approval.
-- Note that skills live in `skills/<name>/SKILL.md` and must be tested on this
-  repository.
+When the project is Basebuild: reference README, AGENTS.md, DESIGN.md, and the
+active OpenSpec roadmap; keep the wrapper nature explicit (control plane for
+OMP/Git/editors, not a replacement); include the plan lifecycle and status
+semantics; preserve the rule that agents modify `AGENTS.md` and this schematic
+only with explicit user approval; note that skills live in
+`skills/<name>/SKILL.md`.

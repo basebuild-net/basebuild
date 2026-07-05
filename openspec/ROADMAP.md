@@ -39,9 +39,11 @@ node scripts/openspec-status.mjs --write
    skills like OpenSpec), schematic skill v2 (Vision section, repo-fact
    prefill, re-alignment mode, planning pairing), removes the stale
    `basebuild-idea-generation` skill. The `.basebuild` file schema is the
-   future app interop contract. Proposal + references complete; `SKILL.md`
-   implementation in progress. No app-code overlap with
-   `unified-planning-workspace` (SQLite/UI vs files).
+   future app interop contract. **Complete — pending archive** (18/18 tasks):
+   skills + specs implemented and verified (schema dry-run, read_skill
+   frontmatter compat, tsc/build/cargo test 188 pass — no app code touched).
+   No app-code overlap with `unified-planning-workspace` (SQLite/UI vs files).
+
 ### Next (specced, ready to start)
 
 4. `omp-terminal-usage-sync` — day-one OMP workflow on the installed build:
@@ -92,12 +94,12 @@ _Last refreshed: 2026-07-05 (`node scripts/openspec-status.mjs --write`)_
 |---|---|---|---|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
 |`unified-planning-workspace`|32/34|in progress|`/apply unified-planning-workspace`|
-|`basebuild-planning-skill`|0/18|not started|`/apply basebuild-planning-skill`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
 |`omp-terminal-usage-sync`|0/33|not started|`/apply omp-terminal-usage-sync`|
+|`basebuild-planning-skill`|18/18|complete — archive|`/archive basebuild-planning-skill`|
 <!-- status:end -->
 
 ## Archiving
