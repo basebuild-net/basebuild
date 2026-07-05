@@ -348,7 +348,6 @@ export function ChatPanel({
       (event) => {
         if (event.payload.sessionId !== nativeSessionId) return;
         const channel = event.payload.channel;
-        if (channel === "ideas") return;
         if (channel === "reasoning") {
           reasoningBufRef.current += event.payload.delta;
           setReasoningText(reasoningBufRef.current);
