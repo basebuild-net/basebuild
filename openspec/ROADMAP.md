@@ -79,6 +79,7 @@ _Last refreshed: 2026-07-05 (`node scripts/openspec-status.mjs --write`)_
 |---|---|---|---|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
 |`unified-planning-workspace`|2/34|in progress|`/apply unified-planning-workspace`|
+|`basebuild-planning-skill`|0/18|not started|`/apply basebuild-planning-skill`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
