@@ -203,8 +203,7 @@ export function GeneratePlanModal({ open, onClose, onGenerate, onSuggest, onCrea
             </div>
           </div>
           <p className="text-muted text-sm">
-            AI generation runs through OMP. Until the backend skill is wired,
-            this creates placeholder plans that carry the goal text.
+            AI generation produces structured plan proposals you can accept or dismiss.
           </p>
         </div>
       </div>

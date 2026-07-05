@@ -9,6 +9,7 @@ use crate::{
         NativeRequestMetricsSummary, NativeToolApprovalRequest, NativeToolApprovalResult,
         NativeToolEvent, ResolvedChatModelDefault,
     },
+    models::permission::{PermissionDecision, SessionRule},
     services::native_chat_service::NativeChatService,
 };
 
@@ -99,10 +100,40 @@ pub fn native_request_tool_approval(
 ) -> Result<NativeToolApprovalResult, String> {
     NativeChatService::request_tool_approval(request)
 }
-
 #[tauri::command]
 pub fn native_chat_cancel(session_id: String) -> Result<bool, String> {
     Ok(crate::services::agent_loop_service::cancel_run(&session_id))
+}
+
+/// Resolve a pending tool-call approval. Called by the UI's inline approval
+/// card. `decision` is "allow", "allow_session", or "deny". When "allow_session",
+/// a session rule is added so subsequent matching calls skip the prompt.
+/// `command_prefix` is only used for run_command session rules.
+#[tauri::command]
+pub fn native_chat_resolve_approval(
+    tool_call_id: String,
+    decision: String,
+    command_prefix: Option<String>,
+) -> Result<bool, String> {
+    let (perm_decision, session_rule) = match decision.as_str() {
+        "allow" => (PermissionDecision::Allow, None),
+        "allow_session" => {
+            // Session rule: the tool name is read from the pending approval.
+            // We use a permissive tool_name and let the gateway match; the UI
+            // passes command_prefix for run_command scoping.
+            (PermissionDecision::Allow, Some(SessionRule {
+                tool_name: "*".to_string(),
+                command_prefix,
+                decision: PermissionDecision::Allow,
+            }))
+        }
+        _ => (PermissionDecision::Deny, None),
+    };
+    let resolution = crate::services::agent_loop_service::ApprovalResolution {
+        decision: perm_decision,
+        session_rule,
+    };
+    Ok(crate::services::agent_loop_service::resolve_approval(&tool_call_id, resolution))
 }
 
 #[tauri::command]
@@ -164,3 +195,4 @@ pub fn native_chat_set_project_model_default(
 pub fn native_chat_set_global_model_default(default: ChatModelDefault) -> Result<(), String> {
     NativeChatService::set_global_model_default(&default)
 }
+

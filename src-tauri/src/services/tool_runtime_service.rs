@@ -59,13 +59,13 @@ pub struct ToolResult {
 }
 
 impl ToolResult {
-    fn success(content: String) -> Self {
+    pub fn success(content: String) -> Self {
         Self { content, status: "succeeded".to_string(), full_content: None }
     }
-    fn failure(content: String) -> Self {
+    pub fn failure(content: String) -> Self {
         Self { content, status: "failed".to_string(), full_content: None }
     }
-    fn denied(content: String) -> Self {
+    pub fn denied(content: String) -> Self {
         Self { content, status: "denied".to_string(), full_content: None }
     }
 }
@@ -171,6 +171,35 @@ pub fn registry() -> Vec<ToolDef> {
             },
             kind: ToolKind::Mutating,
             execute: run_command,
+        },
+        ToolDef {
+            schema: ToolSchema {
+                name: "propose_ideas".to_string(),
+                description: "Capture one or more structured ideas during a generate-ideas run. Each idea has a title and a short description, and is optionally tagged with a category. Call this tool with the ideas as they are formed; do not emit them as prose. The user promotes or rejects each card in the UI.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "ideas": {
+                            "type": "array",
+                            "description": "Ideas to capture.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "title": { "type": "string", "description": "Short title (max 12 words)." },
+                                    "description": { "type": "string", "description": "1-2 sentence description of the idea." }
+                                },
+                                "required": ["title", "description"]
+                            }
+                        },
+                        "categoryId": { "type": "string", "description": "Optional category id to tag every idea in this batch with (e.g. for category-directed generation)." }
+                    },
+                    "required": ["ideas"]
+                }),
+            },
+            // Intercepted by the agent loop before reaching the generic executor;
+            // this execute fn is a no-op fallback that should never be called.
+            kind: ToolKind::ReadOnly,
+            execute: propose_ideas_fallback,
         },
     ]
 }
@@ -414,11 +443,13 @@ fn list_files(workspace_root: &Path, args: &Value) -> ToolResult {
     ToolResult::success(out)
 }
 
-/// Simple recursive glob walker supporting `**` and `*`.
+/// Simple recursive glob walker supporting `**` and `*`. Results are
+/// deduplicated and sorted so each matching path appears exactly once.
 fn walk_glob(root: &Path, pattern: &str) -> Vec<String> {
     let mut results = Vec::new();
     walk_glob_recursive(root, root, pattern, &mut results);
     results.sort();
+    results.dedup();
     results
 }
 
@@ -428,6 +459,14 @@ fn walk_glob_recursive(root: &Path, current: &Path, pattern: &str, results: &mut
         Some((f, r)) => (f, Some(r)),
         None => (pattern, None),
     };
+    // For `**` with a remainder, the zero-directory match must be tried ONCE
+    // (not once per directory entry — that produced mass duplicates). Try it
+    // here before iterating entries so it fires exactly once per recursion.
+    if first == "**" {
+        if let Some(rest_pattern) = rest {
+            walk_glob_recursive(root, current, rest_pattern, results);
+        }
+    }
     let entries = match std::fs::read_dir(current) {
         Ok(e) => e,
         Err(_) => return,
@@ -441,11 +480,8 @@ fn walk_glob_recursive(root: &Path, current: &Path, pattern: &str, results: &mut
         let path = entry.path();
         let is_dir = entry.metadata().map(|m| m.is_dir()).unwrap_or(false);
         if first == "**" {
-            // Match zero or more directories.
-            if let Some(rest_pattern) = rest {
-                // Try matching rest in current dir (zero dirs).
-                walk_glob_recursive(root, current, rest_pattern, results);
-                // Recurse into subdirs.
+            if let Some(_rest_pattern) = rest {
+                // Zero-dir match already tried above; only recurse into subdirs here.
                 if is_dir {
                     walk_glob_recursive(root, &path, pattern, results);
                 }
@@ -661,7 +697,15 @@ fn run_command(workspace_root: &Path, args: &Value) -> ToolResult {
     }
 }
 
-// wait_timeout extension (not in std::process::Child directly).
+/// Fallback executor for the propose_ideas tool. The agent loop intercepts
+/// this tool before it reaches the generic executor and calls
+/// SessionService::create_idea instead. This fn exists only so the ToolDef
+/// has a valid execute pointer; if called directly, it returns a notice.
+fn propose_ideas_fallback(_workspace_root: &Path, _args: &Value) -> ToolResult {
+    ToolResult::failure(
+        "propose_ideas must be intercepted by the agent loop. This fallback should never be called.".to_string(),
+    )
+}
 trait ChildWaitTimeoutExt {
     /// Returns `Ok(Some(status))` on exit, `Ok(None)` on timeout.
     fn wait_timeout(&mut self, dur: std::time::Duration) -> std::io::Result<Option<std::process::ExitStatus>>;
@@ -839,6 +883,31 @@ mod tests {
         assert!(!result.content.contains("README.md"));
     }
 
+    #[test]
+    fn list_files_glob_has_no_duplicates() {
+        // Regression: `**` zero-directory match was tried once per directory
+        // entry, producing mass duplicates. This test creates a directory with
+        // multiple sibling entries and asserts each match appears exactly once.
+        let dir = workspace();
+        let root = dir.path();
+        fs::create_dir_all(root.join("openspec/changes/plan-a")).unwrap();
+        fs::create_dir_all(root.join("openspec/changes/plan-b")).unwrap();
+        fs::write(root.join("openspec/changes/plan-a/proposal.md"), "# A").unwrap();
+        fs::write(root.join("openspec/changes/plan-b/proposal.md"), "# B").unwrap();
+        fs::write(root.join("openspec/changes/plan-a/spec.md"), "spec A").unwrap();
+        // Add sibling entries to the parent dir to amplify the duplicate bug.
+        for i in 0..5 {
+            fs::write(root.join("openspec/changes/plan-a/file_{i}.txt"), "").unwrap();
+        }
+        let matches = walk_glob(root, "**/proposal.md");
+        let proposal_count = matches.iter().filter(|m| m.ends_with("proposal.md")).count();
+        assert_eq!(proposal_count, 2, "expected 2 proposal.md files, got {matches:?}");
+        // No duplicates at all.
+        let mut sorted = matches.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), matches.len(), "duplicates found: {matches:?}");
+    }
     #[test]
     fn search_files_finds_matches() {
         let dir = workspace();

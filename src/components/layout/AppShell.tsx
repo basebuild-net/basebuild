@@ -4,7 +4,7 @@ import { LayoutTemplate, Settings2, TerminalSquare, X } from "lucide-react";
 import { useSessionState } from "../../state/sessions";
 import { usePlans } from "../../state/plans";
 import { ProjectSidebar, useProjectSidebar } from "./ProjectSidebar";
-import { PlanPanel } from "./PlanPanel";
+
 import { EditPlanModal } from "./EditPlanModal";
 import { FocusPlanModal } from "./FocusPlanModal";
 import { GeneratePlanModal } from "./GeneratePlanModal";
@@ -38,6 +38,7 @@ import { useLogs } from "../../state/log";
 import { useAccount } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
 import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
+import type { IdeaCategory } from "../../lib/ideas";
 export type ToolId = "terminal";
 
 const DEFAULT_SHELL = () => {
@@ -97,10 +98,16 @@ export function AppShell({ updates }: AppShellProps) {
     return () => clearInterval(interval);
   }, []);
   useEffect(() => {
-    if (activeProjectPath && session.sessions.length === 0 && !session.activeSessionId) {
+    // Launch does not mint sessions: if sessions exist, select the most
+    // recent (created_at DESC from the backend). Only create a session when
+    // the project has zero sessions (first open) — never on restart.
+    if (!activeProjectPath || session.activeSessionId) return;
+    if (session.sessions.length > 0) {
+      void session.selectSession(session.sessions[0].id);
+    } else if (!session.activeSession) {
       void session.createSession();
     }
-  }, [activeProjectPath, session.sessions.length]);
+  }, [activeProjectPath, session.sessions.length, session.activeSessionId, session.activeSession, session]);
 
   // Auto-create a chat tab when a session is active but has no tabs
   useEffect(() => {
@@ -297,6 +304,10 @@ export function AppShell({ updates }: AppShellProps) {
     [plans, session.activeSessionId],
   );
 
+  const handleOpenPlanningInspector = useCallback(() => {
+    setSideCollapsed(false);
+  }, []);
+
   const openOrFocusChat = useCallback(
     async (draftPrompt: string) => {
       if (!session.activeSessionId) return;
@@ -306,7 +317,8 @@ export function AppShell({ updates }: AppShellProps) {
       if (existingChat) {
         session.setActiveTabId(existingChat.id);
       } else {
-        await session.createTab("chat", `Chat ${session.tabs.length + 1}`);
+        const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
+        await session.createTab("chat", `Chat ${chatCount}`);
       }
       // Inject the draft prompt — ChatPanel consumes it once
       setChatDraft(draftPrompt);
@@ -315,6 +327,15 @@ export function AppShell({ updates }: AppShellProps) {
     [session],
   );
 
+  const handleSuggestForCategory = useCallback(
+    (category: IdeaCategory | null) => {
+      const prompt = category
+        ? `Generate new ideas for the "${category.name}" category. ${category.description ?? ""}`.trim()
+        : "Generate ideas for this project.";
+      void openOrFocusChat(prompt);
+    },
+    [openOrFocusChat],
+  );
   const handleGenerateFromGoal = useCallback(
     (goal: string, contextFile?: string, contextContent?: string) => {
       if (!session.activeSessionId) {
@@ -431,7 +452,8 @@ export function AppShell({ updates }: AppShellProps) {
         return;
       }
       if (kind === "chat") {
-        await session.createTab("chat", `Chat ${session.tabs.length + 1}`);
+        const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
+        await session.createTab("chat", `Chat ${chatCount}`);
         return;
       }
       if (kind === "omp") {
@@ -607,6 +629,7 @@ export function AppShell({ updates }: AppShellProps) {
                   activeSessionId={session.activeSessionId}
                   schematicContent={schematic.content}
                   onCreatePlanFromIdea={handleCreatePlanFromIdea}
+                  onOpenPlanningInspector={handleOpenPlanningInspector}
                 />
               ) : activeTab.kind === "file" ? (
                 <FileViewer path={activeTab.filePath} />
@@ -665,6 +688,8 @@ export function AppShell({ updates }: AppShellProps) {
               onOpenInTerminal: handleOpenPlanInTerminal,
             }}
             onOpenChatSession={handleOpenChatSession}
+            onSuggestForCategory={handleSuggestForCategory}
+            activeChatSessionId={session.activeSessionId}
           />
         </div>
       </main>
@@ -702,6 +727,7 @@ export function AppShell({ updates }: AppShellProps) {
       <FocusPlanModal
         plan={focusingPlan}
         open={!!focusingPlan}
+        projectPath={activeProjectPath ?? ""}
         onClose={() => setFocusingPlan(null)}
         onSetStatus={plans.setPlanStatus}
         onCopyReference={handleCopyReference}

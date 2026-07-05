@@ -17,17 +17,47 @@ node scripts/openspec-status.mjs --write
    bridge + verification remain (tasks 2.2 partial, 3.1–6.5). Permission broker
    extends the merged `native-agent-loop` approval substrate (modes, rules,
    prompts, audit trail); the task 1.1 merge gate is satisfied as of PR #9.
+2. `planning-system-qol` — **complete — ready to archive** (34/34 tasks done).
+   Closes the implementation gap on the plan pipeline (structured idea capture
+   via `propose_ideas` tool, openspec artifact generation on draft→openspec,
+   live grouped tool activity, run_command approval UI, distinct collapsed
+   thinking rendering) plus session lifecycle QoL (launch reuses last session,
+   meaningful titles, stable sidebar ordering, single-instance guard),
+   reasoning channel separation, glob dedup, effort clamping, test DB
+   isolation, unified Planning Inspector (Plans/Ideas/Categories tabs),
+   planning prompt customization (Settings → Planning). Driven by 2026-07-05
+   live testing; implements several already-canonical specs
+   (`openspec-artifacts`, `tool-transcript-rendering`, `tool-approval-gateway`,
+   `plan-pipeline` stages, `ide-workspace-state` restore). All Rust tests
+   (188) and e2e tests (10) pass; `tsc --noEmit`, `npm run build`, `cargo
+   check` clean.
 
 ### Next (specced, ready to start)
 
-2. `harness-context-files` — system-prompt assembly: AGENTS.md discovery,
+3. `omp-terminal-usage-sync` — day-one OMP workflow on the installed build:
+   fix dead PTY output/input/resize plumbing (omp.exe spawns but renders
+   nothing), stale-tab disconnected states, omp 16.x telemetry parser drift
+   (`reports[].limits[]`), manual Sync-now ungated from auto-sync with
+   mandatory outcome feedback, usage sharing default-on after sign-in
+   (owner-directed **BREAKING** privacy-default change), skills bundled into
+   the installer, terminal-first sessions (no chat rows until chat is used),
+   empty-chat hygiene. Diagnosis-complete from 2026-07-05 installed-build
+   (v0.0.12) testing. `session-lifecycle` delta depends on
+   `planning-system-qol` landing first (or stands alone if applied first).
+4. `file-viewer-editor` — file tabs become the single view/edit/diff
+   surface: syntax-highlighted virtualized viewing, markdown preview,
+   images, explicit-save editing with mtime conflict guard, and unified
+   diff mode fed from the Source panel (staged/unstaged/untracked).
+   Provides the rendering surface `diff-review-workflow` can reuse.
+5. `harness-context-files` — system-prompt assembly: AGENTS.md discovery,
    schematic injection, skills metadata, context inspector. Feeds the merged
    budget guard; no remaining gate.
-3. `native-app-login-mcp` — device-auth account connection + first-party usage
+6. `native-app-login-mcp` — device-auth account connection + first-party usage
    sync with basebuild.net. Independent of everything above.
-4. `diff-review-workflow` — per-run changeset baseline, file-level review
+7. `diff-review-workflow` — per-run changeset baseline, file-level review
    (approve/revert/send-back), review gate before commit/PR final touches.
-   **After `plan-pipeline-harness`** (archived PR #15 — gate satisfied).
+   **After `plan-pipeline-harness`** (archived PR #15 — gate satisfied);
+   pairs with `file-viewer-editor`'s diff surface.
 
 ### Proposed (no artifacts yet — run `/propose <name>` when its turn comes)
 
@@ -43,14 +73,18 @@ stale specs are worse than none.
 ## Status
 
 <!-- status:begin -->
-_Last refreshed: 2026-07-04 (`node scripts/openspec-status.mjs --write`)_
+_Last refreshed: 2026-07-05 (`node scripts/openspec-status.mjs --write`)_
 
 |Change|Progress|Status|Next command|
 |---|---|---|---|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
+|`unified-planning-workspace`|2/34|in progress|`/apply unified-planning-workspace`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
+|`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
+|`omp-terminal-usage-sync`|0/33|not started|`/apply omp-terminal-usage-sync`|
+|`planning-system-qol`|38/38|complete — archive|`/archive planning-system-qol`|
 <!-- status:end -->
 
 ## Archiving

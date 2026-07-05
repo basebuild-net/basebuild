@@ -10,7 +10,6 @@ use tauri::{AppHandle, Emitter};
 
 static APP_HANDLE: LazyLock<Mutex<Option<AppHandle>>> = LazyLock::new(|| Mutex::new(None));
 
-use app_state::AppState;
 use commands::{
     agent::{agent_capabilities, agent_send, agent_start, agent_stop},
     app::{app_version, open_url},
@@ -41,8 +40,8 @@ use commands::{
         git_unstage_all,
     },
     ideas::{
-        create_category, create_idea, delete_category, delete_idea, list_categories, list_ideas,
-        promote_ideas, update_idea_status,
+        create_category, create_idea, delete_category, delete_idea, ensure_default_categories,
+        list_categories, list_ideas, promote_ideas, reject_idea, update_idea_status,
     },
     omp::{
         omp_config_list, omp_debug_context, omp_stats, omp_status, omp_stream_command, omp_usage,
@@ -52,7 +51,9 @@ use commands::{
     },
     native_chat::{
         native_chat_get, native_chat_list, native_chat_messages, native_chat_send,
-        native_chat_start, native_chat_cancel, native_chat_tool_events, native_chat_model_default, native_chat_set_project_model_default,
+        native_chat_start, native_chat_cancel, native_chat_resolve_approval,
+        native_chat_tool_events, native_chat_model_default,
+        native_chat_set_project_model_default,
         native_chat_set_global_model_default, native_catalog_sync,
         native_delete_provider_credential, native_generate_ideas,
         native_list_provider_credentials, native_provider_catalog,
@@ -79,6 +80,7 @@ use commands::{
         openspec_derive_change_name, openspec_parse_task_progress, openspec_resolve_change_name,
         openspec_task_progress,
     },
+    planning_prompts::{planning_prompt_list, planning_prompt_reset, planning_prompt_set},
     slash_commands::{expand_slash_command, list_slash_commands},
     projects::{
         create_project_basebuild_config, detect_project, list_recent_projects, pick_context_file,
@@ -171,12 +173,21 @@ pub fn run() {
         eprintln!("{details}");
     }));
 
-    tauri::Builder::default()
-        .manage(AppState::default())
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build());
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        use tauri::Manager;
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
+    builder
+        .manage(app_state::AppState::default())
         .manage(std::sync::Mutex::new(crate::services::agent_service::AgentManager::default()))
         .manage(CloseToTrayState::default())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // Store handle so the panic hook can emit to the frontend
             if let Ok(mut handle) = APP_HANDLE.lock() {
@@ -345,8 +356,10 @@ pub fn run() {
             openspec_parse_task_progress,
             openspec_derive_change_name,
             openspec_resolve_change_name,
+            planning_prompt_list,
+            planning_prompt_set,
+            planning_prompt_reset,
             list_slash_commands,
-            expand_slash_command,
             create_terminal,
             write_terminal,
             resize_terminal,
@@ -388,6 +401,8 @@ pub fn run() {
             update_idea_status,
             delete_idea,
             promote_ideas,
+            reject_idea,
+            ensure_default_categories,
             agent_start,
             agent_send,
             agent_capabilities,
@@ -403,6 +418,7 @@ pub fn run() {
             native_request_metrics,
             native_request_metrics_summary,
             native_chat_cancel,
+            native_chat_resolve_approval,
             native_chat_tool_events,
             native_list_provider_credentials,
             native_delete_provider_credential,

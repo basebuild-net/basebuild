@@ -6,6 +6,7 @@ pub mod omp_telemetry;
 pub mod connector;
 pub mod plan;
 pub mod plan_run;
+pub mod planning_prompt;
 pub mod pipeline;
 pub mod native_chat;
 pub mod project;

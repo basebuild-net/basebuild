@@ -22,6 +22,8 @@ pub struct NativeChatMessage {
     pub session_id: String,
     pub role: String,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
     pub sort_order: i64,
     pub provider_id: Option<String>,
     pub model_id: Option<String>,
@@ -182,6 +184,10 @@ pub struct NativeGenerateIdeasRequest {
     pub provider_id: Option<String>,
     pub model_id: Option<String>,
     pub effort_level: Option<String>,
+    /// Optional category id for category-directed generation. When present,
+    /// the prompt is grounded in the category's name/description and captured
+    /// ideas are tagged with this id.
+    pub category_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

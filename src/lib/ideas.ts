@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type IdeaStatus = "concept" | "picked" | "archived";
+export type IdeaStatus = "concept" | "picked" | "rejected" | "archived";
 
 export type IdeaCategory = {
   id: string;
@@ -48,6 +48,15 @@ export async function updateIdeaStatus(id: string, status: IdeaStatus): Promise<
 export async function deleteIdea(id: string): Promise<void> {
   return invoke("delete_idea", { id });
 }
+
+export async function rejectIdea(id: string): Promise<void> {
+  return invoke("reject_idea", { id });
+}
+
+export async function ensureDefaultCategories(sessionId: string): Promise<void> {
+  return invoke("ensure_default_categories", { sessionId });
+}
+
 
 export type PromoteIdeasInput = {
   sessionId: string;

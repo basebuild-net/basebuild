@@ -3,7 +3,9 @@ import {
   AlertCircle,
   BarChart3,
   Brain,
+  FolderTree,
   Key,
+  LayoutGrid,
   Lightbulb,
   RefreshCw,
   Send,
@@ -40,6 +42,7 @@ import {
   type NativeSetupRequired,
   type NativeToolEvent,
 } from "../../lib/native-chat";
+import { resolveToolApproval } from "../../lib/native-chat";
 import { useIdeaState } from "../../state/ideas";
 import type { Idea } from "../../lib/ideas";
 import { useLogs } from "../../state/log";
@@ -64,6 +67,8 @@ type ChatPanelProps = {
   schematicContent?: string | null;
   /** Promote a generated idea into the plan pipeline (owned by AppShell). */
   onCreatePlanFromIdea?: (title: string, description: string, chatSessionId: string | null) => Promise<void> | void;
+  /** Open the planning inspector (side panel). */
+  onOpenPlanningInspector?: () => void;
 };
 
 function formatMetric(value: number | null | undefined, suffix = "") {
@@ -71,22 +76,60 @@ function formatMetric(value: number | null | undefined, suffix = "") {
   return `${Math.round(value * 10) / 10}${suffix}`;
 }
 
-function ToolEventCard({ event }: { event: NativeToolEvent }) {
+function ToolEventGroup({ events }: { events: NativeToolEvent[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const runningCount = events.filter((e) => e.status === "running" || e.status === "pending").length;
+  const latest = events[events.length - 1];
+  const statusLabel = runningCount > 0 ? "running" : latest.status;
+  return (
+    <div className="tool-card tool-card-group" title={`${events.length} tool calls in this group`}>
+      <div className="tool-card-header" onClick={() => setExpanded(!expanded)} role="button" tabIndex={0}>
+        <span className="tool-card-icon">🔧</span>
+        <span className="tool-card-name">{events.length} tool calls</span>
+        <span className={`tool-card-status tool-card-status-${runningCount > 0 ? "running" : "success"}`}>{statusLabel}</span>
+        <span className="tool-card-summary-truncated text-muted text-sm">latest: {latest.kind.replace(/_/g, " ")} — {latest.summary.slice(0, 80)}{latest.summary.length > 80 ? "…" : ""}</span>
+        <span className="tool-card-expand">{expanded ? "▼" : "▶"}</span>
+      </div>
+      {expanded ? (
+        <div className="tool-card-body tool-card-group-list">
+          {events.map((ev) => <ToolEventCard key={ev.id} event={ev} />)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ReasoningFold({ reasoning }: { reasoning: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="chat-reasoning-fold" title="Model thinking — click to expand">
+      <button
+        className="chat-reasoning-toggle"
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+      >
+        {expanded ? "▼" : "▶"} Thinking…
+      </button>
+      {expanded ? (
+        <pre className="chat-reasoning-content">{reasoning}</pre>
+      ) : null}
+    </div>
+  );
+}
+
+function ToolEventCard({ event, onResolveApproval }: { event: NativeToolEvent; onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void }) {
   const [expanded, setExpanded] = useState(false);
   const isRunning = event.status === "running" || event.status === "pending";
   const isError = event.status === "error" || event.status === "denied";
-  const isApproval = event.kind === "approval" || event.kind === "request_tool_approval";
+  const isApproval = event.kind === "approval" || event.kind === "request_tool_approval" || event.status === "pending";
   const isCommand = event.kind === "run_command" || event.kind === "command";
   const isEdit = event.kind === "edit_file" || event.kind === "write_file";
   const isMetrics = event.kind === "request_metrics";
   const icon = isApproval ? "🔐" : isCommand ? "▶" : isEdit ? "✎" : isMetrics ? "📊" : "🔧";
   const statusClass = isRunning ? "running" : isError ? "error" : event.status === "success" || event.status === "recorded" || event.status === "allow" ? "success" : "info";
 
-  // Detect diff content in summary for edit_file/write_file
   const hasDiff = isEdit && /^\+|-/m.test(event.summary);
   const diffLines = hasDiff ? event.summary.split("\n") : [];
-
-  // Extract file path from summary (e.g. "Edited src/foo.ts: ..." or "Wrote src/bar.ts")
   const filePathMatch = event.summary.match(/(?:Edited|Wrote|Modified)\s+(.+?)(?::|\s)/);
   const filePath = filePathMatch?.[1] ?? null;
 
@@ -115,18 +158,11 @@ function ToolEventCard({ event }: { event: NativeToolEvent }) {
       {!expanded && event.summary ? (
         <div className="tool-card-summary-truncated text-muted text-sm">{event.summary.slice(0, 120)}{event.summary.length > 120 ? "…" : ""}</div>
       ) : null}
-      {/* Inline approval buttons for pending approvals */}
-      {isApproval && isRunning ? (
+      {isApproval && isRunning && onResolveApproval ? (
         <div className="tool-card-actions">
-          <button className="btn btn-sm btn-primary" title="Allow this tool call once" type="button">
-            Allow Once
-          </button>
-          <button className="btn btn-sm" title="Allow all calls to this tool for this session" type="button">
-            Allow Session
-          </button>
-          <button className="btn btn-sm" title="Deny this tool call" type="button">
-            Deny
-          </button>
+          <button className="btn btn-sm btn-primary" title="Allow this tool call once" type="button" onClick={() => onResolveApproval("allow")}>Allow Once</button>
+          <button className="btn btn-sm" title="Allow all calls to this tool for this session" type="button" onClick={() => onResolveApproval("allow_session")}>Allow Session</button>
+          <button className="btn btn-sm" title="Deny this tool call" type="button" onClick={() => onResolveApproval("deny")}>Deny</button>
         </div>
       ) : null}
     </div>
@@ -142,6 +178,7 @@ export function ChatPanel({
   activeSessionId,
   schematicContent,
   onCreatePlanFromIdea,
+  onOpenPlanningInspector,
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
@@ -177,11 +214,11 @@ export function ChatPanel({
   const [generatingIdeas, setGeneratingIdeas] = useState(false);
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
-  const [showActionMenu, setShowActionMenu] = useState(false);
+  const [showPlanningMenu, setShowPlanningMenu] = useState(false);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelFilter, setModelFilter] = useState("");
-
   const sendTimerRef = useRef<number | null>(null);
   const assistantBufferRef = useRef("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -326,7 +363,73 @@ export function ChatPanel({
     };
   }, [nativeMode, nativeSessionId]);
 
-  // Legacy mode: start agent
+  // Native mode: listen for live tool events (approval requests + tool cards)
+  useEffect(() => {
+    if (!nativeMode || !nativeSessionId) return;
+    const unlistenTool = listen<{
+      sessionId: string;
+      toolCallId?: string;
+      toolName: string;
+      status: string;
+      summary: string;
+      decision?: string;
+      ruleSource?: string;
+    }>("native-chat://tool-event", (event) => {
+      if (event.payload.sessionId !== nativeSessionId) return;
+      const id = event.payload.toolCallId ?? `te-${Date.now()}-${Math.random()}`;
+      setToolEvents((prev) => {
+        const existing = prev.find((e) => e.id === id);
+        if (existing) {
+          return prev.map((e) => e.id === id ? { ...e, status: event.payload.status, summary: event.payload.summary, kind: event.payload.toolName } : e);
+        }
+        return [...prev, {
+          id,
+          sessionId: nativeSessionId,
+          messageId: null,
+          kind: event.payload.toolName,
+          status: event.payload.status,
+          summary: event.payload.summary,
+          createdAt: Math.floor(Date.now() / 1000),
+        }];
+      });
+    });
+    const unlistenApproval = listen<{
+      sessionId: string;
+      toolCallId: string;
+      toolName: string;
+      command?: string;
+      arguments: string;
+    }>("native-chat://approval-request", (event) => {
+      if (event.payload.sessionId !== nativeSessionId) return;
+      const cmd = event.payload.command ?? "";
+      const summary = cmd ? `${event.payload.toolName}: ${cmd}` : `${event.payload.toolName} approval required`;
+      setToolEvents((prev) => [...prev, {
+        id: event.payload.toolCallId,
+        sessionId: nativeSessionId,
+        messageId: null,
+        kind: "approval",
+        status: "pending",
+        summary,
+        createdAt: Math.floor(Date.now() / 1000),
+      }]);
+    });
+    return () => {
+      void unlistenTool.then((fn) => fn());
+      void unlistenApproval.then((fn) => fn());
+    };
+  }, [nativeMode, nativeSessionId]);
+
+  // Handle approval resolution from the UI
+  const handleResolveApproval = useCallback(async (toolCallId: string, decision: "allow" | "allow_session" | "deny") => {
+    try {
+      await resolveToolApproval(toolCallId, decision);
+      // Update the tool event status optimistically
+      setToolEvents((prev) => prev.map((e) => e.id === toolCallId ? { ...e, status: decision === "deny" ? "denied" : "approved" } : e));
+    } catch (e) {
+      addLog("error", "Failed to resolve approval", e instanceof Error ? e.message : String(e));
+    }
+  }, [addLog]);
+
   useEffect(() => {
     if (nativeMode) return;
     let cancelled = false;
@@ -760,16 +863,19 @@ export function ChatPanel({
         // Only the login form applies to a specific non-local provider; for the
         // local coordinator, show the setup bar prompting to pick a provider.
         setShowLogin(!!selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID);
-        return;
       }
-      if (result.ideas.length === 0) {
-        setError("No ideas were generated. Add more detail to the conversation and try again.");
-        return;
-      }
-      if (activeSessionId) {
+      // The unified backend captures ideas via the propose_ideas tool during
+      // the chat turn. Some code paths (and tests) still return ideas
+      // directly in the result — create them locally if the backend didn't.
+      if (result.ideas && result.ideas.length > 0 && activeSessionId) {
         for (const idea of result.ideas) {
-          await ideaState.createIdea(idea.title, idea.description);
+          try {
+            await ideaState.createIdea(idea.title, idea.description ?? "", undefined);
+          } catch {
+            // ignore duplicate or creation errors
+          }
         }
+      } else if (activeSessionId) {
         await ideaState.refresh();
       } else {
         setError("Open a project session to save generated ideas.");
@@ -782,6 +888,36 @@ export function ChatPanel({
       setGeneratingIdeas(false);
     }
   }, [nativeSessionId, generatingIdeas, schematicContent, providerId, modelId, effortLevel, activeSessionId, ideaState, addLog, selectedProvider]);
+
+  const handleGenerateForCategory = useCallback(async (categoryId: string | undefined) => {
+    if (!nativeSessionId || generatingIdeas) return;
+    setShowCategoryPicker(false);
+    setGeneratingIdeas(true);
+    setError(null);
+    try {
+      const result = await nativeGenerateIdeas({
+        sessionId: nativeSessionId,
+        schematic: schematicContent ?? undefined,
+        providerId,
+        modelId,
+        effortLevel,
+        categoryId: categoryId ?? null,
+      });
+      if (result.setupRequired) {
+        setSetupRequired(result.setupRequired);
+        setShowLogin(!!selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID);
+        return;
+      }
+      await ideaState.refresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to generate ideas for category", msg);
+      setError(msg);
+    } finally {
+      setGeneratingIdeas(false);
+    }
+  }, [nativeSessionId, generatingIdeas, schematicContent, providerId, modelId, effortLevel, ideaState, addLog, selectedProvider]);
+
 
   const handlePromoteIdea = useCallback(
     async (idea: Idea) => {
@@ -816,28 +952,31 @@ export function ChatPanel({
             <span>TTLT {formatMetric(metrics.avgTtltMs, "ms")}</span>
           </div>
         ) : null}
-
-        {renderMessages.length === 0 && !streaming && nativeMode ? (
-          <div className="chat-empty-state">
-            <Brain size={24} />
-            <h3>Chat ready — {providerName} · {modelName}</h3>
-            <p>
-              Type below and press Enter to send. Turns run against the selected provider and model, and are
-              stored locally with real metrics.
-            </p>
-            {providerDegraded ? (
-              <button
-                className="btn btn-sm"
-                type="button"
-                title={`Connect ${providerName} to enable this model`}
-                onClick={() => {
-                  setLoginError(null);
-                  setShowLogin(true);
-                }}
-              >
-                <Key size={11} /> Connect {providerName}
-              </button>
-            ) : null}
+        {nativeMode && toolEvents.length > 0 ? (
+          <div className="chat-tool-events">
+            {(() => {
+              const groups: { type: "single" | "group"; events: typeof toolEvents }[] = [];
+              for (const ev of toolEvents) {
+                const isApproval = ev.kind === "approval" || ev.status === "pending";
+                if (isApproval) {
+                  groups.push({ type: "single", events: [ev] });
+                } else {
+                  const last = groups[groups.length - 1];
+                  if (last && last.type === "group") {
+                    last.events.push(ev);
+                  } else {
+                    groups.push({ type: "group", events: [ev] });
+                  }
+                }
+              }
+              return groups.map((g, i) => {
+                if (g.type === "single" || g.events.length === 1) {
+                  const ev = g.events[0];
+                  return <ToolEventCard key={ev.id} event={ev} onResolveApproval={ev.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined} />;
+                }
+                return <ToolEventGroup key={`group-${i}`} events={g.events} />;
+              });
+            })()}
           </div>
         ) : null}
 
@@ -845,25 +984,18 @@ export function ChatPanel({
           const key = "id" in msg ? String(msg.id) : `legacy-${index}`;
           const isOfflineTurn =
             "providerId" in msg && msg.role === "assistant" && msg.providerId === LOCAL_PROVIDER_ID;
+          const reasoning = "reasoning" in msg ? (msg as NativeChatMessage).reasoning : null;
           return (
             <div key={key} className={`chat-message chat-message-${msg.role}`}>
               <span className="chat-message-role">
                 {msg.role === "user" ? "You" : msg.role === "assistant" ? "Basebuild" : "System"}
                 {isOfflineTurn ? <span className="chat-offline-tag" title="No external model was contacted">Offline</span> : null}
               </span>
+              {reasoning ? <ReasoningFold reasoning={reasoning} /> : null}
               <pre className="chat-message-content">{msg.content}</pre>
             </div>
           );
         })}
-
-        {nativeMode && toolEvents.length > 0 ? (
-          <div className="chat-tool-events">
-            {toolEvents.map((ev) => (
-              <ToolEventCard key={ev.id} event={ev} />
-            ))}
-          </div>
-        ) : null}
-
 
         {streaming && reasoningText ? (
           <div className="chat-message chat-message-assistant chat-message-reasoning" title="Live chain-of-thought from the model. Final answer follows.">
@@ -905,16 +1037,26 @@ export function ChatPanel({
               <div className="chat-idea-card-top">
                 <span className="chat-idea-title">{idea.title}</span>
                 {idea.status === "concept" ? (
-                  <button
-                    className="btn btn-sm"
-                    type="button"
-                    title="Promote this idea into the plan pipeline"
-                    onClick={() => void handlePromoteIdea(idea)}
-                  >
-                    Promote to Plan
-                  </button>
+                  <div className="chat-idea-card-actions">
+                    <button
+                      className="btn btn-sm"
+                      type="button"
+                      title="Promote this idea into the plan pipeline"
+                      onClick={() => void handlePromoteIdea(idea)}
+                    >
+                      Promote to Plan
+                    </button>
+                    <button
+                      className="btn btn-sm"
+                      type="button"
+                      title="Reject this idea"
+                      onClick={() => void ideaState.rejectIdea(idea.id)}
+                    >
+                      Reject
+                    </button>
+                  </div>
                 ) : (
-                  <span className="chat-idea-status">{idea.status === "picked" ? "Planned" : idea.status}</span>
+                  <span className="chat-idea-status">{idea.status === "picked" ? "Planned" : idea.status === "rejected" ? "Rejected" : idea.status}</span>
                 )}
               </div>
               {idea.description ? <p className="chat-idea-desc">{idea.description}</p> : null}
@@ -1040,7 +1182,7 @@ export function ChatPanel({
                     onClick={() => {
                       setShowProviderPicker((value) => !value);
                       setShowModelPicker(false);
-                      setShowActionMenu(false);
+                      setShowPlanningMenu(false);
                     }}
                   >
                     <span className={`chat-health-dot ${providerDegraded ? "is-warn" : "is-ok"}`} />
@@ -1053,7 +1195,7 @@ export function ChatPanel({
                     onClick={() => {
                       setShowModelPicker((value) => !value);
                       setShowProviderPicker(false);
-                      setShowActionMenu(false);
+                      setShowPlanningMenu(false);
                     }}
                   >
                     <span className="chat-trigger-kicker">Model</span>
@@ -1116,7 +1258,7 @@ export function ChatPanel({
                     type="button"
                     title="More chat actions"
                     onClick={() => {
-                      setShowActionMenu((value) => !value);
+                      setShowPlanningMenu((value) => !value);
                       setShowProviderPicker(false);
                       setShowModelPicker(false);
                     }}
@@ -1132,20 +1274,81 @@ export function ChatPanel({
                 </div>
               )}
             </div>
-            {showActionMenu ? (
+            {showPlanningMenu ? (
               <div className="chat-inline-menu">
                 <button
                   className="chat-inline-menu-item"
                   type="button"
-                  title="Generate ideas from this conversation"
+                  title="Quick freeform idea generation in the chat"
                   disabled={generatingIdeas || !nativeSessionId}
                   onClick={() => {
-                    setShowActionMenu(false);
+                    setShowPlanningMenu(false);
                     void handleGenerateIdeas();
                   }}
                 >
-                  <Sparkles size={11} /> {generatingIdeas ? "Generating…" : "Generate ideas"}
+                  <Sparkles size={11} /> Quick ideas
                 </button>
+                <button
+                  className="chat-inline-menu-item"
+                  type="button"
+                  title="Pick a category and generate ideas for it"
+                  disabled={generatingIdeas || !nativeSessionId}
+                  onClick={() => {
+                    setShowPlanningMenu(false);
+                    void ideaState.ensureDefaultCategories();
+                    setShowCategoryPicker(true);
+                  }}
+                >
+                  <FolderTree size={11} /> By category…
+                </button>
+                <button
+                  className="chat-inline-menu-item"
+                  type="button"
+                  onClick={() => {
+                    setShowPlanningMenu(false);
+                    onOpenPlanningInspector?.();
+                  }}
+                >
+                  <LayoutGrid size={11} /> Open planning inspector
+                </button>
+              </div>
+            ) : null}
+            {showCategoryPicker ? (
+              <div className="chat-picker" role="dialog" aria-label="Pick a category">
+                <div className="chat-picker-header">
+                  <span>Pick a category</span>
+                  <button className="btn-icon btn-icon-sm" type="button" title="Close category picker" onClick={() => setShowCategoryPicker(false)}>
+                    <X size={11} />
+                  </button>
+                </div>
+                <div className="chat-picker-list">
+                  {ideaState.categories.length === 0 ? (
+                    <div className="chat-picker-empty text-muted text-sm">No categories yet.</div>
+                  ) : null}
+                  {ideaState.categories.map((cat) => (
+                    <button
+                      key={cat.id}
+                      className="chat-picker-item"
+                      type="button"
+                      title={`Generate ideas for ${cat.name}`}
+                      disabled={generatingIdeas}
+                      onClick={() => void handleGenerateForCategory(cat.id)}
+                    >
+                      <span className="chat-picker-item-label">{cat.name}</span>
+                      <span className="chat-picker-item-desc text-muted text-sm">{cat.description}</span>
+                    </button>
+                  ))}
+                  <button
+                    className="chat-picker-item"
+                    type="button"
+                    title="Freeform generation (no category)"
+                    disabled={generatingIdeas}
+                    onClick={() => void handleGenerateForCategory(undefined)}
+                  >
+                    <span className="chat-picker-item-label">Freeform</span>
+                    <span className="chat-picker-item-desc text-muted text-sm">No specific category</span>
+                  </button>
+                </div>
               </div>
             ) : null}
             {showProviderPicker && catalog ? (

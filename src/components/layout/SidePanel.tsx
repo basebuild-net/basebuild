@@ -3,7 +3,8 @@ import { ChevronDown, ChevronLeft, ChevronRight, GripVertical, Sparkles } from "
 import type { LucideIcon } from "lucide-react";
 import { FileText, GitBranch, LayoutList } from "lucide-react";
 import type { NewPlan, Plan, PlanStatus } from "../../lib/plans";
-import { PlanPanel } from "./PlanPanel";
+import type { IdeaCategory } from "../../lib/ideas";
+import { PlanningInspector } from "./PlanningInspector";
 import { FilesPanel } from "../panels/FilesPanel";
 import { SourcePanel } from "../panels/SourcePanel";
 
@@ -41,6 +42,8 @@ type SidePanelProps = {
     onOpenInTerminal: (plan: Plan) => void;
   };
   onOpenChatSession: (chatSessionId: string) => void;
+  onSuggestForCategory?: (category: IdeaCategory | null) => void;
+  activeChatSessionId?: string | null;
 };
 
 function loadOrder(): SideSectionId[] {
@@ -124,6 +127,8 @@ export function SidePanel({
   plans,
   planCallbacks,
   onOpenChatSession,
+  onSuggestForCategory,
+  activeChatSessionId,
 }: SidePanelProps) {
   const [order, setOrder] = useState<SideSectionId[]>(() => loadOrder());
   const [expanded, setExpanded] = useState<Record<SideSectionId, boolean>>({
@@ -277,7 +282,7 @@ export function SidePanel({
             {expanded[id] ? (
               <div className="side-section-body">
                 {id === "plans" ? (
-                  <PlanPanel
+                  <PlanningInspector
                     sessionId={sessionId}
                     projectPath={projectPath}
                     plans={plans.plans}
@@ -288,6 +293,8 @@ export function SidePanel({
                     onSetPlanStatus={plans.setPlanStatus}
                     onDeletePlan={plans.deletePlan}
                     onOpenChatSession={onOpenChatSession}
+                    onSuggestForCategory={onSuggestForCategory}
+                    activeChatSessionId={activeChatSessionId}
                     showHeader={false}
                   />
                 ) : id === "files" ? (

@@ -54,6 +54,17 @@ pub fn delete_idea(id: String) -> Result<(), String> {
     SessionService::delete_idea(&id)
 }
 
+#[tauri::command]
+pub fn reject_idea(id: String) -> Result<(), String> {
+    SessionService::reject_idea(&id)
+}
+
+#[tauri::command]
+pub fn ensure_default_categories(session_id: String) -> Result<(), String> {
+    SessionService::ensure_default_categories(&session_id)
+}
+
+
 /// Promote one or more ideas into draft plans. Each idea gets a linked draft
 /// plan carrying its title/description; the idea moves to `picked`.
 #[tauri::command]

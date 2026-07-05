@@ -96,12 +96,21 @@ the effort selector.
 
 ## In-chat idea generation
 
-`native_generate_ideas` sends the conversation plus the project schematic to a
-**configured** provider and parses the structured JSON result into Idea records
-(persisted via the existing ideas store). The offline local coordinator does not
-fabricate ideas — with no configured provider the command returns a setup prompt.
-Generated ideas render inline in the composer and can be promoted into the
-existing plan pipeline, tagged with the originating chat session (`chat:<id>`).
+`native_generate_ideas` runs idea generation as a chat turn through the agent
+loop. The conversation plus the project schematic is sent to a **configured**
+provider with a category-aware system prompt. A `propose_ideas` tool is exposed
+to the agent loop; when the model calls it, each idea is persisted via the
+existing ideas store (`create_idea`) and rendered incrementally as a card in
+the chat transcript. A fallback structured-output parser captures ideas if the
+model emits proposal-shaped JSON in its text response instead of calling the
+tool.
+
+Ideas can be promoted into the plan pipeline (tagged with the originating chat
+session `chat:<id>`) or rejected. Rejected ideas are retained for history but
+hidden from the active concept list. The offline local coordinator does not
+fabricate ideas — with no configured provider the command returns a setup
+prompt. Categories (seeded with defaults) organize ideas and can be managed in
+the Planning Inspector.
 
 ## Defaults
 
@@ -429,3 +438,80 @@ skills. Grant scopes: once, session, project.
   `PermissionDecision` from the native approval gateway).
 - `provider_claims` — provider subscription claims from connectors, with
   approved/denied flags.
+
+## Reasoning channel separation
+
+Reasoning/thinking tokens (e.g. `reasoning_content` from Umans GLM or
+DeepSeek-style models) are stored separately from the assistant message content:
+
+- `provider_client.rs` returns reasoning as a separate field on
+  `ProviderResponse` (never folded into content).
+- `native_chat_messages.reasoning` column stores it alongside content.
+- The UI renders a collapsed "Thinking" section per message with visually
+  distinct muted styling — never confusable with the reply text.
+- Reasoning is excluded from provider request assembly (history replay sends
+  only content, never reasoning).
+- Stray think-tag markers are stripped from content and routed to the
+  reasoning store via `strip_think_tags`.
+
+## Structured idea capture
+
+Generate-ideas runs capture ideas as structured data rendered as inline cards,
+never as chat prose alone:
+
+- `propose_ideas` tool is exposed to the agent loop during generate-ideas
+  runs. The tool accepts an array of `{title, description, categoryId?}` and
+  persists each as an idea row.
+- Fallback: if the model emits idea-shaped JSON in its text response
+  instead of calling the tool, the structured-output parser captures them.
+- Promoted ideas create a draft plan (tagged `chat:<id>`). Rejected ideas
+  persist for history (append-only across regenerations).
+- Idea state reloads with the session across restarts.
+- Generate-ideas runs are recorded as `pipeline_runs` stage rows.
+
+## Planning Inspector
+
+The side panel's Planning section is a three-tab inspector:
+
+- **Plans** — the existing plan pipeline (create, generate, focus, queue).
+- **Ideas** — filterable idea history (all/concept/picked/rejected/archived)
+  with promote, reject, and delete actions.
+- **Categories** — list with idea counts, drill-down detail, add-category
+  form, and "Suggest more ideas" which opens a chat turn scoped to the
+  category.
+
+## Planning prompts
+
+System prompts for chat, idea generation, plan generation, and category
+suggestion are stored in the `planning_prompts` table and editable in
+Settings → Planning. Each prompt has a default; resetting restores it.
+`planning_prompt_service.rs` serves get/set/reset/list operations.
+
+Tool calls render as collapsed cards in message order from the event stream:
+
+- Cards update live while streaming/executing via the `native-chat://tool-event`
+  and `native-chat://approval-request` event channels.
+- Consecutive non-approval tool calls collapse into one activity group showing
+  a running count, aggregate status, and the latest call's summary. Expansion
+  reveals individual cards in a height-capped scrollable list.
+- Approval-required calls render an inline card with allow once / allow session
+  / deny actions, wired to `native_chat_resolve_approval`.
+- `list_files` glob results are deduplicated and sorted (the `**`
+  zero-directory match is tried once per directory, not once per entry).
+
+## Effort level validity
+
+The composer only offers effort levels present in the selected model's
+`supportedEfforts`. Persisted defaults are clamped to a supported level
+(nearest supported, preferring the model's first supported effort) when
+restored or when the model changes. Requests are never sent with an effort
+the catalog marks unsupported.
+
+## Test database isolation
+
+All Rust tests run against an isolated `BASEBUILD_HOME` (temp directory).
+`StorageService::connect()` enforces this in `cfg(test)` builds by erroring
+when `BASEBUILD_HOME` is unset. A shared test-util constructor
+(`test_util::test::isolated_home`) provisions a fresh temp dir + global lock +
+env var. The user's real `~/.basebuild/state.db` is never read or written
+during tests.

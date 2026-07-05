@@ -205,14 +205,34 @@ The `Plans` section inside the right panel exposes:
 - Per-plan actions: focus, edit, open in terminal, copy reference.
 - Collapse toggle at the panel header.
 
+### Idea cards
+
+When a generate-ideas run captures ideas (via the `propose_ideas` tool or
+fallback parser), each renders as a square-cornered card inside the chat
+transcript: bold title, one-line description, an action row of `Promote`
+(orange CTA) and `Reject` (ghost) buttons. Promoted cards transition to a
+`Planned` status badge and reload with the session on restart - they are
+append-only and never mutate in place once rendered. Rejected cards show a
+muted `Rejected` badge. The cards obey the same density rules as other chat
+content (no padding > 8px, 0px radius, tooltip on every action).
+
+### Thinking fold
+
+Reasoning/thinking tokens render as a collapsed, visually distinct section
+above the assistant reply: a single muted row labelled `Thinking` with a
+chevron, indented 8px from the reply text. Expanded content uses `--bb-muted`
+text on `--bb-surface` with a 1px `--bb-border` top divider. The fold never
+touches the reply text styling, so thinking and reply are never confused at a
+glance. While streaming, the fold auto-expands; on completion it collapses.
+
 ### Chat composer
 
 The chat message list scrolls; the composer stays pinned to the bottom of the
 panel and is always visible at any window size — it is never scrolled off or
 clipped. The composer footer has a subtle top divider and carries a persistent,
 single-line control rail with provider status, model picker, effort selector,
-model refresh, connect/disconnect, and an overflow menu for lower-priority
-actions like "Generate ideas". The rail truncates labels and moves secondary
+actions like "Quick ideas", "By category", and "Open planning inspector". The
+rail truncates labels and moves secondary
 actions into overflow before it wraps. While the model catalog loads, the
 selectors show placeholder skeletons. Every control has a tooltip. `/login`,
 `/model`, and `/models refresh` are keyboard accelerators for the same visible
