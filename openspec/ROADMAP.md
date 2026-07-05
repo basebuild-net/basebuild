@@ -144,10 +144,10 @@ _Last refreshed: 2026-07-05 (`node scripts/openspec-status.mjs --write`)_
 
 |Change|Progress|Status|Next command|
 |---|---|---|---|
+|`chat-first-shell`|17/31|in progress|`/apply chat-first-shell`|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
 |`schematic-grounded-planning`|23/25|in progress|`/apply schematic-grounded-planning`|
 |`unified-planning-workspace`|32/34|in progress|`/apply unified-planning-workspace`|
-|`chat-first-shell`|0/31|not started|`/apply chat-first-shell`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|

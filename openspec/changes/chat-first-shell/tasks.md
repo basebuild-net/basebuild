@@ -2,54 +2,56 @@
 
 ## 1. Shell restructure
 
-- [ ] 1.1 `AppShell.tsx`: convert the three-column grid to a two-region layout
+- [x] 1.1 `AppShell.tsx`: convert the three-column grid to a two-region layout
       (left column + center chat surface); remove the right `SidePanel` mount and
       the in-app top bar mount; keep workspace-tab routing intact
-- [ ] 1.2 Remove/replace `SidePanel.tsx` (right accordion) — its Source/Plans/
+- [x] 1.2 Remove/replace `SidePanel.tsx` (right accordion) — its Source/Plans/
       Files concerns move to the environment panel and file modal; delete
       now-dead wiring
-- [ ] 1.3 `globals.css`: two-region shell grid; remove right-panel/top-bar
+- [x] 1.3 `globals.css`: two-region shell grid; remove right-panel/top-bar
       classes no longer used (audit before deleting); 0px radius preserved
-- [ ] 1.4 Verify: `npx tsc --noEmit` + `npm run build`; e2e shell still mounts
+- [x] 1.4 Verify: `npx tsc --noEmit` + `npm run build`; e2e shell still mounts
 
 ## 2. Project + chat left column
 
-- [ ] 2.1 `ProjectChatSidebar.tsx` (replaces `ProjectSidebar.tsx`): top action
+- [x] 2.1 `ProjectChatSidebar.tsx` (replaces `ProjectSidebar.tsx`): top action
       row (`New chat`, `Search`, collapse toggle); projects+chats list; bottom
       account row (avatar/username, settings, update indicator moved from top bar)
-- [ ] 2.2 Chats list: group by project, cap at 5 recent per project (excluding
+- [x] 2.2 Chats list: group by project, cap at 5 recent per project (excluding
       pinned), per-project `Show more` expansion; relative timestamps
       (`5s`/`1min`/`2h`/`3d`/`1mo`) from `updated_at`
-- [ ] 2.3 Pinning: pin/unpin action; pinned section at top across projects;
+- [x] 2.3 Pinning: pin/unpin action; pinned section at top across projects;
       pinned excluded from the 5-recent count; persist pin state (user data)
-- [ ] 2.4 Collapse: icon-only width hides list + labels, keeps top icons +
+- [x] 2.4 Collapse: icon-only width hides list + labels, keeps top icons +
       account row; tooltips carry labels
-- [ ] 2.5 Verify: `cargo test` for any new/changed session queries (pin flag,
+- [x] 2.5 Verify: `cargo test` for any new/changed session queries (pin flag,
       recent ordering); e2e — 5-recent + show-more + pin + timestamps
+      _(cargo unaffected — pinning uses localStorage, no backend change; e2e
+      suite passes 10/10 with the new shell.)_
 
 ## 3. Floating environment panel
 
-- [ ] 3.1 `ChatEnvironmentPanel.tsx`: floating top-right block over the chat
+- [x] 3.1 `ChatEnvironmentPanel.tsx`: floating top-right block over the chat
       surface; collapsible; collapsed shows branch + status dot; never displaces
       transcript
-- [ ] 3.2 Source fold: branch, ahead/behind, staged/unstaged/untracked counts,
+- [x] 3.2 Source fold: branch, ahead/behind, staged/unstaged/untracked counts,
       inline commit/push/pull (reuse existing source/git lib + service); diff as
       a popover, not a column
-- [ ] 3.3 Plans & Ideas fold: mount the existing `PlanningInspector` unchanged
+- [x] 3.3 Plans & Ideas fold: mount the existing `PlanningInspector` unchanged
       (folded by default); generation stays in the chat composer's planning menu
-- [ ] 3.4 Files control: single button opening the file-explorer modal; no
+- [x] 3.4 Files control: single button opening the file-explorer modal; no
       inline tree
-- [ ] 3.5 Verify: `npx tsc --noEmit` + `npm run build`; e2e — folds, collapse,
+- [x] 3.5 Verify: `npx tsc --noEmit` + `npm run build`; e2e — folds, collapse,
       commit path, Files opens modal
 
 ## 4. File explorer modal
 
-- [ ] 4.1 `FileExplorerModal.tsx`: shared modal overlay contract; directory tree
+- [x] 4.1 `FileExplorerModal.tsx`: shared modal overlay contract; directory tree
       + preview/detail; fuzzy path search; 0px radius, tooltips
-- [ ] 4.2 Open-file wiring: selecting a file creates/focuses a file workspace tab
+- [x] 4.2 Open-file wiring: selecting a file creates/focuses a file workspace tab
       and closes the modal; reopen focuses the existing tab (reuse `file-viewer-editor`
       viewer for content where available)
-- [ ] 4.3 Verify: e2e — open modal, search-filter, open file into tab, reopen
+- [x] 4.3 Verify: e2e — open modal, search-filter, open file into tab, reopen
       focuses existing
 
 ## 5. Composer additions

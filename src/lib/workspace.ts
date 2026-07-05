@@ -6,8 +6,8 @@ export type WorkspaceRestoreState = {
   lastTabId: string | null;
   sideSection: string | null;
   sidebarCollapsed: boolean;
-  sideCollapsed: boolean;
-  sideWidth: number;
+  sideCollapsed?: boolean;
+  sideWidth?: number;
   updatedAt: number;
 };
 

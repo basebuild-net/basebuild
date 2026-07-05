@@ -12,7 +12,19 @@ import {
   type PlanStatus,
 } from "../lib/plans";
 
-export function usePlans(sessionId: string | null) {
+export type PlansState = {
+  plans: Plan[];
+  loading: boolean;
+  refreshPlans: () => Promise<void>;
+  createPlan: (plan: NewPlan) => Promise<Plan | null>;
+  updatePlan: (id: string, patch: NewPlan) => Promise<Plan>;
+  setPlanStatus: (id: string, status: PlanStatus) => Promise<Plan>;
+  deletePlan: (id: string) => Promise<void>;
+  setPlanContext: (id: string, context: PlanFocusContext) => Promise<Plan>;
+};
+
+
+export function usePlans(sessionId: string | null): PlansState {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(false);
 

@@ -10,10 +10,9 @@ async function openFixtureProject(page: Page) {
 }
 
 async function openSourcePanel(page: Page) {
-  const expandSource = page.getByTitle("Expand Source").first();
-  if (await expandSource.count()) {
-    await expandSource.click();
-  }
+  // Source now lives in the floating environment panel's Changes fold.
+  const changesTab = page.getByTitle("Changes").first();
+  await changesTab.click();
   await expect(page.locator(".source-panel")).toBeVisible();
 }
 
