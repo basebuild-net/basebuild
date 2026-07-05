@@ -5,6 +5,7 @@ import { isTerminalStatus, PLAN_STATUSES, PLAN_STATUS_LABEL } from "../../lib/pl
 import { PlanPanel } from "./PlanPanel";
 import { useIdeaState } from "../../state/ideas";
 import type { IdeaCategory, IdeaStatus } from "../../lib/ideas";
+import { useProjectSchematic } from "../../state/schematic";
 import { useLogs } from "../../state/log";
 
 type Tab = "plans" | "ideas" | "categories";
@@ -64,12 +65,14 @@ export function PlanningInspector({
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryDesc, setNewCategoryDesc] = useState("");
   const ideaState = useIdeaState(sessionId);
+  const schematic = useProjectSchematic(projectPath);
   const { addLog } = useLogs();
 
-  // Ensure default categories when the Categories tab opens.
+  // Categories tab: no auto-seeding (schematic-grounded-planning). The empty
+  // state offers "Generate categories from project" and manual add.
   useEffect(() => {
     if (tab === "categories" && sessionId) {
-      void ideaState.ensureDefaultCategories();
+      void ideaState.refresh();
     }
   }, [tab, sessionId, ideaState]);
 
@@ -121,6 +124,17 @@ export function PlanningInspector({
     <div className="side-section planning-inspector">
       <div className="side-section-header">
         <span className="side-section-title">Planning</span>
+        {schematic.report && schematic.report.health !== "complete" && (
+          <span
+            className={`schematic-health-badge is-${schematic.report.health}`}
+            title={`Schematic ${schematic.report.health}: ${schematic.report.sections
+              .filter((s) => s.state !== "filled")
+              .map((s) => s.name)
+              .join(", ")} — open the wizard to fix`}
+          >
+            {schematic.report.health}
+          </span>
+        )}
         <div className="side-section-actions">
           <button
             className={`inspector-tab${tab === "plans" ? " is-active" : ""}`}
@@ -226,6 +240,20 @@ export function PlanningInspector({
                   )}
                 </div>
                 {idea.description ? <p className="chat-idea-desc">{idea.description}</p> : null}
+                {idea.grounding ? (
+                  <p className="idea-card-desc idea-grounding" title="Concrete evidence justifying this idea">
+                    <strong>Grounding:</strong> {idea.grounding}
+                  </p>
+                ) : null}
+                {idea.anchor ? (
+                  <p className="idea-card-desc idea-anchor" title="Schematic element this idea serves">
+                    <strong>Anchor:</strong> {idea.anchor}
+                  </p>
+                ) : (
+                  <p className="idea-card-desc idea-outside-focus" title="No schematic anchor — outside current focus">
+                    outside current focus
+                  </p>
+                )}
                 <button
                   className="btn-icon btn-icon-sm"
                   title="Delete this idea"
@@ -263,12 +291,10 @@ export function PlanningInspector({
                   <Sparkles size={11} /> Suggest more ideas
                 </button>
               </div>
-              <p className="text-muted text-sm">{selectedCategory.description}</p>
-              <div className="inspector-category-ideas">
-                {categoryIdeas.length === 0 ? (
-                  <p className="text-muted text-sm">No ideas in this category yet.</p>
-                ) : null}
-                {categoryIdeas.map((idea) => (
+              {categoryIdeas.length === 0 ? (
+                <p className="text-muted text-sm">No ideas in this category yet.</p>
+              ) : (
+                categoryIdeas.map((idea) => (
                   <div key={idea.id} className={`chat-idea-card chat-idea-status-${idea.status}`}>
                     <div className="chat-idea-card-top">
                       <span className="chat-idea-title">{idea.title}</span>
@@ -278,8 +304,8 @@ export function PlanningInspector({
                     </div>
                     {idea.description ? <p className="chat-idea-desc">{idea.description}</p> : null}
                   </div>
-                ))}
-              </div>
+                ))
+              )}
             </div>
           ) : (
             <>
@@ -290,7 +316,6 @@ export function PlanningInspector({
                   placeholder="Category name"
                   value={newCategoryName}
                   onChange={(e) => setNewCategoryName(e.target.value)}
-                  title="New category name"
                 />
                 <input
                   className="input"
@@ -298,41 +323,50 @@ export function PlanningInspector({
                   placeholder="Description (optional)"
                   value={newCategoryDesc}
                   onChange={(e) => setNewCategoryDesc(e.target.value)}
-                  title="New category description"
                 />
                 <button
-                  className="btn btn-sm"
+                  className="btn btn-sm btn-primary"
                   type="button"
-                  title="Add category"
-                  disabled={!newCategoryName.trim() || !sessionId}
+                  title="Add a category manually"
                   onClick={handleCreateCategory}
                 >
                   <Plus size={11} /> Add category
                 </button>
               </div>
-              <div className="inspector-category-list">
-                {ideaState.categories.length === 0 ? (
+              {ideaState.categories.length === 0 ? (
+                <div className="empty-state" style={{ padding: "16px" }}>
+                  <FolderTree size={24} />
                   <p className="text-muted text-sm">No categories yet.</p>
-                ) : null}
-                {ideaState.categories.map((cat) => (
                   <button
-                    key={cat.id}
-                    className="inspector-category-card"
+                    className="btn btn-sm btn-primary"
                     type="button"
-                    title={`Open ${cat.name}`}
-                    onClick={() => setSelectedCategory(cat)}
+                    title="Generate categories from the project schematic"
+                    onClick={() => onSuggestForCategory?.(null)}
                   >
-                    <div className="inspector-category-card-top">
-                      <FolderTree size={12} />
-                      <span className="inspector-category-card-name">{cat.name}</span>
-                      <span className="inspector-category-card-count text-muted text-sm">
-                        {ideaState.ideas.filter((i) => i.categoryId === cat.id).length}
-                      </span>
-                    </div>
-                    {cat.description ? <p className="inspector-category-card-desc text-muted text-sm">{cat.description}</p> : null}
+                    <Sparkles size={11} /> Generate categories from project
                   </button>
-                ))}
-              </div>
+                </div>
+              ) : (
+                <div className="inspector-category-list">
+                  {ideaState.categories.map((cat) => (
+                    <button
+                      key={cat.id}
+                      className="inspector-category-card"
+                      type="button"
+                      title={`Open ${cat.name}`}
+                      onClick={() => setSelectedCategory(cat)}
+                    >
+                      <div className="inspector-category-card-top">
+                        <span className="inspector-category-card-name">{cat.name}</span>
+                        <span className="inspector-category-card-count">
+                          {ideaState.ideas.filter((i) => i.categoryId === cat.id).length}
+                        </span>
+                      </div>
+                      {cat.description ? <p className="inspector-category-card-desc text-muted text-sm">{cat.description}</p> : null}
+                    </button>
+                  ))}
+                </div>
+              )}
             </>
           )}
         </div>

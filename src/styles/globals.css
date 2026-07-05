@@ -770,6 +770,9 @@ a { color: inherit; text-decoration: none; }
 .schematic-end-goal-row { display: flex; gap: 6px; font-size: 12px; }
 .schematic-end-goal-period { font-family: var(--bb-mono); color: var(--bb-muted); flex-shrink: 0; min-width: 120px; }
 .schematic-end-goal-stale { color: var(--bb-warning); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+.idea-grounding { font-size: 10px; color: var(--bb-muted); margin: 2px 0 0; }
+.idea-anchor { font-size: 10px; color: var(--bb-cta); margin: 2px 0 0; }
+.idea-outside-focus { font-size: 10px; color: var(--bb-warning); margin: 2px 0 0; font-style: italic; }
 
 /* ─── Debug ─── */
 .debug-section { margin-bottom: 12px; }
