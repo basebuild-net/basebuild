@@ -1,0 +1,60 @@
+## MODIFIED Requirements
+
+### Requirement: Generate Ideas From Chat
+The chat workspace SHALL let users generate structured ideas from the current
+conversation and project context, and promote those ideas into the existing
+plan pipeline. Generation SHALL run as a visible in-context chat turn: the
+request is recorded as a user message, the model's reasoning renders in the
+turn's thinking fold, progress streams live in the transcript, and captured
+ideas appear as idea cards **incrementally** as they arrive (never only after
+the run completes). Generated ideas SHALL be persisted in the single `ideas`
+catalog (there is no separate proposals store); each idea card SHALL offer
+Promote and Reject actions.
+
+#### Scenario: Generation is visible in the transcript
+- **WHEN** the user invokes idea generation in a chat with an available provider
+- **THEN** a user message describing the request is recorded, the assistant
+  turn streams reasoning into a collapsed thinking fold and progress into the
+  transcript, and idea cards appear one by one as ideas are captured — the
+  composer never shows a spinner that collapses to empty output
+
+#### Scenario: Promote idea to plan
+- **WHEN** the user promotes a generated idea
+- **THEN** the system creates a plan in the existing plan pipeline seeded from
+  the idea's title and description, linked back to the originating chat session,
+  and the idea moves to `picked`
+
+#### Scenario: Reject a generated idea
+- **WHEN** the user rejects a generated idea
+- **THEN** the idea moves to `rejected`, is removed from the active idea cards,
+  and remains visible in the inspector's history filtered by status
+
+#### Scenario: No provider available
+- **WHEN** the user invokes idea generation with no configured provider
+- **THEN** the system prompts the user to connect a provider instead of
+  producing empty or fabricated ideas
+
+#### Scenario: Ideas persist with the session
+- **WHEN** ideas are generated in a session and the app is reopened
+- **THEN** the generated ideas reload with that session and retain their status
+  (concept / picked / rejected / archived)
+
+## ADDED Requirements
+
+### Requirement: Categorical idea generation
+Idea generation SHALL support a categorical direction. The user MAY request
+ideas for a specific category (e.g. SEO, Optimization, Design, New Features) or
+run a quick freeform generation; category-directed generation SHALL instruct
+the model to stay within that category's theme and SHALL tag every resulting
+idea with that category. Freeform generation SHALL still associate ideas with a
+category when the model attributes one.
+
+#### Scenario: Suggest more for a category
+- **WHEN** the user triggers "Suggest more ideas" for a category
+- **THEN** the generation turn is grounded in that category's name and
+  description, and every captured idea is tagged with that category id
+
+#### Scenario: Quick ideas from the chat menu
+- **WHEN** the user selects "Quick ideas" from the chat planning menu
+- **THEN** a freeform generation turn runs in the transcript and its ideas are
+  saved to the catalog for the active session

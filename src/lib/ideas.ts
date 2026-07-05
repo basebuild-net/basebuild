@@ -49,6 +49,15 @@ export async function deleteIdea(id: string): Promise<void> {
   return invoke("delete_idea", { id });
 }
 
+export async function rejectIdea(id: string): Promise<void> {
+  return invoke("reject_idea", { id });
+}
+
+export async function ensureDefaultCategories(sessionId: string): Promise<void> {
+  return invoke("ensure_default_categories", { sessionId });
+}
+
+
 export type PromoteIdeasInput = {
   sessionId: string;
   ideaIds: string[];

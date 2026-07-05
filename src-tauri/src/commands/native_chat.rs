@@ -196,19 +196,3 @@ pub fn native_chat_set_global_model_default(default: ChatModelDefault) -> Result
     NativeChatService::set_global_model_default(&default)
 }
 
-// ─── Plan proposals ───
-
-#[tauri::command]
-pub fn plan_proposal_list(session_id: String) -> Result<Vec<crate::models::plan_proposal::PlanProposal>, String> {
-    crate::services::plan_proposal_service::PlanProposalService::list_for_session(&session_id)
-}
-
-#[tauri::command]
-pub fn plan_proposal_accept(proposal_id: String) -> Result<crate::models::plan_proposal::PlanProposal, String> {
-    crate::services::plan_proposal_service::PlanProposalService::accept(&proposal_id)
-}
-
-#[tauri::command]
-pub fn plan_proposal_dismiss(proposal_id: String) -> Result<crate::models::plan_proposal::PlanProposal, String> {
-    crate::services::plan_proposal_service::PlanProposalService::dismiss(&proposal_id)
-}

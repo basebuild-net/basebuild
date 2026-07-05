@@ -184,6 +184,10 @@ pub struct NativeGenerateIdeasRequest {
     pub provider_id: Option<String>,
     pub model_id: Option<String>,
     pub effort_level: Option<String>,
+    /// Optional category id for category-directed generation. When present,
+    /// the prompt is grounded in the category's name/description and captured
+    /// ideas are tagged with this id.
+    pub category_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

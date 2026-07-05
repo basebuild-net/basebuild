@@ -326,6 +326,26 @@ impl SessionService {
         Ok(())
     }
 
+    /// Seed default idea categories (SEO, Optimization, Design, New Features)
+    /// for a session IF it has none. Idempotent: never duplicates existing
+    /// categories. Called before category-directed generation and on the
+    /// Categories tab open.
+    pub fn ensure_default_categories(session_id: &str) -> DbResult<()> {
+        let existing = Self::list_categories(session_id)?;
+        if !existing.is_empty() {
+            return Ok(());
+        }
+        let defaults = [
+            ("SEO", "Search engine optimization: rankings, structured data, crawlability, page speed."),
+            ("Optimization", "Performance, efficiency, refactors, caching, resource usage."),
+            ("Design", "UI/UX, visual polish, accessibility, interaction quality."),
+            ("New Features", "New capabilities, workflows, and product surfaces."),
+        ];
+        for (name, desc) in defaults {
+            Self::create_category(session_id, name, desc)?;
+        }
+        Ok(())
+    }
     pub fn create_idea(
         session_id: &str,
         title: &str,
@@ -380,6 +400,26 @@ impl SessionService {
         conn.execute(
             "UPDATE ideas SET status = ?1, updated_at = ?2 WHERE id = ?3",
             params![status.as_str(), now(), id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Reject an idea: move it to `rejected`. Only `concept` ideas are
+    /// rejectable — `picked` ideas already own a plan and cannot be rejected.
+    /// Returns an error if the idea is not in `concept` state.
+    pub fn reject_idea(id: &str) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        let current_status: String = conn
+            .query_row("SELECT status FROM ideas WHERE id = ?1", params![id], |row| row.get(0))
+            .map_err(|e| e.to_string())?;
+        let status = IdeaStatus::from_str(&current_status);
+        if status != IdeaStatus::Concept {
+            return Err(format!("Cannot reject idea in '{current_status}' state; only concept ideas can be rejected."));
+        }
+        conn.execute(
+            "UPDATE ideas SET status = ?1, updated_at = ?2 WHERE id = ?3",
+            params![IdeaStatus::Rejected.as_str(), now(), id],
         )
         .map_err(|e| e.to_string())?;
         Ok(())

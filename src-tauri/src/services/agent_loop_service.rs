@@ -445,12 +445,13 @@ fn process_tool_calls(
 ) -> Vec<(ToolCallRequest, ToolResult)> {
     let mut results: Vec<(ToolCallRequest, ToolResult)> = Vec::with_capacity(calls.len());
 
-    // Intercept propose_plans calls: capture structured proposals to the DB
-    // and return a success result. This tool is never executed by the generic
-    // executor — it's a structured-data channel for generate-plans runs.
+    // Intercept propose_ideas calls: capture structured ideas to the catalog
+    // (ideas table) as concept ideas, optionally category-tagged. This tool is
+    // never executed by the generic executor — it's a structured-data channel
+    // for generate-ideas runs. One tool event per capture so cards stream in.
     for (idx, call) in calls.iter().enumerate() {
-        if call.name == "propose_plans" {
-            let result = execute_propose_plans(session_id, call);
+        if call.name == "propose_ideas" {
+            let result = execute_propose_ideas(session_id, call);
             record_tool_event(app, session_id, call, &result, tool_events);
             results.push((calls[idx].clone(), result));
         }
@@ -459,7 +460,7 @@ fn process_tool_calls(
     let remaining: Vec<(usize, &ToolCallRequest)> = calls
         .iter()
         .enumerate()
-        .filter(|(_, c)| c.name != "propose_plans")
+        .filter(|(_, c)| c.name != "propose_ideas")
         .collect();
 
     let read_only: Vec<(usize, &ToolCallRequest)> = remaining
@@ -558,34 +559,42 @@ fn process_tool_calls(
 
     results
 }
-
-/// Intercept the propose_plans tool: parse arguments and capture each proposal
-/// to the plan_proposals table. Returns a success result with the count.
-fn execute_propose_plans(session_id: &str, call: &ToolCallRequest) -> ToolResult {
+/// Intercept the propose_ideas tool: parse arguments and capture each idea to
+/// the ideas catalog as a concept idea (optionally category-tagged). Returns a
+/// success result with the count. One idea per call so the UI can render cards
+/// incrementally as the agent streams them.
+fn execute_propose_ideas(session_id: &str, call: &ToolCallRequest) -> ToolResult {
     let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
-    let proposals = args.get("proposals").and_then(Value::as_array);
-    let Some(proposals) = proposals else {
-        return ToolResult::failure("propose_plans requires a 'proposals' array.".to_string());
+    let ideas = args.get("ideas").and_then(Value::as_array);
+    let Some(ideas) = ideas else {
+        return ToolResult::failure("propose_ideas requires an 'ideas' array.".to_string());
     };
+    let category_id: Option<String> = args
+        .get("categoryId")
+        .and_then(Value::as_str)
+        .map(|s| s.to_string());
     let mut captured = 0usize;
-    for p in proposals {
-        let title = p.get("title").and_then(Value::as_str).unwrap_or("");
+    for idea in ideas {
+        let title = idea.get("title").and_then(Value::as_str).unwrap_or("");
         if title.trim().is_empty() {
             continue;
         }
-        let input = crate::models::plan_proposal::PlanProposalInput {
-            session_id: session_id.to_string(),
-            run_id: None,
-            title: title.to_string(),
-            description: p.get("description").and_then(Value::as_str).unwrap_or("").to_string(),
-            goal: p.get("goal").and_then(Value::as_str).unwrap_or("").to_string(),
-            suggested_change_name: p.get("suggested_change_name").and_then(Value::as_str).unwrap_or("").to_string(),
-        };
-        if crate::services::plan_proposal_service::PlanProposalService::capture(input).is_ok() {
+        let description = idea
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let result = crate::services::session_service::SessionService::create_idea(
+            session_id,
+            title,
+            &description,
+            category_id.as_deref(),
+        );
+        if result.is_ok() {
             captured += 1;
         }
     }
-    ToolResult::success(format!("Captured {captured} plan proposal(s)."))
+    ToolResult::success(format!("Captured {captured} idea(s)."))
 }
 
 /// Execute a tool call through the approval gateway. When the gateway requires

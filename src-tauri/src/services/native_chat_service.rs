@@ -910,13 +910,31 @@ impl NativeChatService {
             .collect::<Vec<_>>()
             .join("\n\n");
 
+        // Category-directed generation: ground the prompt in the category and
+        // tag captured ideas. Seed defaults if the session has no categories.
+        let category_id = request.category_id.clone();
+        if category_id.is_some() {
+            let _ = crate::services::session_service::SessionService::ensure_default_categories(&request.session_id);
+        }
+        let category = category_id.as_ref().and_then(|id| {
+            crate::services::session_service::SessionService::list_categories(&request.session_id)
+                .ok()?
+                .into_iter()
+                .find(|c| c.id == *id)
+        });
+        let category_direction = category.as_ref().map(|c| {
+            format!(
+                "\n\nDirect idea generation within this category:\nName: {}\nDescription: {}\nStay on-theme. Tag every idea with this category.",
+                c.name, c.description
+            )
+        }).unwrap_or_default();
+
         let system = Self::system_prompt(&session.project_path, request.schematic.as_deref());
-        let prompt = format!(
-            "Based on the conversation below and the project context, propose 3-6 concrete, \
-             actionable ideas for this project.\nRespond with ONLY a JSON array of objects, each \
-             with \"title\" (max 8 words) and \"description\" (1-2 sentences). No prose, no code \
-             fences.\n\nConversation:\n{convo}"
-        );
+        let idea_template = crate::services::planning_prompt_service::PlanningPromptService::get(
+            crate::models::planning_prompt::IDEA_GENERATION,
+        )
+        .unwrap_or_default();
+        let prompt = format!("{}{}", idea_template.replace("{conversation}", &convo), category_direction);
 
         let req = ProviderRequest {
             model_id,
@@ -937,21 +955,26 @@ impl NativeChatService {
         let client = resolve_client(&provider_id, req.base_url.as_deref());
         let session_id_for_emit = request.session_id.clone();
         let app_for_emit = app.clone();
+        // Emit on the main content channel so the generation turn is visible in
+        // the transcript (not a discarded "ideas" channel). Reasoning streams on
+        // its own channel via the provider client.
         let emit = move |delta: &str, _channel: &str| {
             let _ = app_for_emit.emit(
                 NATIVE_CHAT_CHUNK,
                 serde_json::json!({
                     "sessionId": session_id_for_emit,
                     "delta": delta,
-                    "channel": "ideas"
+                    "channel": "content"
                 }),
             );
         };
         let response = client.generate(&req, &emit)?;
         let ideas = Self::parse_ideas(&response.content);
-        let _ = Self::parse_and_capture_proposals(&response.content, &request.session_id);
+        let cat_id_ref = category_id.as_deref();
+        let _ = Self::parse_and_capture_ideas(&response.content, &request.session_id, cat_id_ref);
         // Mark the pipeline run as succeeded.
-        let _ = Self::record_pipeline_run(&run_id, &request.session_id, &session.project_path, "generate_ideas", "succeeded", now_seconds());
+        let stage_kind = if category_id.is_some() { "generate_ideas_category" } else { "generate_ideas" };
+        let _ = Self::record_pipeline_run(&run_id, &request.session_id, &session.project_path, stage_kind, "succeeded", now_seconds());
         Ok(NativeGenerateIdeasResult {
             ideas,
             setup_required: None,
@@ -971,10 +994,10 @@ impl NativeChatService {
         Ok(())
     }
 
-    /// Parse plan-proposal-shaped JSON from a model response and capture each
-    /// as a plan_proposals row. Fallback for models that emit proposals as
-    /// prose/JSON instead of calling the propose_plans tool.
-    fn parse_and_capture_proposals(content: &str, session_id: &str) {
+    /// Parse idea-shaped JSON from a model response and capture each as a
+    /// concept idea in the ideas catalog. Fallback for models that emit ideas
+    /// as prose/JSON instead of calling the propose_ideas tool.
+    fn parse_and_capture_ideas(content: &str, session_id: &str, category_id: Option<&str>) {
         let text = content.trim();
         let (start, end) = match (text.find('['), text.rfind(']')) {
             (Some(s), Some(e)) if e > s => (s, e),
@@ -990,18 +1013,17 @@ impl NativeChatService {
             if title.trim().is_empty() {
                 continue;
             }
-            let input = crate::models::plan_proposal::PlanProposalInput {
-                session_id: session_id.to_string(),
-                run_id: None,
-                title: title.to_string(),
-                description: item.get("description").and_then(serde_json::Value::as_str).unwrap_or("").to_string(),
-                goal: item.get("goal").and_then(serde_json::Value::as_str).unwrap_or("").to_string(),
-                suggested_change_name: item.get("suggested_change_name")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("")
-                    .to_string(),
-            };
-            let _ = crate::services::plan_proposal_service::PlanProposalService::capture(input);
+            let description = item
+                .get("description")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let _ = crate::services::session_service::SessionService::create_idea(
+                session_id,
+                title,
+                &description,
+                category_id,
+            );
         }
     }
 
@@ -1276,21 +1298,23 @@ impl NativeChatService {
     }
 
     /// Build the system prompt for a turn: harness identity, project path, and
-    /// optionally the project schematic (clipped) for grounding.
+    /// optionally the project schematic (clipped) for grounding. Reads the
+    /// `chat_system` prompt from PlanningPromptService (compiled default or
+    /// user override) and substitutes {project_path}/{schematic} placeholders.
     pub fn system_prompt(project_path: &str, schematic: Option<&str>) -> String {
-        let mut s = format!(
-            "You are the Basebuild native chat harness, an assistant embedded in a local desktop \
-             IDE.\nActive project path: {project_path}\nBe concise and practical. Do not modify \
-             files, run commands, or commit unless the user explicitly asks."
-        );
-        if let Some(sch) = schematic {
-            let sch = sch.trim();
-            if !sch.is_empty() {
-                let clipped: String = sch.chars().take(4000).collect();
-                s.push_str(&format!("\n\nProject schematic:\n{clipped}"));
-            }
-        }
-        s
+        let template = crate::services::planning_prompt_service::PlanningPromptService::get(
+            crate::models::planning_prompt::CHAT_SYSTEM,
+        )
+        .unwrap_or_default();
+        let schematic_text = schematic
+            .map(|s| {
+                let s = s.trim();
+                if s.is_empty() { String::new() } else { s.chars().take(4000).collect::<String>() }
+            })
+            .unwrap_or_default();
+        template
+            .replace("{project_path}", project_path)
+            .replace("{schematic}", &schematic_text)
     }
 
     /// Parse a provider response into structured ideas. Extracts the first JSON

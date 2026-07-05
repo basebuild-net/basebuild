@@ -248,6 +248,7 @@ export async function nativeGenerateIdeas(input: {
   providerId?: string | null;
   modelId?: string | null;
   effortLevel?: string | null;
+  categoryId?: string | null;
 }): Promise<NativeGenerateIdeasResult> {
   return invoke<NativeGenerateIdeasResult>("native_generate_ideas", { request: input });
 }
@@ -308,4 +309,17 @@ export async function nativeChatSetProjectModelDefault(
 /** Persist the global chat model default. */
 export async function nativeChatSetGlobalModelDefault(defaultModel: ChatModelDefault): Promise<void> {
   return invoke("native_chat_set_global_model_default", { default: defaultModel });
+}
+
+/** Resolve a pending tool approval request (allow once / allow session / deny). */
+export async function resolveToolApproval(
+  toolCallId: string,
+  decision: "allow" | "allow_session" | "deny",
+  commandPrefix?: string,
+): Promise<boolean> {
+  return invoke<boolean>("native_chat_resolve_approval", {
+    toolCallId,
+    decision,
+    commandPrefix: commandPrefix ?? null,
+  });
 }

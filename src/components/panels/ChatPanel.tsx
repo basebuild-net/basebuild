@@ -40,7 +40,7 @@ import {
   type NativeSetupRequired,
   type NativeToolEvent,
 } from "../../lib/native-chat";
-import { resolveToolApproval, listPlanProposals, acceptPlanProposal, dismissPlanProposal, type PlanProposal } from "../../lib/planProposals";
+import { resolveToolApproval } from "../../lib/native-chat";
 import { useIdeaState } from "../../state/ideas";
 import type { Idea } from "../../lib/ideas";
 import { useLogs } from "../../state/log";
@@ -213,7 +213,6 @@ export function ChatPanel({
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelFilter, setModelFilter] = useState("");
-  const [proposals, setProposals] = useState<PlanProposal[]>([]);
   const sendTimerRef = useRef<number | null>(null);
   const assistantBufferRef = useRef("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -425,32 +424,6 @@ export function ChatPanel({
     }
   }, [addLog]);
 
-  // Load proposals when the session changes
-  useEffect(() => {
-    if (!nativeSessionId) {
-      setProposals([]);
-      return;
-    }
-    listPlanProposals(nativeSessionId).then(setProposals).catch(() => setProposals([]));
-  }, [nativeSessionId]);
-
-  const handleAcceptProposal = useCallback(async (proposalId: string) => {
-    try {
-      const updated = await acceptPlanProposal(proposalId);
-      setProposals((prev) => prev.map((p) => p.id === proposalId ? updated : p));
-    } catch (e) {
-      addLog("error", "Failed to accept proposal", e instanceof Error ? e.message : String(e));
-    }
-  }, [addLog]);
-
-  const handleDismissProposal = useCallback(async (proposalId: string) => {
-    try {
-      const updated = await dismissPlanProposal(proposalId);
-      setProposals((prev) => prev.map((p) => p.id === proposalId ? updated : p));
-    } catch (e) {
-      addLog("error", "Failed to dismiss proposal", e instanceof Error ? e.message : String(e));
-    }
-  }, [addLog]);
   useEffect(() => {
     if (nativeMode) return;
     let cancelled = false;
@@ -968,23 +941,6 @@ export function ChatPanel({
           </div>
         ) : null}
 
-        {nativeMode && proposals.length > 0 ? (
-          <div className="chat-proposals">
-            {proposals.filter((p) => p.state === "proposed").map((p) => (
-              <div key={p.id} className="proposal-card" title={`Plan proposal: ${p.title}`}>
-                <div className="proposal-card-header">
-                  <span className="proposal-card-title">{p.title}</span>
-                </div>
-                <p className="proposal-card-description text-sm text-muted">{p.description}</p>
-                {p.goal ? <p className="proposal-card-goal text-sm"><strong>Goal:</strong> {p.goal}</p> : null}
-                <div className="proposal-card-actions">
-                  <button className="btn btn-sm btn-primary" title="Accept this proposal and create a draft plan" type="button" onClick={() => void handleAcceptProposal(p.id)}>Accept</button>
-                  <button className="btn btn-sm" title="Dismiss this proposal" type="button" onClick={() => void handleDismissProposal(p.id)}>Dismiss</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : null}
         {renderMessages.map((msg, index) => {
           const key = "id" in msg ? String(msg.id) : `legacy-${index}`;
           const isOfflineTurn =

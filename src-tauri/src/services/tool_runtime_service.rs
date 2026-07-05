@@ -174,33 +174,32 @@ pub fn registry() -> Vec<ToolDef> {
         },
         ToolDef {
             schema: ToolSchema {
-                name: "propose_plans".to_string(),
-                description: "Capture one or more structured plan proposals during a generate-plans run. Each proposal has a title, description, goal, and suggested change name. Call this tool with all proposals from the generation; do not emit them as prose. The user accepts or dismisses each card in the UI.".to_string(),
+                name: "propose_ideas".to_string(),
+                description: "Capture one or more structured ideas during a generate-ideas run. Each idea has a title and a short description, and is optionally tagged with a category. Call this tool with the ideas as they are formed; do not emit them as prose. The user promotes or rejects each card in the UI.".to_string(),
                 parameters: json!({
                     "type": "object",
                     "properties": {
-                        "proposals": {
+                        "ideas": {
                             "type": "array",
-                            "description": "Plan proposals to capture.",
+                            "description": "Ideas to capture.",
                             "items": {
                                 "type": "object",
                                 "properties": {
                                     "title": { "type": "string", "description": "Short title (max 12 words)." },
-                                    "description": { "type": "string", "description": "1-2 sentence description of what the plan does." },
-                                    "goal": { "type": "string", "description": "One-sentence goal the plan achieves." },
-                                    "suggested_change_name": { "type": "string", "description": "Kebab-case change name (e.g. 'add-rate-limiting')." }
+                                    "description": { "type": "string", "description": "1-2 sentence description of the idea." }
                                 },
-                                "required": ["title", "description", "goal", "suggested_change_name"]
+                                "required": ["title", "description"]
                             }
-                        }
+                        },
+                        "categoryId": { "type": "string", "description": "Optional category id to tag every idea in this batch with (e.g. for category-directed generation)." }
                     },
-                    "required": ["proposals"]
+                    "required": ["ideas"]
                 }),
             },
             // Intercepted by the agent loop before reaching the generic executor;
             // this execute fn is a no-op fallback that should never be called.
             kind: ToolKind::ReadOnly,
-            execute: propose_plans_fallback,
+            execute: propose_ideas_fallback,
         },
     ]
 }
@@ -698,16 +697,15 @@ fn run_command(workspace_root: &Path, args: &Value) -> ToolResult {
     }
 }
 
-/// Fallback executor for the propose_plans tool. The agent loop intercepts
+/// Fallback executor for the propose_ideas tool. The agent loop intercepts
 /// this tool before it reaches the generic executor and calls
-/// PlanProposalService::capture instead. This fn exists only so the ToolDef
+/// SessionService::create_idea instead. This fn exists only so the ToolDef
 /// has a valid execute pointer; if called directly, it returns a notice.
-fn propose_plans_fallback(_workspace_root: &Path, _args: &Value) -> ToolResult {
+fn propose_ideas_fallback(_workspace_root: &Path, _args: &Value) -> ToolResult {
     ToolResult::failure(
-        "propose_plans must be intercepted by the agent loop. This fallback should never be called.".to_string(),
+        "propose_ideas must be intercepted by the agent loop. This fallback should never be called.".to_string(),
     )
 }
-// wait_timeout extension (not in std::process::Child directly).
 trait ChildWaitTimeoutExt {
     /// Returns `Ok(Some(status))` on exit, `Ok(None)` on timeout.
     fn wait_timeout(&mut self, dur: std::time::Duration) -> std::io::Result<Option<std::process::ExitStatus>>;

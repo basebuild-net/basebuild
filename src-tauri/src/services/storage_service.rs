@@ -525,26 +525,13 @@ impl StorageService {
                     FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE
                 );
                 CREATE INDEX IF NOT EXISTS idx_provider_claims_connector ON provider_claims(connector_id);
-
-                -- Structured plan proposals captured from generate-plans runs.
-                -- Append-only across regenerations; accepted proposals link a
-                -- draft plan via plan_id. Reloads with the session.
-                CREATE TABLE IF NOT EXISTS plan_proposals (
-                    id TEXT PRIMARY KEY NOT NULL,
-                    session_id TEXT NOT NULL,
-                    run_id TEXT,
-                    title TEXT NOT NULL,
-                    description TEXT NOT NULL DEFAULT '',
-                    goal TEXT NOT NULL DEFAULT '',
-                    suggested_change_name TEXT NOT NULL DEFAULT '',
-                    state TEXT NOT NULL DEFAULT 'proposed',
-                    plan_id TEXT,
-                    created_at INTEGER NOT NULL,
-                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                CREATE TABLE IF NOT EXISTS planning_prompts (
+                    key TEXT PRIMARY KEY NOT NULL,
+                    value TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL
                 );
-                CREATE INDEX IF NOT EXISTS idx_plan_proposals_session ON plan_proposals(session_id, created_at);
-                ",
-            )
+                DROP TABLE IF EXISTS plan_proposals;
+            ")
             .map_err(|error| format!("Failed to initialize Basebuild state database: {error}"))?;
         // Migration: add last_active_session_id to existing databases
         let has_column = connection
@@ -936,6 +923,39 @@ mod tests {
                 "archived",
             ]
         );
+    }
+
+    #[test]
+    fn planning_prompts_table_created_and_legacy_plan_proposals_dropped() {
+        // initialize must create planning_prompts and drop the superseded
+        // plan_proposals table. Idempotent on re-run. Simulate a legacy DB
+        // by creating plan_proposals before initialize.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE plan_proposals (id TEXT, session_id TEXT, title TEXT, state TEXT, created_at INTEGER)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plan_proposals (id, session_id, title, state, created_at) VALUES ('p1','s1','t','proposed',0)",
+            [],
+        )
+        .unwrap();
+        StorageService::initialize(&conn).expect("initialize");
+        // planning_prompts exists and is empty (defaults are compiled-in, not seeded).
+        let prompt_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM planning_prompts", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(prompt_count, 0, "no prompts seeded by default");
+        // plan_proposals is gone.
+        let still_exists = conn.prepare("SELECT id FROM plan_proposals LIMIT 0").is_ok();
+        assert!(!still_exists, "plan_proposals must be dropped");
+        // Re-initialize is idempotent.
+        StorageService::initialize(&conn).expect("second initialize");
+        let prompt_count_again: i64 = conn
+            .query_row("SELECT COUNT(*) FROM planning_prompts", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(prompt_count_again, 0);
     }
 
     #[test]

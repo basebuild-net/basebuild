@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import {
   createIdea as createIdeaApi,
   deleteIdea as deleteIdeaApi,
+  rejectIdea as rejectIdeaApi,
+  ensureDefaultCategories as ensureDefaultCategoriesApi,
   listIdeas,
   promoteIdeas as promoteIdeasApi,
   updateIdeaStatus as updateIdeaStatusApi,
@@ -90,15 +92,34 @@ export function useIdeaState(sessionId: string | null) {
     [sessionId, refresh],
   );
 
+  const rejectIdea = useCallback(
+    async (id: string) => {
+      await rejectIdeaApi(id);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const ensureDefaultCategories = useCallback(
+    async () => {
+      if (!sessionId) return;
+      await ensureDefaultCategoriesApi(sessionId);
+      await refresh();
+    },
+    [sessionId, refresh],
+  );
+
   return {
     ideas,
     categories,
     refresh,
     createIdea,
     updateIdeaStatus,
+    rejectIdea,
     removeIdea,
     createCategory,
     removeCategory,
     promoteIdeas,
+    ensureDefaultCategories,
   };
 }
