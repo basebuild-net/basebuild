@@ -70,6 +70,18 @@ node scripts/openspec-status.mjs --write
    (approve/revert/send-back), review gate before commit/PR final touches.
    **After `plan-pipeline-harness`** (archived PR #15 — gate satisfied);
    pairs with `file-viewer-editor`'s diff surface.
+9. `schematic-grounded-planning` — reshapes the app around two primary
+   features: a **schematic wizard** (blueprint questionnaire by archetype,
+   team size, stage; time-boxed End goals with nudges; AI-enhanced section
+   descriptions; structured section-card view + health validation replacing
+   the raw dump) and **schematic-grounded planning** (generation turns run the
+   bundled skills agentically, read project context via the tool loop incl.
+   MCP, and capture ideas with required grounding + optional focus anchors).
+   **BREAKING**: removes hardcoded default categories (now project-derived)
+   and the `Generate plans` modal / input boxes (inspector becomes an
+   input-free catalog; generation lives in the chat menu). **After
+   `unified-planning-workspace`** (builds on its catalog/prompts/menu/
+   inspector); uses the skills from `basebuild-planning-skill`.
 
 ### Proposed (no artifacts yet — run `/propose <name>` when its turn comes)
 
@@ -99,6 +111,7 @@ _Last refreshed: 2026-07-05 (`node scripts/openspec-status.mjs --write`)_
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
 |`omp-terminal-usage-sync`|0/33|not started|`/apply omp-terminal-usage-sync`|
+|`schematic-grounded-planning`|0/25|not started|`/apply schematic-grounded-planning`|
 |`basebuild-planning-skill`|18/18|complete — archive|`/archive basebuild-planning-skill`|
 <!-- status:end -->
 
