@@ -7,7 +7,7 @@ pub struct SkillMeta {
     pub content: String,
 }
 
-fn skill_dir() -> PathBuf {
+pub fn skill_dir() -> PathBuf {
     // In dev, executable is src-tauri/target/debug/basebuild-app.exe, skills is at repo root.
     std::env::current_exe()
         .ok()
@@ -53,4 +53,11 @@ pub fn read_skill(skill_name: String) -> Result<SkillMeta, String> {
         description,
         content,
     })
+}
+
+/// Read a bundled skill's SKILL.md content by skill name. Used by services
+/// that derive defaults from skill files (e.g. planning prompt defaults).
+pub fn read_skill_content(skill_name: &str) -> Option<String> {
+    let file = skill_dir().join(skill_name).join("SKILL.md");
+    std::fs::read_to_string(&file).ok()
 }

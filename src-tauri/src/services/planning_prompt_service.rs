@@ -5,21 +5,30 @@
 //! in `planning_prompts`. Absence of a row means "use the compiled default".
 //! `reset` deletes the row. `list` returns the effective value (override or
 //! default) plus the default and a modified flag for the UI.
-
 use crate::{
+    commands::skills::read_skill_content,
     models::planning_prompt::{PlanningPromptEntry, CATEGORY_GENERATION, CHAT_SYSTEM, IDEA_GENERATION, PLAN_GENERATION},
     services::storage_service::StorageService,
 };
 use rusqlite::{params, OptionalExtension};
+use std::sync::LazyLock;
 
 type DbResult<T> = Result<T, String>;
 
 #[derive(Debug, Default)]
 pub struct PlanningPromptService;
 
-/// Compiled-in defaults. These are the source of truth for "reset to default"
-/// and for the initial value shown in Settings → Planning.
-fn default_for(key: &str) -> Option<&'static str> {
+/// Cached bundled skill content. Read once at first access; the skill files
+/// ship with the app and do not change at runtime. Updates take effect on
+/// restart (app updates replace the binary + bundled skills atomically).
+static PLANNING_SKILL: LazyLock<Option<String>> = LazyLock::new(|| {
+    read_skill_content("basebuild-planning")
+});
+
+/// Compiled-in fallbacks used when the skill file is unavailable (e.g. running
+/// from a dev build before skills are copied). The skill file is the source of
+/// truth; these exist only so generation never blocks on a missing file.
+fn compiled_fallback(key: &str) -> Option<&'static str> {
     match key {
         CHAT_SYSTEM => Some(
             "You are the Basebuild native chat harness, an assistant embedded in a local desktop \
@@ -28,9 +37,9 @@ fn default_for(key: &str) -> Option<&'static str> {
         ),
         IDEA_GENERATION => Some(
             "Based on the conversation below and the project context, propose 3-6 concrete, \
-             actionable ideas for this project.\nRespond with ONLY a JSON array of objects, each \
-             with \"title\" (max 8 words) and \"description\" (1-2 sentences). No prose, no code \
-             fences.\n\nConversation:\n{conversation}",
+             actionable ideas for this project. Each idea must cite grounding (real files or \
+             observed gaps). Respond with ONLY a JSON array of objects with \"title\", \
+             \"description\", and \"grounding\". No prose, no code fences.\n\nConversation:\n{conversation}",
         ),
         PLAN_GENERATION => Some(
             "You are a planning assistant. Given the project context and a goal, propose \
@@ -39,9 +48,24 @@ fn default_for(key: &str) -> Option<&'static str> {
         ),
         CATEGORY_GENERATION => Some(
             "Given the project schematic, propose 4-6 idea categories that would help direct \
-             idea generation (e.g. SEO, Optimization, Design, New Features). Respond with ONLY a \
-             JSON array of objects with \"name\" and \"description\".",
+             idea generation for THIS project's domain. Respond with ONLY a JSON array of \
+             objects with \"name\" and \"description\".",
         ),
+        _ => None,
+    }
+}
+
+/// The effective default for a prompt key. For planning kinds, derives from
+/// the bundled skill content; for `chat_system`, uses the compiled fallback.
+/// Returns `None` for unknown keys.
+fn default_for(key: &str) -> Option<String> {
+    match key {
+        CHAT_SYSTEM => compiled_fallback(key).map(str::to_string),
+        IDEA_GENERATION | PLAN_GENERATION | CATEGORY_GENERATION => {
+            // Skill is the source of truth; fall back to compiled string if
+            // the skill file is unavailable (dev without skills copied, etc.).
+            PLANNING_SKILL.as_ref().map(|s| s.as_str()).or_else(|| compiled_fallback(key)).map(|s| s.to_string())
+        }
         _ => None,
     }
 }
@@ -64,7 +88,7 @@ impl PlanningPromptService {
             )
             .optional()
             .map_err(|e| e.to_string())?;
-        Ok(override_value.unwrap_or_else(|| default.to_string()))
+        Ok(override_value.unwrap_or(default))
     }
 
     /// Save an override for a key. An empty value is treated as "use default"
@@ -116,15 +140,15 @@ impl PlanningPromptService {
             .collect();
         let mut entries = Vec::with_capacity(ALL_KEYS.len());
         for key in ALL_KEYS {
-            let default = default_for(key).unwrap_or("");
+            let default = default_for(key).unwrap_or_default();
             let (value, is_modified) = match overrides.get(*key) {
                 Some(v) => (v.clone(), true),
-                None => (default.to_string(), false),
+                None => (default.clone(), false),
             };
             entries.push(PlanningPromptEntry {
                 key: key.to_string(),
                 value,
-                default: default.to_string(),
+                default,
                 is_modified,
             });
         }
@@ -168,8 +192,12 @@ mod tests {
         assert_eq!(idea_entry.value, "Custom idea prompt");
         // Reset to default.
         PlanningPromptService::reset(IDEA_GENERATION).unwrap();
+        // After reset, the effective value is the skill-derived default (or
+        // the compiled fallback when the skill file is absent). Either way it
+        // must be non-empty and contain the word "idea".
         let value = PlanningPromptService::get(IDEA_GENERATION).unwrap();
-        assert!(value.contains("propose 3-6"));
+        assert!(!value.is_empty());
+        assert!(value.to_lowercase().contains("idea"));
         // List shows it as not modified.
         let entries = PlanningPromptService::list().unwrap();
         let idea_entry = entries.iter().find(|e| e.key == IDEA_GENERATION).unwrap();
