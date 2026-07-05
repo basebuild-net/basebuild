@@ -11,26 +11,24 @@ node scripts/openspec-status.mjs --write
 
 ### Now (in flight)
 
-1. `connector-permission-gateway` — phases 1+2 merged in PR #17 (gateway
+1. `unified-planning-workspace` — unifies the two parallel planning surfaces
+   (`plan_proposals` chat cards + right-panel `ideas` catalog) into one
+   `Categories → Ideas → Plans` model. Generation runs as a visible chat turn
+   (reasoning fold + live transcript + incremental idea cards via a
+   `propose_ideas` tool), the discarded `ideas` streaming channel is removed,
+   idea lifecycle gains `rejected`, the right panel becomes a tabbed
+   `Plans / Ideas / Categories` inspector, and planning prompts become
+   tunable in Settings → Planning. **BREAKING (internal, pre-1.0):** drops the
+   just-shipped `plan_proposals` table/commands (`planning-system-qol` PR #19)
+   in favor of the richer `ideas` catalog — see proposal's Supersedes note.
+   Tasks 1.1–1.2 done (IdeaStatus::Rejected, planning_prompts migration);
+   2/34 tasks complete. Depends on `planning-system-qol` (archived below).
+2. `connector-permission-gateway` — phases 1+2 merged in PR #17 (gateway
    contract, storage, backend permission broker, Tauri commands, TS wrappers;
    9/29 tasks done). Phase 2 OMP connector integration + frontend UX + web
    bridge + verification remain (tasks 2.2 partial, 3.1–6.5). Permission broker
    extends the merged `native-agent-loop` approval substrate (modes, rules,
    prompts, audit trail); the task 1.1 merge gate is satisfied as of PR #9.
-2. `planning-system-qol` — **complete — ready to archive** (34/34 tasks done).
-   Closes the implementation gap on the plan pipeline (structured idea capture
-   via `propose_ideas` tool, openspec artifact generation on draft→openspec,
-   live grouped tool activity, run_command approval UI, distinct collapsed
-   thinking rendering) plus session lifecycle QoL (launch reuses last session,
-   meaningful titles, stable sidebar ordering, single-instance guard),
-   reasoning channel separation, glob dedup, effort clamping, test DB
-   isolation, unified Planning Inspector (Plans/Ideas/Categories tabs),
-   planning prompt customization (Settings → Planning). Driven by 2026-07-05
-   live testing; implements several already-canonical specs
-   (`openspec-artifacts`, `tool-transcript-rendering`, `tool-approval-gateway`,
-   `plan-pipeline` stages, `ide-workspace-state` restore). All Rust tests
-   (188) and e2e tests (10) pass; `tsc --noEmit`, `npm run build`, `cargo
-   check` clean.
 
 ### Next (specced, ready to start)
 
@@ -42,8 +40,8 @@ node scripts/openspec-status.mjs --write
    (owner-directed **BREAKING** privacy-default change), skills bundled into
    the installer, terminal-first sessions (no chat rows until chat is used),
    empty-chat hygiene. Diagnosis-complete from 2026-07-05 installed-build
-   (v0.0.12) testing. `session-lifecycle` delta depends on
-   `planning-system-qol` landing first (or stands alone if applied first).
+   (v0.0.12) testing. `session-lifecycle` canonical spec landed via
+   `planning-system-qol` archive (PR #19) — dependency satisfied.
 4. `file-viewer-editor` — file tabs become the single view/edit/diff
    surface: syntax-highlighted virtualized viewing, markdown preview,
    images, explicit-save editing with mtime conflict guard, and unified
@@ -84,7 +82,6 @@ _Last refreshed: 2026-07-05 (`node scripts/openspec-status.mjs --write`)_
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
 |`omp-terminal-usage-sync`|0/33|not started|`/apply omp-terminal-usage-sync`|
-|`planning-system-qol`|38/38|complete — archive|`/archive planning-system-qol`|
 <!-- status:end -->
 
 ## Archiving
@@ -113,3 +110,17 @@ merge into canonical `openspec/specs/` and the folder moves to
   specs (`plan-pipeline`, `plan-run-queue`, `plan-final-touches`,
   `chat-model-defaults`, `slash-command-registry`, `native-mcp-client`,
   `openspec-artifacts`, `parallel-workspaces`). 51/51 tasks complete.
+- **2026-07-05a** — `planning-system-qol` shipped in PR #19 (38/38 tasks) and
+  archived: 1 new canonical spec (`session-lifecycle`) + 6 modified
+  (`tool-transcript-rendering` gained "Grouped tool activity",
+  `testing-automation` gained "Test database isolation", `chat-model-defaults`
+  gained "Effort level validity", `core-tool-runtime` gained "Deterministic
+  deduplicated glob results", `agent-chat` gained "Reasoning channel
+  separation", `plan-pipeline-ui` gained "Structured plan proposal capture" +
+  "Proposal selection state persists"). The `plan_proposals` portion is
+  superseded by the in-flight `unified-planning-workspace` change, which
+  drops that table in favor of the unified `ideas` catalog.
+- **Out-of-band** — PR #18 merged OMP credential integration + AI commit
+  message generation (Source panel). Not tracked as an OpenSpec change; no
+  delta specs. Affects `native_chat_service`, `provider_client`,
+  `SourcePanel`, `SettingsModal`.
