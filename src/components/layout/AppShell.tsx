@@ -7,7 +7,6 @@ import { ProjectSidebar, useProjectSidebar } from "./ProjectSidebar";
 
 import { EditPlanModal } from "./EditPlanModal";
 import { FocusPlanModal } from "./FocusPlanModal";
-import { GeneratePlanModal } from "./GeneratePlanModal";
 import { ProjectDescriptionModal } from "./ProjectDescriptionModal";
 import { useProjectSchematic } from "../../state/schematic";
 import { revealInExplorer } from "../../lib/projects";
@@ -61,7 +60,6 @@ export function AppShell({ updates }: AppShellProps) {
   const { addLog } = useLogs();
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [focusingPlan, setFocusingPlan] = useState<Plan | null>(null);
-  const [generateOpen, setGenerateOpen] = useState(false);
   const [descriptionOpen, setDescriptionOpen] = useState(false);
   const firstRun = useFirstRun();
   const [chatDraft, setChatDraft] = useState<string | null>(null);
@@ -336,48 +334,6 @@ export function AppShell({ updates }: AppShellProps) {
     },
     [openOrFocusChat],
   );
-  const handleGenerateFromGoal = useCallback(
-    (goal: string, contextFile?: string, contextContent?: string) => {
-      if (!session.activeSessionId) {
-        addLog("warn", "Cannot generate", "No active session. Open a project first.");
-        return;
-      }
-      if (!schematic.exists && !contextContent) {
-        setDescriptionOpen(true);
-        return;
-      }
-      // Compose a transparent prompt for the chat agent
-      const parts: string[] = [];
-      if (goal) parts.push(`Goal: ${goal}`);
-      if (contextContent) {
-        const label = contextFile ?? "selected context";
-        parts.push(`Context from ${label}:\n\n${contextContent.slice(0, 5000)}`);
-      }
-      if (schematic.content) {
-        parts.push(`Project Schematic:\n\n${schematic.content}`);
-      }
-      if (activeProjectPath) {
-        parts.push(`Project path: ${activeProjectPath}`);
-      }
-      const planSummary = plans.plans.length > 0
-        ? plans.plans.map((p) => `- [${p.status}] ${p.title} (${p.referenceId})`).join("\n")
-        : "(no existing plans)";
-      parts.push(`Existing plans:\n${planSummary}`);
-      parts.push("Based on the above, propose OpenSpec-backed plans. Do not create files or commit anything.");
-      const prompt = parts.join("\n\n---\n\n");
-      void openOrFocusChat(prompt);
-    },
-    [session.activeSessionId, schematic.exists, schematic.content, activeProjectPath, plans.plans, openOrFocusChat, addLog],
-  );
-
-  const handleSuggestMore = useCallback(
-    (goal: string) => {
-      // TODO: send existing plans + schematic + goal to OMP and append new plans
-      void handleGenerateFromGoal(goal);
-    },
-    [handleGenerateFromGoal],
-  );
-
   const handleOpenSchematicFile = useCallback(async () => {
     if (!activeProjectPath) return;
     await schematic.write(schematic.content ?? `# Project Schematic\n\n## Purpose\n`);
@@ -681,7 +637,6 @@ export function AppShell({ updates }: AppShellProps) {
             plans={plans}
             planCallbacks={{
               onCreatePlan: handleCreatePlan,
-              onGeneratePlans: () => setGenerateOpen(true),
               onEditPlan: handleEditPlan,
               onFocusPlan: handleFocusPlan,
               onCopyReference: handleCopyReference,
@@ -733,14 +688,6 @@ export function AppShell({ updates }: AppShellProps) {
         onCopyReference={handleCopyReference}
         onOpenInTerminal={handleOpenPlanInTerminal}
         onSetContext={(id, ctx: PlanFocusContext) => void plans.setPlanContext(id, ctx)}
-      />
-      <GeneratePlanModal
-        open={generateOpen}
-        onClose={() => setGenerateOpen(false)}
-        onGenerate={handleGenerateFromGoal}
-        onSuggest={handleSuggestMore}
-        onCreateBlank={handleOpenSchematicFile}
-        showSuggestMore={schematic.exists}
       />
       <ProjectDescriptionModal
         open={descriptionOpen}

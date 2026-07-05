@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, GripVertical, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, GripVertical } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { FileText, GitBranch, LayoutList } from "lucide-react";
 import type { NewPlan, Plan, PlanStatus } from "../../lib/plans";
@@ -35,7 +35,6 @@ type SidePanelProps = {
   };
   planCallbacks: {
     onCreatePlan: () => void;
-    onGeneratePlans: () => void;
     onEditPlan: (plan: Plan) => void;
     onFocusPlan: (plan: Plan) => void;
     onCopyReference: (refId: string) => void;
@@ -262,22 +261,7 @@ export function SidePanel({
               onToggle={() => toggle(id)}
               onDragStart={(e) => handleDragStart(e, id)}
               onDragEnd={handleDragEnd}
-              actions={
-                id === "plans" ? (
-                  <button
-                    className="btn-icon btn-icon-sm side-section-action"
-                    type="button"
-                    title="Generate plans from goal"
-                    aria-label="Generate plans from goal"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      planCallbacks.onGeneratePlans();
-                    }}
-                  >
-                    <Sparkles size={13} />
-                  </button>
-                ) : undefined
-              }
+              actions={undefined}
             />
             {expanded[id] ? (
               <div className="side-section-body">

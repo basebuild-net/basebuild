@@ -5,7 +5,6 @@ import {
   Copy,
   MoreHorizontal,
   Pencil,
-  Sparkles,
   TerminalSquare,
   Trash2,
 } from "lucide-react";
@@ -21,7 +20,6 @@ type PlanPanelProps = {
   collapsed: boolean;
   onToggleCollapse: () => void;
   onCreatePlan: () => void;
-  onGeneratePlans: () => void;
   onEditPlan: (plan: Plan) => void;
   onFocusPlan: (plan: Plan) => void;
   onSetPlanStatus: (id: string, status: PlanStatus) => void;
@@ -40,7 +38,6 @@ export function PlanPanel({
   collapsed,
   onToggleCollapse,
   onCreatePlan,
-  onGeneratePlans,
   onEditPlan,
   onFocusPlan,
   onSetPlanStatus,
@@ -86,15 +83,6 @@ export function PlanPanel({
       <div className="plan-panel-header">
         <span className="plan-panel-title">Plans</span>
         <button
-          className="btn-icon side-section-action"
-          title="Generate plans"
-          aria-label="Generate plans"
-          type="button"
-          onClick={onGeneratePlans}
-        >
-          <Sparkles size={15} />
-        </button>
-        <button
           className="btn-icon"
           title="Collapse plans"
           aria-label="Collapse plans"
@@ -106,15 +94,6 @@ export function PlanPanel({
       </div>
       ) : (
         <div className="plan-panel-header-compact">
-          <button
-            className="btn-icon side-section-action"
-            title="Generate plans"
-            aria-label="Generate plans"
-            type="button"
-            onClick={onGeneratePlans}
-          >
-            <Sparkles size={15} />
-          </button>
         </div>
       )}
 
@@ -126,8 +105,8 @@ export function PlanPanel({
         ) : plans.length === 0 ? (
           <div className="plan-empty">
             <p className="text-muted text-sm">No plans yet.</p>
-            <button className="btn btn-primary btn-sm" type="button" onClick={onGeneratePlans}>
-              <Sparkles size={12} /> Generate plans
+            <button className="btn btn-primary btn-sm" type="button" onClick={onCreatePlan}>
+              Create plan
             </button>
           </div>
         ) : (
