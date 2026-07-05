@@ -601,12 +601,27 @@ export function ChatPanel({
 
   // Draft prompt injection. Wait for catalog to load before auto-sending
   // so the resolved provider/model is used, not the initial local default.
+  // The schematic wizard needs a model that supports tools (read_file,
+  // write_file, etc.) — if the active model can't call tools, show a notice
+  // instead of sending a prompt the model can only echo back as text.
   useEffect(() => {
     if (!draftPrompt) return;
     setInput(draftPrompt);
     onDraftConsumed?.();
-    if (autoSendDraft && catalog && !loading) void sendMessage(draftPrompt.trim());
-  }, [draftPrompt, autoSendDraft, onDraftConsumed, sendMessage, catalog, loading]);
+    if (autoSendDraft && catalog && !loading) {
+      const isWizardPrompt = draftPrompt.includes("basebuild-project-schematic");
+      const modelSupportsTools = selectedModel?.supportsTools ?? false;
+      if (isWizardPrompt && !modelSupportsTools) {
+        setCommandNotice(
+          selectedModel
+            ? `${selectedModel.label} does not support tool calling — the wizard needs a model that can read/write files. Pick a tool-capable model (e.g. Claude, GPT-4, umans-glm) and try again.`
+            : "The schematic wizard needs a model that supports tool calling. Pick a tool-capable model and try again.",
+        );
+        return;
+      }
+      void sendMessage(draftPrompt.trim());
+    }
+  }, [draftPrompt, autoSendDraft, onDraftConsumed, sendMessage, catalog, loading, selectedModel]);
 
   // Auto-scroll
   useEffect(() => {
