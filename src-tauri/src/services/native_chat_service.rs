@@ -215,16 +215,30 @@ impl NativeChatService {
     }
 
     /// Pick the first connected provider's default model as a last resort.
+    /// Prefers a real (non-local) connected provider — the local coordinator
+    /// is always "configured" but produces canned offline responses, so it
+    /// should only be the fallback when no real provider is connected.
+    /// Uses the provider's first available model rather than the catalog's
+    /// default_model_id (which is always the local coordinator).
     fn first_connected_default(catalog: &NativeProviderCatalog) -> ChatModelDefault {
-        let provider_id = catalog
+        let provider = catalog
             .providers
             .iter()
-            .find(|p| p.configured)
-            .map(|p| p.id.clone())
-            .unwrap_or_else(|| catalog.providers[0].id.clone());
+            .find(|p| p.configured && !p.local_only)
+            .or_else(|| catalog.providers.iter().find(|p| p.configured))
+            .cloned()
+            .unwrap_or_else(|| catalog.providers[0].clone());
+        // Find the first model belonging to the chosen provider. Falls back
+        // to the catalog default (local coordinator) if none found.
+        let model_id = catalog
+            .models
+            .iter()
+            .find(|m| m.provider_id == provider.id)
+            .map(|m| m.id.clone())
+            .unwrap_or_else(|| catalog.default_model_id.clone());
         ChatModelDefault {
-            provider_id,
-            model_id: catalog.default_model_id.clone(),
+            provider_id: provider.id,
+            model_id,
             effort_level: catalog.default_effort_level.clone(),
         }
     }

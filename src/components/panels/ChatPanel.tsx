@@ -599,13 +599,14 @@ export function ChatPanel({
     [nativeMode, nativeSessionId, selectedProvider, loading, providerId, modelId, effortLevel, agentId, addLog],
   );
 
-  // Draft prompt injection
+  // Draft prompt injection. Wait for catalog to load before auto-sending
+  // so the resolved provider/model is used, not the initial local default.
   useEffect(() => {
     if (!draftPrompt) return;
     setInput(draftPrompt);
     onDraftConsumed?.();
-    if (autoSendDraft) void sendMessage(draftPrompt.trim());
-  }, [draftPrompt, autoSendDraft, onDraftConsumed, sendMessage]);
+    if (autoSendDraft && catalog && !loading) void sendMessage(draftPrompt.trim());
+  }, [draftPrompt, autoSendDraft, onDraftConsumed, sendMessage, catalog, loading]);
 
   // Auto-scroll
   useEffect(() => {
@@ -989,17 +990,22 @@ export function ChatPanel({
             })()}
           </div>
         ) : null}
-
         {renderMessages.map((msg, index) => {
           const key = "id" in msg ? String(msg.id) : `legacy-${index}`;
           const isOfflineTurn =
             "providerId" in msg && msg.role === "assistant" && msg.providerId === LOCAL_PROVIDER_ID;
           const reasoning = "reasoning" in msg ? (msg as NativeChatMessage).reasoning : null;
+          const ts: number | null = "createdAt" in msg ? (msg as NativeChatMessage).createdAt : null;
+          const timeStr = ts != null
+            ? new Date(ts * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+            : null;
+          const fullDate = ts != null ? new Date(ts * 1000).toLocaleString() : null;
           return (
             <div key={key} className={`chat-message chat-message-${msg.role}`}>
               <span className="chat-message-role">
                 {msg.role === "user" ? "You" : msg.role === "assistant" ? "Basebuild" : "System"}
                 {isOfflineTurn ? <span className="chat-offline-tag" title="No external model was contacted">Offline</span> : null}
+                {timeStr ? <span className="chat-message-time" title={fullDate ?? ""}>{timeStr}</span> : null}
               </span>
               {reasoning ? <ReasoningFold reasoning={reasoning} /> : null}
               <pre className="chat-message-content">{msg.content}</pre>
@@ -1264,16 +1270,16 @@ export function ChatPanel({
                     </button>
                   ) : null}
                   <button
-                    className="btn-icon btn-icon-sm"
+                    className="btn btn-sm chat-ideas-trigger"
                     type="button"
-                    title="More chat actions"
+                    title="Idea generation actions"
                     onClick={() => {
                       setShowPlanningMenu((value) => !value);
                       setShowProviderPicker(false);
                       setShowModelPicker(false);
                     }}
                   >
-                    ⋯
+                    <Lightbulb size={11} /> Ideas
                   </button>
                 </>
               ) : (
@@ -1285,20 +1291,30 @@ export function ChatPanel({
               )}
             </div>
             {showPlanningMenu ? (
-              <div className="chat-inline-menu">
+              <div className="chat-picker" role="dialog" aria-label="Idea actions">
+                <div className="chat-picker-header">
+                  <span>Ideas</span>
+                  <button className="btn-icon btn-icon-sm" type="button" title="Close ideas menu" onClick={() => setShowPlanningMenu(false)}>
+                    <X size={11} />
+                  </button>
+                </div>
                 {schematicReport && schematicReport.health !== "complete" && (
                   <button
-                    className="chat-command-notice chat-command-notice-button"
+                    className="chat-picker-item"
                     type="button"
                     title={`Schematic ${schematicReport.health}: incomplete sections may lead to ungrounded generation — click to open the schematic`}
-                    onClick={() => onOpenSchematic?.()}
+                    onClick={() => {
+                      setShowPlanningMenu(false);
+                      onOpenSchematic?.();
+                    }}
                   >
-                    <AlertCircle size={11} />
-                    <span>Schematic {schematicReport.health} — fix for better grounding</span>
+                    <AlertCircle size={11} className="chat-picker-item-icon" />
+                    <span className="chat-picker-main">Schematic {schematicReport.health}</span>
+                    <span className="chat-picker-meta">Fix</span>
                   </button>
                 )}
                 <button
-                  className="chat-inline-menu-item"
+                  className="chat-picker-item"
                   type="button"
                   title="Quick freeform idea generation in the chat"
                   disabled={generatingIdeas || !nativeSessionId}
@@ -1307,10 +1323,11 @@ export function ChatPanel({
                     void handleGenerateIdeas();
                   }}
                 >
-                  <Sparkles size={11} /> Quick ideas
+                  <Sparkles size={11} className="chat-picker-item-icon" />
+                  <span className="chat-picker-main">Quick ideas</span>
                 </button>
                 <button
-                  className="chat-inline-menu-item"
+                  className="chat-picker-item"
                   type="button"
                   title="Pick a category and generate ideas for it"
                   onClick={() => {
@@ -1318,17 +1335,20 @@ export function ChatPanel({
                     setShowCategoryPicker(true);
                   }}
                 >
-                  <FolderTree size={11} /> By category…
+                  <FolderTree size={11} className="chat-picker-item-icon" />
+                  <span className="chat-picker-main">By category…</span>
                 </button>
                 <button
-                  className="chat-inline-menu-item"
+                  className="chat-picker-item"
                   type="button"
+                  title="Open the planning inspector (side panel)"
                   onClick={() => {
                     setShowPlanningMenu(false);
                     onOpenPlanningInspector?.();
                   }}
                 >
-                  <LayoutGrid size={11} /> Open planning inspector
+                  <LayoutGrid size={11} className="chat-picker-item-icon" />
+                  <span className="chat-picker-main">Planning inspector</span>
                 </button>
               </div>
             ) : null}
