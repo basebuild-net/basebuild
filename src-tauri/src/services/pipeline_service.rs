@@ -232,11 +232,22 @@ impl PipelineService {
         let schematic = Self::load_schematic(&request.project_path);
         let convo = Self::load_conversation(&request.session_id);
 
-        let system = NativeChatService::system_prompt(&request.project_path, schematic.as_deref());
+        let system = crate::services::planning_prompt_service::PlanningPromptService::get(
+            crate::models::planning_prompt::CATEGORY_GENERATION,
+        ).unwrap_or_else(|_| NativeChatService::system_prompt(&request.project_path, schematic.as_deref()));
+        let focus = Self::focus_directive(&request.project_path);
         let prompt = format!(
-            "Based on the project context and conversation below, propose 3-6 category names for \
-             organizing ideas for this project.\nRespond with ONLY a JSON array of strings (the \
-             category names, max 3 words each). No prose, no code fences.\n\nConversation:\n{convo}"
+            "{focus}\n\n\
+             Based on the project schematic and conversation below, propose 3-6 \
+             category names for organizing ideas for THIS project's domain (not a \
+             generic taxonomy like SEO/Optimization/Design — derive from the \
+             schematic's Blueprint, Vision, and priorities).\n\
+             Respond with ONLY a JSON array of strings (category names, max 3 words \
+             each). No prose, no code fences.\n\n\
+             Schematic:\n{schematic_text}\n\nConversation:\n{convo}",
+            schematic_text = schematic.as_deref().unwrap_or("(no schematic)"),
+            focus = focus,
+            convo = convo,
         );
 
         let response = Self::call_model(
@@ -282,12 +293,25 @@ impl PipelineService {
         let convo = Self::load_conversation(&request.session_id);
         let category_hint = request.input.as_deref().unwrap_or("");
 
-        let system = NativeChatService::system_prompt(&request.project_path, schematic.as_deref());
+        let system = crate::services::planning_prompt_service::PlanningPromptService::get(
+            crate::models::planning_prompt::IDEA_GENERATION,
+        ).unwrap_or_else(|_| NativeChatService::system_prompt(&request.project_path, schematic.as_deref()));
+        let focus = Self::focus_directive(&request.project_path);
         let prompt = format!(
-            "Based on the project context and conversation below, propose 3-6 concrete, actionable \
-             ideas for this project.\nRespond with ONLY a JSON array of objects, each with \"title\" \
-             (max 8 words) and \"description\" (1-2 sentences). No prose, no code fences.\n\nCategory \
-             hint: {category_hint}\n\nConversation:\n{convo}"
+            "{focus}\n\n\
+             Based on the project schematic and conversation below, propose 3-6 \
+             concrete, actionable ideas for this project. Each idea must cite \
+             grounding (real files, functions, or observed gaps). Respond with \
+             ONLY a JSON array of objects with \"title\" (max 8 words), \
+             \"description\" (1-2 sentences), and \"grounding\" (concrete \
+             evidence). Optionally include \"anchor\" naming the Vision/End \
+             goal/priority served. No prose, no code fences.\n\n\
+             Category hint: {category_hint}\n\n\
+             Schematic:\n{schematic_text}\n\nConversation:\n{convo}",
+            schematic_text = schematic.as_deref().unwrap_or("(no schematic)"),
+            focus = focus,
+            category_hint = category_hint,
+            convo = convo,
         );
 
         let response = Self::call_model(
@@ -340,6 +364,33 @@ impl PipelineService {
             })
     }
 
+    /// Build a focus directive from the schematic: Vision, End goals, Current
+    /// priorities, and Blueprint constraints. Assembled into generation prompts
+    /// so ideas stay grounded in the project's actual goals (anti-feature-creep).
+    fn focus_directive(project_path: &str) -> String {
+        let path = std::path::PathBuf::from(project_path);
+        let report = crate::services::schematic_service::inspect(&path);
+        if !report.exists {
+            return "No schematic found. Generation runs without grounding; \
+                    consider creating a schematic first."
+                .to_string();
+        }
+        let mut parts = Vec::new();
+        parts.push("Focus directive:".to_string());
+        parts.push(
+            "Serve the project's Vision, End goals, and Current priorities first. \
+             Decline generic filler that does not serve the goal."
+                .to_string(),
+        );
+        if report.missing_year_goal || report.missing_month_goal {
+            parts.push("Note: year-end or month-end goal is missing.".to_string());
+        }
+        if report.stale_goal {
+            parts.push("Note: an end goal's period has passed.".to_string());
+        }
+        parts.join(" ")
+    }
+
     /// Stage: enhance an idea into a draft plan. Creates a draft plan linked
     /// to the idea and returns the plan id as an output ref.
     fn stage_enhance_idea(
@@ -361,13 +412,23 @@ impl PipelineService {
         let (provider_id, model_id, effort_level) = Self::resolve_stage_model(request)?;
         let schematic = Self::load_schematic(&request.project_path);
 
-        let system = NativeChatService::system_prompt(&request.project_path, schematic.as_deref());
+        let system = crate::services::planning_prompt_service::PlanningPromptService::get(
+            crate::models::planning_prompt::PLAN_GENERATION,
+        ).unwrap_or_else(|_| NativeChatService::system_prompt(&request.project_path, schematic.as_deref()));
+        let focus = Self::focus_directive(&request.project_path);
         let prompt = format!(
-            "Enhance the following idea into a structured plan with a clear goal and description.\n\
-             Respond with ONLY a JSON object with \"title\" (max 12 words), \"goal\" (1 sentence), \
-             and \"description\" (2-3 sentences). No prose, no code fences.\n\nIdea: {}\n{}",
-            idea.title,
-            idea.description
+            "{focus}\n\n\
+             Enhance the following idea into a structured plan with a clear goal \
+             and description. Respond with ONLY a JSON object with \"title\" \
+             (max 12 words), \"goal\" (1 sentence), and \"description\" \
+             (2-3 sentences). No prose, no code fences.\n\n\
+             Idea: {title}\n{desc}\n\n\
+             Grounding: {grounding}\nAnchor: {anchor}",
+            focus = focus,
+            title = idea.title,
+            desc = idea.description,
+            grounding = idea.grounding,
+            anchor = idea.anchor.as_deref().unwrap_or("(none — outside current focus)"),
         );
 
         let response = Self::call_model(
