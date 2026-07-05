@@ -68,7 +68,7 @@ specs → `openspec/specs/`, folder → `openspec/changes/archive/`).
 
 ### Next (specced, ready to start)
 
-2. `omp-terminal-usage-sync` — day-one OMP workflow on the installed build:
+1. `omp-terminal-usage-sync` — day-one OMP workflow on the installed build:
    fix dead PTY output/input/resize plumbing (omp.exe spawns but renders
    nothing), stale-tab disconnected states, omp 16.x telemetry parser drift
    (`reports[].limits[]`), manual Sync-now ungated from auto-sync with
@@ -78,34 +78,63 @@ specs → `openspec/specs/`, folder → `openspec/changes/archive/`).
    empty-chat hygiene. Diagnosis-complete from 2026-07-05 installed-build
    (v0.0.12) testing. `session-lifecycle` canonical spec landed via
    `planning-system-qol` archive (PR #19) — dependency satisfied.
-3. `file-viewer-editor` — file tabs become the single view/edit/diff
+2. `file-viewer-editor` — file tabs become the single view/edit/diff
    surface: syntax-highlighted virtualized viewing, markdown preview,
    images, explicit-save editing with mtime conflict guard, and unified
    diff mode fed from the Source panel (staged/unstaged/untracked).
    Provides the rendering surface `diff-review-workflow` can reuse.
-4. `harness-context-files` — system-prompt assembly: AGENTS.md discovery,
+3. `harness-context-files` — system-prompt assembly: AGENTS.md discovery,
    schematic injection, skills metadata, context inspector. Feeds the merged
    budget guard; no remaining gate.
-5. `native-app-login-mcp` — device-auth account connection + first-party usage
+4. `native-app-login-mcp` — device-auth account connection + first-party usage
    sync with basebuild.net. Independent of everything above.
-6. `diff-review-workflow` — per-run changeset baseline, file-level review
+5. `diff-review-workflow` — per-run changeset baseline, file-level review
    (approve/revert/send-back), review gate before commit/PR final touches.
    **After `plan-pipeline-harness`** (archived PR #15 — gate satisfied);
    pairs with `file-viewer-editor`'s diff surface.
+6. `schematic-enhance-ui` — per-section **Enhance** action on the schematic
+   tab: plain words → agent-optimized rewrite shown as an approve/discard
+   before/after diff (new cap `schematic-enhance`). Fulfills the
+   schematic-wizard "AI-enhanced descriptions" requirement left unshipped by
+   `schematic-grounded-planning` (task 2.3). Artifacts generated 2026-07-05
+   (0/14). Dep `schematic-grounded-planning` merged (PR #22).
+7. `session-compaction` — summarize-and-continue history compaction past the
+   truncation guard (new cap `session-compaction`; **modifies**
+   `context-budget-guard` to prefer compaction over whole-turn dropping).
+   Deferred out of `native-agent-loop`. Artifacts generated 2026-07-05 (0/13).
+   Unblocked — `native-agent-loop` archived (PR #9).
+8. `harness-subagents` — scoped subagent delegation tool: a parent turn spawns
+   bounded, worktree-isolated native sub-sessions (omp task-tool parity) on the
+   run queue and folds their results back (new cap `harness-subagents`).
+   Artifacts generated 2026-07-05 (0/16). Gate satisfied — `plan-pipeline-harness`
+   archived (PR #15).
+9. `plan-status-rename` — rename plan status `openspec → planned` across
+   DB/API/UI with a one-time migration + backward-compat read alias; updates
+   AGENTS.md Invariant 9 + `config.yaml` to match the `.basebuild` schema
+   (**modifies** `plan-pipeline`, `openspec-artifacts`; new cap
+   `plan-status-migration`). Artifacts generated 2026-07-05 (0/12). Dep
+   `basebuild-planning-skill` merged (PR #20).
+10. `planning-file-ingestion` — app reads/syncs `.basebuild` planning files
+    (categories/ideas/plans) into the workspace, non-destructive + idempotent
+    (new cap `planning-file-ingestion`). Artifacts generated 2026-07-05 (0/13).
+    Deps `basebuild-planning-skill` + `unified-planning-workspace` merged
+    (PR #20); pairs with `plan-status-rename` for the `planned` vocabulary.
+11. `plan-import` — import pre-existing external plans (unexecuted OpenSpec
+    changes etc.) into `.basebuild` plan records with `engine`/`external`/derived
+    status, confirmed + idempotent (new cap `plan-import`). Artifacts generated
+    2026-07-05 (0/13). Dep `basebuild-planning-skill` merged (PR #20); pairs with
+    `planning-file-ingestion`.
 
 ### Proposed (no artifacts yet — run `/propose <name>` when its turn comes)
 
-|Plan|Scope|Depends on|
-|---|---|---|
-|`schematic-enhance-ui`|Per-section **Enhance** action on the schematic tab: plain words → agent-optimized rewrite shown as an approve/discard before/after diff. Fulfills the schematic-wizard "AI-enhanced descriptions" spec requirement left unshipped by `schematic-grounded-planning` (task 2.3).|`schematic-grounded-planning` merged (PR #22)|
-|`session-compaction`|Summarize-and-continue history compaction past the truncation guard; explicitly deferred out of `native-agent-loop`.|unblocked — `native-agent-loop` archived (PR #9)|
-|`harness-subagents`|Delegate scoped subtasks to parallel native sessions (omp task-tool parity) on top of the run queue + worktrees.|`plan-pipeline-harness` archived (PR #15) — gate satisfied|
-|`plan-status-rename`|App DB/UI status rename `openspec → planned` + AGENTS.md Invariant 9, matching the `.basebuild` file schema.|`basebuild-planning-skill` merged (PR #20)|
-|`planning-file-ingestion`|App reads/syncs `.basebuild` planning files (ideas/plans/categories) into the planning workspace.|`basebuild-planning-skill` + `unified-planning-workspace` merged (PR #20)|
-|`plan-import`|Import pre-existing external plans (unexecuted openspec changes etc.) into `.basebuild` plan records.|`basebuild-planning-skill` merged (PR #20)|
+_All six previously-proposed plans had their dependencies satisfied (all deps
+merged/archived) and were generated on **2026-07-05**; they now carry full
+artifacts and moved to **Next** above. No proposed-without-artifacts plans
+remain._
 
-Full artifacts are deliberately **not** pre-generated for proposed plans —
-stale specs are worse than none.
+New ideas still land here first: this section stays the holding area for
+genuinely unstarted plans whose artifacts should **not** be pre-generated until
+their turn comes — stale specs are worse than none.
 
 
 ## Status
@@ -122,8 +151,14 @@ _Last refreshed: 2026-07-05 (`node scripts/openspec-status.mjs --write`)_
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
+|`harness-subagents`|0/16|not started|`/apply harness-subagents`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
 |`omp-terminal-usage-sync`|0/33|not started|`/apply omp-terminal-usage-sync`|
+|`plan-import`|0/13|not started|`/apply plan-import`|
+|`plan-status-rename`|0/12|not started|`/apply plan-status-rename`|
+|`planning-file-ingestion`|0/13|not started|`/apply planning-file-ingestion`|
+|`schematic-enhance-ui`|0/14|not started|`/apply schematic-enhance-ui`|
+|`session-compaction`|0/13|not started|`/apply session-compaction`|
 |`basebuild-planning-skill`|18/18|complete — archive|`/archive basebuild-planning-skill`|
 <!-- status:end -->
 
