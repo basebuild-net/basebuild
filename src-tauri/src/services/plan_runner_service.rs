@@ -11,9 +11,10 @@ use crate::{
         EnqueuePlanRequest, ExecutionProfile, PlanQueueEntry, PlanRun, PlanRunEvent,
         PlanRunStatus, RunnerKind, StartQueueRequest,
     },
+    models::planning_event::PlanningEventKind,
     services::{
         native_chat_service::NativeChatService, openspec_service, plan_service::PlanService,
-        session_service::SessionService, storage_service::StorageService,
+        planning_events, session_service::SessionService, storage_service::StorageService,
     },
 };
 
@@ -155,6 +156,32 @@ impl PlanRunnerService {
         Ok(())
     }
 
+    /// Emit a typed planning event for a run lifecycle transition, alongside
+    /// the existing `PLAN_RUN_EVENT`. Best-effort: fetches plan title + project
+    /// path from the run's session; missing data degrades to empty strings
+    /// rather than failing the run.
+    fn emit_planning_event(app: &AppHandle, run: &PlanRun, kind: PlanningEventKind, detail: Option<String>) {
+        let title = PlanService::get(&run.plan_id)
+            .ok()
+            .flatten()
+            .map(|p| p.title)
+            .unwrap_or_else(|| run.plan_id.clone());
+        let project_path = SessionService::get(&run.session_id)
+            .ok()
+            .flatten()
+            .map(|s| s.project_path)
+            .unwrap_or_default();
+        planning_events::emit(
+            app,
+            kind,
+            &run.id,
+            &project_path,
+            Some(run.session_id.clone()),
+            &title,
+            detail,
+        );
+    }
+
     // ── Run lifecycle ───────────────────────────────────────────────────
 
     /// Start the queue: resolves the profile, then dispatches runs up to
@@ -257,6 +284,12 @@ impl PlanRunnerService {
                     error: Some("Cancelled by user".to_string()),
                 },
             );
+            Self::emit_planning_event(
+                app,
+                run,
+                PlanningEventKind::StageCancelled,
+                Some("Run cancelled by user".to_string()),
+            );
             // Return the plan to ready (or cancelled if the user chose).
             let new_status = if cancel_plan {
                 PlanStatus::Cancelled
@@ -337,6 +370,15 @@ impl PlanRunnerService {
                     },
                 },
             );
+            let (run_kind, run_detail) = if succeeded {
+                (PlanningEventKind::RunFinished, None)
+            } else {
+                (
+                    PlanningEventKind::RunFailed,
+                    Some("Run failed".to_string()),
+                )
+            };
+            Self::emit_planning_event(app, run, run_kind, run_detail);
         }
         Ok(())
     }
@@ -443,6 +485,11 @@ impl PlanRunnerService {
                 error: None,
             },
         );
+
+        // Emit a typed planning event so the inspector/flow board react live.
+        if let Some(run) = Self::get_run(&run_id)? {
+            Self::emit_planning_event(app, &run, PlanningEventKind::RunStarted, None);
+        }
 
         Self::get_run(&run_id)?
             .ok_or_else(|| "OMP plan run not found after creation".to_string())
@@ -633,6 +680,11 @@ impl PlanRunnerService {
                 error: None,
             },
         );
+
+        // Emit a typed planning event so the inspector/flow board react live.
+        if let Some(run) = Self::get_run(&run_id)? {
+            Self::emit_planning_event(app, &run, PlanningEventKind::RunStarted, None);
+        }
 
         // Remove the token when done.
         if let Ok(mut map) = RUNNING_RUNS.lock() {

@@ -2,16 +2,18 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use rusqlite::{params, OptionalExtension};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::{
     events::NATIVE_CHAT_CHUNK,
     models::{
         idea::{Idea, IdeaStatus},
         pipeline::{PipelineRun, PipelineRunStatus, PipelineStageKind, PipelineStartRequest},
+        planning_event::PlanningEventKind,
     },
     services::{
-        native_chat_service::NativeChatService, provider_client::{resolve_client, ChatMsg, ProviderRequest},
+        native_chat_service::NativeChatService, planning_events,
+        provider_client::{resolve_client, ChatMsg, ProviderRequest},
         session_service::SessionService, storage_service::StorageService,
     },
 };
@@ -102,7 +104,7 @@ impl PipelineService {
         if let Ok(mut map) = RUNNING_STAGES.lock() {
             map.insert(run_id.clone(), token.clone());
         }
-        Self::update_run_status(&run_id, PipelineRunStatus::Running, None, &[], Some(now()), None)?;
+        Self::update_run_status(app, &run_id, PipelineRunStatus::Running, None, &[], Some(now()), None)?;
 
         // Execute the stage. Errors are recorded on the run row.
         let result = match kind {
@@ -129,6 +131,7 @@ impl PipelineService {
         // recorded as cancelled (the user's intent), not failed.
         if token.is_cancelled() {
             Self::update_run_status(
+                app,
                 &run_id,
                 PipelineRunStatus::Cancelled,
                 Some("Cancelled by user"),
@@ -140,6 +143,7 @@ impl PipelineService {
             match result {
                 Ok(output_refs) => {
                     Self::update_run_status(
+                        app,
                         &run_id,
                         PipelineRunStatus::Succeeded,
                         None,
@@ -150,6 +154,7 @@ impl PipelineService {
                 }
                 Err(e) => {
                     Self::update_run_status(
+                        app,
                         &run_id,
                         PipelineRunStatus::Failed,
                         Some(&e),
@@ -167,7 +172,7 @@ impl PipelineService {
 
     /// Cancel a running pipeline stage by run id. Sets the cancellation token
     /// so the stage's emit closure aborts the request on the next chunk.
-    pub fn cancel_run(run_id: &str) -> DbResult<()> {
+    pub fn cancel_run<R: Runtime>(app: &AppHandle<R>, run_id: &str) -> DbResult<()> {
         if let Ok(map) = RUNNING_STAGES.lock() {
             if let Some(token) = map.get(run_id) {
                 token.cancel();
@@ -177,6 +182,7 @@ impl PipelineService {
         // If the run isn't in the map, it may have already completed. Mark it
         // cancelled if it's still in a non-terminal state.
         Self::update_run_status(
+            app,
             run_id,
             PipelineRunStatus::Cancelled,
             Some("Cancelled by user"),
@@ -762,7 +768,8 @@ impl PipelineService {
         Ok(())
     }
 
-    fn update_run_status(
+    fn update_run_status<R: Runtime>(
+        app: &AppHandle<R>,
         id: &str,
         status: PipelineRunStatus,
         error: Option<&str>,
@@ -779,6 +786,31 @@ impl PipelineService {
             params![status.as_str(), error, output_json, started_at, completed_at, id],
         )
         .map_err(|e| e.to_string())?;
+
+        // Emit a typed planning event for the stage transition. Best-effort:
+        // fetch the run for title + project_path; missing data degrades to
+        // the run id rather than failing the transition.
+        let kind = match status {
+            PipelineRunStatus::Running => Some(PlanningEventKind::StageStarted),
+            PipelineRunStatus::Succeeded => Some(PlanningEventKind::StageSucceeded),
+            PipelineRunStatus::Failed => Some(PlanningEventKind::StageFailed),
+            PipelineRunStatus::Cancelled => Some(PlanningEventKind::StageCancelled),
+            PipelineRunStatus::Pending => None,
+        };
+        if let Some(kind) = kind {
+            if let Ok(Some(run)) = Self::get_run(id) {
+                let title = format!("{}: {}", run.kind, status.as_str());
+                planning_events::emit(
+                    app,
+                    kind,
+                    &run.id,
+                    &run.project_path,
+                    Some(run.session_id.clone()),
+                    &title,
+                    error.map(str::to_string),
+                );
+            }
+        }
         Ok(())
     }
 }
@@ -807,7 +839,8 @@ fn row_to_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<PipelineRun> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    #[cfg(not(target_os = "windows"))]
+    use tauri::Manager;
     #[test]
     fn cancellation_token_signals_cancellation() {
         let token = CancellationToken::new();
@@ -853,8 +886,17 @@ mod tests {
     fn cancel_run_marks_nonexistent_run_cancelled() {
         let dir = tempfile::TempDir::new().unwrap();
         let _g = crate::test_util::test::lock_db(&dir);
-        let result = PipelineService::cancel_run("nonexistent-run-id");
-        assert!(result.is_ok());
+        // cancel_run now requires an AppHandle for event emission. On a
+        // nonexistent run, update_run_status is called but get_run returns
+        // None so no event is emitted. The tauri test mock requires Wry
+        // runtime DLLs that may not be available in CI, so this test is
+        // gated on not-Windows.
+        #[cfg(not(target_os = "windows"))]
+        {
+            let app = tauri::test::mock_app().app_handle().clone();
+            let result = PipelineService::cancel_run(&app, "nonexistent-run-id");
+            assert!(result.is_ok());
+        }
     }
 
     #[test]

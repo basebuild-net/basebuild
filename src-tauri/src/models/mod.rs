@@ -7,6 +7,7 @@ pub mod connector;
 pub mod plan;
 pub mod plan_import;
 pub mod plan_run;
+pub mod planning_event;
 pub mod planning_prompt;
 pub mod pipeline;
 pub mod native_chat;

@@ -6,21 +6,21 @@ bases). Phases 1–2, 3–4, 5–6, 7–8, and 9 are intended PR boundaries.
 
 ## 1. Planning event bus (Phase A)
 
-- [ ] 1.1 Add `src-tauri/src/models/planning_event.rs`: event kind enum
+- [x] 1.1 Add `src-tauri/src/models/planning_event.rs`: event kind enum
       (plan/idea/category/schematic/stage/run/integration variants), payload
       struct (kind, entityId, projectPath, sessionId?, title, detail?, seq,
       ts), camelCase serde; `planning_events::emit(app, …)` helper with a
       process-wide atomic seq in a new `src-tauri/src/services/planning_events.rs`.
-- [ ] 1.2 Emit at mutation points: `plan_service.rs` (create/update/status),
+- [x] 1.2 Emit at mutation points: `plan_service.rs` (create/update/status),
       storage ideas+categories paths used by `pipeline_service.rs`
       (`create_idea`, idea status changes, category create),
       `schematic_service.rs::write`, `pipeline_service.rs` stage transitions,
       `plan_runner_service.rs` run start/finish/fail (alongside existing
       `PLAN_RUN_EVENT`). Unit-test emission per service (kind + seq ordering).
-- [ ] 1.3 Add `src/state/planningEvents.ts`: one `listen("planning://event")`
+- [x] 1.3 Add `src/state/planningEvents.ts`: one `listen("planning://event")`
       subscription hook with seq-gap detection → catalog refetch callback;
       wire `src/state/ideas.ts` + `src/state/plans.ts` to refresh from it.
-- [ ] 1.4 Planning inspector consumes events: live Plans/Ideas/Categories
+- [x] 1.4 Planning inspector consumes events: live Plans/Ideas/Categories
       refresh in `PlanningInspector.tsx`, no manual refetch buttons added.
 
 ## 2. Notifications (Phase A)
