@@ -14,6 +14,7 @@ pub mod omp_telemetry_service;
 pub mod final_touches_service;
 pub mod plan_runner_service;
 pub mod plan_service;
+pub mod plan_import_service;
 pub mod pipeline_service;
 pub mod planning_prompt_service;
 pub mod native_chat_service;

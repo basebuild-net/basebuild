@@ -12,6 +12,7 @@ pub mod mcp;
 pub mod omp;
 pub mod omp_telemetry;
 pub mod plans;
+pub mod plan_import;
 pub mod plan_runs;
 pub mod pipeline;
 pub mod planning_prompts;

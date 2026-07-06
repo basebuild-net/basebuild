@@ -140,12 +140,13 @@ their turn comes — stale specs are worse than none.
 ## Status
 
 <!-- status:begin -->
-_Last refreshed: 2026-07-05 (`node scripts/openspec-status.mjs --write`)_
+_Last refreshed: 2026-07-06 (`node scripts/openspec-status.mjs --write`)_
 
 |Change|Progress|Status|Next command|
 |---|---|---|---|
 |`chat-first-shell`|17/31|in progress|`/apply chat-first-shell`|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
+|`plan-import`|11/13|in progress|`/apply plan-import`|
 |`schematic-grounded-planning`|23/25|in progress|`/apply schematic-grounded-planning`|
 |`unified-planning-workspace`|32/34|in progress|`/apply unified-planning-workspace`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
@@ -154,7 +155,6 @@ _Last refreshed: 2026-07-05 (`node scripts/openspec-status.mjs --write`)_
 |`harness-subagents`|0/16|not started|`/apply harness-subagents`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
 |`omp-terminal-usage-sync`|0/33|not started|`/apply omp-terminal-usage-sync`|
-|`plan-import`|0/13|not started|`/apply plan-import`|
 |`plan-status-rename`|0/12|not started|`/apply plan-status-rename`|
 |`planning-file-ingestion`|0/13|not started|`/apply planning-file-ingestion`|
 |`schematic-enhance-ui`|0/14|not started|`/apply schematic-enhance-ui`|

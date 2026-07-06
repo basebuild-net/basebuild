@@ -12,7 +12,14 @@ Basebuild's app shell is a three-column grid:
    the chat planning menu.
 3. **Right side panel** (260px → 36px collapsed) — stacked accordion sections
    for Plans, Files, and Source. The Plans section is a Planning Inspector
-   with three tabs: Plans, Ideas, and Categories.
+   with three tabs: Plans, Ideas, and Categories. The Plans tab exposes an
+   **Import** action (`plan_import_detect` / `plan_import_apply`): it scans
+   `openspec/changes/` for change folders not already linked to a `.basebuild`
+   plan, lists them as candidates (title from `proposal.md`, status derived
+   from `tasks.md` progress), and on explicit confirm writes
+   `.basebuild/plans/<slug>/plan.md` records (`engine: openspec`, `external:`
+   pointer, no duplicated task list). Detection never writes; re-import skips
+   already-linked sources; malformed sources are reported and skipped.
 
 
 The global taskbar sits above the shell. Its right side contains the update

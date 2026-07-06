@@ -59,7 +59,7 @@ pub fn resolve_unique_change_name(project_path: &str, title: &str) -> String {
 }
 
 /// The `openspec/changes/` directory for a project.
-fn changes_dir(project_path: &str) -> PathBuf {
+pub fn changes_dir(project_path: &str) -> PathBuf {
     Path::new(project_path).join("openspec").join("changes")
 }
 

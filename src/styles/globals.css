@@ -1241,6 +1241,30 @@ a { color: inherit; text-decoration: none; }
   display: flex; justify-content: flex-end; gap: 6px;
   margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--bb-border);
 }
+.modal-title { font-size: 13px; font-weight: 600; }
+.modal-footer {
+  display: flex; justify-content: flex-end; gap: 6px;
+  padding: 8px 12px; border-top: 1px solid var(--bb-border);
+}
+.modal-plan-import { width: 520px; }
+.modal-plan-import .modal-body { flex-direction: column; overflow: auto; padding: 12px; gap: 8px; }
+.text-error { color: var(--bb-danger, #e5484d); }
+.import-candidate-list, .import-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.import-candidate {
+  border: 1px solid var(--bb-border); border-radius: 0;
+  background: transparent; transition: border-color 0.08s, background 0.08s;
+}
+.import-candidate:hover { border-color: var(--bb-border-strong); background: var(--bb-surface); }
+.import-candidate.is-selected { border-color: var(--bb-cta); background: color-mix(in srgb, var(--bb-cta) 8%, transparent); }
+.import-candidate-label { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; }
+.import-candidate-title { font-size: 12px; font-weight: 600; color: var(--bb-text); }
+.import-candidate-meta { font-size: 11px; color: var(--bb-muted); margin-left: auto; }
+.import-result { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 2px 0; }
+.import-result-slug { font-weight: 600; }
+.import-result-badge { font-size: 10px; padding: 1px 6px; border: 1px solid var(--bb-border); }
+.import-result-badge.is-ok { color: var(--bb-cta); border-color: var(--bb-cta); }
+.import-result-badge.is-skipped { color: var(--bb-muted); }
+.import-result-warning { color: var(--bb-warning, #f5a623); }
 .flex-1 { flex: 1; }
 .settings-sidebar {
   width: 140px; flex-shrink: 0;
