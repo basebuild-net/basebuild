@@ -1,12 +1,20 @@
 import { useState } from "react";
-import { Folder, GitBranch, LayoutList, Plus } from "lucide-react";
+import {
+  ChevronDown,
+  Folder,
+  GitBranch,
+  LayoutList,
+  MessageSquare,
+  Plus,
+  TerminalSquare,
+  Zap,
+  LayoutTemplate,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import type { IdeaCategory } from "../../lib/ideas";
 import type { NewPlan, Plan, PlanFocusContext } from "../../lib/plans";
 import type { PlansState } from "../../state/plans";
-import { PlanningInspector } from "./PlanningInspector";
-import { SourcePanel } from "../panels/SourcePanel";
 
 type ChatEnvironmentPanelProps = {
   projectPath: string | null;
@@ -23,8 +31,10 @@ type ChatEnvironmentPanelProps = {
   onSuggestForCategory: (category: IdeaCategory | null) => void;
   activeChatSessionId: string | null;
   onOpenFiles: () => void;
-  onCreateChat: () => void;
-  /** When true, auto-opens the Plans & Ideas fold (set by the chat-side inspector button). */
+  onOpenChanges: () => void;
+  onOpenPlans: () => void;
+  onCreatePanel: (type: "chat" | "terminal" | "omp" | "schematic") => void;
+  /** When true, auto-opens the Plans & Ideas modal (set by the chat-side inspector button). */
   openPlansFoldSignal?: number;
 };
 
@@ -36,6 +46,13 @@ const FOLDS: { id: FoldId; icon: LucideIcon; label: string }[] = [
   { id: "files", icon: Folder, label: "Files" },
 ];
 
+const NEW_PANEL_OPTIONS: { type: "chat" | "terminal" | "omp" | "schematic"; icon: LucideIcon; label: string }[] = [
+  { type: "chat", icon: MessageSquare, label: "Chat" },
+  { type: "terminal", icon: TerminalSquare, label: "Terminal" },
+  { type: "omp", icon: Zap, label: "Oh My Pi" },
+  { type: "schematic", icon: LayoutTemplate, label: "Project Schematic" },
+];
+
 export function ChatEnvironmentPanel({
   projectPath,
   sessionId,
@@ -45,16 +62,18 @@ export function ChatEnvironmentPanel({
   onSuggestForCategory,
   activeChatSessionId,
   onOpenFiles,
-  onCreateChat,
+  onOpenChanges,
+  onOpenPlans,
+  onCreatePanel,
   openPlansFoldSignal,
 }: ChatEnvironmentPanelProps) {
-  const [openFold, setOpenFold] = useState<FoldId | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  // Auto-open the Plans fold when the chat-side inspector button fires.
+  // Auto-open the Plans modal when the chat-side inspector button fires.
   const lastSignalRef = useState<{ value: number }>({ value: 0 })[0];
   if (openPlansFoldSignal !== undefined && openPlansFoldSignal !== lastSignalRef.value) {
     lastSignalRef.value = openPlansFoldSignal;
-    if (openFold !== "plans") setOpenFold("plans");
+    onOpenPlans();
   }
 
   if (!projectPath) return null;
@@ -66,48 +85,47 @@ export function ChatEnvironmentPanel({
           {FOLDS.map(({ id, icon: Icon, label }) => (
             <button
               key={id}
-              className={`chat-env-tab${openFold === id ? " is-active" : ""}`}
+              className="chat-env-tab"
               type="button"
               title={label}
-              onClick={() => (id === "files" ? onOpenFiles() : setOpenFold((cur) => (cur === id ? null : id)))}
+              onClick={() => {
+                if (id === "files") onOpenFiles();
+                else if (id === "source") onOpenChanges();
+                else if (id === "plans") onOpenPlans();
+              }}
             >
               <Icon size={11} />
               <span>{label}</span>
             </button>
           ))}
-          <button
-            className="chat-env-tab chat-env-tab-add"
-            type="button"
-            title="New chat"
-            onClick={onCreateChat}
-          >
-            <Plus size={11} />
-          </button>
+          <div className="chat-env-add-wrapper">
+            <button
+              className="chat-env-tab chat-env-tab-add"
+              type="button"
+              title="New panel"
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              <Plus size={11} />
+              <ChevronDown size={8} />
+            </button>
+            {menuOpen ? (
+              <div className="chat-env-add-menu" onMouseLeave={() => setMenuOpen(false)}>
+                {NEW_PANEL_OPTIONS.map(({ type, icon: Icon, label }) => (
+                  <button
+                    key={type}
+                    type="button"
+                    title={`New ${label} panel`}
+                    onClick={() => { setMenuOpen(false); onCreatePanel(type); }}
+                  >
+                    <Icon size={11} />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
-      {openFold === "source" ? (
-        <div className="chat-env-fold">
-          <SourcePanel projectPath={projectPath} />
-        </div>
-      ) : openFold === "plans" ? (
-        <div className="chat-env-fold">
-          <PlanningInspector
-            sessionId={sessionId}
-            projectPath={projectPath}
-            plans={plans.plans}
-            loading={plans.loading}
-            collapsed={false}
-            onToggleCollapse={() => {}}
-            {...planCallbacks}
-            onSetPlanStatus={plans.setPlanStatus}
-            onDeletePlan={plans.deletePlan}
-            onOpenChatSession={onOpenChatSession}
-            onSuggestForCategory={onSuggestForCategory}
-            activeChatSessionId={activeChatSessionId}
-            showHeader={false}
-          />
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -7,6 +7,8 @@ import { ProjectSidebar, useProjectSidebar } from "./ProjectSidebar";
 import { ActivitySidebar } from "./ActivitySidebar";
 import { ChatEnvironmentPanel } from "./ChatEnvironmentPanel";
 import { FileExplorerModal } from "./FileExplorerModal";
+import { PlanningInspector } from "./PlanningInspector";
+import { SourcePanel } from "../panels/SourcePanel";
 
 import { EditPlanModal } from "./EditPlanModal";
 import { FocusPlanModal } from "./FocusPlanModal";
@@ -76,6 +78,8 @@ export function AppShell({ updates }: AppShellProps) {
   const [gridView, setGridView] = useState(false);
   const [fileModalOpen, setFileModalOpen] = useState(false);
   const [plansFoldSignal, setPlansFoldSignal] = useState(0);
+  const [changesModalOpen, setChangesModalOpen] = useState(false);
+  const [plansModalOpen, setPlansModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logPanelOpen, setLogPanelOpen] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
@@ -380,7 +384,7 @@ export function AppShell({ updates }: AppShellProps) {
     [plans, session.activeSessionId],
   );
   const handleOpenPlanningInspector = useCallback(() => {
-    setPlansFoldSignal((v) => v + 1);
+    setPlansModalOpen(true);
   }, []);
 
   const handleCloseChat = useCallback((chatId: string) => {
@@ -528,23 +532,67 @@ Rules:
     },
     [session, handleCreateTerminalTab, activeProjectPath],
   );
-  /** Create a new panel for the panel grid. Called when the user splits or
-   *  duplicates. Creates a session tab + chat/terminal as needed, then returns
-   *  the Panel object for the grid. */
+  /** Create a new panel for the panel grid (split/duplicate handler). */
   const handleCreatePanel = useCallback(
     (anchorId: string | null, _side: DropSide): Panel => {
       if (!session.activeSessionId) {
-        // Fallback: shouldn't normally happen.
         const id = `panel-${Date.now()}`;
         return { id, type: "chat", title: "Chat", chatSessionId: null, terminalId: null, filePath: null };
       }
       const id = `panel-${Date.now()}`;
       const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
-      // For chat panels, create a tab but defer chat session creation to ChatPanel mount.
       void session.createTab("chat", `Chat ${chatCount}`);
       return { id, type: "chat", title: `Chat ${chatCount}`, chatSessionId: null, terminalId: null, filePath: null };
     },
     [session],
+  );
+
+  /** Create a panel of a specific type (chat, terminal, omp, schematic). */
+  const handleCreateTypedPanel = useCallback(
+    (type: "chat" | "terminal" | "omp" | "schematic"): void => {
+      if (!session.activeSessionId) return;
+      const id = `panel-${Date.now()}`;
+      let panel: Panel;
+      if (type === "chat") {
+        const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
+        void session.createTab("chat", `Chat ${chatCount}`);
+        panel = { id, type: "chat", title: `Chat ${chatCount}`, chatSessionId: null, terminalId: null, filePath: null };
+      } else if (type === "terminal") {
+        void (async () => {
+          const shell = DEFAULT_SHELL();
+          const term = await createTerminal(shell, activeProjectPath ?? undefined);
+          await session.createTab("terminal", `Terminal ${term.id}`, term.id);
+          const p: Panel = { id, type: "terminal", title: `Terminal ${term.id}`, chatSessionId: null, terminalId: term.id, filePath: null };
+          setPanelGridState((prev) => {
+            if (!prev.root) return singlePanelGrid(p);
+            const newRoot = splitPanelAt(prev.root, prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "", p, "right");
+            return { ...prev, root: newRoot, activePanelId: p.id };
+          });
+        })();
+        return;
+      } else if (type === "omp") {
+        void (async () => {
+          const term = await createTerminal("omp", activeProjectPath ?? undefined);
+          await session.createTab("omp", "Oh My Pi", term.id);
+          const p: Panel = { id, type: "omp", title: "Oh My Pi", chatSessionId: null, terminalId: term.id, filePath: null };
+          setPanelGridState((prev) => {
+            if (!prev.root) return singlePanelGrid(p);
+            const newRoot = splitPanelAt(prev.root, prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "", p, "right");
+            return { ...prev, root: newRoot, activePanelId: p.id };
+          });
+        })();
+        return;
+      } else {
+        // schematic
+        panel = { id, type: "schematic", title: "Schematic", chatSessionId: null, terminalId: null, filePath: null };
+      }
+      setPanelGridState((prev) => {
+        if (!prev.root) return singlePanelGrid(panel);
+        const newRoot = splitPanelAt(prev.root, prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "", panel, "right");
+        return { ...prev, root: newRoot, activePanelId: panel.id };
+      });
+    },
+    [session, activeProjectPath],
   );
 
   /** Render a panel's content by type. */
@@ -608,9 +656,8 @@ Rules:
         return <TerminalPanel terminalId={tab.terminalId} onOutput={handleTerminalOutput} />;
       }
       if (panel.type === "file") {
-        const tab = session.tabs.find((t) => t.kind === "file" && t.id === panel.id);
-        if (!tab?.filePath) return null;
-        return <FileViewer path={tab.filePath} />;
+        if (!panel.filePath) return null;
+        return <FileViewer path={panel.filePath} />;
       }
       if (panel.type === "schematic") {
         return (
@@ -699,16 +746,50 @@ Rules:
   const handleOpenFileInTab = useCallback(
     async (filePath: string) => {
       if (!session.activeSessionId) return;
-      // Reuse existing tab if file is already open
-      const existing = session.tabs.find((t) => t.kind === "file" && t.filePath === filePath);
+      const name = filePath.split(/[\\/]/).pop() ?? filePath;
+
+      // Check if this file is already open in any panel — if so, focus it.
+      const allPanels = flattenPanels(panelGridState.root);
+      const existing = allPanels.find((p) => p.type === "file" && p.filePath === filePath);
       if (existing) {
-        session.setActiveTabId(existing.id);
+        setPanelGridState((prev) => ({ ...prev, activePanelId: existing.id }));
         return;
       }
-      const name = filePath.split(/[\\/]/).pop() ?? filePath;
-      await session.createTab("file", name, undefined, filePath);
+
+      // VSCode-style preview: if the active panel is a file panel that hasn't
+      // been modified (we track this via the panel's `filePath` only — no dirty
+      // state tracking yet), replace its file instead of creating a new panel.
+      const activeId = panelGridState.activePanelId;
+      const activePanel = allPanels.find((p) => p.id === activeId);
+      if (activePanel?.type === "file") {
+        // Replace the file in the active file panel (preview behavior).
+        setPanelGridState((prev) => ({
+          ...prev,
+          root: updatePanelInTree(prev.root, activePanel.id, {
+            filePath,
+            title: name,
+          }),
+        }));
+        return;
+      }
+
+      // Otherwise, create a new file panel split right in the grid.
+      const newPanel: Panel = {
+        id: `panel-${Date.now()}`,
+        type: "file",
+        title: name,
+        chatSessionId: null,
+        terminalId: null,
+        filePath,
+      };
+      setPanelGridState((prev) => {
+        if (!prev.root) return singlePanelGrid(newPanel);
+        const anchor = prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "";
+        const newRoot = splitPanelAt(prev.root, anchor, newPanel, "right");
+        return { ...prev, root: newRoot, activePanelId: newPanel.id };
+      });
     },
-    [session],
+    [session, panelGridState],
   );
 
   return (
@@ -789,14 +870,9 @@ Rules:
                 onSuggestForCategory={handleSuggestForCategory}
                 activeChatSessionId={session.activeSessionId}
                 onOpenFiles={() => setFileModalOpen(true)}
-                onCreateChat={() => {
-                  const newPanel = handleCreatePanel(null, "right");
-                  setPanelGridState((prev) => {
-                    if (!prev.root) return singlePanelGrid(newPanel);
-                    const newRoot = splitPanelAt(prev.root, prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "", newPanel, "right");
-                    return { ...prev, root: newRoot, activePanelId: newPanel.id };
-                  });
-                }}
+                onOpenChanges={() => setChangesModalOpen(true)}
+                onOpenPlans={() => setPlansModalOpen(true)}
+                onCreatePanel={handleCreateTypedPanel}
               />
               <span className="status-pill session-path-pill" title={activeProjectPath}>{activeProjectPath}</span>
             </div>
@@ -839,6 +915,50 @@ Rules:
         onClose={() => setFileModalOpen(false)}
         onOpenFile={handleOpenFileInTab}
       />
+      {changesModalOpen && activeProjectPath ? (
+        <div className="modal-overlay" role="dialog" aria-label="Changes" onClick={() => setChangesModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Changes</h2>
+              <button className="btn-icon" type="button" title="Close (Esc)" onClick={() => setChangesModalOpen(false)}><X size={14} /></button>
+            </div>
+            <div className="modal-body">
+              <SourcePanel projectPath={activeProjectPath} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {plansModalOpen && activeProjectPath ? (
+        <div className="modal-overlay" role="dialog" aria-label="Plans & Ideas" onClick={() => setPlansModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Plans & Ideas</h2>
+              <button className="btn-icon" type="button" title="Close (Esc)" onClick={() => setPlansModalOpen(false)}><X size={14} /></button>
+            </div>
+            <div className="modal-body">
+              <PlanningInspector
+                sessionId={session.activeSessionId}
+                projectPath={activeProjectPath}
+                plans={plans.plans}
+                loading={plans.loading}
+                collapsed={false}
+                onToggleCollapse={() => {}}
+                onCreatePlan={() => { setPlansModalOpen(false); handleCreatePlan(); }}
+                onEditPlan={(p) => { setPlansModalOpen(false); handleEditPlan(p); }}
+                onFocusPlan={handleFocusPlan}
+                onCopyReference={handleCopyReference}
+                onOpenInTerminal={handleOpenPlanInTerminal}
+                onSetPlanStatus={plans.setPlanStatus}
+                onDeletePlan={plans.deletePlan}
+                onOpenChatSession={(id) => { setPlansModalOpen(false); handleOpenChatSession(id); }}
+                onSuggestForCategory={handleSuggestForCategory}
+                activeChatSessionId={session.activeSessionId}
+                showHeader={false}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
       <StatusBar onClick={() => setLogPanelOpen(true)} />
       <CrashReportNotice onViewReports={() => setDebugPanelOpen(true)} />
       <LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} />

@@ -1291,18 +1291,21 @@ a { color: inherit; text-decoration: none; }
 }
 .modal {
   background: var(--bb-bg); border: 1px solid var(--bb-border);
-  border-radius: 0; min-width: 480px; max-width: 90vw; max-height: 80vh;
+  border-radius: 0;
+  width: 720px; height: 540px;
+  max-width: 90vw; max-height: 85vh;
   display: flex; flex-direction: column; overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
 }
 .modal-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 12px; border-bottom: 1px solid var(--bb-border);
+  flex-shrink: 0;
 }
 .modal-header h2 { margin: 0; font-size: 13px; font-weight: 600; }
-.modal-body { display: flex; flex: 1; overflow: hidden; }
-.settings-modal { width: 640px; }
-.plan-modal { width: 560px; }
+.modal-body { display: flex; flex: 1; overflow: auto; }
+.modal-body-scroll { flex: 1; overflow-y: auto; padding: 12px; }
+.settings-modal { width: 720px; height: 540px; }
+.plan-modal { width: 720px; height: 540px; }
 .plan-modal .modal-body { flex-direction: column; overflow: auto; padding: 12px; }
 .plan-mode-list { display: flex; flex-direction: column; gap: 4px; }
 .plan-mode-card {
@@ -1329,8 +1332,9 @@ a { color: inherit; text-decoration: none; }
 .modal-footer {
   display: flex; justify-content: flex-end; gap: 6px;
   padding: 8px 12px; border-top: 1px solid var(--bb-border);
+  flex-shrink: 0;
 }
-.modal-plan-import { width: 520px; }
+.modal-plan-import { width: 720px; height: 540px; }
 .modal-plan-import .modal-body { flex-direction: column; overflow: auto; padding: 12px; gap: 8px; }
 .text-error { color: var(--bb-danger, #e5484d); }
 .import-candidate-list, .import-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -1960,6 +1964,10 @@ a { color: inherit; text-decoration: none; }
 .chat-env-tab.is-active { color: var(--bb-cta); background: var(--bb-surface-high); }
 .chat-env-tab-add { color: var(--bb-muted); padding: 4px 6px; }
 .chat-env-tab-add:hover { color: var(--bb-cta); background: var(--bb-surface); }
+.chat-env-add-wrapper { position: relative; }
+.chat-env-add-menu { position: absolute; top: 100%; left: 0; z-index: 200; min-width: 140px; background: var(--bb-surface-high); border: 1px solid var(--bb-border-strong); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+.chat-env-add-menu button { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 11px; color: var(--bb-text); width: 100%; text-align: left; background: none; border: 0; cursor: pointer; }
+.chat-env-add-menu button:hover { background: var(--bb-surface); }
 .chat-env-fold {
   position: absolute;
   top: 100%;
@@ -1979,8 +1987,9 @@ a { color: inherit; text-decoration: none; }
   z-index: 100;
 }
 .file-modal {
-  width: min(900px, 90vw);
-  height: min(600px, 80vh);
+  width: 720px;
+  height: 540px;
+  max-width: 90vw; max-height: 85vh;
   background: var(--bb-bg);
   border: 1px solid var(--bb-border);
   display: flex; flex-direction: column;
