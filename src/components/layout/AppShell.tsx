@@ -28,6 +28,7 @@ import { ChatPanel } from "../panels/ChatPanel";
 import { ompStatus } from "../../lib/omp";
 import { stabilityRendererHeartbeat } from "../../lib/stability";
 import { StatusBar } from "./StatusBar";
+import { WindowControls } from "./WindowControls";
 import { LogPanel } from "./LogPanel";
 import { CrashReportNotice } from "./CrashReportNotice";
 import { DebugPanel } from "../panels/DebugPanel";
@@ -152,6 +153,8 @@ export function AppShell({ updates }: AppShellProps) {
         lastTabId: session.activeTabId,
         sideSection: workspaceRestore?.sideSection ?? "plans",
         sidebarCollapsed,
+        sideCollapsed: workspaceRestore?.sideCollapsed ?? false,
+        sideWidth: workspaceRestore?.sideWidth ?? 260,
         updatedAt: workspaceRestore?.updatedAt ?? 0,
       }).catch((caught) => {
         const message = caught instanceof Error ? caught.message : String(caught);
@@ -477,6 +480,12 @@ Rules:
 
   return (
     <div className="app-container app-container-chat-first">
+      <div className="window-taskbar" role="banner">
+        <span className="window-taskbar-title" title="Basebuild">Basebuild</span>
+        <div className="window-taskbar-right">
+          <WindowControls />
+        </div>
+      </div>
       <main
         className="app-shell app-shell-chat-first"
         data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}
