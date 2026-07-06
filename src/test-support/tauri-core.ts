@@ -144,7 +144,7 @@ function state(): E2eState {
       workspaceRestoreByProject: new Map(),
       auth: null,
       updateInstallCount: 0,
-      autoSyncEnabled: false,
+      autoSyncEnabled: true,
       gitChangeStaged: false,
     };
   }
@@ -674,7 +674,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return undefined as T;
     case "usage_sync_status":
       return {
-        enabled: s.autoSyncEnabled ?? false,
+        enabled: s.autoSyncEnabled ?? true,
         gatesPass: !!s.auth,
         intervalMinutes: 60,
         lastSyncAt: s.auth ? Math.floor(Date.now() / 1000) - 120 : null,

@@ -17,6 +17,9 @@ test.describe("Plan run queue", () => {
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
     await openFixtureProject(page);
+    // Open the Plans & Ideas fold in the floating environment panel.
+    await page.getByTitle("Plans & Ideas").first().click();
+
 
     // The plan queue section is visible in the plans side panel.
     await expect(page.locator(".plan-queue-section")).toBeVisible();

@@ -4,6 +4,9 @@ import { LayoutTemplate, Settings2, TerminalSquare, X } from "lucide-react";
 import { useSessionState } from "../../state/sessions";
 import { usePlans } from "../../state/plans";
 import { ProjectSidebar, useProjectSidebar } from "./ProjectSidebar";
+import { ProjectChatSidebar } from "./ProjectChatSidebar";
+import { ChatEnvironmentPanel } from "./ChatEnvironmentPanel";
+import { FileExplorerModal } from "./FileExplorerModal";
 
 import { EditPlanModal } from "./EditPlanModal";
 import { FocusPlanModal } from "./FocusPlanModal";
@@ -13,10 +16,6 @@ import { revealInExplorer } from "../../lib/projects";
 import { generateSessionTitle, readSkill } from "../../lib/skills";
 import { getWorkspaceRestoreState, saveWorkspaceRestoreState, type WorkspaceRestoreState } from "../../lib/workspace";
 import { WorkspaceTabs } from "./WorkspaceTabs";
-import { MenuBar, type MenuConfig } from "./MenuBar";
-import { WindowControls } from "./WindowControls";
-import { AccountButton } from "./AccountButton";
-import { UpdateButton } from "./UpdateButton";
 import { SettingsModal } from "./SettingsModal";
 import { FirstRunModal } from "./FirstRunModal";
 import { useFirstRun } from "../../state/first-run";
@@ -28,8 +27,8 @@ import { ProjectSchematicTab } from "../panels/ProjectSchematicTab";
 import { ChatPanel } from "../panels/ChatPanel";
 import { ompStatus } from "../../lib/omp";
 import { stabilityRendererHeartbeat } from "../../lib/stability";
-import { SidePanel } from "./SidePanel";
 import { StatusBar } from "./StatusBar";
+import { WindowControls } from "./WindowControls";
 import { LogPanel } from "./LogPanel";
 import { CrashReportNotice } from "./CrashReportNotice";
 import { DebugPanel } from "../panels/DebugPanel";
@@ -52,8 +51,9 @@ type AppShellProps = {
 export function AppShell({ updates }: AppShellProps) {
   const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [sideCollapsed, setSideCollapsed] = useState(false);
   const [gridView, setGridView] = useState(false);
+  const [fileModalOpen, setFileModalOpen] = useState(false);
+  const [plansFoldSignal, setPlansFoldSignal] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logPanelOpen, setLogPanelOpen] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
@@ -70,9 +70,6 @@ export function AppShell({ updates }: AppShellProps) {
   const workspacePersistTimerRef = useRef<number | null>(null);
   const restoredProjectRef = useRef<string | null>(null);
   const [workspaceRestore, setWorkspaceRestore] = useState<WorkspaceRestoreState | null>(null);
-  const [sideWidth, setSideWidth] = useState(260);
-  const resizeStartXRef = useRef(0);
-  const resizeStartWidthRef = useRef(260);
   const titlePendingRef = useRef(false);
   const sidebar = useProjectSidebar(activeProjectPath);
   const activeProject = sidebar.projects.find((p) => p.path === activeProjectPath);
@@ -134,8 +131,6 @@ export function AppShell({ updates }: AppShellProps) {
       if (cancelled) return;
       setWorkspaceRestore(state);
       setSidebarCollapsed(state.sidebarCollapsed);
-      setSideCollapsed(state.sideCollapsed);
-      setSideWidth(state.sideWidth);
       restoredProjectRef.current = activeProjectPath;
     }).catch((caught) => {
       const message = caught instanceof Error ? caught.message : String(caught);
@@ -146,9 +141,6 @@ export function AppShell({ updates }: AppShellProps) {
     };
   }, [activeProjectPath, addLog]);
 
-  useEffect(() => {
-    document.documentElement.style.setProperty("--bb-rail-w", `${sideCollapsed ? 36 : sideWidth}px`);
-  }, [sideCollapsed, sideWidth]);
 
   useEffect(() => {
     if (!activeProjectPath || restoredProjectRef.current !== activeProjectPath) return;
@@ -161,8 +153,8 @@ export function AppShell({ updates }: AppShellProps) {
         lastTabId: session.activeTabId,
         sideSection: workspaceRestore?.sideSection ?? "plans",
         sidebarCollapsed,
-        sideCollapsed,
-        sideWidth,
+        sideCollapsed: workspaceRestore?.sideCollapsed ?? false,
+        sideWidth: workspaceRestore?.sideWidth ?? 260,
         updatedAt: workspaceRestore?.updatedAt ?? 0,
       }).catch((caught) => {
         const message = caught instanceof Error ? caught.message : String(caught);
@@ -172,7 +164,7 @@ export function AppShell({ updates }: AppShellProps) {
     return () => {
       if (workspacePersistTimerRef.current) window.clearTimeout(workspacePersistTimerRef.current);
     };
-  }, [activeProjectPath, session.activeSessionId, session.activeTabId, workspaceRestore, sidebarCollapsed, sideCollapsed, sideWidth, addLog]);
+  }, [activeProjectPath, session.activeSessionId, session.activeTabId, workspaceRestore, sidebarCollapsed, addLog]);
 
   useEffect(() => {
     if (!workspaceRestore?.lastTabId) return;
@@ -302,9 +294,8 @@ export function AppShell({ updates }: AppShellProps) {
     },
     [plans, session.activeSessionId],
   );
-
   const handleOpenPlanningInspector = useCallback(() => {
-    setSideCollapsed(false);
+    setPlansFoldSignal((v) => v + 1);
   }, []);
 
   const openOrFocusChat = useCallback(
@@ -419,38 +410,6 @@ Rules:
     void navigator.clipboard.writeText(`#${plan.referenceId} ${plan.title}\n${plan.description}`);
   }, [handleCreateTerminalTab]);
 
-  const menus: MenuConfig[] = useMemo(() => [
-    {
-      label: "File",
-      items: [
-        { label: "Open Project...", onClick: handleOpenFolder },
-        { label: "New Session", onClick: () => void handleCreateSession(), disabled: !activeProjectPath },
-        { separator: true },
-        { label: "Exit", shortcut: "Alt+F4" },
-      ],
-    },
-    {
-      label: "Edit",
-      items: [
-        { label: "Preferences...", onClick: () => setSettingsOpen(true) },
-      ],
-    },
-    {
-      label: "View",
-      items: [
-        { label: sidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar", onClick: () => setSidebarCollapsed((v) => !v) },
-        { label: sideCollapsed ? "Expand Side Panel" : "Collapse Side Panel", onClick: () => setSideCollapsed((v) => !v) },
-        { separator: true },
-        { label: gridView ? "Single Tab View" : "Grid View", onClick: () => setGridView((v) => !v) },
-      ],
-    },
-    {
-      label: "Settings",
-      items: [
-        { label: "App Settings...", onClick: () => setSettingsOpen(true) },
-      ],
-    },
-  ], [activeProjectPath, handleOpenFolder, handleCreateSession, sidebarCollapsed, sideCollapsed, gridView]);
 
   const activeTab = session.tabs.find((t) => t.id === session.activeTabId) ?? null;
   const handleCreateTab = useCallback(
@@ -496,34 +455,6 @@ Rules:
     [session],
   );
 
-  const handleResizeStart = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      if (sideCollapsed) return;
-      event.preventDefault();
-      resizeStartXRef.current = event.clientX;
-      resizeStartWidthRef.current = sideWidth;
-      const onMove = (clientX: number) => {
-        const delta = resizeStartXRef.current - clientX;
-        const next = Math.min(520, Math.max(180, resizeStartWidthRef.current + delta));
-        setSideWidth(next);
-      };
-      const onMouseMove = (e: MouseEvent) => onMove(e.clientX);
-      const onTouchMove = (e: TouchEvent) => {
-        if (e.touches[0]) onMove(e.touches[0].clientX);
-      };
-      const onEnd = () => {
-        window.removeEventListener("mousemove", onMouseMove);
-        window.removeEventListener("mouseup", onEnd);
-        window.removeEventListener("touchmove", onTouchMove);
-        window.removeEventListener("touchend", onEnd);
-      };
-      window.addEventListener("mousemove", onMouseMove);
-      window.addEventListener("mouseup", onEnd);
-      window.addEventListener("touchmove", onTouchMove);
-      window.addEventListener("touchend", onEnd);
-    },
-    [sideCollapsed, sideWidth],
-  );
 
   const handleChatSessionCreated = useCallback(
     (tabId: string) => (chatSessionId: string) => {
@@ -548,37 +479,24 @@ Rules:
   );
 
   return (
-    <div className="app-container">
-      {/* Global window taskbar - always visible */}
-      <header className="window-taskbar" data-tauri-drag-region>
-        <MenuBar menus={menus} />
+    <div className="app-container app-container-chat-first">
+      <div className="window-taskbar" role="banner">
+        <span className="window-taskbar-title" title="Basebuild">Basebuild</span>
         <div className="window-taskbar-right">
-          <UpdateButton updates={updates} onOpenSettings={() => setSettingsOpen(true)} />
-          <AccountButton account={account} onOpenSettings={() => setSettingsOpen(true)} />
-          <button
-            className="window-control-btn"
-            type="button"
-            title="Settings"
-            onClick={() => setSettingsOpen(true)}
-          >
-            <Settings2 size={14} />
-          </button>
           <WindowControls />
         </div>
-      </header>
-
-      {/* Three-column layout below taskbar */}
+      </div>
       <main
-        className="app-shell"
+        className="app-shell app-shell-chat-first"
         data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}
-        data-rail={sideCollapsed ? "collapsed" : "expanded"}
       >
-        <ProjectSidebar
+        <ProjectChatSidebar
           activeProjectPath={activeProjectPath}
           activeSessionId={session.activeSessionId}
           projects={sidebar.projects}
-          projectDetection={sidebar.projectDetection}
           sessionsByProject={sidebar.sessionsByProject}
+          account={account}
+          updates={updates}
           onSelectProject={handleSelectProject}
           onOpenFolder={handleOpenFolder}
           onRemoveProject={handleRemoveProject}
@@ -586,11 +504,11 @@ Rules:
           onCreateSession={handleCreateSession}
           onRenameSession={(id, title) => void session.renameSession(id, title)}
           onDeleteSession={(id) => void session.removeSession(id)}
+          onOpenSettings={() => setSettingsOpen(true)}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         />
-        <section className="workspace-panel">
-          {/* Session-specific header */}
+        <section className="workspace-panel workspace-panel-chat-first">
           {activeProjectPath && session.activeSessionId ? (
             <>
               <div className="session-header">
@@ -607,7 +525,25 @@ Rules:
               />
             </>
           ) : null}
-          <div className="workspace-scroll">
+          <div className="workspace-scroll workspace-scroll-chat-first">
+            {activeProjectPath ? (
+              <ChatEnvironmentPanel
+                projectPath={activeProjectPath}
+                sessionId={session.activeSessionId}
+                plans={plans}
+                planCallbacks={{
+                  onCreatePlan: handleCreatePlan,
+                  onEditPlan: handleEditPlan,
+                  onFocusPlan: handleFocusPlan,
+                  onCopyReference: handleCopyReference,
+                  onOpenInTerminal: handleOpenPlanInTerminal,
+                }}
+                onOpenChatSession={handleOpenChatSession}
+                onSuggestForCategory={handleSuggestForCategory}
+                activeChatSessionId={session.activeSessionId}
+                onOpenFiles={() => setFileModalOpen(true)}
+              />
+            ) : null}
             {!activeProjectPath ? (
               <div className="empty-state">
                 <TerminalSquare size={32} className="text-muted" />
@@ -616,7 +552,6 @@ Rules:
                 <button className="btn btn-primary" type="button" onClick={handleOpenFolder}>Open project</button>
               </div>
             ) : null}
-
             {activeProjectPath ? (
               !activeTab ? (
                 <div className="empty-state">
@@ -680,33 +615,13 @@ Rules:
             ) : null}
           </div>
         </section>
-        <div className="side-panel-wrapper">
-          <div
-            className="side-resizer"
-            aria-orientation="vertical"
-            title="Drag to resize side panel"
-            onMouseDown={handleResizeStart}
-          />
-          <SidePanel
-            projectPath={activeProjectPath}
-            sessionId={session.activeSessionId}
-            collapsed={sideCollapsed}
-            onToggleCollapse={() => setSideCollapsed((v) => !v)}
-            onOpenFile={handleOpenFileInTab}
-            plans={plans}
-            planCallbacks={{
-              onCreatePlan: handleCreatePlan,
-              onEditPlan: handleEditPlan,
-              onFocusPlan: handleFocusPlan,
-              onCopyReference: handleCopyReference,
-              onOpenInTerminal: handleOpenPlanInTerminal,
-            }}
-            onOpenChatSession={handleOpenChatSession}
-            onSuggestForCategory={handleSuggestForCategory}
-            activeChatSessionId={session.activeSessionId}
-          />
-        </div>
       </main>
+      <FileExplorerModal
+        projectPath={activeProjectPath}
+        open={fileModalOpen}
+        onClose={() => setFileModalOpen(false)}
+        onOpenFile={handleOpenFileInTab}
+      />
       <StatusBar onClick={() => setLogPanelOpen(true)} />
       <CrashReportNotice onViewReports={() => setDebugPanelOpen(true)} />
       <LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} />

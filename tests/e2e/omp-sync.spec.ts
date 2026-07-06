@@ -48,13 +48,16 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
     await page.getByTitle("Open browser to sign in to basebuild.net").click();
     // The mocked device flow resolves to success; account state refreshes.
     await expect(page.locator(".account-name")).toContainText("TestUser", { timeout: 10_000 });
-    // The Usage Sync panel renders with the auto-sync toggle.
+    // The Usage Sync panel renders with the auto-sync toggle, which defaults
+    // to ON after sign-in.
     await expect(page.getByRole("heading", { name: "Usage Sync" })).toBeVisible();
     const toggle = page.locator('input[type="checkbox"][title="Enable hourly auto-sync to basebuild.net"]');
     await expect(toggle).toBeVisible();
-    await expect(toggle).not.toBeChecked();
+    await expect(toggle).toBeChecked();
 
-    // Enable auto-sync; the checkbox flips.
+    // Toggling off persists; toggling back on flips the checkbox.
+    await toggle.uncheck();
+    await expect(toggle).not.toBeChecked();
     await toggle.check();
     await expect(toggle).toBeChecked();
 

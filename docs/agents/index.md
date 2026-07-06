@@ -9,6 +9,7 @@ Basebuild. Root `AGENTS.md` is the mandatory entry point — it links here.
 |---|---|
 | [`openspec.md`](./openspec.md) | Starting, applying, or archiving an OpenSpec change |
 | [`testing.md`](./testing.md) | Verifying a change before yielding |
+| [`workflow.md`](./workflow.md) | Branching, committing, doc upkeep, or the pre-yield checklist |
 | [`design-system.md`](./design-system.md) | Changing UI, CSS, layout, or visual conventions |
 | [`agent-runtime.md`](./agent-runtime.md) | Changing chat, terminal, OMP, adapters, permissions, analytics, or defaults |
 | [`desktop-shell.md`](./desktop-shell.md) | Changing tabs, panels, workspace routing, or session state |

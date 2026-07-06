@@ -5,6 +5,7 @@ pub mod omp;
 pub mod omp_telemetry;
 pub mod connector;
 pub mod plan;
+pub mod plan_import;
 pub mod plan_run;
 pub mod planning_prompt;
 pub mod pipeline;

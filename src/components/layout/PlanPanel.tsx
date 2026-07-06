@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  Download,
   MoreHorizontal,
   Pencil,
   TerminalSquare,
@@ -11,7 +12,7 @@ import {
 import type { Plan, PlanStatus } from "../../lib/plans";
 import { PLAN_STATUSES, PLAN_STATUS_LABEL, isTerminalStatus } from "../../lib/plans";
 import { PlanQueueSection } from "./PlanQueueSection";
-
+import { PlanImportModal } from "./PlanImportModal";
 type PlanPanelProps = {
   sessionId: string | null;
   projectPath: string | null;
@@ -48,6 +49,8 @@ export function PlanPanel({
   showHeader = true,
 }: PlanPanelProps) {
   const [expandedFinished, setExpandedFinished] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+
 
   const plansByStatus = useMemo(() => {
     const map = new Map<PlanStatus, Plan[]>();
@@ -94,6 +97,15 @@ export function PlanPanel({
       </div>
       ) : (
         <div className="plan-panel-header-compact">
+          <button
+            className="btn-icon"
+            title="Import plans from openspec/changes/"
+            aria-label="Import plans"
+            type="button"
+            onClick={() => setShowImport(true)}
+          >
+            <Download size={14} />
+          </button>
         </div>
       )}
 
@@ -177,6 +189,9 @@ export function PlanPanel({
         plans={plans}
         onOpenChatSession={onOpenChatSession}
       />
+      {showImport ? (
+        <PlanImportModal projectPath={projectPath} onClose={() => setShowImport(false)} />
+      ) : null}
     </aside>
   );
 }

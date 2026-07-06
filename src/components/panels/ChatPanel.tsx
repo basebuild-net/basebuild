@@ -978,55 +978,89 @@ export function ChatPanel({
             <span>TTLT {formatMetric(metrics.avgTtltMs, "ms")}</span>
           </div>
         ) : null}
-        {nativeMode && toolEvents.length > 0 ? (
-          <div className="chat-tool-events">
-            {(() => {
-              const groups: { type: "single" | "group"; events: typeof toolEvents }[] = [];
+        {nativeMode
+          ? (() => {
+              // Interleave tool events inline with chat messages. Events with
+              // a messageId render just before their associated assistant
+              // message; live events (null messageId, e.g. approvals during
+              // streaming) render after the last persisted message.
+              type Grouped = { type: "single" | "group"; events: NativeToolEvent[] };
+              const withMessageId = new Map<string, NativeToolEvent[]>();
+              const live: NativeToolEvent[] = [];
               for (const ev of toolEvents) {
-                const isApproval = ev.kind === "approval" || ev.status === "pending";
-                if (isApproval) {
-                  groups.push({ type: "single", events: [ev] });
+                if (ev.messageId) {
+                  const list = withMessageId.get(ev.messageId);
+                  if (list) list.push(ev);
+                  else withMessageId.set(ev.messageId, [ev]);
                 } else {
-                  const last = groups[groups.length - 1];
-                  if (last && last.type === "group") {
-                    last.events.push(ev);
-                  } else {
-                    groups.push({ type: "group", events: [ev] });
-                  }
+                  live.push(ev);
                 }
               }
-              return groups.map((g, i) => {
-                if (g.type === "single" || g.events.length === 1) {
-                  const ev = g.events[0];
-                  return <ToolEventCard key={ev.id} event={ev} onResolveApproval={ev.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined} />;
+              const groupEvents = (events: NativeToolEvent[]) => {
+                const groups: Grouped[] = [];
+                for (const ev of events) {
+                  const isApproval = ev.kind === "approval" || ev.status === "pending";
+                  if (isApproval) {
+                    groups.push({ type: "single", events: [ev] });
+                  } else {
+                    const last = groups[groups.length - 1];
+                    if (last && last.type === "group") last.events.push(ev);
+                    else groups.push({ type: "group", events: [ev] });
+                  }
                 }
-                return <ToolEventGroup key={`group-${i}`} events={g.events} />;
+                return groups.map((g, i) => {
+                  if (g.type === "single" || g.events.length === 1) {
+                    const ev = g.events[0];
+                    return <ToolEventCard key={ev.id} event={ev} onResolveApproval={ev.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined} />;
+                  }
+                  return <ToolEventGroup key={`group-${i}`} events={g.events} />;
+                });
+              };
+              const rendered = renderMessages.flatMap((msg, index) => {
+                const msgId = "id" in msg ? String(msg.id) : null;
+                const events = msgId ? withMessageId.get(msgId) ?? [] : [];
+                const key = "id" in msg ? String(msg.id) : `legacy-${index}`;
+                const isOfflineTurn =
+                  "providerId" in msg && msg.role === "assistant" && msg.providerId === LOCAL_PROVIDER_ID;
+                const reasoning = "reasoning" in msg ? (msg as NativeChatMessage).reasoning : null;
+                const ts: number | null = "createdAt" in msg ? (msg as NativeChatMessage).createdAt : null;
+                const timeStr = ts != null
+                  ? new Date(ts * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+                  : null;
+                const fullDate = ts != null ? new Date(ts * 1000).toLocaleString() : null;
+                return [
+                  events.length > 0
+                    ? <div key={`tools-${msgId ?? index}`} className="chat-tool-events">{groupEvents(events)}</div>
+                    : null,
+                  <div key={key} className={`chat-message chat-message-${msg.role}`}>
+                    <span className="chat-message-role">
+                      {msg.role === "user" ? "You" : msg.role === "assistant" ? "Basebuild" : "System"}
+                      {isOfflineTurn ? <span className="chat-offline-tag" title="No external model was contacted">Offline</span> : null}
+                      {timeStr ? <span className="chat-message-time" title={fullDate ?? ""}>{timeStr}</span> : null}
+                    </span>
+                    {reasoning ? <ReasoningFold reasoning={reasoning} /> : null}
+                    <pre className="chat-message-content">{msg.content}</pre>
+                  </div>,
+                ];
               });
-            })()}
-          </div>
-        ) : null}
-        {renderMessages.map((msg, index) => {
-          const key = "id" in msg ? String(msg.id) : `legacy-${index}`;
-          const isOfflineTurn =
-            "providerId" in msg && msg.role === "assistant" && msg.providerId === LOCAL_PROVIDER_ID;
-          const reasoning = "reasoning" in msg ? (msg as NativeChatMessage).reasoning : null;
-          const ts: number | null = "createdAt" in msg ? (msg as NativeChatMessage).createdAt : null;
-          const timeStr = ts != null
-            ? new Date(ts * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-            : null;
-          const fullDate = ts != null ? new Date(ts * 1000).toLocaleString() : null;
-          return (
-            <div key={key} className={`chat-message chat-message-${msg.role}`}>
-              <span className="chat-message-role">
-                {msg.role === "user" ? "You" : msg.role === "assistant" ? "Basebuild" : "System"}
-                {isOfflineTurn ? <span className="chat-offline-tag" title="No external model was contacted">Offline</span> : null}
-                {timeStr ? <span className="chat-message-time" title={fullDate ?? ""}>{timeStr}</span> : null}
-              </span>
-              {reasoning ? <ReasoningFold reasoning={reasoning} /> : null}
-              <pre className="chat-message-content">{msg.content}</pre>
-            </div>
-          );
-        })}
+              if (live.length > 0) {
+                rendered.push(
+                  <div key="tools-live" className="chat-tool-events">{groupEvents(live)}</div>,
+                );
+              }
+              return rendered;
+            })()
+          : renderMessages.map((msg, index) => {
+              const key = `legacy-${index}`;
+              return (
+                <div key={key} className={`chat-message chat-message-${msg.role}`}>
+                  <span className="chat-message-role">
+                    {msg.role === "user" ? "You" : msg.role === "assistant" ? "Basebuild" : "System"}
+                  </span>
+                  <pre className="chat-message-content">{msg.content}</pre>
+                </div>
+              );
+            })}
 
         {streaming && reasoningText ? (
           <div className="chat-message chat-message-assistant chat-message-reasoning" title="Live chain-of-thought from the model. Final answer follows.">
@@ -1511,7 +1545,7 @@ export function ChatPanel({
               setInput(e.target.value);
               const el = e.target;
               el.style.height = "auto";
-              el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+              el.style.height = `${Math.min(el.scrollHeight, 360)}px`;
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -1519,7 +1553,7 @@ export function ChatPanel({
                 void handleSend();
               }
             }}
-            rows={2}
+            rows={3}
             disabled={inputDisabled}
             title={nativeMode ? "Chat input — type a message and press Enter to send" : "Chat input — start the agent to enable sending"}
           />

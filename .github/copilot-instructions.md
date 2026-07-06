@@ -56,7 +56,7 @@ src-tauri/
     models/          # Serializable data types
     app_state.rs     # Tauri managed state
     lib.rs           # Tauri builder + command registration
-docs/agents/         # Workflow docs: testing, design-system, agent-runtime, desktop-shell
+docs/agents/         # Workflow docs: openspec, testing, workflow, design-system, agent-runtime, desktop-shell
 AGENTS.md            # Canonical agent guide — read before making changes
 DESIGN.md            # Visual design contract (visual/non-technical only)
 ```
@@ -69,7 +69,7 @@ DESIGN.md            # Visual design contract (visual/non-technical only)
 - `type` over `interface` for sidecar object shapes.
 - Lib files are thin Tauri invoke wrappers only — no React state logic.
 - One service per domain. Commands validate input, call service, map errors.
-- Plan statuses are `snake_case`: `draft → openspec → waiting → in_progress → finished`.
+- Plan statuses are `snake_case`: `draft → openspec → ready → running → finished`, with `cancelled` reachable from any non-terminal status (`waiting`/`in_progress` are accepted legacy aliases for `ready`/`running`). Ideas use `concept → picked → rejected → archived`.
 - Local-first: no network calls that upload data unless explicitly specified.
 - No silent side effects (commits, PRs, installs, file edits) unless the user
   explicitly triggers them.

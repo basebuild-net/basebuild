@@ -76,6 +76,7 @@ use commands::{
         plan_run_get, plan_run_list, plan_run_list_queue, plan_run_pause, plan_run_remove,
         plan_run_reorder, plan_run_start, plan_run_start_omp,
     },
+    plan_import::{plan_import_apply, plan_import_detect},
     openspec::{
         openspec_derive_change_name, openspec_parse_task_progress, openspec_resolve_change_name,
         openspec_task_progress,
@@ -360,6 +361,8 @@ pub fn run() {
             openspec_parse_task_progress,
             openspec_derive_change_name,
             openspec_resolve_change_name,
+            plan_import_detect,
+            plan_import_apply,
             planning_prompt_list,
             planning_prompt_set,
             planning_prompt_reset,

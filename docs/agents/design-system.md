@@ -22,9 +22,8 @@ change. This document links to it and adds agent-specific rules.
   components, no inline styles.
 - Keep CSS under 400 lines is the goal — audit before adding.
 - Before adding a new class, find an existing one. If you must add one, document
-  it in `AGENTS.md` and this file (`docs/agents/design-system.md`). Do NOT add
-  CSS class names or layout mechanics to `DESIGN.md` — it is visual/non-technical
-  only.
+  it in this file (`docs/agents/design-system.md`). Do NOT add CSS class names
+  or layout mechanics to `DESIGN.md` — it is visual/non-technical only.
 - Prefer layout primitives (`.stack`, `.row`, `.card`) over bespoke component CSS.
 
 ## Reusable classes
@@ -54,12 +53,18 @@ The composer must be structurally impossible to clip:
 - `.chat-input-area` is a `flex-shrink: 0` footer and a **sibling** of the scroll
   region (never inside it), with a `min-height` and a top border so it is always
   visible even when empty.
-- The always-visible controls live in `.chat-composer-header`, which is a
-  single-line nowrap rail. Provider and model labels truncate, effort remains
-  adjacent to model selection, refresh/connect buttons can become icon-only,
-  and secondary actions use `.chat-inline-menu` / `.chat-picker` overflow
-  surfaces before any wrapping occurs. While the catalog loads the rail renders
-  `.chat-select-skeleton` placeholders.
+- The input is a `.chat-input` textarea inside `.chat-input-row`. It is
+  auto-growing: on each change its height is reset to `scrollHeight`, capped
+  (see `ChatPanel.tsx`) so it grows tall enough for long drafts before
+  scrolling internally. `.chat-messages` yields the space, so growth never
+  clips the composer.
+- The always-visible controls live in `.chat-composer-header`, a single-line
+  rail. Model picker and effort selector stay visible at all times (labels may
+  truncate; effort stays adjacent to model). Keep the rail minimal — prefer
+  slash-command accelerators (`/login`, `/model`, `/models refresh`) over
+  adding buttons; reserve `.chat-inline-menu` / `.chat-picker` surfaces for
+  genuinely secondary actions, not for the model/effort essentials. While the
+  catalog loads the rail renders `.chat-select-skeleton` placeholders.
 - Assistant streaming arrives on the `native-chat://chunk` Tauri event and is
   appended live; offline turns are flagged with `.chat-offline-tag`.
 - Reasoning/thinking tokens render in a `.reasoning-fold` collapsed section
@@ -81,6 +86,39 @@ The composer must be structurally impossible to clip:
   status filter chips (`.inspector-filter-chip`) and per-idea promote/reject
   actions. The Categories tab lists `.inspector-category-card` entries with
   idea counts and drill-down detail.
+
+## Project schematic tab (technical)
+
+The schematic tab (`.project-schematic-tab`) renders `.basebuild/project-schematic.md`
+as a structured section-card view by default, with a raw-markdown toggle:
+
+- Toolbar: `.project-schematic-toolbar` + `.project-schematic-toolbar-title`,
+  hosting `Start wizard`, raw-view toggle, and edit actions.
+- Health badge: `.schematic-health-badge` with `.is-complete` (positive),
+  `.is-partial` (warning), `.is-missing` (negative) states. Rendered in the
+  schematic toolbar and the Planning Inspector; it is a button (opens raw view
+  in the tab; opens the wizard from the inspector) and needs `title=`.
+- Nudge bar: `.schematic-nudge` — warning-tinted row for missing/stale end
+  goals ("Set a year-end and a month-end goal…") with a wizard-scoped action.
+- Section cards: `.schematic-section-card` (+ `.is-missing`/`.is-placeholder`
+  warning tint), `.schematic-section-header`, `.schematic-section-title`,
+  `.schematic-section-state` fill-state micro-label (`.is-filled` /
+  `.is-placeholder` / `.is-missing`), `.schematic-section-body`,
+  `.schematic-section-placeholder`, `.schematic-section-actions` (per-section
+  `Fill` buttons that start the wizard scoped to that section).
+- End goals: `.schematic-end-goal-row` with mono `.schematic-end-goal-period`
+  and `.schematic-end-goal-stale` tag.
+- Raw view: `.schematic-raw` mono block.
+- Empty state uses `.empty-state-actions` (button row) offering `Start wizard`
+  first.
+
+The wizard itself is not a modal: entry points inject a guided prompt into the
+chat (skill-driven turn). The chat soft-gate notice is a full-width button
+(`.chat-command-notice-button`) that opens the schematic tab.
+
+Idea grounding/anchor flags on idea cards and inspector rows:
+`.idea-grounding` (muted evidence line), `.idea-anchor` (CTA-colored anchor
+line), `.idea-outside-focus` (warning italic flag). All have `title=` tooltips.
 
 ## Plan run queue and final touches (technical)
 
