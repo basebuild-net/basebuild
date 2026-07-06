@@ -25,6 +25,9 @@ import { OmpTerminalTab } from "../panels/OmpTerminalTab";
 import { FileViewer } from "../panels/FileViewer";
 import { ProjectSchematicTab } from "../panels/ProjectSchematicTab";
 import { ChatPanel } from "../panels/ChatPanel";
+import { ChatGrid } from "../panels/ChatGrid";
+import { singleColumnGrid, type ChatGrid as ChatGridLayout } from "../../lib/gridMath";
+import { parseTabGridStates, serializeTabGridStates } from "../../lib/workspace";
 import { ompStatus } from "../../lib/omp";
 import { stabilityRendererHeartbeat } from "../../lib/stability";
 import { StatusBar } from "./StatusBar";
@@ -65,6 +68,7 @@ export function AppShell({ updates }: AppShellProps) {
   const [chatDraft, setChatDraft] = useState<string | null>(null);
   const [chatDraftTabId, setChatDraftTabId] = useState<string | null>(null);
   const [autoSendDraft, setAutoSendDraft] = useState(false);
+  const [focusedChatId, setFocusedChatId] = useState<string | null>(null);
   const [terminalOutputBuffer, setTerminalOutputBuffer] = useState("");
   const titleDebounceRef = useRef<number | null>(null);
   const workspacePersistTimerRef = useRef<number | null>(null);
@@ -141,6 +145,12 @@ export function AppShell({ updates }: AppShellProps) {
     };
   }, [activeProjectPath, addLog]);
 
+  // Hydrate per-tab grid states from the workspace restore snapshot.
+  useEffect(() => {
+    if (!workspaceRestore?.tabGridStates) return;
+    session.hydrateTabGridStates(parseTabGridStates(workspaceRestore.tabGridStates));
+  }, [workspaceRestore, session.hydrateTabGridStates]);
+
 
   useEffect(() => {
     if (!activeProjectPath || restoredProjectRef.current !== activeProjectPath) return;
@@ -155,6 +165,7 @@ export function AppShell({ updates }: AppShellProps) {
         sidebarCollapsed,
         sideCollapsed: workspaceRestore?.sideCollapsed ?? false,
         sideWidth: workspaceRestore?.sideWidth ?? 260,
+        tabGridStates: serializeTabGridStates(session.tabGridStates),
         updatedAt: workspaceRestore?.updatedAt ?? 0,
       }).catch((caught) => {
         const message = caught instanceof Error ? caught.message : String(caught);
@@ -164,7 +175,7 @@ export function AppShell({ updates }: AppShellProps) {
     return () => {
       if (workspacePersistTimerRef.current) window.clearTimeout(workspacePersistTimerRef.current);
     };
-  }, [activeProjectPath, session.activeSessionId, session.activeTabId, workspaceRestore, sidebarCollapsed, addLog]);
+  }, [activeProjectPath, session.activeSessionId, session.activeTabId, session.tabGridStates, workspaceRestore, sidebarCollapsed, addLog]);
 
   useEffect(() => {
     if (!workspaceRestore?.lastTabId) return;
@@ -565,21 +576,34 @@ Rules:
                   onStartWizard={handleStartSchematicWizard}
                   onOpenRaw={() => setDescriptionOpen(true)}
                 />
-              ) : activeTab.kind === "omp" ? (
-                <OmpTerminalTab terminalId={activeTab.terminalId} onOutput={handleTerminalOutput} />
               ) : activeTab.kind === "chat" ? (
-                <ChatPanel
-                  projectPath={activeProjectPath}
-                  chatSessionId={activeTab.chatSessionId}
-                  onChatSessionCreated={handleChatSessionCreated(activeTab.id)}
-                  draftPrompt={chatDraft}
-                  autoSendDraft={autoSendDraft}
-                  onDraftConsumed={() => { setChatDraft(null); setChatDraftTabId(null); setAutoSendDraft(false); }}
-                  activeSessionId={session.activeSessionId}
-                  schematicContent={schematic.content}
-                  onCreatePlanFromIdea={handleCreatePlanFromIdea}
-                  onOpenPlanningInspector={handleOpenPlanningInspector}
-                  onOpenSchematic={handleOpenSchematic}
+                <ChatGrid
+                  grid={session.tabGridStates[activeTab.id] ?? singleColumnGrid(activeTab.chatSessionId ?? "new")}
+                  onGridChange={(g) => session.setTabGrid(activeTab.id, g)}
+                  renderChat={(chatId) => (
+                    <ChatPanel
+                      projectPath={activeProjectPath}
+                      chatSessionId={chatId === "new" ? null : chatId}
+                      onChatSessionCreated={(id) => {
+                        void session.setTabChatSession(activeTab.id, id);
+                      }}
+                      draftPrompt={chatDraft}
+                      autoSendDraft={autoSendDraft}
+                      onDraftConsumed={() => { setChatDraft(null); setChatDraftTabId(null); setAutoSendDraft(false); }}
+                      activeSessionId={session.activeSessionId}
+                      schematicContent={schematic.content}
+                      onCreatePlanFromIdea={handleCreatePlanFromIdea}
+                      onOpenPlanningInspector={handleOpenPlanningInspector}
+                      onOpenSchematic={handleOpenSchematic}
+                    />
+                  )}
+                  focusedChatId={focusedChatId ?? activeTab.chatSessionId}
+                  onFocusChat={setFocusedChatId}
+                  onCloseChat={() => { /* session retained; grid handles removal */ }}
+                  onAddChatBeside={() => { const id = `chat-${Date.now()}`; return id; }}
+                  onDuplicateChat={() => { const id = `chat-${Date.now()}`; return id; }}
+                  viewportWidth={typeof window !== "undefined" ? window.innerWidth - 80 : 1200}
+                  viewportHeight={typeof window !== "undefined" ? window.innerHeight - 120 : 700}
                 />
               ) : activeTab.kind === "file" ? (
                 <FileViewer path={activeTab.filePath} />

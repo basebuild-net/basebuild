@@ -20,7 +20,7 @@
 - [x] 3.2 Vertical + horizontal splitters with min-width/min-height clamping and live resize; persist widths/heights to the tab's grid state.
 - [x] 3.3 Column reorder within a row and across rows via header drag (threshold, live offset, drop index), with `M×N` reflow on add/remove.
 - [x] 3.4 Animated close (collapse to zero width, rebalance neighbors, retain session); "Add chat beside" and "Duplicate chat" from the header menu.
-- [ ] 3.5 Wire `WorkspaceTabs.tsx` so a chat tab renders `ChatGrid`; each tab keeps its own grid; grid persists per tab across tab-switch and restart (extend `ide-workspace-state` restore).
+- [x] 3.5 Wire `WorkspaceTabs.tsx` so a chat tab renders `ChatGrid`; each tab keeps its own grid; grid persists per tab across tab-switch and restart (extend `ide-workspace-state` restore).
 
 ## 4. Worktree lifecycle (backend)
 
