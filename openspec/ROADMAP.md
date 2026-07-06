@@ -71,22 +71,24 @@ specs → `openspec/specs/`, folder → `openspec/changes/archive/`).
 Ordered by owner priority. Gated items show their blocking dependency; the
 top **ungated** item is what can actually start now.
 
-1. `parallel-plan-workspaces` — ★ **owner-prioritized.** Multi-chat **grid**
-   (`M×N`, no fixed cap) in persistent per-tab layouts; ported chat harness
-   (per-chat header with model/effort/branch/worktree/agent-mode + plan badge,
-   compact composer rail, transcript) modeled on the dream IDE;
-   **plan→chat→worktree→PR** pipeline (assign a `ready` plan to a chat → run on
-   a fresh branch off freshly-fetched `main` in its own worktree → concurrent
-   runs under per-provider caps → PR recommendation on finish via `gh`/browser);
-   new **per-provider max-concurrency** + subagent-count governance (global +
-   project). New caps `chat-grid-layout`, `chat-header-context`,
-   `plan-chat-assignment`, `run-concurrency-limits`; **modifies**
-   `desktop-shell`, `ide-workspace-state`, `agent-chat`,
+1. `parallel-plan-workspaces` — ★ **owner-prioritized.** Multi-panel **split-tree
+   grid** (any `M×N` layout, no fixed cap) with per-project persistence; ported
+   chat harness (per-chat header with model/effort/branch/worktree/agent-mode +
+   plan badge, compact composer rail, transcript) modeled on the dream IDE;
+   activity sidebar with panel list + status + history drawer (closed-panel
+   reopen/delete); **plan→chat→worktree→PR** pipeline (assign a `ready` plan to
+   a chat → run on a fresh branch off freshly-fetched `main` in its own
+   worktree → concurrent runs under per-provider caps → PR recommendation on
+   finish via `gh`/browser); new **per-provider max-concurrency** + subagent-
+   count governance (global + project). New caps `chat-grid-layout`,
+   `chat-header-context`, `plan-chat-assignment`, `run-concurrency-limits`;
+   **modifies** `desktop-shell`, `ide-workspace-state`, `agent-chat`,
    `chat-composer-controls`, `chat-model-defaults`, `parallel-workspaces`,
-   `plan-run-queue`, `plan-final-touches`. **Gate cleared** — `chat-first-shell`
-   merged in PR #23; apply in progress on `feat/parallel-plan-workspaces`.
-   Coordinates with `harness-subagents` (subagent execution) and
-   `diff-review-workflow` (per-run diff gate before PR).
+   `plan-run-queue`, `plan-final-touches`. **Gate cleared** —
+   `chat-first-shell` merged in PR #23; apply in progress on
+   `feat/parallel-plan-workspaces`. Coordinates with `harness-subagents`
+   (subagent execution) and `diff-review-workflow` (per-run diff gate before
+   PR).
 2. `chat-history-persistence` — **live-bug fix + feature; ungated, ready now.**
    Reopening the app does not load chat history. Diagnosed two restore bugs on
    the running `feat/chat-first-shell` build: (1) `save_workspace_restore_state`

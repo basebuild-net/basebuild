@@ -232,11 +232,23 @@ the console visible for panic output and development logging.
 
 ## Workspace restore
 
-Basebuild persists per-project workspace state (last session, last tab, side panel
-section, sidebar/side collapse, side panel width) and restores it on project open.
-Restoring never auto-spawns terminals, agents, or external processes; stale
-process-backed tabs show a disconnected state until the user takes action. Side
-panel width is resizable via a drag handle and persisted locally.
+Basebuild persists per-project workspace state (last session, panel grid
+layout, closed panels, sidebar collapse, side panel width) and restores it
+on project open. The panel grid state (`PanelGridState`) is a split tree
+of panels with split ratios, an active panel id, and a closed-panels
+history. Restoring never auto-spawns terminals, agents, or external
+processes; stale process-backed tabs show a disconnected state until the
+user takes action. Side panel width is resizable via a drag handle and
+persisted locally.
+
+## Per-provider concurrency and subagents
+
+Plan runs execute concurrently up to a per-provider max concurrency limit
+(`run-concurrency-limits`). The default is `1` per provider (most providers
+rate-limit concurrent requests). A global default can be overridden per
+project. Runs beyond the limit queue with a visible reason. Subagent
+execution is off by default and can be enabled per provider with a
+subagent cap. The scheduler is backend-owned and survives panel unmounts.
 
 ## Update policy
 

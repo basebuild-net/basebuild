@@ -33,15 +33,18 @@ diagnostics are available in Settings → Updates.
 
 ## Tab kinds
 
-A chat tab is no longer a single panel — it holds a **multi-chat grid**
-(per `chat-grid-layout`) of N independent chat columns with `1×N` and
-`M×N` layouts. Each column has its own header, composer rail, and
-conversation; columns can be added ("Add chat beside"), reordered by
-header drag (within and across rows), resized via splitters, and closed
-with an animated collapse. The grid layout (membership, order, column
-widths, row heights) persists per tab across tab-switch and restart via
-the workspace restore state's `tabGridStates`. Legacy tabs without a
-grid default to a `1×1` grid from their `chatSessionId`.
+A chat tab is no longer a single panel — it holds a **panel grid** (per
+`chat-grid-layout`) rendered as a split tree. The split tree supports
+horizontal (left/right) and vertical (top/bottom) splits to any depth,
+producing `1×N` (single row, N panels) and `M×N` (M rows, N columns)
+layouts. Each leaf is a fully independent panel with its own header,
+composer rail (for chat panels), and content; panels can be split from
+the header ("Split right/down"), reordered by header drag, resized via
+splitters between siblings, and closed (animated collapse to history).
+The split-tree layout (membership, order, split ratios) persists per
+project across restarts via the workspace restore state's `panelGrid`
+field. Closing a panel moves it to a `closedPanels` history list
+(retaining its session); reopening restores it to the grid.
 
 ### Per-chat header
 
@@ -61,22 +64,21 @@ worktree (`bb/<ref>-<slug>` from the fetched default branch), seeds the
 chat from the plan + schematic, binds one model, and streams the run in
 that column. Concurrent runs are bounded by per-provider concurrency
 caps (`run-concurrency-limits`); excess runs queue with a visible reason.
-When a worktree run finishes, the chat surfaces a pull-request
-recommendation (confirm-gated `gh pr create` or browser compare URL).
+## Panel creation
 
-## Tab creation
+The Activity sidebar's "New chat" button creates a chat panel in the grid.
+A "New terminal" button creates a terminal panel. Both split right from the
+active panel (or fill the grid if empty). Panels can also be split from the
+PanelHeader's "Split right" / "Split down" buttons. Clicking a file in the
+Files panel opens a file panel in the grid.
 
-The "+" menu in the workspace tab bar offers: Terminal, Schematic, Chat, and
-(gated on OMP detection) Oh My Pi. Clicking a file in the Files panel opens a
-file tab.
-
-## Chat tab workflow routing
+## Chat panel workflow routing
 
 When a workflow (like Generate from context) requests a chat:
 
-1. If the active tab is already a chat tab, use it.
-2. Else if any chat tab exists, focus the most recent one.
-3. Else create a new chat tab.
+1. If the active panel is already a chat panel, use it.
+2. Else if the grid has any chat panel, focus the most recent one.
+3. Else create a new chat panel (split right, or fill if grid is empty).
 
 The draft prompt is delivered through a one-shot `draftPrompt` prop consumed
 exactly once by ChatPanel. Do not overload `terminalId` or `filePath` for
@@ -144,19 +146,38 @@ update button and Settings → Updates tab remain functional after startup.
 
 Basebuild does not create or focus a terminal process on launch, project
 selection, or session restore. The workspace shows a neutral empty state
-until the user explicitly creates a terminal, schematic, or chat tab via
-the "+" menu. Terminal tabs restored from previous sessions that have no
-live PTY show a "Terminal not connected" empty state instead of an
-implied-running terminal.
+until the user explicitly creates a terminal or chat panel. Terminal
+panels restored from previous sessions that have no live PTY show a
+"Terminal not connected" empty state instead of an implied-running
+terminal.
+
+## Activity sidebar
+
+The left sidebar shows the list of open panels in the grid (the "activity
+list"). Each row shows the panel type icon, title, and a status indicator
+(streaming, idle, error). Clicking a row focuses the corresponding panel
+in the grid. The sidebar also has a "New chat" button, a "New terminal"
+button, and a History button with a count badge showing the number of
+closed panels retained in history.
+
+### Panel history
+
+Closing a panel moves it to a `closedPanels` history list. The history
+drawer (opened from the History button) lists closed panels with their
+title, type, and close time. Each item has a "Re-open" action (restores the
+panel to the grid) and a "Delete permanently" action (confirm-gated;
+deletes the session for chat panels). The history list is per-project.
 
 ## Workspace restore
 
-Per-project workspace state (last session, last tab, side panel section,
-sidebar/side collapse, side panel width) is persisted locally and restored on
-project open. Side panel width is resizable via a drag handle between the center
-workspace and the right panel, clamped to 180–520px. Restoring never auto-spawns
-terminals or agents; stale process-backed tabs show a disconnected state until
-the user explicitly reconnects.
+Per-project workspace state (last session, panel grid layout, closed panels,
+sidebar collapse, side panel width) is persisted locally and restored on
+project open. The panel grid state (`PanelGridState`) includes the split
+tree, active panel id, and closed panels. Side panel width is resizable via
+a drag handle between the center workspace and the right panel, clamped to
+180–520px. Restoring never auto-spawns terminals or agents; stale
+process-backed tabs show a disconnected state until the user explicitly
+reconnects.
 ## Plan pipeline
 
 Plans move through: `draft → openspec → ready → running → finished`.
