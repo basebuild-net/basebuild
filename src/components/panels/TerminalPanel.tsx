@@ -3,7 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { TerminalSquare } from "lucide-react";
-import { listenTerminalOutput, resizeTerminal, writeTerminal } from "../../lib/terminal";
+import { listenTerminalOutput, listTerminals, resizeTerminal, writeTerminal } from "../../lib/terminal";
 
 type TerminalPanelProps = {
   /** Existing terminal ID to connect to. If null, shows empty state. */
@@ -12,12 +12,15 @@ type TerminalPanelProps = {
   cwd?: string | null;
   /** Called with terminal output data when it arrives. */
   onOutput?: (data: string) => void;
+  /** Called when the user clicks Reconnect after a dead session.
+   * Parent should create a new terminal and update the panel's terminalId. */
+  onReconnect?: () => void;
 };
 
 const defaultShell =
   typeof window !== "undefined" && window.navigator.platform.startsWith("Win") ? "powershell.exe" : "bash";
 
-export function TerminalPanel({ terminalId, cwd, onOutput }: TerminalPanelProps) {
+export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -100,6 +103,22 @@ export function TerminalPanel({ terminalId, cwd, onOutput }: TerminalPanelProps)
         return;
       }
 
+      // Check if the terminal session actually exists in the backend.
+      // On app restart, restored terminalIds point to dead PTY sessions
+      // (the in-memory sessions map is empty). Skip connecting and show
+      // the reconnect overlay instead of spamming "session not found".
+      try {
+        const alive = await listTerminals();
+        if (disposed) return;
+        if (!alive.some((t) => t.id === id && t.alive)) {
+          setConnected(false);
+          return;
+        }
+      } catch {
+        // If listTerminals fails (e.g. running outside Tauri), proceed
+        // optimistically — the onData catch will handle dead sessions.
+      }
+
       // Listen for output from this terminal
       const listener = await listenTerminalOutput((event) => {
         if (event.payload.id === id) {
@@ -143,7 +162,7 @@ export function TerminalPanel({ terminalId, cwd, onOutput }: TerminalPanelProps)
           /* ignore transient layout errors */
         }
         const dims = fitAddon.proposeDimensions();
-        if (dims) void resizeTerminal(id, dims.rows, dims.cols);
+        if (dims) void resizeTerminal(id, dims.rows, dims.cols).catch(() => {});
       });
     }
 
@@ -204,10 +223,7 @@ export function TerminalPanel({ terminalId, cwd, onOutput }: TerminalPanelProps)
             className="btn btn-primary btn-sm"
             type="button"
             title="Create a new terminal session"
-            onClick={() => {
-              // Emit a custom event the parent can catch to recreate the terminal.
-              window.dispatchEvent(new CustomEvent("terminal-reconnect", { detail: { terminalId } }));
-            }}
+            onClick={onReconnect}
           >
             Reconnect
           </button>

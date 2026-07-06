@@ -115,6 +115,7 @@ type E2eState = {
   updateInstallCount: number;
   autoSyncEnabled?: boolean;
   gitChangeStaged: boolean;
+  terminals: { id: number; shell: string; cwd: string | null; pid: number; rows: number; cols: number; startedAt: number; alive: boolean }[];
 };
 
 const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState };
@@ -144,8 +145,8 @@ function state(): E2eState {
       workspaceRestoreByProject: new Map(),
       auth: null,
       updateInstallCount: 0,
-      autoSyncEnabled: true,
       gitChangeStaged: false,
+      terminals: [],
     };
   }
   return globalState.__BASEBUILD_E2E_STATE__!;
@@ -197,7 +198,11 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "delete_tab":
     case "write_terminal":
     case "resize_terminal":
-    case "close_terminal":
+    case "close_terminal": {
+      const idx = s.terminals.findIndex((t) => t.id === args.id);
+      if (idx >= 0) s.terminals.splice(idx, 1);
+      return undefined as T;
+    }
     case "agent_stop":
     case "native_chat_cancel":
       return undefined as T;
@@ -368,10 +373,13 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return [] as T;
     case "read_file":
       return "E2E context file" as T;
-    case "create_terminal":
-      return { id: s.nextTerminalId++, shell: args.shell, cwd: args.cwd ?? null, pid: 1234, rows: 24, cols: 80, startedAt: Math.floor(Date.now() / 1000), alive: true } as T;
+    case "create_terminal": {
+      const term = { id: s.nextTerminalId++, shell: String(args.shell), cwd: (args.cwd as string) ?? null, pid: 1234, rows: 24, cols: 80, startedAt: Math.floor(Date.now() / 1000), alive: true };
+      s.terminals.push(term);
+      return term as T;
+    }
     case "list_terminals":
-      return [] as T;
+      return s.terminals as T;
     case "agent_start":
       return 1 as T;
     case "native_provider_catalog":

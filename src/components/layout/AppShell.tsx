@@ -677,7 +677,25 @@ Rules:
             </div>
           );
         }
-        return <TerminalPanel terminalId={panel.terminalId} onOutput={handleTerminalOutput} />;
+        return (
+          <TerminalPanel
+            terminalId={panel.terminalId}
+            onOutput={handleTerminalOutput}
+            onReconnect={() => {
+              void (async () => {
+                const shell = DEFAULT_SHELL();
+                const term = await createTerminal(shell, activeProjectPath ?? undefined);
+                setPanelGridState((prev) => ({
+                  ...prev,
+                  root: updatePanelInTree(prev.root, panel.id, {
+                    terminalId: term.id,
+                    title: `Terminal ${term.id}`,
+                  }),
+                }));
+              })();
+            }}
+          />
+        );
       }
       if (panel.type === "file") {
         if (!panel.filePath) return null;
@@ -693,11 +711,24 @@ Rules:
         );
       }
       if (panel.type === "omp") {
+        const reconnectOmp = () => {
+          void (async () => {
+            const shell = DEFAULT_SHELL();
+            const term = await createTerminal(shell, activeProjectPath ?? undefined);
+            setPanelGridState((prev) => ({
+              ...prev,
+              root: updatePanelInTree(prev.root, panel.id, {
+                terminalId: term.id,
+                title: `OMP ${term.id}`,
+              }),
+            }));
+          })();
+        };
         if (panel.terminalId) {
-          return <OmpTerminalTab terminalId={panel.terminalId} onOutput={handleTerminalOutput} />;
+          return <OmpTerminalTab terminalId={panel.terminalId} onOutput={handleTerminalOutput} onReconnect={reconnectOmp} />;
         }
         const tab = session.tabs.find((t) => t.kind === "omp" && (t.id === panel.id || t.title === panel.title));
-        return <OmpTerminalTab terminalId={tab?.terminalId ?? null} onOutput={handleTerminalOutput} />;
+        return <OmpTerminalTab terminalId={tab?.terminalId ?? null} onOutput={handleTerminalOutput} onReconnect={reconnectOmp} />;
       }
       return null;
     },
