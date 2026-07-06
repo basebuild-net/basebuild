@@ -653,7 +653,27 @@ Rules:
             <div className="empty-state">
               <TerminalSquare size={32} className="text-muted" />
               <h3>Terminal not connected</h3>
-              <p>Create a new terminal to start a shell.</p>
+              <p>The terminal process from the previous session is no longer running.</p>
+              <button
+                className="btn btn-primary"
+                type="button"
+                title="Create a new terminal"
+                onClick={() => {
+                  void (async () => {
+                    const shell = DEFAULT_SHELL();
+                    const term = await createTerminal(shell, activeProjectPath ?? undefined);
+                    setPanelGridState((prev) => ({
+                      ...prev,
+                      root: updatePanelInTree(prev.root, panel.id, {
+                        terminalId: term.id,
+                        title: `Terminal ${term.id}`,
+                      }),
+                    }));
+                  })();
+                }}
+              >
+                Reconnect
+              </button>
             </div>
           );
         }

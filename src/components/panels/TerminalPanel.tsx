@@ -119,7 +119,11 @@ export function TerminalPanel({ terminalId, cwd, onOutput }: TerminalPanelProps)
       unlisten = () => listener();
 
       terminal.onData((data) => {
-        void writeTerminal(id, data);
+        void writeTerminal(id, data).catch(() => {
+          // Terminal session not found (killed on restart). Show reconnect.
+          setConnected(false);
+          terminal.writeln("\r\n\x1b[31m[terminal closed — click Reconnect to start a new session]\x1b[0m");
+        });
       });
 
       setConnected(true);
@@ -185,6 +189,22 @@ export function TerminalPanel({ terminalId, cwd, onOutput }: TerminalPanelProps)
       </div>
       {error ? <div className="terminal-error">{error}</div> : null}
       <div className="terminal-viewport" ref={containerRef} />
+      {!connected && !error && terminalId != null ? (
+        <div className="terminal-reconnect-overlay">
+          <p>Terminal session ended</p>
+          <button
+            className="btn btn-primary btn-sm"
+            type="button"
+            title="Create a new terminal session"
+            onClick={() => {
+              // Emit a custom event the parent can catch to recreate the terminal.
+              window.dispatchEvent(new CustomEvent("terminal-reconnect", { detail: { terminalId } }));
+            }}
+          >
+            Reconnect
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

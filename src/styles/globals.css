@@ -544,13 +544,15 @@ a { color: inherit; text-decoration: none; }
 .menu-item-danger:hover { background: rgba(248, 113, 113, 0.1); }
 
 /* ─── Terminal ─── */
-.terminal-panel { display: flex; flex-direction: column; height: 100%; background: var(--bb-bg); }
+.terminal-panel { display: flex; flex-direction: column; height: 100%; background: var(--bb-bg); position: relative; }
 .terminal-toolbar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--bb-border); }
 .terminal-status { font-size: 11px; color: var(--bb-muted); display: flex; align-items: center; gap: 4px; }
 .terminal-viewport { background: var(--bb-bg); flex: 1; padding: 4px; overflow: hidden; }
 .terminal-viewport .xterm { height: 100%; }
 .terminal-viewport .xterm .xterm-screen { height: 100% !important; }
 .terminal-error { padding: 6px 8px; color: var(--bb-negative); font-size: 12px; }
+.terminal-reconnect-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.8); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; z-index: 10; }
+.terminal-reconnect-overlay p { font-size: 11px; color: var(--bb-muted); }
 
 /* ─── OMP panel ─── */
 .omp-section { margin-bottom: 12px; }
