@@ -311,11 +311,7 @@ impl SettingsService {
             .ok();
         match value {
             Some(v) => serde_json::from_str(&v).map_err(|e| e.to_string()),
-            None => Ok(UsageSyncSettings {
-                auto_sync_usage: false,
-                auto_sync_interval_minutes: 60,
-                last_usage_sync_at: None,
-            }),
+            None => Ok(UsageSyncSettings::default()),
         }
     }
 

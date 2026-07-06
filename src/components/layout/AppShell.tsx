@@ -52,6 +52,7 @@ export function AppShell({ updates }: AppShellProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [gridView, setGridView] = useState(false);
   const [fileModalOpen, setFileModalOpen] = useState(false);
+  const [plansFoldSignal, setPlansFoldSignal] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logPanelOpen, setLogPanelOpen] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
@@ -290,11 +291,8 @@ export function AppShell({ updates }: AppShellProps) {
     },
     [plans, session.activeSessionId],
   );
-
   const handleOpenPlanningInspector = useCallback(() => {
-    // Inspector now lives in the floating ChatEnvironmentPanel; it's always
-    // reachable from the chat surface. The chat-side button is a no-op here —
-    // a follow-up can auto-open the Plans fold via a callback prop.
+    setPlansFoldSignal((v) => v + 1);
   }, []);
 
   const openOrFocusChat = useCallback(

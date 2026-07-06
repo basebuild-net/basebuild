@@ -23,6 +23,8 @@ type ChatEnvironmentPanelProps = {
   onSuggestForCategory: (category: IdeaCategory | null) => void;
   activeChatSessionId: string | null;
   onOpenFiles: () => void;
+  /** When true, auto-opens the Plans & Ideas fold (set by the chat-side inspector button). */
+  openPlansFoldSignal?: number;
 };
 
 type FoldId = "source" | "plans" | "files";
@@ -42,21 +44,22 @@ export function ChatEnvironmentPanel({
   onSuggestForCategory,
   activeChatSessionId,
   onOpenFiles,
+  openPlansFoldSignal,
 }: ChatEnvironmentPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [openFold, setOpenFold] = useState<FoldId | null>(null);
-  const [branch, setBranch] = useState<string | null>(null);
 
-  // Branch is surfaced in the collapsed summary; populated lazily from the
-  // SourcePanel's first render. For now derive a placeholder from projectPath.
-  // A follow-up wires the real branch from the git service.
-  const branchLabel = branch ?? (projectPath ? projectPath.split(/[\\/]/).pop() ?? "main" : "—");
+  // Auto-open the Plans fold when the chat-side inspector button fires.
+  const lastSignalRef = useState<{ value: number }>({ value: 0 })[0];
+  if (openPlansFoldSignal !== undefined && openPlansFoldSignal !== lastSignalRef.value) {
+    lastSignalRef.value = openPlansFoldSignal;
+    if (collapsed) setCollapsed(false);
+    if (openFold !== "plans") setOpenFold("plans");
+  }
 
   if (!projectPath) return null;
 
-  const toggleFold = (id: FoldId) => {
-    setOpenFold((cur) => (cur === id ? null : id));
-  };
+  const projectName = projectPath.split(/[\\/]/).pop() ?? projectPath;
 
   if (collapsed) {
     return (
@@ -64,11 +67,11 @@ export function ChatEnvironmentPanel({
         <button
           className="chat-env-collapsed-btn"
           type="button"
-          title={`Expand environment — branch ${branchLabel}`}
+          title={`Expand environment — ${projectName}`}
           onClick={() => setCollapsed(false)}
         >
           <GitBranch size={11} />
-          <span className="mono">{branchLabel}</span>
+          <span className="mono">{projectName}</span>
           <span className="chat-env-dot" title="Healthy" />
         </button>
       </div>
@@ -85,7 +88,7 @@ export function ChatEnvironmentPanel({
               className={`chat-env-tab${openFold === id ? " is-active" : ""}`}
               type="button"
               title={label}
-              onClick={() => (id === "files" ? onOpenFiles() : toggleFold(id))}
+              onClick={() => (id === "files" ? onOpenFiles() : setOpenFold((cur) => (cur === id ? null : id)))}
             >
               <Icon size={11} />
               <span>{label}</span>

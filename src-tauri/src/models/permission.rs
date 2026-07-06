@@ -168,9 +168,10 @@ pub struct AnalyticsConsent {
     pub consented_at: Option<i64>,
 }
 
-/// Persisted usage-sync settings. `auto_sync_usage` is off by default and
-/// requires sign-in + `allow_usage_analytics_upload` to actually run.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+/// Persisted usage-sync settings. `auto_sync_usage` defaults to true so a
+/// signed-in user with the upload permission granted syncs hourly without
+/// extra opt-in. Explicit off persists across restarts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageSyncSettings {
     /// Whether the user has opted in to periodic account usage sync.
@@ -179,4 +180,14 @@ pub struct UsageSyncSettings {
     pub auto_sync_interval_minutes: i64,
     /// Epoch seconds of the last successful sync, when any.
     pub last_usage_sync_at: Option<i64>,
+}
+
+impl Default for UsageSyncSettings {
+    fn default() -> Self {
+        Self {
+            auto_sync_usage: true,
+            auto_sync_interval_minutes: 60,
+            last_usage_sync_at: None,
+        }
+    }
 }

@@ -1815,6 +1815,20 @@ a { color: inherit; text-decoration: none; }
 
 .sidebar-empty { padding: 12px 10px; }
 
+/* ─── Chat-first shell layout ─── */
+.app-container-chat-first { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+.app-shell-chat-first {
+  display: grid;
+  grid-template-columns: var(--bb-sidebar-w, 240px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.app-shell-chat-first[data-sidebar="collapsed"] { grid-template-columns: 44px minmax(0, 1fr); }
+.workspace-panel-chat-first { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; position: relative; }
+.workspace-scroll-chat-first { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; position: relative; }
+
 /* ─── Chat environment panel (floating top-right) ─── */
 .chat-env-panel {
   position: absolute;

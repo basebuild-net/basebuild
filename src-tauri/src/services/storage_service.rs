@@ -364,9 +364,7 @@ impl StorageService {
 
                 CREATE TABLE IF NOT EXISTS usage_sync_settings (
                     key TEXT PRIMARY KEY NOT NULL,
-                    auto_sync_usage INTEGER NOT NULL DEFAULT 0,
-                    auto_sync_interval_minutes INTEGER NOT NULL DEFAULT 60,
-                    last_usage_sync_at INTEGER
+                    value TEXT NOT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS plans (
@@ -792,6 +790,47 @@ impl StorageService {
             }
         }
 
+        // Migration (usage-sync-fix): an earlier schema defined
+        // usage_sync_settings with discrete columns (auto_sync_usage,
+        // auto_sync_interval_minutes, last_usage_sync_at) but no `value`
+        // column, while SettingsService reads/writes a JSON `value` column
+        // keyed by 'settings' — causing "no such column: value" on every
+        // access. Migrate legacy rows into the JSON shape and drop the old
+        // table so the canonical (key, value) DDL above takes effect.
+        let legacy_has_value_col = connection
+            .prepare("SELECT value FROM usage_sync_settings LIMIT 0")
+            .is_ok();
+        if !legacy_has_value_col {
+            // Read any legacy discrete-column row before recreating the table.
+            let legacy: Option<(i64, i64, Option<i64>)> = connection
+                .query_row(
+                    "SELECT auto_sync_usage, auto_sync_interval_minutes, last_usage_sync_at
+                     FROM usage_sync_settings WHERE key = 'settings'",
+                    [],
+                    |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, Option<i64>>(2)?)),
+                )
+                .ok();
+            let _ = connection.execute("DROP TABLE usage_sync_settings", []);
+            let _ = connection.execute(
+                "CREATE TABLE IF NOT EXISTS usage_sync_settings (
+                    key TEXT PRIMARY KEY NOT NULL,
+                    value TEXT NOT NULL
+                )",
+                [],
+            );
+            if let Some((auto, interval, last)) = legacy {
+                let settings = crate::models::permission::UsageSyncSettings {
+                    auto_sync_usage: auto != 0,
+                    auto_sync_interval_minutes: interval,
+                    last_usage_sync_at: last,
+                };
+                let _ = connection.execute(
+                    "INSERT INTO usage_sync_settings (key, value) VALUES ('settings', ?1)",
+                    params![serde_json::to_string(&settings).unwrap_or_default()],
+                );
+            }
+        }
+
         Ok(())
     }
 }
@@ -1112,5 +1151,86 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM recent_projects", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 80);
+    }
+
+    #[test]
+    fn migrates_legacy_usage_sync_settings_discrete_columns_to_json() {
+        // A pre-fix database created usage_sync_settings with discrete
+        // columns (auto_sync_usage, auto_sync_interval_minutes,
+        // last_usage_sync_at) and no `value` column. initialize must
+        // recreate the table in the canonical (key, value) shape and carry
+        // any legacy row forward as JSON. Re-running initialize is idempotent.
+        let conn = Connection::open_in_memory().unwrap();
+        // Simulate the legacy schema + a legacy row.
+        conn.execute(
+            "CREATE TABLE usage_sync_settings (
+                key TEXT PRIMARY KEY NOT NULL,
+                auto_sync_usage INTEGER NOT NULL DEFAULT 0,
+                auto_sync_interval_minutes INTEGER NOT NULL DEFAULT 60,
+                last_usage_sync_at INTEGER
+            )",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO usage_sync_settings (key, auto_sync_usage, auto_sync_interval_minutes, last_usage_sync_at)
+             VALUES ('settings', 1, 30, 1700000000)",
+            [],
+        )
+        .unwrap();
+        StorageService::initialize(&conn).expect("migration run");
+        // Table now has the canonical shape.
+        let value: String = conn
+            .query_row(
+                "SELECT value FROM usage_sync_settings WHERE key = 'settings'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("value column exists and row present");
+        let settings: crate::models::permission::UsageSyncSettings =
+            serde_json::from_str(&value).unwrap();
+        assert!(settings.auto_sync_usage, "legacy auto_sync_usage=1 carried forward");
+        assert_eq!(settings.auto_sync_interval_minutes, 30, "legacy interval carried forward");
+        assert_eq!(settings.last_usage_sync_at, Some(1700000000), "legacy last_sync carried forward");
+        // Idempotent: second run does not drop/recreate again.
+        StorageService::initialize(&conn).expect("idempotent re-init");
+        let value2: String = conn
+            .query_row(
+                "SELECT value FROM usage_sync_settings WHERE key = 'settings'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(value, value2, "row unchanged on re-init");
+    }
+
+    #[test]
+    fn usage_sync_settings_default_row_when_missing() {
+        // A fresh database with no usage_sync_settings row must yield the
+        // default settings (auto_sync_usage=true, interval=60) when read
+        // through SettingsService. Verified by querying the in-memory conn
+        // directly (the Default impl is exercised by the missing-row branch
+        // of get_usage_sync_settings).
+        let conn = Connection::open_in_memory().unwrap();
+        StorageService::initialize(&conn).expect("initialize");
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM usage_sync_settings", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0, "no row seeded by default");
+        // Default values come from UsageSyncSettings::default().
+        let default = crate::models::permission::UsageSyncSettings::default();
+        assert!(default.auto_sync_usage, "default auto_sync_usage is true");
+        assert_eq!(default.auto_sync_interval_minutes, 60, "default interval is 60");
+        assert!(default.last_usage_sync_at.is_none(), "default last_sync is None");
+        // And a missing row in the table maps to that default via the
+        // service's None branch.
+        let value: Option<String> = conn
+            .query_row(
+                "SELECT value FROM usage_sync_settings WHERE key = 'settings'",
+                [],
+                |r| r.get(0),
+            )
+            .ok();
+        assert!(value.is_none(), "no row present -> service returns default");
     }
 }
