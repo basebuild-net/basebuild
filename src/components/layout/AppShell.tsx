@@ -451,7 +451,7 @@ Rules:
     void navigator.clipboard.writeText(`#${refId}`);
   }, []);
 
-  const handleOpenPlanInTerminal = useCallback((plan: import("../../lib/plans").Plan) => {
+  const handleOpenPlanInTerminal = useCallback((plan: Plan) => {
     void handleCreateTerminalTab();
     void navigator.clipboard.writeText(`#${plan.referenceId} ${plan.title}\n${plan.description}`);
   }, [handleCreateTerminalTab]);

@@ -16,6 +16,10 @@ export type WorkspaceRestoreState = {
   /** JSON string of `TabGridStates` (backend TEXT column). Null on legacy
    *  restore states. Parse with `parseTabGridStates`. */
   tabGridStates?: string | null;
+  /** JSON string of `PanelGridState` (the unified panel grid split tree +
+   *  closed panels + active panel id). Null on legacy restore states. Parse
+   *  with `parsePanelGrid` from `panelGrid.ts`. */
+  panelGrid?: string | null;
   updatedAt: number;
 };
 

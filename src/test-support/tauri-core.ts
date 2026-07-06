@@ -514,6 +514,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         sidebarCollapsed: false,
         sideCollapsed: false,
         sideWidth: 260,
+        panelGrid: null,
         updatedAt: 0,
       }) as T;
     }
