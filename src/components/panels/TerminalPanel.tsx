@@ -109,18 +109,20 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
       // the reconnect overlay instead of spamming "session not found".
       try {
         const alive = await listTerminals();
+        console.log("[terminal] listTerminals", alive, "looking for id=", id);
         if (disposed) return;
         if (!alive.some((t) => t.id === id && t.alive)) {
+          console.log("[terminal] session not alive, showing reconnect overlay");
           setConnected(false);
           return;
         }
-      } catch {
-        // If listTerminals fails (e.g. running outside Tauri), proceed
-        // optimistically — the onData catch will handle dead sessions.
+      } catch (e) {
+        console.log("[terminal] listTerminals failed", e);
       }
 
       // Listen for output from this terminal
       const listener = await listenTerminalOutput((event) => {
+        console.log("[terminal] output event", event.payload);
         if (event.payload.id === id) {
           if (event.payload.kind === "data") {
             terminal.write(event.payload.data);
@@ -138,11 +140,14 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
       unlisten = () => listener();
 
       terminal.onData((data) => {
-        void writeTerminal(id, data).catch(() => {
-          // Terminal session not found (killed on restart). Show reconnect.
-          setConnected(false);
-          terminal.writeln("\r\n\x1b[31m[terminal closed — click Reconnect to start a new session]\x1b[0m");
-        });
+        console.log("[terminal] onData", JSON.stringify(data), "id=", id);
+        void writeTerminal(id, data)
+          .then(() => console.log("[terminal] writeTerminal ok", JSON.stringify(data)))
+          .catch((err) => {
+            console.error("[terminal] writeTerminal FAILED", err);
+            setConnected(false);
+            terminal.writeln("\r\n\x1b[31m[terminal closed — click Reconnect to start a new session]\x1b[0m");
+          });
       });
 
       setConnected(true);
