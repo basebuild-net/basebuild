@@ -17,8 +17,27 @@
 /** Panel type — mirrors SessionTab.kind, with "empty" → "schematic". */
 export type PanelType = "chat" | "terminal" | "file" | "schematic" | "omp";
 
-/** A panel is a leaf in the split tree. It maps 1:1 to a SessionTab. */
+/** A panel is a leaf in the split tree. A panel can hold one or more tabs;
+ *  a single-tab panel (the common case) renders as before. A multi-tab
+ *  panel shows a tab strip in its header. */
 export type Panel = {
+  id: string;
+  type: PanelType;
+  title: string;
+  chatSessionId: string | null;
+  terminalId: number | null;
+  filePath: string | null;
+  /** Tabs hosted in this panel. If absent or length ≤ 1, the panel renders
+   *  as a single panel (no tab strip). When ≥ 2, the header shows a tab
+   *  strip and `activeTabId` selects the visible tab. */
+  tabs?: PanelTab[];
+  /** The currently visible tab id (only meaningful when `tabs` has ≥ 2). */
+  activeTabId?: string | null;
+};
+
+/** A tab within a multi-tab panel. Same shape as a single panel's identity
+ *  fields — each tab has its own type, title, chatSessionId, etc. */
+export type PanelTab = {
   id: string;
   type: PanelType;
   title: string;
@@ -46,6 +65,30 @@ export type PanelGridState = {
 
 /** Minimum fractional size for a split child (prevents collapse). */
 export const MIN_SPLIT_SIZE = 0.1;
+/** Convert a Panel's identity fields into a PanelTab. */
+function panelToTab(panel: Panel): PanelTab {
+  return {
+    id: panel.id,
+    type: panel.type,
+    title: panel.title,
+    chatSessionId: panel.chatSessionId,
+    terminalId: panel.terminalId,
+    filePath: panel.filePath,
+  };
+}
+
+/** Add a new panel as a tab inside an existing target panel. The target
+ *  panel's own identity becomes its first tab (if not already multi-tab),
+ *  and the new panel becomes the second tab. The new tab is made active. */
+function addTabToPanelLeaf(target: Panel, newPanel: Panel): Panel {
+  const existingTabs = target.tabs ?? [panelToTab(target)];
+  const newTab = panelToTab(newPanel);
+  return {
+    ...target,
+    tabs: [...existingTabs, newTab],
+    activeTabId: newTab.id,
+  };
+}
 
 // ── Grid constructors ──────────────────────────────────────────────────────
 
@@ -109,8 +152,9 @@ export function findParentSplit(root: SplitNode | null, panelId: string): SplitB
 
 // ── Split operations ──────────────────────────────────────────────────────
 
-/** Direction for a drop: left/right are along a row, top/bottom along a column. */
-export type DropSide = "left" | "right" | "top" | "bottom";
+/** Direction for a drop: left/right are along a row, top/bottom along a
+ *  column, center = add as a tab inside the target panel. */
+export type DropSide = "left" | "right" | "top" | "bottom" | "center";
 
 /** Create a split node from two children with equal sizes. */
 function makeSplit(direction: SplitDirection, children: SplitNode[]): SplitNode {
@@ -137,10 +181,12 @@ export function splitPanelAt(
   if (!root) {
     return { kind: "leaf", panel: newPanel };
   }
-
-  // If root is a leaf and it's the target, wrap it.
+  // If root is a leaf and it's the target, wrap it (or add as tab for center).
   if (root.kind === "leaf") {
     if (root.panel.id !== targetPanelId) return root; // target not found
+    if (side === "center") {
+      return { kind: "leaf", panel: addTabToPanelLeaf(root.panel, newPanel) };
+    }
     const targetLeaf = root;
     const newLeaf: SplitNode = { kind: "leaf", panel: newPanel };
     if (side === "left" || side === "right") {
@@ -164,6 +210,16 @@ export function splitPanelAt(
   );
 
   if (targetChildIndex === -1) return root; // shouldn't happen (parentSplit found it)
+
+  // For "center" drop: add the new panel as a tab in the target leaf.
+  if (side === "center") {
+    const targetLeaf = parentSplit.children[targetChildIndex];
+    if (targetLeaf.kind !== "leaf") return root;
+    const updatedLeaf: SplitNode = { kind: "leaf", panel: addTabToPanelLeaf(targetLeaf.panel, newPanel) };
+    const newChildren = [...parentSplit.children];
+    newChildren[targetChildIndex] = updatedLeaf;
+    return replaceSplit(root, parentSplit, { ...parentSplit, children: newChildren });
+  }
 
   const newLeaf: SplitNode = { kind: "leaf", panel: newPanel };
 
@@ -504,4 +560,76 @@ export function updatePanelInTree(
   // Return same ref if nothing changed (children are referentially equal).
   const changed = newChildren.some((c, i) => c !== root.children[i]);
   return changed ? { ...root, children: newChildren } : root;
+}
+/** The effective type/title/session of a panel — from the active tab if
+ *  multi-tab, or from the panel itself if single-tab. */
+export function activeTab(panel: Panel): PanelTab {
+  if (panel.tabs && panel.tabs.length > 0) {
+    const tabId = panel.activeTabId;
+    const tab = panel.tabs.find((t) => t.id === tabId) ?? panel.tabs[0];
+    return tab;
+  }
+  return {
+    id: panel.id,
+    type: panel.type,
+    title: panel.title,
+    chatSessionId: panel.chatSessionId,
+    terminalId: panel.terminalId,
+    filePath: panel.filePath,
+  };
+}
+
+/** Add a tab to a panel in the tree. Returns the same root ref if no change. */
+export function addTabToPanel(
+  root: SplitNode | null,
+  panelId: string,
+  tab: PanelTab,
+): SplitNode | null {
+  const existing = findPanel(root, panelId);
+  return updatePanelInTree(root, panelId, {
+    tabs: [...(existing?.tabs ?? []), tab],
+    activeTabId: tab.id,
+  });
+}
+
+/** Remove a tab from a panel. If the panel has only one tab left, it
+ *  becomes a single-tab panel again. If zero tabs, the panel is removed. */
+export function removeTabFromPanel(
+  state: PanelGridState,
+  panelId: string,
+  tabId: string,
+): PanelGridState {
+  const panel = findPanel(state.root, panelId);
+  if (!panel?.tabs) return state;
+  const newTabs = panel.tabs.filter((t) => t.id !== tabId);
+  if (newTabs.length === 0) {
+    return closePanel(state, panelId);
+  }
+  if (newTabs.length === 1) {
+    // Collapse back to single-tab.
+    const tab = newTabs[0];
+    const newRoot = updatePanelInTree(state.root, panelId, {
+      ...tab,
+      tabs: undefined,
+      activeTabId: undefined,
+    });
+    return { ...state, root: newRoot };
+  }
+  const newActive = panel.activeTabId === tabId
+    ? newTabs[0].id
+    : panel.activeTabId;
+  const newRoot = updatePanelInTree(state.root, panelId, {
+    tabs: newTabs,
+    activeTabId: newActive,
+  });
+  return { ...state, root: newRoot };
+}
+
+/** Set the active tab of a panel. No-op if the tab doesn't exist. */
+export function setActiveTab(
+  root: SplitNode | null,
+  panelId: string,
+  tabId: string,
+): SplitNode | null {
+  return updatePanelInTree(root, panelId, { activeTabId: tabId });
 }

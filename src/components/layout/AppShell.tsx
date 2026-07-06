@@ -773,12 +773,7 @@ Rules:
         <section className="workspace-panel workspace-panel-chat-first">
           {activeProjectPath && session.activeSessionId ? (
             <div className="session-header">
-              <h1 className="session-title">{session.activeSession?.title ?? "Session"}</h1>
-              <span className="status-pill" title={activeProjectPath}>{activeProjectPath}</span>
-            </div>
-          ) : null}
-          <div className="workspace-scroll workspace-scroll-chat-first">
-            {activeProjectPath ? (
+              <h1 className="session-title">{activeProjectPath.split(/[\\/]/).pop() ?? activeProjectPath}</h1>
               <ChatEnvironmentPanel
                 projectPath={activeProjectPath}
                 sessionId={session.activeSessionId}
@@ -795,7 +790,10 @@ Rules:
                 activeChatSessionId={session.activeSessionId}
                 onOpenFiles={() => setFileModalOpen(true)}
               />
-            ) : null}
+              <span className="status-pill session-path-pill" title={activeProjectPath}>{activeProjectPath}</span>
+            </div>
+          ) : null}
+          <div className="workspace-scroll workspace-scroll-chat-first">
             {!activeProjectPath ? (
               <div className="empty-state">
                 <TerminalSquare size={32} className="text-muted" />

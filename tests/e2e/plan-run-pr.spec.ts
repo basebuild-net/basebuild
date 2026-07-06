@@ -52,13 +52,8 @@ test.describe("plan-run → PR recommendation", () => {
     await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
-    // Collapse the environment panel so it doesn't overlay the header's right side.
-    await page.locator("button[title='Collapse environment']").first().click({ force: true });
-    await page.waitForTimeout(300);
 
-    // Click the more-actions button via evaluate to bypass overlay interception.
-    // The environment panel overlays the header's right side; force clicks don't
-    // trigger React's onClick. We call the click handler directly on the element.
+    // Click the more-actions button via evaluate.
     await page.evaluate(() => {
       const btn = document.querySelector<HTMLButtonElement>(".chat-column-header-right button[title='More actions']");
       btn?.click();

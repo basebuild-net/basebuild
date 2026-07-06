@@ -11,20 +11,25 @@ import { flushSync } from "react-dom";
 import { MessageSquare, Plus, TerminalSquare } from "lucide-react";
 import {
   closePanel,
+  activeTab,
   equalizeSplit,
   findParentSplit,
   flattenPanels,
   movePanel,
   removePanel,
+  removeTabFromPanel,
   resizeSplitChild,
   resolveDragIndex,
   resolveDragOffset,
   getDragAffectedIds,
+  setActiveTab,
   splitPanelAt,
+  updatePanelInTree,
   type DropSide,
   type Panel,
   type PanelGridState,
   type PanelMetric,
+  type PanelTab,
   type SplitBranch,
   type SplitDirection,
   type SplitNode,
@@ -252,18 +257,21 @@ export function PanelGrid(props: PanelGridProps) {
               const rect = panelEl.getBoundingClientRect();
               const relX = (clientX - rect.left) / rect.width;
               const relY = (clientY - rect.top) / rect.height;
-              // Determine which edge the pointer is closest to (equal priority
-              // for all 4 edges, instead of left>right>top>bottom priority).
+              // Determine which edge the pointer is closest to. The center
+              // area (all distances > 0.25) triggers a "center" drop = add
+              // as a tab inside the target panel.
               const distLeft = relX;
               const distRight = 1 - relX;
               const distTop = relY;
               const distBottom = 1 - relY;
               const minDist = Math.min(distLeft, distRight, distTop, distBottom);
-              if (minDist < 0.25) {
+              if (minDist < 0.2) {
                 if (minDist === distLeft) dropTarget = { panelId: targetId, side: "left" };
                 else if (minDist === distRight) dropTarget = { panelId: targetId, side: "right" };
                 else if (minDist === distTop) dropTarget = { panelId: targetId, side: "top" };
                 else dropTarget = { panelId: targetId, side: "bottom" };
+              } else {
+                dropTarget = { panelId: targetId, side: "center" };
               }
             }
           }
@@ -423,6 +431,12 @@ export function PanelGrid(props: PanelGridProps) {
       const isDropTarget = dragState?.dropTarget?.panelId === panel.id;
       const isSettling = settlingIds.includes(panel.id);
 
+      // For multi-tab panels, compute the effective panel from the active tab.
+      const tab = activeTab(panel);
+      const effectivePanel: Panel = panel.tabs && panel.tabs.length > 1
+        ? { ...panel, type: tab.type, title: tab.title, chatSessionId: tab.chatSessionId, terminalId: tab.terminalId, filePath: tab.filePath }
+        : panel;
+
       // Calculate drag offset for reorder animation.
       let dragOffset = 0;
       if (dragState?.moved && !dragState.dropTarget && parent === dragState.splitNode) {
@@ -475,13 +489,19 @@ export function PanelGrid(props: PanelGridProps) {
             onSplitDown={() => handleSplit(panel.id, "bottom")}
             onDuplicate={() => handleDuplicate(panel.id)}
             onRename={(title) => handleRename(panel.id, title)}
+            onSwitchTab={(tabId) => {
+              onStateChange({ ...state, root: setActiveTab(state.root, panel.id, tabId) });
+            }}
+            onCloseTab={(tabId) => {
+              onStateChange(removeTabFromPanel(state, panel.id, tabId));
+            }}
             onDragStart={(e) => handleHeaderPointerDown(panel.id, e)}
             onDragEnd={() => {}}
             onDragMove={() => {}}
             onDragCancel={() => {}}
           />
           <div className="panel-grid-content">
-            {renderPanel(panel, isActive)}
+            {renderPanel(effectivePanel, isActive)}
           </div>
           {isDropTarget && dragState?.dropTarget ? (
             <DropZoneOverlay side={dragState.dropTarget.side} />

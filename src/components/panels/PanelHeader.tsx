@@ -1,6 +1,7 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   FileText,
+  GripVertical,
   MessageSquare,
   MoreVertical,
   PanelRightClose,
@@ -33,6 +34,10 @@ export type PanelHeaderProps = {
   onSplitDown: () => void;
   onDuplicate: () => void;
   onRename: (title: string) => void;
+  /** Switch to a tab within this panel (multi-tab only). */
+  onSwitchTab?: (tabId: string) => void;
+  /** Close a specific tab within this panel (multi-tab only). */
+  onCloseTab?: (tabId: string) => void;
   /** Drag handle props for reorder/split. */
   onDragStart: (e: ReactPointerEvent<HTMLDivElement>) => void;
   onDragEnd: () => void;
@@ -41,7 +46,7 @@ export type PanelHeaderProps = {
 };
 
 export function PanelHeader(props: PanelHeaderProps) {
-  const { panel, status, isActive, onFocus, onClose, onSplitRight, onSplitDown, onDuplicate, onRename, onDragStart, onDragEnd, onDragMove, onDragCancel } = props;
+  const { panel, status, isActive, onFocus, onClose, onSplitRight, onSplitDown, onDuplicate, onRename, onSwitchTab, onCloseTab, onDragStart, onDragEnd, onDragMove, onDragCancel } = props;
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(panel.title);
@@ -63,6 +68,14 @@ export function PanelHeader(props: PanelHeaderProps) {
     onDragStart(e);
   };
 
+  const hasTabs = panel.tabs && panel.tabs.length > 1;
+  const activeTabData = panel.tabs && panel.tabs.length > 0
+    ? panel.tabs.find((t) => t.id === panel.activeTabId) ?? panel.tabs[0]
+    : null;
+  const displayTitle = activeTabData?.title ?? panel.title;
+  const displayType = activeTabData?.type ?? panel.type;
+  const DisplayIcon = typeIcons[displayType] ?? FileText;
+
   return (
     <div
       className={`panel-header${isActive ? " is-active" : ""}`}
@@ -72,7 +85,8 @@ export function PanelHeader(props: PanelHeaderProps) {
       data-panel-status={status}
     >
       <div className="panel-header-drag-handle" ref={dragHandleRef} data-panel-header-drag-handle="true">
-        <Icon size={11} className="panel-header-icon" />
+        <GripVertical size={11} className="panel-header-grip" />
+        <DisplayIcon size={11} className="panel-header-icon" />
         {editing ? (
           <input
             className="input panel-header-title-input"
@@ -82,7 +96,7 @@ export function PanelHeader(props: PanelHeaderProps) {
             onBlur={commitRename}
             onKeyDown={(e) => {
               if (e.key === "Enter") commitRename();
-              if (e.key === "Escape") { setEditValue(panel.title); setEditing(false); }
+              if (e.key === "Escape") { setEditValue(displayTitle); setEditing(false); }
             }}
             title="Rename panel (Enter to save, Esc to cancel)"
             autoFocus
@@ -90,14 +104,41 @@ export function PanelHeader(props: PanelHeaderProps) {
         ) : (
           <span
             className="panel-header-title"
-            title={panel.title}
-            onDoubleClick={(e) => { e.stopPropagation(); setEditValue(panel.title); setEditing(true); }}
+            title={displayTitle}
+            onDoubleClick={(e) => { e.stopPropagation(); setEditValue(displayTitle); setEditing(true); }}
           >
-            {panel.title}
+            {displayTitle}
           </span>
         )}
         <span className={`panel-status-indicator ${statusClass}`} title={`Status: ${status}`} />
       </div>
+      {hasTabs ? (
+        <div className="panel-header-tabs">
+          {panel.tabs!.map((tab) => {
+            const TabIcon = typeIcons[tab.type] ?? FileText;
+            const isActiveTab = tab.id === panel.activeTabId;
+            return (
+              <div
+                key={tab.id}
+                className={`panel-header-tab${isActiveTab ? " is-active" : ""}`}
+                title={tab.title}
+                onClick={(e) => { e.stopPropagation(); onSwitchTab?.(tab.id); }}
+              >
+                <TabIcon size={9} className="panel-header-tab-icon" />
+                <span className="panel-header-tab-title">{tab.title}</span>
+                <button
+                  className="panel-header-tab-close"
+                  type="button"
+                  title="Close tab"
+                  onClick={(e) => { e.stopPropagation(); onCloseTab?.(tab.id); }}
+                >
+                  <X size={8} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
       <div className="panel-header-actions">
         <button
           className="btn-icon btn-icon-sm"

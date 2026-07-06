@@ -194,21 +194,32 @@ html, body, #root {
 .app-shell[data-sidebar="collapsed"] .side-panel-wrapper { }
 .app-shell[data-rail="collapsed"] .side-panel-wrapper { }
 
-/* Session header (center column, session-specific) */
+/* Session header (center column — repo name + inline env panel + path) */
 .session-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 12px;
+  padding: 0 8px;
   min-height: 30px;
   border-bottom: 1px solid var(--bb-border);
   background: var(--bb-surface);
+  position: relative;
 }
 .session-title {
   margin: 0;
   font-size: 12px;
   font-weight: 600;
   color: var(--bb-text);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.session-path-pill {
+  font-size: 9px;
+  color: var(--bb-muted);
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
@@ -1902,19 +1913,18 @@ a { color: inherit; text-decoration: none; }
 .workspace-panel-chat-first { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; position: relative; }
 .workspace-scroll-chat-first { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; position: relative; }
 
-/* ─── Chat environment panel (floating top-right) ─── */
+/* ─── Chat environment panel (inline in session header) ─── */
 .chat-env-panel {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 280px;
-  max-height: 240px;
   display: flex;
-  flex-direction: column;
-  background: var(--bb-bg);
-  border: 1px solid var(--bb-border);
-  z-index: 20;
-  flex-shrink: 0;
+  flex-direction: row;
+  align-items: center;
+  gap: 0;
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  z-index: auto;
+  flex-shrink: 1;
 }
 .chat-env-panel.is-collapsed { width: auto; max-height: none; }
 .chat-env-collapsed-btn {
@@ -1929,28 +1939,36 @@ a { color: inherit; text-decoration: none; }
 .chat-env-collapsed-btn:hover { background: var(--bb-surface); }
 .chat-env-dot { width: 6px; height: 6px; background: var(--bb-positive); flex-shrink: 0; }
 .chat-env-header {
-  display: flex; align-items: center; gap: 4px;
-  padding: 4px 6px;
-  border-bottom: 1px solid var(--bb-border);
-  background: var(--bb-surface);
-  flex-shrink: 0;
+  display: flex; align-items: center; gap: 2px;
+  flex: 1; min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  flex-shrink: 1;
 }
-.chat-env-tabs { display: flex; gap: 2px; flex: 1; min-width: 0; }
+.chat-env-tabs { display: flex; gap: 0; flex: 0 0 auto; }
 .chat-env-tab {
   display: flex; align-items: center; gap: 4px;
-  padding: 2px 6px;
+  padding: 4px 8px;
   background: none; border: none;
   color: var(--bb-muted);
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em;
   cursor: pointer;
+  white-space: nowrap;
 }
-.chat-env-tab:hover { color: var(--bb-text); }
-.chat-env-tab.is-active { color: var(--bb-cta); }
+.chat-env-tab:hover { color: var(--bb-text); background: var(--bb-surface); }
+.chat-env-tab.is-active { color: var(--bb-cta); background: var(--bb-surface-high); }
 .chat-env-fold {
-  flex: 1; min-height: 0; overflow: auto;
-  max-height: 200px;
+  position: absolute;
+  top: 100%;
+  left: 0; right: 0;
+  max-height: 300px;
+  background: var(--bb-bg);
+  border: 1px solid var(--bb-border);
+  border-top: none;
+  overflow: auto;
+  z-index: 30;
 }
-
 /* ─── File explorer modal ─── */
 .file-modal-overlay {
   position: fixed; inset: 0;
@@ -2002,6 +2020,8 @@ a { color: inherit; text-decoration: none; }
 .panel-header.is-active { background: var(--bb-surface-high); }
 .panel-header:active { cursor: grabbing; }
 .panel-header-drag-handle { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; cursor: grab; }
+.panel-header-grip { color: var(--bb-muted); flex-shrink: 0; opacity: 0.4; }
+.panel-header-drag-handle:hover .panel-header-grip { opacity: 1; }
 .panel-header-icon { color: var(--bb-muted); flex-shrink: 0; }
 .panel-header-title { font-size: 11px; font-weight: 600; color: var(--bb-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
 .panel-header-title-input { font-size: 11px; font-weight: 600; height: 18px; padding: 0 2px; flex: 1; min-width: 0; }
@@ -2010,6 +2030,14 @@ a { color: inherit; text-decoration: none; }
 .panel-header-menu { position: absolute; top: 100%; right: 0; z-index: 200; min-width: 140px; background: var(--bb-surface-high); border: 1px solid var(--bb-border-strong); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
 .panel-header-menu button { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 11px; color: var(--bb-text); width: 100%; text-align: left; background: none; border: 0; cursor: pointer; }
 .panel-header-menu button:hover { background: var(--bb-surface); }
+.panel-header-tabs { display: flex; align-items: center; gap: 0; flex: 1; min-width: 0; overflow: hidden; }
+.panel-header-tab { display: flex; align-items: center; gap: 3px; padding: 2px 6px; font-size: 10px; color: var(--bb-muted); cursor: pointer; white-space: nowrap; border-right: 1px solid var(--bb-border); }
+.panel-header-tab:hover { background: var(--bb-surface); color: var(--bb-text); }
+.panel-header-tab.is-active { color: var(--bb-cta); background: var(--bb-surface-high); }
+.panel-header-tab-icon { flex-shrink: 0; }
+.panel-header-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80px; }
+.panel-header-tab-close { display: flex; align-items: center; justify-content: center; width: 12px; height: 12px; background: none; border: 0; cursor: pointer; color: var(--bb-muted); opacity: 0.5; }
+.panel-header-tab-close:hover { opacity: 1; color: var(--bb-danger, #c53030); }
 
 /* Panel status indicator */
 .panel-status-indicator { width: 6px; height: 6px; border-radius: 0; flex-shrink: 0; background: var(--bb-muted); }
@@ -2030,6 +2058,7 @@ a { color: inherit; text-decoration: none; }
 .panel-drop-zone.is-right { right: 0; top: 0; bottom: 0; width: 50%; }
 .panel-drop-zone.is-top { left: 0; top: 0; right: 0; height: 50%; }
 .panel-drop-zone.is-bottom { left: 0; bottom: 0; right: 0; height: 50%; }
+.panel-drop-zone.is-center { left: 20%; top: 20%; right: 20%; bottom: 20%; border-style: dashed; }
 
 /* Activity sidebar */
 .activity-sidebar { display: flex; flex-direction: column; flex: 1; min-height: 0; }

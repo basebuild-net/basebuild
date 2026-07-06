@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, Folder, GitBranch, LayoutList } from "lucide-react";
+import { Folder, GitBranch, LayoutList } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import type { IdeaCategory } from "../../lib/ideas";
@@ -46,37 +46,16 @@ export function ChatEnvironmentPanel({
   onOpenFiles,
   openPlansFoldSignal,
 }: ChatEnvironmentPanelProps) {
-  const [collapsed, setCollapsed] = useState(false);
   const [openFold, setOpenFold] = useState<FoldId | null>(null);
 
   // Auto-open the Plans fold when the chat-side inspector button fires.
   const lastSignalRef = useState<{ value: number }>({ value: 0 })[0];
   if (openPlansFoldSignal !== undefined && openPlansFoldSignal !== lastSignalRef.value) {
     lastSignalRef.value = openPlansFoldSignal;
-    if (collapsed) setCollapsed(false);
     if (openFold !== "plans") setOpenFold("plans");
   }
 
   if (!projectPath) return null;
-
-  const projectName = projectPath.split(/[\\/]/).pop() ?? projectPath;
-
-  if (collapsed) {
-    return (
-      <div className="chat-env-panel is-collapsed" aria-label="Environment summary">
-        <button
-          className="chat-env-collapsed-btn"
-          type="button"
-          title={`Expand environment — ${projectName}`}
-          onClick={() => setCollapsed(false)}
-        >
-          <GitBranch size={11} />
-          <span className="mono">{projectName}</span>
-          <span className="chat-env-dot" title="Healthy" />
-        </button>
-      </div>
-    );
-  }
 
   return (
     <div className="chat-env-panel" aria-label="Environment info">
@@ -95,14 +74,6 @@ export function ChatEnvironmentPanel({
             </button>
           ))}
         </div>
-        <button
-          className="btn-icon btn-icon-sm"
-          type="button"
-          title="Collapse environment"
-          onClick={() => setCollapsed(true)}
-        >
-          <ChevronDown size={12} />
-        </button>
       </div>
       {openFold === "source" ? (
         <div className="chat-env-fold">
