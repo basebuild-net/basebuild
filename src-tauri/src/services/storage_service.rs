@@ -541,6 +541,33 @@ impl StorageService {
                     updated_at INTEGER NOT NULL
                 );
                 DROP TABLE IF EXISTS plan_proposals;
+
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    kind TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    entity_kind TEXT NOT NULL,
+                    project_path TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    detail TEXT,
+                    read INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(read) WHERE read = 0;
+
+                CREATE TABLE IF NOT EXISTS pending_interactions (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    session_id TEXT NOT NULL,
+                    run_id TEXT,
+                    questions_json TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    answers_json TEXT,
+                    created_at INTEGER NOT NULL,
+                    resolved_at INTEGER
+                );
+                CREATE INDEX IF NOT EXISTS idx_pending_interactions_session ON pending_interactions(session_id);
+                CREATE INDEX IF NOT EXISTS idx_pending_interactions_status ON pending_interactions(status) WHERE status = 'pending';
             ")
             .map_err(|error| format!("Failed to initialize Basebuild state database: {error}"))?;
         // Migration: add last_active_session_id to existing databases

@@ -116,6 +116,8 @@ type E2eState = {
   autoSyncEnabled?: boolean;
   gitChangeStaged: boolean;
   terminals: { id: number; shell: string; cwd: string | null; pid: number; rows: number; cols: number; startedAt: number; alive: boolean }[];
+  notifications: { id: string; kind: string; entityId: string; entityKind: string; projectPath: string; title: string; detail?: string; read: boolean; createdAt: number }[];
+  notificationSettings: { overrides: Record<string, string> };
 };
 
 const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState };
@@ -147,6 +149,8 @@ function state(): E2eState {
       updateInstallCount: 0,
       gitChangeStaged: false,
       terminals: [],
+      notifications: [],
+      notificationSettings: { overrides: {} },
     };
   }
   return globalState.__BASEBUILD_E2E_STATE__!;
@@ -737,7 +741,25 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return { providers: {} } as T;
     case "set_run_concurrency_override":
       return undefined as T;
-    case "remove_run_concurrency_override":
+    case "notification_list":
+      return s.notifications.slice().reverse().slice(0, (args.limit as number) ?? 100) as T;
+    case "notification_unread_count":
+      return s.notifications.filter((n) => !n.read).length as T;
+    case "notification_mark_read": {
+      const n = s.notifications.find((item) => item.id === args.id);
+      if (n) n.read = true;
+      return undefined as T;
+    }
+    case "notification_mark_all_read":
+      s.notifications.forEach((n) => { n.read = true; });
+      return undefined as T;
+    case "notification_delete":
+      s.notifications = s.notifications.filter((n) => n.id !== args.id);
+      return undefined as T;
+    case "notification_get_settings":
+      return s.notificationSettings as T;
+    case "notification_set_settings":
+      s.notificationSettings = args.settings as { overrides: Record<string, string> };
       return undefined as T;
     case "effective_run_concurrency":
       return { maxConcurrency: 1, subagentsEnabled: false, subagentMaxCount: 0 } as T;

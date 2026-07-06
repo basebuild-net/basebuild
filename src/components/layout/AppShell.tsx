@@ -8,8 +8,8 @@ import { ActivitySidebar } from "./ActivitySidebar";
 import { ChatEnvironmentPanel } from "./ChatEnvironmentPanel";
 import { FileExplorerModal } from "./FileExplorerModal";
 import { PlanningInspector } from "./PlanningInspector";
+import { ToastStack } from "./ToastStack";
 import { SourcePanel } from "../panels/SourcePanel";
-
 import { EditPlanModal } from "./EditPlanModal";
 import { FocusPlanModal } from "./FocusPlanModal";
 import { ProjectDescriptionModal } from "./ProjectDescriptionModal";
@@ -1070,6 +1070,7 @@ Rules:
         onComplete={() => firstRun.complete()}
         onSkip={() => firstRun.skip()}
       />
+      <ToastStack />
     </div>
   );
 }

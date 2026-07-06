@@ -82,7 +82,12 @@ use commands::{
         openspec_derive_change_name, openspec_parse_task_progress, openspec_resolve_change_name,
         openspec_task_progress,
     },
-    planning_prompts::{planning_prompt_list, planning_prompt_reset, planning_prompt_set},
+    notifications::{
+        notification_delete, notification_get_settings, notification_list,
+        notification_mark_all_read, notification_mark_read, notification_set_settings,
+        notification_unread_count,
+    },
+     planning_prompts::{planning_prompt_list, planning_prompt_reset, planning_prompt_set},
     slash_commands::{expand_slash_command, list_slash_commands},
     projects::{
         create_project_basebuild_config, detect_project, list_recent_projects, pick_context_file,
@@ -499,7 +504,14 @@ pub fn run() {
             install_update_with_progress,
             skip_update_version,
             clear_skipped_update,
-            get_skipped_update_version,
+            notification_list,
+            notification_unread_count,
+            notification_mark_read,
+            notification_mark_all_read,
+            notification_delete,
+            notification_get_settings,
+            notification_set_settings,
+             get_skipped_update_version,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Basebuild");

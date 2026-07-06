@@ -11,6 +11,7 @@ pub mod ideas;
 pub mod mcp;
 pub mod omp;
 pub mod omp_telemetry;
+pub mod notifications;
 pub mod plans;
 pub mod plan_import;
 pub mod plan_runs;

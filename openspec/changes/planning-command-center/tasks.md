@@ -25,23 +25,23 @@ bases). Phases 1–2, 3–4, 5–6, 7–8, and 9 are intended PR boundaries.
 
 ## 2. Notifications (Phase A)
 
-- [ ] 2.1 Migration: `notifications` table (id, kind, entity_id, entity_kind,
+- [x] 2.1 Migration: `notifications` table (id, kind, entity_id, entity_kind,
       project_path, title, detail, read, created_at) + prune-oldest-read cap
       in `storage_service.rs`; `notification_service.rs` (insert-from-event
       with per-turn generation summarization, list, mark-read, mark-all,
       unread-count); commands + thin `src/lib/notifications.ts`.
-- [ ] 2.2 Per-kind delivery settings (toast+center / center-only / off) with
+- [x] 2.2 Per-kind delivery settings (toast+center / center-only / off) with
       conservative defaults in `settings_service.rs` + Settings →
       Notifications section in `SettingsModal.tsx`.
-- [ ] 2.3 `ToastStack.tsx` mounted in `AppShell.tsx`: stacking, 6s
+- [x] 2.3 `ToastStack.tsx` mounted in `AppShell.tsx`: stacking, 6s
       auto-dismiss, hover pause, manual dismiss, click-to-navigate (inspector
       tab / chat panel focus / plan view), 0px radius + tooltips; styles in
       `globals.css`.
-- [ ] 2.4 `NotificationCenter.tsx` + bell with unread badge in the top-right
+- [x] 2.4 `NotificationCenter.tsx` + bell with unread badge in the top-right
       environment block (`ChatEnvironmentPanel.tsx`): newest-first list,
       per-kind filter, mark-read/mark-all, click-to-navigate; unread badge on
       the Planning inspector entry point, cleared on open.
-- [ ] 2.5 Playwright e2e (mocked commands): event → toast render → center
+- [x] 2.5 Playwright e2e (mocked commands): event → toast render → center
       unread → mark-read → badge clears; per-kind mute suppresses toast.
 
 ## 3. Interactive elements — backend (Phase B)
