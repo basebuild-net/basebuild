@@ -11,16 +11,15 @@ async function openFixtureProject(page: Page) {
   ).toBeVisible();
 }
 
-async function ensureChatTab(page: Page) {
+async function ensureChatPanel(page: Page) {
   await page.waitForTimeout(1500);
-  const chatTab = page.locator("button.workspace-tab-label[title^='Chat']").first();
-  const count = await chatTab.count();
-  if (count > 0) {
-    await chatTab.click();
-    return;
-  }
-  await page.getByTitle("New tab").click();
-  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  // In the panel grid, chat panels have data-panel-id and a .panel-header.
+  const panel = page.locator(".panel-grid-leaf").first();
+  const count = await panel.count();
+  if (count > 0) return;
+  // If no panel exists, click "New chat" in the sidebar.
+  await page.getByTitle("New chat").first().click();
+  await page.waitForTimeout(500);
 }
 
 async function collapseEnvPanel(page: Page) {
@@ -37,7 +36,7 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
     await openFixtureProject(page);
-    await ensureChatTab(page);
+    await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
     // The branch indicator shows the mocked current branch "main".
@@ -54,7 +53,7 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
     await openFixtureProject(page);
-    await ensureChatTab(page);
+    await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
     // The model chip shows the default model.
@@ -87,7 +86,7 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     });
 
     await openFixtureProject(page);
-    await ensureChatTab(page);
+    await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
     // No PR recommendation card should appear on a fresh chat (no finished run).
@@ -113,7 +112,7 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
     await openFixtureProject(page);
-    await ensureChatTab(page);
+    await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
     // The agent-mode pill shows "plan" by default.
@@ -136,7 +135,7 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
     await openFixtureProject(page);
-    await ensureChatTab(page);
+    await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
     // The effort chip shows the default "medium".

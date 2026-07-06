@@ -4,7 +4,7 @@ import { LayoutTemplate, Settings2, TerminalSquare, X } from "lucide-react";
 import { useSessionState } from "../../state/sessions";
 import { usePlans } from "../../state/plans";
 import { ProjectSidebar, useProjectSidebar } from "./ProjectSidebar";
-import { ProjectChatSidebar } from "./ProjectChatSidebar";
+import { ActivitySidebar } from "./ActivitySidebar";
 import { ChatEnvironmentPanel } from "./ChatEnvironmentPanel";
 import { FileExplorerModal } from "./FileExplorerModal";
 
@@ -14,21 +14,34 @@ import { ProjectDescriptionModal } from "./ProjectDescriptionModal";
 import { useProjectSchematic } from "../../state/schematic";
 import { revealInExplorer } from "../../lib/projects";
 import { onPlanRunEvent } from "../../lib/planRuns";
-import { addChatBeside } from "../../lib/gridMath";
 import { generateSessionTitle, readSkill } from "../../lib/skills";
 import { getWorkspaceRestoreState, saveWorkspaceRestoreState, type WorkspaceRestoreState } from "../../lib/workspace";
-import { WorkspaceTabs } from "./WorkspaceTabs";
 import { SettingsModal } from "./SettingsModal";
 import { FirstRunModal } from "./FirstRunModal";
 import { useFirstRun } from "../../state/first-run";
 import { createTerminal } from "../../lib/terminal";
 import { TerminalPanel } from "../panels/TerminalPanel";
-import { OmpTerminalTab } from "../panels/OmpTerminalTab";
 import { FileViewer } from "../panels/FileViewer";
 import { ProjectSchematicTab } from "../panels/ProjectSchematicTab";
 import { ChatPanel } from "../panels/ChatPanel";
-import { ChatGrid } from "../panels/ChatGrid";
-import { singleColumnGrid, type ChatGrid as ChatGridLayout } from "../../lib/gridMath";
+import { PanelGrid } from "../panels/PanelGrid";
+import { PanelStatusProvider } from "../panels/PanelStatusContext";
+import { HistoryDrawer } from "../panels/HistoryDrawer";
+import {
+  closePanel,
+  deletePanelFromHistory,
+  emptyGrid,
+  flattenPanels,
+  reopenPanel,
+  parsePanelGrid,
+  serializePanelGrid,
+  singlePanelGrid,
+  splitPanelAt,
+  type DropSide,
+  type Panel,
+  type PanelGridState,
+  type PanelType,
+} from "../../lib/panelGrid";
 import { parseTabGridStates, serializeTabGridStates } from "../../lib/workspace";
 import { ompStatus } from "../../lib/omp";
 import { stabilityRendererHeartbeat } from "../../lib/stability";
@@ -42,7 +55,9 @@ import { useAccount } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
 import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
 import type { IdeaCategory } from "../../lib/ideas";
+import type { SessionTab, TabKind } from "../../lib/sessions";
 export type ToolId = "terminal";
+
 
 const DEFAULT_SHELL = () => {
   if (typeof window !== "undefined" && window.navigator.platform.includes("Win")) return "powershell.exe";
@@ -71,6 +86,8 @@ export function AppShell({ updates }: AppShellProps) {
   const [chatDraftTabId, setChatDraftTabId] = useState<string | null>(null);
   const [autoSendDraft, setAutoSendDraft] = useState(false);
   const [focusedChatId, setFocusedChatId] = useState<string | null>(null);
+  const [panelGridState, setPanelGridState] = useState<PanelGridState>(emptyGrid());
+  const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const [terminalOutputBuffer, setTerminalOutputBuffer] = useState("");
   const titleDebounceRef = useRef<number | null>(null);
   const workspacePersistTimerRef = useRef<number | null>(null);
@@ -118,6 +135,21 @@ export function AppShell({ updates }: AppShellProps) {
     if (session.activeSession?.title === "New Session") return;
     void session.createTab("chat", "Chat 1");
   }, [activeProjectPath, session.activeSessionId, session.tabs.length, session.activeSession?.title, session]);
+  // Auto-create a chat panel when the panel grid is empty and a session is active.
+  useEffect(() => {
+    if (!activeProjectPath || !session.activeSessionId) return;
+    if (panelGridState.root) return; // grid already has panels
+    if (session.activeSession?.title === "New Session") return;
+    const newPanel: Panel = {
+      id: `panel-${Date.now()}`,
+      type: "chat",
+      title: "Chat 1",
+      chatSessionId: null,
+      terminalId: null,
+      filePath: null,
+    };
+    setPanelGridState(singlePanelGrid(newPanel));
+  }, [activeProjectPath, session.activeSessionId, panelGridState.root, session.activeSession?.title]);
 
   useEffect(() => {
     if (activeProjectPath || sidebar.projects.length === 0) return;
@@ -146,36 +178,49 @@ export function AppShell({ updates }: AppShellProps) {
       cancelled = true;
     };
   }, [activeProjectPath, addLog]);
-
   // Plan-run event listener: when a run starts with a chat session, surface
-  // it as a column in the active chat tab's grid (per `chat-grid-layout`).
-  // If no chat tab is active, the existing auto-create-tab effect handles it.
+  // it as a new panel in the panel grid (per `panel-grid`).
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     void onPlanRunEvent((event) => {
       if (event.status !== "running" || !event.chatSessionId) return;
-      const activeTab = session.tabs.find((t) => t.id === session.activeTabId);
-      if (!activeTab || activeTab.kind !== "chat") return;
-      // If the chat is already in the grid, just focus it.
-      const grid = session.tabGridStates[activeTab.id];
-      const flat = grid?.rows.flat() ?? [];
-      if (flat.includes(event.chatSessionId)) {
-        setFocusedChatId(event.chatSessionId);
+      // If the chat session is already a panel in the grid, just focus it.
+      const existingPanel = flattenPanels(panelGridState.root).find((p) => p.chatSessionId === event.chatSessionId);
+      if (existingPanel) {
+        setPanelGridState((prev) => ({ ...prev, activePanelId: existingPanel.id }));
         return;
       }
-      // Add beside the focused chat (or at the end).
-      const anchor = focusedChatId ?? flat[flat.length - 1] ?? null;
-      const next = addChatBeside(grid ?? { rows: [[]], chatColumnWidths: {}, rowHeights: {} }, anchor, event.chatSessionId, typeof window !== "undefined" ? window.innerWidth - 80 : 1200);
-      session.setTabGrid(activeTab.id, next);
-      setFocusedChatId(event.chatSessionId);
+      // Add as a new panel beside the active one (or at the end).
+      const newPanel: Panel = {
+        id: event.chatSessionId ?? `panel-${Date.now()}`,
+        type: "chat",
+        title: event.chatSessionId ? `Run ${event.chatSessionId.slice(-6)}` : "Plan Run",
+        chatSessionId: event.chatSessionId ?? null,
+        terminalId: null,
+        filePath: null,
+      };
+      setPanelGridState((prev) => {
+        if (!prev.root) {
+          return singlePanelGrid(newPanel);
+        }
+        const anchorId = prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "";
+        const newRoot = splitPanelAt(prev.root, anchorId, newPanel, "right");
+        return { ...prev, root: newRoot, activePanelId: newPanel.id };
+      });
     }).then((fn) => { unlisten = fn; });
     return () => { if (unlisten) unlisten(); };
-  }, [session, focusedChatId]);
+  }, [panelGridState.root]);
   // Hydrate per-tab grid states from the workspace restore snapshot.
   useEffect(() => {
     if (!workspaceRestore?.tabGridStates) return;
     session.hydrateTabGridStates(parseTabGridStates(workspaceRestore.tabGridStates));
   }, [workspaceRestore, session.hydrateTabGridStates]);
+  // Hydrate panel grid state from the workspace restore snapshot.
+  useEffect(() => {
+    if (!workspaceRestore?.panelGrid) return;
+    const parsed = parsePanelGrid(workspaceRestore.panelGrid);
+    setPanelGridState(parsed);
+  }, [workspaceRestore]);
 
 
   useEffect(() => {
@@ -192,6 +237,7 @@ export function AppShell({ updates }: AppShellProps) {
         sideCollapsed: workspaceRestore?.sideCollapsed ?? false,
         sideWidth: workspaceRestore?.sideWidth ?? 260,
         tabGridStates: serializeTabGridStates(session.tabGridStates),
+        panelGrid: serializePanelGrid(panelGridState),
         updatedAt: workspaceRestore?.updatedAt ?? 0,
       }).catch((caught) => {
         const message = caught instanceof Error ? caught.message : String(caught);
@@ -201,7 +247,7 @@ export function AppShell({ updates }: AppShellProps) {
     return () => {
       if (workspacePersistTimerRef.current) window.clearTimeout(workspacePersistTimerRef.current);
     };
-  }, [activeProjectPath, session.activeSessionId, session.activeTabId, session.tabGridStates, workspaceRestore, sidebarCollapsed, addLog]);
+  }, [activeProjectPath, session.activeSessionId, session.activeTabId, session.tabGridStates, workspaceRestore, sidebarCollapsed, panelGridState, addLog]);
 
   useEffect(() => {
     if (!workspaceRestore?.lastTabId) return;
@@ -480,6 +526,120 @@ Rules:
     },
     [session, handleCreateTerminalTab, activeProjectPath],
   );
+  /** Create a new panel for the panel grid. Called when the user splits or
+   *  duplicates. Creates a session tab + chat/terminal as needed, then returns
+   *  the Panel object for the grid. */
+  const handleCreatePanel = useCallback(
+    (anchorId: string | null, _side: DropSide): Panel => {
+      if (!session.activeSessionId) {
+        // Fallback: shouldn't normally happen.
+        const id = `panel-${Date.now()}`;
+        return { id, type: "chat", title: "Chat", chatSessionId: null, terminalId: null, filePath: null };
+      }
+      const id = `panel-${Date.now()}`;
+      const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
+      // For chat panels, create a tab but defer chat session creation to ChatPanel mount.
+      void session.createTab("chat", `Chat ${chatCount}`);
+      return { id, type: "chat", title: `Chat ${chatCount}`, chatSessionId: null, terminalId: null, filePath: null };
+    },
+    [session],
+  );
+
+  /** Render a panel's content by type. */
+  const renderPanel = useCallback(
+    (panel: Panel, _isActive: boolean) => {
+      if (panel.type === "chat") {
+        // Find the tab for this panel (by title match or create on demand).
+        const tab = session.tabs.find((t) => t.kind === "chat" && (t.title === panel.title || t.id === panel.id));
+        return (
+          <ChatPanel
+            projectPath={activeProjectPath ?? ""}
+            chatSessionId={tab?.chatSessionId ?? null}
+            onChatSessionCreated={(chatSessionId) => {
+              if (tab) void session.setTabChatSession(tab.id, chatSessionId);
+            }}
+            draftPrompt={chatDraft}
+            autoSendDraft={autoSendDraft}
+            onDraftConsumed={() => { setChatDraft(null); setChatDraftTabId(null); setAutoSendDraft(false); }}
+            activeSessionId={session.activeSessionId}
+            schematicContent={schematic.content}
+            onCreatePlanFromIdea={handleCreatePlanFromIdea}
+            onOpenPlanningInspector={handleOpenPlanningInspector}
+            onOpenSchematic={handleOpenSchematic}
+            onCloseChat={() => {}}
+            onDuplicateChat={() => {}}
+          />
+        );
+      }
+      if (panel.type === "terminal") {
+        const tab = session.tabs.find((t) => t.kind === "terminal" && t.id === panel.id);
+        if (!tab?.terminalId) {
+          return (
+            <div className="empty-state">
+              <TerminalSquare size={32} className="text-muted" />
+              <h3>Terminal not connected</h3>
+              <p>Create a new terminal to start a shell.</p>
+            </div>
+          );
+        }
+        return <TerminalPanel terminalId={tab.terminalId} onOutput={handleTerminalOutput} />;
+      }
+      if (panel.type === "file") {
+        const tab = session.tabs.find((t) => t.kind === "file" && t.id === panel.id);
+        if (!tab?.filePath) return null;
+        return <FileViewer path={tab.filePath} />;
+      }
+      if (panel.type === "schematic") {
+        return (
+          <ProjectSchematicTab
+            projectPath={activeProjectPath ?? ""}
+            onStartWizard={handleStartSchematicWizard}
+            onOpenRaw={() => setDescriptionOpen(true)}
+          />
+        );
+      }
+      return null;
+    },
+    [session, activeProjectPath, chatDraft, autoSendDraft, schematic.content, handleCreatePlanFromIdea, handleOpenPlanningInspector, handleOpenSchematic, handleTerminalOutput, handleStartSchematicWizard],
+  );
+
+  /** Handle panel grid state changes. */
+  const handlePanelGridChange = useCallback(
+    (newState: PanelGridState) => {
+      setPanelGridState(newState);
+    },
+    [],
+  );
+
+  /** Handle closing a panel → moves to history. */
+  const handlePanelClose = useCallback(
+    (panelId: string) => {
+      setPanelGridState((prev) => closePanel(prev, panelId));
+    },
+    [],
+  );
+
+  /** Handle reopening a panel from history. */
+  const handlePanelReopen = useCallback(
+    (panelId: string) => {
+      setPanelGridState((prev) => reopenPanel(prev, panelId));
+    },
+    [],
+  );
+
+  /** Handle deleting a panel from history permanently. */
+  const handlePanelDelete = useCallback(
+    (panelId: string) => {
+      // Confirm-gated: the caller (HistoryDrawer) handles the confirm UI.
+      // For chat panels, delete the session; for terminals, discard.
+      const panel = panelGridState.closedPanels.find((p) => p.id === panelId);
+      if (panel?.chatSessionId) {
+        void session.removeSession(panel.chatSessionId);
+      }
+      setPanelGridState((prev) => deletePanelFromHistory(prev, panelId));
+    },
+    [panelGridState.closedPanels, session],
+  );
 
   const handleOpenChatSession = useCallback(
     async (chatSessionId: string) => {
@@ -536,40 +696,38 @@ Rules:
         className="app-shell app-shell-chat-first"
         data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}
       >
-        <ProjectChatSidebar
+        <ActivitySidebar
           activeProjectPath={activeProjectPath}
-          activeSessionId={session.activeSessionId}
+          root={panelGridState.root}
+          activePanelId={panelGridState.activePanelId}
+          closedPanelCount={panelGridState.closedPanels.length}
           projects={sidebar.projects}
-          sessionsByProject={sidebar.sessionsByProject}
           account={account}
           updates={updates}
           onSelectProject={handleSelectProject}
           onOpenFolder={handleOpenFolder}
-          onRemoveProject={handleRemoveProject}
-          onSelectSession={session.selectSession}
-          onCreateSession={handleCreateSession}
-          onRenameSession={(id, title) => void session.renameSession(id, title)}
-          onDeleteSession={(id) => void session.removeSession(id)}
+          onFocusPanel={(panelId) => setPanelGridState((prev) => ({ ...prev, activePanelId: panelId }))}
+          onCreateChat={() => {
+            const newPanel = handleCreatePanel(null, "right");
+            setPanelGridState((prev) => {
+              if (!prev.root) {
+                return singlePanelGrid(newPanel);
+              }
+              const newRoot = splitPanelAt(prev.root, prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "", newPanel, "right");
+              return { ...prev, root: newRoot, activePanelId: newPanel.id };
+            });
+          }}
+          onOpenHistory={() => setHistoryDrawerOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         />
         <section className="workspace-panel workspace-panel-chat-first">
           {activeProjectPath && session.activeSessionId ? (
-            <>
-              <div className="session-header">
-                <h1 className="session-title">{session.activeSession?.title ?? "Session"}</h1>
-                <span className="status-pill" title={activeProjectPath}>{activeProjectPath}</span>
-              </div>
-              <WorkspaceTabs
-                tabs={session.tabs}
-                activeTabId={session.activeTabId}
-                onSelectTab={session.setActiveTabId}
-                onCloseTab={(id) => void session.removeTab(id)}
-                onCreateTab={(kind) => void handleCreateTab(kind)}
-                ompInstalled={ompInstalled}
-              />
-            </>
+            <div className="session-header">
+              <h1 className="session-title">{session.activeSession?.title ?? "Session"}</h1>
+              <span className="status-pill" title={activeProjectPath}>{activeProjectPath}</span>
+            </div>
           ) : null}
           <div className="workspace-scroll workspace-scroll-chat-first">
             {activeProjectPath ? (
@@ -599,84 +757,24 @@ Rules:
               </div>
             ) : null}
             {activeProjectPath ? (
-              !activeTab ? (
-                <div className="empty-state">
-                  <LayoutTemplate size={32} className="text-muted" />
-                  <h3>No tab open</h3>
-                  <p>Click + in the tab bar to create a terminal, schematic, or chat tab.</p>
-                </div>
-              ) : activeTab.kind === "empty" ? (
-                <ProjectSchematicTab
-                  projectPath={activeProjectPath}
-                  onStartWizard={handleStartSchematicWizard}
-                  onOpenRaw={() => setDescriptionOpen(true)}
-                />
-              ) : activeTab.kind === "chat" ? (
-                <ChatGrid
-                  grid={session.tabGridStates[activeTab.id] ?? singleColumnGrid(activeTab.chatSessionId ?? "new")}
-                  onGridChange={(g) => session.setTabGrid(activeTab.id, g)}
-                  renderChat={(chatId, _isFocused, drag) => (
-                    <ChatPanel
-                      projectPath={activeProjectPath}
-                      chatSessionId={chatId === "new" ? null : chatId}
-                      onChatSessionCreated={(id) => {
-                        void session.setTabChatSession(activeTab.id, id);
-                      }}
-                      draftPrompt={chatDraft}
-                      autoSendDraft={autoSendDraft}
-                      onDraftConsumed={() => { setChatDraft(null); setChatDraftTabId(null); setAutoSendDraft(false); }}
-                      activeSessionId={session.activeSessionId}
-                      schematicContent={schematic.content}
-                      onCreatePlanFromIdea={handleCreatePlanFromIdea}
-                      onOpenPlanningInspector={handleOpenPlanningInspector}
-                      onOpenSchematic={handleOpenSchematic}
-                      onHeaderDragStart={drag?.onDragStart}
-                      onHeaderDragEnd={drag?.onDragEnd}
-                      onHeaderDragOver={drag?.onDragOver}
-                      onHeaderDrop={drag?.onDrop}
-                      onCloseChat={() => handleCloseChat(chatId)}
-                      onDuplicateChat={() => handleDuplicateChat(chatId)}
-                    />
-                  )}
-                  focusedChatId={focusedChatId ?? activeTab.chatSessionId}
-                  onFocusChat={setFocusedChatId}
-                  onCloseChat={() => { /* session retained; grid handles removal */ }}
-                  onAddChatBeside={() => { const id = `chat-${Date.now()}`; return id; }}
-                  onDuplicateChat={() => { const id = `chat-${Date.now()}`; return id; }}
+              <PanelStatusProvider>
+                <PanelGrid
+                  state={panelGridState}
+                  onStateChange={handlePanelGridChange}
+                  renderPanel={renderPanel}
+                  onCreatePanel={handleCreatePanel}
                   viewportWidth={typeof window !== "undefined" ? window.innerWidth - 80 : 1200}
                   viewportHeight={typeof window !== "undefined" ? window.innerHeight - 120 : 700}
                 />
-              ) : activeTab.kind === "file" ? (
-                <FileViewer path={activeTab.filePath} />
-              ) : activeTab.terminalId == null ? (
-                <div className="empty-state">
-                  <LayoutTemplate size={32} className="text-muted" />
-                  <h3>Terminal not connected</h3>
-                  <p>This terminal tab was restored from a previous session. Close it and create a new terminal tab to start a fresh shell.</p>
-                </div>
-              ) : gridView && session.tabs.filter((t) => t.kind === "terminal").length > 1 ? (
-                (() => {
-                  const terminalTabs = session.tabs.filter((t) => t.kind === "terminal");
-                  return (
-                    <div className="terminal-grid" style={{ gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(terminalTabs.length))}, 1fr)` }}>
-                      {terminalTabs.map((tab) => (
-                        <div
-                          key={tab.id}
-                          className={`terminal-grid-cell${tab.id === session.activeTabId ? " is-active" : ""}`}
-                          onClick={() => session.setActiveTabId(tab.id)}
-                        >
-                          <div className="terminal-grid-cell-header">
-                            <TerminalSquare size={10} /> {tab.title}
-                          </div>
-                          <TerminalPanel terminalId={tab.terminalId} onOutput={handleTerminalOutput} />
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()
-              ) : (
-                <TerminalPanel terminalId={activeTab.terminalId} onOutput={handleTerminalOutput} />
-              )
+                {historyDrawerOpen ? (
+                  <HistoryDrawer
+                    closedPanels={panelGridState.closedPanels}
+                    onReopen={handlePanelReopen}
+                    onDelete={handlePanelDelete}
+                    onClose={() => setHistoryDrawerOpen(false)}
+                  />
+                ) : null}
+              </PanelStatusProvider>
             ) : null}
           </div>
         </section>

@@ -11,31 +11,28 @@ async function openFixtureProject(page: Page) {
   ).toBeVisible();
 }
 
-async function ensureChatTab(page: Page) {
+async function ensureChatPanel(page: Page) {
   await page.waitForTimeout(1500);
-  const chatTab = page.locator("button.workspace-tab-label[title^='Chat']").first();
-  const count = await chatTab.count();
-  if (count > 0) {
-    await chatTab.click();
-    return;
-  }
-  await page.getByTitle("New tab").click();
-  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  const panel = page.locator(".panel-grid-leaf").first();
+  const count = await panel.count();
+  if (count > 0) return;
+  await page.getByTitle("New chat").first().click();
+  await page.waitForTimeout(500);
 }
 
-test.describe("multi-chat grid", () => {
-  test("a chat tab renders a single-column grid with the composer rail visible", async ({ page }) => {
+test.describe("panel grid", () => {
+  test("a chat panel renders with the composer rail visible", async ({ page }) => {
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
     await openFixtureProject(page);
-    await ensureChatTab(page);
+    await ensureChatPanel(page);
 
-    // The chat grid renders with at least one column.
-    await expect(page.locator(".chat-grid")).toBeVisible();
-    await expect(page.locator(".chat-grid-column").first()).toBeVisible();
+    // The panel grid renders with at least one leaf.
+    await expect(page.locator(".panel-grid")).toBeVisible();
+    await expect(page.locator(".panel-grid-leaf").first()).toBeVisible();
 
-    // The composer rail (ported to ChatComposerRail) is visible inside the column.
+    // The composer rail is visible inside the panel.
     await expect(page.locator(".chat-composer-header").first()).toBeVisible();
     await expect(page.locator(".chat-provider-trigger").first()).toBeVisible();
     await expect(page.locator(".chat-model-trigger").first()).toBeVisible();
@@ -46,14 +43,14 @@ test.describe("multi-chat grid", () => {
     expect(pageErrors).toEqual([]);
   });
 
-  test("the chat panel inside a grid column sends and renders a turn", async ({ page }) => {
+  test("the chat panel sends and renders a turn", async ({ page }) => {
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
     await openFixtureProject(page);
-    await ensureChatTab(page);
+    await ensureChatPanel(page);
 
-    // Type and send a message inside the grid column.
+    // Type and send a message.
     await page.getByTitle(/Chat input/).first().fill("Hello from the grid");
     await page.getByTitle("Send message").click();
 
@@ -64,23 +61,19 @@ test.describe("multi-chat grid", () => {
     expect(pageErrors).toEqual([]);
   });
 
-  test("the grid splitter is present and has a tooltip when multiple columns exist", async ({ page }) => {
-    // Note: the default grid is 1×1 (no splitter). This test documents the
-    // expected structure; a full multi-column e2e requires add-chat-beside
-    // wiring through the header menu, which is exercised in the assign-plan
-    // flow. Here we assert the grid CSS classes exist and are well-formed.
+  test("the panel grid is present and well-formed", async ({ page }) => {
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
     await openFixtureProject(page);
-    await ensureChatTab(page);
+    await ensureChatPanel(page);
 
     // The grid container is present.
-    await expect(page.locator(".chat-grid")).toBeVisible();
-    // At least one column is rendered.
-    const columns = page.locator(".chat-grid-column");
-    await expect(columns.first()).toBeVisible();
-    expect(await columns.count()).toBeGreaterThanOrEqual(1);
+    await expect(page.locator(".panel-grid")).toBeVisible();
+    // At least one leaf is rendered.
+    const leaves = page.locator(".panel-grid-leaf");
+    await expect(leaves.first()).toBeVisible();
+    expect(await leaves.count()).toBeGreaterThanOrEqual(1);
 
     expect(pageErrors).toEqual([]);
   });

@@ -11,17 +11,13 @@ async function openFixtureProject(page: Page) {
   ).toBeVisible();
 }
 
-async function ensureChatTab(page: Page) {
+async function ensureChatPanel(page: Page) {
   await page.waitForTimeout(1500);
-  // Match the workspace tab label button whose title starts with "Chat".
-  const chatTab = page.locator("button.workspace-tab-label[title^='Chat']").first();
-  const count = await chatTab.count();
-  if (count > 0) {
-    await chatTab.click();
-    return;
-  }
-  await page.getByTitle("New tab").click();
-  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  const panel = page.locator(".panel-grid-leaf").first();
+  const count = await panel.count();
+  if (count > 0) return;
+  await page.getByTitle("New chat").first().click();
+  await page.waitForTimeout(500);
 }
 
 test.describe("plan-run → PR recommendation", () => {
@@ -30,11 +26,11 @@ test.describe("plan-run → PR recommendation", () => {
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
     await openFixtureProject(page);
-    await ensureChatTab(page);
+    await ensureChatPanel(page);
 
     // Wait for the chat grid to mount (the header renders inside the grid column).
-    await expect(page.locator(".chat-grid").first()).toBeVisible();
-    await expect(page.locator(".chat-grid-column").first()).toBeVisible();
+    await expect(page.locator(".panel-grid").first()).toBeVisible();
+    await expect(page.locator(".panel-grid-leaf").first()).toBeVisible();
 
     // The chat column header renders above the messages area.
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
@@ -53,7 +49,7 @@ test.describe("plan-run → PR recommendation", () => {
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
     await openFixtureProject(page);
-    await ensureChatTab(page);
+    await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
     // Collapse the environment panel so it doesn't overlay the header's right side.
@@ -77,7 +73,7 @@ test.describe("plan-run → PR recommendation", () => {
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
     await openFixtureProject(page);
-    await ensureChatTab(page);
+    await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
     // The branch indicator shows the current git branch (mocked as "main").
