@@ -698,6 +698,40 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         timeline: { windows: [] },
         assembledAt: Math.floor(Date.now() / 1000),
       } as T;
+    case "git_current_branch":
+      return "main" as T;
+    case "git_default_branch":
+      return "main" as T;
+    case "git_branch_create":
+      return undefined as T;
+    case "git_branch_switch":
+      return undefined as T;
+    case "workspace_list":
+      return [] as T;
+    case "workspace_create":
+      return { id: `ws-${Date.now()}`, projectPath: args.projectPath, planId: args.planId ?? null, branch: `bb/${args.referenceId}-${args.slug}`, path: `C:\\basebuild-e2e\\worktrees\\${args.referenceId}`, createdAt: Math.floor(Date.now() / 1000) } as T;
+    case "workspace_remove":
+      return undefined as T;
+    case "workspace_is_supported":
+      return true as T;
+    case "pr_recommend":
+      return { branch: args.branch, ahead: 2, behind: 0, changedFiles: 3, ghAvailable: false, ghAuthed: false, compareUrl: `https://github.com/basebuild/basebuild/compare/main...${args.branch}?expand=1` } as T;
+    case "pr_create":
+      return { success: true, url: `https://github.com/basebuild/basebuild/pull/1`, error: null, method: "browser" } as T;
+    case "pr_gh_status":
+      return [false, false] as T;
+    case "get_run_concurrency_defaults":
+      return { providers: { "basebuild-local": { maxConcurrency: 1, subagentsEnabled: false, subagentMaxCount: 0 } } } as T;
+    case "set_run_concurrency_defaults":
+      return undefined as T;
+    case "get_run_concurrency_overrides":
+      return { providers: {} } as T;
+    case "set_run_concurrency_override":
+      return undefined as T;
+    case "remove_run_concurrency_override":
+      return undefined as T;
+    case "effective_run_concurrency":
+      return { maxConcurrency: 1, subagentsEnabled: false, subagentMaxCount: 0 } as T;
     default:
       throw new Error(`Unhandled E2E Tauri command: ${command}`);
   }

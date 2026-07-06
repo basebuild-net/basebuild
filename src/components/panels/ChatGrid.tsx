@@ -34,8 +34,15 @@ export type ChatGridProps = {
    *  persists it via the tab's grid state. */
   onGridChange: (grid: ChatGrid) => void;
   /** Render a chat column's content by chat id. The caller owns mounting:
-   *  it may choose to mount only visible/streaming chats. */
-  renderChat: (chatId: string, isFocused: boolean) => React.ReactNode;
+   *  it may choose to mount only visible/streaming chats. The header drag
+   *  handlers are passed so the rendered panel can wire its ChatHeader for
+   *  column reorder. */
+  renderChat: (chatId: string, isFocused: boolean, drag: {
+    onDragStart: (e: React.MouseEvent) => void;
+    onDragEnd: () => void;
+    onDragOver: (e: React.DragEvent) => void;
+    onDrop: (e: React.DragEvent) => void;
+  }) => React.ReactNode;
   /** The currently focused chat id (receives keyboard + outline). */
   focusedChatId: string | null;
   /** Focus a chat (clicks, drag end, add). */
@@ -260,7 +267,12 @@ export function ChatGrid(props: ChatGridProps) {
                   onMouseDown={() => onFocusChat(chatId)}
                 >
                   {showDropLeft ? <div className="chat-grid-drop-indicator is-left" /> : null}
-                  {renderChat(chatId, isFocused)}
+                  {renderChat(chatId, isFocused, {
+                    onDragStart: (e) => handleHeaderDragStart(chatId, e),
+                    onDragEnd: handleHeaderDragEnd,
+                    onDragOver: (e) => { e.preventDefault(); },
+                    onDrop: (e) => { e.preventDefault(); },
+                  })}
                   {showDropRight ? <div className="chat-grid-drop-indicator is-right" /> : null}
                   <button
                     className="btn-icon btn-icon-sm chat-grid-close"

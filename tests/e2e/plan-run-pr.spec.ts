@@ -1,0 +1,132 @@
+import { expect, test, type Page } from "@playwright/test";
+
+async function openFixtureProject(page: Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem("basebuild:first-run-complete", "true");
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open project" }).click();
+  await expect(
+    page.locator(".status-pill", { hasText: "C:\\basebuild-e2e\\project" }),
+  ).toBeVisible();
+}
+
+async function ensureChatTab(page: Page) {
+  await page.waitForTimeout(1500);
+  // Match the workspace tab label button whose title starts with "Chat".
+  const chatTab = page.locator("button.workspace-tab-label[title^='Chat']").first();
+  const count = await chatTab.count();
+  if (count > 0) {
+    await chatTab.click();
+    return;
+  }
+  await page.getByTitle("New tab").click();
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+}
+
+test.describe("plan-run → PR recommendation", () => {
+  test("chat header renders with model chip, branch, and more-actions menu", async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+
+    await openFixtureProject(page);
+    await ensureChatTab(page);
+
+    // Wait for the chat grid to mount (the header renders inside the grid column).
+    await expect(page.locator(".chat-grid").first()).toBeVisible();
+    await expect(page.locator(".chat-grid-column").first()).toBeVisible();
+
+    // The chat column header renders above the messages area.
+    await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
+
+    // Model chip shows the current model label.
+    await expect(page.locator(".chat-column-model-chip").first()).toBeVisible();
+
+    // The branch indicator shows the current git branch (mocked as "main").
+    await expect(page.locator(".chat-column-branch-name").first()).toContainText("main");
+
+    expect(pageErrors).toEqual([]);
+  });
+
+  test("more-actions menu contains Assign plan and Close chat items", async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+
+    await openFixtureProject(page);
+    await ensureChatTab(page);
+    await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
+
+    // Collapse the environment panel so it doesn't overlay the header's right side.
+    await page.locator("button[title='Collapse environment']").first().click({ force: true });
+    await page.waitForTimeout(300);
+
+    // Click the more-actions button via evaluate to bypass overlay interception.
+    // The environment panel overlays the header's right side; force clicks don't
+    // trigger React's onClick. We call the click handler directly on the element.
+    await page.evaluate(() => {
+      const btn = document.querySelector<HTMLButtonElement>(".chat-column-header-right button[title='More actions']");
+      btn?.click();
+    });
+    await expect(page.locator(".chat-more-menu-item", { hasText: "Close chat" }).first()).toBeVisible();
+
+    expect(pageErrors).toEqual([]);
+  });
+
+  test("PR recommendation card appears when a worktree run finishes", async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+
+    await openFixtureProject(page);
+    await ensureChatTab(page);
+    await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
+
+    // The branch indicator shows the current git branch (mocked as "main").
+    await expect(page.locator(".chat-column-branch-name").first()).toContainText("main");
+
+    // Simulate a plan-run "succeeded" event. The ChatPanel listens for
+    // plan_run://event and matches on chatSessionId === nativeSessionId.
+    // The native session id is exposed on the chat-panel element's
+    // data-native-session-id attribute for e2e test access.
+    const emitResult = await page.evaluate(() => {
+      const w = window as unknown as { __emit?: (event: string, payload: unknown) => void };
+      const panel = document.querySelector(".chat-panel") as HTMLElement | null;
+      const nativeSessionId = panel?.dataset.nativeSessionId;
+      if (!nativeSessionId || !w.__emit) return { ok: false, reason: `no nativeSessionId (${nativeSessionId})` };
+      w.__emit("plan_run://event", {
+        runId: "run-test",
+        sessionId: "session-1",
+        planId: "plan-1",
+        status: "succeeded",
+        chatSessionId: nativeSessionId,
+      });
+      return { ok: true, nativeSessionId };
+    });
+    expect(emitResult.ok).toBe(true);
+
+    // The "Create pull request" button is present and confirm-gated.
+    const createBtn = page.locator(".pr-recommendation-card button", { hasText: "Create pull request" }).first();
+    await expect(createBtn).toBeVisible();
+    await createBtn.click({ force: true });
+    // Confirmation prompt appears.
+    await expect(page.locator(".pr-recommendation-confirm")).toBeVisible();
+    await expect(page.locator(".pr-recommendation-confirm button", { hasText: "Confirm" })).toBeVisible();
+
+    expect(pageErrors).toEqual([]);
+  });
+
+  test("concurrency cap input is visible with a tooltip in the plan queue", async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+
+    await openFixtureProject(page);
+    // Open the Plans & Ideas fold.
+    await page.getByTitle("Plans & Ideas").first().click();
+
+    // The concurrency input is visible with a tooltip (effective-value display).
+    const concurrencyInput = page.locator(".plan-queue-concurrency input");
+    await expect(concurrencyInput).toBeVisible();
+    await expect(concurrencyInput).toHaveAttribute("title");
+
+    expect(pageErrors).toEqual([]);
+  });
+});

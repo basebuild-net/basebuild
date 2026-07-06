@@ -335,6 +335,15 @@ export function AppShell({ updates }: AppShellProps) {
     setPlansFoldSignal((v) => v + 1);
   }, []);
 
+  const handleCloseChat = useCallback((chatId: string) => {
+    // The grid's onCloseChat handles the visual removal; the session is retained.
+    // AppShell's onCloseChat on the grid delegates here for any session-level cleanup.
+  }, []);
+
+  const handleDuplicateChat = useCallback((sourceId: string) => {
+    // Returns a new chat id; the grid handles layout. Session creation happens
+    // when ChatPanel mounts and calls onChatSessionCreated.
+  }, []);
   const openOrFocusChat = useCallback(
     async (draftPrompt: string) => {
       if (!session.activeSessionId) return;
@@ -606,7 +615,7 @@ Rules:
                 <ChatGrid
                   grid={session.tabGridStates[activeTab.id] ?? singleColumnGrid(activeTab.chatSessionId ?? "new")}
                   onGridChange={(g) => session.setTabGrid(activeTab.id, g)}
-                  renderChat={(chatId) => (
+                  renderChat={(chatId, _isFocused, drag) => (
                     <ChatPanel
                       projectPath={activeProjectPath}
                       chatSessionId={chatId === "new" ? null : chatId}
@@ -621,6 +630,12 @@ Rules:
                       onCreatePlanFromIdea={handleCreatePlanFromIdea}
                       onOpenPlanningInspector={handleOpenPlanningInspector}
                       onOpenSchematic={handleOpenSchematic}
+                      onHeaderDragStart={drag?.onDragStart}
+                      onHeaderDragEnd={drag?.onDragEnd}
+                      onHeaderDragOver={drag?.onDragOver}
+                      onHeaderDrop={drag?.onDrop}
+                      onCloseChat={() => handleCloseChat(chatId)}
+                      onDuplicateChat={() => handleDuplicateChat(chatId)}
                     />
                   )}
                   focusedChatId={focusedChatId ?? activeTab.chatSessionId}

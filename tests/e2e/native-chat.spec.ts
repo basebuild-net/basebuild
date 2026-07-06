@@ -11,7 +11,7 @@ async function openFixtureProject(page: Page) {
 
 async function ensureChatTab(page: Page) {
   await page.waitForTimeout(1500);
-  const chatTab = page.locator('.workspace-tab[title^="Chat"] .workspace-tab-label').first();
+  const chatTab = page.locator("button.workspace-tab-label[title^='Chat']").first();
   const count = await chatTab.count();
   if (count > 0) {
     await chatTab.click();

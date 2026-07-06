@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { ChatComposerRail } from "./ChatComposerRail";
+import { ChatHeader } from "./ChatHeader";
+import { PrRecommendationCard } from "./PrRecommendationCard";
 import {
   AlertCircle,
   BarChart3,
@@ -15,10 +17,15 @@ import {
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-
-import { agentStart, agentSend, agentStop } from "../../lib/agent";
-import { getRuntimeDefaults } from "../../lib/settings";
 import { openUrl } from "../../lib/app";
+import { agentStart, agentSend, agentStop } from "../../lib/agent";
+import { gitBranchList, gitBranchSwitch, gitBranchCreate, gitCurrentBranch, type GitBranch } from "../../lib/git";
+import { listWorkspaces } from "../../lib/workspaces";
+import { prRecommend, prCreate, type PrRecommendation } from "../../lib/pullRequests";
+import { onPlanRunEvent } from "../../lib/planRuns";
+import { listPlans } from "../../lib/plans";
+import type { AgentMode } from "../../lib/sessions";
+import { getRuntimeDefaults } from "../../lib/settings";
 import {
   nativeChatMessages,
   nativeChatModelDefault,
@@ -72,6 +79,18 @@ type ChatPanelProps = {
   onOpenPlanningInspector?: () => void;
   /** Open the schematic tab (focus or create). */
   onOpenSchematic?: () => void;
+  /** Chat column title (for the header). If absent, a default is derived. */
+  chatTitle?: string;
+  /** Called when the user renames the chat in the header. */
+  onRenameChat?: (title: string) => void;
+  /** Drag handlers for column reorder (wired by ChatGrid). */
+  onHeaderDragStart?: (e: React.MouseEvent) => void;
+  onHeaderDragEnd?: () => void;
+  onHeaderDragOver?: (e: React.DragEvent) => void;
+  onHeaderDrop?: (e: React.DragEvent) => void;
+  /** Close/duplicate handlers (wired by ChatGrid). */
+  onCloseChat?: () => void;
+  onDuplicateChat?: () => void;
 };
 
 function formatMetric(value: number | null | undefined, suffix = "") {
@@ -183,6 +202,14 @@ export function ChatPanel({
   onCreatePlanFromIdea,
   onOpenPlanningInspector,
   onOpenSchematic,
+  chatTitle,
+  onRenameChat,
+  onHeaderDragStart,
+  onHeaderDragEnd,
+  onHeaderDragOver,
+  onHeaderDrop,
+  onCloseChat,
+  onDuplicateChat,
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
@@ -227,6 +254,26 @@ export function ChatPanel({
   const sendTimerRef = useRef<number | null>(null);
   const assistantBufferRef = useRef("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Expose the native session id on the DOM for e2e tests (data-native-session-id).
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (panelRef.current) {
+      panelRef.current.dataset.nativeSessionId = nativeSessionId ?? "";
+    }
+  }, [nativeSessionId]);
+  // Chat header state: branch, worktree, plan badge, agent mode, PR recommendation.
+  const [branch, setBranch] = useState<string | null>(null);
+  const [branches, setBranches] = useState<GitBranch[]>([]);
+  const [worktreePath, setWorktreePath] = useState<string | null>(null);
+  const [assignedPlanId, setAssignedPlanId] = useState<string | null>(null);
+  const [planBadge, setPlanBadge] = useState<{ referenceId: string; title: string; status: string } | null>(null);
+  const [agentMode, setAgentMode] = useState<AgentMode>("plan");
+  const [titleLocked, setTitleLocked] = useState(false);
+  const [uncommittedCount, setUncommittedCount] = useState(0);
+  const [prRec, setPrRec] = useState<PrRecommendation | null>(null);
+  const [showPrCard, setShowPrCard] = useState(false);
+  const [showAssignPlanPicker, setShowAssignPlanPicker] = useState(false);
+  const [readyPlans, setReadyPlans] = useState<{ id: string; referenceId: string; title: string; status: string }[]>([]);
   // Soft gate: load schematic health when the planning menu opens.
   useEffect(() => {
     if (showPlanningMenu && projectPath) {
@@ -429,6 +476,54 @@ export function ChatPanel({
     };
   }, [nativeMode, nativeSessionId]);
 
+  // Load branch + worktree state for the header display. Best-effort: if the
+  // project isn't a git repo or the commands fail, the header shows no branch.
+  useEffect(() => {
+    if (!projectPath) return;
+    let cancelled = false;
+    async function loadBranchState() {
+      try {
+        const [br, bl] = await Promise.all([
+          gitCurrentBranch(projectPath).catch(() => null),
+          gitBranchList(projectPath).catch(() => [] as GitBranch[]),
+        ]);
+        if (cancelled) return;
+        setBranch(br);
+        setBranches(bl);
+        // Check for a worktree matching this chat session.
+        const workspaces = await listWorkspaces(projectPath).catch(() => []);
+        if (cancelled) return;
+        const match = workspaces.find((w) => w.branch === br);
+        setWorktreePath(match?.path ?? null);
+      } catch {
+        // Non-git or unsupported — leave branch/worktree null.
+      }
+    }
+    void loadBranchState();
+    return () => { cancelled = true; };
+  }, [projectPath]);
+
+  // Listen for plan-run events: when a run finishes with a worktree, load the
+  // PR recommendation. When a run starts, bind the plan badge.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    void onPlanRunEvent((event) => {
+      if (!nativeSessionId || event.chatSessionId !== nativeSessionId) return;
+      if (event.status === "running") {
+        // Bind the plan badge from the run's plan.
+        setAssignedPlanId(event.planId);
+      }
+      if (event.status === "succeeded") {
+        // Load PR recommendation for the finished worktree run.
+        if (branch) {
+          void prRecommend(projectPath, branch)
+            .then((rec) => { setPrRec(rec); setShowPrCard(true); })
+            .catch(() => { /* non-git or no remote — no recommendation */ });
+        }
+      }
+    }).then((fn) => { unlisten = fn; });
+    return () => { if (unlisten) unlisten(); };
+  }, [nativeSessionId, projectPath, branch]);
   // Handle approval resolution from the UI
   const handleResolveApproval = useCallback(async (toolCallId: string, decision: "allow" | "allow_session" | "deny") => {
     try {
@@ -956,7 +1051,67 @@ export function ChatPanel({
     },
     [onCreatePlanFromIdea, ideaState, addLog, nativeSessionId],
   );
+  // ── Chat header handlers ──
+  const handleRename = useCallback((title: string) => {
+    setTitleLocked(true);
+    onRenameChat?.(title);
+  }, [onRenameChat]);
 
+  const handleSwitchBranch = useCallback(async (name: string) => {
+    if (!projectPath || !branch || name === branch) return;
+    try {
+      await gitBranchSwitch(projectPath, name);
+      setBranch(name);
+      // Refresh worktree match.
+      const workspaces = await listWorkspaces(projectPath).catch(() => []);
+      const match = workspaces.find((w) => w.branch === name);
+      setWorktreePath(match?.path ?? null);
+    } catch (e) {
+      addLog("error", "Failed to switch branch", e instanceof Error ? e.message : String(e));
+    }
+  }, [projectPath, branch, addLog]);
+
+  const handleCreateBranch = useCallback(async (name: string) => {
+    if (!projectPath || !name) return;
+    try {
+      await gitBranchCreate(projectPath, name);
+      await gitBranchSwitch(projectPath, name);
+      setBranch(name);
+      setBranches(await gitBranchList(projectPath).catch(() => []));
+    } catch (e) {
+      addLog("error", "Failed to create branch", e instanceof Error ? e.message : String(e));
+    }
+  }, [projectPath, addLog]);
+
+  const handleOpenAssignPlan = useCallback(async () => {
+    if (!activeSessionId) return;
+    try {
+      const plans = await listPlans(activeSessionId);
+      const ready = plans
+        .filter((p) => p.status === "ready")
+        .map((p) => ({ id: p.id, referenceId: p.referenceId, title: p.title, status: p.status }));
+      setReadyPlans(ready);
+      setShowAssignPlanPicker(true);
+    } catch (e) {
+      addLog("error", "Failed to list plans for assignment", e instanceof Error ? e.message : String(e));
+    }
+  }, [activeSessionId, addLog]);
+
+  const handleAssignPlan = useCallback(async (planId: string) => {
+    if (!planId) return;
+    setShowAssignPlanPicker(false);
+    setAssignedPlanId(planId);
+    // The run starts via the plan-run flow; the plan_run://event listener
+    // binds the badge when the run starts.
+  }, []);
+
+  const handleCreatePullRequest = useCallback(() => {
+    setShowPrCard(true);
+  }, []);
+
+  const handleDismissPr = useCallback(() => {
+    setShowPrCard(false);
+  }, []);
   const renderMessages = nativeMode ? nativeMessages : legacyMessages;
   const inputDisabled = nativeMode ? !nativeSessionId : agentId === null;
   const sendDisabled = loading || !input.trim() || (nativeMode ? !nativeSessionId : agentId === null);
@@ -965,7 +1120,73 @@ export function ChatPanel({
   const modelName = selectedModel?.label ?? modelId;
 
   return (
-    <div className="chat-panel">
+    <div className="chat-panel" ref={panelRef}>
+      <ChatHeader
+        title={chatTitle ?? (nativeSessionId ? "Chat" : "New chat")}
+        onRename={handleRename}
+        titleLocked={titleLocked}
+        modelChip={modelName}
+        modelId={modelId}
+        effortChip={effortLevel}
+        agentMode={agentMode}
+        onToggleAgentMode={() => setAgentMode((m) => (m === "build" ? "plan" : "build"))}
+        planBadge={planBadge}
+        onOpenPlan={() => { /* focus the plan in the side panel */ }}
+        branch={branch}
+        worktreePath={worktreePath}
+        branches={branches}
+        onSwitchBranch={handleSwitchBranch}
+        onCreateBranch={handleCreateBranch}
+        uncommittedCount={uncommittedCount}
+        onStashAndSwitch={handleSwitchBranch}
+        onDiscardAndSwitch={handleSwitchBranch}
+        onToggleHistory={() => { /* history toggle */ }}
+        onRenameAction={() => { /* handled by header internally */ }}
+        onAssignPlan={handleOpenAssignPlan}
+        onDuplicateChat={() => onDuplicateChat?.()}
+        onCloseChat={() => onCloseChat?.()}
+        onCloseAndDelete={() => onCloseChat?.()}
+        prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
+        onCreatePullRequest={handleCreatePullRequest}
+        onDragStart={onHeaderDragStart}
+        onDragEnd={onHeaderDragEnd}
+        onDragOver={onHeaderDragOver}
+        onDrop={onHeaderDrop}
+      />
+      {showPrCard && prRec ? (
+        <PrRecommendationCard
+          projectPath={projectPath}
+          recommendation={prRec}
+          onDismiss={handleDismissPr}
+        />
+      ) : null}
+      {showAssignPlanPicker ? (
+        <div className="chat-picker" role="dialog" aria-label="Assign a ready plan">
+          <div className="chat-picker-header">
+            <span>Assign plan</span>
+            <button className="btn-icon btn-icon-sm" type="button" title="Close plan picker" onClick={() => setShowAssignPlanPicker(false)}>
+              <X size={11} />
+            </button>
+          </div>
+          <div className="chat-picker-list">
+            {readyPlans.length === 0 ? (
+              <div className="chat-picker-empty text-muted text-sm">No ready plans.</div>
+            ) : null}
+            {readyPlans.map((p) => (
+              <button
+                key={p.id}
+                className="chat-picker-item"
+                type="button"
+                title={`Assign ${p.referenceId}: ${p.title}`}
+                onClick={() => void handleAssignPlan(p.id)}
+              >
+                <span className="chat-picker-main">#{p.referenceId} {p.title}</span>
+                <span className="chat-picker-meta">{p.status}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {/* Messages area */}
       <div className="chat-messages" ref={scrollRef}>
         {nativeMode && metrics ? (

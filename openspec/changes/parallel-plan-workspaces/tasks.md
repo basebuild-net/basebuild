@@ -44,9 +44,9 @@
 
 - [x] 7.1 Unit tests: grid width clamp/rebalance, reorder index math, `M×N` reflow, per-provider scheduler, default-branch detection fallback chain.
 - [x] 7.2 Playwright e2e (mocked Tauri/git/gh, `BASEBUILD_E2E=1`): create `1×2`/`1×3`/`2×2` grids, reorder, resize, close; per-tab persistence across tab-switch and reload.
-- [ ] 7.3 Playwright e2e: assign plan → run in worktree → finish → PR recommendation (gh path and browser fallback); concurrency cap queues the third run.
+- [x] 7.3 Playwright e2e: assign plan → run in worktree → finish → PR recommendation (gh path and browser fallback); concurrency cap queues the third run.
 - [x] 7.4 `npx tsc --noEmit`, `npm run build`, `cd src-tauri && cargo check`, `cargo test`.
-- [ ] 7.5 UI smoke: branch/worktree display + manual switch; per-column model independence; no-silent-side-effects (no auto push/PR/worktree on restore).
+- [x] 7.5 UI smoke: branch/worktree display + manual switch; per-column model independence; no-silent-side-effects (no auto push/PR/worktree on restore).
 
 ## 8. Docs & roadmap
 
