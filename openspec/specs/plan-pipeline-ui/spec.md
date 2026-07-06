@@ -4,65 +4,20 @@
 
 ## Requirements
 
-### Requirement: Generate From Context Opens Chat
-The system SHALL route `Generate plans` → `Generate from context` into the workspace chat instead of silently creating placeholder plans.
-
-#### Scenario: Existing chat tab
-- **WHEN** the user selects `Generate from context` and an active-session chat tab exists
-- **THEN** the generate modal closes, the existing chat tab is focused, and a generated planning prompt is placed in the chat input
-
-#### Scenario: No chat tab
-- **WHEN** the user selects `Generate from context` and no active-session chat tab exists
-- **THEN** the generate modal closes, a new chat tab is created, the workspace switches to that tab, and a generated planning prompt is placed in the chat input
-
-#### Scenario: No active project or session
-- **WHEN** the user selects `Generate from context` without an active project or active session
-- **THEN** the system shows a visible warning explaining that a project/session is required and does not discard the modal input
-
-### Requirement: Context Prompt Composition
-The system SHALL compose a transparent prompt from available project planning context before injecting it into chat.
-
-#### Scenario: Schematic exists
-- **WHEN** the project has `.basebuild/project-schematic.md`
-- **THEN** the generated prompt includes the schematic content, current plan list summary, project path, and a request to propose OpenSpec-backed plans
-
-#### Scenario: Selected file context exists
-- **WHEN** the user selected a file or folder context in the generate modal
-- **THEN** the generated prompt identifies that context source and includes either file content within size limits or a request for the agent to inspect the selected folder
-
-#### Scenario: Missing context
-- **WHEN** no schematic and no selected context are available
-- **THEN** the system opens the Project Description flow before generating a chat prompt, preserving the user's modal input
-
 ### Requirement: Plan Generation Auditability
-The system SHALL keep AI plan generation visible and reversible through chat before persistent plans are created.
+The system SHALL keep AI planning generation visible and reversible: generation runs only as visible chat turns (context reads, reasoning fold, incremental captures in the transcript), captured ideas SHALL be reviewable (Promote / Reject) before any plan exists, and the system SHALL NOT create placeholder plans from a generation action alone.
 
-#### Scenario: Prompt is visible
-- **WHEN** the system prepares a generated-plan request
-- **THEN** the exact prompt is visible in the chat input or sent message before any generated plans are persisted
+#### Scenario: Generation is a visible turn
+- **WHEN** any planning generation runs
+- **THEN** its context reads, progress, and captures render in the chat transcript — never a hidden background request
 
-#### Scenario: Agent returns plans
-- **WHEN** the agent returns a structured plan proposal
-- **THEN** the user can review the response in chat before accepting or manually creating plans from it
+#### Scenario: Review before plans
+- **WHEN** a generation turn captures ideas
+- **THEN** no plan rows exist until the user promotes an idea, and rejecting an idea never creates a plan
 
 #### Scenario: Placeholder path removed
-- **WHEN** the chat workflow is available
-- **THEN** the system does not create placeholder `generated` plans solely because `Generate from context` was clicked
-
-### Requirement: Generate Plans with File Context
-The system SHALL allow selecting a file as context for plan generation, in addition to the project schematic.
-
-#### Scenario: Select context file
-- **WHEN** the user clicks "Select context file" in the generate plan modal
-- **THEN** a native file picker opens, and the selected file's content is read and included as context for the plan generation prompt
-
-#### Scenario: File validation
-- **WHEN** the user selects a file larger than 50KB
-- **THEN** a warning is shown that the file is large and may exceed context limits
-
-#### Scenario: No context available
-- **WHEN** the user tries to generate plans without a project schematic or selected context file
-- **THEN** a validation warning is shown prompting the user to add context
+- **WHEN** a generation action is triggered
+- **THEN** the system does not create placeholder `generated` plans as a side effect
 
 ### Requirement: Plan CRUD
 The system SHALL persist plans and reflect changes immediately in the side panel.
@@ -83,36 +38,106 @@ The system SHALL persist plans and reflect changes immediately in the side panel
 - **WHEN** the user clicks delete on a plan card
 - **THEN** the plan is removed from the database and the panel updates immediately
 
-### Requirement: Structured plan proposal capture
-Generate-plans runs SHALL return plan proposals as structured data (title,
-description, goal, suggested change name) — via a dedicated propose-plans
-tool exposed to the agent loop or a structured-output parse — and the chat
-SHALL render them as selectable proposal cards. Free-text prose SHALL never
-be the only artifact of a generation run.
+### Requirement: Unified planning inspector
+The right side panel's planning surface SHALL present a single inspector with
+three tabs — `Plans`, `Ideas`, and `Categories` — over one catalog, replacing
+the separate plans-only panel plus disconnected ideas surface. The `Plans` tab
+SHALL show plan lanes by status (existing behavior). The `Ideas` tab SHALL list
+every idea for the session with a status filter (all / concept / picked /
+rejected / archived) and per-idea Promote, Reject, and Delete actions. The
+`Categories` tab SHALL list the session's categories and support opening one.
+All interactive elements SHALL have `title=` tooltips and 0px radius.
 
-#### Scenario: Proposals appear as cards
-- **WHEN** a generate-plans run completes
-- **THEN** each proposed plan renders as a card with title, summary, and an
-  accept control, alongside (not buried inside) the assistant text
+#### Scenario: Switch inspector tabs
+- **WHEN** the user selects the `Ideas` or `Categories` tab in the planning
+  inspector
+- **THEN** the panel shows that view without leaving the side panel, and the
+  selected tab persists while the panel is open
 
-#### Scenario: Accepting creates draft plans
-- **WHEN** the user accepts one or more proposal cards
-- **THEN** each accepted proposal becomes a `draft` plan in the session
-  (visible in the Plans panel without refresh) and the card shows its plan
-  reference id
+#### Scenario: Filter ideas by status
+- **WHEN** the user selects a status filter in the `Ideas` tab
+- **THEN** only ideas in that status are listed (accepted, rejected, no-change,
+  or archived), serving as the planning history
 
-### Requirement: Proposal selection state persists
-All proposals from a generation run — accepted and not accepted — SHALL be
-persisted per session with their selection state and SHALL reload with the
-session. Re-running generation SHALL append a new proposal set rather than
-silently discarding the previous one.
+### Requirement: Category drill-down and suggest-more
+The `Categories` tab SHALL let the user open a category to view every idea
+tagged with it and their statuses, and SHALL provide a "Suggest more ideas"
+action that runs category-directed generation for that category. The tab SHALL
+also offer "Generate categories" (AI) and "Add category" (manual).
 
-#### Scenario: Unselected proposals survive restart
-- **WHEN** the user accepts 2 of 5 proposals and restarts the app
-- **THEN** reopening the session shows all 5 proposals with the same
-  accepted/not-accepted states
+#### Scenario: Open a category
+- **WHEN** the user clicks a category in the `Categories` tab
+- **THEN** the inspector shows that category's ideas with their statuses and a
+  "Suggest more ideas" button scoped to the category
 
-#### Scenario: Accepted state links to plan
-- **WHEN** a proposal was accepted and its plan later changes status
-- **THEN** the proposal card reflects the linked plan's current status at
-  read time (no duplicated status storage)
+#### Scenario: Suggest more from the category view
+- **WHEN** the user clicks "Suggest more ideas" in a category view
+- **THEN** category-directed generation runs in the chat transcript and the new
+  ideas appear under that category when generation completes
+
+### Requirement: Chat planning quick-access menu
+The chat composer SHALL expose planning generation through a compact menu
+rather than a single "Generate ideas" button. The menu SHALL offer at least
+`Quick ideas`, `By category…`, and `Open planning inspector`. `By category…`
+SHALL list the session's project-derived categories and, when none exist,
+offer "Generate categories from project" instead of seeded defaults. When
+schematic health is not `complete`, the menu SHALL show a nudge linking to the
+schematic wizard.
+
+#### Scenario: Open the planning menu
+- **WHEN** the user opens the chat planning menu
+- **THEN** it lists `Quick ideas`, `By category…`, and `Open planning
+  inspector`, each with a tooltip
+
+#### Scenario: Generate by category from chat
+- **WHEN** the user picks a category under `By category…`
+- **THEN** category-directed generation runs in the transcript and ideas are
+  tagged with the chosen category
+
+#### Scenario: Empty category list offers generation
+- **WHEN** the user opens `By category…` with no categories in the session
+- **THEN** the menu offers "Generate categories from project" and does not list
+  any seeded defaults
+
+#### Scenario: Health nudge in the menu
+- **WHEN** the user opens the planning menu while schematic health is `partial` or `missing`
+- **THEN** the menu shows a schematic nudge that opens the wizard
+
+### Requirement: Reject affordance on idea cards
+Idea cards rendered in the chat transcript SHALL offer a Reject action next to
+Promote (and next to any "Generate more" affordance). Rejecting SHALL move the
+idea to `rejected` and remove it from the active cards without deleting its
+history record.
+
+#### Scenario: Reject from the chat idea card
+- **WHEN** the user clicks Reject on a chat idea card
+- **THEN** the idea moves to `rejected`, the card is removed from the active
+  list, and the idea remains in the inspector's rejected history
+
+### Requirement: Input-free planning inspector
+The planning inspector SHALL be a catalog surface: it views and acts on plans, ideas, and categories through buttons that launch chat turns or mutate status. It SHALL NOT contain free-text generation inputs, goal input boxes, or file-context pickers; the `Generate plans` modal and the panel's goal-input generate affordances are removed. Plan CRUD editing (title/description edits on existing plans) remains available. All interactive elements SHALL have `title=` tooltips and 0px radius.
+
+#### Scenario: No generation inputs in the panel
+- **WHEN** the user opens the planning inspector
+- **THEN** no free-text generation input or generate-plans modal is reachable from the panel; generation actions launch visible chat turns instead
+
+#### Scenario: Plan editing still works
+- **WHEN** the user edits an existing plan's title or description
+- **THEN** the edit flow works as before; only generation input surfaces are removed
+
+### Requirement: Schematic health and focus visibility
+The planning inspector SHALL show the schematic health badge with a wizard entry action, and idea rows/cards SHALL render their `anchor` (the Vision element, End goal, or priority served) when present or an `outside current focus` flag when absent, each with explanatory tooltips.
+
+#### Scenario: Health badge in the inspector
+- **WHEN** the planning inspector renders while schematic health is `partial` or `missing`
+- **THEN** the badge is visible with a tooltip naming incomplete sections and an action that opens the wizard
+
+#### Scenario: Anchor visible on ideas
+- **WHEN** an idea with an `anchor` renders in the inspector or as a chat card
+- **THEN** the anchor text is visible with a tooltip; ideas without an anchor show the `outside current focus` flag
+
+<!-- Removed: Generate From Context Opens Chat — **Reason**: The `Generate plans` modal is removed. Generation entry points are the chat planning menu and inspector action buttons that launch agentic chat turns; there is no modal routing to replace. -->
+<!-- Removed: Context Prompt Composition — **Reason**: Prompt-stuffing composition is superseded by agentic context gathering (`grounded-generation`): the turn reads the schematic and project sources itself, visibly, instead of the app assembling a one-shot prompt from a modal. -->
+<!-- Removed: Generate Plans with File Context — **Reason**: The modal and its file-context picker are removed. File context is gathered by the agent through the tool loop during the generation turn. -->
+<!-- Removed: Structured plan proposal capture — **Reason**: Superseded by the unified ideas catalog (`unified-planning-workspace`): structured capture writes `ideas` rows rendered as idea cards; there is no separate proposal mechanism. -->
+<!-- Removed: Proposal selection state persists — **Reason**: Superseded by the ideas catalog's status history (`concept / picked / rejected / archived`), which persists per session and reloads (`Planning history and catalog access` in `plan-pipeline`). -->
