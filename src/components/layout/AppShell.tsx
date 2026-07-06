@@ -643,8 +643,12 @@ Rules:
         );
       }
       if (panel.type === "terminal") {
-        const tab = session.tabs.find((t) => t.kind === "terminal" && t.id === panel.id);
-        if (!tab?.terminalId) {
+        if (!panel.terminalId) {
+          // Try to find a terminal tab by title match (legacy panels).
+          const tab = session.tabs.find((t) => t.kind === "terminal" && (t.id === panel.id || t.title === panel.title));
+          if (tab?.terminalId) {
+            return <TerminalPanel terminalId={tab.terminalId} onOutput={handleTerminalOutput} />;
+          }
           return (
             <div className="empty-state">
               <TerminalSquare size={32} className="text-muted" />
@@ -653,7 +657,7 @@ Rules:
             </div>
           );
         }
-        return <TerminalPanel terminalId={tab.terminalId} onOutput={handleTerminalOutput} />;
+        return <TerminalPanel terminalId={panel.terminalId} onOutput={handleTerminalOutput} />;
       }
       if (panel.type === "file") {
         if (!panel.filePath) return null;
@@ -669,7 +673,10 @@ Rules:
         );
       }
       if (panel.type === "omp") {
-        const tab = session.tabs.find((t) => t.kind === "omp" && t.id === panel.id);
+        if (panel.terminalId) {
+          return <OmpTerminalTab terminalId={panel.terminalId} onOutput={handleTerminalOutput} />;
+        }
+        const tab = session.tabs.find((t) => t.kind === "omp" && (t.id === panel.id || t.title === panel.title));
         return <OmpTerminalTab terminalId={tab?.terminalId ?? null} onOutput={handleTerminalOutput} />;
       }
       return null;

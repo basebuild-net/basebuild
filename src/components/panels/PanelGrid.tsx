@@ -569,8 +569,17 @@ export function PanelGrid(props: PanelGridProps) {
   }
 }
 
-/** Drop zone overlay rendered on the target panel during a drag-to-split. */
+/** Drop zone overlay rendered on the target panel during a drag-to-split.
+ *  For "center" (add-as-tab), the guide appears as a strip at the top of
+ *  the panel (where the tab strip lives), not a center overlay. */
 function DropZoneOverlay({ side }: { side: DropSide }) {
+  if (side === "center") {
+    return (
+      <div className="panel-drop-zone is-center" title="Drop to add as tab">
+        <span className="panel-drop-zone-center-label">Add as tab</span>
+      </div>
+    );
+  }
   const className = `panel-drop-zone is-${side}`;
   return <div className={className} title={`Drop to split ${side}`} />;
 }
