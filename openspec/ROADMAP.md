@@ -83,10 +83,9 @@ top **ungated** item is what can actually start now.
    `plan-chat-assignment`, `run-concurrency-limits`; **modifies**
    `desktop-shell`, `ide-workspace-state`, `agent-chat`,
    `chat-composer-controls`, `chat-model-defaults`, `parallel-workspaces`,
-   `plan-run-queue`, `plan-final-touches`. Artifacts generated 2026-07-06
-   (0/32). **Gated: blocked on `chat-first-shell` (in flight, 17/31)** — the
-   grid layers on that change's chat-centered center; do not start apply until
-   it merges. Coordinates with `harness-subagents` (subagent execution) and
+   `plan-run-queue`, `plan-final-touches`. **Gate cleared** — `chat-first-shell`
+   merged in PR #23; apply in progress on `feat/parallel-plan-workspaces`.
+   Coordinates with `harness-subagents` (subagent execution) and
    `diff-review-workflow` (per-run diff gate before PR).
 2. `chat-history-persistence` — **live-bug fix + feature; ungated, ready now.**
    Reopening the app does not load chat history. Diagnosed two restore bugs on
@@ -179,9 +178,8 @@ _Last refreshed: 2026-07-06 (`node scripts/openspec-status.mjs --write`)_
 |---|---|---|---|
 |`chat-first-shell`|17/31|in progress|`/apply chat-first-shell`|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
+|`parallel-plan-workspaces`|30/32|in progress|`/apply parallel-plan-workspaces`|
 |`plan-import`|11/13|in progress|`/apply plan-import`|
-|`schematic-grounded-planning`|23/25|in progress|`/apply schematic-grounded-planning`|
-|`unified-planning-workspace`|32/34|in progress|`/apply unified-planning-workspace`|
 |`chat-history-persistence`|0/21|not started|`/apply chat-history-persistence`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|
@@ -189,12 +187,10 @@ _Last refreshed: 2026-07-06 (`node scripts/openspec-status.mjs --write`)_
 |`harness-subagents`|0/16|not started|`/apply harness-subagents`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
 |`omp-terminal-usage-sync`|0/33|not started|`/apply omp-terminal-usage-sync`|
-|`parallel-plan-workspaces`|0/32|not started|`/apply parallel-plan-workspaces`|
 |`plan-status-rename`|0/12|not started|`/apply plan-status-rename`|
 |`planning-file-ingestion`|0/13|not started|`/apply planning-file-ingestion`|
 |`schematic-enhance-ui`|0/14|not started|`/apply schematic-enhance-ui`|
 |`session-compaction`|0/13|not started|`/apply session-compaction`|
-|`basebuild-planning-skill`|18/18|complete — archive|`/archive basebuild-planning-skill`|
 <!-- status:end -->
 
 ## Archiving

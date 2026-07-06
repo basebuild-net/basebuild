@@ -33,6 +33,32 @@ Current classes include `.btn`, `.btn-primary`, `.btn-update`, `.btn-ghost`,
 `.pre`, `.stack`, `.stack-sm`, `.row`, `.row-between`, `.text-muted`,
 `.text-sm`, `.text-ok`, `.text-danger`, `.mono`, `.spin`.
 
+## Multi-chat grid + header classes (parallel-plan-workspaces)
+
+Ported from the [dream IDE](https://github.com/dreamide/dream) (MIT) — the
+layout logic and visual structure are ported into basebuild's `globals.css`-
+only stack (0px radius, no Radix, no CSS modules, no UI-primitive library).
+Only the math/structure is ported; dream's dependencies are NOT adopted.
+
+- `.chat-grid` — rows-of-columns container; `.chat-grid-row` is a flex row;
+  `.chat-grid-column` is a flex column with `transition: flex-basis` for
+  animated close. `.chat-grid-column.is-closing` collapses to zero width.
+- `.chat-grid-splitter.is-vertical` / `.is-horizontal` — drag-resize handles
+  (4px, col/row cursor). `.chat-grid-drop-indicator` — 2px accent line for
+  reorder drop targets.
+- `.chat-column-header` — per-chat header (title, model/effort chips,
+  agent-mode pill, plan badge, branch+worktree, history, more-actions).
+  Pinned at the top of the column, never scrolls out of view.
+- `.chat-branch-dropdown` — branch switch/create dropdown (lists local
+  branches, current marked, "Create branch…" entry). `.chat-switch-confirm`
+  — uncommitted-changes confirm prompt (stash/discard/cancel).
+- `.chat-more-menu` — more-actions menu; `.chat-more-menu-item.is-danger`
+  for destructive entries (delete session).
+- `.pr-recommendation-card` — finished-run PR recommendation (branch,
+  ahead/behind, changed-file count, confirm-gated Create PR action).
+- `.settings-table` — concurrency settings grid (provider, global max,
+  project max, subagents, subagent cap).
+
 ## Component reuse
 
 - A pattern that appears twice should be a component or utility.

@@ -31,8 +31,8 @@
 ## 5. Concurrency scheduler & plan→chat assignment
 
 - [x] 5.1 `plan_runner_service.rs`: replace the single `N` cap with a per-provider in-flight scheduler (runs + subagents counted per provider); queue excess with a visible reason; start queued runs as slots free.
-- [ ] 5.2 Assign-a-plan flow (`plan-chat-assignment`): assign a `ready` plan to a chat column (one active per chat; re-assign confirms + restarts); provision worktree on run start; seed the chat from the plan + schematic; bind one model; stream in that column.
-- [ ] 5.3 Surface auto-provisioned run chats as grid columns; reuse the assigned chat when one is bound instead of minting a new column.
+- [x] 5.2 Assign-a-plan flow (`plan-chat-assignment`): assign a `ready` plan to a chat column (one active per chat; re-assign confirms + restarts); provision worktree on run start; seed the chat from the plan + schematic; bind one model; stream in that column.
+- [x] 5.3 Surface auto-provisioned run chats as grid columns; reuse the assigned chat when one is bound instead of minting a new column.
 - [x] 5.4 Concurrency + subagent settings UI (global + per-project) with effective-value display and tooltips; gate subagents off by default; delegation declines with a visible notice when disabled.
 
 ## 6. Pull-request recommendation
@@ -42,15 +42,15 @@
 - [x] 6.3 Wire the `plan-final-touches` open-pull-request step to the new service (explicit + confirmed; default disabled preserved).
 ## 7. Integration & testing
 
-- [ ] 7.1 Unit tests: grid width clamp/rebalance, reorder index math, `M×N` reflow, per-provider scheduler, default-branch detection fallback chain.
-- [ ] 7.2 Playwright e2e (mocked Tauri/git/gh, `BASEBUILD_E2E=1`): create `1×2`/`1×3`/`2×2` grids, reorder, resize, close; per-tab persistence across tab-switch and reload.
+- [x] 7.1 Unit tests: grid width clamp/rebalance, reorder index math, `M×N` reflow, per-provider scheduler, default-branch detection fallback chain.
+- [x] 7.2 Playwright e2e (mocked Tauri/git/gh, `BASEBUILD_E2E=1`): create `1×2`/`1×3`/`2×2` grids, reorder, resize, close; per-tab persistence across tab-switch and reload.
 - [ ] 7.3 Playwright e2e: assign plan → run in worktree → finish → PR recommendation (gh path and browser fallback); concurrency cap queues the third run.
-- [ ] 7.4 `npx tsc --noEmit`, `npm run build`, `cd src-tauri && cargo check`, `cargo test`.
+- [x] 7.4 `npx tsc --noEmit`, `npm run build`, `cd src-tauri && cargo check`, `cargo test`.
 - [ ] 7.5 UI smoke: branch/worktree display + manual switch; per-column model independence; no-silent-side-effects (no auto push/PR/worktree on restore).
 
 ## 8. Docs & roadmap
 
-- [ ] 8.1 `docs/agents/desktop-shell.md` — chat tabs as grids, `M×N` layout, per-tab persistence, plan→chat assignment.
-- [ ] 8.2 `docs/agents/design-system.md` — new classes (grid, splitters, header, composer rail, PR card, concurrency settings); cite the reference IDE as the port source.
-- [ ] 8.3 `docs/agents/agent-runtime.md` — per-provider concurrency + subagent governance; worktree base-branch + PR flow. `DESIGN.md` visual pass if surfaces changed.
-- [ ] 8.4 Refresh `openspec/ROADMAP.md` narrative and run `node scripts/openspec-status.mjs --write` in the same commit.
+- [x] 8.1 `docs/agents/desktop-shell.md` — chat tabs as grids, `M×N` layout, per-tab persistence, plan→chat assignment.
+- [x] 8.2 `docs/agents/design-system.md` — new classes (grid, splitters, header, composer rail, PR card, concurrency settings); cite the reference IDE as the port source.
+- [x] 8.3 `docs/agents/agent-runtime.md` — per-provider concurrency + subagent governance; worktree base-branch + PR flow. `DESIGN.md` visual pass if surfaces changed.
+- [x] 8.4 Refresh `openspec/ROADMAP.md` narrative and run `node scripts/openspec-status.mjs --write` in the same commit.

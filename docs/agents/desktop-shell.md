@@ -32,17 +32,37 @@ instead of a red error — the user cannot fix this by retrying, and full
 diagnostics are available in Settings → Updates.
 
 ## Tab kinds
-- **Chat** — agent chat panel backed by a runtime profile. The default profile is `basebuild-native`, which runs structured chat, a compact one-line provider/model/effort control rail, slash-command accelerators (`/login`, `/model`, `/models refresh`), provider model sync, and local request metrics; OMP remains selectable.
-Each workspace tab has a `kind`: `terminal`, `file`, `empty`, `chat`, or `omp`.
 
-- **Terminal** — PTY-backed shell.
-- **File** — file viewer for a specific path.
-- **Empty** — renders the project schematic.
-- **Chat** — agent chat panel backed by a runtime profile.
-- **OMP** — raw OMP TUI terminal (`omp` in a PTY), shown only when OMP is
-  detected installed. Displays a live telemetry HUD (provider, plan, model,
-  effort, window utilization) alongside the terminal. Spawned only on explicit
-  user action; restore never auto-spawns.
+A chat tab is no longer a single panel — it holds a **multi-chat grid**
+(per `chat-grid-layout`) of N independent chat columns with `1×N` and
+`M×N` layouts. Each column has its own header, composer rail, and
+conversation; columns can be added ("Add chat beside"), reordered by
+header drag (within and across rows), resized via splitters, and closed
+with an animated collapse. The grid layout (membership, order, column
+widths, row heights) persists per tab across tab-switch and restart via
+the workspace restore state's `tabGridStates`. Legacy tabs without a
+grid default to a `1×1` grid from their `chatSessionId`.
+
+### Per-chat header
+
+Each chat column renders a compact header (`chat-header-context`): the
+chat title (inline-rename on double-click), provider/model chip, effort
+chip, agent-mode pill (`plan`/`build`), plan badge (when a plan is
+assigned), branch + worktree indicator, history toggle, and a more-actions
+menu (Rename, Assign plan, Duplicate chat, Close chat, Close + delete
+session, Create pull request). The header is pinned at the top of the
+column and never scrolls out of view. Every control has a `title=` tooltip.
+
+### Plan → chat → worktree → PR
+
+A `ready` plan can be assigned to a chat column (one active per chat;
+re-assign confirms + restarts). On run start, the system provisions a
+worktree (`bb/<ref>-<slug>` from the fetched default branch), seeds the
+chat from the plan + schematic, binds one model, and streams the run in
+that column. Concurrent runs are bounded by per-provider concurrency
+caps (`run-concurrency-limits`); excess runs queue with a visible reason.
+When a worktree run finishes, the chat surfaces a pull-request
+recommendation (confirm-gated `gh pr create` or browser compare URL).
 
 ## Tab creation
 
