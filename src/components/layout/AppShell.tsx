@@ -33,6 +33,7 @@ import {
   emptyGrid,
   flattenPanels,
   reopenPanel,
+  updatePanelInTree,
   parsePanelGrid,
   serializePanelGrid,
   singlePanelGrid,
@@ -550,14 +551,27 @@ Rules:
   const renderPanel = useCallback(
     (panel: Panel, _isActive: boolean) => {
       if (panel.type === "chat") {
-        // Find the tab for this panel (by title match or create on demand).
-        const tab = session.tabs.find((t) => t.kind === "chat" && (t.title === panel.title || t.id === panel.id));
+        // Find the tab for this panel — primary lookup is chatSessionId
+        // (stable across restarts); fall back to title/id for legacy panels.
+        const tab = session.tabs.find(
+          (t) => t.kind === "chat" && (
+            (panel.chatSessionId && t.chatSessionId === panel.chatSessionId) ||
+            t.title === panel.title ||
+            t.id === panel.id
+          ),
+        );
         return (
           <ChatPanel
             projectPath={activeProjectPath ?? ""}
-            chatSessionId={tab?.chatSessionId ?? null}
+            chatSessionId={panel.chatSessionId ?? tab?.chatSessionId ?? null}
             onChatSessionCreated={(chatSessionId) => {
               if (tab) void session.setTabChatSession(tab.id, chatSessionId);
+              // Also update the panel's chatSessionId in the grid so the link
+              // persists across restarts.
+              setPanelGridState((prev) => ({
+                ...prev,
+                root: updatePanelInTree(prev.root, panel.id, { chatSessionId }),
+              }));
             }}
             draftPrompt={chatDraft}
             autoSendDraft={autoSendDraft}

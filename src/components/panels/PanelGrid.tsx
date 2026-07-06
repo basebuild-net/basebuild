@@ -252,15 +252,19 @@ export function PanelGrid(props: PanelGridProps) {
               const rect = panelEl.getBoundingClientRect();
               const relX = (clientX - rect.left) / rect.width;
               const relY = (clientY - rect.top) / rect.height;
-              // Determine which zone the pointer is in.
-              const isLeft = relX < 0.25;
-              const isRight = relX > 0.75;
-              const isTop = relY < 0.25;
-              const isBottom = relY > 0.75;
-              if (isLeft) dropTarget = { panelId: targetId, side: "left" };
-              else if (isRight) dropTarget = { panelId: targetId, side: "right" };
-              else if (isTop) dropTarget = { panelId: targetId, side: "top" };
-              else if (isBottom) dropTarget = { panelId: targetId, side: "bottom" };
+              // Determine which edge the pointer is closest to (equal priority
+              // for all 4 edges, instead of left>right>top>bottom priority).
+              const distLeft = relX;
+              const distRight = 1 - relX;
+              const distTop = relY;
+              const distBottom = 1 - relY;
+              const minDist = Math.min(distLeft, distRight, distTop, distBottom);
+              if (minDist < 0.25) {
+                if (minDist === distLeft) dropTarget = { panelId: targetId, side: "left" };
+                else if (minDist === distRight) dropTarget = { panelId: targetId, side: "right" };
+                else if (minDist === distTop) dropTarget = { panelId: targetId, side: "top" };
+                else dropTarget = { panelId: targetId, side: "bottom" };
+              }
             }
           }
         }

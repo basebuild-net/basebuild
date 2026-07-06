@@ -135,6 +135,15 @@ export function ActivitySidebar({
 
       <div className="activity-sidebar">
         <div className="activity-sidebar-list">
+          {/* Active project as parent header */}
+          {activeProjectPath ? (
+            <div className="activity-sidebar-project">
+              <span className="activity-sidebar-project-name" title={activeProjectPath}>
+                {projects.find((p) => p.path === activeProjectPath)?.name ?? activeProjectPath.split(/[\\/]/).pop() ?? "Project"}
+              </span>
+            </div>
+          ) : null}
+          {/* Panels (chats) nested under the project */}
           {panels.length === 0 ? (
             <div className="sidebar-empty text-muted text-sm">
               No panels open. <button className="chat-link-btn" type="button" onClick={onCreateChat}>Start a chat</button>.
@@ -158,6 +167,22 @@ export function ActivitySidebar({
               );
             })
           )}
+          {/* Other projects below the panel list */}
+          {projects.filter((p) => p.path !== activeProjectPath).length > 0 ? (
+            <div className="activity-sidebar-other-projects">
+              {projects.filter((p) => p.path !== activeProjectPath).map((project) => (
+                <div
+                  key={project.path}
+                  className="activity-sidebar-project-row"
+                  title={project.path}
+                  onClick={() => onSelectProject(project.path)}
+                >
+                  <FolderPlus size={11} className="activity-sidebar-row-icon" />
+                  <span className="activity-sidebar-row-title">{project.name}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
         <button
           className="activity-sidebar-history-btn"

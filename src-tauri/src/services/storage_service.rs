@@ -748,6 +748,21 @@ impl StorageService {
                 [],
             );
         }
+        // Migration (project-grid-workspace): add panel_grid to
+        // workspace_restore_state so the split-tree panel grid layout
+        // (panel positions, split ratios, closed panels) persists across
+        // restarts. The column holds a JSON string of PanelGridState.
+        // Absent on legacy restore states — the frontend treats absent as
+        // a single-panel grid. Additive only.
+        let has_panel_grid = connection
+            .prepare("SELECT panel_grid FROM workspace_restore_state LIMIT 0")
+            .is_ok();
+        if !has_panel_grid {
+            let _ = connection.execute(
+                "ALTER TABLE workspace_restore_state ADD COLUMN panel_grid TEXT",
+                [],
+            );
+        }
         // Seed built-in runtime profiles individually so existing databases gain
         // newly-added built-ins without losing user-edited profiles.
         for profile in crate::models::runtime::RuntimeProfile::built_ins() {

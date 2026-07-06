@@ -2001,7 +2001,7 @@ a { color: inherit; text-decoration: none; }
 .panel-header { display: flex; align-items: center; gap: 4px; padding: 4px 8px; border-bottom: 1px solid var(--bb-border); background: var(--bb-surface); flex-shrink: 0; min-height: 28px; user-select: none; cursor: grab; position: relative; }
 .panel-header.is-active { background: var(--bb-surface-high); }
 .panel-header:active { cursor: grabbing; }
-.panel-header-drag-handle { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.panel-header-drag-handle { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; cursor: grab; }
 .panel-header-icon { color: var(--bb-muted); flex-shrink: 0; }
 .panel-header-title { font-size: 11px; font-weight: 600; color: var(--bb-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
 .panel-header-title-input { font-size: 11px; font-weight: 600; height: 18px; padding: 0 2px; flex: 1; min-width: 0; }
@@ -2043,6 +2043,11 @@ a { color: inherit; text-decoration: none; }
 .activity-sidebar-history-btn { display: flex; align-items: center; gap: 4px; padding: 6px 8px; font-size: 11px; color: var(--bb-muted); background: none; border: 0; border-top: 1px solid var(--bb-border); cursor: pointer; width: 100%; }
 .activity-sidebar-history-btn:hover { background: var(--bb-surface); color: var(--bb-text); }
 .activity-sidebar-history-badge { background: var(--bb-surface-high); padding: 0 4px; font-size: 9px; font-weight: 600; }
+.activity-sidebar-project { padding: 6px 6px 2px; }
+.activity-sidebar-project-name { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--bb-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-sidebar-other-projects { margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--bb-border); display: flex; flex-direction: column; gap: 2px; }
+.activity-sidebar-project-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; font-size: 11px; color: var(--bb-muted); cursor: pointer; }
+.activity-sidebar-project-row:hover { background: var(--bb-surface); color: var(--bb-text); }
 
 /* History drawer */
 .history-drawer { position: absolute; bottom: 0; left: 0; right: 0; max-height: 300px; background: var(--bb-surface-high); border-top: 1px solid var(--bb-border-strong); box-shadow: 0 -2px 8px rgba(0,0,0,0.2); z-index: 300; overflow-y: auto; }

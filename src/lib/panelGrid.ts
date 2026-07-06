@@ -486,3 +486,22 @@ export function getDragAffectedIds(state: PanelDragState): string[] {
   const end = Math.max(state.initialIndex, state.currentIndex);
   return state.metrics.slice(start, end + 1).map((m) => m.id);
 }
+/** Update a panel's fields in the tree (immutably). Returns the same root
+ *  reference if no change was made. Used to set `chatSessionId` after a
+ *  ChatPanel creates its session. */
+export function updatePanelInTree(
+  root: SplitNode | null,
+  panelId: string,
+  patch: Partial<Panel>,
+): SplitNode | null {
+  if (!root) return null;
+  if (root.kind === "leaf") {
+    return root.panel.id === panelId
+      ? { kind: "leaf", panel: { ...root.panel, ...patch } }
+      : root;
+  }
+  const newChildren = root.children.map((c) => updatePanelInTree(c, panelId, patch)!);
+  // Return same ref if nothing changed (children are referentially equal).
+  const changed = newChildren.some((c, i) => c !== root.children[i]);
+  return changed ? { ...root, children: newChildren } : root;
+}
