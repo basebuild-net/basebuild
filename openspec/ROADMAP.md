@@ -178,7 +178,6 @@ _Last refreshed: 2026-07-06 (`node scripts/openspec-status.mjs --write`)_
 |---|---|---|---|
 |`chat-first-shell`|17/31|in progress|`/apply chat-first-shell`|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
-|`parallel-plan-workspaces`|30/32|in progress|`/apply parallel-plan-workspaces`|
 |`plan-import`|11/13|in progress|`/apply plan-import`|
 |`chat-history-persistence`|0/21|not started|`/apply chat-history-persistence`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
@@ -189,8 +188,10 @@ _Last refreshed: 2026-07-06 (`node scripts/openspec-status.mjs --write`)_
 |`omp-terminal-usage-sync`|0/33|not started|`/apply omp-terminal-usage-sync`|
 |`plan-status-rename`|0/12|not started|`/apply plan-status-rename`|
 |`planning-file-ingestion`|0/13|not started|`/apply planning-file-ingestion`|
+|`project-grid-workspace`|0/33|not started|`/apply project-grid-workspace`|
 |`schematic-enhance-ui`|0/14|not started|`/apply schematic-enhance-ui`|
 |`session-compaction`|0/13|not started|`/apply session-compaction`|
+|`parallel-plan-workspaces`|32/32|complete — archive|`/archive parallel-plan-workspaces`|
 <!-- status:end -->
 
 ## Archiving
