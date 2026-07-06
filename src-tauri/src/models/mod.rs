@@ -14,6 +14,7 @@ pub mod project;
 pub mod permission;
 pub mod runtime;
 pub mod recent_project;
+pub mod run_concurrency;
 pub mod requirement;
 pub mod session;
 pub mod stability;

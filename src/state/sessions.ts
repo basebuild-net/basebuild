@@ -12,13 +12,17 @@ import {
   updateTabChatSession,
   renameSession as renameSessionApi,
 } from "../lib/sessions";
+import type { ChatGrid } from "../lib/gridMath";
 import { setLastActiveSession as setLastActiveSessionApi } from "../lib/projects";
-
 export function useSessionState(projectPath: string | null, lastActiveSessionId?: string | null) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [tabs, setTabs] = useState<SessionTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  // Per-tab grid layouts, hydrated from workspace restore state by AppShell.
+  // Kept in-memory so the grid can mutate synchronously (resize/reorder) and
+  // AppShell persists it back (debounced) via save_workspace_restore_state.
+  const [tabGridStates, setTabGridStates] = useState<Record<string, ChatGrid>>({});
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
 
@@ -142,6 +146,17 @@ export function useSessionState(projectPath: string | null, lastActiveSessionId?
     [refreshTabs],
   );
 
+  /** Update a chat tab's grid layout in-memory. Does not round-trip the
+   *  backend — AppShell persists `tabGridStates` via workspace restore. */
+  const setTabGrid = useCallback((id: string, grid: ChatGrid) => {
+    setTabGridStates((prev) => ({ ...prev, [id]: grid }));
+  }, []);
+
+  /** Bulk-replace the grid states (used by AppShell to hydrate from restore). */
+  const hydrateTabGridStates = useCallback((states: Record<string, ChatGrid>) => {
+    setTabGridStates(states);
+  }, []);
+
   return {
     sessions,
     activeSession,
@@ -159,5 +174,8 @@ export function useSessionState(projectPath: string | null, lastActiveSessionId?
     removeTab,
     setTabChatSession,
     setActiveTabId,
+    tabGridStates,
+    setTabGrid,
+    hydrateTabGridStates,
   };
 }

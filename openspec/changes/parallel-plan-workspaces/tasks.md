@@ -4,10 +4,10 @@
 
 ## 1. Foundation — grid state & port scaffolding
 
-- [ ] 1.1 Extend `src/state/sessions.ts` tab model with a `grid` field (`rows: string[][]`, `chatColumnWidths: Record<string, number>`, per-row heights); default legacy tabs to a `1×1` grid from the existing active chat.
-- [ ] 1.2 Extend the chat/session model with `assignedPlanId`, `worktreePath`, `branch`, and `agentMode` fields (nullable; safe defaults on read).
-- [ ] 1.3 Add pure helpers (with unit tests): grid width clamping/rebalance, reorder index resolution within/across rows, `M×N` reflow from a flat chat list. Port the math from the reference `chat-stack`/`standard-tabs` drag logic.
-- [ ] 1.4 Add per-provider concurrency + subagent settings to the settings model and `src/lib/settings.ts` wrappers (global defaults, per-project override; defaults: provider `1`, subagents off).
+- [x] 1.1 Extend `src/state/sessions.ts` tab model with a `grid` field (`rows: string[][]`, `chatColumnWidths: Record<string, number>`, per-row heights); default legacy tabs to a `1×1` grid from the existing active chat.
+- [x] 1.2 Extend the chat/session model with `assignedPlanId`, `worktreePath`, `branch`, and `agentMode` fields (nullable; safe defaults on read).
+- [x] 1.3 Add pure helpers (with unit tests): grid width clamping/rebalance, reorder index resolution within/across rows, `M×N` reflow from a flat chat list. Port the math from the reference `chat-stack`/`standard-tabs` drag logic.
+- [x] 1.4 Add per-provider concurrency + subagent settings to the settings model and `src/lib/settings.ts` wrappers (global defaults, per-project override; defaults: provider `1`, subagents off).
 
 ## 2. Chat harness UI port
 

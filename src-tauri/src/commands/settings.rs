@@ -1,6 +1,7 @@
 use crate::models::{
     permission::{ApprovalMode, ApprovalRule, AuditEntry, PermissionRules},
     runtime::RuntimeProfile,
+    run_concurrency::{RunConcurrencyEntry, RunConcurrencyLimits},
 };
 use crate::services::settings_service::{ProfileValidation, SettingsService};
 
@@ -92,7 +93,48 @@ pub fn add_approval_rule(rule: ApprovalRule) -> Result<(), String> {
 pub fn remove_approval_rule(id: String) -> Result<(), String> {
     SettingsService::remove_approval_rule(&id)
 }
-
 // Placeholder state to keep the command signature stable; not used yet.
 #[allow(dead_code)]
 pub struct _SettingsState;
+
+// ─── Run Concurrency Limits (run-concurrency-limits) ───
+
+#[tauri::command]
+pub fn get_run_concurrency_defaults() -> Result<RunConcurrencyLimits, String> {
+    SettingsService::get_run_concurrency_defaults()
+}
+
+#[tauri::command]
+pub fn set_run_concurrency_defaults(limits: RunConcurrencyLimits) -> Result<(), String> {
+    SettingsService::set_run_concurrency_defaults(&limits)
+}
+
+#[tauri::command]
+pub fn get_run_concurrency_overrides(project_path: String) -> Result<RunConcurrencyLimits, String> {
+    SettingsService::get_run_concurrency_overrides(&project_path)
+}
+
+#[tauri::command]
+pub fn set_run_concurrency_override(
+    project_path: String,
+    provider_id: String,
+    entry: RunConcurrencyEntry,
+) -> Result<(), String> {
+    SettingsService::set_run_concurrency_override(&project_path, &provider_id, &entry)
+}
+
+#[tauri::command]
+pub fn remove_run_concurrency_override(
+    project_path: String,
+    provider_id: String,
+) -> Result<(), String> {
+    SettingsService::remove_run_concurrency_override(&project_path, &provider_id)
+}
+
+#[tauri::command]
+pub fn effective_run_concurrency(
+    project_path: String,
+    provider_id: String,
+) -> Result<RunConcurrencyEntry, String> {
+    SettingsService::effective_run_concurrency(&project_path, &provider_id)
+}

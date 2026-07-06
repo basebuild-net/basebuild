@@ -481,6 +481,18 @@ impl StorageService {
                     updated_at INTEGER NOT NULL
                 );
 
+                /* Per-project run-concurrency overrides (run-concurrency-limits).
+                   Each row overrides the global defaults for one provider in one project. */
+                CREATE TABLE IF NOT EXISTS run_concurrency_overrides (
+                    project_path TEXT NOT NULL,
+                    provider_id TEXT NOT NULL,
+                    max_concurrency INTEGER NOT NULL DEFAULT 1,
+                    subagents_enabled INTEGER NOT NULL DEFAULT 0,
+                    subagent_max_count INTEGER NOT NULL DEFAULT 0,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (project_path, provider_id)
+                );
+
                 -- Connector permission gateway tables (additive).
                 CREATE TABLE IF NOT EXISTS connectors (
                     id TEXT PRIMARY KEY NOT NULL,
@@ -717,6 +729,22 @@ impl StorageService {
         if !has_last_selected_at {
             let _ = connection.execute(
                 "ALTER TABLE sessions ADD COLUMN last_selected_at INTEGER",
+                [],
+            );
+        }
+
+        // Migration (parallel-plan-workspaces): add tab_grid_states to
+        // workspace_restore_state so per-tab chat grid layouts (chat
+        // membership, column widths, row layout) persist across restarts.
+        // The column holds a JSON map of tabId → ChatGrid. Absent on legacy
+        // restore states — the frontend treats absent as a 1×1 grid built
+        // from the tab's chatSessionId. Additive only.
+        let has_tab_grid_states = connection
+            .prepare("SELECT tab_grid_states FROM workspace_restore_state LIMIT 0")
+            .is_ok();
+        if !has_tab_grid_states {
+            let _ = connection.execute(
+                "ALTER TABLE workspace_restore_state ADD COLUMN tab_grid_states TEXT",
                 [],
             );
         }

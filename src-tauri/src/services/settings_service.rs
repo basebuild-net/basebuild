@@ -7,6 +7,7 @@ use crate::{
             PermissionRules, SessionRule, UsageSyncSettings,
         },
         runtime::{RuntimeDefaults, RuntimeProfile, RuntimeProfileKind, WorkingDirectoryMode},
+        run_concurrency::{RunConcurrencyEntry, RunConcurrencyLimits},
     },
     services::process_helpers::hidden_command,
     services::storage_service::StorageService,
@@ -501,6 +502,123 @@ impl SettingsService {
             }
             ApprovalMode::Auto => unreachable!(),
         }
+    }
+
+    // ─── Run Concurrency Limits (run-concurrency-limits) ───
+
+    /// Global per-provider run-concurrency defaults. Stored as a JSON blob
+    /// in `app_defaults` under the `run_concurrency` key. Absent →
+    /// conservative defaults (provider `1`, subagents off).
+    pub fn get_run_concurrency_defaults() -> DbResult<RunConcurrencyLimits> {
+        let conn = StorageService::connect()?;
+        let value: Option<String> = conn
+            .query_row(
+                "SELECT value FROM app_defaults WHERE key = 'run_concurrency'",
+                [],
+                |r| r.get(0),
+            )
+            .ok();
+        match value {
+            Some(v) => serde_json::from_str(&v).map_err(|e| e.to_string()),
+            None => Ok(RunConcurrencyLimits::conservative()),
+        }
+    }
+
+    pub fn set_run_concurrency_defaults(limits: &RunConcurrencyLimits) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO app_defaults (key, value) VALUES ('run_concurrency', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![serde_json::to_string(limits).map_err(|e| e.to_string())?],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Per-project run-concurrency overrides. Stored as rows in
+    /// `run_concurrency_overrides`. Returns the entries for the project as
+    /// a `RunConcurrencyLimits` map (provider id → entry).
+    pub fn get_run_concurrency_overrides(project_path: &str) -> DbResult<RunConcurrencyLimits> {
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT provider_id, max_concurrency, subagents_enabled, subagent_max_count
+                 FROM run_concurrency_overrides WHERE project_path = ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![project_path], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    RunConcurrencyEntry {
+                        max_concurrency: row.get::<_, i64>(1)? as u32,
+                        subagents_enabled: row.get::<_, i64>(2)? != 0,
+                        subagent_max_count: row.get::<_, i64>(3)? as u32,
+                    },
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        let mut providers = std::collections::HashMap::new();
+        for row in rows {
+            let (provider_id, entry) = row.map_err(|e| e.to_string())?;
+            providers.insert(provider_id, entry);
+        }
+        Ok(RunConcurrencyLimits { providers })
+    }
+
+    /// Upsert a single provider's override for a project. Replaces the
+    /// existing entry if one exists (PRIMARY KEY project_path, provider_id).
+    pub fn set_run_concurrency_override(
+        project_path: &str,
+        provider_id: &str,
+        entry: &RunConcurrencyEntry,
+    ) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO run_concurrency_overrides
+                (project_path, provider_id, max_concurrency, subagents_enabled, subagent_max_count, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(project_path, provider_id) DO UPDATE SET
+                max_concurrency = excluded.max_concurrency,
+                subagents_enabled = excluded.subagents_enabled,
+                subagent_max_count = excluded.subagent_max_count,
+                updated_at = excluded.updated_at",
+            params![
+                project_path,
+                provider_id,
+                entry.max_concurrency as i64,
+                entry.subagents_enabled as i32,
+                entry.subagent_max_count as i64,
+                now(),
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Remove a provider's override for a project (revert to global default).
+    pub fn remove_run_concurrency_override(
+        project_path: &str,
+        provider_id: &str,
+    ) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "DELETE FROM run_concurrency_overrides WHERE project_path = ?1 AND provider_id = ?2",
+            params![project_path, provider_id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Resolve the effective entry for a provider in a project: project
+    /// override → global default → conservative. Used by the scheduler.
+    pub fn effective_run_concurrency(
+        project_path: &str,
+        provider_id: &str,
+    ) -> DbResult<RunConcurrencyEntry> {
+        let global = Self::get_run_concurrency_defaults()?;
+        let project = Self::get_run_concurrency_overrides(project_path)?;
+        Ok(project.effective_for(provider_id, &global))
     }
 }
 

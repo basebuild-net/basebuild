@@ -10,6 +10,12 @@ pub struct WorkspaceRestoreState {
     pub sidebar_collapsed: bool,
     pub side_collapsed: bool,
     pub side_width: i64,
+    /// Per-tab chat grid layouts, keyed by tab id. Each value is the grid's
+    /// JSON (`{rows, chatColumnWidths, rowHeights}`). Absent/null on legacy
+    /// restore states — the frontend treats absent as a 1×1 grid built from
+    /// the tab's chatSessionId. Added by `parallel-plan-workspaces`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_grid_states: Option<String>,
     pub updated_at: i64,
 }
 
@@ -23,6 +29,7 @@ impl WorkspaceRestoreState {
             sidebar_collapsed: false,
             side_collapsed: false,
             side_width: 260,
+            tab_grid_states: None,
             updated_at: 0,
         }
     }

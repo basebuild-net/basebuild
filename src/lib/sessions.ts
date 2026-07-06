@@ -1,6 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ChatGrid } from "./gridMath";
 
 export type TabKind = "terminal" | "empty" | "file" | "chat" | "omp";
+
+/** Agent permission mode for a chat column. `plan` = read-only/posture;
+ *  `build` = allow edits. Maps to the approval gateway's mode. */
+export type AgentMode = "plan" | "build";
 
 export type Session = {
   id: string;
@@ -19,6 +24,16 @@ export type SessionTab = {
   filePath: string | null;
   chatSessionId: string | null;
   createdAt: number;
+  /** Per-tab chat grid layout (chat tabs only). Absent on legacy tabs →
+   *  treated as a 1×1 grid from `chatSessionId` at view time. Persisted in
+   *  the frontend workspace-restore state, not the backend session_tabs row. */
+  grid?: ChatGrid | null;
+  /** View-layer chat metadata (chat tabs only). Bound at runtime when a
+   *  plan is assigned or a branch is switched; absent on free-form chats. */
+  assignedPlanId?: string | null;
+  worktreePath?: string | null;
+  branch?: string | null;
+  agentMode?: AgentMode | null;
 };
 
 export async function createSession(projectPath: string, title: string): Promise<Session> {
