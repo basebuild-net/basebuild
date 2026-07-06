@@ -14,6 +14,10 @@ use crate::models::terminal::TerminalSession;
 struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    /// Child process handle. MUST be held alive for the lifetime of the session;
+    /// dropping it on Windows ConPTY destroys the pseudoconsole and kills the
+    /// shell, causing the reader to get EOF and the terminal to appear dead.
+    child: Box<dyn portable_pty::Child + Send + Sync>,
     shell: String,
     cwd: Option<String>,
     pid: Option<u32>,
@@ -120,14 +124,11 @@ impl TerminalManager {
             }
         });
 
-        let started_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-
+        let started_at = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let session = PtySession {
             master: pair.master,
             writer,
+            child,
             shell: shell.to_string(),
             cwd: cwd.map(str::to_string),
             pid,
@@ -180,9 +181,15 @@ impl TerminalManager {
     }
 
     pub fn close(&mut self, id: u64) -> Result<(), String> {
-        self.sessions
+        let session = self
+            .sessions
             .remove(&id)
             .ok_or("Terminal session not found")?;
+        // Explicitly kill the child process before dropping handles.
+        let _ = session.child.clone_killer().kill();
+        drop(session.child);
+        drop(session.master);
+        drop(session.writer);
         Ok(())
     }
 
