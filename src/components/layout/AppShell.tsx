@@ -567,8 +567,16 @@ Rules:
             onCreatePlanFromIdea={handleCreatePlanFromIdea}
             onOpenPlanningInspector={handleOpenPlanningInspector}
             onOpenSchematic={handleOpenSchematic}
-            onCloseChat={() => {}}
-            onDuplicateChat={() => {}}
+            onCloseChat={() => setPanelGridState((prev) => closePanel(prev, panel.id))}
+            onCloseAndDeleteChat={() => setPanelGridState((prev) => deletePanelFromHistory(prev, panel.id))}
+            onDuplicateChat={() => {
+              const newPanel = handleCreatePanel(panel.id, "right");
+              setPanelGridState((prev) => {
+                if (!prev.root) return singlePanelGrid(newPanel);
+                const newRoot = splitPanelAt(prev.root, panel.id, newPanel, "right");
+                return { ...prev, root: newRoot, activePanelId: newPanel.id };
+              });
+            }}
           />
         );
       }

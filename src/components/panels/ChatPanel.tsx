@@ -83,13 +83,11 @@ type ChatPanelProps = {
   chatTitle?: string;
   /** Called when the user renames the chat in the header. */
   onRenameChat?: (title: string) => void;
-  /** Drag handlers for column reorder (wired by ChatGrid). */
-  onHeaderDragStart?: (e: React.MouseEvent) => void;
-  onHeaderDragEnd?: () => void;
-  onHeaderDragOver?: (e: React.DragEvent) => void;
-  onHeaderDrop?: (e: React.DragEvent) => void;
-  /** Close/duplicate handlers (wired by ChatGrid). */
+  /** Close this chat panel (retain session in history). */
   onCloseChat?: () => void;
+  /** Close and permanently delete the session. */
+  onCloseAndDeleteChat?: () => void;
+  /** Duplicate this chat panel beside the current one. */
   onDuplicateChat?: () => void;
 };
 
@@ -204,11 +202,8 @@ export function ChatPanel({
   onOpenSchematic,
   chatTitle,
   onRenameChat,
-  onHeaderDragStart,
-  onHeaderDragEnd,
-  onHeaderDragOver,
-  onHeaderDrop,
   onCloseChat,
+  onCloseAndDeleteChat,
   onDuplicateChat,
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
@@ -1145,13 +1140,9 @@ export function ChatPanel({
         onAssignPlan={handleOpenAssignPlan}
         onDuplicateChat={() => onDuplicateChat?.()}
         onCloseChat={() => onCloseChat?.()}
-        onCloseAndDelete={() => onCloseChat?.()}
+        onCloseAndDelete={() => onCloseAndDeleteChat?.()}
         prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
         onCreatePullRequest={handleCreatePullRequest}
-        onDragStart={onHeaderDragStart}
-        onDragEnd={onHeaderDragEnd}
-        onDragOver={onHeaderDragOver}
-        onDrop={onHeaderDrop}
       />
       {showPrCard && prRec ? (
         <PrRecommendationCard
