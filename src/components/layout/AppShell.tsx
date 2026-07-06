@@ -789,6 +789,14 @@ Rules:
                 onSuggestForCategory={handleSuggestForCategory}
                 activeChatSessionId={session.activeSessionId}
                 onOpenFiles={() => setFileModalOpen(true)}
+                onCreateChat={() => {
+                  const newPanel = handleCreatePanel(null, "right");
+                  setPanelGridState((prev) => {
+                    if (!prev.root) return singlePanelGrid(newPanel);
+                    const newRoot = splitPanelAt(prev.root, prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "", newPanel, "right");
+                    return { ...prev, root: newRoot, activePanelId: newPanel.id };
+                  });
+                }}
               />
               <span className="status-pill session-path-pill" title={activeProjectPath}>{activeProjectPath}</span>
             </div>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Folder, GitBranch, LayoutList } from "lucide-react";
+import { Folder, GitBranch, LayoutList, Plus } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import type { IdeaCategory } from "../../lib/ideas";
@@ -23,6 +23,7 @@ type ChatEnvironmentPanelProps = {
   onSuggestForCategory: (category: IdeaCategory | null) => void;
   activeChatSessionId: string | null;
   onOpenFiles: () => void;
+  onCreateChat: () => void;
   /** When true, auto-opens the Plans & Ideas fold (set by the chat-side inspector button). */
   openPlansFoldSignal?: number;
 };
@@ -44,6 +45,7 @@ export function ChatEnvironmentPanel({
   onSuggestForCategory,
   activeChatSessionId,
   onOpenFiles,
+  onCreateChat,
   openPlansFoldSignal,
 }: ChatEnvironmentPanelProps) {
   const [openFold, setOpenFold] = useState<FoldId | null>(null);
@@ -73,6 +75,14 @@ export function ChatEnvironmentPanel({
               <span>{label}</span>
             </button>
           ))}
+          <button
+            className="chat-env-tab chat-env-tab-add"
+            type="button"
+            title="New chat"
+            onClick={onCreateChat}
+          >
+            <Plus size={11} />
+          </button>
         </div>
       </div>
       {openFold === "source" ? (
