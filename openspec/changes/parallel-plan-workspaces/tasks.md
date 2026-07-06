@@ -30,15 +30,15 @@
 
 ## 5. Concurrency scheduler & plan→chat assignment
 
-- [ ] 5.1 `plan_runner_service.rs`: replace the single `N` cap with a per-provider in-flight scheduler (runs + subagents counted per provider); queue excess with a visible reason; start queued runs as slots free.
+- [x] 5.1 `plan_runner_service.rs`: replace the single `N` cap with a per-provider in-flight scheduler (runs + subagents counted per provider); queue excess with a visible reason; start queued runs as slots free.
 - [ ] 5.2 Assign-a-plan flow (`plan-chat-assignment`): assign a `ready` plan to a chat column (one active per chat; re-assign confirms + restarts); provision worktree on run start; seed the chat from the plan + schematic; bind one model; stream in that column.
 - [ ] 5.3 Surface auto-provisioned run chats as grid columns; reuse the assigned chat when one is bound instead of minting a new column.
-- [ ] 5.4 Concurrency + subagent settings UI (global + per-project) with effective-value display and tooltips; gate subagents off by default; delegation declines with a visible notice when disabled.
+- [x] 5.4 Concurrency + subagent settings UI (global + per-project) with effective-value display and tooltips; gate subagents off by default; delegation declines with a visible notice when disabled.
 
 ## 6. Pull-request recommendation
 
 - [x] 6.1 `pull_request_service.rs`: `gh` availability+auth probe (via hidden-process helper), `gh pr create`, branch push, and GitHub compare-URL construction; no token stored.
-- [ ] 6.2 `PrRecommendationCard.tsx`: on a finished worktree run, show branch, ahead/behind, changed-file summary, and a confirm-gated "Create pull request" action (gh path or browser fallback); dismiss keeps the branch.
+- [x] 6.2 `PrRecommendationCard.tsx`: on a finished worktree run, show branch, ahead/behind, changed-file summary, and a confirm-gated "Create pull request" action (gh path or browser fallback); dismiss keeps the branch.
 - [x] 6.3 Wire the `plan-final-touches` open-pull-request step to the new service (explicit + confirmed; default disabled preserved).
 ## 7. Integration & testing
 

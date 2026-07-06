@@ -13,6 +13,8 @@ import { FocusPlanModal } from "./FocusPlanModal";
 import { ProjectDescriptionModal } from "./ProjectDescriptionModal";
 import { useProjectSchematic } from "../../state/schematic";
 import { revealInExplorer } from "../../lib/projects";
+import { onPlanRunEvent } from "../../lib/planRuns";
+import { addChatBeside } from "../../lib/gridMath";
 import { generateSessionTitle, readSkill } from "../../lib/skills";
 import { getWorkspaceRestoreState, saveWorkspaceRestoreState, type WorkspaceRestoreState } from "../../lib/workspace";
 import { WorkspaceTabs } from "./WorkspaceTabs";
@@ -145,6 +147,30 @@ export function AppShell({ updates }: AppShellProps) {
     };
   }, [activeProjectPath, addLog]);
 
+  // Plan-run event listener: when a run starts with a chat session, surface
+  // it as a column in the active chat tab's grid (per `chat-grid-layout`).
+  // If no chat tab is active, the existing auto-create-tab effect handles it.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    void onPlanRunEvent((event) => {
+      if (event.status !== "running" || !event.chatSessionId) return;
+      const activeTab = session.tabs.find((t) => t.id === session.activeTabId);
+      if (!activeTab || activeTab.kind !== "chat") return;
+      // If the chat is already in the grid, just focus it.
+      const grid = session.tabGridStates[activeTab.id];
+      const flat = grid?.rows.flat() ?? [];
+      if (flat.includes(event.chatSessionId)) {
+        setFocusedChatId(event.chatSessionId);
+        return;
+      }
+      // Add beside the focused chat (or at the end).
+      const anchor = focusedChatId ?? flat[flat.length - 1] ?? null;
+      const next = addChatBeside(grid ?? { rows: [[]], chatColumnWidths: {}, rowHeights: {} }, anchor, event.chatSessionId, typeof window !== "undefined" ? window.innerWidth - 80 : 1200);
+      session.setTabGrid(activeTab.id, next);
+      setFocusedChatId(event.chatSessionId);
+    }).then((fn) => { unlisten = fn; });
+    return () => { if (unlisten) unlisten(); };
+  }, [session, focusedChatId]);
   // Hydrate per-tab grid states from the workspace restore snapshot.
   useEffect(() => {
     if (!workspaceRestore?.tabGridStates) return;

@@ -1164,6 +1164,14 @@ a { color: inherit; text-decoration: none; }
 .pr-recommendation-meta { display: flex; gap: 8px; font-family: var(--bb-mono); font-size: 10px; color: var(--bb-muted); }
 .pr-recommendation-actions { display: flex; gap: 6px; }
 .pr-recommendation-confirm { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--bb-surface-high); border: 1px solid var(--bb-border); }
+
+/* ─── Concurrency settings table (run-concurrency-limits) ─── */
+.settings-table { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--bb-border); }
+.settings-table-header { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr 1fr; gap: 6px; padding: 6px 8px; background: var(--bb-surface); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--bb-muted); }
+.settings-table-row { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr 1fr; gap: 6px; padding: 6px 8px; border-top: 1px solid var(--bb-border); align-items: center; }
+.settings-table-row .input { width: 100%; padding: 2px 4px; height: 22px; font-size: 11px; }
+.settings-checkbox { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.settings-checkbox input { margin: 0; }
 /* Side panel resizer */
 .side-resizer {
   width: 4px; cursor: col-resize; background: transparent;
