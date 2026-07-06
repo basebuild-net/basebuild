@@ -10,25 +10,23 @@
 - [x] 1.4 Add per-provider concurrency + subagent settings to the settings model and `src/lib/settings.ts` wrappers (global defaults, per-project override; defaults: provider `1`, subagents off).
 
 ## 2. Chat harness UI port
-
-- [ ] 2.1 Extract the conversation + message rendering out of `ChatPanel.tsx` into a slim panel that renders inside a grid column; keep reasoning fold, tool cards, and idea cards intact.
-- [ ] 2.2 Build `ChatHeader.tsx` (`chat-header-context`): title inline-rename, model/effort chips, agent-mode pill, plan badge, branch + worktree indicator, history toggle, more-actions menu — 0px radius, `title=` on every control.
-- [ ] 2.3 Build `ChatComposerRail.tsx` (`chat-composer-controls`): port the compact single-line rail (provider/model/effort/connect/refresh + overflow menu) with truncation and per-column independence; preserve the existing single-line/setup-state contract.
-- [ ] 2.4 Build the branch switch/create dropdown in the header using existing `git_branch_list`/`git_branch_switch`/`git_branch_create`; confirm on uncommitted changes (stash/discard/cancel).
-
+- [x] 2.1 Extract the conversation + message rendering out of `ChatPanel.tsx` into a slim panel that renders inside a grid column; keep reasoning fold, tool cards, and idea cards intact.
+- [x] 2.2 Build `ChatHeader.tsx` (`chat-header-context`): title inline-rename, model/effort chips, agent-mode pill, plan badge, branch + worktree indicator, history toggle, more-actions menu — 0px radius, `title=` on every control.
+- [x] 2.3 Build `ChatComposerRail.tsx` (`chat-composer-controls`): port the compact single-line rail (provider/model/effort/connect/refresh + overflow menu) with truncation and per-column independence; preserve the existing single-line/setup-state contract.
+- [x] 2.4 Build the branch switch/create dropdown in the header using existing `git_branch_list`/`git_branch_switch`/`git_branch_create`; confirm on uncommitted changes (stash/discard/cancel).
 ## 3. Multi-chat grid
 
-- [ ] 3.1 Build `ChatGrid.tsx` (`chat-grid-layout`): render `rows × columns`, mount only visible/streaming chats (port `use-mounted-chats`), empty-state when zero chats.
-- [ ] 3.2 Vertical + horizontal splitters with min-width/min-height clamping and live resize; persist widths/heights to the tab's grid state.
-- [ ] 3.3 Column reorder within a row and across rows via header drag (threshold, live offset, drop index), with `M×N` reflow on add/remove.
-- [ ] 3.4 Animated close (collapse to zero width, rebalance neighbors, retain session); "Add chat beside" and "Duplicate chat" from the header menu.
+- [x] 3.1 Build `ChatGrid.tsx` (`chat-grid-layout`): render `rows × columns`, mount only visible/streaming chats (port `use-mounted-chats`), empty-state when zero chats.
+- [x] 3.2 Vertical + horizontal splitters with min-width/min-height clamping and live resize; persist widths/heights to the tab's grid state.
+- [x] 3.3 Column reorder within a row and across rows via header drag (threshold, live offset, drop index), with `M×N` reflow on add/remove.
+- [x] 3.4 Animated close (collapse to zero width, rebalance neighbors, retain session); "Add chat beside" and "Duplicate chat" from the header menu.
 - [ ] 3.5 Wire `WorkspaceTabs.tsx` so a chat tab renders `ChatGrid`; each tab keeps its own grid; grid persists per tab across tab-switch and restart (extend `ide-workspace-state` restore).
 
 ## 4. Worktree lifecycle (backend)
 
-- [ ] 4.1 `worktree_service.rs`: default-branch detection (`origin/HEAD` → `main` → `master` → current) + remote fetch before branch creation; non-blocking "base may be stale" signal on fetch failure.
-- [ ] 4.2 Create-on-run-start of `bb/<ref>-<slug>` from the fetched default branch; keep worktree + branch until explicit prune; list + prune commands (prune confirms on uncommitted changes; branch always kept).
-- [ ] 4.3 `src/lib/git.ts` thin wrappers for worktree list/prune, default-branch detection, and current-branch/worktree lookup for the header display.
+- [x] 4.1 `worktree_service.rs`: default-branch detection (`origin/HEAD` → `main` → `master` → current) + remote fetch before branch creation; non-blocking "base may be stale" signal on fetch failure.
+- [x] 4.2 Create-on-run-start of `bb/<ref>-<slug>` from the fetched default branch; keep worktree + branch until explicit prune; list + prune commands (prune confirms on uncommitted changes; branch always kept).
+- [x] 4.3 `src/lib/git.ts` thin wrappers for worktree list/prune, default-branch detection, and current-branch/worktree lookup for the header display.
 
 ## 5. Concurrency scheduler & plan→chat assignment
 
@@ -39,10 +37,9 @@
 
 ## 6. Pull-request recommendation
 
-- [ ] 6.1 `pull_request_service.rs`: `gh` availability+auth probe (via hidden-process helper), `gh pr create`, branch push, and GitHub compare-URL construction; no token stored.
+- [x] 6.1 `pull_request_service.rs`: `gh` availability+auth probe (via hidden-process helper), `gh pr create`, branch push, and GitHub compare-URL construction; no token stored.
 - [ ] 6.2 `PrRecommendationCard.tsx`: on a finished worktree run, show branch, ahead/behind, changed-file summary, and a confirm-gated "Create pull request" action (gh path or browser fallback); dismiss keeps the branch.
-- [ ] 6.3 Wire the `plan-final-touches` open-pull-request step to the new service (explicit + confirmed; default disabled preserved).
-
+- [x] 6.3 Wire the `plan-final-touches` open-pull-request step to the new service (explicit + confirmed; default disabled preserved).
 ## 7. Integration & testing
 
 - [ ] 7.1 Unit tests: grid width clamp/rebalance, reorder index math, `M×N` reflow, per-provider scheduler, default-branch detection fallback chain.

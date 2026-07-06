@@ -18,6 +18,7 @@ pub mod pipeline;
 pub mod planning_prompts;
 pub mod native_chat;
 pub mod openspec;
+pub mod pull_requests;
 pub mod projects;
 pub mod requirements;
 pub mod slash_commands;

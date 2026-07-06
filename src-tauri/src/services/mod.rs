@@ -37,4 +37,5 @@ pub mod sync_service;
 pub mod terminal_service;
 pub mod updater_service;
 pub mod worktree_service;
+pub mod pull_request_service;
 pub mod workspace_service;

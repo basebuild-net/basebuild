@@ -99,3 +99,11 @@ export async function gitCommit(path: string, message: string): Promise<string> 
 export async function gitLog(path: string, limit = 20): Promise<GitCommit[]> {
   return invoke<GitCommit[]>("git_log", { path, limit });
 }
+
+export async function gitCurrentBranch(path: string): Promise<string | null> {
+  return invoke<string | null>("git_current_branch", { path });
+}
+
+export async function gitDefaultBranch(path: string): Promise<string | null> {
+  return invoke<string | null>("git_default_branch", { path });
+}

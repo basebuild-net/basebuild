@@ -37,6 +37,7 @@ use commands::{
     git::{
         git_add, git_branch_create, git_branch_list, git_branch_switch, git_commit, git_diff,
         git_discard, git_fetch, git_log, git_pull, git_push, git_reset, git_stage_all, git_status,
+        git_current_branch, git_default_branch,
         git_unstage_all,
     },
     ideas::{
@@ -120,6 +121,7 @@ use commands::{
      terminal::{close_terminal, create_terminal, list_terminals, resize_terminal, write_terminal},
     workspace::{get_workspace_restore_state, save_workspace_restore_state},
     workspaces::{workspace_create, workspace_is_supported, workspace_list, workspace_remove},
+    pull_requests::{pr_recommend, pr_create, pr_gh_status},
     updater::{
         check_for_updates, clear_skipped_update, get_skipped_update_version,
         install_update, install_update_with_progress, skip_update_version,
@@ -388,8 +390,9 @@ pub fn run() {
             git_branch_list,
             git_branch_create,
             git_branch_switch,
-            git_commit,
             git_log,
+            git_current_branch,
+            git_default_branch,
             list_config_packs,
             create_user_config_pack,
             list_requirements,
@@ -488,6 +491,9 @@ pub fn run() {
             workspace_list,
             workspace_remove,
             workspace_is_supported,
+            pr_recommend,
+            pr_create,
+            pr_gh_status,
             check_for_updates,
             install_update,
             install_update_with_progress,

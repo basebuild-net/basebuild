@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { ChatComposerRail } from "./ChatComposerRail";
 import {
   AlertCircle,
   BarChart3,
@@ -10,7 +11,6 @@ import {
   RefreshCw,
   Send,
   Sparkles,
-  Unplug,
   X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -1237,108 +1237,45 @@ export function ChatPanel({
       <div className="chat-input-area">
         {nativeMode ? (
           <>
-            <div className="chat-composer-header">
-              {catalog ? (
-                <>
-                  <button
-                    className={`btn btn-sm chat-provider-trigger${providerDegraded ? " is-warn" : ""}`}
-                    type="button"
-                    title={`${providerName} — ${providerDegraded ? "setup required" : "ready"}. Click to choose or connect a provider.`}
-                    onClick={() => {
-                      setShowProviderPicker((value) => !value);
-                      setShowModelPicker(false);
-                      setShowPlanningMenu(false);
-                    }}
-                  >
-                    <span className={`chat-health-dot ${providerDegraded ? "is-warn" : "is-ok"}`} />
-                    <span className="chat-trigger-label">{providerName}</span>
-                  </button>
-                  <button
-                    className="btn btn-sm chat-model-trigger"
-                    type="button"
-                    title={`Select model. Current model: ${modelName} (${modelId})`}
-                    onClick={() => {
-                      setShowModelPicker((value) => !value);
-                      setShowProviderPicker(false);
-                      setShowPlanningMenu(false);
-                    }}
-                  >
-                    <span className="chat-trigger-kicker">Model</span>
-                    <span className="chat-trigger-label">{modelName}</span>
-                  </button>
-                  <select
-                    className="input chat-select chat-effort-select"
-                    title="Select effort level"
-                    value={effortLevel}
-                    onChange={(e) => {
-                      setEffortLevel(e.target.value);
-                      const next: ChatModelDefault = {
-                        providerId,
-                        modelId,
-                        effortLevel: e.target.value,
-                      };
-                      void nativeChatSetProjectModelDefault(projectPath, next);
-                    }}
-                  >
-                    {catalog.effortLevels.map((ef) => (
-                      <option key={ef.id} value={ef.id}>
-                        {ef.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    className="btn-icon btn-icon-sm"
-                    type="button"
-                    title={selectedProvider?.lastSyncedAt ? `Refresh models. Last sync: ${new Date(selectedProvider.lastSyncedAt * 1000).toLocaleString()}` : "Refresh models"}
-                    disabled={catalogRefreshing}
-                    onClick={() => void refreshCatalog(true, selectedProvider?.id)}
-                  >
-                    <RefreshCw size={12} className={catalogRefreshing ? "spin" : ""} />
-                  </button>
-                  {providerDegraded ? (
-                    <button
-                      className="btn-icon btn-icon-sm"
-                      type="button"
-                      title={`Connect ${providerName}`}
-                      onClick={() => {
-                        setLoginError(null);
-                        setShowLogin(true);
-                        setShowProviderPicker(false);
-                      }}
-                    >
-                      <Key size={11} />
-                    </button>
-                  ) : selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID ? (
-                    <button
-                      className="btn-icon btn-icon-sm"
-                      type="button"
-                      title={`Disconnect ${providerName}`}
-                      onClick={() => void handleDisconnect()}
-                    >
-                      <Unplug size={11} />
-                    </button>
-                  ) : null}
-                  <button
-                    className="btn btn-sm chat-ideas-trigger"
-                    type="button"
-                    title="Idea generation actions"
-                    onClick={() => {
-                      setShowPlanningMenu((value) => !value);
-                      setShowProviderPicker(false);
-                      setShowModelPicker(false);
-                    }}
-                  >
-                    <Lightbulb size={11} /> Ideas
-                  </button>
-                </>
-              ) : (
-                <div className="chat-select-group">
-                  <span className="chat-select-skeleton" />
-                  <span className="chat-select-skeleton" />
-                  <span className="chat-select-skeleton" />
-                </div>
-              )}
-            </div>
+            <ChatComposerRail
+              catalog={catalog}
+              providerId={providerId}
+              providerName={providerName}
+              providerDegraded={providerDegraded}
+              modelId={modelId}
+              modelName={modelName}
+              effortLevel={effortLevel}
+              catalogRefreshing={catalogRefreshing}
+              lastSyncedAt={selectedProvider?.lastSyncedAt ?? null}
+              localProviderId={LOCAL_PROVIDER_ID}
+              onPickProvider={() => {
+                setShowProviderPicker((value) => !value);
+                setShowModelPicker(false);
+                setShowPlanningMenu(false);
+              }}
+              onPickModel={() => {
+                setShowModelPicker((value) => !value);
+                setShowProviderPicker(false);
+                setShowPlanningMenu(false);
+              }}
+              onToggleIdeas={() => {
+                setShowPlanningMenu((value) => !value);
+                setShowProviderPicker(false);
+                setShowModelPicker(false);
+              }}
+              onChangeEffort={(effort) => {
+                setEffortLevel(effort);
+                const next: ChatModelDefault = { providerId, modelId, effortLevel: effort };
+                void nativeChatSetProjectModelDefault(projectPath, next);
+              }}
+              onRefresh={() => void refreshCatalog(true, selectedProvider?.id)}
+              onConnect={() => {
+                setLoginError(null);
+                setShowLogin(true);
+                setShowProviderPicker(false);
+              }}
+              onDisconnect={() => void handleDisconnect()}
+            />
             {showPlanningMenu ? (
               <div className="chat-picker" role="dialog" aria-label="Idea actions">
                 <div className="chat-picker-header">
