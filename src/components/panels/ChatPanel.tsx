@@ -1201,22 +1201,16 @@ export function ChatPanel({
         ) : null}
         {nativeMode
           ? (() => {
-              // Interleave tool events inline with chat messages. Events with
-              // a messageId render just before their associated assistant
-              // message; live events (null messageId, e.g. approvals during
-              // streaming) render after the last persisted message.
+              // Chronological stream: merge messages + tool events + reasoning
+              // into a single sorted list of ChatEvent, ordered by
+              // (createdAt, sortOrder). Each event renders at its
+              // chronological position — not grouped by message.
+              type ChatEvent =
+                | { kind: "user" | "assistant" | "system"; id: string; content: string; reasoning: string | null; createdAt: number | null; providerId: string | null; index: number }
+                | { kind: "tool"; id: string; event: NativeToolEvent; createdAt: number | null; index: number };
+
               type Grouped = { type: "single" | "group"; events: NativeToolEvent[] };
-              const withMessageId = new Map<string, NativeToolEvent[]>();
-              const live: NativeToolEvent[] = [];
-              for (const ev of toolEvents) {
-                if (ev.messageId) {
-                  const list = withMessageId.get(ev.messageId);
-                  if (list) list.push(ev);
-                  else withMessageId.set(ev.messageId, [ev]);
-                } else {
-                  live.push(ev);
-                }
-              }
+
               const groupEvents = (events: NativeToolEvent[]) => {
                 const groups: Grouped[] = [];
                 for (const ev of events) {
@@ -1237,38 +1231,99 @@ export function ChatPanel({
                   return <ToolEventGroup key={`group-${i}`} events={g.events} />;
                 });
               };
-              const rendered = renderMessages.flatMap((msg, index) => {
+
+              // Build the merged event list.
+              const events: ChatEvent[] = [];
+              for (let i = 0; i < renderMessages.length; i++) {
+                const msg = renderMessages[i];
                 const msgId = "id" in msg ? String(msg.id) : null;
-                const events = msgId ? withMessageId.get(msgId) ?? [] : [];
-                const key = "id" in msg ? String(msg.id) : `legacy-${index}`;
-                const isOfflineTurn =
-                  "providerId" in msg && msg.role === "assistant" && msg.providerId === LOCAL_PROVIDER_ID;
-                const reasoning = "reasoning" in msg ? (msg as NativeChatMessage).reasoning : null;
-                const ts: number | null = "createdAt" in msg ? (msg as NativeChatMessage).createdAt : null;
-                const timeStr = ts != null
-                  ? new Date(ts * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+                const ts = "createdAt" in msg ? (msg as NativeChatMessage).createdAt : null;
+                const reasoning = "reasoning" in msg ? (msg as NativeChatMessage).reasoning ?? null : null;
+                const providerId = "providerId" in msg ? (msg as NativeChatMessage).providerId ?? null : null;
+                events.push({
+                  kind: msg.role as "user" | "assistant" | "system",
+                  id: msgId ?? `legacy-${i}`,
+                  content: msg.content,
+                  reasoning,
+                  createdAt: ts,
+                  providerId,
+                  index: i,
+                });
+                // Attach tool events with this messageId right after the message.
+                if (msgId) {
+                  for (const te of toolEvents) {
+                    if (te.messageId === msgId) {
+                      events.push({
+                        kind: "tool",
+                        id: te.id,
+                        event: te,
+                        createdAt: ts,
+                        index: i + 0.5,
+                      });
+                    }
+                  }
+                }
+              }
+              // Live tool events (null messageId) go at the end.
+              for (const te of toolEvents) {
+                if (!te.messageId) {
+                  events.push({
+                    kind: "tool",
+                    id: te.id,
+                    event: te,
+                    createdAt: null,
+                    index: events.length,
+                  });
+                }
+              }
+
+              // Sort by (createdAt, index) — stable chronological order.
+              events.sort((a, b) => {
+                const ta = a.createdAt ?? 0;
+                const tb = b.createdAt ?? 0;
+                if (ta !== tb) return ta - tb;
+                return a.index - b.index;
+              });
+
+              // Render the flat chronological list.
+              // Group adjacent tool events for compact display.
+              const rendered: React.ReactNode[] = [];
+              let toolBatch: NativeToolEvent[] = [];
+              const flushToolBatch = (batchKey: string) => {
+                if (toolBatch.length > 0) {
+                  rendered.push(
+                    <div key={`tools-${batchKey}`} className="chat-tool-events">{groupEvents(toolBatch)}</div>,
+                  );
+                  toolBatch = [];
+                }
+              };
+
+              for (const ev of events) {
+                if (ev.kind === "tool") {
+                  toolBatch.push(ev.event);
+                  continue;
+                }
+                // Flush any pending tool events before the next message.
+                const isOfflineTurn = ev.kind === "assistant" && ev.providerId === LOCAL_PROVIDER_ID;
+                const timeStr = ev.createdAt != null
+                  ? new Date(ev.createdAt * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
                   : null;
-                const fullDate = ts != null ? new Date(ts * 1000).toLocaleString() : null;
-                return [
-                  events.length > 0
-                    ? <div key={`tools-${msgId ?? index}`} className="chat-tool-events">{groupEvents(events)}</div>
-                    : null,
-                  <div key={key} className={`chat-message chat-message-${msg.role}`}>
+                const fullDate = ev.createdAt != null ? new Date(ev.createdAt * 1000).toLocaleString() : null;
+                rendered.push(
+                  <div key={ev.id} className={`chat-message chat-message-${ev.kind}`}>
                     <span className="chat-message-role">
-                      {msg.role === "user" ? "You" : msg.role === "assistant" ? "Basebuild" : "System"}
+                      {ev.kind === "user" ? "You" : ev.kind === "assistant" ? "Basebuild" : "System"}
                       {isOfflineTurn ? <span className="chat-offline-tag" title="No external model was contacted">Offline</span> : null}
                       {timeStr ? <span className="chat-message-time" title={fullDate ?? ""}>{timeStr}</span> : null}
                     </span>
-                    {reasoning ? <ReasoningFold reasoning={reasoning} /> : null}
-                    <pre className="chat-message-content">{msg.content}</pre>
+                    {ev.reasoning ? <ReasoningFold reasoning={ev.reasoning} /> : null}
+                    <pre className="chat-message-content">{ev.content}</pre>
                   </div>,
-                ];
-              });
-              if (live.length > 0) {
-                rendered.push(
-                  <div key="tools-live" className="chat-tool-events">{groupEvents(live)}</div>,
                 );
               }
+              // Flush any remaining tool events at the end.
+              flushToolBatch("live");
+
               return rendered;
             })()
           : renderMessages.map((msg, index) => {

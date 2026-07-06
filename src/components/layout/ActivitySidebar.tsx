@@ -8,7 +8,6 @@ import {
   LayoutTemplate,
   MessageSquare,
   Plus,
-  Search,
   Settings2,
   TerminalSquare,
   Zap,
@@ -53,6 +52,7 @@ export type ActivitySidebarProps = {
   onCreateChat: () => void;
   onOpenHistory: () => void;
   onOpenSettings: () => void;
+  onCreateTerminal: () => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
 };
@@ -69,6 +69,7 @@ export function ActivitySidebar({
   onOpenFolder,
   onFocusPanel,
   onCreateChat,
+  onCreateTerminal,
   onOpenHistory,
   onOpenSettings,
   collapsed,
@@ -120,6 +121,9 @@ export function ActivitySidebar({
       <div className="sidebar-top-actions">
         <button className="btn btn-ghost btn-sm" type="button" title="New chat" onClick={onCreateChat} disabled={!activeProjectPath}>
           <Plus size={12} /> New chat
+        </button>
+        <button className="btn-icon" type="button" title="New terminal" onClick={onCreateTerminal} disabled={!activeProjectPath}>
+          <TerminalSquare size={14} />
         </button>
         <button className="btn-icon" type="button" title="Add project folder" onClick={onOpenFolder}>
           <FolderPlus size={14} />

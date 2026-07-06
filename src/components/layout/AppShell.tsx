@@ -45,6 +45,7 @@ import {
 import { parseTabGridStates, serializeTabGridStates } from "../../lib/workspace";
 import { ompStatus } from "../../lib/omp";
 import { stabilityRendererHeartbeat } from "../../lib/stability";
+import { OmpTerminalTab } from "../panels/OmpTerminalTab";
 import { StatusBar } from "./StatusBar";
 import { WindowControls } from "./WindowControls";
 import { LogPanel } from "./LogPanel";
@@ -598,6 +599,10 @@ Rules:
           />
         );
       }
+      if (panel.type === "omp") {
+        const tab = session.tabs.find((t) => t.kind === "omp" && t.id === panel.id);
+        return <OmpTerminalTab terminalId={tab?.terminalId ?? null} onOutput={handleTerminalOutput} />;
+      }
       return null;
     },
     [session, activeProjectPath, chatDraft, autoSendDraft, schematic.content, handleCreatePlanFromIdea, handleOpenPlanningInspector, handleOpenSchematic, handleTerminalOutput, handleStartSchematicWizard],
@@ -716,6 +721,27 @@ Rules:
               const newRoot = splitPanelAt(prev.root, prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "", newPanel, "right");
               return { ...prev, root: newRoot, activePanelId: newPanel.id };
             });
+          }}
+          onCreateTerminal={() => {
+            void (async () => {
+              if (!session.activeSessionId) return;
+              const shell = DEFAULT_SHELL();
+              const term = await createTerminal(shell, activeProjectPath ?? undefined);
+              await session.createTab("terminal", `Terminal ${term.id}`, term.id);
+              const newPanel: Panel = {
+                id: `panel-${Date.now()}`,
+                type: "terminal",
+                title: `Terminal ${term.id}`,
+                chatSessionId: null,
+                terminalId: term.id,
+                filePath: null,
+              };
+              setPanelGridState((prev) => {
+                if (!prev.root) return singlePanelGrid(newPanel);
+                const newRoot = splitPanelAt(prev.root, prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "", newPanel, "right");
+                return { ...prev, root: newRoot, activePanelId: newPanel.id };
+              });
+            })();
           }}
           onOpenHistory={() => setHistoryDrawerOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
