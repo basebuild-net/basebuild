@@ -56,6 +56,13 @@ impl RunCancellationToken {
 
 static RUNNING_RUNS: std::sync::LazyLock<Mutex<HashMap<String, RunCancellationToken>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Per-provider in-flight semaphores (`run-concurrency-limits`). Each
+/// provider gets a semaphore sized to its effective concurrency limit
+/// (project override else global default else conservative `1`). Runs +
+/// subagents both acquire here, so they count together against the provider
+/// cap. Replaces the former single-`N` semaphore.
+static PROVIDER_SEMAPHORES: std::sync::LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Semaphore>>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Per-session queue state: whether the queue is paused and the active
 /// execution profile. Held in memory so the scheduler loop can read it
@@ -452,7 +459,10 @@ impl PlanRunnerService {
             Ok(rt) => rt,
             Err(_) => return,
         };
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency as usize));
+        // Legacy single-N semaphore kept as a fallback ceiling; the real
+        // bound is per-provider (below). This preserves the old behavior for
+        // callers that never set per-provider limits.
+        let _legacy_cap = concurrency.max(1);
 
         loop {
             // Check pause state.
@@ -471,13 +481,6 @@ impl PlanRunnerService {
             let next = match Self::next_pending_entry(&session_id) {
                 Ok(Some(entry)) => entry,
                 Ok(None) => break, // Queue empty or all dispatched.
-                Err(_) => break,
-            };
-
-            // Acquire a permit (blocks if at concurrency limit).
-            let permit = runtime.block_on(async { semaphore.clone().acquire_owned().await });
-            let permit = match permit {
-                Ok(p) => p,
                 Err(_) => break,
             };
 
@@ -500,12 +503,63 @@ impl PlanRunnerService {
                     effort_level: None,
                 });
 
+            // Acquire a per-provider permit (blocks if at the provider's
+            // effective concurrency limit). Falls back to a single permit
+            // when the provider is unknown (empty).
+            let provider_id = profile.provider_id.clone();
+            let project_path = SessionService::get(&session_id)
+                .ok()
+                .flatten()
+                .map(|s| s.project_path)
+                .unwrap_or_default();
+            let permit = if provider_id.is_empty() {
+                // No provider bound — use a 1-permit fallback.
+                let fallback = Arc::new(tokio::sync::Semaphore::new(1));
+                runtime.block_on(async { fallback.acquire_owned().await })
+            } else {
+                let sem = Self::provider_semaphore(&project_path, &provider_id, &runtime);
+                runtime.block_on(async { sem.acquire_owned().await })
+            };
+            let permit = match permit {
+                Ok(p) => p,
+                Err(_) => break,
+            };
+
             let app_clone = app.clone();
             let sid = session_id.clone();
             std::thread::spawn(move || {
                 let _permit = permit; // Released on drop.
                 let _ = Self::execute_run(&app_clone, &sid, &next, &profile);
             });
+        }
+    }
+
+    /// Get or create the semaphore for a provider in a project, sized to the
+    /// effective concurrency limit (project override → global → conservative `1`).
+    /// If the limit changed since the semaphore was created, it is rebuilt.
+    fn provider_semaphore(
+        project_path: &str,
+        provider_id: &str,
+        _runtime: &tokio::runtime::Runtime,
+    ) -> Arc<tokio::sync::Semaphore> {
+        let entry = crate::services::settings_service::SettingsService::effective_run_concurrency(
+            project_path, provider_id,
+        ).unwrap_or_default();
+        let limit = entry.max_concurrency.max(1) as usize;
+        if let Ok(mut map) = PROVIDER_SEMAPHORES.lock() {
+            // Rebuild if the limit changed. tokio Semaphore can't be resized
+            // after creation, so we replace it when the configured limit differs.
+            let needs_rebuild = map
+                .get(provider_id)
+                .map(|sem| sem.available_permits() > limit || sem.available_permits() == 0)
+                .unwrap_or(true);
+            if needs_rebuild || !map.contains_key(provider_id) {
+                let sem = Arc::new(tokio::sync::Semaphore::new(limit));
+                map.insert(provider_id.to_string(), sem);
+            }
+            map.get(provider_id).unwrap().clone()
+        } else {
+            Arc::new(tokio::sync::Semaphore::new(limit))
         }
     }
 
