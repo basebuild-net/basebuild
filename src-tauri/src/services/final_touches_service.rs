@@ -345,21 +345,48 @@ impl FinalTouchesService {
         }
     }
 
-    /// Pull request step: push changes via git_service for PR creation.
+    /// Pull request step: push the branch and create a PR via the
+    /// `pull_request_service` (gh CLI when available+authed, else open the
+    /// GitHub compare URL in the browser). No token stored. The step is
+    /// confirm-gated by the caller — this executes only when the user has
+    /// explicitly enabled the step AND confirmed at execution time.
     fn execute_pull_request(step: &FinalTouchStep) -> FinalTouchStepResult {
         let title = step
             .config
             .get("title")
             .and_then(|v| v.as_str())
             .unwrap_or("Automated PR");
-        let project_path = std::path::Path::new(&step.project_path);
-        match crate::services::git_service::GitService::push(project_path) {
-            Ok(_) => FinalTouchStepResult {
+        let body = step
+            .config
+            .get("body")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let branch = step
+            .config
+            .get("branch")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if branch.is_empty() {
+            return FinalTouchStepResult {
                 step_id: step.id.clone(),
                 kind: step.kind.as_str().to_string(),
-                status: "succeeded".to_string(),
-                output: Some(format!("Pushed for PR: {title}")),
-                error: None,
+                status: "failed".to_string(),
+                output: None,
+                error: Some("No branch configured for PR step".to_string()),
+            };
+        }
+        match crate::services::pull_request_service::PullRequestService::create_pr(
+            &step.project_path,
+            branch,
+            title,
+            body,
+        ) {
+            Ok(result) => FinalTouchStepResult {
+                step_id: step.id.clone(),
+                kind: step.kind.as_str().to_string(),
+                status: if result.success { "succeeded".to_string() } else { "failed".to_string() },
+                output: result.url,
+                error: result.error,
             },
             Err(e) => FinalTouchStepResult {
                 step_id: step.id.clone(),

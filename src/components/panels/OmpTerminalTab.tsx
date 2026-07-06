@@ -7,6 +7,7 @@ import type { OmpUsageWindow } from "../../lib/ompTelemetry";
 type OmpTerminalTabProps = {
   terminalId: number | null;
   onOutput?: (data: string) => void;
+  onReconnect?: () => void;
 };
 
 function severityClass(severity: string): string {
@@ -47,8 +48,7 @@ function WindowBar({ window: w }: { window: OmpUsageWindow }) {
     </div>
   );
 }
-
-export function OmpTerminalTab({ terminalId, onOutput }: OmpTerminalTabProps) {
+export function OmpTerminalTab({ terminalId, onOutput, onReconnect }: OmpTerminalTabProps) {
   const { context, loading, refresh } = useOmpTelemetry();
 
   const attached = context?.attachment.state === "attached";
@@ -116,7 +116,7 @@ export function OmpTerminalTab({ terminalId, onOutput }: OmpTerminalTabProps) {
         )}
       </div>
       <div className="omp-terminal-body">
-        <TerminalPanel terminalId={terminalId} onOutput={onOutput} />
+        <TerminalPanel terminalId={terminalId} onOutput={onOutput} onReconnect={onReconnect} />
       </div>
     </div>
   );

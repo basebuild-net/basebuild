@@ -14,6 +14,10 @@ use crate::models::terminal::TerminalSession;
 struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    /// Child process handle. MUST be held alive for the lifetime of the session;
+    /// dropping it on Windows ConPTY destroys the pseudoconsole and kills the
+    /// shell, causing the reader to get EOF and the terminal to appear dead.
+    child: Box<dyn portable_pty::Child + Send + Sync>,
     shell: String,
     cwd: Option<String>,
     pid: Option<u32>,
@@ -53,6 +57,8 @@ impl TerminalManager {
         let id = self.next_id;
         self.next_id += 1;
 
+        eprintln!("[terminal] create: id={} shell={} cwd={:?}", id, shell, cwd);
+
         let rows: u16 = 24;
         let cols: u16 = 80;
 
@@ -66,6 +72,8 @@ impl TerminalManager {
             })
             .map_err(|error| format!("Failed to open pty: {error}"))?;
 
+        eprintln!("[terminal] create: openpty ok");
+
         let mut cmd = CommandBuilder::new(shell);
         if let Some(dir) = cwd {
             cmd.cwd(dir);
@@ -74,9 +82,13 @@ impl TerminalManager {
         let child = pair
             .slave
             .spawn_command(cmd)
-            .map_err(|error| format!("Failed to spawn shell: {error}"))?;
+            .map_err(|error| {
+                eprintln!("[terminal] create: spawn_command FAILED: {}", error);
+                format!("Failed to spawn shell: {error}")
+            })?;
 
         let pid = child.process_id();
+        eprintln!("[terminal] create: spawn_command ok, pid={:?}", pid);
 
         let writer = Arc::new(Mutex::new(
             pair.master
@@ -88,13 +100,17 @@ impl TerminalManager {
             .try_clone_reader()
             .map_err(|error| format!("Failed to clone reader: {error}"))?;
 
+        eprintln!("[terminal] create: writer+reader ready, starting reader thread");
+
         let session_id = id;
         let output_app = app.clone();
         thread::spawn(move || {
+            eprintln!("[terminal] reader thread: started for id={}", session_id);
             let mut buffer = [0u8; 4096];
             loop {
                 match reader.read(&mut buffer) {
                     Ok(0) => {
+                        eprintln!("[terminal] reader thread: EOF for id={}", session_id);
                         let _ = output_app.emit(
                             TERMINAL_OUTPUT,
                             json!({
@@ -106,6 +122,7 @@ impl TerminalManager {
                     }
                     Ok(count) => {
                         let data = String::from_utf8_lossy(&buffer[..count]).to_string();
+                        eprintln!("[terminal] reader thread: {} bytes for id={}: {:?}", count, session_id, data.chars().take(80).collect::<String>());
                         let _ = output_app.emit(
                             TERMINAL_OUTPUT,
                             json!({
@@ -115,19 +132,20 @@ impl TerminalManager {
                             }),
                         );
                     }
-                    Err(_) => break,
+                    Err(e) => {
+                        eprintln!("[terminal] reader thread: ERROR for id={}: {}", session_id, e);
+                        break;
+                    }
                 }
             }
+            eprintln!("[terminal] reader thread: exiting for id={}", session_id);
         });
 
-        let started_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-
+        let started_at = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let session = PtySession {
             master: pair.master,
             writer,
+            child,
             shell: shell.to_string(),
             cwd: cwd.map(str::to_string),
             pid,
@@ -149,6 +167,7 @@ impl TerminalManager {
             .writer
             .lock()
             .map_err(|_| "Terminal writer poisoned")?;
+        eprintln!("[terminal] write: id={} {} bytes: {:?}", id, data.len(), data.chars().take(40).collect::<String>());
         writer
             .write_all(data.as_bytes())
             .map_err(|error| format!("Failed to write to terminal: {error}"))?;
@@ -180,9 +199,15 @@ impl TerminalManager {
     }
 
     pub fn close(&mut self, id: u64) -> Result<(), String> {
-        self.sessions
+        let session = self
+            .sessions
             .remove(&id)
             .ok_or("Terminal session not found")?;
+        // Explicitly kill the child process before dropping handles.
+        let _ = session.child.clone_killer().kill();
+        drop(session.child);
+        drop(session.master);
+        drop(session.writer);
         Ok(())
     }
 

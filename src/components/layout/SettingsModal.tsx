@@ -62,6 +62,14 @@ import {
   type ServerState as McpServerState,
   type LoadResult as McpLoadResult,
 } from "../../lib/mcp";
+import {
+  getRunConcurrencyDefaults,
+  setRunConcurrencyDefaults,
+  getRunConcurrencyOverrides,
+  setRunConcurrencyOverride,
+  DEFAULT_RUN_CONCURRENCY_ENTRY,
+  type RunConcurrencyEntry,
+} from "../../lib/runConcurrency";
 
 type SettingsModalProps = {
   open: boolean;
@@ -71,7 +79,7 @@ type SettingsModalProps = {
   updates: UpdaterState;
 };
 
-type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "mcp" | "planning" | "final_touches" | "about";
+type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "mcp" | "planning" | "final_touches" | "concurrency" | "about";
 
 export function SettingsModal({ open, onClose, projectPath, account, updates }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
@@ -270,6 +278,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
     { id: "mcp", label: "MCP Servers", icon: Plug },
     { id: "planning", label: "Planning", icon: Lightbulb },
     { id: "final_touches", label: "Final Touches", icon: Settings2 },
+    { id: "concurrency", label: "Concurrency", icon: Settings2 },
   ];
 
   const updateChecking = updates.status === "checking";
@@ -929,9 +938,13 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
               <PlanningTab projectPath={projectPath} />
             ) : null}
 
-            {/* ─── Final Touches ─── */}
             {tab === "final_touches" ? (
               <FinalTouchesTab projectPath={projectPath} />
+            ) : null}
+
+            {/* ─── Concurrency ─── */}
+            {tab === "concurrency" ? (
+              <ConcurrencyTab projectPath={projectPath} />
             ) : null}
 
             {/* ─── About ─── */}
@@ -1412,6 +1425,153 @@ function ModelProvidersPanel() {
         </div>
       ))}
       {error ? <p className="text-danger text-sm">{error}</p> : null}
+    </div>
+  );
+}
+
+function ConcurrencyTab({ projectPath }: { projectPath: string | null }) {
+  const projectPathNonNull = projectPath ?? "";
+  const [globalLimits, setGlobalLimits] = useState<Record<string, RunConcurrencyEntry>>({});
+  const [projectLimits, setProjectLimits] = useState<Record<string, RunConcurrencyEntry>>({});
+  const [providers, setProviders] = useState<{ id: string; label: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      try {
+        const [global, project, catalog] = await Promise.all([
+          getRunConcurrencyDefaults(),
+          getRunConcurrencyOverrides(projectPathNonNull),
+          nativeProviderCatalog(),
+        ]);
+        if (cancelled) return;
+        setGlobalLimits(global.providers);
+        setProjectLimits(project.providers);
+        setProviders(catalog.providers.map((p) => ({ id: p.id, label: p.label })));
+      } catch {
+        // ignore — empty state shows
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void load();
+    return () => { cancelled = true; };
+  }, [projectPathNonNull]);
+
+  async function saveProvider(providerId: string, entry: RunConcurrencyEntry, isProject: boolean) {
+    setSaving(providerId);
+    try {
+      if (isProject) {
+        await setRunConcurrencyOverride(projectPathNonNull, providerId, entry);
+        setProjectLimits((prev) => ({ ...prev, [providerId]: entry }));
+      } else {
+        const next = { ...globalLimits, [providerId]: entry };
+        await setRunConcurrencyDefaults({ providers: next });
+        setGlobalLimits(next);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="stack">
+        <h3>Run Concurrency</h3>
+        <p className="text-muted text-sm">Loading…</p>
+      </div>
+    );
+  }
+
+  const allProviders = providers.length > 0
+    ? providers
+    : [{ id: "basebuild-local", label: "Basebuild Local" }, { id: "basebuild-native", label: "Basebuild Native" }];
+
+  return (
+    <div className="stack">
+      <h3>Run Concurrency</h3>
+      <p className="text-muted text-sm">
+        Per-provider max concurrency for plan runs + subagents. Default is 1 (most providers meter concurrency).
+        Project overrides take precedence over global defaults. Subagents are off by default.
+      </p>
+      <div className="settings-table">
+        <div className="settings-table-header">
+          <span>Provider</span>
+          <span>Global max</span>
+          <span>Project max</span>
+          <span>Subagents</span>
+          <span>Subagent cap</span>
+        </div>
+        {allProviders.map((p) => {
+          const global = globalLimits[p.id] ?? DEFAULT_RUN_CONCURRENCY_ENTRY;
+          const project = projectLimits[p.id] ?? null;
+          const effective = project ?? global;
+          return (
+            <div key={p.id} className="settings-table-row">
+              <span title={p.id}>{p.label}</span>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={16}
+                title={`Global max concurrency for ${p.label} (default 1)`}
+                value={global.maxConcurrency}
+                disabled={saving === p.id}
+                onChange={(e) => {
+                  const v = Math.max(1, Math.min(16, Number(e.target.value) || 1));
+                  void saveProvider(p.id, { ...global, maxConcurrency: v }, false);
+                }}
+              />
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={16}
+                title={`Project override for ${p.label} (empty = use global; set 0 to disable)`}
+                value={project?.maxConcurrency ?? ""}
+                placeholder={String(global.maxConcurrency)}
+                disabled={saving === p.id}
+                onChange={(e) => {
+                  const v = e.target.value === "" ? 0 : Math.max(0, Math.min(16, Number(e.target.value) || 0));
+                  void saveProvider(p.id, { ...effective, maxConcurrency: v || global.maxConcurrency }, true);
+                }}
+              />
+              <label className="settings-checkbox" title={`Enable subagents for ${p.label}`}>
+                <input
+                  type="checkbox"
+                  checked={effective.subagentsEnabled}
+                  onChange={(e) => {
+                    const next = { ...effective, subagentsEnabled: e.target.checked };
+                    void saveProvider(p.id, next, !!project || e.target.checked);
+                  }}
+                />
+                <span className="text-sm">{effective.subagentsEnabled ? "on" : "off"}</span>
+              </label>
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={8}
+                title={`Max concurrent subagents for ${p.label} (counted against the provider limit)`}
+                value={effective.subagentMaxCount}
+                disabled={!effective.subagentsEnabled || saving === p.id}
+                onChange={(e) => {
+                  const v = Math.max(0, Math.min(8, Number(e.target.value) || 0));
+                  void saveProvider(p.id, { ...effective, subagentMaxCount: v }, !!project);
+                }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-muted text-sm" title="Effective value = project override else global default">
+        Effective value shown at the point of use when a run is queued.
+      </p>
     </div>
   );
 }

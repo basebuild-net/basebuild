@@ -156,6 +156,44 @@ impl GitService {
             Err(_) => false,
         }
     }
+
+    /// Current branch name (e.g. `main`), or `None` for a non-repo or
+    /// detached HEAD. Used by the chat header display.
+    pub fn current_branch(path: impl AsRef<Path>) -> Option<String> {
+        let out = run_git(path.as_ref(), &["rev-parse", "--abbrev-ref", "HEAD"]).ok()?;
+        let name = out.trim();
+        if name.is_empty() || name == "HEAD" { None } else { Some(name.to_string()) }
+    }
+
+    /// Detect the repository's default branch (`origin/HEAD` → `main` →
+    /// `master` → current). Used by the worktree service + PR service.
+    pub fn default_branch(path: impl AsRef<Path>) -> Option<String> {
+        let project = path.as_ref();
+        let sym = std::process::Command::new("git")
+            .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
+            .current_dir(project)
+            .output()
+            .ok()?;
+        if sym.status.success() {
+            let out = String::from_utf8_lossy(&sym.stdout).trim().to_string();
+            if let Some(branch) = out.strip_prefix("refs/remotes/origin/") {
+                if !branch.is_empty() {
+                    return Some(branch.to_string());
+                }
+            }
+        }
+        for candidate in ["main", "master"] {
+            let check = std::process::Command::new("git")
+                .args(["rev-parse", "--verify", candidate])
+                .current_dir(project)
+                .output()
+                .ok()?;
+            if check.status.success() {
+                return Some(candidate.to_string());
+            }
+        }
+        Self::current_branch(project)
+    }
 }
 
 /// Parse git's `%d` decorate output: ` (HEAD -> main, origin/main, tag: v1.0)`

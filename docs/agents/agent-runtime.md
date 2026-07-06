@@ -232,11 +232,23 @@ the console visible for panic output and development logging.
 
 ## Workspace restore
 
-Basebuild persists per-project workspace state (last session, last tab, side panel
-section, sidebar/side collapse, side panel width) and restores it on project open.
-Restoring never auto-spawns terminals, agents, or external processes; stale
-process-backed tabs show a disconnected state until the user takes action. Side
-panel width is resizable via a drag handle and persisted locally.
+Basebuild persists per-project workspace state (last session, panel grid
+layout, closed panels, sidebar collapse, side panel width) and restores it
+on project open. The panel grid state (`PanelGridState`) is a split tree
+of panels with split ratios, an active panel id, and a closed-panels
+history. Restoring never auto-spawns terminals, agents, or external
+processes; stale process-backed tabs show a disconnected state until the
+user takes action. Side panel width is resizable via a drag handle and
+persisted locally.
+
+## Per-provider concurrency and subagents
+
+Plan runs execute concurrently up to a per-provider max concurrency limit
+(`run-concurrency-limits`). The default is `1` per provider (most providers
+rate-limit concurrent requests). A global default can be overridden per
+project. Runs beyond the limit queue with a visible reason. Subagent
+execution is off by default and can be enabled per provider with a
+subagent cap. The scheduler is backend-owned and survives panel unmounts.
 
 ## Update policy
 
@@ -393,8 +405,21 @@ native harness or OMP runner. The queue is backend-owned and survives frontend
 unmounts.
 
 - **Queue CRUD**: enqueue, reorder, remove. Stored in `plan_queue` table.
-- **Execution profile**: `N × provider/model[/effort]`. Drives the tokio
-  semaphore size for parallel runs.
+- **Per-provider concurrency** (`run-concurrency-limits`): the former
+  single-`N` semaphore is replaced by a per-provider in-flight semaphore
+  registry (`PROVIDER_SEMAPHORES`). Each provider's effective limit is
+  project override → global default → conservative `1`. Runs + subagents
+  acquire against their provider's semaphore, so they count together
+  against the cap. Excess runs queue with a visible reason rather than
+  erroring. Subagents are off by default; when enabled, their count is
+  bounded by the provider limit. Configurable in Settings → Concurrency.
+- **Plan→chat assignment**: a `ready` plan can be assigned to a chat
+  column (one active per chat; re-assign confirms + restarts). On run
+  start, the system provisions a worktree (fresh branch from the fetched
+  default branch), seeds the chat from the plan + schematic, binds one
+  model, and streams in that column. The auto-provisioned chat surfaces
+  as a grid column; an assigned chat is reused instead of minting a new
+  column.
 - **Session provisioning**: `create_session_for_plan` in `native_chat_service.rs`
   creates a fresh chat session titled `<ref> — <plan title>`, bound to the
   profile's model, primed with an opening context message from the plan +
@@ -409,23 +434,33 @@ unmounts.
   emits an event so the frontend opens an OMP terminal tab seeded with the
   plan's reference id + change path.
 - **Events**: `plan_run://event` carries run_id, session_id, plan_id, status,
-  chat_session_id, error.
+  chat_session_id, error. The frontend listens and surfaces the run's chat
+  as a column in the active chat tab's grid.
 
 ## Final Touches
 
 Per-project post-completion steps (`final_touches_service.rs`) execute
 sequentially after a run completes. Kinds: `shell` (run a command),
 `validate` (harness turn over diff — placeholder pending diff-review-workflow),
-`commit` (git commit), `pull_request` (git push). Remote-writing kinds default
-disabled. `finished` is gated on pipeline success: if any step fails, the run
-is marked failed and the plan stays `ready`.
+`commit` (git commit), `pull_request` (push branch + `gh pr create` or
+browser compare URL via `pull_request_service.rs`; no token stored).
+Remote-writing kinds default disabled and are always confirm-gated.
+`finished` is gated on pipeline success: if any step fails, the run
+is marked failed and the plan stays `ready`. When a worktree run
+finishes, the chat surfaces a `PrRecommendationCard` (confirm-gated).
 
 ## Parallel Workspaces
 
 `worktree_service.rs` creates git worktrees under
 `<data-dir>/worktrees/<project-hash>/<reference-id>` with branch
-`bb/<ref>-<slug>`. The queue acquires a worktree per run when concurrency > 1
-execution (concurrency capped at 1).
+`bb/<ref>-<slug>` from the **freshly fetched default branch** (auto-detected
+via `origin/HEAD` → `origin/main` → `origin/master` → local `main` →
+`master` → current `HEAD`). A best-effort `git fetch --all` runs before
+branch creation; on fetch failure the branch bases off the local default
+and the chat surfaces a non-blocking "base may be stale" notice.
+Worktrees are created on run start (not at assignment) and retained until
+explicit prune (the branch is always kept). Non-git projects fall back to
+sequential execution in the primary checkout with a visible notice.
 
 ## Connector Permission Gateway
 

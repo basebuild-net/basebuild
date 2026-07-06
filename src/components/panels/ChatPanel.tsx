@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { ChatComposerRail } from "./ChatComposerRail";
+import { ChatHeader } from "./ChatHeader";
+import { PrRecommendationCard } from "./PrRecommendationCard";
 import {
   AlertCircle,
   BarChart3,
@@ -10,15 +13,19 @@ import {
   RefreshCw,
   Send,
   Sparkles,
-  Unplug,
   X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-
-import { agentStart, agentSend, agentStop } from "../../lib/agent";
-import { getRuntimeDefaults } from "../../lib/settings";
 import { openUrl } from "../../lib/app";
+import { agentStart, agentSend, agentStop } from "../../lib/agent";
+import { gitBranchList, gitBranchSwitch, gitBranchCreate, gitCurrentBranch, type GitBranch } from "../../lib/git";
+import { listWorkspaces } from "../../lib/workspaces";
+import { prRecommend, prCreate, type PrRecommendation } from "../../lib/pullRequests";
+import { onPlanRunEvent } from "../../lib/planRuns";
+import { listPlans } from "../../lib/plans";
+import type { AgentMode } from "../../lib/sessions";
+import { getRuntimeDefaults } from "../../lib/settings";
 import {
   nativeChatMessages,
   nativeChatModelDefault,
@@ -72,6 +79,16 @@ type ChatPanelProps = {
   onOpenPlanningInspector?: () => void;
   /** Open the schematic tab (focus or create). */
   onOpenSchematic?: () => void;
+  /** Chat column title (for the header). If absent, a default is derived. */
+  chatTitle?: string;
+  /** Called when the user renames the chat in the header. */
+  onRenameChat?: (title: string) => void;
+  /** Close this chat panel (retain session in history). */
+  onCloseChat?: () => void;
+  /** Close and permanently delete the session. */
+  onCloseAndDeleteChat?: () => void;
+  /** Duplicate this chat panel beside the current one. */
+  onDuplicateChat?: () => void;
 };
 
 function formatMetric(value: number | null | undefined, suffix = "") {
@@ -183,6 +200,11 @@ export function ChatPanel({
   onCreatePlanFromIdea,
   onOpenPlanningInspector,
   onOpenSchematic,
+  chatTitle,
+  onRenameChat,
+  onCloseChat,
+  onCloseAndDeleteChat,
+  onDuplicateChat,
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
@@ -227,6 +249,26 @@ export function ChatPanel({
   const sendTimerRef = useRef<number | null>(null);
   const assistantBufferRef = useRef("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Expose the native session id on the DOM for e2e tests (data-native-session-id).
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (panelRef.current) {
+      panelRef.current.dataset.nativeSessionId = nativeSessionId ?? "";
+    }
+  }, [nativeSessionId]);
+  // Chat header state: branch, worktree, plan badge, agent mode, PR recommendation.
+  const [branch, setBranch] = useState<string | null>(null);
+  const [branches, setBranches] = useState<GitBranch[]>([]);
+  const [worktreePath, setWorktreePath] = useState<string | null>(null);
+  const [assignedPlanId, setAssignedPlanId] = useState<string | null>(null);
+  const [planBadge, setPlanBadge] = useState<{ referenceId: string; title: string; status: string } | null>(null);
+  const [agentMode, setAgentMode] = useState<AgentMode>("plan");
+  const [titleLocked, setTitleLocked] = useState(false);
+  const [uncommittedCount, setUncommittedCount] = useState(0);
+  const [prRec, setPrRec] = useState<PrRecommendation | null>(null);
+  const [showPrCard, setShowPrCard] = useState(false);
+  const [showAssignPlanPicker, setShowAssignPlanPicker] = useState(false);
+  const [readyPlans, setReadyPlans] = useState<{ id: string; referenceId: string; title: string; status: string }[]>([]);
   // Soft gate: load schematic health when the planning menu opens.
   useEffect(() => {
     if (showPlanningMenu && projectPath) {
@@ -429,6 +471,54 @@ export function ChatPanel({
     };
   }, [nativeMode, nativeSessionId]);
 
+  // Load branch + worktree state for the header display. Best-effort: if the
+  // project isn't a git repo or the commands fail, the header shows no branch.
+  useEffect(() => {
+    if (!projectPath) return;
+    let cancelled = false;
+    async function loadBranchState() {
+      try {
+        const [br, bl] = await Promise.all([
+          gitCurrentBranch(projectPath).catch(() => null),
+          gitBranchList(projectPath).catch(() => [] as GitBranch[]),
+        ]);
+        if (cancelled) return;
+        setBranch(br);
+        setBranches(bl);
+        // Check for a worktree matching this chat session.
+        const workspaces = await listWorkspaces(projectPath).catch(() => []);
+        if (cancelled) return;
+        const match = workspaces.find((w) => w.branch === br);
+        setWorktreePath(match?.path ?? null);
+      } catch {
+        // Non-git or unsupported — leave branch/worktree null.
+      }
+    }
+    void loadBranchState();
+    return () => { cancelled = true; };
+  }, [projectPath]);
+
+  // Listen for plan-run events: when a run finishes with a worktree, load the
+  // PR recommendation. When a run starts, bind the plan badge.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    void onPlanRunEvent((event) => {
+      if (!nativeSessionId || event.chatSessionId !== nativeSessionId) return;
+      if (event.status === "running") {
+        // Bind the plan badge from the run's plan.
+        setAssignedPlanId(event.planId);
+      }
+      if (event.status === "succeeded") {
+        // Load PR recommendation for the finished worktree run.
+        if (branch) {
+          void prRecommend(projectPath, branch)
+            .then((rec) => { setPrRec(rec); setShowPrCard(true); })
+            .catch(() => { /* non-git or no remote — no recommendation */ });
+        }
+      }
+    }).then((fn) => { unlisten = fn; });
+    return () => { if (unlisten) unlisten(); };
+  }, [nativeSessionId, projectPath, branch]);
   // Handle approval resolution from the UI
   const handleResolveApproval = useCallback(async (toolCallId: string, decision: "allow" | "allow_session" | "deny") => {
     try {
@@ -956,7 +1046,67 @@ export function ChatPanel({
     },
     [onCreatePlanFromIdea, ideaState, addLog, nativeSessionId],
   );
+  // ── Chat header handlers ──
+  const handleRename = useCallback((title: string) => {
+    setTitleLocked(true);
+    onRenameChat?.(title);
+  }, [onRenameChat]);
 
+  const handleSwitchBranch = useCallback(async (name: string) => {
+    if (!projectPath || !branch || name === branch) return;
+    try {
+      await gitBranchSwitch(projectPath, name);
+      setBranch(name);
+      // Refresh worktree match.
+      const workspaces = await listWorkspaces(projectPath).catch(() => []);
+      const match = workspaces.find((w) => w.branch === name);
+      setWorktreePath(match?.path ?? null);
+    } catch (e) {
+      addLog("error", "Failed to switch branch", e instanceof Error ? e.message : String(e));
+    }
+  }, [projectPath, branch, addLog]);
+
+  const handleCreateBranch = useCallback(async (name: string) => {
+    if (!projectPath || !name) return;
+    try {
+      await gitBranchCreate(projectPath, name);
+      await gitBranchSwitch(projectPath, name);
+      setBranch(name);
+      setBranches(await gitBranchList(projectPath).catch(() => []));
+    } catch (e) {
+      addLog("error", "Failed to create branch", e instanceof Error ? e.message : String(e));
+    }
+  }, [projectPath, addLog]);
+
+  const handleOpenAssignPlan = useCallback(async () => {
+    if (!activeSessionId) return;
+    try {
+      const plans = await listPlans(activeSessionId);
+      const ready = plans
+        .filter((p) => p.status === "ready")
+        .map((p) => ({ id: p.id, referenceId: p.referenceId, title: p.title, status: p.status }));
+      setReadyPlans(ready);
+      setShowAssignPlanPicker(true);
+    } catch (e) {
+      addLog("error", "Failed to list plans for assignment", e instanceof Error ? e.message : String(e));
+    }
+  }, [activeSessionId, addLog]);
+
+  const handleAssignPlan = useCallback(async (planId: string) => {
+    if (!planId) return;
+    setShowAssignPlanPicker(false);
+    setAssignedPlanId(planId);
+    // The run starts via the plan-run flow; the plan_run://event listener
+    // binds the badge when the run starts.
+  }, []);
+
+  const handleCreatePullRequest = useCallback(() => {
+    setShowPrCard(true);
+  }, []);
+
+  const handleDismissPr = useCallback(() => {
+    setShowPrCard(false);
+  }, []);
   const renderMessages = nativeMode ? nativeMessages : legacyMessages;
   const inputDisabled = nativeMode ? !nativeSessionId : agentId === null;
   const sendDisabled = loading || !input.trim() || (nativeMode ? !nativeSessionId : agentId === null);
@@ -965,7 +1115,69 @@ export function ChatPanel({
   const modelName = selectedModel?.label ?? modelId;
 
   return (
-    <div className="chat-panel">
+    <div className="chat-panel" ref={panelRef}>
+      <ChatHeader
+        title={chatTitle ?? (nativeSessionId ? "Chat" : "New chat")}
+        onRename={handleRename}
+        titleLocked={titleLocked}
+        modelChip={modelName}
+        modelId={modelId}
+        effortChip={effortLevel}
+        agentMode={agentMode}
+        onToggleAgentMode={() => setAgentMode((m) => (m === "build" ? "plan" : "build"))}
+        planBadge={planBadge}
+        onOpenPlan={() => { /* focus the plan in the side panel */ }}
+        branch={branch}
+        worktreePath={worktreePath}
+        branches={branches}
+        onSwitchBranch={handleSwitchBranch}
+        onCreateBranch={handleCreateBranch}
+        uncommittedCount={uncommittedCount}
+        onStashAndSwitch={handleSwitchBranch}
+        onDiscardAndSwitch={handleSwitchBranch}
+        onToggleHistory={() => { /* history toggle */ }}
+        onRenameAction={() => { /* handled by header internally */ }}
+        onAssignPlan={handleOpenAssignPlan}
+        onDuplicateChat={() => onDuplicateChat?.()}
+        onCloseChat={() => onCloseChat?.()}
+        onCloseAndDelete={() => onCloseAndDeleteChat?.()}
+        prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
+        onCreatePullRequest={handleCreatePullRequest}
+      />
+      {showPrCard && prRec ? (
+        <PrRecommendationCard
+          projectPath={projectPath}
+          recommendation={prRec}
+          onDismiss={handleDismissPr}
+        />
+      ) : null}
+      {showAssignPlanPicker ? (
+        <div className="chat-picker" role="dialog" aria-label="Assign a ready plan">
+          <div className="chat-picker-header">
+            <span>Assign plan</span>
+            <button className="btn-icon btn-icon-sm" type="button" title="Close plan picker" onClick={() => setShowAssignPlanPicker(false)}>
+              <X size={11} />
+            </button>
+          </div>
+          <div className="chat-picker-list">
+            {readyPlans.length === 0 ? (
+              <div className="chat-picker-empty text-muted text-sm">No ready plans.</div>
+            ) : null}
+            {readyPlans.map((p) => (
+              <button
+                key={p.id}
+                className="chat-picker-item"
+                type="button"
+                title={`Assign ${p.referenceId}: ${p.title}`}
+                onClick={() => void handleAssignPlan(p.id)}
+              >
+                <span className="chat-picker-main">#{p.referenceId} {p.title}</span>
+                <span className="chat-picker-meta">{p.status}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {/* Messages area */}
       <div className="chat-messages" ref={scrollRef}>
         {nativeMode && metrics ? (
@@ -980,22 +1192,16 @@ export function ChatPanel({
         ) : null}
         {nativeMode
           ? (() => {
-              // Interleave tool events inline with chat messages. Events with
-              // a messageId render just before their associated assistant
-              // message; live events (null messageId, e.g. approvals during
-              // streaming) render after the last persisted message.
+              // Chronological stream: merge messages + tool events + reasoning
+              // into a single sorted list of ChatEvent, ordered by
+              // (createdAt, sortOrder). Each event renders at its
+              // chronological position — not grouped by message.
+              type ChatEvent =
+                | { kind: "user" | "assistant" | "system"; id: string; content: string; reasoning: string | null; createdAt: number | null; providerId: string | null; index: number }
+                | { kind: "tool"; id: string; event: NativeToolEvent; createdAt: number | null; index: number };
+
               type Grouped = { type: "single" | "group"; events: NativeToolEvent[] };
-              const withMessageId = new Map<string, NativeToolEvent[]>();
-              const live: NativeToolEvent[] = [];
-              for (const ev of toolEvents) {
-                if (ev.messageId) {
-                  const list = withMessageId.get(ev.messageId);
-                  if (list) list.push(ev);
-                  else withMessageId.set(ev.messageId, [ev]);
-                } else {
-                  live.push(ev);
-                }
-              }
+
               const groupEvents = (events: NativeToolEvent[]) => {
                 const groups: Grouped[] = [];
                 for (const ev of events) {
@@ -1016,38 +1222,99 @@ export function ChatPanel({
                   return <ToolEventGroup key={`group-${i}`} events={g.events} />;
                 });
               };
-              const rendered = renderMessages.flatMap((msg, index) => {
+
+              // Build the merged event list.
+              const events: ChatEvent[] = [];
+              for (let i = 0; i < renderMessages.length; i++) {
+                const msg = renderMessages[i];
                 const msgId = "id" in msg ? String(msg.id) : null;
-                const events = msgId ? withMessageId.get(msgId) ?? [] : [];
-                const key = "id" in msg ? String(msg.id) : `legacy-${index}`;
-                const isOfflineTurn =
-                  "providerId" in msg && msg.role === "assistant" && msg.providerId === LOCAL_PROVIDER_ID;
-                const reasoning = "reasoning" in msg ? (msg as NativeChatMessage).reasoning : null;
-                const ts: number | null = "createdAt" in msg ? (msg as NativeChatMessage).createdAt : null;
-                const timeStr = ts != null
-                  ? new Date(ts * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+                const ts = "createdAt" in msg ? (msg as NativeChatMessage).createdAt : null;
+                const reasoning = "reasoning" in msg ? (msg as NativeChatMessage).reasoning ?? null : null;
+                const providerId = "providerId" in msg ? (msg as NativeChatMessage).providerId ?? null : null;
+                events.push({
+                  kind: msg.role as "user" | "assistant" | "system",
+                  id: msgId ?? `legacy-${i}`,
+                  content: msg.content,
+                  reasoning,
+                  createdAt: ts,
+                  providerId,
+                  index: i,
+                });
+                // Attach tool events with this messageId right after the message.
+                if (msgId) {
+                  for (const te of toolEvents) {
+                    if (te.messageId === msgId) {
+                      events.push({
+                        kind: "tool",
+                        id: te.id,
+                        event: te,
+                        createdAt: ts,
+                        index: i + 0.5,
+                      });
+                    }
+                  }
+                }
+              }
+              // Live tool events (null messageId) go at the end.
+              for (const te of toolEvents) {
+                if (!te.messageId) {
+                  events.push({
+                    kind: "tool",
+                    id: te.id,
+                    event: te,
+                    createdAt: null,
+                    index: events.length,
+                  });
+                }
+              }
+
+              // Sort by (createdAt, index) — stable chronological order.
+              events.sort((a, b) => {
+                const ta = a.createdAt ?? 0;
+                const tb = b.createdAt ?? 0;
+                if (ta !== tb) return ta - tb;
+                return a.index - b.index;
+              });
+
+              // Render the flat chronological list.
+              // Group adjacent tool events for compact display.
+              const rendered: React.ReactNode[] = [];
+              let toolBatch: NativeToolEvent[] = [];
+              const flushToolBatch = (batchKey: string) => {
+                if (toolBatch.length > 0) {
+                  rendered.push(
+                    <div key={`tools-${batchKey}`} className="chat-tool-events">{groupEvents(toolBatch)}</div>,
+                  );
+                  toolBatch = [];
+                }
+              };
+
+              for (const ev of events) {
+                if (ev.kind === "tool") {
+                  toolBatch.push(ev.event);
+                  continue;
+                }
+                // Flush any pending tool events before the next message.
+                const isOfflineTurn = ev.kind === "assistant" && ev.providerId === LOCAL_PROVIDER_ID;
+                const timeStr = ev.createdAt != null
+                  ? new Date(ev.createdAt * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
                   : null;
-                const fullDate = ts != null ? new Date(ts * 1000).toLocaleString() : null;
-                return [
-                  events.length > 0
-                    ? <div key={`tools-${msgId ?? index}`} className="chat-tool-events">{groupEvents(events)}</div>
-                    : null,
-                  <div key={key} className={`chat-message chat-message-${msg.role}`}>
+                const fullDate = ev.createdAt != null ? new Date(ev.createdAt * 1000).toLocaleString() : null;
+                rendered.push(
+                  <div key={ev.id} className={`chat-message chat-message-${ev.kind}`}>
                     <span className="chat-message-role">
-                      {msg.role === "user" ? "You" : msg.role === "assistant" ? "Basebuild" : "System"}
+                      {ev.kind === "user" ? "You" : ev.kind === "assistant" ? "Basebuild" : "System"}
                       {isOfflineTurn ? <span className="chat-offline-tag" title="No external model was contacted">Offline</span> : null}
                       {timeStr ? <span className="chat-message-time" title={fullDate ?? ""}>{timeStr}</span> : null}
                     </span>
-                    {reasoning ? <ReasoningFold reasoning={reasoning} /> : null}
-                    <pre className="chat-message-content">{msg.content}</pre>
+                    {ev.reasoning ? <ReasoningFold reasoning={ev.reasoning} /> : null}
+                    <pre className="chat-message-content">{ev.content}</pre>
                   </div>,
-                ];
-              });
-              if (live.length > 0) {
-                rendered.push(
-                  <div key="tools-live" className="chat-tool-events">{groupEvents(live)}</div>,
                 );
               }
+              // Flush any remaining tool events at the end.
+              flushToolBatch("live");
+
               return rendered;
             })()
           : renderMessages.map((msg, index) => {
@@ -1237,108 +1504,45 @@ export function ChatPanel({
       <div className="chat-input-area">
         {nativeMode ? (
           <>
-            <div className="chat-composer-header">
-              {catalog ? (
-                <>
-                  <button
-                    className={`btn btn-sm chat-provider-trigger${providerDegraded ? " is-warn" : ""}`}
-                    type="button"
-                    title={`${providerName} — ${providerDegraded ? "setup required" : "ready"}. Click to choose or connect a provider.`}
-                    onClick={() => {
-                      setShowProviderPicker((value) => !value);
-                      setShowModelPicker(false);
-                      setShowPlanningMenu(false);
-                    }}
-                  >
-                    <span className={`chat-health-dot ${providerDegraded ? "is-warn" : "is-ok"}`} />
-                    <span className="chat-trigger-label">{providerName}</span>
-                  </button>
-                  <button
-                    className="btn btn-sm chat-model-trigger"
-                    type="button"
-                    title={`Select model. Current model: ${modelName} (${modelId})`}
-                    onClick={() => {
-                      setShowModelPicker((value) => !value);
-                      setShowProviderPicker(false);
-                      setShowPlanningMenu(false);
-                    }}
-                  >
-                    <span className="chat-trigger-kicker">Model</span>
-                    <span className="chat-trigger-label">{modelName}</span>
-                  </button>
-                  <select
-                    className="input chat-select chat-effort-select"
-                    title="Select effort level"
-                    value={effortLevel}
-                    onChange={(e) => {
-                      setEffortLevel(e.target.value);
-                      const next: ChatModelDefault = {
-                        providerId,
-                        modelId,
-                        effortLevel: e.target.value,
-                      };
-                      void nativeChatSetProjectModelDefault(projectPath, next);
-                    }}
-                  >
-                    {catalog.effortLevels.map((ef) => (
-                      <option key={ef.id} value={ef.id}>
-                        {ef.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    className="btn-icon btn-icon-sm"
-                    type="button"
-                    title={selectedProvider?.lastSyncedAt ? `Refresh models. Last sync: ${new Date(selectedProvider.lastSyncedAt * 1000).toLocaleString()}` : "Refresh models"}
-                    disabled={catalogRefreshing}
-                    onClick={() => void refreshCatalog(true, selectedProvider?.id)}
-                  >
-                    <RefreshCw size={12} className={catalogRefreshing ? "spin" : ""} />
-                  </button>
-                  {providerDegraded ? (
-                    <button
-                      className="btn-icon btn-icon-sm"
-                      type="button"
-                      title={`Connect ${providerName}`}
-                      onClick={() => {
-                        setLoginError(null);
-                        setShowLogin(true);
-                        setShowProviderPicker(false);
-                      }}
-                    >
-                      <Key size={11} />
-                    </button>
-                  ) : selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID ? (
-                    <button
-                      className="btn-icon btn-icon-sm"
-                      type="button"
-                      title={`Disconnect ${providerName}`}
-                      onClick={() => void handleDisconnect()}
-                    >
-                      <Unplug size={11} />
-                    </button>
-                  ) : null}
-                  <button
-                    className="btn btn-sm chat-ideas-trigger"
-                    type="button"
-                    title="Idea generation actions"
-                    onClick={() => {
-                      setShowPlanningMenu((value) => !value);
-                      setShowProviderPicker(false);
-                      setShowModelPicker(false);
-                    }}
-                  >
-                    <Lightbulb size={11} /> Ideas
-                  </button>
-                </>
-              ) : (
-                <div className="chat-select-group">
-                  <span className="chat-select-skeleton" />
-                  <span className="chat-select-skeleton" />
-                  <span className="chat-select-skeleton" />
-                </div>
-              )}
-            </div>
+            <ChatComposerRail
+              catalog={catalog}
+              providerId={providerId}
+              providerName={providerName}
+              providerDegraded={providerDegraded}
+              modelId={modelId}
+              modelName={modelName}
+              effortLevel={effortLevel}
+              catalogRefreshing={catalogRefreshing}
+              lastSyncedAt={selectedProvider?.lastSyncedAt ?? null}
+              localProviderId={LOCAL_PROVIDER_ID}
+              onPickProvider={() => {
+                setShowProviderPicker((value) => !value);
+                setShowModelPicker(false);
+                setShowPlanningMenu(false);
+              }}
+              onPickModel={() => {
+                setShowModelPicker((value) => !value);
+                setShowProviderPicker(false);
+                setShowPlanningMenu(false);
+              }}
+              onToggleIdeas={() => {
+                setShowPlanningMenu((value) => !value);
+                setShowProviderPicker(false);
+                setShowModelPicker(false);
+              }}
+              onChangeEffort={(effort) => {
+                setEffortLevel(effort);
+                const next: ChatModelDefault = { providerId, modelId, effortLevel: effort };
+                void nativeChatSetProjectModelDefault(projectPath, next);
+              }}
+              onRefresh={() => void refreshCatalog(true, selectedProvider?.id)}
+              onConnect={() => {
+                setLoginError(null);
+                setShowLogin(true);
+                setShowProviderPicker(false);
+              }}
+              onDisconnect={() => void handleDisconnect()}
+            />
             {showPlanningMenu ? (
               <div className="chat-picker" role="dialog" aria-label="Idea actions">
                 <div className="chat-picker-header">

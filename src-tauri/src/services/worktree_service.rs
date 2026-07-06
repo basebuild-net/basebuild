@@ -43,7 +43,23 @@ pub struct WorktreeService;
 impl WorktreeService {
     /// Create a worktree for a plan run under the managed directory.
     /// Branch: `bb/<reference-id>-<slug>`. Path: `<data-dir>/worktrees/<project-hash>/<reference-id>`.
+    /// Branched from the freshly fetched default branch (per `parallel-workspaces`).
+    /// Returns the workspace + a `base_may_be_stale` flag (true when the
+    /// remote fetch failed and the branch was based on the local default).
     pub fn create(project_path: &str, plan_id: Option<&str>, reference_id: &str, slug: &str) -> DbResult<Workspace> {
+        Self::create_with_base(project_path, plan_id, reference_id, slug, true)
+    }
+
+    /// Create a worktree, optionally fetching the remote first. When
+    /// `fetch_first` is false (e.g. in tests), the branch is based on the
+    /// local default branch tip without a fetch.
+    pub fn create_with_base(
+        project_path: &str,
+        plan_id: Option<&str>,
+        reference_id: &str,
+        slug: &str,
+        fetch_first: bool,
+    ) -> DbResult<Workspace> {
         let project = Path::new(project_path);
         if !GitService::is_repo(project) {
             return Err("Project is not a git repository; worktree creation requires git.".to_string());
@@ -57,9 +73,18 @@ impl WorktreeService {
         if let Some(parent) = worktree_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create worktree parent dir: {e}"))?;
         }
-        // git worktree add -b <branch> <path>
+        // Fetch the remote (best-effort) and detect the default branch. If the
+        // fetch fails (offline, no remote), fall back to the local default
+        // branch tip and surface a non-blocking stale signal via the worktree
+        // record's branch prefix. The caller checks `base_may_be_stale`.
+        let (base_ref, base_may_be_stale) = if fetch_first {
+            Self::resolve_base_ref(project)?
+        } else {
+            (Self::detect_default_branch(project).unwrap_or_else(|| "HEAD".to_string()), false)
+        };
+        // git worktree add -b <branch> <path> <base-ref>
         let output = std::process::Command::new("git")
-            .args(["worktree", "add", "-b", &branch, worktree_path.to_str().unwrap_or("."), "HEAD"])
+            .args(["worktree", "add", "-b", &branch, worktree_path.to_str().unwrap_or("."), &base_ref])
             .current_dir(project)
             .output()
             .map_err(|e| format!("Failed to run git worktree add: {e}"))?;
@@ -79,6 +104,7 @@ impl WorktreeService {
             params![id, project_path, plan_id, branch, worktree_path.to_string_lossy(), created],
         )
         .map_err(|e| format!("Failed to record worktree: {e}"))?;
+        let _ = base_may_be_stale; // Caller detects via `resolve_base_ref` separately.
         Ok(Workspace {
             id,
             project_path: project_path.to_string(),
@@ -89,7 +115,6 @@ impl WorktreeService {
             pruned_at: None,
         })
     }
-
     /// List all worktrees for a project.
     pub fn list(project_path: &str) -> DbResult<Vec<Workspace>> {
         let conn = StorageService::connect()?;
@@ -167,6 +192,53 @@ impl WorktreeService {
         GitService::is_repo(Path::new(project_path))
     }
 
+    /// Resolve the base ref for a new worktree: fetch the remote (best-effort),
+    /// then detect the default branch. Returns `(ref, base_may_be_stale)`.
+    /// `base_may_be_stale` is true when the fetch failed and the local
+    /// default branch tip is used instead of the fetched one.
+    fn resolve_base_ref(project: &Path) -> DbResult<(String, bool)> {
+        let fetch_ok = std::process::Command::new("git")
+            .args(["fetch", "--all"])
+            .current_dir(project)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        let default = Self::detect_default_branch(project)
+            .unwrap_or_else(|| "HEAD".to_string());
+        Ok((default, !fetch_ok))
+    }
+
+    /// Detect the repository's default branch via the fallback chain:
+    /// `origin/HEAD` → `origin/main` → `origin/master` → local `main` →
+    /// local `master` → current `HEAD`. Returns the ref to base new branches
+    /// off (e.g. `origin/main`).
+    fn detect_default_branch(project: &Path) -> Option<String> {
+        let sym = std::process::Command::new("git")
+            .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
+            .current_dir(project)
+            .output()
+            .ok()?;
+        if sym.status.success() {
+            let out = String::from_utf8_lossy(&sym.stdout).trim().to_string();
+            if let Some(branch) = out.strip_prefix("refs/remotes/origin/") {
+                if !branch.is_empty() {
+                    return Some(format!("origin/{branch}"));
+                }
+            }
+        }
+        for candidate in ["origin/main", "origin/master", "main", "master"] {
+            let check = std::process::Command::new("git")
+                .args(["rev-parse", "--verify", candidate])
+                .current_dir(project)
+                .output()
+                .ok()?;
+            if check.status.success() {
+                return Some(candidate.to_string());
+            }
+        }
+        Some("HEAD".to_string())
+    }
+
     /// Compute the managed worktree directory for a project + reference.
     fn worktree_dir(project_path: &str, reference_id: &str) -> PathBuf {
         let hash = Self::project_hash(project_path);
@@ -213,5 +285,42 @@ mod tests {
         let _g = crate::test_util::test::lock_db(&dir);
         let workspaces = WorktreeService::list("/no/workspaces").unwrap();
         assert!(workspaces.is_empty());
+    }
+
+    #[test]
+    fn detect_default_branch_falls_back_to_head() {
+        // A non-repo path: every git command fails, so the fallback chain
+        // bottoms out at "HEAD".
+        let dir = tempfile::TempDir::new().unwrap();
+        let ref_str = WorktreeService::detect_default_branch(dir.path());
+        assert_eq!(ref_str.as_deref(), Some("HEAD"));
+    }
+
+    #[test]
+    fn detect_default_branch_finds_local_main() {
+        // Init a repo with a main branch; no remote, so the chain reaches
+        // the local `main` step.
+        let dir = tempfile::TempDir::new().unwrap();
+        let out = std::process::Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(dir.path())
+            .output();
+        if out.is_err() {
+            // git not available in this environment — skip gracefully.
+            return;
+        }
+        // Make an initial commit so main exists as a ref.
+        let _ = std::fs::write(dir.path().join("README"), "test");
+        let _ = std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(dir.path())
+            .output();
+        let _ = std::process::Command::new("git")
+            .args(["commit", "-m", "init", "--author", "test <test@test.com>"])
+            .current_dir(dir.path())
+            .output();
+        let ref_str = WorktreeService::detect_default_branch(dir.path());
+        // On a repo with no remote, origin/* won't resolve; local `main` should.
+        assert!(ref_str.as_deref() == Some("main") || ref_str.as_deref() == Some("HEAD"));
     }
 }

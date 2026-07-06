@@ -15,7 +15,7 @@ impl WorkspaceService {
         let conn = StorageService::connect()?;
         let state = conn
             .query_row(
-                "SELECT project_path, last_session_id, last_tab_id, side_section, sidebar_collapsed, side_collapsed, side_width, updated_at
+                "SELECT project_path, last_session_id, last_tab_id, side_section, sidebar_collapsed, side_collapsed, side_width, tab_grid_states, panel_grid, updated_at
                  FROM workspace_restore_state WHERE project_path = ?1",
                 params![project_path],
                 |row| {
@@ -27,7 +27,9 @@ impl WorkspaceService {
                         sidebar_collapsed: row.get::<_, i64>(4)? != 0,
                         side_collapsed: row.get::<_, i64>(5)? != 0,
                         side_width: row.get(6)?,
-                        updated_at: row.get(7)?,
+                        tab_grid_states: row.get(7)?,
+                        panel_grid: row.get(8)?,
+                        updated_at: row.get(9)?,
                     })
                 },
             )
@@ -43,12 +45,11 @@ impl WorkspaceService {
             return Err("Project path is required.".to_string());
         }
         let mut state = state.clamped();
-        state.updated_at = now_seconds();
         let conn = StorageService::connect()?;
         conn.execute(
             "INSERT INTO workspace_restore_state (
-                project_path, last_session_id, last_tab_id, side_section, sidebar_collapsed, side_collapsed, side_width, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                project_path, last_session_id, last_tab_id, side_section, sidebar_collapsed, side_collapsed, side_width, tab_grid_states, panel_grid, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(project_path) DO UPDATE SET
                 last_session_id = excluded.last_session_id,
                 last_tab_id = excluded.last_tab_id,
@@ -56,6 +57,8 @@ impl WorkspaceService {
                 sidebar_collapsed = excluded.sidebar_collapsed,
                 side_collapsed = excluded.side_collapsed,
                 side_width = excluded.side_width,
+                tab_grid_states = excluded.tab_grid_states,
+                panel_grid = excluded.panel_grid,
                 updated_at = excluded.updated_at",
             params![
                 state.project_path,
@@ -65,6 +68,8 @@ impl WorkspaceService {
                 state.sidebar_collapsed as i32,
                 state.side_collapsed as i32,
                 state.side_width,
+                state.tab_grid_states,
+                state.panel_grid,
                 state.updated_at,
             ],
         )

@@ -112,3 +112,17 @@ pub async fn git_log(path: String, limit: Option<usize>) -> Result<Vec<GitCommit
         .await
         .map_err(|e| format!("Git log task panicked: {e}"))?
 }
+
+#[tauri::command]
+pub async fn git_current_branch(path: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || GitService::current_branch(path))
+        .await
+        .map_err(|e| format!("Git current_branch task panicked: {e}"))
+}
+
+#[tauri::command]
+pub async fn git_default_branch(path: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || GitService::default_branch(path))
+        .await
+        .map_err(|e| format!("Git default_branch task panicked: {e}"))
+}

@@ -71,24 +71,48 @@ specs → `openspec/specs/`, folder → `openspec/changes/archive/`).
 Ordered by owner priority. Gated items show their blocking dependency; the
 top **ungated** item is what can actually start now.
 
-1. `parallel-plan-workspaces` — ★ **owner-prioritized.** Multi-chat **grid**
-   (`M×N`, no fixed cap) in persistent per-tab layouts; ported chat harness
-   (per-chat header with model/effort/branch/worktree/agent-mode + plan badge,
-   compact composer rail, transcript) modeled on the dream IDE;
-   **plan→chat→worktree→PR** pipeline (assign a `ready` plan to a chat → run on
-   a fresh branch off freshly-fetched `main` in its own worktree → concurrent
-   runs under per-provider caps → PR recommendation on finish via `gh`/browser);
-   new **per-provider max-concurrency** + subagent-count governance (global +
-   project). New caps `chat-grid-layout`, `chat-header-context`,
-   `plan-chat-assignment`, `run-concurrency-limits`; **modifies**
-   `desktop-shell`, `ide-workspace-state`, `agent-chat`,
+1. `parallel-plan-workspaces` — ★ **owner-prioritized.** Multi-panel **split-tree
+   grid** (any `M×N` layout, no fixed cap) with per-project persistence; ported
+   chat harness (per-chat header with model/effort/branch/worktree/agent-mode +
+   plan badge, compact composer rail, transcript) modeled on the dream IDE;
+   activity sidebar with panel list + status + history drawer (closed-panel
+   reopen/delete); **plan→chat→worktree→PR** pipeline (assign a `ready` plan to
+   a chat → run on a fresh branch off freshly-fetched `main` in its own
+   worktree → concurrent runs under per-provider caps → PR recommendation on
+   finish via `gh`/browser); new **per-provider max-concurrency** + subagent-
+   count governance (global + project). New caps `chat-grid-layout`,
+   `chat-header-context`, `plan-chat-assignment`, `run-concurrency-limits`;
+   **modifies** `desktop-shell`, `ide-workspace-state`, `agent-chat`,
    `chat-composer-controls`, `chat-model-defaults`, `parallel-workspaces`,
-   `plan-run-queue`, `plan-final-touches`. Artifacts generated 2026-07-06
-   (0/32). **Gated: blocked on `chat-first-shell` (in flight, 17/31)** — the
-   grid layers on that change's chat-centered center; do not start apply until
-   it merges. Coordinates with `harness-subagents` (subagent execution) and
-   `diff-review-workflow` (per-run diff gate before PR).
-2. `chat-history-persistence` — **live-bug fix + feature; ungated, ready now.**
+   `plan-run-queue`, `plan-final-touches`. **Gate cleared** —
+   `chat-first-shell` merged in PR #23; apply in progress on
+   `feat/parallel-plan-workspaces`. Coordinates with `harness-subagents`
+   (subagent execution) and `diff-review-workflow` (per-run diff gate before
+   PR).
+2. `planning-command-center` — ★ **owner-prioritized (2026-07-06 ask).** Turn
+   the disconnected planning parts into one managed pipeline: `schematic →
+   generate ideas → batch-approve → parallel worktree runs → integrate/cleanup
+   → complete`. Interactive `ask_user` question cards (options/multi/confirm/
+   text) that pause the agent loop — skills stop asking in prose; typed
+   planning event bus; toasts + persistent notification center with unread
+   badges; planning **flow board** (live stage counts/colors/spinners, batch
+   approve + confirm-gated batch launch); decision-digest + approval-gated
+   `.basebuild/preferences.md` personalization; post-completion schematic
+   re-align nudges; integration queue (merge/test/prune, batch cleanup);
+   opt-in milestone auto-commit; **OMP RPC chat bridge** (persistent
+   `omp --mode rpc` profile, native transcript + question-frame forwarding);
+   shared skill registry; and a repair pass making the existing
+   schematic/category/idea generation specs actually pass end to end. New
+   caps `chat-interactive-elements`, `planning-events`, `app-notifications`,
+   `planning-flow-board`, `planning-feedback-loop`, `plan-merge-cleanup`,
+   `omp-rpc-chat`, `shared-skill-registry`; **modifies** `plan-pipeline`,
+   `plan-pipeline-ui`, `plan-chat-assignment`, `plan-final-touches`,
+   `grounded-generation`. Artifacts generated 2026-07-06 (0/48). **Gate:
+   archive `parallel-plan-workspaces`** — its `plan-chat-assignment` /
+   `run-concurrency-limits` deltas are this change's canonical bases. Phased
+   A–E delivery (events+notifications → interactive elements → repair+flow
+   board → loop closure → RPC bridge + skill registry), each phase a PR.
+3. `chat-history-persistence` — **live-bug fix + feature; ungated, ready now.**
    Reopening the app does not load chat history. Diagnosed two restore bugs on
    the running `feat/chat-first-shell` build: (1) `save_workspace_restore_state`
    fails every call (`missing field sideCollapsed`) because `AppShell` omits the
@@ -101,7 +125,7 @@ top **ungated** item is what can actually start now.
    cap `chat-history-loading`; **modifies** `session-lifecycle` (restore
    last-active session) and `ide-workspace-state` (restore-state integrity;
    additive — no conflict with #1). Artifacts generated 2026-07-06 (0/21).
-3. `omp-terminal-usage-sync` — day-one OMP workflow on the installed build:
+4. `omp-terminal-usage-sync` — day-one OMP workflow on the installed build:
    fix dead PTY output/input/resize plumbing (omp.exe spawns but renders
    nothing), stale-tab disconnected states, omp 16.x telemetry parser drift
    (`reports[].limits[]`), manual Sync-now ungated from auto-sync with
@@ -111,48 +135,48 @@ top **ungated** item is what can actually start now.
    empty-chat hygiene. Diagnosis-complete from 2026-07-05 installed-build
    (v0.0.12) testing. `session-lifecycle` canonical spec landed via
    `planning-system-qol` archive (PR #19) — dependency satisfied.
-4. `file-viewer-editor` — file tabs become the single view/edit/diff
+5. `file-viewer-editor` — file tabs become the single view/edit/diff
    surface: syntax-highlighted virtualized viewing, markdown preview,
    images, explicit-save editing with mtime conflict guard, and unified
    diff mode fed from the Source panel (staged/unstaged/untracked).
    Provides the rendering surface `diff-review-workflow` can reuse.
-5. `harness-context-files` — system-prompt assembly: AGENTS.md discovery,
+6. `harness-context-files` — system-prompt assembly: AGENTS.md discovery,
    schematic injection, skills metadata, context inspector. Feeds the merged
    budget guard; no remaining gate.
-6. `native-app-login-mcp` — device-auth account connection + first-party usage
+7. `native-app-login-mcp` — device-auth account connection + first-party usage
    sync with basebuild.net. Independent of everything above.
-7. `diff-review-workflow` — per-run changeset baseline, file-level review
+8. `diff-review-workflow` — per-run changeset baseline, file-level review
    (approve/revert/send-back), review gate before commit/PR final touches.
    **After `plan-pipeline-harness`** (archived PR #15 — gate satisfied);
    pairs with `file-viewer-editor`'s diff surface.
-8. `schematic-enhance-ui` — per-section **Enhance** action on the schematic
+9. `schematic-enhance-ui` — per-section **Enhance** action on the schematic
    tab: plain words → agent-optimized rewrite shown as an approve/discard
    before/after diff (new cap `schematic-enhance`). Fulfills the
    schematic-wizard "AI-enhanced descriptions" requirement left unshipped by
    `schematic-grounded-planning` (task 2.3). Artifacts generated 2026-07-05
    (0/14). Dep `schematic-grounded-planning` merged (PR #22).
-9. `session-compaction` — summarize-and-continue history compaction past the
-   truncation guard (new cap `session-compaction`; **modifies**
-   `context-budget-guard` to prefer compaction over whole-turn dropping).
-   Deferred out of `native-agent-loop`. Artifacts generated 2026-07-05 (0/13).
-   Unblocked — `native-agent-loop` archived (PR #9).
-10. `harness-subagents` — scoped subagent delegation tool: a parent turn spawns
+10. `session-compaction` — summarize-and-continue history compaction past the
+    truncation guard (new cap `session-compaction`; **modifies**
+    `context-budget-guard` to prefer compaction over whole-turn dropping).
+    Deferred out of `native-agent-loop`. Artifacts generated 2026-07-05 (0/13).
+    Unblocked — `native-agent-loop` archived (PR #9).
+11. `harness-subagents` — scoped subagent delegation tool: a parent turn spawns
     bounded, worktree-isolated native sub-sessions (omp task-tool parity) on the
     run queue and folds their results back (new cap `harness-subagents`).
     Artifacts generated 2026-07-05 (0/16). Gate satisfied — `plan-pipeline-harness`
     archived (PR #15).
-11. `plan-status-rename` — rename plan status `openspec → planned` across
+12. `plan-status-rename` — rename plan status `openspec → planned` across
     DB/API/UI with a one-time migration + backward-compat read alias; updates
     AGENTS.md Invariant 9 + `config.yaml` to match the `.basebuild` schema
     (**modifies** `plan-pipeline`, `openspec-artifacts`; new cap
     `plan-status-migration`). Artifacts generated 2026-07-05 (0/12). Dep
     `basebuild-planning-skill` merged (PR #20).
-12. `planning-file-ingestion` — app reads/syncs `.basebuild` planning files
+13. `planning-file-ingestion` — app reads/syncs `.basebuild` planning files
     (categories/ideas/plans) into the workspace, non-destructive + idempotent
     (new cap `planning-file-ingestion`). Artifacts generated 2026-07-05 (0/13).
     Deps `basebuild-planning-skill` + `unified-planning-workspace` merged
     (PR #20); pairs with `plan-status-rename` for the `planned` vocabulary.
-13. `plan-import` — import pre-existing external plans (unexecuted OpenSpec
+14. `plan-import` — import pre-existing external plans (unexecuted OpenSpec
     changes etc.) into `.basebuild` plan records with `engine`/`external`/derived
     status, confirmed + idempotent (new cap `plan-import`). Artifacts generated
     2026-07-05 (0/13). Dep `basebuild-planning-skill` merged (PR #20); pairs with
@@ -180,8 +204,6 @@ _Last refreshed: 2026-07-06 (`node scripts/openspec-status.mjs --write`)_
 |`chat-first-shell`|17/31|in progress|`/apply chat-first-shell`|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
 |`plan-import`|11/13|in progress|`/apply plan-import`|
-|`schematic-grounded-planning`|23/25|in progress|`/apply schematic-grounded-planning`|
-|`unified-planning-workspace`|32/34|in progress|`/apply unified-planning-workspace`|
 |`chat-history-persistence`|0/21|not started|`/apply chat-history-persistence`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|
@@ -189,12 +211,13 @@ _Last refreshed: 2026-07-06 (`node scripts/openspec-status.mjs --write`)_
 |`harness-subagents`|0/16|not started|`/apply harness-subagents`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
 |`omp-terminal-usage-sync`|0/33|not started|`/apply omp-terminal-usage-sync`|
-|`parallel-plan-workspaces`|0/32|not started|`/apply parallel-plan-workspaces`|
 |`plan-status-rename`|0/12|not started|`/apply plan-status-rename`|
+|`planning-command-center`|0/48|not started|`/apply planning-command-center`|
 |`planning-file-ingestion`|0/13|not started|`/apply planning-file-ingestion`|
+|`project-grid-workspace`|0/33|not started|`/apply project-grid-workspace`|
 |`schematic-enhance-ui`|0/14|not started|`/apply schematic-enhance-ui`|
 |`session-compaction`|0/13|not started|`/apply session-compaction`|
-|`basebuild-planning-skill`|18/18|complete — archive|`/archive basebuild-planning-skill`|
+|`parallel-plan-workspaces`|32/32|complete — archive|`/archive parallel-plan-workspaces`|
 <!-- status:end -->
 
 ## Archiving

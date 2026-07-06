@@ -33,6 +33,45 @@ Current classes include `.btn`, `.btn-primary`, `.btn-update`, `.btn-ghost`,
 `.pre`, `.stack`, `.stack-sm`, `.row`, `.row-between`, `.text-muted`,
 `.text-sm`, `.text-ok`, `.text-danger`, `.mono`, `.spin`.
 
+## Panel grid + header classes (parallel-plan-workspaces)
+
+Ported from the [dream IDE](https://github.com/dreamide/dream) (MIT) — the
+split-tree layout logic and visual structure are ported into basebuild's
+`globals.css`-only stack (0px radius, no Radix, no CSS modules, no
+UI-primitive library). Only the math/structure is ported; dream's
+dependencies are NOT adopted.
+
+- `.panel-grid` — the split-tree container; renders recursively as nested
+  horizontal/vertical splits. `.panel-grid-split` is a flex split node
+  (`.is-horizontal` or `.is-vertical`); `.panel-grid-leaf` is a panel
+  container with `.is-active` outline. `.panel-grid-empty` is the empty
+  state.
+- `.panel-grid-splitter` — drag-resize handle between split siblings
+  (4px, col/row cursor). `.is-vertical` / `.is-horizontal` variants.
+- `.panel-header` — per-panel header (title, type icon, status, split/close
+  buttons). `.panel-header-title`, `.panel-header-actions`,
+  `.panel-header-status` (streaming/idle/error indicators). Pinned at the
+  top of the panel, never scrolls out of view.
+- `.drop-zone-overlay` — 4-edge drop zone overlay for drag-to-split
+  (`.drop-zone-top/right/bottom/left`). 2px accent line.
+- `.activity-sidebar` — left sidebar panel list; `.activity-sidebar-row`
+  per panel with type icon, title, status. `.activity-sidebar-history-badge`
+  for the closed-panel count.
+- `.history-drawer` — overlay drawer listing closed panels
+  (`.history-drawer-item` with Re-open / Delete permanently actions).
+- `.chat-column-header` — per-chat header inside a chat panel (title,
+  model/effort chips, agent-mode pill, plan badge, branch+worktree,
+  history, more-actions). Pinned at the top of the column.
+- `.chat-branch-dropdown` — branch switch/create dropdown.
+  `.chat-switch-confirm` — uncommitted-changes confirm prompt
+  (stash/discard/cancel).
+- `.chat-more-menu` — more-actions menu; `.chat-more-menu-item.is-danger`
+  for destructive entries (delete session).
+- `.pr-recommendation-card` — finished-run PR recommendation (branch,
+  ahead/behind, changed-file count, confirm-gated Create PR action).
+- `.settings-table` — concurrency settings grid (provider, global max,
+  project max, subagents, subagent cap).
+
 ## Component reuse
 
 - A pattern that appears twice should be a component or utility.

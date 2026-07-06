@@ -4,29 +4,51 @@ import { LayoutTemplate, Settings2, TerminalSquare, X } from "lucide-react";
 import { useSessionState } from "../../state/sessions";
 import { usePlans } from "../../state/plans";
 import { ProjectSidebar, useProjectSidebar } from "./ProjectSidebar";
-import { ProjectChatSidebar } from "./ProjectChatSidebar";
+import { ActivitySidebar } from "./ActivitySidebar";
 import { ChatEnvironmentPanel } from "./ChatEnvironmentPanel";
 import { FileExplorerModal } from "./FileExplorerModal";
+import { PlanningInspector } from "./PlanningInspector";
+import { SourcePanel } from "../panels/SourcePanel";
 
 import { EditPlanModal } from "./EditPlanModal";
 import { FocusPlanModal } from "./FocusPlanModal";
 import { ProjectDescriptionModal } from "./ProjectDescriptionModal";
 import { useProjectSchematic } from "../../state/schematic";
 import { revealInExplorer } from "../../lib/projects";
+import { onPlanRunEvent } from "../../lib/planRuns";
 import { generateSessionTitle, readSkill } from "../../lib/skills";
 import { getWorkspaceRestoreState, saveWorkspaceRestoreState, type WorkspaceRestoreState } from "../../lib/workspace";
-import { WorkspaceTabs } from "./WorkspaceTabs";
 import { SettingsModal } from "./SettingsModal";
 import { FirstRunModal } from "./FirstRunModal";
 import { useFirstRun } from "../../state/first-run";
 import { createTerminal } from "../../lib/terminal";
 import { TerminalPanel } from "../panels/TerminalPanel";
-import { OmpTerminalTab } from "../panels/OmpTerminalTab";
 import { FileViewer } from "../panels/FileViewer";
 import { ProjectSchematicTab } from "../panels/ProjectSchematicTab";
 import { ChatPanel } from "../panels/ChatPanel";
+import { PanelGrid } from "../panels/PanelGrid";
+import { PanelStatusProvider } from "../panels/PanelStatusContext";
+import { HistoryDrawer } from "../panels/HistoryDrawer";
+import {
+  closePanel,
+  deletePanelFromHistory,
+  emptyGrid,
+  flattenPanels,
+  reopenPanel,
+  updatePanelInTree,
+  parsePanelGrid,
+  serializePanelGrid,
+  singlePanelGrid,
+  splitPanelAt,
+  type DropSide,
+  type Panel,
+  type PanelGridState,
+  type PanelType,
+} from "../../lib/panelGrid";
+import { parseTabGridStates, serializeTabGridStates } from "../../lib/workspace";
 import { ompStatus } from "../../lib/omp";
 import { stabilityRendererHeartbeat } from "../../lib/stability";
+import { OmpTerminalTab } from "../panels/OmpTerminalTab";
 import { StatusBar } from "./StatusBar";
 import { WindowControls } from "./WindowControls";
 import { LogPanel } from "./LogPanel";
@@ -37,7 +59,9 @@ import { useAccount } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
 import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
 import type { IdeaCategory } from "../../lib/ideas";
+import type { SessionTab, TabKind } from "../../lib/sessions";
 export type ToolId = "terminal";
+
 
 const DEFAULT_SHELL = () => {
   if (typeof window !== "undefined" && window.navigator.platform.includes("Win")) return "powershell.exe";
@@ -54,6 +78,8 @@ export function AppShell({ updates }: AppShellProps) {
   const [gridView, setGridView] = useState(false);
   const [fileModalOpen, setFileModalOpen] = useState(false);
   const [plansFoldSignal, setPlansFoldSignal] = useState(0);
+  const [changesModalOpen, setChangesModalOpen] = useState(false);
+  const [plansModalOpen, setPlansModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logPanelOpen, setLogPanelOpen] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
@@ -65,6 +91,9 @@ export function AppShell({ updates }: AppShellProps) {
   const [chatDraft, setChatDraft] = useState<string | null>(null);
   const [chatDraftTabId, setChatDraftTabId] = useState<string | null>(null);
   const [autoSendDraft, setAutoSendDraft] = useState(false);
+  const [focusedChatId, setFocusedChatId] = useState<string | null>(null);
+  const [panelGridState, setPanelGridState] = useState<PanelGridState>(emptyGrid());
+  const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const [terminalOutputBuffer, setTerminalOutputBuffer] = useState("");
   const titleDebounceRef = useRef<number | null>(null);
   const workspacePersistTimerRef = useRef<number | null>(null);
@@ -112,6 +141,21 @@ export function AppShell({ updates }: AppShellProps) {
     if (session.activeSession?.title === "New Session") return;
     void session.createTab("chat", "Chat 1");
   }, [activeProjectPath, session.activeSessionId, session.tabs.length, session.activeSession?.title, session]);
+  // Auto-create a chat panel when the panel grid is empty and a session is active.
+  useEffect(() => {
+    if (!activeProjectPath || !session.activeSessionId) return;
+    if (panelGridState.root) return; // grid already has panels
+    if (session.activeSession?.title === "New Session") return;
+    const newPanel: Panel = {
+      id: `panel-${Date.now()}`,
+      type: "chat",
+      title: "Chat 1",
+      chatSessionId: null,
+      terminalId: null,
+      filePath: null,
+    };
+    setPanelGridState(singlePanelGrid(newPanel));
+  }, [activeProjectPath, session.activeSessionId, panelGridState.root, session.activeSession?.title]);
 
   useEffect(() => {
     if (activeProjectPath || sidebar.projects.length === 0) return;
@@ -140,6 +184,49 @@ export function AppShell({ updates }: AppShellProps) {
       cancelled = true;
     };
   }, [activeProjectPath, addLog]);
+  // Plan-run event listener: when a run starts with a chat session, surface
+  // it as a new panel in the panel grid (per `panel-grid`).
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    void onPlanRunEvent((event) => {
+      if (event.status !== "running" || !event.chatSessionId) return;
+      // If the chat session is already a panel in the grid, just focus it.
+      const existingPanel = flattenPanels(panelGridState.root).find((p) => p.chatSessionId === event.chatSessionId);
+      if (existingPanel) {
+        setPanelGridState((prev) => ({ ...prev, activePanelId: existingPanel.id }));
+        return;
+      }
+      // Add as a new panel beside the active one (or at the end).
+      const newPanel: Panel = {
+        id: event.chatSessionId ?? `panel-${Date.now()}`,
+        type: "chat",
+        title: event.chatSessionId ? `Run ${event.chatSessionId.slice(-6)}` : "Plan Run",
+        chatSessionId: event.chatSessionId ?? null,
+        terminalId: null,
+        filePath: null,
+      };
+      setPanelGridState((prev) => {
+        if (!prev.root) {
+          return singlePanelGrid(newPanel);
+        }
+        const anchorId = prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "";
+        const newRoot = splitPanelAt(prev.root, anchorId, newPanel, "right");
+        return { ...prev, root: newRoot, activePanelId: newPanel.id };
+      });
+    }).then((fn) => { unlisten = fn; });
+    return () => { if (unlisten) unlisten(); };
+  }, [panelGridState.root]);
+  // Hydrate per-tab grid states from the workspace restore snapshot.
+  useEffect(() => {
+    if (!workspaceRestore?.tabGridStates) return;
+    session.hydrateTabGridStates(parseTabGridStates(workspaceRestore.tabGridStates));
+  }, [workspaceRestore, session.hydrateTabGridStates]);
+  // Hydrate panel grid state from the workspace restore snapshot.
+  useEffect(() => {
+    if (!workspaceRestore?.panelGrid) return;
+    const parsed = parsePanelGrid(workspaceRestore.panelGrid);
+    setPanelGridState(parsed);
+  }, [workspaceRestore]);
 
 
   useEffect(() => {
@@ -155,6 +242,8 @@ export function AppShell({ updates }: AppShellProps) {
         sidebarCollapsed,
         sideCollapsed: workspaceRestore?.sideCollapsed ?? false,
         sideWidth: workspaceRestore?.sideWidth ?? 260,
+        tabGridStates: serializeTabGridStates(session.tabGridStates),
+        panelGrid: serializePanelGrid(panelGridState),
         updatedAt: workspaceRestore?.updatedAt ?? 0,
       }).catch((caught) => {
         const message = caught instanceof Error ? caught.message : String(caught);
@@ -164,7 +253,7 @@ export function AppShell({ updates }: AppShellProps) {
     return () => {
       if (workspacePersistTimerRef.current) window.clearTimeout(workspacePersistTimerRef.current);
     };
-  }, [activeProjectPath, session.activeSessionId, session.activeTabId, workspaceRestore, sidebarCollapsed, addLog]);
+  }, [activeProjectPath, session.activeSessionId, session.activeTabId, session.tabGridStates, workspaceRestore, sidebarCollapsed, panelGridState, addLog]);
 
   useEffect(() => {
     if (!workspaceRestore?.lastTabId) return;
@@ -295,9 +384,18 @@ export function AppShell({ updates }: AppShellProps) {
     [plans, session.activeSessionId],
   );
   const handleOpenPlanningInspector = useCallback(() => {
-    setPlansFoldSignal((v) => v + 1);
+    setPlansModalOpen(true);
   }, []);
 
+  const handleCloseChat = useCallback((chatId: string) => {
+    // The grid's onCloseChat handles the visual removal; the session is retained.
+    // AppShell's onCloseChat on the grid delegates here for any session-level cleanup.
+  }, []);
+
+  const handleDuplicateChat = useCallback((sourceId: string) => {
+    // Returns a new chat id; the grid handles layout. Session creation happens
+    // when ChatPanel mounts and calls onChatSessionCreated.
+  }, []);
   const openOrFocusChat = useCallback(
     async (draftPrompt: string) => {
       if (!session.activeSessionId) return;
@@ -405,7 +503,7 @@ Rules:
     void navigator.clipboard.writeText(`#${refId}`);
   }, []);
 
-  const handleOpenPlanInTerminal = useCallback((plan: import("../../lib/plans").Plan) => {
+  const handleOpenPlanInTerminal = useCallback((plan: Plan) => {
     void handleCreateTerminalTab();
     void navigator.clipboard.writeText(`#${plan.referenceId} ${plan.title}\n${plan.description}`);
   }, [handleCreateTerminalTab]);
@@ -433,6 +531,246 @@ Rules:
       await handleCreateTerminalTab();
     },
     [session, handleCreateTerminalTab, activeProjectPath],
+  );
+  /** Create a new panel for the panel grid (split/duplicate handler). */
+  const handleCreatePanel = useCallback(
+    (anchorId: string | null, _side: DropSide): Panel => {
+      if (!session.activeSessionId) {
+        const id = `panel-${Date.now()}`;
+        return { id, type: "chat", title: "Chat", chatSessionId: null, terminalId: null, filePath: null };
+      }
+      const id = `panel-${Date.now()}`;
+      const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
+      void session.createTab("chat", `Chat ${chatCount}`);
+      return { id, type: "chat", title: `Chat ${chatCount}`, chatSessionId: null, terminalId: null, filePath: null };
+    },
+    [session],
+  );
+
+  /** Create a panel of a specific type (chat, terminal, omp, schematic). */
+  const handleCreateTypedPanel = useCallback(
+    (type: "chat" | "terminal" | "omp" | "schematic"): void => {
+      if (!session.activeSessionId) return;
+      const id = `panel-${Date.now()}`;
+      let panel: Panel;
+      if (type === "chat") {
+        const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
+        void session.createTab("chat", `Chat ${chatCount}`);
+        panel = { id, type: "chat", title: `Chat ${chatCount}`, chatSessionId: null, terminalId: null, filePath: null };
+      } else if (type === "terminal") {
+        void (async () => {
+          const shell = DEFAULT_SHELL();
+          const term = await createTerminal(shell, activeProjectPath ?? undefined);
+          await session.createTab("terminal", `Terminal ${term.id}`, term.id);
+          const p: Panel = { id, type: "terminal", title: `Terminal ${term.id}`, chatSessionId: null, terminalId: term.id, filePath: null };
+          setPanelGridState((prev) => {
+            if (!prev.root) return singlePanelGrid(p);
+            const newRoot = splitPanelAt(prev.root, prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "", p, "right");
+            return { ...prev, root: newRoot, activePanelId: p.id };
+          });
+        })();
+        return;
+      } else if (type === "omp") {
+        void (async () => {
+          const term = await createTerminal("omp", activeProjectPath ?? undefined);
+          await session.createTab("omp", "Oh My Pi", term.id);
+          const p: Panel = { id, type: "omp", title: "Oh My Pi", chatSessionId: null, terminalId: term.id, filePath: null };
+          setPanelGridState((prev) => {
+            if (!prev.root) return singlePanelGrid(p);
+            const newRoot = splitPanelAt(prev.root, prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "", p, "right");
+            return { ...prev, root: newRoot, activePanelId: p.id };
+          });
+        })();
+        return;
+      } else {
+        // schematic
+        panel = { id, type: "schematic", title: "Schematic", chatSessionId: null, terminalId: null, filePath: null };
+      }
+      setPanelGridState((prev) => {
+        if (!prev.root) return singlePanelGrid(panel);
+        const newRoot = splitPanelAt(prev.root, prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "", panel, "right");
+        return { ...prev, root: newRoot, activePanelId: panel.id };
+      });
+    },
+    [session, activeProjectPath],
+  );
+
+  /** Render a panel's content by type. */
+  const renderPanel = useCallback(
+    (panel: Panel, _isActive: boolean) => {
+      if (panel.type === "chat") {
+        // Find the tab for this panel — primary lookup is chatSessionId
+        // (stable across restarts); fall back to title/id for legacy panels.
+        const tab = session.tabs.find(
+          (t) => t.kind === "chat" && (
+            (panel.chatSessionId && t.chatSessionId === panel.chatSessionId) ||
+            t.title === panel.title ||
+            t.id === panel.id
+          ),
+        );
+        return (
+          <ChatPanel
+            projectPath={activeProjectPath ?? ""}
+            chatSessionId={panel.chatSessionId ?? tab?.chatSessionId ?? null}
+            onChatSessionCreated={(chatSessionId) => {
+              if (tab) void session.setTabChatSession(tab.id, chatSessionId);
+              // Also update the panel's chatSessionId in the grid so the link
+              // persists across restarts.
+              setPanelGridState((prev) => ({
+                ...prev,
+                root: updatePanelInTree(prev.root, panel.id, { chatSessionId }),
+              }));
+            }}
+            draftPrompt={chatDraft}
+            autoSendDraft={autoSendDraft}
+            onDraftConsumed={() => { setChatDraft(null); setChatDraftTabId(null); setAutoSendDraft(false); }}
+            activeSessionId={session.activeSessionId}
+            schematicContent={schematic.content}
+            onCreatePlanFromIdea={handleCreatePlanFromIdea}
+            onOpenPlanningInspector={handleOpenPlanningInspector}
+            onOpenSchematic={handleOpenSchematic}
+            onCloseChat={() => setPanelGridState((prev) => closePanel(prev, panel.id))}
+            onCloseAndDeleteChat={() => setPanelGridState((prev) => deletePanelFromHistory(prev, panel.id))}
+            onDuplicateChat={() => {
+              const newPanel = handleCreatePanel(panel.id, "right");
+              setPanelGridState((prev) => {
+                if (!prev.root) return singlePanelGrid(newPanel);
+                const newRoot = splitPanelAt(prev.root, panel.id, newPanel, "right");
+                return { ...prev, root: newRoot, activePanelId: newPanel.id };
+              });
+            }}
+          />
+        );
+      }
+      if (panel.type === "terminal") {
+        if (!panel.terminalId) {
+          // Try to find a terminal tab by title match (legacy panels).
+          const tab = session.tabs.find((t) => t.kind === "terminal" && (t.id === panel.id || t.title === panel.title));
+          if (tab?.terminalId) {
+            return <TerminalPanel terminalId={tab.terminalId} onOutput={handleTerminalOutput} />;
+          }
+          return (
+            <div className="empty-state">
+              <TerminalSquare size={32} className="text-muted" />
+              <h3>Terminal not connected</h3>
+              <p>The terminal process from the previous session is no longer running.</p>
+              <button
+                className="btn btn-primary"
+                type="button"
+                title="Create a new terminal"
+                onClick={() => {
+                  void (async () => {
+                    const shell = DEFAULT_SHELL();
+                    const term = await createTerminal(shell, activeProjectPath ?? undefined);
+                    setPanelGridState((prev) => ({
+                      ...prev,
+                      root: updatePanelInTree(prev.root, panel.id, {
+                        terminalId: term.id,
+                        title: `Terminal ${term.id}`,
+                      }),
+                    }));
+                  })();
+                }}
+              >
+                Reconnect
+              </button>
+            </div>
+          );
+        }
+        return (
+          <TerminalPanel
+            terminalId={panel.terminalId}
+            onOutput={handleTerminalOutput}
+            onReconnect={() => {
+              void (async () => {
+                const shell = DEFAULT_SHELL();
+                const term = await createTerminal(shell, activeProjectPath ?? undefined);
+                setPanelGridState((prev) => ({
+                  ...prev,
+                  root: updatePanelInTree(prev.root, panel.id, {
+                    terminalId: term.id,
+                    title: `Terminal ${term.id}`,
+                  }),
+                }));
+              })();
+            }}
+          />
+        );
+      }
+      if (panel.type === "file") {
+        if (!panel.filePath) return null;
+        return <FileViewer path={panel.filePath} />;
+      }
+      if (panel.type === "schematic") {
+        return (
+          <ProjectSchematicTab
+            projectPath={activeProjectPath ?? ""}
+            onStartWizard={handleStartSchematicWizard}
+            onOpenRaw={() => setDescriptionOpen(true)}
+          />
+        );
+      }
+      if (panel.type === "omp") {
+        const reconnectOmp = () => {
+          void (async () => {
+            const shell = DEFAULT_SHELL();
+            const term = await createTerminal(shell, activeProjectPath ?? undefined);
+            setPanelGridState((prev) => ({
+              ...prev,
+              root: updatePanelInTree(prev.root, panel.id, {
+                terminalId: term.id,
+                title: `OMP ${term.id}`,
+              }),
+            }));
+          })();
+        };
+        if (panel.terminalId) {
+          return <OmpTerminalTab terminalId={panel.terminalId} onOutput={handleTerminalOutput} onReconnect={reconnectOmp} />;
+        }
+        const tab = session.tabs.find((t) => t.kind === "omp" && (t.id === panel.id || t.title === panel.title));
+        return <OmpTerminalTab terminalId={tab?.terminalId ?? null} onOutput={handleTerminalOutput} onReconnect={reconnectOmp} />;
+      }
+      return null;
+    },
+    [session, activeProjectPath, chatDraft, autoSendDraft, schematic.content, handleCreatePlanFromIdea, handleOpenPlanningInspector, handleOpenSchematic, handleTerminalOutput, handleStartSchematicWizard],
+  );
+
+  /** Handle panel grid state changes. */
+  const handlePanelGridChange = useCallback(
+    (newState: PanelGridState) => {
+      setPanelGridState(newState);
+    },
+    [],
+  );
+
+  /** Handle closing a panel → moves to history. */
+  const handlePanelClose = useCallback(
+    (panelId: string) => {
+      setPanelGridState((prev) => closePanel(prev, panelId));
+    },
+    [],
+  );
+
+  /** Handle reopening a panel from history. */
+  const handlePanelReopen = useCallback(
+    (panelId: string) => {
+      setPanelGridState((prev) => reopenPanel(prev, panelId));
+    },
+    [],
+  );
+
+  /** Handle deleting a panel from history permanently. */
+  const handlePanelDelete = useCallback(
+    (panelId: string) => {
+      // Confirm-gated: the caller (HistoryDrawer) handles the confirm UI.
+      // For chat panels, delete the session; for terminals, discard.
+      const panel = panelGridState.closedPanels.find((p) => p.id === panelId);
+      if (panel?.chatSessionId) {
+        void session.removeSession(panel.chatSessionId);
+      }
+      setPanelGridState((prev) => deletePanelFromHistory(prev, panelId));
+    },
+    [panelGridState.closedPanels, session],
   );
 
   const handleOpenChatSession = useCallback(
@@ -466,16 +804,50 @@ Rules:
   const handleOpenFileInTab = useCallback(
     async (filePath: string) => {
       if (!session.activeSessionId) return;
-      // Reuse existing tab if file is already open
-      const existing = session.tabs.find((t) => t.kind === "file" && t.filePath === filePath);
+      const name = filePath.split(/[\\/]/).pop() ?? filePath;
+
+      // Check if this file is already open in any panel — if so, focus it.
+      const allPanels = flattenPanels(panelGridState.root);
+      const existing = allPanels.find((p) => p.type === "file" && p.filePath === filePath);
       if (existing) {
-        session.setActiveTabId(existing.id);
+        setPanelGridState((prev) => ({ ...prev, activePanelId: existing.id }));
         return;
       }
-      const name = filePath.split(/[\\/]/).pop() ?? filePath;
-      await session.createTab("file", name, undefined, filePath);
+
+      // VSCode-style preview: if the active panel is a file panel that hasn't
+      // been modified (we track this via the panel's `filePath` only — no dirty
+      // state tracking yet), replace its file instead of creating a new panel.
+      const activeId = panelGridState.activePanelId;
+      const activePanel = allPanels.find((p) => p.id === activeId);
+      if (activePanel?.type === "file") {
+        // Replace the file in the active file panel (preview behavior).
+        setPanelGridState((prev) => ({
+          ...prev,
+          root: updatePanelInTree(prev.root, activePanel.id, {
+            filePath,
+            title: name,
+          }),
+        }));
+        return;
+      }
+
+      // Otherwise, create a new file panel split right in the grid.
+      const newPanel: Panel = {
+        id: `panel-${Date.now()}`,
+        type: "file",
+        title: name,
+        chatSessionId: null,
+        terminalId: null,
+        filePath,
+      };
+      setPanelGridState((prev) => {
+        if (!prev.root) return singlePanelGrid(newPanel);
+        const anchor = prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "";
+        const newRoot = splitPanelAt(prev.root, anchor, newPanel, "right");
+        return { ...prev, root: newRoot, activePanelId: newPanel.id };
+      });
     },
-    [session],
+    [session, panelGridState],
   );
 
   return (
@@ -490,43 +862,57 @@ Rules:
         className="app-shell app-shell-chat-first"
         data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}
       >
-        <ProjectChatSidebar
+        <ActivitySidebar
           activeProjectPath={activeProjectPath}
-          activeSessionId={session.activeSessionId}
+          root={panelGridState.root}
+          activePanelId={panelGridState.activePanelId}
+          closedPanelCount={panelGridState.closedPanels.length}
           projects={sidebar.projects}
-          sessionsByProject={sidebar.sessionsByProject}
           account={account}
           updates={updates}
           onSelectProject={handleSelectProject}
           onOpenFolder={handleOpenFolder}
-          onRemoveProject={handleRemoveProject}
-          onSelectSession={session.selectSession}
-          onCreateSession={handleCreateSession}
-          onRenameSession={(id, title) => void session.renameSession(id, title)}
-          onDeleteSession={(id) => void session.removeSession(id)}
+          onFocusPanel={(panelId) => setPanelGridState((prev) => ({ ...prev, activePanelId: panelId }))}
+          onCreateChat={() => {
+            const newPanel = handleCreatePanel(null, "right");
+            setPanelGridState((prev) => {
+              if (!prev.root) {
+                return singlePanelGrid(newPanel);
+              }
+              const newRoot = splitPanelAt(prev.root, prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "", newPanel, "right");
+              return { ...prev, root: newRoot, activePanelId: newPanel.id };
+            });
+          }}
+          onCreateTerminal={() => {
+            void (async () => {
+              if (!session.activeSessionId) return;
+              const shell = DEFAULT_SHELL();
+              const term = await createTerminal(shell, activeProjectPath ?? undefined);
+              await session.createTab("terminal", `Terminal ${term.id}`, term.id);
+              const newPanel: Panel = {
+                id: `panel-${Date.now()}`,
+                type: "terminal",
+                title: `Terminal ${term.id}`,
+                chatSessionId: null,
+                terminalId: term.id,
+                filePath: null,
+              };
+              setPanelGridState((prev) => {
+                if (!prev.root) return singlePanelGrid(newPanel);
+                const newRoot = splitPanelAt(prev.root, prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "", newPanel, "right");
+                return { ...prev, root: newRoot, activePanelId: newPanel.id };
+              });
+            })();
+          }}
+          onOpenHistory={() => setHistoryDrawerOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         />
         <section className="workspace-panel workspace-panel-chat-first">
           {activeProjectPath && session.activeSessionId ? (
-            <>
-              <div className="session-header">
-                <h1 className="session-title">{session.activeSession?.title ?? "Session"}</h1>
-                <span className="status-pill" title={activeProjectPath}>{activeProjectPath}</span>
-              </div>
-              <WorkspaceTabs
-                tabs={session.tabs}
-                activeTabId={session.activeTabId}
-                onSelectTab={session.setActiveTabId}
-                onCloseTab={(id) => void session.removeTab(id)}
-                onCreateTab={(kind) => void handleCreateTab(kind)}
-                ompInstalled={ompInstalled}
-              />
-            </>
-          ) : null}
-          <div className="workspace-scroll workspace-scroll-chat-first">
-            {activeProjectPath ? (
+            <div className="session-header">
+              <h1 className="session-title">{activeProjectPath.split(/[\\/]/).pop() ?? activeProjectPath}</h1>
               <ChatEnvironmentPanel
                 projectPath={activeProjectPath}
                 sessionId={session.activeSessionId}
@@ -542,8 +928,14 @@ Rules:
                 onSuggestForCategory={handleSuggestForCategory}
                 activeChatSessionId={session.activeSessionId}
                 onOpenFiles={() => setFileModalOpen(true)}
+                onOpenChanges={() => setChangesModalOpen(true)}
+                onOpenPlans={() => setPlansModalOpen(true)}
+                onCreatePanel={handleCreateTypedPanel}
               />
-            ) : null}
+              <span className="status-pill session-path-pill" title={activeProjectPath}>{activeProjectPath}</span>
+            </div>
+          ) : null}
+          <div className="workspace-scroll workspace-scroll-chat-first">
             {!activeProjectPath ? (
               <div className="empty-state">
                 <TerminalSquare size={32} className="text-muted" />
@@ -553,65 +945,24 @@ Rules:
               </div>
             ) : null}
             {activeProjectPath ? (
-              !activeTab ? (
-                <div className="empty-state">
-                  <LayoutTemplate size={32} className="text-muted" />
-                  <h3>No tab open</h3>
-                  <p>Click + in the tab bar to create a terminal, schematic, or chat tab.</p>
-                </div>
-              ) : activeTab.kind === "empty" ? (
-                <ProjectSchematicTab
-                  projectPath={activeProjectPath}
-                  onStartWizard={handleStartSchematicWizard}
-                  onOpenRaw={() => setDescriptionOpen(true)}
+              <PanelStatusProvider>
+                <PanelGrid
+                  state={panelGridState}
+                  onStateChange={handlePanelGridChange}
+                  renderPanel={renderPanel}
+                  onCreatePanel={handleCreatePanel}
+                  viewportWidth={typeof window !== "undefined" ? window.innerWidth - 80 : 1200}
+                  viewportHeight={typeof window !== "undefined" ? window.innerHeight - 120 : 700}
                 />
-              ) : activeTab.kind === "omp" ? (
-                <OmpTerminalTab terminalId={activeTab.terminalId} onOutput={handleTerminalOutput} />
-              ) : activeTab.kind === "chat" ? (
-                <ChatPanel
-                  projectPath={activeProjectPath}
-                  chatSessionId={activeTab.chatSessionId}
-                  onChatSessionCreated={handleChatSessionCreated(activeTab.id)}
-                  draftPrompt={chatDraft}
-                  autoSendDraft={autoSendDraft}
-                  onDraftConsumed={() => { setChatDraft(null); setChatDraftTabId(null); setAutoSendDraft(false); }}
-                  activeSessionId={session.activeSessionId}
-                  schematicContent={schematic.content}
-                  onCreatePlanFromIdea={handleCreatePlanFromIdea}
-                  onOpenPlanningInspector={handleOpenPlanningInspector}
-                  onOpenSchematic={handleOpenSchematic}
-                />
-              ) : activeTab.kind === "file" ? (
-                <FileViewer path={activeTab.filePath} />
-              ) : activeTab.terminalId == null ? (
-                <div className="empty-state">
-                  <LayoutTemplate size={32} className="text-muted" />
-                  <h3>Terminal not connected</h3>
-                  <p>This terminal tab was restored from a previous session. Close it and create a new terminal tab to start a fresh shell.</p>
-                </div>
-              ) : gridView && session.tabs.filter((t) => t.kind === "terminal").length > 1 ? (
-                (() => {
-                  const terminalTabs = session.tabs.filter((t) => t.kind === "terminal");
-                  return (
-                    <div className="terminal-grid" style={{ gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(terminalTabs.length))}, 1fr)` }}>
-                      {terminalTabs.map((tab) => (
-                        <div
-                          key={tab.id}
-                          className={`terminal-grid-cell${tab.id === session.activeTabId ? " is-active" : ""}`}
-                          onClick={() => session.setActiveTabId(tab.id)}
-                        >
-                          <div className="terminal-grid-cell-header">
-                            <TerminalSquare size={10} /> {tab.title}
-                          </div>
-                          <TerminalPanel terminalId={tab.terminalId} onOutput={handleTerminalOutput} />
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()
-              ) : (
-                <TerminalPanel terminalId={activeTab.terminalId} onOutput={handleTerminalOutput} />
-              )
+                {historyDrawerOpen ? (
+                  <HistoryDrawer
+                    closedPanels={panelGridState.closedPanels}
+                    onReopen={handlePanelReopen}
+                    onDelete={handlePanelDelete}
+                    onClose={() => setHistoryDrawerOpen(false)}
+                  />
+                ) : null}
+              </PanelStatusProvider>
             ) : null}
           </div>
         </section>
@@ -622,6 +973,50 @@ Rules:
         onClose={() => setFileModalOpen(false)}
         onOpenFile={handleOpenFileInTab}
       />
+      {changesModalOpen && activeProjectPath ? (
+        <div className="modal-overlay" role="dialog" aria-label="Changes" onClick={() => setChangesModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Changes</h2>
+              <button className="btn-icon" type="button" title="Close (Esc)" onClick={() => setChangesModalOpen(false)}><X size={14} /></button>
+            </div>
+            <div className="modal-body">
+              <SourcePanel projectPath={activeProjectPath} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {plansModalOpen && activeProjectPath ? (
+        <div className="modal-overlay" role="dialog" aria-label="Plans & Ideas" onClick={() => setPlansModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Plans & Ideas</h2>
+              <button className="btn-icon" type="button" title="Close (Esc)" onClick={() => setPlansModalOpen(false)}><X size={14} /></button>
+            </div>
+            <div className="modal-body">
+              <PlanningInspector
+                sessionId={session.activeSessionId}
+                projectPath={activeProjectPath}
+                plans={plans.plans}
+                loading={plans.loading}
+                collapsed={false}
+                onToggleCollapse={() => {}}
+                onCreatePlan={() => { setPlansModalOpen(false); handleCreatePlan(); }}
+                onEditPlan={(p) => { setPlansModalOpen(false); handleEditPlan(p); }}
+                onFocusPlan={handleFocusPlan}
+                onCopyReference={handleCopyReference}
+                onOpenInTerminal={handleOpenPlanInTerminal}
+                onSetPlanStatus={plans.setPlanStatus}
+                onDeletePlan={plans.deletePlan}
+                onOpenChatSession={(id) => { setPlansModalOpen(false); handleOpenChatSession(id); }}
+                onSuggestForCategory={handleSuggestForCategory}
+                activeChatSessionId={session.activeSessionId}
+                showHeader={false}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
       <StatusBar onClick={() => setLogPanelOpen(true)} />
       <CrashReportNotice onViewReports={() => setDebugPanelOpen(true)} />
       <LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} />

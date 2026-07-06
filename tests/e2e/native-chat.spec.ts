@@ -9,16 +9,13 @@ async function openFixtureProject(page: Page) {
   await expect(page.locator(".status-pill", { hasText: "C:\\basebuild-e2e\\project" })).toBeVisible();
 }
 
-async function ensureChatTab(page: Page) {
+async function ensureChatPanel(page: Page) {
   await page.waitForTimeout(1500);
-  const chatTab = page.locator('.workspace-tab[title^="Chat"] .workspace-tab-label').first();
-  const count = await chatTab.count();
-  if (count > 0) {
-    await chatTab.click();
-    return;
-  }
-  await page.getByTitle("New tab").click();
-  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  const panel = page.locator(".panel-grid-leaf").first();
+  const count = await panel.count();
+  if (count > 0) return;
+  await page.getByTitle("New chat").first().click();
+  await page.waitForTimeout(500);
 }
 
 test.describe("native chat workspace", () => {
@@ -32,7 +29,7 @@ test.describe("native chat workspace", () => {
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
     await openFixtureProject(page);
-    await ensureChatTab(page);
+    await ensureChatPanel(page);
 
     // The compact composer rail with provider/model/effort controls should be visible.
     await expect(page.locator(".chat-composer-header")).toBeVisible();
@@ -70,7 +67,7 @@ test.describe("native chat workspace", () => {
     });
 
     await openFixtureProject(page);
-    await ensureChatTab(page);
+    await ensureChatPanel(page);
 
     // Select the OpenAI provider which is unconfigured in the fixture.
     await page.locator(".chat-provider-trigger").click();
@@ -100,7 +97,7 @@ test.describe("native chat workspace", () => {
     });
 
     await openFixtureProject(page);
-    await ensureChatTab(page);
+    await ensureChatPanel(page);
 
     // Select the connected Umans provider and generate ideas from the overflow menu.
     await page.locator(".chat-provider-trigger").click();
@@ -120,7 +117,7 @@ test.describe("native chat workspace", () => {
 
   test("handles slash commands locally", async ({ page }) => {
     await openFixtureProject(page);
-    await ensureChatTab(page);
+    await ensureChatPanel(page);
 
     await page.getByTitle(/Chat input/).first().fill("/model glm");
     await page.getByTitle("Send message").click();

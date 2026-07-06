@@ -115,6 +115,7 @@ type E2eState = {
   updateInstallCount: number;
   autoSyncEnabled?: boolean;
   gitChangeStaged: boolean;
+  terminals: { id: number; shell: string; cwd: string | null; pid: number; rows: number; cols: number; startedAt: number; alive: boolean }[];
 };
 
 const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState };
@@ -144,8 +145,8 @@ function state(): E2eState {
       workspaceRestoreByProject: new Map(),
       auth: null,
       updateInstallCount: 0,
-      autoSyncEnabled: true,
       gitChangeStaged: false,
+      terminals: [],
     };
   }
   return globalState.__BASEBUILD_E2E_STATE__!;
@@ -197,7 +198,11 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "delete_tab":
     case "write_terminal":
     case "resize_terminal":
-    case "close_terminal":
+    case "close_terminal": {
+      const idx = s.terminals.findIndex((t) => t.id === args.id);
+      if (idx >= 0) s.terminals.splice(idx, 1);
+      return undefined as T;
+    }
     case "agent_stop":
     case "native_chat_cancel":
       return undefined as T;
@@ -368,10 +373,13 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return [] as T;
     case "read_file":
       return "E2E context file" as T;
-    case "create_terminal":
-      return { id: s.nextTerminalId++, shell: args.shell, cwd: args.cwd ?? null, pid: 1234, rows: 24, cols: 80, startedAt: Math.floor(Date.now() / 1000), alive: true } as T;
+    case "create_terminal": {
+      const term = { id: s.nextTerminalId++, shell: String(args.shell), cwd: (args.cwd as string) ?? null, pid: 1234, rows: 24, cols: 80, startedAt: Math.floor(Date.now() / 1000), alive: true };
+      s.terminals.push(term);
+      return term as T;
+    }
     case "list_terminals":
-      return [] as T;
+      return s.terminals as T;
     case "agent_start":
       return 1 as T;
     case "native_provider_catalog":
@@ -514,6 +522,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         sidebarCollapsed: false,
         sideCollapsed: false,
         sideWidth: 260,
+        panelGrid: null,
         updatedAt: 0,
       }) as T;
     }
@@ -698,6 +707,40 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         timeline: { windows: [] },
         assembledAt: Math.floor(Date.now() / 1000),
       } as T;
+    case "git_current_branch":
+      return "main" as T;
+    case "git_default_branch":
+      return "main" as T;
+    case "git_branch_create":
+      return undefined as T;
+    case "git_branch_switch":
+      return undefined as T;
+    case "workspace_list":
+      return [] as T;
+    case "workspace_create":
+      return { id: `ws-${Date.now()}`, projectPath: args.projectPath, planId: args.planId ?? null, branch: `bb/${args.referenceId}-${args.slug}`, path: `C:\\basebuild-e2e\\worktrees\\${args.referenceId}`, createdAt: Math.floor(Date.now() / 1000) } as T;
+    case "workspace_remove":
+      return undefined as T;
+    case "workspace_is_supported":
+      return true as T;
+    case "pr_recommend":
+      return { branch: args.branch, ahead: 2, behind: 0, changedFiles: 3, ghAvailable: false, ghAuthed: false, compareUrl: `https://github.com/basebuild/basebuild/compare/main...${args.branch}?expand=1` } as T;
+    case "pr_create":
+      return { success: true, url: `https://github.com/basebuild/basebuild/pull/1`, error: null, method: "browser" } as T;
+    case "pr_gh_status":
+      return [false, false] as T;
+    case "get_run_concurrency_defaults":
+      return { providers: { "basebuild-local": { maxConcurrency: 1, subagentsEnabled: false, subagentMaxCount: 0 } } } as T;
+    case "set_run_concurrency_defaults":
+      return undefined as T;
+    case "get_run_concurrency_overrides":
+      return { providers: {} } as T;
+    case "set_run_concurrency_override":
+      return undefined as T;
+    case "remove_run_concurrency_override":
+      return undefined as T;
+    case "effective_run_concurrency":
+      return { maxConcurrency: 1, subagentsEnabled: false, subagentMaxCount: 0 } as T;
     default:
       throw new Error(`Unhandled E2E Tauri command: ${command}`);
   }
