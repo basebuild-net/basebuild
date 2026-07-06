@@ -26,15 +26,22 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Debug state — visible on-screen so no DevTools needed.
+  const [debugLines, setDebugLines] = useState<string[]>([]);
+  const debugRef = useRef<HTMLDivElement | null>(null);
+
+  function dbg(line: string) {
+    const ts = new Date().toLocaleTimeString();
+    const entry = `[${ts}] ${line}`;
+    setDebugLines((prev) => [...prev.slice(-30), entry]);
+    // Also log to console in case DevTools is open.
+    console.log("[terminal]", entry);
+  }
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let disposed = false;
 
-    // Resolve once the container has a non-zero size. Opening xterm on a
-    // zero-size element crashes its viewport (`syncScrollArea` reads undefined
-    // render dimensions). This also protects against mounting a terminal in a
-    // collapsed/hidden panel.
     function waitForSize(el: HTMLElement): Promise<boolean> {
       return new Promise((resolve) => {
         if (el.clientWidth > 0 && el.clientHeight > 0) {
@@ -58,8 +65,13 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
       const container = containerRef.current;
       if (!container || disposed) return;
 
+      dbg(`init: container=${container.clientWidth}x${container.clientHeight}`);
+
       const sized = await waitForSize(container);
-      if (!sized || disposed || !containerRef.current) return;
+      if (!sized || disposed || !containerRef.current) {
+        dbg("init: waitForSize returned false, aborting");
+        return;
+      }
 
       const terminal = new Terminal({
         cursorBlink: true,
@@ -86,7 +98,7 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
       try {
         fitAddon.fit();
       } catch {
-        /* transient layout error; the resize handler + rAF refit will size it */
+        /* transient layout error */
       }
 
       if (disposed) {
@@ -99,30 +111,31 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
 
       const id = terminalId;
       if (id === null || id === undefined) {
+        dbg("init: no terminalId, showing empty state");
         setConnected(false);
         return;
       }
 
+      dbg(`init: terminalId=${id}, checking liveness...`);
+
       // Check if the terminal session actually exists in the backend.
-      // On app restart, restored terminalIds point to dead PTY sessions
-      // (the in-memory sessions map is empty). Skip connecting and show
-      // the reconnect overlay instead of spamming "session not found".
       try {
         const alive = await listTerminals();
-        console.log("[terminal] listTerminals", alive, "looking for id=", id);
+        dbg(`listTerminals: ${alive.length} sessions: ${JSON.stringify(alive.map((t) => `#${t.id}(alive=${t.alive})`))}`);
         if (disposed) return;
         if (!alive.some((t) => t.id === id && t.alive)) {
-          console.log("[terminal] session not alive, showing reconnect overlay");
+          dbg(`init: terminal #${id} NOT in alive list — showing reconnect overlay`);
           setConnected(false);
           return;
         }
+        dbg(`init: terminal #${id} is alive, connecting...`);
       } catch (e) {
-        console.log("[terminal] listTerminals failed", e);
+        dbg(`listTerminals failed: ${e}`);
       }
 
       // Listen for output from this terminal
       const listener = await listenTerminalOutput((event) => {
-        console.log("[terminal] output event", event.payload);
+        dbg(`output event: ${JSON.stringify(event.payload)}`);
         if (event.payload.id === id) {
           if (event.payload.kind === "data") {
             terminal.write(event.payload.data);
@@ -140,31 +153,35 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
       unlisten = () => listener();
 
       terminal.onData((data) => {
-        console.log("[terminal] onData", JSON.stringify(data), "id=", id);
+        dbg(`onData: ${JSON.stringify(data)}`);
         void writeTerminal(id, data)
-          .then(() => console.log("[terminal] writeTerminal ok", JSON.stringify(data)))
+          .then(() => dbg(`writeTerminal ok: ${JSON.stringify(data)}`))
           .catch((err) => {
-            console.error("[terminal] writeTerminal FAILED", err);
+            dbg(`writeTerminal FAILED: ${String(err)}`);
             setConnected(false);
-            terminal.writeln("\r\n\x1b[31m[terminal closed — click Reconnect to start a new session]\x1b[0m");
+            terminal.writeln("\r\n\x1b[31m[terminal closed — click Reconnect]\x1b[0m");
           });
       });
 
       setConnected(true);
+      dbg("connected=true, calling terminal.focus()");
 
-      // Focus the terminal so keystrokes are captured. xterm.js does not
-      // auto-focus on mount — without this the cursor blinks but typing
-      // does nothing.
       terminal.focus();
 
-      // rAF refit once layout has settled (fixes the mount-time zero-size race
-      // in flex-wrapped containers such as the OMP tab).
+      // Verify the hidden textarea exists and has focus.
+      const textarea = containerRef.current?.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
+      if (textarea) {
+        dbg(`textarea found: left=${getComputedStyle(textarea).left}, opacity=${getComputedStyle(textarea).opacity}, focused=${document.activeElement === textarea}`);
+      } else {
+        dbg("WARNING: xterm-helper-textarea NOT found in DOM");
+      }
+
       requestAnimationFrame(() => {
         if (disposed) return;
         try {
           fitAddon.fit();
         } catch {
-          /* ignore transient layout errors */
+          /* ignore */
         }
         const dims = fitAddon.proposeDimensions();
         if (dims) void resizeTerminal(id, dims.rows, dims.cols).catch(() => {});
@@ -199,6 +216,13 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
     return () => window.removeEventListener("resize", handleResize);
   }, [terminalId]);
 
+  // Auto-scroll debug panel to bottom.
+  useEffect(() => {
+    if (debugRef.current) {
+      debugRef.current.scrollTop = debugRef.current.scrollHeight;
+    }
+  }, [debugLines]);
+
   if (terminalId == null && !cwd) {
     return (
       <div className="empty-state">
@@ -218,6 +242,22 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
         <span className="terminal-status">
           {connected ? `● Terminal #${terminalId}` : error ? "Error" : "Connecting..."}
         </span>
+        {connected && terminalId != null ? (
+          <button
+            className="btn btn-sm"
+            type="button"
+            title="Send 'echo hello' directly to PTY (bypasses xterm keyboard)"
+            onClick={() => {
+              const id = terminalId!;
+              dbg(`TEST: sending 'echo hello\\r' directly to writeTerminal(${id})`);
+              void writeTerminal(id, "echo hello\r")
+                .then(() => dbg("TEST: writeTerminal('echo hello\\r') ok"))
+                .catch((err) => dbg(`TEST: writeTerminal FAILED: ${String(err)}`));
+            }}
+          >
+            Test input
+          </button>
+        ) : null}
       </div>
       {error ? <div className="terminal-error">{error}</div> : null}
       <div className="terminal-viewport" ref={containerRef} />
@@ -234,6 +274,16 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
           </button>
         </div>
       ) : null}
+      {/* Debug overlay — visible at bottom of terminal panel. */}
+      <div className="terminal-debug-panel" ref={debugRef}>
+        {debugLines.length === 0 ? (
+          <span className="terminal-debug-empty">Waiting for init...</span>
+        ) : (
+          debugLines.map((line, i) => (
+            <div key={i} className="terminal-debug-line">{line}</div>
+          ))
+        )}
+      </div>
     </div>
   );
 }
