@@ -128,6 +128,11 @@ export function TerminalPanel({ terminalId, cwd, onOutput }: TerminalPanelProps)
 
       setConnected(true);
 
+      // Focus the terminal so keystrokes are captured. xterm.js does not
+      // auto-focus on mount — without this the cursor blinks but typing
+      // does nothing.
+      terminal.focus();
+
       // rAF refit once layout has settled (fixes the mount-time zero-size race
       // in flex-wrapped containers such as the OMP tab).
       requestAnimationFrame(() => {
@@ -181,7 +186,10 @@ export function TerminalPanel({ terminalId, cwd, onOutput }: TerminalPanelProps)
   }
 
   return (
-    <div className="terminal-panel">
+    <div
+      className="terminal-panel"
+      onClick={() => terminalRef.current?.focus()}
+    >
       <div className="terminal-toolbar">
         <span className="terminal-status">
           {connected ? `● Terminal #${terminalId}` : error ? "Error" : "Connecting..."}
