@@ -24,7 +24,7 @@ export function LogPanel({ open, onClose }: LogPanelProps) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal log-panel" onClick={(e) => e.stopPropagation()}>
+      <div className="modal modal-log" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Warnings & Errors</h2>
           <div className="row gap-sm">

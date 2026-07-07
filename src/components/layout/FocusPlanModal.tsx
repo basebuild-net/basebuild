@@ -76,8 +76,8 @@ export function FocusPlanModal({
             <X size={14} />
           </button>
         </div>
-        <div className="modal-body stack" style={{ gap: "10px" }}>
-          <div className="card stack-sm" style={{ background: "var(--bb-surface)" }}>
+        <div className="modal-body stack focus-plan-body">
+          <div className="card stack-sm focus-plan-status-card">
             <span className="text-sm text-muted">Status</span>
             <span className="pill">{PLAN_STATUS_LABEL[plan.status]}</span>
             {taskProgress && taskProgress.total > 0 ? (
