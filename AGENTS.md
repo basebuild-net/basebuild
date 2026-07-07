@@ -39,6 +39,7 @@ Non-negotiable and enforced in review. Rationale and how-to in
 11. **Feature branches only.** Never build on or push to `main` ([workflow.md](./docs/agents/workflow.md#feature-branches-invariant-11)).
 12. **Roadmap tracks OpenSpec.** Any `openspec/changes/**` edit ships in the same commit with `node scripts/openspec-status.mjs --write` **and** a `openspec/ROADMAP.md` narrative pass ([openspec.md](./docs/agents/openspec.md)).
 13. **Archive when complete.** When all tasks in a change's `tasks.md` are `[x]`, run `/archive <name>` in the same session — do not leave completed changes in `openspec/changes/`. The roadmap status table + narrative MUST reflect the archive in the same commit ([openspec.md](./docs/agents/openspec.md#archiving-a-change)).
+14. **Debug logging on every interaction.** Every button press, panel creation, session start, process spawn, and state transition MUST emit a `addLog("debug", ...)` entry with the action name and key parameters. This is the primary diagnostic surface — when something fails silently, the debug log must show the last action that ran. Use `addLog("debug", "Action name", "details")` at the entry point of every handler, and at every branch that skips or aborts the action. Debug entries are filtered out of the status bar by default but visible in the LogPanel filter.
 
 ## Before you yield
 

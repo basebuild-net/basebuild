@@ -82,9 +82,19 @@ Panel-grid state is self-healing, project-scoped, and transactional:
   a single diagnostic event.
 - **Orphan recovery.** `detectOrphanedTabs` flags backing session tabs that
   have no reachable panel in the live grid or history. Detection is
-  non-destructive: it logs a recovery diagnostic only. Permanent cleanup is
-  explicit and confirm-gated (HistoryDrawer's delete dialog); no session or
-  tab is ever deleted automatically.
+  non-destructive: it logs a single summary entry (count + kind breakdown),
+  not one entry per tab, and dedupes by tab id so repeated state changes
+  don't flood the log. Tabs whose kind matches a `creating` panel are
+  excluded — the binding is in flight. Permanent cleanup is explicit and
+  confirm-gated (HistoryDrawer's delete dialog); no session or tab is ever
+  deleted automatically.
+- **Debug logging.** Every panel creation, session start, project switch,
+  restore, and prompt delivery emits a `addLog("debug", ...)` entry at the
+  entry point and at every skip/abort branch. The `debug` level is visible
+  in the LogPanel filter but excluded from the status bar error/warning
+  counts. Chat session creation has a 15s timeout — on expiry the panel
+  shows an error bar with a Retry button instead of hanging in
+  "initializing" forever.
 
 ### Per-chat header
 

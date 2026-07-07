@@ -285,6 +285,15 @@ export function ChatPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   // Expose the native session id on the DOM for e2e tests (data-native-session-id).
   const panelRef = useRef<HTMLDivElement>(null);
+  // Ref indirection so the loadOrCreate effect doesn't re-run when the
+  // inline onChatSessionCreated callback changes identity (it's a new
+  // function on every render). Without this, calling onChatSessionCreated
+  // triggers a grid update → re-render → new callback → effect re-runs →
+  // calls onChatSessionCreated again → infinite loop.
+  const onChatSessionCreatedRef = useRef<((id: string) => void) | null>(null);
+  useEffect(() => {
+    onChatSessionCreatedRef.current = onChatSessionCreated ?? null;
+  }, [onChatSessionCreated]);
   useEffect(() => {
     if (panelRef.current) {
       panelRef.current.dataset.nativeSessionId = nativeSessionId ?? "";
@@ -342,6 +351,7 @@ export function ChatPanel({
     let cancelled = false;
     async function load() {
       try {
+        addLog("debug", "Chat config loading", `projectPath=${projectPath}`);
         const [defaults, cat, met, resolved] = await Promise.all([
           getRuntimeDefaults(),
           nativeProviderCatalog(),
@@ -356,6 +366,7 @@ export function ChatPanel({
         setModelId(resolved.modelId);
         setEffortLevel(resolved.effortLevel);
         setModelNotice(resolved.notice);
+        addLog("debug", "Chat config loaded", `provider=${resolved.providerId} model=${resolved.modelId} models=${cat.models.length}`);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to load chat config", msg);
@@ -381,49 +392,68 @@ export function ChatPanel({
     setNativeSessionId(chatSessionId ?? null);
   }, [chatSessionId]);
 
-  // Native mode: load or create session
+  // Native mode: load or create session. Times out after 15s so the panel
+  // never hangs forever in "initializing" — the user sees an actionable
+  // error and can retry or close the panel.
   useEffect(() => {
     if (!nativeMode || !catalog) return;
     let cancelled = false;
+    let timer: number | undefined;
     async function loadOrCreate() {
       try {
         if (nativeSessionId) {
+          addLog("debug", "Chat session loading", `Loading messages for ${nativeSessionId}`);
           const [msgs, events, intrs] = await Promise.all([
             nativeChatMessages(nativeSessionId),
             nativeChatToolEvents(nativeSessionId),
             nativeInteractionListAll(nativeSessionId),
           ]);
-          if (!cancelled) {
-            setNativeMessages(msgs);
-            setToolEvents(events);
-            setInteractions(intrs);
-          }
+          if (cancelled) return;
+          setNativeMessages(msgs);
+          setToolEvents(events);
+          setInteractions(intrs);
+          addLog("debug", "Chat session loaded", `${nativeSessionId}: ${msgs.length} messages`);
           return;
         }
-        const session = await nativeChatStart({
-          projectPath,
-          title: "Native Chat",
-          providerId,
-          modelId,
-          effortLevel,
-        });
+        addLog("debug", "Chat session creating", `projectPath=${projectPath} provider=${providerId} model=${modelId}`);
+        const session = await Promise.race([
+          nativeChatStart({
+            projectPath,
+            title: "Native Chat",
+            providerId,
+            modelId,
+            effortLevel,
+          }),
+          new Promise<never>((_, reject) => {
+            timer = window.setTimeout(() => reject(new Error("Chat session creation timed out after 15s")), 15_000);
+          }),
+        ]);
         if (cancelled) return;
         setNativeSessionId(session.id);
         setToolEvents([]);
         setInteractions([]);
         setError(null);
+        addLog("debug", "Chat session created", session.id);
+        // Notify the shell so it can bind chatSessionId on the panel + tab
+        // and clear the `creating` flag. Without this the panel stays
+        // "initializing" forever. Use the ref so the loadOrCreate effect
+        // doesn't depend on the callback identity (inline arrow → new fn
+        // every render → infinite loop if it's in the deps array).
+        onChatSessionCreatedRef.current?.(session.id);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to open native chat", msg);
         if (!cancelled) setError(msg);
+      } finally {
+        if (timer) window.clearTimeout(timer);
       }
     }
     void loadOrCreate();
     return () => {
       cancelled = true;
+      if (timer) window.clearTimeout(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nativeMode, catalog, nativeSessionId, projectPath, onChatSessionCreated, addLog]);
+  }, [nativeMode, catalog, nativeSessionId, projectPath, providerId, modelId, effortLevel, addLog]);
 
   // Native mode: listen for streamed assistant chunks for this session
   useEffect(() => {
@@ -785,6 +815,7 @@ export function ChatPanel({
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
+    addLog("debug", "Chat send", `text=${text.slice(0, 80)} nativeMode=${nativeMode} session=${nativeSessionId ?? "none"}`);
     if (!text) return;
     // Composer answer routing: if there's a pending text/free-text question,
     // capture the next send as the answer (unless escaped with /send).
@@ -1547,6 +1578,17 @@ export function ChatPanel({
         <div className="chat-error-bar">
           <AlertCircle size={12} />
           <span className="text-sm">{error}</span>
+          <button
+            className="btn btn-sm"
+            type="button"
+            title="Retry creating the chat session"
+            onClick={() => {
+              setError(null);
+              setNativeSessionId(null);
+            }}
+          >
+            <RefreshCw size={12} /> Retry
+          </button>
           <button className="btn-icon btn-icon-sm" title="Clear error" type="button" onClick={() => setError(null)}>
             <X size={11} />
           </button>

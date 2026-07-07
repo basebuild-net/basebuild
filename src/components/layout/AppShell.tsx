@@ -191,6 +191,7 @@ export function AppShell({ updates }: AppShellProps) {
 
   useEffect(() => {
     if (!activeProjectPath) {
+      addLog("debug", "Project deselected", "clearing workspace restore");
       setWorkspaceRestore(null);
       restoredProjectRef.current = null;
       loggedOrphanIdsRef.current.clear();
@@ -201,13 +202,18 @@ export function AppShell({ updates }: AppShellProps) {
     // response from a prior project cannot hydrate the current grid.
     const generation = ++restoreGenerationRef.current;
     loggedOrphanIdsRef.current.clear();
+    addLog("debug", "Project selected", `${activeProjectPath} (gen=${generation})`);
     let cancelled = false;
     void getWorkspaceRestoreState(activeProjectPath).then((state) => {
-      if (cancelled || generation !== restoreGenerationRef.current) return;
+      if (cancelled || generation !== restoreGenerationRef.current) {
+        addLog("debug", "Restore skipped (stale)", `gen=${generation} current=${restoreGenerationRef.current}`);
+        return;
+      }
       setWorkspaceRestore(state);
       setSidebarCollapsed(state.sidebarCollapsed);
       restoredProjectRef.current = activeProjectPath;
       setProjectRestoreLoading(false);
+      addLog("debug", "Workspace restored", `${activeProjectPath} panels=${flattenPanels(state.panelGrid ? parsePanelGridWithDiagnostics(state.panelGrid).state.root : null).length}`);
     }).catch((caught) => {
       if (cancelled || generation !== restoreGenerationRef.current) return;
       const message = caught instanceof Error ? caught.message : String(caught);
@@ -270,15 +276,20 @@ export function AppShell({ updates }: AppShellProps) {
     }
   }, [workspaceRestore, addLog]);
   // Detect orphaned backing tabs after restore or when tabs change —
-  // non-destructive: log only, never delete. Each orphan is logged once.
+  // non-destructive: log a single summary, never per-tab. Re-logging on
+  // project switch is expected (different project, different tabs).
   const loggedOrphanIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const orphans = detectOrphanedTabs(panelGridState, session.tabs);
-    for (const o of orphans) {
-      if (loggedOrphanIdsRef.current.has(o.tabId)) continue;
-      loggedOrphanIdsRef.current.add(o.tabId);
-      addLog("warn", "Orphaned session tab recovered", `Tab ${o.tabId} (${o.kind}) has no reachable panel; recover it from history or delete it explicitly.`);
-    }
+    const newOrphans = orphans.filter((o) => !loggedOrphanIdsRef.current.has(o.tabId));
+    if (newOrphans.length === 0) return;
+    for (const o of newOrphans) loggedOrphanIdsRef.current.add(o.tabId);
+    const byKind = newOrphans.reduce<Record<string, number>>((acc, o) => {
+      acc[o.kind] = (acc[o.kind] ?? 0) + 1;
+      return acc;
+    }, {});
+    const breakdown = Object.entries(byKind).map(([k, n]) => `${n} ${k}`).join(", ");
+    addLog("warn", "Orphaned session tabs recovered", `${newOrphans.length} tab(s) have no reachable panel (${breakdown}). Recover from history or delete explicitly.`);
   }, [panelGridState, session.tabs, addLog]);
 
 
@@ -485,11 +496,16 @@ export function AppShell({ updates }: AppShellProps) {
   }, []);
   const openOrFocusChat = useCallback(
     async (draftPrompt: string) => {
-      if (!session.activeSessionId) return;
+      addLog("debug", "openOrFocusChat", `draftPrompt=${draftPrompt.slice(0, 60)}... activeSession=${session.activeSessionId ?? "none"}`);
+      if (!session.activeSessionId) {
+        addLog("debug", "openOrFocusChat skipped", "no active session");
+        return;
+      }
       // Find existing chat tab (prefer active, then most recent)
       const activeChat = session.tabs.find((t) => t.id === session.activeTabId && t.kind === "chat");
       const existingChat = activeChat ?? session.tabs.filter((t) => t.kind === "chat").slice(-1)[0] ?? null;
       if (existingChat) {
+        addLog("debug", "openOrFocusChat focusing existing", `tab=${existingChat.id} chatSessionId=${existingChat.chatSessionId ?? "none"}`);
         session.setActiveTabId(existingChat.id);
         if (existingChat.chatSessionId) {
           deliverPrompt({ chatSessionId: existingChat.chatSessionId, text: draftPrompt, mode: "insert" });
@@ -497,6 +513,7 @@ export function AppShell({ updates }: AppShellProps) {
           pendingNewPanelPrompts.current.set(existingChat.id, { text: draftPrompt, mode: "insert" });
         }
       } else {
+        addLog("debug", "openOrFocusChat creating new", "no existing chat tab found");
         handleCreateTypedPanelRef.current("chat", { text: draftPrompt, mode: "insert" });
       }
     },
@@ -644,13 +661,20 @@ Rules:
    *  in-flight guard so one click creates exactly one panel + one resource. */
   const handleCreateTypedPanel = useCallback(
     (type: "chat" | "terminal" | "omp" | "schematic", pendingPrompt?: { text: string; mode: PromptMode }): void => {
-      if (!session.activeSessionId) return;
+      addLog("debug", "Panel create requested", `type=${type} pendingPrompt=${pendingPrompt ? "yes" : "no"} activeSession=${session.activeSessionId ?? "none"}`);
+      if (!session.activeSessionId) {
+        addLog("debug", "Panel create skipped", "no active session");
+        return;
+      }
       if (projectRestoreLoading) {
         addLog("warn", "Panel creation blocked", "The project is still loading; please wait.");
         return;
       }
       // Serialize rapid repeated clicks per type.
-      if (creatingInFlightRef.current.has(type)) return;
+      if (creatingInFlightRef.current.has(type)) {
+        addLog("debug", "Panel create skipped", `type=${type} already in flight`);
+        return;
+      }
       creatingInFlightRef.current.add(type);
       const releaseGuard = () => creatingInFlightRef.current.delete(type);
 
@@ -669,9 +693,11 @@ Rules:
         const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
         const pending = reserve("chat", `Chat ${chatCount}`);
         if (!commitInsert(pending, panelGridState.activePanelId, "right")) {
+          addLog("debug", "Chat panel insert failed", panelId);
           releaseGuard();
           return;
         }
+        addLog("debug", "Chat panel reserved", `${panelId} (Chat ${chatCount})`);
         // Acquire the chat tab after the reservation is visible.
         void (async () => {
           try {
@@ -681,8 +707,11 @@ Rules:
             // orphan detection doesn't flag the in-flight tab.
             if (!tab) {
               addLog("warn", "Chat tab creation returned no tab", panelId);
-            } else if (pendingPrompt) {
-              pendingNewPanelPrompts.current.set(tab.id, pendingPrompt);
+            } else {
+              addLog("debug", "Chat tab created", `tab=${tab.id} panel=${panelId}`);
+              if (pendingPrompt) {
+                pendingNewPanelPrompts.current.set(tab.id, pendingPrompt);
+              }
             }
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
@@ -700,9 +729,11 @@ Rules:
         const baseTitle = type === "omp" ? "Oh My Pi" : "Terminal";
         const pending = reserve(type, baseTitle);
         if (!commitInsert(pending, panelGridState.activePanelId, "right")) {
+          addLog("debug", `${baseTitle} panel insert failed`, panelId);
           releaseGuard();
           return;
         }
+        addLog("debug", `${baseTitle} panel reserved`, panelId);
         void (async () => {
           try {
             const term = await createTerminal(shell, activeProjectPath ?? undefined);
@@ -716,6 +747,7 @@ Rules:
                 creating: false,
               }),
             }));
+            addLog("debug", `${baseTitle} created`, `panel=${panelId} term=${term.id}`);
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             addLog("error", `${baseTitle} creation failed`, message);
@@ -731,6 +763,7 @@ Rules:
       // schematic — no backing resource, insert directly.
       const panel: Panel = { id: panelId, type: "schematic", title: "Schematic", chatSessionId: null, terminalId: null, filePath: null };
       commitInsert(panel, panelGridState.activePanelId, "right");
+      addLog("debug", "Schematic panel created", panelId);
       releaseGuard();
     },
     [session, activeProjectPath, projectRestoreLoading, panelGridState, commitInsert, addLog],
@@ -755,17 +788,19 @@ Rules:
             projectPath={activeProjectPath ?? ""}
             chatSessionId={panel.chatSessionId ?? tab?.chatSessionId ?? null}
             onChatSessionCreated={(chatSessionId) => {
+              addLog("debug", "Chat session created", `panel=${panel.id} chatSessionId=${chatSessionId} tab=${tab?.id ?? "none"}`);
               if (tab) {
                 void session.setTabChatSession(tab.id, chatSessionId);
                 // Flush any prompt queued for this tab before its session existed.
                 const pending = pendingNewPanelPrompts.current.get(tab.id);
                 if (pending) {
+                  addLog("debug", "Flushing pending prompt", `tab=${tab.id} mode=${pending.mode}`);
                   pendingNewPanelPrompts.current.delete(tab.id);
                   deliverPrompt({ chatSessionId, text: pending.text, mode: pending.mode });
                 }
               }
               // Also update the panel's chatSessionId in the grid so the link
-              // persists across restarts.
+              // persists across restarts, and clear the `creating` flag.
               setPanelGridState((prev) => ({
                 ...prev,
                 root: updatePanelInTree(prev.root, panel.id, { chatSessionId, creating: false }),
@@ -1185,8 +1220,12 @@ Rules:
         panels={flattenPanels(panelGridState.root)}
         title="Send wizard to…"
         onSelect={(choice: DestinationChoice) => {
-          if (!pendingDelivery) return;
+          if (!pendingDelivery) {
+            addLog("debug", "DestinationPicker onSelect", "no pending delivery — skipping");
+            return;
+          }
           if (choice.kind === "existing") {
+            addLog("debug", "DestinationPicker existing", `chatSessionId=${choice.chatSessionId} panel=${choice.panelId}`);
             deliverPrompt({
               chatSessionId: choice.chatSessionId,
               text: pendingDelivery.text,
@@ -1195,6 +1234,7 @@ Rules:
             // Focus the panel that hosts this chat.
             setPanelGridState((prev) => ({ ...prev, activePanelId: choice.panelId }));
           } else {
+            addLog("debug", "DestinationPicker new", "creating new chat panel for wizard prompt");
             // New conversation — create a chat panel + backing tab, queue the prompt.
             handleCreateTypedPanel("chat", { text: pendingDelivery.text, mode: pendingDelivery.mode });
           }

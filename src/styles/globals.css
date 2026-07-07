@@ -1955,6 +1955,7 @@ a { color: inherit; text-decoration: none; }
 
 .badge-warn { background: color-mix(in srgb, var(--bb-warning) 18%, transparent); color: var(--bb-warning); }
 .badge-error { background: color-mix(in srgb, var(--bb-negative) 18%, transparent); color: var(--bb-negative); }
+.badge-debug { background: color-mix(in srgb, var(--bb-text-muted) 15%, transparent); color: var(--bb-text-muted); }
 .log-copy-toast { padding: 4px 8px; color: var(--bb-positive); font-size: 11px; border-bottom: 1px solid var(--bb-border); }
 
 /* ─── Final touches settings ─── */

@@ -3,6 +3,7 @@ import { Copy, Trash2, X } from "lucide-react";
 import { useLogs, type LogEntry, type LogLevel } from "../../state/log";
 
 const levelBadge: Record<LogLevel, string> = {
+  debug: "badge badge-debug",
   info: "badge",
   warn: "badge badge-warn",
   error: "badge badge-error",
@@ -51,7 +52,7 @@ export function LogPanel({ open, onClose }: LogPanelProps) {
         </div>
         {copied ? <div className="log-copy-toast text-sm text-ok">Copied to clipboard</div> : null}
         <div className="log-filter">
-          {(["all", "error", "warn", "info"] as const).map((f) => (
+          {(["all", "error", "warn", "info", "debug"] as const).map((f) => (
             <button
               key={f}
               className={`btn btn-sm${filter === f ? " btn-primary" : ""}`}

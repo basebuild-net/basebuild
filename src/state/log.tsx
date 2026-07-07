@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 
-export type LogLevel = "info" | "warn" | "error";
+export type LogLevel = "debug" | "info" | "warn" | "error";
 
 export type LogEntry = {
   id: number;
@@ -38,6 +38,7 @@ export function LogProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line no-console
     if (level === "error") console.error(message, details ?? "");
     else if (level === "warn") console.warn(message, details ?? "");
+    else if (level === "debug") console.debug(message, details ?? "");
     else console.log(message, details ?? "");
   }, []);
 
