@@ -283,13 +283,9 @@ export function ChatPanel({
   const ideaState = useIdeaState(activeSessionId ?? null);
 
   const filteredModels = useMemo(() => {
-    const models = catalog?.models ?? [];
+    const models = catalog?.models.filter((m) => m.providerId === providerId) ?? [];
     const needle = modelFilter.trim().toLowerCase();
-    const ranked = models.slice().sort((a, b) => {
-      if (a.providerId === providerId && b.providerId !== providerId) return -1;
-      if (a.providerId !== providerId && b.providerId === providerId) return 1;
-      return a.label.localeCompare(b.label);
-    });
+    const ranked = models.slice().sort((a, b) => a.label.localeCompare(b.label));
     if (!needle) return ranked;
     return ranked.filter((model) => {
       const provider = catalog?.providers.find((p) => p.id === model.providerId);
@@ -1731,6 +1727,18 @@ export function ChatPanel({
                       title={`${provider.label}: ${provider.configured ? "connected" : "not connected"}`}
                       onClick={() => {
                         setProviderId(provider.id);
+                        // Auto-select first model from this provider if current model doesn't match
+                        const providerModels = catalog?.models.filter((m) => m.providerId === provider.id) ?? [];
+                        const firstModel = providerModels[0];
+                        if (firstModel && (modelId !== firstModel.id || providerId !== provider.id)) {
+                          setModelId(firstModel.id);
+                          const next: ChatModelDefault = {
+                            providerId: provider.id,
+                            modelId: firstModel.id,
+                            effortLevel,
+                          };
+                          void nativeChatSetProjectModelDefault(projectPath, next);
+                        }
                         setShowProviderPicker(false);
                         setShowLogin(!provider.configured && provider.id !== LOCAL_PROVIDER_ID);
                         setSetupRequired(null);
@@ -1746,7 +1754,7 @@ export function ChatPanel({
             {showModelPicker && catalog ? (
               <div className="chat-picker" role="dialog" aria-label="Choose model">
                 <div className="chat-picker-header">
-                  <span>Choose model</span>
+                  <span>Choose model · {selectedProvider?.label ?? providerId}</span>
                   <button className="btn-icon btn-icon-sm" type="button" title="Close model picker" onClick={() => setShowModelPicker(false)}>
                     <X size={11} />
                   </button>
@@ -1785,7 +1793,7 @@ export function ChatPanel({
                         }}
                       >
                         <span className="chat-picker-main">{model.label}</span>
-                        <span className="chat-picker-meta">{provider?.label ?? model.providerId} · {model.supportedEfforts.length ? model.supportedEfforts.join("/") : "standard"} · {model.source}</span>
+                        <span className="chat-picker-meta">{model.supportedEfforts.length ? model.supportedEfforts.join("/") : "standard"} · {model.source}</span>
                       </button>
                     );
                   })}
