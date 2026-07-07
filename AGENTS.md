@@ -38,6 +38,7 @@ Non-negotiable and enforced in review. Rationale and how-to in
 10. **Commit in verified milestones.** No silent commits — report commit points unless the user asked for commits ([workflow.md](./docs/agents/workflow.md#commit-milestones-invariant-10)).
 11. **Feature branches only.** Never build on or push to `main` ([workflow.md](./docs/agents/workflow.md#feature-branches-invariant-11)).
 12. **Roadmap tracks OpenSpec.** Any `openspec/changes/**` edit ships in the same commit with `node scripts/openspec-status.mjs --write` **and** a `openspec/ROADMAP.md` narrative pass ([openspec.md](./docs/agents/openspec.md)).
+13. **Archive when complete.** When all tasks in a change's `tasks.md` are `[x]`, run `/archive <name>` in the same session — do not leave completed changes in `openspec/changes/`. The roadmap status table + narrative MUST reflect the archive in the same commit ([openspec.md](./docs/agents/openspec.md#archiving-a-change)).
 
 ## Before you yield
 

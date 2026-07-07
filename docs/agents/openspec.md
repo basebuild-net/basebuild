@@ -31,8 +31,13 @@ something that needs changing.
 
 ## Archiving a change
 
-Use the `/archive` skill when all tasks are complete. This merges delta specs
-into `openspec/specs/`.
+Use the `/archive` skill when **all** tasks in `tasks.md` are `[x]`. This
+merges delta specs into `openspec/specs/` and moves the folder to
+`openspec/changes/archive/<date>-<name>/`. Do not leave completed changes in
+`openspec/changes/` — archive in the same session that completes the last
+task. The roadmap status table + narrative MUST reflect the archive in the
+same commit (run `node scripts/openspec-status.mjs --write` and update the
+"Merged — awaiting archive" / archive history sections).
 
 ## Rules
 
