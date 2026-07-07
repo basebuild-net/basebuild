@@ -996,6 +996,7 @@ impl PlanRunnerService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tauri::Manager;
 
     #[test]
     fn plan_run_status_round_trip() {

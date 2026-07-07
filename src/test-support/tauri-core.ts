@@ -213,8 +213,24 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "native_chat_tool_events":
       return [] as T;
     case "native_interaction_list_all":
-    case "native_interaction_list_pending":
+    case "native_interaction_list_pending": {
+      const w = globalThis as unknown as { __basebuildMockInteraction?: unknown };
+      const injected = w.__basebuildMockInteraction;
+      if (injected) {
+        return [injected] as T;
+      }
       return [] as T;
+    }
+    case "native_interaction_resolve": {
+      const w = globalThis as unknown as { __basebuildMockInteraction?: { id: string; status: string; [k: string]: unknown } };
+      if (w.__basebuildMockInteraction) w.__basebuildMockInteraction.status = "answered";
+      return (w.__basebuildMockInteraction ?? { id: args.id as string, status: "answered" }) as T;
+    }
+    case "native_interaction_cancel": {
+      const w = globalThis as unknown as { __basebuildMockInteraction?: { id: string; status: string; [k: string]: unknown } };
+      if (w.__basebuildMockInteraction) w.__basebuildMockInteraction.status = "cancelled";
+      return (w.__basebuildMockInteraction ?? { id: args.id as string, status: "cancelled" }) as T;
+    }
     case "stability_list_reports":
       return [] as T;
     case "stability_read_report":

@@ -701,6 +701,7 @@ pub fn archive_change(project_path: &str, change_name: &str) -> DbResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tauri::Manager;
 
     #[test]
     fn derive_change_name_kebab_cases_titles() {

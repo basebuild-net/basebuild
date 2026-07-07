@@ -11,48 +11,48 @@ async function openFixtureProject(page: Page) {
   ).toBeVisible();
 }
 
+/** Get the native session id from the chat panel's data attribute. */
+async function getNativeSessionId(page: Page): Promise<string> {
+  await expect(page.locator(".chat-panel")).toBeVisible({ timeout: 10_000 });
+  const id = await page.locator(".chat-panel").first().getAttribute("data-native-session-id");
+  return id ?? "";
+}
+
+/** Inject a pending interaction into the mock and emit the Tauri event. */
+async function injectInteraction(page: Page, interaction: Record<string, unknown>, sessionId: string) {
+  await page.evaluate(({ interaction, sessionId }) => {
+    const w = window as unknown as {
+      __basebuildMockInteraction?: unknown;
+      __emit?: (event: string, payload: unknown) => void;
+    };
+    w.__basebuildMockInteraction = { ...interaction, sessionId };
+    w.__emit?.("native-chat://interactive-request", { sessionId, interactionId: interaction.id });
+  }, { interaction, sessionId });
+}
+
 test.describe("Interactive elements: ask_user question card", () => {
   test("agent asks → card renders → click option → answered state persists", async ({ page }) => {
     await openFixtureProject(page);
+    const sessionId = await getNativeSessionId(page);
 
-    // Open the native chat panel (first chat tab).
-    await expect(page.locator(".chat-panel")).toBeVisible({ timeout: 10_000 });
-
-    // Simulate an ask_user event from the backend by emitting the
-    // native-chat://interactive-request event with a pending interaction.
-    // In the mock environment, we inject the interaction via page.evaluate.
-    await page.evaluate(async () => {
-      // @ts-expect-error — Tauri invoke is injected by the mock
-      const invoke = window.__TAURI_INTERNALS__?.invoke ?? window.invoke;
-      if (!invoke) return;
-      // Create a pending interaction directly via the command (mocked).
-      // The mock backend resolves list_pending with the injected interaction.
-      window.__basebuildMockInteraction = {
-        id: "test-intr-1",
-        sessionId: "mock-session",
-        questions: [
-          {
-            id: "q1",
-            prompt: "Which approach should we take?",
-            kind: "options",
-            options: [
-              { label: "Option A", description: "First approach" },
-              { label: "Option B", description: "Second approach" },
-            ],
-            recommended: 0,
-            allowFreeText: false,
-          },
-        ],
-        status: "pending",
-        createdAt: Math.floor(Date.now() / 1000),
-      };
-      // Emit the event so the ChatPanel picks it up.
-      window.dispatchEvent(
-        new CustomEvent("native-chat://interactive-request", {
-          detail: { sessionId: "mock-session", interactionId: "test-intr-1" },
-        }),
-      );
-    });
+    await injectInteraction(page, {
+      id: "test-intr-1",
+      questions: [
+        {
+          id: "q1",
+          prompt: "Which approach should we take?",
+          kind: "options",
+          options: [
+            { label: "Option A", description: "First approach" },
+            { label: "Option B", description: "Second approach" },
+          ],
+          recommended: 0,
+          allowFreeText: false,
+        },
+      ],
+      status: "pending",
+      createdAt: Math.floor(Date.now() / 1000),
+    }, sessionId);
 
     // The QuestionCard should render with the prompt and options.
     await expect(page.locator(".question-card-pending")).toBeVisible({ timeout: 5_000 });
@@ -76,36 +76,26 @@ test.describe("Interactive elements: ask_user question card", () => {
 
   test("cancel resolves pending card", async ({ page }) => {
     await openFixtureProject(page);
+    const sessionId = await getNativeSessionId(page);
 
-    await expect(page.locator(".chat-panel")).toBeVisible({ timeout: 10_000 });
-
-    // Inject a pending interaction.
-    await page.evaluate(() => {
-      window.__basebuildMockInteraction = {
-        id: "test-intr-2",
-        sessionId: "mock-session",
-        questions: [
-          {
-            id: "q1",
-            prompt: "Do you want to proceed?",
-            kind: "confirm",
-            options: [
-              { label: "Yes" },
-              { label: "No" },
-            ],
-            recommended: 0,
-            allowFreeText: false,
-          },
-        ],
-        status: "pending",
-        createdAt: Math.floor(Date.now() / 1000),
-      };
-      window.dispatchEvent(
-        new CustomEvent("native-chat://interactive-request", {
-          detail: { sessionId: "mock-session", interactionId: "test-intr-2" },
-        }),
-      );
-    });
+    await injectInteraction(page, {
+      id: "test-intr-2",
+      questions: [
+        {
+          id: "q1",
+          prompt: "Do you want to proceed?",
+          kind: "confirm",
+          options: [
+            { label: "Yes" },
+            { label: "No" },
+          ],
+          recommended: 0,
+          allowFreeText: false,
+        },
+      ],
+      status: "pending",
+      createdAt: Math.floor(Date.now() / 1000),
+    }, sessionId);
 
     // The QuestionCard should render.
     await expect(page.locator(".question-card-pending")).toBeVisible({ timeout: 5_000 });
@@ -120,32 +110,22 @@ test.describe("Interactive elements: ask_user question card", () => {
 
   test("text question captures composer with answering indicator", async ({ page }) => {
     await openFixtureProject(page);
+    const sessionId = await getNativeSessionId(page);
 
-    await expect(page.locator(".chat-panel")).toBeVisible({ timeout: 10_000 });
-
-    // Inject a pending text question.
-    await page.evaluate(() => {
-      window.__basebuildMockInteraction = {
-        id: "test-intr-3",
-        sessionId: "mock-session",
-        questions: [
-          {
-            id: "q1",
-            prompt: "What should we name this?",
-            kind: "text",
-            options: [],
-            allowFreeText: true,
-          },
-        ],
-        status: "pending",
-        createdAt: Math.floor(Date.now() / 1000),
-      };
-      window.dispatchEvent(
-        new CustomEvent("native-chat://interactive-request", {
-          detail: { sessionId: "mock-session", interactionId: "test-intr-3" },
-        }),
-      );
-    });
+    await injectInteraction(page, {
+      id: "test-intr-3",
+      questions: [
+        {
+          id: "q1",
+          prompt: "What should we name this?",
+          kind: "text",
+          options: [],
+          allowFreeText: true,
+        },
+      ],
+      status: "pending",
+      createdAt: Math.floor(Date.now() / 1000),
+    }, sessionId);
 
     // The answering banner should appear above the composer.
     await expect(page.locator(".chat-answering-banner")).toBeVisible({ timeout: 5_000 });

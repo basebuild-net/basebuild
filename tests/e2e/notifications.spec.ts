@@ -79,7 +79,7 @@ test.describe("Notifications: toast + center + badge", () => {
     await openFixtureProject(page);
 
     // Open settings → notifications.
-    await page.getByTitle("Settings").click();
+    await page.locator("button[title='Settings'], button[title='Sign in to basebuild.net']").first().click();
     await expect(page.locator(".settings-modal")).toBeVisible();
     await page.locator(".settings-tab", { hasText: "Notifications" }).click();
 
@@ -87,7 +87,7 @@ test.describe("Notifications: toast + center + badge", () => {
     const runFinishedRow = page.locator(".settings-row", { hasText: "Run finished" });
     await runFinishedRow.locator("select").selectOption("center_only");
 
-    await page.keyboard.press("Escape");
+    await page.locator(".settings-modal button[title='Close']").click();
     await page.waitForTimeout(200);
 
     // Inject a run_finished notification.
