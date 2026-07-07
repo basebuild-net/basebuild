@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -12,6 +12,7 @@ import {
 import type { Plan, PlanStatus } from "../../lib/plans";
 import { PLAN_STATUSES, PLAN_STATUS_LABEL, isTerminalStatus } from "../../lib/plans";
 import { PlanQueueSection } from "./PlanQueueSection";
+import { openspecTaskProgress } from "../../lib/openspec";
 import { PlanImportModal } from "./PlanImportModal";
 type PlanPanelProps = {
   sessionId: string | null;
@@ -145,6 +146,7 @@ export function PlanPanel({
                         <PlanCard
                           key={plan.id}
                           plan={plan}
+                          projectPath={projectPath}
                           onEdit={onEditPlan}
                           onFocus={onFocusPlan}
                           onSetStatus={onSetPlanStatus}
@@ -170,6 +172,7 @@ export function PlanPanel({
                     <PlanCard
                       key={plan.id}
                       plan={plan}
+                      projectPath={projectPath}
                       onEdit={onEditPlan}
                       onFocus={onFocusPlan}
                       onSetStatus={onSetPlanStatus}
@@ -198,6 +201,7 @@ export function PlanPanel({
 
 type PlanCardProps = {
   plan: Plan;
+  projectPath: string | null;
   onEdit: (plan: Plan) => void;
   onFocus: (plan: Plan) => void;
   onSetStatus: (id: string, status: PlanStatus) => void;
@@ -205,9 +209,9 @@ type PlanCardProps = {
   onCopyReference: (refId: string) => void;
   onOpenInTerminal: (plan: Plan) => void;
 };
-
 function PlanCard({
   plan,
+  projectPath,
   onEdit,
   onFocus,
   onSetStatus,
@@ -216,7 +220,17 @@ function PlanCard({
   onOpenInTerminal,
 }: PlanCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [taskProgress, setTaskProgress] = useState<{ completed: number; total: number } | null>(null);
   const isFinished = plan.status === "finished";
+
+  useEffect(() => {
+    if (!plan.changeName || !projectPath) return;
+    let cancelled = false;
+    void openspecTaskProgress(projectPath, plan.changeName).then((progress) => {
+      if (!cancelled && progress.total > 0) setTaskProgress(progress);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [plan.changeName, projectPath]);
 
   const nextStatuses: PlanStatus[] = isFinished
     ? []
@@ -233,6 +247,11 @@ function PlanCard({
         <span className="plan-card-ref">{plan.referenceId}</span>
         <span className="plan-card-title">{plan.title}</span>
         {plan.aiEnhanced ? <span className="plan-card-ai" /> : null}
+        {taskProgress && taskProgress.total > 0 ? (
+          <span className="plan-card-progress" title={`${taskProgress.completed}/${taskProgress.total} tasks`}>
+            {taskProgress.completed}/{taskProgress.total}
+          </span>
+        ) : null}
       </button>
       <div className="plan-card-actions">
         {!isFinished ? (

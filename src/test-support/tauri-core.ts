@@ -375,11 +375,19 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return undefined as T;
     case "openspec_archive_change":
       return undefined as T;
+    case "openspec_link_change_to_plan":
+      return undefined as T;
+    case "openspec_unlink_plan_from_change":
+      return undefined as T;
+    case "openspec_refresh_task_progress":
+      return false as T;
     case "plan_run_pause":
       return undefined as T;
     case "plan_run_cancel":
       return undefined as T;
     case "plan_run_complete":
+      return undefined as T;
+    case "plan_run_mark_complete":
       return undefined as T;
     case "plan_run_check_completion":
       return [0, 0] as T;
@@ -485,6 +493,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       };
       const assistantContent = req.content.includes("Write one concise git commit message")
         ? "Let me write a concise commit message.\n\n1. `launch-sbox.sh` - changes\n2. `patch_engine.sh` - changes\n\n---\n\nRework patch system to target sbox-public"
+        : req.content.includes("quick-reply-test")
+        ? "Here are your options:\nA. Commit the changes\nB. Create a pull request\nC. Abort and revert\n"
         : `Native harness echo: ${req.content}`;
       const assistantMessage: NativeChatMessage = {
         id: `nmsg-${s.nextNativeMessageId++}`,

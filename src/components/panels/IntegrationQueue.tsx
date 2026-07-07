@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, GitBranch, Trash2, ExternalLink } from "lucide-react";
 import { integrationList, integrationCleanup, type IntegrationEntry } from "../../lib/integration";
+import { ConfirmDialog } from "../layout/ConfirmDialog";
 
 type IntegrationQueueProps = {
   sessionId: string | null;
@@ -13,6 +14,10 @@ export function IntegrationQueue({ sessionId, projectPath }: IntegrationQueuePro
   const [entries, setEntries] = useState<IntegrationEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<{
+    runId: string;
+    force: boolean;
+  } | null>(null);
 
   useEffect(() => {
     if (!sessionId || !projectPath) return;
@@ -31,15 +36,15 @@ export function IntegrationQueue({ sessionId, projectPath }: IntegrationQueuePro
     void load();
     return () => { cancelled = true; };
   }, [sessionId, projectPath]);
-
-  async function handleCleanup(runId: string, merged: boolean) {
+  function handleCleanup(runId: string, merged: boolean) {
     if (!sessionId) return;
-    const msg = merged
-      ? "Clean up this merged worktree and delete its branch?"
-      : "This branch is NOT merged. Force-delete the worktree and branch anyway?";
-    if (!window.confirm(msg)) return;
+    setConfirm({ runId, force: !merged });
+  }
+
+  async function executeCleanup(runId: string, force: boolean) {
+    if (!sessionId) return;
     try {
-      await integrationCleanup(runId, !merged, sessionId);
+      await integrationCleanup(runId, force, sessionId);
       setEntries((prev) => prev.filter((e) => e.runId !== runId));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -53,6 +58,7 @@ export function IntegrationQueue({ sessionId, projectPath }: IntegrationQueuePro
   }
 
   return (
+    <>
     <div className="integration-queue">
       {entries.map((entry) => (
         <div key={entry.runId} className="integration-entry" title={`Run ${entry.runId}`}>
@@ -109,5 +115,21 @@ export function IntegrationQueue({ sessionId, projectPath }: IntegrationQueuePro
         </div>
       ))}
     </div>
+    <ConfirmDialog
+      open={confirm !== null}
+      title={confirm?.force ? "Force delete?" : "Clean up?"}
+      message={confirm?.force
+        ? "This branch is NOT merged. Force-delete the worktree and branch anyway?"
+        : "Clean up this merged worktree and delete its branch?"}
+      confirmLabel={confirm?.force ? "Force delete" : "Clean up"}
+      destructive={confirm?.force ?? false}
+      onConfirm={() => {
+        const c = confirm;
+        setConfirm(null);
+        if (c) void executeCleanup(c.runId, c.force);
+      }}
+      onCancel={() => setConfirm(null)}
+    />
+    </>
   );
 }

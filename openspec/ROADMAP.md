@@ -86,7 +86,7 @@ top **ungated** item is what can actually start now.
    `schematic-chat-routing`, `openspec-change-catalog`, `plan-completion-flow`;
    modifies `plan-chat-assignment`, `chat-interactive-elements`,
    `planning-flow-board`, `chat-idea-generation`. Artifacts generated
-   2026-07-07 (0/31).
+   2026-07-07 (31/31 — all tasks complete; ready to merge).
 2. `provider-parity-workspace-fixes` — ★ **owner-prioritized (2026-07-07
    ask); ungated, ready now.** OMP provider/model parity + dev-build fixes
    from live testing: vendored OMP `models.json` catalog (58 providers /
@@ -212,11 +212,11 @@ _Last refreshed: 2026-07-07 (`node scripts/openspec-status.mjs --write`)_
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
 |`omp-terminal-usage-sync`|0/33|not started|`/apply omp-terminal-usage-sync`|
 |`plan-status-rename`|0/12|not started|`/apply plan-status-rename`|
-|`planning-cockpit`|0/31|not started|`/apply planning-cockpit`|
 |`planning-file-ingestion`|0/13|not started|`/apply planning-file-ingestion`|
 |`project-grid-workspace`|0/33|not started|`/apply project-grid-workspace`|
 |`schematic-enhance-ui`|0/14|not started|`/apply schematic-enhance-ui`|
 |`session-compaction`|0/13|not started|`/apply session-compaction`|
+|`planning-cockpit`|31/31|complete — archive|`/archive planning-cockpit`|
 <!-- status:end -->
 
 ## Archiving

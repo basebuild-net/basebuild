@@ -29,6 +29,24 @@ This works through `tasks.md` one checkbox at a time. Mark each `[x]`
 immediately after completing it. Update specs and design if you discover
 something that needs changing.
 
+
+## Change catalog UI
+
+The Planning Inspector's **Changes** tab lists all OpenSpec changes in
+`openspec/changes/`. Each entry shows:
+
+- **Artifact chips** (P/D/T/S) — presence of proposal, design, tasks, specs.
+- **Progress bar** — `n/m` tasks complete from `tasks.md`.
+- **Link/unlink to plan** — binds a change to a plan for run-end checklist
+  evaluation. A change can only link to one plan at a time; unlinking is
+  refused while the plan is running or ready.
+- **Archive** — moves the change to `openspec/changes/archive/` (confirm-gated
+  via `ConfirmDialog`, not `window.confirm`).
+
+Task checkboxes in `tasks.md` can be toggled directly from the catalog —
+clicking a task calls `openspec_toggle_task` which rewrites the file. Progress
+is polled every 5 seconds via `openspec_refresh_task_progress` which emits a
+`TaskProgressChanged` event only when counts change.
 ## Archiving a change
 
 Use the `/archive` skill when **all** tasks in `tasks.md` are `[x]`. This

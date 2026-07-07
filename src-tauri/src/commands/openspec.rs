@@ -71,3 +71,31 @@ pub fn openspec_archive_change(
 ) -> Result<(), String> {
     openspec_service::archive_change(&project_path, &change_name)
 }
+
+/// Link a change to a plan (by plan id). Refuses double-link.
+#[tauri::command]
+pub fn openspec_link_change_to_plan(
+    change_name: String,
+    plan_id: String,
+) -> Result<(), String> {
+    openspec_service::link_change_to_plan(&change_name, &plan_id)
+}
+
+/// Unlink a plan from its change. Refuses if plan is active.
+#[tauri::command]
+pub fn openspec_unlink_plan_from_change(plan_id: String) -> Result<(), String> {
+    openspec_service::unlink_plan_from_change(&plan_id)
+}
+
+/// Re-parse a change's tasks.md and emit TaskProgressChanged if counts
+/// changed. Returns true if progress changed. Used by frontend polling.
+#[tauri::command]
+pub fn openspec_refresh_task_progress(
+    app: AppHandle,
+    project_path: String,
+    change_name: String,
+    last_completed: u32,
+    last_total: u32,
+) -> Result<bool, String> {
+    openspec_service::refresh_task_progress(&app, &project_path, &change_name, last_completed, last_total)
+}

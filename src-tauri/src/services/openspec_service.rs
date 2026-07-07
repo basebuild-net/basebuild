@@ -190,6 +190,83 @@ pub fn link_plan_to_change(plan_id: &str, change_name: &str) -> DbResult<()> {
     Ok(())
 }
 
+/// Unlink a plan from its change directory. Clears the `change_name` column.
+/// Refuses if the linked plan is in a running/ready status (active run).
+pub fn unlink_plan_from_change(plan_id: &str) -> DbResult<()> {
+    let conn = StorageService::connect()?;
+    // Check current plan status before unlinking.
+    let status_str: Option<String> = conn
+        .query_row(
+            "SELECT status FROM plans WHERE id = ?1",
+            params![plan_id],
+            |row| row.get(0),
+        )
+        .ok();
+    if let Some(status) = status_str {
+        let plan_status = crate::models::plan::PlanStatus::from_str(&status);
+        if matches!(
+            plan_status,
+            crate::models::plan::PlanStatus::Running
+                | crate::models::plan::PlanStatus::Ready
+        ) {
+            return Err(format!(
+                "Cannot unlink: plan is {status} (must be finished, cancelled, draft, or openspec)."
+            ));
+        }
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or_default();
+    conn.execute(
+        "UPDATE plans SET change_name = NULL, updated_at = ?1 WHERE id = ?2",
+        params![now, plan_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Link a change to a plan (by plan id). Refuses if another plan is already
+/// linked to this change (double-link guard).
+pub fn link_change_to_plan(change_name: &str, plan_id: &str) -> DbResult<()> {
+    // Check for double-link: is another plan already linked to this change?
+    if let Some(existing) = find_plan_by_change(change_name)? {
+        if existing.id != plan_id {
+            return Err(format!(
+                "Change '{change_name}' is already linked to plan {} ({})",
+                existing.reference_id, existing.id
+            ));
+        }
+    }
+    link_plan_to_change(plan_id, change_name)
+}
+
+/// Re-parse a change's tasks.md and emit a TaskProgressChanged event if the
+/// progress has changed since the last known counts. Used by the liveness
+/// poller and the post-write hook.
+pub fn refresh_task_progress(
+    app: &tauri::AppHandle,
+    project_path: &str,
+    change_name: &str,
+    last_completed: u32,
+    last_total: u32,
+) -> DbResult<bool> {
+    let (completed, total) = read_task_progress(project_path, change_name);
+    if completed == last_completed && total == last_total {
+        return Ok(false);
+    }
+    let _ = crate::services::planning_events::emit(
+        app,
+        crate::models::planning_event::PlanningEventKind::TaskProgressChanged,
+        change_name,
+        project_path,
+        None,
+        &format!("{change_name}/tasks.md"),
+        Some(format!("{completed}/{total}")),
+    );
+    Ok(true)
+}
+
 /// Get the plan linked to a change (for navigation from the file viewer).
 pub fn find_plan_by_change(change_name: &str) -> DbResult<Option<Plan>> {
     let conn = StorageService::connect()?;
@@ -811,5 +888,64 @@ mod tests {
         let result = archive_change(dir.path().to_str().unwrap(), "nonexistent-change");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Change directory not found"));
+    }
+
+    #[test]
+    fn link_change_to_plan_rejects_double_link() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        // Create two plans and a change.
+        let conn = crate::services::storage_service::StorageService::connect().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at) VALUES ('sess-1', '/test', 'Test', ?1, ?1)",
+            params![now],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO plans (id, session_id, reference_id, title, description, goal, status, priority, tags, ai_enhanced, context, idea_id, change_name, created_at, updated_at, finished_at)
+             VALUES ('plan-a', 'sess-1', 'PLAN-001', 'Plan A', '', '', 'draft', 1, '[]', 0, NULL, NULL, 'test-change', ?1, ?1, NULL)",
+            params![now],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO plans (id, session_id, reference_id, title, description, goal, status, priority, tags, ai_enhanced, context, idea_id, change_name, created_at, updated_at, finished_at)
+             VALUES ('plan-b', 'sess-1', 'PLAN-002', 'Plan B', '', '', 'draft', 1, '[]', 0, NULL, NULL, NULL, ?1, ?1, NULL)",
+            params![now],
+        ).unwrap();
+        drop(conn);
+
+        // Linking plan-b to a change already linked to plan-a should fail.
+        let result = link_change_to_plan("test-change", "plan-b");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("already linked"), "Expected double-link error, got: {err}");
+    }
+
+    #[test]
+    fn unlink_plan_from_change_rejects_active_plan() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = crate::services::storage_service::StorageService::connect().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at) VALUES ('sess-1', '/test', 'Test', ?1, ?1)",
+            params![now],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO plans (id, session_id, reference_id, title, description, goal, status, priority, tags, ai_enhanced, context, idea_id, change_name, created_at, updated_at, finished_at)
+             VALUES ('plan-run', 'sess-1', 'PLAN-003', 'Running Plan', '', '', 'running', 1, '[]', 0, NULL, NULL, 'test-change', ?1, ?1, NULL)",
+            params![now],
+        ).unwrap();
+        drop(conn);
+
+        let result = unlink_plan_from_change("plan-run");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Cannot unlink"), "Expected active-plan rejection, got: {err}");
     }
 }

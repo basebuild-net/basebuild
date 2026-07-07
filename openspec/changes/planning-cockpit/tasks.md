@@ -71,7 +71,7 @@ Phases 1–2, 3–4, 5–6, and 7 are intended PR boundaries.
       `TaskProgressChanged` planning event (new kind in
       `models/planning_event.rs`). Unit tests: toggle round-trip, formatting
       preserved, stale-content rejection, traversal rejection.
-- [ ] 3.3 Liveness: tool-runtime post-write hook (native + app-driven OMP
+- [x] 3.3 Liveness: tool-runtime post-write hook (native + app-driven OMP
       writes matching `openspec/changes/**/tasks.md` → re-parse + event);
       2s mtime-gated poll of linked tasks.md while any run is active; 5s
       poll while a catalog surface is open (frontend-driven subscription
@@ -84,95 +84,95 @@ Phases 1–2, 3–4, 5–6, and 7 are intended PR boundaries.
 
 ## 4. Catalog + checklist UI
 
-- [ ] 4.1 `ChangeCatalog.tsx` in the planning surface: change list with
+- [x] 4.1 `ChangeCatalog.tsx` in the planning surface: change list with
       artifact-presence chips, progress bars, linked-plan back-links,
       archived filter; actions: link/unlink to plan, archive (managed
       confirmations); foreign changes shown equally.
-- [ ] 4.2 `TaskChecklist.tsx`: phase-grouped checklist with per-phase and
+- [x] 4.2 `TaskChecklist.tsx`: phase-grouped checklist with per-phase and
       total progress, click-to-toggle via `toggle_task`, live refresh from
       `TaskProgressChanged`; reachable from plan rows, run cards, and the
       catalog; open-in-file-viewer affordance for artifacts.
-- [ ] 4.3 Plan rows + chat plan badges show live `n/m` progress from events
+- [x] 4.3 Plan rows + chat plan badges show live `n/m` progress from events
       (replace poll-on-open-only display).
-- [ ] 4.4 Playwright e2e: catalog lists fixture changes, checklist toggle
+- [x] 4.4 Playwright e2e: catalog lists fixture changes, checklist toggle
       persists (mocked fs round-trip), progress updates live from an emitted
       event, archive flow gated + filtered, link/unlink guards surfaced.
 
 ## 5. Interactive coverage (OMP RPC cards, prose chips, managed confirms)
 
-- [ ] 5.1 Route OMP-RPC-delegated native chat turns' user-input/ask frames
+- [x] 5.1 Route OMP-RPC-delegated native chat turns' user-input/ask frames
       into `pending_interactions` keyed by the chat session (reuse
       `omp_rpc_session_service::handle_user_input`); answers serialize back
       over stdin; cancel resolves both sides. Unit tests: frame → interaction
       → answer round-trip, unknown frames inert.
-- [ ] 5.2 Prose quick-reply chips in `ChatPanel.tsx`: conservative detector
+- [x] 5.2 Prose quick-reply chips in `ChatPanel.tsx`: conservative detector
       (completed assistant messages; ≥2 enumerated options `^[A-H][).:]\s`
       or explicit "reply with X/Y"; skip code fences; no chips while an
       `ask_user` card is pending), chips send the reply as a normal user
       message, escaped rendering, free-text affordance. Unit-style e2e
       fixtures for positive + negative detection and hostile text inertness.
-- [ ] 5.3 Managed `ConfirmDialog.tsx` + sweep: batch launch, archive, link,
+- [x] 5.3 Managed `ConfirmDialog.tsx` + sweep: batch launch, archive, link,
       replace-assignment, mark-complete, commit, PR confirmations use it;
       remove every `window.confirm`/`alert`/`prompt` from planning/source
       flows (repo-wide grep gate in e2e).
-- [ ] 5.4 Playwright e2e: OMP RPC question frame renders the same card and
+- [x] 5.4 Playwright e2e: OMP RPC question frame renders the same card and
       answer round-trips (mocked RPC child); prose chips send the pick;
       no-native-dialog assertion across the swept flows.
 
 ## 6. Command strip + wide layouts + idea browser
 
-- [ ] 6.1 `CommandStrip.tsx` mounted in the shell header/sidebar entry:
+- [x] 6.1 `CommandStrip.tsx` mounted in the shell header/sidebar entry:
       per-stage counts, status colors, activity pulse, unread planning badge,
       aggregate running `n/m`; live from planning events; click-through opens
       the planning surface on that stage (drill-through wiring also fixes the
       board's dead stage clicks); collapsible to a badge, state persisted in
       workspace restore.
-- [ ] 6.2 Wide-layout pass (container queries in `globals.css` only, on
+- [x] 6.2 Wide-layout pass (container queries in `globals.css` only, on
       content classes — never `.modal` sizing): planning surface master–detail
       + board columns ≥1100px container, stacked below; source-control surface
       same treatment; kill run-on filter chips and clipped tabs at narrow
       widths.
-- [ ] 6.3 `IdeaBrowser.tsx` replacing the Ideas trigger menu: status filters,
+- [x] 6.3 `IdeaBrowser.tsx` replacing the Ideas trigger menu: status filters,
       category grouping, grounding summaries; actions Promote / Send to chat
       (via `DestinationPicker` + `deliverPrompt`) / open planning surface;
       generation actions as secondary section; empty-state CTA into
       generation.
-- [ ] 6.4 Playwright e2e: strip counts update from events and click-through
+- [x] 6.4 Playwright e2e: strip counts update from events and click-through
       lands on the right stage; wide vs narrow layout snapshots for planning
       + source surfaces; idea browser filter → send-to-chat → prompt lands in
       the chosen tab; promote updates row.
 
 ## 7. Completion flow
 
-- [ ] 7.1 Backend: run-end evaluation — full checklist keeps auto-complete;
+- [x] 7.1 Backend: run-end evaluation — full checklist keeps auto-complete;
       incomplete/indeterminate checklist parks the run in `awaiting-review`
       (no silent `finished`) and emits a mark-as-complete planning event;
       `plan_run_mark_complete(run_id)` command records manual completion.
       Unit tests: early-stop parks, full-checklist auto-completes, manual
       completion transitions.
-- [ ] 7.2 Completion card in the run's chat + notification: "Mark as
+- [x] 7.2 Completion card in the run's chat + notification: "Mark as
       complete? n/m", actions mark-complete / keep-running / open-checklist;
       completed state shows confirm-gated Commit (editable message,
       worktree-scoped via existing final-touches commit step) and Create PR
       (existing recommend/create path incl. no-`gh` fallback), with outcomes
       reported on the card + notification.
-- [ ] 7.3 Source-control context on the card and finished-run rows: branch,
+- [x] 7.3 Source-control context on the card and finished-run rows: branch,
       ahead/behind vs fetched default, changed-file count, worktree path with
       reveal; renders nothing (not an error) for non-git/unborn-HEAD.
-- [ ] 7.4 Playwright e2e: early-stop → prompt → mark complete; full checklist
+- [x] 7.4 Playwright e2e: early-stop → prompt → mark complete; full checklist
       → completed card; commit and PR actions confirm-gated with mocked git
       (declining does nothing); non-git shows no context block.
 
 ## 8. Verification + docs
 
-- [ ] 8.1 `npx tsc --noEmit`, `npm run build`, `cargo check`, `cargo test`
+- [x] 8.1 `npx tsc --noEmit`, `npm run build`, `cargo check`, `cargo test`
       (src-tauri), `npm run test:e2e` all pass.
-- [ ] 8.2 UI smoke on a live dev build: schematic wizard → destination picker
+- [x] 8.2 UI smoke on a live dev build: schematic wizard → destination picker
       → cards (native + OMP RPC) → ideas → browser assign → batch launch to
       mixed destinations → strip pulses → checklist ticks live → early-stop
       prompt → mark complete → commit → PR. Tooltips, 0px radius, single
       stylesheet audited on all new surfaces.
-- [ ] 8.3 Docs: `docs/agents/openspec.md` (catalog, toggle, archive
+- [x] 8.3 Docs: `docs/agents/openspec.md` (catalog, toggle, archive
       semantics), `docs/agents/desktop-shell.md` (command strip, destination
       picker, completion card), `docs/agents/agent-runtime.md` (prompt
       delivery contract, OMP RPC question routing, prose-chip detector),

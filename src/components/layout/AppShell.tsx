@@ -10,6 +10,7 @@ import { ActivitySidebar } from "./ActivitySidebar";
 import { ChatEnvironmentPanel } from "./ChatEnvironmentPanel";
 import { FileExplorerModal } from "./FileExplorerModal";
 import { PlanningInspector } from "./PlanningInspector";
+import { CommandStrip } from "./CommandStrip";
 import { ToastStack } from "./ToastStack";
 import { SourcePanel } from "../panels/SourcePanel";
 import { EditPlanModal } from "./EditPlanModal";
@@ -82,6 +83,7 @@ export function AppShell({ updates }: AppShellProps) {
   const [plansFoldSignal, setPlansFoldSignal] = useState(0);
   const [changesModalOpen, setChangesModalOpen] = useState(false);
   const [plansModalOpen, setPlansModalOpen] = useState(false);
+  const [commandStripCollapsed, setCommandStripCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logPanelOpen, setLogPanelOpen] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
@@ -944,6 +946,14 @@ Rules:
                 onOpenChanges={() => setChangesModalOpen(true)}
                 onOpenPlans={() => setPlansModalOpen(true)}
                 onCreatePanel={handleCreateTypedPanel}
+              />
+              <CommandStrip
+                plans={plans.plans}
+                ideaCount={0}
+                schematicHealth={schematic.report ? (schematic.report.health === "complete" ? "complete" : "incomplete") : "none"}
+                onOpenPlans={() => setPlansModalOpen(true)}
+                collapsed={commandStripCollapsed}
+                onToggleCollapse={() => setCommandStripCollapsed((v) => !v)}
               />
               <span className="status-pill session-path-pill" title={activeProjectPath}>{activeProjectPath}</span>
             </div>

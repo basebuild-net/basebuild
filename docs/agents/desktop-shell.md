@@ -12,14 +12,18 @@ Basebuild's app shell is a three-column grid:
    the chat planning menu.
 3. **Right side panel** (260px → 36px collapsed) — stacked accordion sections
    for Plans, Files, and Source. The Plans section is a Planning Inspector
-   with three tabs: Plans, Ideas, and Categories. The Plans tab exposes an
-   **Import** action (`plan_import_detect` / `plan_import_apply`): it scans
+   with five tabs: Plans, Ideas, Categories, Flow, and Changes. The Plans tab
+   exposes an **Import** action (`plan_import_detect` / `plan_import_apply`): it scans
    `openspec/changes/` for change folders not already linked to a `.basebuild`
    plan, lists them as candidates (title from `proposal.md`, status derived
    from `tasks.md` progress), and on explicit confirm writes
    `.basebuild/plans/<slug>/plan.md` records (`engine: openspec`, `external:`
    pointer, no duplicated task list). Detection never writes; re-import skips
-   already-linked sources; malformed sources are reported and skipped.
+   already-linked sources; malformed sources are reported and skipped. The
+   **Flow** tab shows a board with per-stage counts (schematic, ideas, plans,
+   running, finished) and completion cards for runs in `awaiting_review` or
+   `succeeded` status. The **Changes** tab shows the OpenSpec change catalog
+   (see `docs/agents/openspec.md`).
 
 
 The global taskbar sits above the shell. Its right side contains the update
@@ -222,3 +226,38 @@ listing finished worktree runs with branch, ahead/behind, merged state, and
 PR state. Each entry has a confirm-gated cleanup action: merged branches
 offer safe worktree+branch removal; unmerged branches require force
 confirmation. PR state is shown with a link to the PR URL when available.
+
+## Command strip
+
+The `CommandStrip` sits in the session header, showing per-stage counts
+(schematic, ideas, plans, running, finished) with status colors and an
+activity pulse on active runs. Clicking a stage opens the Planning Inspector.
+The strip collapses to a compact badge; collapse state persists in workspace
+restore.
+
+## Destination picker
+
+The `DestinationPicker` is a managed dialog for choosing where a prompt goes.
+It lists open chat panels and a "New conversation" option. The schematic
+wizard uses it to route its generated prompt. The chosen destination receives
+the prompt via `deliverPrompt()` — a module-level store outside React state
+that guarantees exactly-once delivery by `actionId`.
+
+## Completion card
+
+When a run ends, the backend evaluates the linked change's `tasks.md`:
+- **All tasks complete** → run auto-completes, plan transitions to `finished`.
+- **Incomplete tasks** → run parks in `awaiting_review`, plan stays `running`,
+  a planning event prompts the user to review.
+
+The `CompletionCard` renders in the Flow board's Finished stage for
+`awaiting_review` and `succeeded` runs. It shows:
+- **Mark complete** button (for `awaiting_review` runs) — calls
+  `plan_run_mark_complete`.
+- **Commit** section — editable commit message, calls the existing git commit
+  path.
+- **Pull request** section — title + body, calls the existing `pr_create`
+  path (including no-`gh` browser fallback).
+- **Dismiss** button — hides the card for this run.
+
+All confirm-gated actions use `ConfirmDialog`, never `window.confirm`.

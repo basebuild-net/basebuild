@@ -66,6 +66,41 @@ const LOGIN_POLL_MS = 1500;
 
 type LegacyChatMessage = { role: "user" | "assistant" | "system"; content: string };
 
+/**
+ * Detect enumerated quick-reply options in a completed assistant message.
+ * Conservative: only matches `^[A-H][).:\s]\s` patterns or explicit
+ * "reply with X/Y" phrasing. Skips content inside code fences. Returns
+ * at most 8 option labels.
+ */
+function detectProseQuickReplies(content: string): string[] {
+  // Strip code fences so we don't match code blocks.
+  const stripped = content.replace(/```[\s\S]*?```/g, "");
+  const lines = stripped.split("\n");
+  const options: string[] = [];
+  const optionPattern = /^([A-H])[)\.:]\s+(.+)/;
+  for (const line of lines) {
+    const m = line.match(optionPattern);
+    if (m) {
+      const label = `${m[1]}. ${m[2].trim()}`;
+      if (label.length <= 80 && !options.includes(label)) {
+        options.push(label);
+      }
+    }
+    if (options.length >= 8) break;
+  }
+  // Also check for "reply with X/Y/Z" phrasing.
+  if (options.length === 0) {
+    const replyMatch = stripped.match(/reply with\s+([A-Za-z0-9 ]+(?:\/[A-Za-z0-9 ]+)+)/i);
+    if (replyMatch) {
+      const parts = replyMatch[1].split("/").map((s) => s.trim()).filter(Boolean);
+      for (const part of parts) {
+        if (part.length <= 40 && !options.includes(part)) options.push(part);
+      }
+    }
+  }
+  return options;
+}
+
 type ChatPanelProps = {
   projectPath: string;
   chatSessionId?: string | null;
@@ -1429,6 +1464,32 @@ export function ChatPanel({
             </button>
           </div>
         ) : null}
+        {!streaming && !loading && interactions.length === 0 ? (() => {
+          // Find the last assistant message content from renderMessages.
+          let lastAssistantContent: string | null = null;
+          for (let i = renderMessages.length - 1; i >= 0; i--) {
+            const msg = renderMessages[i];
+            if (msg.role === "assistant") { lastAssistantContent = msg.content; break; }
+          }
+          if (!lastAssistantContent) return null;
+          const chips = detectProseQuickReplies(lastAssistantContent);
+          if (chips.length < 2) return null;
+          return (
+            <div className="chat-quick-replies" title="Quick-reply options detected from the last message">
+              {chips.map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  className="chat-quick-reply-chip"
+                  title={`Send: ${chip}`}
+                  onClick={() => void sendMessage(chip)}
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+          );
+        })() : null}
       </div>
 
       {/* Generated ideas surface */}

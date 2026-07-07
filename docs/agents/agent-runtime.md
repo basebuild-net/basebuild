@@ -646,3 +646,37 @@ Per-project setting (`get/set_milestone_auto_commit`) controls whether the
 plan runner commits after each completed task milestone in the run worktree.
 Default: false. Stored in `app_defaults` under
 `milestone_auto_commit:<project_path>`.
+
+## Prompt delivery contract
+
+When a prompt needs to reach a specific chat tab (e.g. from the schematic
+wizard), it goes through `deliverPrompt()` in `src/lib/promptDelivery.ts`:
+
+- A `PromptDelivery` record (`actionId`, `prompt`, `mode`) is stored in a
+  module-level `Map<chatSessionId, PromptDelivery>`.
+- The target chat panel consumes it via `usePromptDelivery(sessionId)` which
+  calls `consumeDelivery()` — exactly-once by `actionId`.
+- `mode` is `insert` (fill the composer, don't send) or `send` (fill + send).
+- For new conversations, `pendingNewPanelPrompts` ref in `AppShell` bridges
+  the delivery until the new chat session is created.
+
+The `DestinationPicker` dialog lets the user choose which open chat panel (or
+a new conversation) receives the prompt.
+
+## OMP RPC question routing
+
+OMP RPC `ask_user` frames are routed into `pending_interactions` by
+`handle_user_input` in `omp_rpc_session_service.rs`. The chat UI renders these
+as interactive question cards. Answers are serialized back over stdin via
+`resolve_user_input`. This applies to OMP RPC sessions only; native chat uses
+the in-process harness directly.
+
+## Prose quick-reply detection
+
+`detectProseQuickReplies()` in `ChatPanel.tsx` detects enumerated options in
+assistant messages (e.g. `A. Foo\nB. Bar`) and renders clickable quick-reply
+chips. Detection:
+- Matches `^[A-H][).:]\s` patterns (up to 8 options).
+- Also detects "reply with X/Y" phrasing.
+- Strips code fences before scanning.
+- Renders chips after the message list; clicking a chip sends the option text.

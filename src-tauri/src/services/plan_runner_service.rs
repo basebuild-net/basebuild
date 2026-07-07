@@ -334,9 +334,7 @@ impl PlanRunnerService {
                 } else {
                     Vec::new()
                 };
-                // Store step results on the run.
                 let _ = Self::update_run_steps(run_id, &step_results);
-                // If any step failed, the run is failed, not finished.
                 let any_failed = step_results.iter().any(|r| r.status == "failed");
                 if any_failed {
                     let _ = conn.execute(
@@ -344,6 +342,23 @@ impl PlanRunnerService {
                         params![run_id],
                     );
                     PlanStatus::Ready
+                } else if !Self::evaluate_checklist_completion(&run) {
+                    // Checklist incomplete → park in awaiting_review.
+                    let _ = conn.execute(
+                        "UPDATE plan_runs SET status = 'awaiting_review' WHERE id = ?1",
+                        params![run_id],
+                    );
+                    // Emit a planning event for the review prompt.
+                    let _ = crate::services::planning_events::emit(
+                        app,
+                        PlanningEventKind::RunFinished,
+                        &run.plan_id,
+                        project_path,
+                        Some(run.session_id.clone()),
+                        "Run awaiting review".to_string(),
+                        Some("Checklist incomplete — mark as complete or keep running.".to_string()),
+                    );
+                    PlanStatus::Running // Keep plan running while awaiting review.
                 } else {
                     PlanStatus::Finished
                 }
@@ -418,6 +433,75 @@ impl PlanRunnerService {
             }
         }
         Ok(())
+    }
+
+    /// Mark a run as manually complete. Transitions an `awaiting_review`
+    /// or `succeeded` run to fully finished, sets the plan to `Finished`,
+    /// and emits events. Used by the completion card "Mark as complete" action.
+    pub fn mark_complete(app: &AppHandle, run_id: &str) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        let now = now();
+        // Verify the run exists and is in a completable state.
+        let run = Self::get_run(run_id)?;
+        let run = run.ok_or("Run not found")?;
+        if !matches!(run.status, PlanRunStatus::AwaitingReview | PlanRunStatus::Succeeded) {
+            return Err(format!(
+                "Cannot mark complete: run is {} (must be awaiting_review or succeeded).",
+                run.status.as_str()
+            ));
+        }
+        // Update run status to succeeded.
+        conn.execute(
+            "UPDATE plan_runs SET status = 'succeeded', finished_at = ?1 WHERE id = ?2",
+            params![now, run_id],
+        )
+        .map_err(|e| format!("Failed to mark run complete: {e}"))?;
+        // Set plan to finished.
+        let _ = PlanService::set_status(&run.plan_id, PlanStatus::Finished);
+        // Emit run event.
+        let _ = app.emit(
+            PLAN_RUN_EVENT,
+            PlanRunEvent {
+                run_id: run.id.clone(),
+                session_id: run.session_id.clone(),
+                plan_id: run.plan_id.clone(),
+                status: PlanRunStatus::Succeeded,
+                error: None,
+                chat_session_id: run.chat_session_id.clone(),
+            },
+        );
+        Ok(())
+    }
+
+    /// Evaluate checklist completion at run end. If the linked change has an
+    /// incomplete tasks.md, park the run in `awaiting_review` instead of
+    /// auto-completing. Returns true if the run should auto-complete, false
+    /// if it should park.
+    fn evaluate_checklist_completion(run: &PlanRun) -> bool {
+        // Get the linked plan's change_name.
+        let plan = PlanService::get(&run.plan_id).ok().flatten();
+        let plan = match plan {
+            Some(p) => p,
+            None => return true, // No plan → auto-complete.
+        };
+        let change_name = match &plan.change_name {
+            Some(c) => c,
+            None => return true, // No change → auto-complete.
+        };
+        let session = SessionService::get(&run.session_id).ok().flatten();
+        let project_path = session
+            .as_ref()
+            .map(|s| s.project_path.as_str())
+            .unwrap_or("");
+        if project_path.is_empty() {
+            return true;
+        }
+        let (completed, total) =
+            crate::services::openspec_service::read_task_progress(project_path, change_name);
+        if total == 0 {
+            return true; // No tasks → auto-complete.
+        }
+        completed == total // All tasks done → auto-complete.
     }
 
     /// Update the steps_output JSON on a plan_run row.
@@ -915,7 +999,7 @@ mod tests {
 
     #[test]
     fn plan_run_status_round_trip() {
-        for s in ["pending", "running", "succeeded", "failed", "cancelled", "paused"] {
+        for s in ["pending", "running", "succeeded", "failed", "cancelled", "paused", "awaiting_review"] {
             assert_eq!(PlanRunStatus::from_str(s).as_str(), s);
         }
     }

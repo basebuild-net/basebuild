@@ -8,7 +8,8 @@ export type PlanRunStatus =
   | "succeeded"
   | "failed"
   | "cancelled"
-  | "paused";
+  | "paused"
+  | "awaiting_review";
 
 export type RunnerKind = "native" | "omp";
 
@@ -157,4 +158,8 @@ export function onPlanRunEvent(
   cb: (event: PlanRunEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<PlanRunEvent>("plan_run://event", (e) => cb(e.payload));
+}
+
+export async function markPlanRunComplete(runId: string): Promise<void> {
+  await invoke<void>("plan_run_mark_complete", { runId });
 }

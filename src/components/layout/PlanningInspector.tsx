@@ -3,10 +3,12 @@ import { FolderTree, LayoutGrid, Lightbulb, Plus, Sparkles, Trash2, X } from "lu
 import type { Plan, PlanStatus } from "../../lib/plans";
 import { isTerminalStatus, PLAN_STATUSES, PLAN_STATUS_LABEL } from "../../lib/plans";
 import { batchPromoteIdeas } from "../../lib/plans";
-import { enqueuePlan, startQueue } from "../../lib/planRuns";
+import { enqueuePlan, listPlanRuns, markPlanRunComplete, startQueue } from "../../lib/planRuns";
 import { PlanPanel } from "./PlanPanel";
 import { IntegrationQueue } from "../panels/IntegrationQueue";
 import { ChangesPanel } from "../panels/ChangesPanel";
+import { CompletionCard } from "../panels/CompletionCard";
+import type { PlanRun } from "../../lib/planRuns";
 import { useIdeaState } from "../../state/ideas";
 import type { IdeaCategory, IdeaStatus } from "../../lib/ideas";
 import { useProjectSchematic } from "../../state/schematic";
@@ -73,6 +75,8 @@ export function PlanningInspector({
   const [newCategoryDesc, setNewCategoryDesc] = useState("");
   const [selectedIdeaIds, setSelectedIdeaIds] = useState<Set<string>>(new Set());
   const [batchResult, setBatchResult] = useState<string | null>(null);
+  const [planRuns, setPlanRuns] = useState<PlanRun[]>([]);
+  const [completionDismissed, setCompletionDismissed] = useState<Set<string>>(new Set());
   const ideaState = useIdeaState(sessionId);
   const schematic = useProjectSchematic(projectPath);
   const { addLog } = useLogs();
@@ -83,6 +87,17 @@ export function PlanningInspector({
       void ideaState.refresh();
     }
   }, [tab, sessionId, ideaState]);
+
+  // Fetch plan runs for completion cards.
+  useEffect(() => {
+    if (!sessionId) {
+      setPlanRuns([]);
+      return;
+    }
+    void listPlanRuns(sessionId)
+      .then(setPlanRuns)
+      .catch(() => setPlanRuns([]));
+  }, [sessionId, plans]);
 
   const handlePromoteIdea = useCallback(
     async (idea: { id: string; title: string; description: string }) => {
@@ -551,6 +566,29 @@ export function PlanningInspector({
             {plans.filter((p) => p.status === "finished").length > 0 ? (
               <IntegrationQueue sessionId={sessionId} projectPath={projectPath} />
             ) : null}
+            {planRuns
+              .filter((r) => (r.status === "awaiting_review" || r.status === "succeeded") && !completionDismissed.has(r.id))
+              .map((run) => (
+                <CompletionCard
+                  key={run.id}
+                  run={run}
+                  projectPath={projectPath ?? ""}
+                  onMarkComplete={async (runId) => {
+                    await markPlanRunComplete(runId);
+                    setPlanRuns((prev) => prev.map((r) => (r.id === runId ? { ...r, status: "succeeded" } : r)));
+                  }}
+                  onCommit={async (_runId, _message) => {
+                    // Commit is handled by the source control panel; this is a placeholder for future wiring.
+                    addLog("info", "Commit requested", _message);
+                  }}
+                  onCreatePR={async (_runId, _title, _body) => {
+                    addLog("info", "PR requested", _title);
+                  }}
+                  onDismiss={() => {
+                    setCompletionDismissed((prev) => new Set(prev).add(run.id));
+                  }}
+                />
+              ))}
           </div>
         </div>
       ) : null}
@@ -562,6 +600,7 @@ export function PlanningInspector({
             const plan = plans.find((p) => p.referenceId === refId);
             if (plan) onFocusPlan(plan);
           }}
+          linkablePlans={plans.map((p) => ({ id: p.id, referenceId: p.referenceId, title: p.title }))}
         />
       ) : null}
     </div>

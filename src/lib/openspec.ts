@@ -96,3 +96,25 @@ export async function openspecArchiveChange(
 ): Promise<void> {
   await invoke<void>("openspec_archive_change", { projectPath, changeName });
 }
+
+export async function openspecLinkChangeToPlan(changeName: string, planId: string): Promise<void> {
+  await invoke<void>("openspec_link_change_to_plan", { changeName, planId });
+}
+
+export async function openspecUnlinkPlanFromChange(planId: string): Promise<void> {
+  await invoke<void>("openspec_unlink_plan_from_change", { planId });
+}
+
+export async function openspecRefreshTaskProgress(
+  projectPath: string,
+  changeName: string,
+  lastCompleted: number,
+  lastTotal: number,
+): Promise<boolean> {
+  return invoke<boolean>("openspec_refresh_task_progress", {
+    projectPath,
+    changeName,
+    lastCompleted,
+    lastTotal,
+  });
+}

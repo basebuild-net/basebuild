@@ -1,21 +1,39 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Archive, ChevronDown, ChevronRight, FolderTree, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ConfirmDialog } from "../layout/ConfirmDialog";
+import {
+  Archive,
+  ChevronDown,
+  ChevronRight,
+  FolderTree,
+  Link2,
+  RefreshCw,
+  Unlink,
+} from "lucide-react";
 
 import type { ChangeCatalogEntry, StructuredTasks, TaskPhase } from "../../lib/openspec";
 import {
   openspecArchiveChange,
+  openspecLinkChangeToPlan,
   openspecListChanges,
   openspecReadTasksStructured,
+  openspecRefreshTaskProgress,
   openspecToggleTask,
+  openspecUnlinkPlanFromChange,
 } from "../../lib/openspec";
 
 type ChangesPanelProps = {
   projectPath: string | null;
   /** Optional callback to focus the plan linked to a change. */
   onFocusPlan?: (referenceId: string) => void;
+  /** Plans available for linking (planId → referenceId). */
+  linkablePlans?: { id: string; referenceId: string; title: string }[];
 };
 
-export function ChangesPanel({ projectPath, onFocusPlan }: ChangesPanelProps) {
+type ArchivedFilter = "active" | "archived" | "all";
+
+const POLL_INTERVAL_MS = 5_000;
+
+export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: ChangesPanelProps) {
   const [changes, setChanges] = useState<ChangeCatalogEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +41,16 @@ export function ChangesPanel({ projectPath, onFocusPlan }: ChangesPanelProps) {
   const [tasksByChange, setTasksByChange] = useState<Map<string, StructuredTasks>>(new Map());
   const [tasksLoading, setTasksLoading] = useState(false);
   const [tasksError, setTasksError] = useState<string | null>(null);
+  const [archivedFilter, setArchivedFilter] = useState<ArchivedFilter>("active");
+  const [linkingChange, setLinkingChange] = useState<string | null>(null);
+  const lastProgressRef = useRef<Map<string, { completed: number; total: number }>>(new Map());
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    destructive: boolean;
+    onConfirm: () => void;
+  } | null>(null);
 
   const refresh = useCallback(async () => {
     if (!projectPath) return;
@@ -31,6 +59,10 @@ export function ChangesPanel({ projectPath, onFocusPlan }: ChangesPanelProps) {
     try {
       const list = await openspecListChanges(projectPath);
       setChanges(list);
+      // Update last-known progress for polling.
+      for (const entry of list) {
+        lastProgressRef.current.set(entry.name, { completed: entry.completed, total: entry.total });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -41,6 +73,35 @@ export function ChangesPanel({ projectPath, onFocusPlan }: ChangesPanelProps) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // 5s mtime-gated poll while the catalog surface is open.
+  useEffect(() => {
+    if (!projectPath) return;
+    const interval = setInterval(async () => {
+      for (const entry of changes) {
+        if (entry.archived || !entry.hasTasks) continue;
+        const last = lastProgressRef.current.get(entry.name) ?? { completed: 0, total: 0 };
+        try {
+          const changed = await openspecRefreshTaskProgress(
+            projectPath,
+            entry.name,
+            last.completed,
+            last.total,
+          );
+          if (changed) {
+            // Refresh the full catalog + tasks if this change is expanded.
+            void refresh();
+            if (expandedName === entry.name) {
+              void loadTasks(entry.name);
+            }
+          }
+        } catch {
+          // Silently skip poll errors — the user can manually refresh.
+        }
+      }
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [projectPath, changes, expandedName, refresh]);
 
   const loadTasks = useCallback(
     async (changeName: string) => {
@@ -82,9 +143,7 @@ export function ChangesPanel({ projectPath, onFocusPlan }: ChangesPanelProps) {
       const makeChecked = !currentChecked;
       try {
         await openspecToggleTask(projectPath, changeName, line, makeChecked);
-        // Reload tasks for this change to reflect the new state.
         await loadTasks(changeName);
-        // Also refresh the catalog entry counts.
         void refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -92,32 +151,77 @@ export function ChangesPanel({ projectPath, onFocusPlan }: ChangesPanelProps) {
     },
     [projectPath, loadTasks, refresh],
   );
-
   const handleArchive = useCallback(
-    async (changeName: string) => {
+    (changeName: string) => {
       if (!projectPath) return;
-      const ok = window.confirm(
-        `Archive change "${changeName}"? This moves it to openspec/changes/archive/.`,
-      );
-      if (!ok) return;
+      setConfirm({
+        title: "Archive change",
+        message: `Archive change "${changeName}"? This moves it to openspec/changes/archive/.`,
+        confirmLabel: "Archive",
+        destructive: true,
+        onConfirm: async () => {
+          setConfirm(null);
+          try {
+            await openspecArchiveChange(projectPath, changeName);
+            setExpandedName(null);
+            await refresh();
+          } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+          }
+        },
+      });
+    },
+    [projectPath, refresh],
+  );
+
+  const handleLink = useCallback(
+    async (changeName: string, planId: string) => {
       try {
-        await openspecArchiveChange(projectPath, changeName);
-        setExpandedName(null);
+        await openspecLinkChangeToPlan(changeName, planId);
+        setLinkingChange(null);
         await refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
     },
-    [projectPath, refresh],
+    [refresh],
   );
 
-  const sortedChanges = useMemo(() => {
-    // Active first (by name asc), then archived (by name asc).
-    return [...changes].sort((a, b) => {
-      if (a.archived !== b.archived) return a.archived ? 1 : -1;
-      return a.name.localeCompare(b.name);
-    });
-  }, [changes]);
+  const handleUnlink = useCallback(
+    (planId: string, changeName: string) => {
+      setConfirm({
+        title: "Unlink plan",
+        message: `Unlink plan from change "${changeName}"?`,
+        confirmLabel: "Unlink",
+        destructive: true,
+        onConfirm: async () => {
+          setConfirm(null);
+          try {
+            await openspecUnlinkPlanFromChange(planId);
+            await refresh();
+          } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+          }
+        },
+      });
+    },
+    [refresh],
+  );
+
+  const filteredChanges = useMemo(() => {
+    return changes
+      .filter((entry) => {
+        if (archivedFilter === "active") return !entry.archived;
+        if (archivedFilter === "archived") return entry.archived;
+        return true;
+      })
+      .sort((a, b) => {
+        if (a.archived !== b.archived) return a.archived ? 1 : -1;
+        return a.name.localeCompare(b.name);
+      });
+  }, [changes, archivedFilter]);
+
+  const archivedCount = useMemo(() => changes.filter((c) => c.archived).length, [changes]);
 
   if (!projectPath) {
     return (
@@ -129,9 +233,31 @@ export function ChangesPanel({ projectPath, onFocusPlan }: ChangesPanelProps) {
   }
 
   return (
+    <>
     <div className="changes-panel">
       <div className="changes-panel-header">
         <span className="changes-panel-title">OpenSpec Changes</span>
+        <div className="changes-panel-filter-group">
+          {(["active", "archived", "all"] as ArchivedFilter[]).map((filter) => {
+            const label =
+              filter === "active"
+                ? `Active (${changes.length - archivedCount})`
+                : filter === "archived"
+                  ? `Archived (${archivedCount})`
+                  : "All";
+            return (
+              <button
+                key={filter}
+                type="button"
+                className={`changes-panel-filter${archivedFilter === filter ? " is-active" : ""}`}
+                title={`Filter: ${filter}`}
+                onClick={() => setArchivedFilter(filter)}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
         <button
           type="button"
           className="changes-panel-refresh"
@@ -145,15 +271,15 @@ export function ChangesPanel({ projectPath, onFocusPlan }: ChangesPanelProps) {
 
       {error && <div className="changes-panel-error">{error}</div>}
 
-      {sortedChanges.length === 0 && !loading && (
+      {filteredChanges.length === 0 && !loading && (
         <div className="changes-panel-empty">
           <FolderTree size={20} />
-          <p>No OpenSpec changes found.</p>
+          <p>No {archivedFilter === "archived" ? "archived" : ""} changes found.</p>
         </div>
       )}
 
       <ul className="changes-panel-list">
-        {sortedChanges.map((entry) => (
+        {filteredChanges.map((entry) => (
           <li key={entry.name} className={`changes-panel-item${entry.archived ? " is-archived" : ""}`}>
             <div className="changes-panel-item-row">
               <button
@@ -172,9 +298,26 @@ export function ChangesPanel({ projectPath, onFocusPlan }: ChangesPanelProps) {
               <span className="changes-panel-item-name" title={entry.name}>
                 {entry.name}
               </span>
-              <span className="changes-panel-item-progress" title={`${entry.completed}/${entry.total} tasks`}>
-                {entry.completed}/{entry.total}
-              </span>
+              <div className="changes-panel-chips">
+                {entry.hasProposal && <span className="changes-panel-chip" title="Has proposal.md">P</span>}
+                {entry.hasDesign && <span className="changes-panel-chip" title="Has design.md">D</span>}
+                {entry.hasTasks && <span className="changes-panel-chip" title="Has tasks.md">T</span>}
+                {entry.hasSpecs && <span className="changes-panel-chip" title="Has specs/">S</span>}
+              </div>
+              {entry.hasTasks && (
+                <div
+                  className="changes-panel-progress-bar"
+                  title={`${entry.completed}/${entry.total} tasks completed`}
+                >
+                  <div
+                    className="changes-panel-progress-fill"
+                    style={{ width: `${entry.total > 0 ? (entry.completed / entry.total) * 100 : 0}%` }}
+                  />
+                  <span className="changes-panel-progress-text">
+                    {entry.completed}/{entry.total}
+                  </span>
+                </div>
+              )}
               {entry.linkedPlanReferenceId && onFocusPlan && (
                 <button
                   type="button"
@@ -182,7 +325,30 @@ export function ChangesPanel({ projectPath, onFocusPlan }: ChangesPanelProps) {
                   title={`Focus linked plan ${entry.linkedPlanReferenceId}`}
                   onClick={() => onFocusPlan(entry.linkedPlanReferenceId!)}
                 >
-                  Plan
+                  {entry.linkedPlanReferenceId}
+                </button>
+              )}
+              {linkablePlans && linkablePlans.length > 0 && !entry.archived && (
+                <button
+                  type="button"
+                  className="changes-panel-item-link-action"
+                  title="Link to plan"
+                  onClick={() => setLinkingChange(linkingChange === entry.name ? null : entry.name)}
+                >
+                  <Link2 size={12} />
+                </button>
+              )}
+              {entry.linkedPlanReferenceId && !entry.archived && linkablePlans && (
+                <button
+                  type="button"
+                  className="changes-panel-item-unlink-action"
+                  title="Unlink plan"
+                  onClick={() => {
+                    const plan = linkablePlans.find((p) => p.referenceId === entry.linkedPlanReferenceId);
+                    if (plan) void handleUnlink(plan.id, entry.name);
+                  }}
+                >
+                  <Unlink size={12} />
                 </button>
               )}
               {!entry.archived && (
@@ -197,6 +363,22 @@ export function ChangesPanel({ projectPath, onFocusPlan }: ChangesPanelProps) {
               )}
             </div>
 
+            {linkingChange === entry.name && linkablePlans && (
+              <div className="changes-panel-link-menu">
+                {linkablePlans.map((plan) => (
+                  <button
+                    key={plan.id}
+                    type="button"
+                    className="changes-panel-link-option"
+                    title={`Link ${plan.referenceId} — ${plan.title}`}
+                    onClick={() => void handleLink(entry.name, plan.id)}
+                  >
+                    {plan.referenceId} — {plan.title}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {expandedName === entry.name && (
               <ChangeTasks
                 changeName={entry.name}
@@ -207,9 +389,19 @@ export function ChangesPanel({ projectPath, onFocusPlan }: ChangesPanelProps) {
               />
             )}
           </li>
-        ))}
+      ))}
       </ul>
     </div>
+    <ConfirmDialog
+      open={confirm !== null}
+      title={confirm?.title ?? ""}
+      message={confirm?.message ?? ""}
+      confirmLabel={confirm?.confirmLabel}
+      destructive={confirm?.destructive ?? false}
+      onConfirm={() => confirm?.onConfirm()}
+      onCancel={() => setConfirm(null)}
+    />
+    </>
   );
 }
 
@@ -234,26 +426,35 @@ function ChangeTasks({ tasks, loading, error, onToggle }: ChangeTasksProps) {
 
   return (
     <div className="changes-panel-tasks">
-      {tasks.phases.map((phase: TaskPhase) => (
-        <div key={`${phase.line}-${phase.name}`} className="changes-panel-phase">
-          <div className="changes-panel-phase-name">{phase.name}</div>
-          <ul className="changes-panel-task-list">
-            {phase.tasks.map((task) => (
-              <li key={task.line} className="changes-panel-task">
-                <label className="changes-panel-task-label" title={task.text}>
-                  <input
-                    type="checkbox"
-                    className="changes-panel-task-checkbox"
-                    checked={task.checked}
-                    onChange={() => onToggle(task.line, task.checked)}
-                  />
-                  <span className="changes-panel-task-text">{task.text}</span>
-                </label>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
+      {tasks.phases.map((phase: TaskPhase) => {
+        const phaseCompleted = phase.tasks.filter((t) => t.checked).length;
+        const phaseTotal = phase.tasks.length;
+        return (
+          <div key={`${phase.line}-${phase.name}`} className="changes-panel-phase">
+            <div className="changes-panel-phase-header">
+              <span className="changes-panel-phase-name">{phase.name}</span>
+              <span className="changes-panel-phase-count">
+                {phaseCompleted}/{phaseTotal}
+              </span>
+            </div>
+            <ul className="changes-panel-task-list">
+              {phase.tasks.map((task) => (
+                <li key={task.line} className="changes-panel-task">
+                  <label className="changes-panel-task-label" title={task.text}>
+                    <input
+                      type="checkbox"
+                      className="changes-panel-task-checkbox"
+                      checked={task.checked}
+                      onChange={() => onToggle(task.line, task.checked)}
+                    />
+                    <span className="changes-panel-task-text">{task.text}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
     </div>
   );
 }

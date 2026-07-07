@@ -51,6 +51,11 @@ pub fn plan_run_complete(app: AppHandle, run_id: String, succeeded: bool) -> Res
 }
 
 #[tauri::command]
+pub fn plan_run_mark_complete(app: AppHandle, run_id: String) -> Result<(), String> {
+    PlanRunnerService::mark_complete(&app, &run_id)
+}
+
+#[tauri::command]
 pub fn plan_run_check_completion(app: AppHandle, run_id: String) -> Result<(u32, u32), String> {
     PlanRunnerService::check_run_completion(&app, &run_id)
 }
