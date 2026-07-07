@@ -998,7 +998,7 @@ Rules:
       />
       {changesModalOpen && activeProjectPath ? (
         <div className="modal-overlay" role="dialog" aria-label="Changes" onClick={() => setChangesModalOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal modal-changes" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Changes</h2>
               <button className="btn-icon" type="button" title="Close (Esc)" onClick={() => setChangesModalOpen(false)}><X size={14} /></button>
@@ -1011,7 +1011,7 @@ Rules:
       ) : null}
       {plansModalOpen && activeProjectPath ? (
         <div className="modal-overlay" role="dialog" aria-label="Plans & Ideas" onClick={() => setPlansModalOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal modal-plans" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Plans & Ideas</h2>
               <button className="btn-icon" type="button" title="Close (Esc)" onClick={() => setPlansModalOpen(false)}><X size={14} /></button>

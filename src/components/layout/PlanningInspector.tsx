@@ -165,20 +165,24 @@ export function PlanningInspector({
   }
 
   return (
-    <div className="side-section planning-inspector">
+    <div className={`side-section planning-inspector${hostContext === "modal" ? " planning-inspector-modal" : ""}`}>
       <div className="side-section-header">
-        <span className="side-section-title">Planning</span>
-        {schematic.report && schematic.report.health !== "complete" && (
-          <span
-            className={`schematic-health-badge is-${schematic.report.health}`}
-            title={`Schematic ${schematic.report.health}: ${schematic.report.sections
-              .filter((s) => s.state !== "filled")
-              .map((s) => s.name)
-              .join(", ")} — open the wizard to fix`}
-          >
-            {schematic.report.health}
-          </span>
-        )}
+        {showHeader ? (
+          <>
+            <span className="side-section-title">Planning</span>
+            {schematic.report && schematic.report.health !== "complete" && (
+              <span
+                className={`schematic-health-badge is-${schematic.report.health}`}
+                title={`Schematic ${schematic.report.health}: ${schematic.report.sections
+                  .filter((s) => s.state !== "filled")
+                  .map((s) => s.name)
+                  .join(", ")} — open the wizard to fix`}
+              >
+                {schematic.report.health}
+              </span>
+            )}
+          </>
+        ) : null}
         <div className="side-section-actions">
           <button
             className={`inspector-tab${tab === "plans" ? " is-active" : ""}`}
