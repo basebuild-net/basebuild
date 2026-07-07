@@ -139,7 +139,7 @@ pub fn resolve_client(provider_id: &str, base_url: Option<&str>) -> Box<dyn Prov
             provider_id: "devin".to_string(),
             base_url: base_url
                 .map(str::to_string)
-                .unwrap_or_else(|| "https://api.devin.ai/v1".to_string()),
+                .unwrap_or_else(|| "https://server.codeium.com".to_string()),
         }),
         "google" => Box::new(OpenAiCompatibleClient {
             provider_id: "google".to_string(),
@@ -158,6 +158,42 @@ pub fn resolve_client(provider_id: &str, base_url: Option<&str>) -> Box<dyn Prov
             base_url: base_url
                 .map(str::to_string)
                 .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string()),
+        }),
+        "deepseek" => Box::new(OpenAiCompatibleClient {
+            provider_id: "deepseek".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://api.deepseek.com/v1".to_string()),
+        }),
+        "mistral" => Box::new(OpenAiCompatibleClient {
+            provider_id: "mistral".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://api.mistral.ai/v1".to_string()),
+        }),
+        "xai" => Box::new(OpenAiCompatibleClient {
+            provider_id: "xai".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://api.x.ai/v1".to_string()),
+        }),
+        "together" => Box::new(OpenAiCompatibleClient {
+            provider_id: "together".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://api.together.xyz/v1".to_string()),
+        }),
+        "fireworks" => Box::new(OpenAiCompatibleClient {
+            provider_id: "fireworks".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://api.fireworks.ai/inference/v1".to_string()),
+        }),
+        "cerebras" => Box::new(OpenAiCompatibleClient {
+            provider_id: "cerebras".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://api.cerebras.ai/v1".to_string()),
         }),
         // Default OpenAI-compatible (OpenAI itself, custom providers, and any future compatible provider).
         _ => Box::new(OpenAiCompatibleClient {
