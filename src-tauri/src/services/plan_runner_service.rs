@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use rusqlite::{params, OptionalExtension};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::{
     events::PLAN_RUN_EVENT,
@@ -160,7 +160,7 @@ impl PlanRunnerService {
     /// the existing `PLAN_RUN_EVENT`. Best-effort: fetches plan title + project
     /// path from the run's session; missing data degrades to empty strings
     /// rather than failing the run.
-    fn emit_planning_event(app: &AppHandle, run: &PlanRun, kind: PlanningEventKind, detail: Option<String>) {
+    fn emit_planning_event<R: Runtime>(app: &AppHandle<R>, run: &PlanRun, kind: PlanningEventKind, detail: Option<String>) {
         let title = PlanService::get(&run.plan_id)
             .ok()
             .flatten()
@@ -821,8 +821,8 @@ impl PlanRunnerService {
     /// binds the run to the user-chosen `chat_session_id`, seeds opening
     /// context into it, provisions a worktree per policy, and emits the
     /// running event with the same chat session id.
-    pub fn assign_to_chat(
-        app: &AppHandle,
+    pub fn assign_to_chat<R: Runtime>(
+        app: &AppHandle<R>,
         plan_id: &str,
         chat_session_id: &str,
     ) -> DbResult<PlanRun> {

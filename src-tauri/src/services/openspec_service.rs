@@ -585,8 +585,8 @@ fn is_leap_year(year: i64) -> bool {
 /// Canonicalizes the path under `openspec/changes/` (no traversal), verifies
 /// the line content matches the expected state before writing, and rewrites
 /// atomically via temp + rename. Emits a `TaskProgressChanged` event.
-pub fn toggle_task(
-    app: &tauri::AppHandle,
+pub fn toggle_task<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     project_path: &str,
     change_name: &str,
     line_no: u32,
