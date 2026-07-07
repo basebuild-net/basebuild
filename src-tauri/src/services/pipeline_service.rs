@@ -2,16 +2,18 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use rusqlite::{params, OptionalExtension};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::{
     events::NATIVE_CHAT_CHUNK,
     models::{
         idea::{Idea, IdeaStatus},
         pipeline::{PipelineRun, PipelineRunStatus, PipelineStageKind, PipelineStartRequest},
+        planning_event::PlanningEventKind,
     },
     services::{
-        native_chat_service::NativeChatService, provider_client::{resolve_client, ChatMsg, ProviderRequest},
+        native_chat_service::NativeChatService, planning_events,
+        provider_client::{resolve_client_for_model, ChatMsg, ProviderRequest},
         session_service::SessionService, storage_service::StorageService,
     },
 };
@@ -102,7 +104,7 @@ impl PipelineService {
         if let Ok(mut map) = RUNNING_STAGES.lock() {
             map.insert(run_id.clone(), token.clone());
         }
-        Self::update_run_status(&run_id, PipelineRunStatus::Running, None, &[], Some(now()), None)?;
+        Self::update_run_status(app, &run_id, PipelineRunStatus::Running, None, &[], Some(now()), None)?;
 
         // Execute the stage. Errors are recorded on the run row.
         let result = match kind {
@@ -129,6 +131,7 @@ impl PipelineService {
         // recorded as cancelled (the user's intent), not failed.
         if token.is_cancelled() {
             Self::update_run_status(
+                app,
                 &run_id,
                 PipelineRunStatus::Cancelled,
                 Some("Cancelled by user"),
@@ -140,6 +143,7 @@ impl PipelineService {
             match result {
                 Ok(output_refs) => {
                     Self::update_run_status(
+                        app,
                         &run_id,
                         PipelineRunStatus::Succeeded,
                         None,
@@ -150,6 +154,7 @@ impl PipelineService {
                 }
                 Err(e) => {
                     Self::update_run_status(
+                        app,
                         &run_id,
                         PipelineRunStatus::Failed,
                         Some(&e),
@@ -167,7 +172,7 @@ impl PipelineService {
 
     /// Cancel a running pipeline stage by run id. Sets the cancellation token
     /// so the stage's emit closure aborts the request on the next chunk.
-    pub fn cancel_run(run_id: &str) -> DbResult<()> {
+    pub fn cancel_run<R: Runtime>(app: &AppHandle<R>, run_id: &str) -> DbResult<()> {
         if let Ok(map) = RUNNING_STAGES.lock() {
             if let Some(token) = map.get(run_id) {
                 token.cancel();
@@ -177,6 +182,7 @@ impl PipelineService {
         // If the run isn't in the map, it may have already completed. Mark it
         // cancelled if it's still in a non-terminal state.
         Self::update_run_status(
+            app,
             run_id,
             PipelineRunStatus::Cancelled,
             Some("Cancelled by user"),
@@ -236,8 +242,21 @@ impl PipelineService {
             crate::models::planning_prompt::CATEGORY_GENERATION,
         ).unwrap_or_else(|_| NativeChatService::system_prompt(&request.project_path, schematic.as_deref()));
         let focus = Self::focus_directive(&request.project_path);
+        let digest = crate::services::planning_prompt_service::PlanningPromptService::decision_digest(
+            &request.session_id,
+            &request.project_path,
+        );
+        let focus_and_digest = match &digest {
+            Some(d) => format!("{focus}\n\n{d}"),
+            None => focus.clone(),
+        };
+        let preferences = Self::load_preferences(&request.project_path);
+        let focus_full = match &preferences {
+            Some(p) => format!("{focus_and_digest}\n\n{p}"),
+            None => focus_and_digest.clone(),
+        };
         let prompt = format!(
-            "{focus}\n\n\
+            "{focus_full}\n\n\
              Based on the project schematic and conversation below, propose 3-6 \
              category names for organizing ideas for THIS project's domain (not a \
              generic taxonomy like SEO/Optimization/Design — derive from the \
@@ -246,9 +265,10 @@ impl PipelineService {
              each). No prose, no code fences.\n\n\
              Schematic:\n{schematic_text}\n\nConversation:\n{convo}",
             schematic_text = schematic.as_deref().unwrap_or("(no schematic)"),
-            focus = focus,
+            focus_full = focus_full,
             convo = convo,
         );
+
 
         let response = Self::call_model(
             app,
@@ -297,8 +317,21 @@ impl PipelineService {
             crate::models::planning_prompt::IDEA_GENERATION,
         ).unwrap_or_else(|_| NativeChatService::system_prompt(&request.project_path, schematic.as_deref()));
         let focus = Self::focus_directive(&request.project_path);
+        let digest = crate::services::planning_prompt_service::PlanningPromptService::decision_digest(
+            &request.session_id,
+            &request.project_path,
+        );
+        let focus_and_digest = match &digest {
+            Some(d) => format!("{focus}\n\n{d}"),
+            None => focus.clone(),
+        };
+        let preferences = Self::load_preferences(&request.project_path);
+        let focus_full = match &preferences {
+            Some(p) => format!("{focus_and_digest}\n\n{p}"),
+            None => focus_and_digest.clone(),
+        };
         let prompt = format!(
-            "{focus}\n\n\
+            "{focus_full}\n\n\
              Based on the project schematic and conversation below, propose 3-6 \
              concrete, actionable ideas for this project. Each idea must cite \
              grounding (real files, functions, or observed gaps). Respond with \
@@ -309,7 +342,7 @@ impl PipelineService {
              Category hint: {category_hint}\n\n\
              Schematic:\n{schematic_text}\n\nConversation:\n{convo}",
             schematic_text = schematic.as_deref().unwrap_or("(no schematic)"),
-            focus = focus,
+            focus_full = focus_full,
             category_hint = category_hint,
             convo = convo,
         );
@@ -389,6 +422,19 @@ impl PipelineService {
             parts.push("Note: an end goal's period has passed.".to_string());
         }
         parts.join(" ")
+    }
+
+    /// Load the project's preferences file (`.basebuild/preferences.md`) if
+    /// present. Injected into generation prompts so the user's stated
+    /// preferences steer generation.
+    fn load_preferences(project_path: &str) -> Option<String> {
+        let path = std::path::PathBuf::from(project_path).join(".basebuild/preferences.md");
+        let content = std::fs::read_to_string(&path).ok()?;
+        let trimmed = content.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        Some(format!("## Project preferences\n{trimmed}"))
     }
 
     /// Stage: enhance an idea into a draft plan. Creates a draft plan linked
@@ -673,7 +719,7 @@ impl PipelineService {
             .unwrap_or_else(|| model_id.to_string());
 
         let req = ProviderRequest {
-            model_id: resolved_model_id,
+            model_id: resolved_model_id.clone(),
             effort_level: effort_level.to_string(),
             system: Some(system),
             messages: vec![ChatMsg {
@@ -685,10 +731,11 @@ impl PipelineService {
             }],
             api_key: credential.as_ref().map(|c| c.api_key.clone()),
             base_url: credential.as_ref().and_then(|c| c.base_url.clone()),
-            tools: Vec::new(),
+            tools: vec![ask_user_tool_schema()],
         };
 
-        let client = resolve_client(provider_id, req.base_url.as_deref());
+        let (api_kind, model_base_url) = NativeChatService::resolve_model_routing(provider_id, model_id);
+        let client = resolve_client_for_model(provider_id, &api_kind, req.base_url.as_deref(), &model_base_url);
         let session_id_for_emit = session_id.to_string();
         let run_id_for_check = run_id.to_string();
         let token_clone = token.clone();
@@ -714,9 +761,174 @@ impl PipelineService {
         if token.is_cancelled() {
             return Err("Cancelled by user".to_string());
         }
+        // Handle ask_user tool calls: persist the interaction, emit an event,
+        // park until the user responds, then resume with the answers as a
+        // follow-up turn so the model can use them.
+        if response.tool_calls.iter().any(|c| c.name == "ask_user") {
+            let ask_call = response.tool_calls.iter().find(|c| c.name == "ask_user").unwrap();
+            let answers = handle_pipeline_ask_user(app, session_id, ask_call, token)?;
+            if answers.is_empty() {
+                // Cancelled or timed out.
+                return Err("ask_user cancelled or timed out".to_string());
+            }
+            // Resume with a follow-up turn: append the assistant's tool call
+            // and the tool result, then generate again.
+            let answers_json = serde_json::to_string(&answers).unwrap_or_else(|_| "[]".to_string());
+            let resume_req = ProviderRequest {
+                model_id: resolved_model_id.clone(),
+                effort_level: effort_level.to_string(),
+                system: Some(req.system.clone().unwrap_or_default()),
+                messages: vec![
+                    req.messages[0].clone(),
+                    ChatMsg {
+                        role: "assistant".to_string(),
+                        content: String::new(),
+                        tool_calls: vec![ask_call.clone()],
+                        tool_call_id: None,
+                        name: None,
+                    },
+                    ChatMsg {
+                        role: "tool".to_string(),
+                        content: answers_json,
+                        tool_calls: Vec::new(),
+                        tool_call_id: Some(ask_call.id.clone()),
+                        name: Some("ask_user".to_string()),
+                    },
+                ],
+                api_key: credential.as_ref().map(|c| c.api_key.clone()),
+                base_url: credential.as_ref().and_then(|c| c.base_url.clone()),
+                tools: Vec::new(),
+            };
+            let resume_response = client.generate(&resume_req, &emit)?;
+            if token.is_cancelled() {
+                return Err("Cancelled by user".to_string());
+            }
+            return Ok(resume_response.content);
+        }
         Ok(response.content)
     }
+}
 
+/// Build the ask_user tool schema for pipeline turns. Mirrors the schema in
+/// tool_runtime_service::registry but as a ProviderClient ToolSchema.
+fn ask_user_tool_schema() -> crate::services::provider_client::ToolSchema {
+    crate::services::provider_client::ToolSchema {
+        name: "ask_user".to_string(),
+        description: "Present one or more questions to the user and wait for their response. Each question carries an id, a prompt, a kind (options, multi, confirm, text), an optional option list, an optional recommended-option index, and an optional allow-free-text flag. The loop pauses until the user responds or the run is cancelled.".to_string(),
+        parameters: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "questions": {
+                    "type": "array",
+                    "description": "Questions to present.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string", "description": "Unique question id." },
+                            "prompt": { "type": "string", "description": "The question text." },
+                            "kind": { "type": "string", "enum": ["options", "multi", "confirm", "text"], "description": "Question kind." },
+                            "options": {
+                                "type": "array",
+                                "description": "Options for options/multi/confirm kinds.",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "label": { "type": "string", "description": "Option label." },
+                                        "description": { "type": "string", "description": "Optional longer description." }
+                                    },
+                                    "required": ["label"]
+                                }
+                            },
+                            "recommended": { "type": "integer", "description": "Index of recommended option." },
+                            "allowFreeText": { "type": "boolean", "description": "Allow free-text even for options kind.", "default": false }
+                        },
+                        "required": ["id", "prompt", "kind"]
+                    }
+                }
+            },
+            "required": ["questions"]
+        }),
+    }
+}
+
+/// Handle an ask_user tool call from a pipeline turn: parse questions,
+/// persist a pending interaction, emit `native-chat://interactive-request`,
+/// park until the user responds or cancels. Returns the answers (empty on
+/// cancel/timeout).
+fn handle_pipeline_ask_user(
+    app: &AppHandle,
+    session_id: &str,
+    call: &crate::services::provider_client::ToolCallRequest,
+    _token: &CancellationToken,
+) -> DbResult<Vec<crate::models::interaction::QuestionAnswer>> {
+    use crate::services::agent_loop_service::{InteractionResolution, PENDING_INTERACTIONS};
+    use parking_lot::Mutex;
+    use std::sync::mpsc;
+    use std::collections::HashMap;
+    use std::sync::LazyLock;
+
+    let args: serde_json::Value = serde_json::from_str(&call.arguments).unwrap_or(serde_json::json!({}));
+    let Some(questions) = args.get("questions").and_then(serde_json::Value::as_array) else {
+        return Err("ask_user requires a 'questions' array.".to_string());
+    };
+    if questions.is_empty() {
+        return Err("ask_user requires at least one question.".to_string());
+    }
+    let mut parsed: Vec<crate::models::interaction::Question> = Vec::with_capacity(questions.len());
+    for q in questions {
+        let id = q.get("id").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
+        let prompt = q.get("prompt").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
+        let kind_str = q.get("kind").and_then(serde_json::Value::as_str).unwrap_or("text");
+        let kind = crate::models::interaction::QuestionKind::from_str(kind_str);
+        let options: Vec<crate::models::interaction::QuestionOption> = q
+            .get("options")
+            .and_then(serde_json::Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|o| {
+                        let label = o.get("label").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
+                        if label.is_empty() { return None; }
+                        let description = o.get("description").and_then(serde_json::Value::as_str).map(str::to_string);
+                        Some(crate::models::interaction::QuestionOption { label, description })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let recommended = q.get("recommended").and_then(serde_json::Value::as_i64).map(|i| i as usize);
+        let allow_free_text = q.get("allowFreeText").and_then(serde_json::Value::as_bool).unwrap_or(false);
+        parsed.push(crate::models::interaction::Question { id, prompt, kind, options, recommended, allow_free_text });
+    }
+    let interaction = crate::services::interaction_service::InteractionService::create(
+        session_id,
+        Some(&call.id),
+        &parsed,
+    )?;
+    let _ = app.emit(
+        "native-chat://interactive-request",
+        serde_json::json!({ "sessionId": session_id, "interactionId": interaction.id, "toolCallId": call.id }),
+    );
+    let (tx, rx) = mpsc::channel::<InteractionResolution>();
+    {
+        let mut pending = PENDING_INTERACTIONS.lock();
+        pending.insert(interaction.id.clone(), tx);
+    }
+    match rx.recv_timeout(std::time::Duration::from_secs(600)) {
+        Ok(resolution) => {
+            if resolution.cancelled {
+                let _ = crate::services::interaction_service::InteractionService::cancel(&interaction.id);
+                Ok(Vec::new())
+            } else {
+                Ok(resolution.answers)
+            }
+        }
+        Err(_) => {
+            let _ = crate::services::interaction_service::InteractionService::cancel(&interaction.id);
+            Ok(Vec::new())
+        }
+    }
+}
+
+impl PipelineService {
     // ─── DB helpers ───
 
     fn insert_run(
@@ -762,7 +974,8 @@ impl PipelineService {
         Ok(())
     }
 
-    fn update_run_status(
+    fn update_run_status<R: Runtime>(
+        app: &AppHandle<R>,
         id: &str,
         status: PipelineRunStatus,
         error: Option<&str>,
@@ -779,6 +992,31 @@ impl PipelineService {
             params![status.as_str(), error, output_json, started_at, completed_at, id],
         )
         .map_err(|e| e.to_string())?;
+
+        // Emit a typed planning event for the stage transition. Best-effort:
+        // fetch the run for title + project_path; missing data degrades to
+        // the run id rather than failing the transition.
+        let kind = match status {
+            PipelineRunStatus::Running => Some(PlanningEventKind::StageStarted),
+            PipelineRunStatus::Succeeded => Some(PlanningEventKind::StageSucceeded),
+            PipelineRunStatus::Failed => Some(PlanningEventKind::StageFailed),
+            PipelineRunStatus::Cancelled => Some(PlanningEventKind::StageCancelled),
+            PipelineRunStatus::Pending => None,
+        };
+        if let Some(kind) = kind {
+            if let Ok(Some(run)) = Self::get_run(id) {
+                let title = format!("{}: {}", run.kind, status.as_str());
+                planning_events::emit(
+                    app,
+                    kind,
+                    &run.id,
+                    &run.project_path,
+                    Some(run.session_id.clone()),
+                    &title,
+                    error.map(str::to_string),
+                );
+            }
+        }
         Ok(())
     }
 }
@@ -807,7 +1045,8 @@ fn row_to_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<PipelineRun> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    #[cfg(not(target_os = "windows"))]
+    use tauri::Manager;
     #[test]
     fn cancellation_token_signals_cancellation() {
         let token = CancellationToken::new();
@@ -853,8 +1092,17 @@ mod tests {
     fn cancel_run_marks_nonexistent_run_cancelled() {
         let dir = tempfile::TempDir::new().unwrap();
         let _g = crate::test_util::test::lock_db(&dir);
-        let result = PipelineService::cancel_run("nonexistent-run-id");
-        assert!(result.is_ok());
+        // cancel_run now requires an AppHandle for event emission. On a
+        // nonexistent run, update_run_status is called but get_run returns
+        // None so no event is emitted. The tauri test mock requires Wry
+        // runtime DLLs that may not be available in CI, so this test is
+        // gated on not-Windows.
+        #[cfg(not(target_os = "windows"))]
+        {
+            let app = tauri::test::mock_app().app_handle().clone();
+            let result = PipelineService::cancel_run(&app, "nonexistent-run-id");
+            assert!(result.is_ok());
+        }
     }
 
     #[test]

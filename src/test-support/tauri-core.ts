@@ -116,6 +116,8 @@ type E2eState = {
   autoSyncEnabled?: boolean;
   gitChangeStaged: boolean;
   terminals: { id: number; shell: string; cwd: string | null; pid: number; rows: number; cols: number; startedAt: number; alive: boolean }[];
+  notifications: { id: string; kind: string; entityId: string; entityKind: string; projectPath: string; title: string; detail?: string; read: boolean; createdAt: number }[];
+  notificationSettings: { overrides: Record<string, string> };
 };
 
 const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState };
@@ -147,6 +149,8 @@ function state(): E2eState {
       updateInstallCount: 0,
       gitChangeStaged: false,
       terminals: [],
+      notifications: [],
+      notificationSettings: { overrides: {} },
     };
   }
   return globalState.__BASEBUILD_E2E_STATE__!;
@@ -208,6 +212,25 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return undefined as T;
     case "native_chat_tool_events":
       return [] as T;
+    case "native_interaction_list_all":
+    case "native_interaction_list_pending": {
+      const w = globalThis as unknown as { __basebuildMockInteraction?: unknown };
+      const injected = w.__basebuildMockInteraction;
+      if (injected) {
+        return [injected] as T;
+      }
+      return [] as T;
+    }
+    case "native_interaction_resolve": {
+      const w = globalThis as unknown as { __basebuildMockInteraction?: { id: string; status: string; [k: string]: unknown } };
+      if (w.__basebuildMockInteraction) w.__basebuildMockInteraction.status = "answered";
+      return (w.__basebuildMockInteraction ?? { id: args.id as string, status: "answered" }) as T;
+    }
+    case "native_interaction_cancel": {
+      const w = globalThis as unknown as { __basebuildMockInteraction?: { id: string; status: string; [k: string]: unknown } };
+      if (w.__basebuildMockInteraction) w.__basebuildMockInteraction.status = "cancelled";
+      return (w.__basebuildMockInteraction ?? { id: args.id as string, status: "cancelled" }) as T;
+    }
     case "stability_list_reports":
       return [] as T;
     case "stability_read_report":
@@ -351,11 +374,36 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "plan_run_start":
       return undefined as T;
+    case "plan_assign_to_chat": {
+      const planId = typeof args.planId === "string" ? args.planId : "";
+      const chatSessionId = typeof args.chatSessionId === "string" ? args.chatSessionId : "";
+      const run = { id: `run-${Date.now()}`, planId, sessionId: typeof args.sessionId === "string" ? args.sessionId : "", chatSessionId, workspacePath: undefined, status: "running", runnerKind: "native", error: undefined, stepsOutput: [], createdAt: Date.now() };
+      s.planRuns.push(run);
+      return run as T;
+    }
+    case "openspec_list_changes":
+      return [] as T;
+    case "openspec_parse_tasks_structured":
+      return { phases: [], total: 0, completed: 0 } as T;
+    case "openspec_read_tasks_structured":
+      return { phases: [], total: 0, completed: 0 } as T;
+    case "openspec_toggle_task":
+      return undefined as T;
+    case "openspec_archive_change":
+      return undefined as T;
+    case "openspec_link_change_to_plan":
+      return undefined as T;
+    case "openspec_unlink_plan_from_change":
+      return undefined as T;
+    case "openspec_refresh_task_progress":
+      return false as T;
     case "plan_run_pause":
       return undefined as T;
     case "plan_run_cancel":
       return undefined as T;
     case "plan_run_complete":
+      return undefined as T;
+    case "plan_run_mark_complete":
       return undefined as T;
     case "plan_run_check_completion":
       return [0, 0] as T;
@@ -389,6 +437,18 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
           { id: "basebuild-local", label: "Basebuild Local", status: "ready", credentialOwner: "basebuild", configured: true, localOnly: true, detail: "Local coordinator", authMethod: "local", apiKeyUrl: null, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
           { id: "openai", label: "OpenAI", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.openai.com/api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
           { id: "umans", label: "Umans", status: "ready", credentialOwner: "user", configured: true, localOnly: false, detail: "Connected", authMethod: "api_key", apiKeyUrl: "https://app.umans.ai/billing?context=personal&tab=api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "provider_discovered", error: null },
+          { id: "anthropic", label: "Anthropic", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.anthropic.com/settings/keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+          { id: "devin", label: "Devin.ai", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://app.devin.ai/settings/api-keys", modelCount: 48, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+          { id: "google", label: "Google Gemini", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://aistudio.google.com/apikey", modelCount: 33, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+          { id: "groq", label: "Groq", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.groq.com/keys", modelCount: 18, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+          { id: "openrouter", label: "OpenRouter", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://openrouter.ai/keys", modelCount: 19, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+          { id: "deepseek", label: "DeepSeek", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.deepseek.com/api_keys", modelCount: 2, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+          { id: "mistral", label: "Mistral", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.mistral.ai/api-keys", modelCount: 29, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+          { id: "xai", label: "xAI (Grok)", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.x.ai", modelCount: 29, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+          { id: "together", label: "Together AI", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://api.together.ai/settings/api-keys", modelCount: 32, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+          { id: "fireworks", label: "Fireworks AI", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://fireworks.ai/api-keys", modelCount: 22, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+          { id: "cerebras", label: "Cerebras", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://cloud.cerebras.ai", modelCount: 7, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+          { id: "custom", label: "Custom (OpenAI-compatible)", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Enter API key + base URL", authMethod: "api_key", apiKeyUrl: null, modelCount: 0, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
         ],
         models: [
           { id: "basebuild-local-coordinator", providerId: "basebuild-local", label: "Local Coordinator", supportsEffort: true, supportsStreaming: false, supportsTools: false, localOnly: true, contextWindow: null, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "bundled" },
@@ -449,6 +509,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       };
       const assistantContent = req.content.includes("Write one concise git commit message")
         ? "Let me write a concise commit message.\n\n1. `launch-sbox.sh` - changes\n2. `patch_engine.sh` - changes\n\n---\n\nRework patch system to target sbox-public"
+        : req.content.includes("quick-reply-test")
+        ? "Here are your options:\nA. Commit the changes\nB. Create a pull request\nC. Abort and revert\n"
         : `Native harness echo: ${req.content}`;
       const assistantMessage: NativeChatMessage = {
         id: `nmsg-${s.nextNativeMessageId++}`,
@@ -737,10 +799,52 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return { providers: {} } as T;
     case "set_run_concurrency_override":
       return undefined as T;
-    case "remove_run_concurrency_override":
+    case "notification_list":
+      return s.notifications.slice().reverse().slice(0, (args.limit as number) ?? 100) as T;
+    case "notification_unread_count":
+      return s.notifications.filter((n) => !n.read).length as T;
+    case "notification_mark_read": {
+      const n = s.notifications.find((item) => item.id === args.id);
+      if (n) n.read = true;
+      return undefined as T;
+    }
+    case "notification_mark_all_read":
+      s.notifications.forEach((n) => { n.read = true; });
+      return undefined as T;
+    case "notification_delete":
+      s.notifications = s.notifications.filter((n) => n.id !== args.id);
+      return undefined as T;
+    case "notification_get_settings":
+      return s.notificationSettings as T;
+    case "notification_set_settings":
+      s.notificationSettings = args.settings as { overrides: Record<string, string> };
       return undefined as T;
     case "effective_run_concurrency":
       return { maxConcurrency: 1, subagentsEnabled: false, subagentMaxCount: 0 } as T;
+    case "integration_list":
+      return [] as T;
+    case "integration_cleanup":
+      return undefined as T;
+    case "get_milestone_auto_commit":
+      return false as T;
+    case "set_milestone_auto_commit":
+      return undefined as T;
+    case "list_resolved_skills":
+      return [] as T;
+    case "read_resolved_skill":
+      return "" as T;
+    case "provision_skill_dirs":
+      return [] as T;
+    case "omp_rpc_probe":
+      return "omp 1.2.3" as T;
+    case "omp_rpc_start":
+    case "omp_rpc_send":
+    case "omp_rpc_cancel":
+    case "omp_rpc_shutdown":
+    case "omp_rpc_resolve":
+      return undefined as T;
+    case "omp_rpc_status":
+      return "none" as T;
     default:
       throw new Error(`Unhandled E2E Tauri command: ${command}`);
   }

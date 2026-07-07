@@ -41,6 +41,23 @@ pub struct Workspace {
 pub struct WorktreeService;
 
 impl WorktreeService {
+    /// Convert a plan title to a branch-safe slug (lowercase, hyphens,
+    /// alphanumerics only, truncated to 40 chars).
+    pub fn slugify(title: &str) -> String {
+        let slug: String = title
+            .to_lowercase()
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() { c }
+                else if c == '-' || c == '_' { '-' }
+                else { ' ' }
+            })
+            .collect();
+        let slug: String = slug.split_whitespace().collect::<Vec<_>>().join("-");
+        let slug = slug.trim_matches('-');
+        if slug.is_empty() { "plan".to_string() } else { slug.chars().take(40).collect() }
+    }
+
     /// Create a worktree for a plan run under the managed directory.
     /// Branch: `bb/<reference-id>-<slug>`. Path: `<data-dir>/worktrees/<project-hash>/<reference-id>`.
     /// Branched from the freshly fetched default branch (per `parallel-workspaces`).

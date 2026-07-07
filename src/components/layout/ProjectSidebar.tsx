@@ -364,7 +364,8 @@ export function useProjectSidebar(activeProjectPath: string | null) {
       addLog("info", `Folder selected: ${path}`);
       await rememberRecentProject(path);
       await refreshProjects();
-      await selectProject(path);
+      // Detection runs once via the `activeProjectPath` effect below; do not
+      // call `selectProject` here — that would duplicate the diagnostic event.
       return path;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

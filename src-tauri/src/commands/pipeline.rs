@@ -14,8 +14,8 @@ pub fn pipeline_start(
 }
 
 #[tauri::command]
-pub fn pipeline_cancel(run_id: String) -> Result<(), String> {
-    PipelineService::cancel_run(&run_id)
+pub fn pipeline_cancel(app: AppHandle, run_id: String) -> Result<(), String> {
+    PipelineService::cancel_run(&app, &run_id)
 }
 
 #[tauri::command]

@@ -6,10 +6,10 @@
 //! `reset` deletes the row. `list` returns the effective value (override or
 //! default) plus the default and a modified flag for the UI.
 use crate::{
-    commands::skills::read_skill_content,
     models::planning_prompt::{PlanningPromptEntry, CATEGORY_GENERATION, CHAT_SYSTEM, IDEA_GENERATION, PLAN_GENERATION},
-    services::storage_service::StorageService,
+    services::{skill_registry_service::SkillRegistryService, storage_service::StorageService},
 };
+
 use rusqlite::{params, OptionalExtension};
 use std::sync::LazyLock;
 
@@ -21,8 +21,11 @@ pub struct PlanningPromptService;
 /// Cached bundled skill content. Read once at first access; the skill files
 /// ship with the app and do not change at runtime. Updates take effect on
 /// restart (app updates replace the binary + bundled skills atomically).
+/// Resolved skill content (bundled + user, user-wins). Read once at first
+/// access via the skill registry; user-directory changes take effect on
+/// restart. The registry resolves both bundled and user `skills/` roots.
 static PLANNING_SKILL: LazyLock<Option<String>> = LazyLock::new(|| {
-    read_skill_content("basebuild-planning")
+    SkillRegistryService::read_content("basebuild-planning")
 });
 
 /// Compiled-in fallbacks used when the skill file is unavailable (e.g. running
@@ -153,6 +156,70 @@ impl PlanningPromptService {
             });
         }
         Ok(entries)
+    }
+
+    /// Assemble a decision digest for injection into generation prompts.
+    /// Includes bounded recent picked/rejected ideas and plans finished
+    /// since the schematic's mtime. Returns `None` when there's nothing to
+    /// digest (no recent decisions).
+    pub fn decision_digest(session_id: &str, project_path: &str) -> Option<String> {
+        let conn = StorageService::connect().ok()?;
+        // Recent picked/rejected ideas (last 10).
+        let mut stmt_ideas = conn
+            .prepare(
+                "SELECT title, status FROM ideas
+                 WHERE session_id = ?1 AND status IN ('picked', 'rejected')
+                 ORDER BY updated_at DESC LIMIT 10",
+            )
+            .ok()?;
+        let ideas: Vec<(String, String)> = stmt_ideas
+            .query_map(params![session_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .ok()?
+            .filter_map(|r| r.ok())
+            .collect();
+        // Plans finished since schematic mtime.
+        let schematic_mtime = std::fs::metadata(
+            std::path::Path::new(project_path).join(".basebuild/project-schematic.md"),
+        )
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+        let mut stmt_plans = conn
+            .prepare(
+                "SELECT title, reference_id FROM plans
+                 WHERE session_id = ?1 AND status = 'finished' AND finished_at > ?2
+                 ORDER BY finished_at DESC LIMIT 10",
+            )
+            .ok()?;
+        let finished_plans: Vec<(String, String)> = stmt_plans
+            .query_map(params![session_id, schematic_mtime], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .ok()?
+            .filter_map(|r| r.ok())
+            .collect();
+        if ideas.is_empty() && finished_plans.is_empty() {
+            return None;
+        }
+        let mut parts = Vec::new();
+        parts.push("## Recent decisions".to_string());
+        if !ideas.is_empty() {
+            parts.push("Picked/rejected ideas (most recent first):".to_string());
+            for (title, status) in &ideas {
+                parts.push(format!("- [{status}] {title}"));
+            }
+        }
+        if !finished_plans.is_empty() {
+            parts.push("\nPlans finished since last schematic update:".to_string());
+            for (title, ref_id) in &finished_plans {
+                parts.push(format!("- {title} ({ref_id})"));
+            }
+        }
+        Some(parts.join("\n"))
     }
 }
 

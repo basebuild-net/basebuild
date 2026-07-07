@@ -57,6 +57,7 @@ pub enum PlanRunStatus {
     Failed,
     Cancelled,
     Paused,
+    AwaitingReview,
 }
 
 impl PlanRunStatus {
@@ -68,6 +69,7 @@ impl PlanRunStatus {
             PlanRunStatus::Failed => "failed",
             PlanRunStatus::Cancelled => "cancelled",
             PlanRunStatus::Paused => "paused",
+            PlanRunStatus::AwaitingReview => "awaiting_review",
         }
     }
 
@@ -78,6 +80,7 @@ impl PlanRunStatus {
             "failed" => PlanRunStatus::Failed,
             "cancelled" => PlanRunStatus::Cancelled,
             "paused" => PlanRunStatus::Paused,
+            "awaiting_review" => PlanRunStatus::AwaitingReview,
             _ => PlanRunStatus::Pending,
         }
     }
@@ -88,6 +91,7 @@ impl PlanRunStatus {
 pub enum RunnerKind {
     Native,
     Omp,
+    OmpRpc,
 }
 
 impl RunnerKind {
@@ -95,12 +99,14 @@ impl RunnerKind {
         match self {
             RunnerKind::Native => "native",
             RunnerKind::Omp => "omp",
+            RunnerKind::OmpRpc => "omp-rpc",
         }
     }
 
     pub fn from_str(s: &str) -> Self {
         match s {
             "omp" => RunnerKind::Omp,
+            "omp-rpc" => RunnerKind::OmpRpc,
             _ => RunnerKind::Native,
         }
     }

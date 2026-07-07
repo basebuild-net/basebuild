@@ -11,6 +11,11 @@ pub fn plan_run_enqueue(request: EnqueuePlanRequest) -> Result<PlanQueueEntry, S
 }
 
 #[tauri::command]
+pub fn plan_assign_to_chat(app: AppHandle, plan_id: String, chat_session_id: String) -> Result<PlanRun, String> {
+    PlanRunnerService::assign_to_chat(&app, &plan_id, &chat_session_id)
+}
+
+#[tauri::command]
 pub fn plan_run_list_queue(session_id: String) -> Result<Vec<PlanQueueEntry>, String> {
     PlanRunnerService::list_queue(&session_id)
 }
@@ -43,6 +48,11 @@ pub fn plan_run_cancel(app: AppHandle, run_id: String, cancel_plan: bool) -> Res
 #[tauri::command]
 pub fn plan_run_complete(app: AppHandle, run_id: String, succeeded: bool) -> Result<(), String> {
     PlanRunnerService::complete_run(&app, &run_id, succeeded)
+}
+
+#[tauri::command]
+pub fn plan_run_mark_complete(app: AppHandle, run_id: String) -> Result<(), String> {
+    PlanRunnerService::mark_complete(&app, &run_id)
 }
 
 #[tauri::command]

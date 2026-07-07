@@ -6,12 +6,14 @@ type StatusBarProps = {
 };
 
 const icons = {
+  debug: CheckCircle,
   info: CheckCircle,
   warn: AlertTriangle,
   error: AlertCircle,
 };
 
 const levelClass = {
+  debug: "is-info",
   info: "is-info",
   warn: "is-warn",
   error: "is-error",

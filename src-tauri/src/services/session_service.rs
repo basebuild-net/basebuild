@@ -387,6 +387,33 @@ impl SessionService {
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())
     }
+    pub fn get_idea(id: &str) -> DbResult<Option<Idea>> {
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, session_id, category_id, title, description, status, grounding, anchor, created_at, updated_at
+                 FROM ideas WHERE id = ?1 LIMIT 1",
+            )
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt
+            .query_map(params![id], |row| {
+                let status_str: String = row.get(5)?;
+                Ok(Idea {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    category_id: row.get(2)?,
+                    title: row.get(3)?,
+                    description: row.get(4)?,
+                    status: IdeaStatus::from_str(&status_str),
+                    grounding: row.get(6)?,
+                    anchor: row.get(7)?,
+                    created_at: row.get(8)?,
+                    updated_at: row.get(9)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.next().transpose().map_err(|e| e.to_string())
+    }
 
     pub fn update_idea_status(id: &str, status: IdeaStatus) -> DbResult<()> {
         let conn = StorageService::connect()?;

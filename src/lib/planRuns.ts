@@ -8,7 +8,8 @@ export type PlanRunStatus =
   | "succeeded"
   | "failed"
   | "cancelled"
-  | "paused";
+  | "paused"
+  | "awaiting_review";
 
 export type RunnerKind = "native" | "omp";
 
@@ -116,6 +117,13 @@ export async function startOmpPlanRun(
   return invoke<PlanRun>("plan_run_start_omp", { sessionId, planId });
 }
 
+export async function assignPlanToChat(
+  planId: string,
+  chatSessionId: string,
+): Promise<PlanRun> {
+  return invoke<PlanRun>("plan_assign_to_chat", { planId, chatSessionId });
+}
+
 export async function cancelPlanRun(
   runId: string,
   cancelPlan: boolean,
@@ -150,4 +158,8 @@ export function onPlanRunEvent(
   cb: (event: PlanRunEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<PlanRunEvent>("plan_run://event", (e) => cb(e.payload));
+}
+
+export async function markPlanRunComplete(runId: string): Promise<void> {
+  await invoke<void>("plan_run_mark_complete", { runId });
 }

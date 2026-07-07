@@ -178,6 +178,34 @@ pub fn native_provider_login_cancel(provider_id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Returns the `omp login <provider>` command string for the frontend to
+/// run in a terminal tab. Returns an error if OMP is not installed.
+#[tauri::command]
+pub fn native_provider_omp_login_command(provider_id: String) -> Result<String, String> {
+    if !crate::services::provider_client::omp_available() {
+        return Err(
+            "Oh My Pi (OMP) is not installed. Install OMP to authenticate with this provider."
+                .to_string(),
+        );
+    }
+    Ok(format!("omp login {provider_id}"))
+}
+
+/// Re-reads OMP credentials and refreshes the provider's model catalog.
+/// Called by the frontend after `omp login <provider>` completes in a
+/// terminal tab.
+#[tauri::command]
+pub fn native_provider_refresh_omp_credentials(
+    provider_id: String,
+) -> Result<crate::models::native_chat::NativeProviderCatalog, String> {
+    // Refresh the provider's catalog (picks up new credentials from OMP).
+    crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh_provider(
+        &provider_id, true,
+    )?;
+    // Return the updated catalog.
+    Ok(crate::services::native_chat_service::NativeChatService::provider_catalog())
+}
+
 #[tauri::command]
 pub fn native_chat_model_default(project_path: String) -> Result<ResolvedChatModelDefault, String> {
     NativeChatService::resolve_model_default(&project_path)

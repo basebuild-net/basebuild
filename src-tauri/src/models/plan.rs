@@ -89,3 +89,19 @@ pub struct NewPlan {
     #[serde(default)]
     pub idea_id: Option<String>,
 }
+
+/// Result of a batch-promote operation: created plans and per-idea errors.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchPromoteResult {
+    pub created: Vec<Plan>,
+    pub errors: Vec<BatchPromoteError>,
+}
+
+/// A per-idea error in a batch-promote operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchPromoteError {
+    pub idea_id: String,
+    pub error: String,
+}

@@ -3,6 +3,8 @@ use crate::{
     services::{plan_service::PlanService, session_service::SessionService},
 };
 
+use tauri::AppHandle;
+
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PromoteIdeasInput {
@@ -12,11 +14,27 @@ pub struct PromoteIdeasInput {
 
 #[tauri::command]
 pub fn create_category(
+    app: AppHandle,
     session_id: String,
     name: String,
     description: String,
 ) -> Result<IdeaCategory, String> {
-    SessionService::create_category(&session_id, &name, &description)
+    let cat = SessionService::create_category(&session_id, &name, &description)?;
+    let project_path = SessionService::get(&session_id)
+        .ok()
+        .flatten()
+        .map(|s| s.project_path)
+        .unwrap_or_default();
+    crate::services::planning_events::emit(
+        &app,
+        crate::models::planning_event::PlanningEventKind::CategoryCreated,
+        &cat.id,
+        &project_path,
+        Some(session_id),
+        &cat.name,
+        None,
+    );
+    Ok(cat)
 }
 
 #[tauri::command]
@@ -31,6 +49,7 @@ pub fn delete_category(id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn create_idea(
+    app: AppHandle,
     session_id: String,
     title: String,
     description: String,
@@ -38,14 +57,29 @@ pub fn create_idea(
     grounding: Option<String>,
     anchor: Option<String>,
 ) -> Result<Idea, String> {
-    SessionService::create_idea(
+    let idea = SessionService::create_idea(
         &session_id,
         &title,
         &description,
         category_id.as_deref(),
         grounding.as_deref().unwrap_or(""),
         anchor.as_deref(),
-    )
+    )?;
+    let project_path = SessionService::get(&session_id)
+        .ok()
+        .flatten()
+        .map(|s| s.project_path)
+        .unwrap_or_default();
+    crate::services::planning_events::emit(
+        &app,
+        crate::models::planning_event::PlanningEventKind::IdeaCaptured,
+        &idea.id,
+        &project_path,
+        Some(session_id),
+        &idea.title,
+        None,
+    );
+    Ok(idea)
 }
 
 #[tauri::command]
@@ -54,8 +88,26 @@ pub fn list_ideas(session_id: String) -> Result<Vec<Idea>, String> {
 }
 
 #[tauri::command]
-pub fn update_idea_status(id: String, status: String) -> Result<(), String> {
-    SessionService::update_idea_status(&id, IdeaStatus::from_str(&status))
+pub fn update_idea_status(app: AppHandle, id: String, status: String) -> Result<(), String> {
+    let new_status = IdeaStatus::from_str(&status);
+    SessionService::update_idea_status(&id, new_status)?;
+    if let Some(idea) = SessionService::get_idea(&id)? {
+        let project_path = SessionService::get(&idea.session_id)
+            .ok()
+            .flatten()
+            .map(|s| s.project_path)
+            .unwrap_or_default();
+        crate::services::planning_events::emit(
+            &app,
+            crate::models::planning_event::PlanningEventKind::IdeaStatusChanged,
+            &idea.id,
+            &project_path,
+            Some(idea.session_id.clone()),
+            &idea.title,
+            Some(new_status.as_str().to_string()),
+        );
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -64,8 +116,25 @@ pub fn delete_idea(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn reject_idea(id: String) -> Result<(), String> {
-    SessionService::reject_idea(&id)
+pub fn reject_idea(app: AppHandle, id: String) -> Result<(), String> {
+    SessionService::reject_idea(&id)?;
+    if let Some(idea) = SessionService::get_idea(&id)? {
+        let project_path = SessionService::get(&idea.session_id)
+            .ok()
+            .flatten()
+            .map(|s| s.project_path)
+            .unwrap_or_default();
+        crate::services::planning_events::emit(
+            &app,
+            crate::models::planning_event::PlanningEventKind::IdeaStatusChanged,
+            &idea.id,
+            &project_path,
+            Some(idea.session_id.clone()),
+            &idea.title,
+            Some("rejected".to_string()),
+        );
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -74,11 +143,14 @@ pub fn ensure_default_categories(session_id: String) -> Result<(), String> {
 }
 
 
-/// Promote one or more ideas into draft plans. Each idea gets a linked draft
-/// plan carrying its title/description; the idea moves to `picked`.
 #[tauri::command]
-pub fn promote_ideas(input: PromoteIdeasInput) -> Result<Vec<Plan>, String> {
+pub fn promote_ideas(app: AppHandle, input: PromoteIdeasInput) -> Result<Vec<Plan>, String> {
     let ideas = SessionService::list_ideas(&input.session_id)?;
+    let project_path = SessionService::get(&input.session_id)
+        .ok()
+        .flatten()
+        .map(|s| s.project_path)
+        .unwrap_or_default();
     let mut plans = Vec::new();
     for idea_id in &input.idea_ids {
         let idea = ideas
@@ -98,6 +170,26 @@ pub fn promote_ideas(input: PromoteIdeasInput) -> Result<Vec<Plan>, String> {
             },
         )?;
         SessionService::update_idea_status(&idea.id, IdeaStatus::Picked)?;
+        // Emit plan_created for the new draft plan.
+        crate::services::planning_events::emit(
+            &app,
+            crate::models::planning_event::PlanningEventKind::PlanCreated,
+            &plan.id,
+            &project_path,
+            Some(input.session_id.clone()),
+            &plan.title,
+            None,
+        );
+        // Emit idea_status_changed for the picked idea.
+        crate::services::planning_events::emit(
+            &app,
+            crate::models::planning_event::PlanningEventKind::IdeaStatusChanged,
+            &idea.id,
+            &project_path,
+            Some(input.session_id.clone()),
+            &idea.title,
+            Some("picked".to_string()),
+        );
         plans.push(plan);
     }
     Ok(plans)

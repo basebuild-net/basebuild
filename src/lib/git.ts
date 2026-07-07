@@ -22,6 +22,8 @@ export type GitStatus = {
   staged: FileEntry[];
   unstaged: FileEntry[];
   untracked: FileEntry[];
+  /** True when the repo has no commits yet (unborn HEAD). */
+  unborn: boolean;
 };
 
 export type GitCommit = {

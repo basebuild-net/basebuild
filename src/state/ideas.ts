@@ -14,6 +14,7 @@ import {
   type IdeaCategory,
   type IdeaStatus,
 } from "../lib/ideas";
+import { usePlanningEvents } from "./planningEvents";
 
 export function useIdeaState(sessionId: string | null) {
   const [ideas, setIdeas] = useState<Idea[]>([]);
@@ -38,6 +39,11 @@ export function useIdeaState(sessionId: string | null) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Live refresh: subscribe to planning events so ideas/categories update
+  // when captured or status-changed from any surface (including generation
+  // turns). Seq-gap detection triggers a full refetch.
+  usePlanningEvents(refresh);
 
   const createIdea = useCallback(
     async (title: string, description: string, categoryId?: string) => {

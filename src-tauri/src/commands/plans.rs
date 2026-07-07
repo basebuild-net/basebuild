@@ -1,5 +1,5 @@
 use crate::{
-    models::plan::{NewPlan, Plan, PlanFocusContext, PlanStatus},
+    models::plan::{BatchPromoteResult, NewPlan, Plan, PlanFocusContext, PlanStatus},
     services::{plan_service::PlanService, session_service::SessionService},
 };
 
@@ -34,7 +34,7 @@ fn parse_status(s: &str) -> PlanStatus {
     PlanStatus::from_str(s)
 }
 #[tauri::command]
-pub fn create_plan(input: CreatePlanInput) -> Result<Plan, String> {
+pub fn create_plan(app: AppHandle, input: CreatePlanInput) -> Result<Plan, String> {
     let plan = NewPlan {
         title: input.title,
         description: input.description,
@@ -44,7 +44,22 @@ pub fn create_plan(input: CreatePlanInput) -> Result<Plan, String> {
         tags: input.tags.unwrap_or_default(),
         idea_id: input.idea_id,
     };
-    PlanService::create(&input.session_id, &plan)
+    let created = PlanService::create(&input.session_id, &plan)?;
+    let project_path = SessionService::get(&input.session_id)
+        .ok()
+        .flatten()
+        .map(|s| s.project_path)
+        .unwrap_or_default();
+    crate::services::planning_events::emit(
+        &app,
+        crate::models::planning_event::PlanningEventKind::PlanCreated,
+        &created.id,
+        &project_path,
+        Some(input.session_id),
+        &created.title,
+        None,
+    );
+    Ok(created)
 }
 
 #[tauri::command]
@@ -58,7 +73,7 @@ pub fn get_plan(id: String) -> Result<Option<Plan>, String> {
 }
 
 #[tauri::command]
-pub fn update_plan(id: String, input: UpdatePlanInput) -> Result<Plan, String> {
+pub fn update_plan(app: AppHandle, id: String, input: UpdatePlanInput) -> Result<Plan, String> {
     let plan = NewPlan {
         title: input.title,
         description: input.description,
@@ -68,7 +83,22 @@ pub fn update_plan(id: String, input: UpdatePlanInput) -> Result<Plan, String> {
         tags: input.tags,
         idea_id: None,
     };
-    PlanService::update(&id, &plan)
+    let updated = PlanService::update(&id, &plan)?;
+    let project_path = SessionService::get(&updated.session_id)
+        .ok()
+        .flatten()
+        .map(|s| s.project_path)
+        .unwrap_or_default();
+    crate::services::planning_events::emit(
+        &app,
+        crate::models::planning_event::PlanningEventKind::PlanUpdated,
+        &updated.id,
+        &project_path,
+        Some(updated.session_id.clone()),
+        &updated.title,
+        None,
+    );
+    Ok(updated)
 }
 
 #[tauri::command]
@@ -95,9 +125,30 @@ pub async fn set_plan_status(app: AppHandle, id: String, status: String) -> Resu
             crate::services::pipeline_service::PipelineService::start_stage(&app, request)?;
         }
     }
-    PlanService::set_status(&id, status)
+    let plan = PlanService::get(&id)?.ok_or("Plan not found".to_string())?;
+    let prev_status = plan.status;
+    let updated = PlanService::set_status(&id, status)?;
+    let project_path = SessionService::get(&updated.session_id)
+        .ok()
+        .flatten()
+        .map(|s| s.project_path)
+        .unwrap_or_default();
+    let detail = if prev_status == status {
+        None
+    } else {
+        Some(format!("{} → {}", prev_status.as_str(), status.as_str()))
+    };
+    crate::services::planning_events::emit(
+        &app,
+        crate::models::planning_event::PlanningEventKind::PlanStatusChanged,
+        &updated.id,
+        &project_path,
+        Some(updated.session_id.clone()),
+        &updated.title,
+        detail,
+    );
+    Ok(updated)
 }
-
 #[tauri::command]
 pub fn set_plan_context(id: String, context: PlanFocusContext) -> Result<Plan, String> {
     PlanService::set_context(&id, &context)
@@ -106,4 +157,32 @@ pub fn set_plan_context(id: String, context: PlanFocusContext) -> Result<Plan, S
 #[tauri::command]
 pub fn delete_plan(id: String) -> Result<(), String> {
     PlanService::delete(&id)
+}
+
+/// Batch-promote multiple ideas to plans. Returns created plans and per-idea
+/// errors (idea_id, error message). Emits a planning event per created plan.
+#[tauri::command]
+pub fn batch_promote_ideas(
+    app: AppHandle,
+    session_id: String,
+    idea_ids: Vec<String>,
+) -> Result<BatchPromoteResult, String> {
+    let (created, errors) = PlanService::batch_promote_ideas(&session_id, &idea_ids)?;
+    // Emit a planning event per created plan so the UI refreshes.
+    for plan in &created {
+        let _ = crate::services::planning_events::emit(
+            &app,
+            crate::models::planning_event::PlanningEventKind::PlanCreated,
+            plan.id.clone(),
+            "", // project_path — not available here; the event is session-scoped
+            Some(session_id.clone()),
+            plan.title.clone(),
+            Some(format!("Batch-promoted {} plan(s)", created.len())),
+        );
+    }
+    let errors: Vec<crate::models::plan::BatchPromoteError> = errors
+        .into_iter()
+        .map(|(idea_id, error)| crate::models::plan::BatchPromoteError { idea_id, error })
+        .collect();
+    Ok(BatchPromoteResult { created, errors })
 }

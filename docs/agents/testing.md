@@ -113,3 +113,22 @@ Run a 60s streaming chat session while performing UI interactions (open tabs,
 run `git diff`, resize panels). The freeze watchdog should not trigger (no
 freeze reports). Command telemetry should show no >50ms violations for UI
 interactions.
+
+### Panel-grid state reliability regression matrix
+
+The `panel-grid-state-reliability` change adds regression coverage for
+self-healing, project-scoped, transactional panel-grid state:
+
+| Regression | Suite | What it asserts |
+|---|---|---|
+| Corrupt restore (stale `activePanelId`) | `panel-grid-reliability.spec.ts` | Restore repairs the stale active id to a surviving live panel; header/sidebar creation still works from the repaired state. |
+| Checked insertion (no silent no-op) | `panel-grid-math.spec.ts` | `insertPanel` returns a failure reason when the anchor is missing; `splitPanelAt` is a no-op on a missing target. |
+| One click = one panel + one backing tab | `panel-grid-reliability.spec.ts` | A single chat click creates exactly one `.panel-grid-leaf` and one backing session tab. |
+| Rapid repeated clicks | `panel-grid-reliability.spec.ts` | Repeated clicks within the in-flight window produce exactly one panel (serialized per type). |
+| Project restore loading boundary | `panel-grid-reliability.spec.ts` | Panel creation is blocked until the selected project's restore resolves; late restore responses from a previous project are ignored. |
+| Normalization (malformed/stale/dup ids) | `panel-grid-math.spec.ts` | `parsePanelGridWithDiagnostics` repairs stale active ids, quarantines duplicate ids without deleting backing sessions, and rejects malformed JSON / invalid sizes / nested splits. |
+| Orphan recovery (non-destructive) | `panel-grid-math.spec.ts` | `detectOrphanedTabs` flags backing tabs with no reachable panel; detection never deletes. |
+| Rollback on failed resource creation | `panel-grid-math.spec.ts` | `removePanelFromGrid` rolls back a `creating` reservation without touching history. |
+
+When adding new panel creation paths, route them through `insertPanel` /
+`commitInsert` and add a row to this matrix.

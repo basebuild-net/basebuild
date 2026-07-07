@@ -11,6 +11,7 @@ import {
   type PlanFocusContext,
   type PlanStatus,
 } from "../lib/plans";
+import { usePlanningEvents } from "./planningEvents";
 
 export type PlansState = {
   plans: Plan[];
@@ -92,6 +93,11 @@ export function usePlans(sessionId: string | null): PlansState {
   useEffect(() => {
     void refreshPlans();
   }, [refreshPlans]);
+
+  // Live refresh: subscribe to planning events so the plan list updates when
+  // plans are created/updated/status-changed from any surface (including
+  // pipeline turns and plan runs). Seq-gap detection triggers a full refetch.
+  usePlanningEvents(refreshPlans);
 
   return {
     plans,

@@ -1,4 +1,4 @@
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 
 use crate::{
     models::{
@@ -357,6 +357,33 @@ impl SettingsService {
         Ok(())
     }
 
+    /// Get the per-project milestone auto-commit setting (default: false).
+    /// When enabled, the plan runner commits after each completed task
+    /// milestone in the run worktree.
+    pub fn get_milestone_auto_commit(project_path: &str) -> DbResult<bool> {
+        let conn = StorageService::connect()?;
+        let value: Option<String> = conn
+            .query_row(
+                "SELECT value FROM app_defaults WHERE key = ?1",
+                params![format!("milestone_auto_commit:{project_path}")],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        Ok(value.as_deref() == Some("true"))
+    }
+
+    /// Set the per-project milestone auto-commit setting.
+    pub fn set_milestone_auto_commit(project_path: &str, enabled: bool) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO app_defaults (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![format!("milestone_auto_commit:{project_path}"), if enabled { "true" } else { "false" }],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
     /// List persistent per-project approval rules.
     pub fn list_approval_rules(project_path: &str) -> DbResult<Vec<ApprovalRule>> {
         let conn = StorageService::connect()?;

@@ -61,3 +61,19 @@ pub fn read_skill_content(skill_name: &str) -> Option<String> {
     let file = skill_dir().join(skill_name).join("SKILL.md");
     std::fs::read_to_string(&file).ok()
 }
+
+#[tauri::command]
+pub fn list_resolved_skills() -> Result<Vec<crate::services::skill_registry_service::ResolvedSkill>, String> {
+    crate::services::skill_registry_service::SkillRegistryService::list()
+}
+
+#[tauri::command]
+pub fn read_resolved_skill(skill_name: String) -> Result<String, String> {
+    crate::services::skill_registry_service::SkillRegistryService::read_content(&skill_name)
+        .ok_or_else(|| format!("Skill not found: {skill_name}"))
+}
+
+#[tauri::command]
+pub fn provision_skill_dirs() -> Result<Vec<String>, String> {
+    crate::services::skill_registry_service::SkillRegistryService::provision_dirs()
+}

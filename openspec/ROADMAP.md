@@ -11,38 +11,9 @@ node scripts/openspec-status.mjs --write
 
 ### Merged — awaiting archive
 
-Merged to `main` and implementation-complete; queued for `/archive` (delta
-specs → `openspec/specs/`, folder → `openspec/changes/archive/`).
-
-1. `unified-planning-workspace` — merged in **PR #20**. Unified the two
-   parallel planning surfaces (`plan_proposals` chat cards + right-panel
-   `ideas` catalog) into one `Categories → Ideas → Plans` model: generation
-   runs as a visible chat turn (reasoning fold + live transcript + incremental
-   idea cards via a `propose_ideas` tool), idea lifecycle gained `rejected`,
-   the right panel became a tabbed `Plans / Ideas / Categories` inspector, and
-   planning prompts became tunable in Settings → Planning. **BREAKING
-   (internal, pre-1.0):** dropped the `plan_proposals` table/commands
-   (`planning-system-qol` PR #19) in favor of the `ideas` catalog. 32/34 tasks
-   — 8.4 (UI smoke) + 8.5 (freeze watchdog) consciously waived (live-only).
-2. `basebuild-planning-skill` — merged in **PR #20**. Portable planning suite:
-   `skills/basebuild-planning` (categories → ideas → iterative picking →
-   executor-proof plans stored under `.basebuild/`; engine-pluggable — native
-   artifacts or detected planning skills like OpenSpec), schematic skill v2
-   (Vision section, repo-fact prefill, re-alignment mode, planning pairing),
-   removed the stale `basebuild-idea-generation` skill. The `.basebuild` file
-   schema is the future app interop contract. 18/18 tasks; no app code touched.
-3. `schematic-grounded-planning` — merged in **PR #22**. Reshaped the app
-   around a **schematic wizard** (blueprint questionnaire by archetype / team
-   size / stage; time-boxed End goals with nudges; structured section-card view
-   + health validation replacing the raw dump; the wizard runs as a guided
-   chat turn, not a modal) and **grounded generation** (turns run the bundled
-   skills agentically, read project context via the tool loop incl. MCP, and
-   capture ideas with required grounding + optional focus anchors). **BREAKING**:
-   removed hardcoded default categories (now project-derived) and the
-   `Generate plans` modal / input boxes. 23/25 tasks — 5.2 (UI smoke) waived
-   (live-only). **Spec gap:** the schematic-wizard "AI-enhanced descriptions"
-   requirement (task 2.3, per-section Enhance diff action) is **unshipped** —
-   `schematic-enhance-ui` in Proposed covers it; note this when archiving.
+_Merged to `main` and implementation-complete; queued for `/archive` (delta
+specs → `openspec/specs/`, folder → `openspec/changes/archive/`). None pending
+— the last batch (parallel-plan-workspaces, PR #24) was archived 2026-07-06._
 
 ### Now (in flight)
 
@@ -61,58 +32,92 @@ specs → `openspec/specs/`, folder → `openspec/changes/archive/`).
    (voice-to-text) + context-size/usage readout, and native Windows chrome +
    `File/Edit/View` menu. **BREAKING (UI):** removes the right side panel, the
    in-app top bar, and the always-visible file list. Artifacts complete (5 new
-   capabilities + `desktop-shell`/`chat-composer-controls` modified); 0/31
-   tasks. Relocates the `unified-planning-workspace` inspector unchanged; reuses
-   `file-viewer-editor`'s viewer for modal file content; pairs with
+   capabilities + `desktop-shell`/`chat-composer-controls` modified); 17/31
+   tasks done. Relocates the `unified-planning-workspace` inspector unchanged;
+   reuses `file-viewer-editor`'s viewer for modal file content; pairs with
    `diff-review-workflow` in the Changes fold.
+3. `plan-import` — import pre-existing external plans (unexecuted OpenSpec
+   changes etc.) into `.basebuild` plan records with `engine`/`external`/derived
+   status, confirmed + idempotent (new cap `plan-import`). 11/13 tasks done.
+   Dep `basebuild-planning-skill` merged (PR #20); pairs with
+   `planning-file-ingestion`.
+4. `planning-command-center` — ★ **owner-prioritized (2026-07-06 ask).** Turn
+   the disconnected planning parts into one managed pipeline: `schematic →
+   generate ideas → batch-approve → parallel worktree runs → integrate/cleanup
+   → complete`. Interactive `ask_user` question cards, typed planning event
+   bus, toasts + persistent notification center, planning **flow board** with
+   batch operations, decision-digest + `.basebuild/preferences.md`
+   personalization, post-completion schematic re-align nudges, integration
+   queue, opt-in milestone auto-commit, **OMP RPC chat bridge**, and shared
+   skill registry. **46/48 tasks done** — Phases A–E complete (event bus +
+   notifications, interactive elements, flow board + repair pass, feedback
+   loop + integration queue + milestone auto-commit, OMP RPC bridge + skill
+   registry); 2 remaining tasks (6.4 launch-selected, 6.5 flow-board e2e).
+   New caps: `chat-interactive-elements`, `planning-events`,
+   `app-notifications`, `planning-flow-board`, `planning-feedback-loop`,
+   `plan-merge-cleanup`, `omp-rpc-chat`, `shared-skill-registry`.
 
 ### Next (priority order)
 
 Ordered by owner priority. Gated items show their blocking dependency; the
 top **ungated** item is what can actually start now.
 
-1. `parallel-plan-workspaces` — ★ **owner-prioritized.** Multi-panel **split-tree
-   grid** (any `M×N` layout, no fixed cap) with per-project persistence; ported
-   chat harness (per-chat header with model/effort/branch/worktree/agent-mode +
-   plan badge, compact composer rail, transcript) modeled on the dream IDE;
-   activity sidebar with panel list + status + history drawer (closed-panel
-   reopen/delete); **plan→chat→worktree→PR** pipeline (assign a `ready` plan to
-   a chat → run on a fresh branch off freshly-fetched `main` in its own
-   worktree → concurrent runs under per-provider caps → PR recommendation on
-   finish via `gh`/browser); new **per-provider max-concurrency** + subagent-
-   count governance (global + project). New caps `chat-grid-layout`,
-   `chat-header-context`, `plan-chat-assignment`, `run-concurrency-limits`;
-   **modifies** `desktop-shell`, `ide-workspace-state`, `agent-chat`,
-   `chat-composer-controls`, `chat-model-defaults`, `parallel-workspaces`,
-   `plan-run-queue`, `plan-final-touches`. **Gate cleared** —
-   `chat-first-shell` merged in PR #23; apply in progress on
-   `feat/parallel-plan-workspaces`. Coordinates with `harness-subagents`
-   (subagent execution) and `diff-review-workflow` (per-run diff gate before
-   PR).
-2. `planning-command-center` — ★ **owner-prioritized (2026-07-06 ask).** Turn
-   the disconnected planning parts into one managed pipeline: `schematic →
-   generate ideas → batch-approve → parallel worktree runs → integrate/cleanup
-   → complete`. Interactive `ask_user` question cards (options/multi/confirm/
-   text) that pause the agent loop — skills stop asking in prose; typed
-   planning event bus; toasts + persistent notification center with unread
-   badges; planning **flow board** (live stage counts/colors/spinners, batch
-   approve + confirm-gated batch launch); decision-digest + approval-gated
-   `.basebuild/preferences.md` personalization; post-completion schematic
-   re-align nudges; integration queue (merge/test/prune, batch cleanup);
-   opt-in milestone auto-commit; **OMP RPC chat bridge** (persistent
-   `omp --mode rpc` profile, native transcript + question-frame forwarding);
-   shared skill registry; and a repair pass making the existing
-   schematic/category/idea generation specs actually pass end to end. New
-   caps `chat-interactive-elements`, `planning-events`, `app-notifications`,
-   `planning-flow-board`, `planning-feedback-loop`, `plan-merge-cleanup`,
-   `omp-rpc-chat`, `shared-skill-registry`; **modifies** `plan-pipeline`,
-   `plan-pipeline-ui`, `plan-chat-assignment`, `plan-final-touches`,
-   `grounded-generation`. Artifacts generated 2026-07-06 (0/48). **Gate:
-   archive `parallel-plan-workspaces`** — its `plan-chat-assignment` /
-   `run-concurrency-limits` deltas are this change's canonical bases. Phased
-   A–E delivery (events+notifications → interactive elements → repair+flow
-   board → loop closure → RPC bridge + skill registry), each phase a PR.
-3. `chat-history-persistence` — **live-bug fix + feature; ungated, ready now.**
+1. `planning-cockpit` — ★ **owner-prioritized (2026-07-07 ask); gated on
+   archiving `planning-command-center`.** Make the planning pipeline operable
+   end to end from a visible cockpit. Fixes the diagnosed seams (audit:
+   `docs/reports/2026-07-07-planning-cockpit-audit.md`): schematic wizard
+   prompts broadcast/double-insert/auto-send via dead `chatDraftTabId` state →
+   destination chooser (new conversation or pick an open window/tab) with
+   exactly-once targeted delivery; both assignment stubs (chat-header picker
+   sets local state only, board "Launch N ready" flips statuses with no runs)
+   → real `plan_assign_to_chat` binding runs to the chosen existing session +
+   batch launch with per-plan destination mapping; OMP-RPC chats bypassing
+   `ask_user` ("reply with A/B" prose) → RPC question-frame cards + conservative
+   prose quick-reply chips + managed confirm dialogs (no `window.confirm`);
+   no OpenSpec visibility → change catalog (enumerate `openspec/changes/`,
+   artifact presence, structured per-task checklists with click-to-toggle,
+   live `TaskProgressChanged` events, manual link, confirm-gated archive);
+   silent completion → "Mark as complete?" card with confirm-gated Commit /
+   Create PR + source-control context; plus a persistent shell command strip
+   (counts, colors, pulse, unread) and wide master–detail layouts for the
+   planning/source surfaces (layers on `provider-parity-workspace-fixes`
+   baseline `.modal` reflow — land after it or rebase). Absorbs
+   `planning-command-center` open tasks 6.4/6.5. New caps
+   `schematic-chat-routing`, `openspec-change-catalog`, `plan-completion-flow`;
+   modifies `plan-chat-assignment`, `chat-interactive-elements`,
+   `planning-flow-board`, `chat-idea-generation`. Artifacts generated
+   2026-07-07 (31/31 — all tasks complete; ready to merge).
+2. `panel-grid-state-reliability` — ★ **owner-prioritized live-bug repair
+   (2026-07-07); ready now.** Running-app diagnosis reproduced project-specific
+   failure of the header `+` menu and sidebar creation controls. A persisted
+   `activePanelId` referenced no live split-tree leaf, so every insertion was a
+   silent no-op; Chat/Terminal still created hidden `session_tabs` rows and
+   Terminal spawned an unreachable PTY. Adds restore normalization, checked
+   anchor fallback, transactional panel/resource creation with rollback,
+   project-keyed hydration/persistence race guards, unique ids, non-destructive
+   orphan recovery, and one-shot project selection diagnostics. Urgent
+   reliability amendment to `project-grid-workspace`; uses its substrate
+   already present on the current feature branch rather than creating a second
+   grid architecture. Modifies `panel-grid`, `ide-workspace-state`,
+   `desktop-shell`, and `workspace-history`. Artifacts generated 2026-07-07
+   (31/31 — all tasks complete; ready to merge).
+3. `provider-parity-workspace-fixes` — ★ **owner-prioritized (2026-07-07
+   ask); ungated, ready now.** OMP provider/model parity + dev-build fixes
+   from live testing: vendored OMP `models.json` catalog (58 providers /
+   ~4.6k models, Devin first), api-kind transport routing with per-turn OMP
+   RPC delegation for bespoke protocols (fixes the Devin
+   `/chat/completions` 404), bundled-cache replacement semantics (fixes the
+   stale `devin-2.0` row hiding SWE-1.6/GLM-5.2), OAuth reuse via OMP
+   (`omp token` / `omp login` — no first-party OAuth app registration),
+   terminal scrollback replay (fixes blank terminals; **subsumes the
+   `omp-terminal-usage-sync` P0 plumbing item**), unborn-HEAD source-control
+   states (fixes the fresh-repo fatal in Changes), and Plans & Ideas /
+   Changes modal reflow (modifies in-flight `chat-first-shell` surfaces —
+   archive that first). New caps `provider-api-routing`,
+   `terminal-output-replay`, `source-control-resilience`; modifies
+   `provider-model-catalog`, `provider-web-login`, `chat-environment-panel`.
+   Artifacts generated 2026-07-07 (0/42).
+4. `chat-history-persistence` — **live-bug fix + feature; ungated, ready now.**
    Reopening the app does not load chat history. Diagnosed two restore bugs on
    the running `feat/chat-first-shell` build: (1) `save_workspace_restore_state`
    fails every call (`missing field sideCollapsed`) because `AppShell` omits the
@@ -125,7 +130,7 @@ top **ungated** item is what can actually start now.
    cap `chat-history-loading`; **modifies** `session-lifecycle` (restore
    last-active session) and `ide-workspace-state` (restore-state integrity;
    additive — no conflict with #1). Artifacts generated 2026-07-06 (0/21).
-4. `omp-terminal-usage-sync` — day-one OMP workflow on the installed build:
+5. `omp-terminal-usage-sync` — day-one OMP workflow on the installed build:
    fix dead PTY output/input/resize plumbing (omp.exe spawns but renders
    nothing), stale-tab disconnected states, omp 16.x telemetry parser drift
    (`reports[].limits[]`), manual Sync-now ungated from auto-sync with
@@ -134,57 +139,66 @@ top **ungated** item is what can actually start now.
    the installer, terminal-first sessions (no chat rows until chat is used),
    empty-chat hygiene. Diagnosis-complete from 2026-07-05 installed-build
    (v0.0.12) testing. `session-lifecycle` canonical spec landed via
-   `planning-system-qol` archive (PR #19) — dependency satisfied.
-5. `file-viewer-editor` — file tabs become the single view/edit/diff
+   `planning-system-qol` archive (PR #19) — dependency satisfied. Terminal
+   PTY output plumbing (P0) is now implemented by
+   `provider-parity-workspace-fixes` (scrollback replay) — apply the rest
+   without redoing it.
+6. `file-viewer-editor` — file tabs become the single view/edit/diff
    surface: syntax-highlighted virtualized viewing, markdown preview,
    images, explicit-save editing with mtime conflict guard, and unified
    diff mode fed from the Source panel (staged/unstaged/untracked).
    Provides the rendering surface `diff-review-workflow` can reuse.
-6. `harness-context-files` — system-prompt assembly: AGENTS.md discovery,
+7. `harness-context-files` — system-prompt assembly: AGENTS.md discovery,
    schematic injection, skills metadata, context inspector. Feeds the merged
    budget guard; no remaining gate.
-7. `native-app-login-mcp` — device-auth account connection + first-party usage
+8. `native-app-login-mcp` — device-auth account connection + first-party usage
    sync with basebuild.net. Independent of everything above.
-8. `diff-review-workflow` — per-run changeset baseline, file-level review
+9. `diff-review-workflow` — per-run changeset baseline, file-level review
    (approve/revert/send-back), review gate before commit/PR final touches.
    **After `plan-pipeline-harness`** (archived PR #15 — gate satisfied);
    pairs with `file-viewer-editor`'s diff surface.
-9. `schematic-enhance-ui` — per-section **Enhance** action on the schematic
+10. `schematic-enhance-ui` — per-section **Enhance** action on the schematic
    tab: plain words → agent-optimized rewrite shown as an approve/discard
    before/after diff (new cap `schematic-enhance`). Fulfills the
    schematic-wizard "AI-enhanced descriptions" requirement left unshipped by
    `schematic-grounded-planning` (task 2.3). Artifacts generated 2026-07-05
    (0/14). Dep `schematic-grounded-planning` merged (PR #22).
-10. `session-compaction` — summarize-and-continue history compaction past the
-    truncation guard (new cap `session-compaction`; **modifies**
-    `context-budget-guard` to prefer compaction over whole-turn dropping).
-    Deferred out of `native-agent-loop`. Artifacts generated 2026-07-05 (0/13).
-    Unblocked — `native-agent-loop` archived (PR #9).
-11. `harness-subagents` — scoped subagent delegation tool: a parent turn spawns
+11. `session-compaction` — summarize-and-continue history compaction past the
+   truncation guard (new cap `session-compaction`; **modifies**
+   `context-budget-guard` to prefer compaction over whole-turn dropping).
+   Deferred out of `native-agent-loop`. Artifacts generated 2026-07-05 (0/13).
+   Unblocked — `native-agent-loop` archived (PR #9).
+12. `harness-subagents` — scoped subagent delegation tool: a parent turn spawns
     bounded, worktree-isolated native sub-sessions (omp task-tool parity) on the
     run queue and folds their results back (new cap `harness-subagents`).
     Artifacts generated 2026-07-05 (0/16). Gate satisfied — `plan-pipeline-harness`
     archived (PR #15).
-12. `plan-status-rename` — rename plan status `openspec → planned` across
+13. `plan-status-rename` — rename plan status `openspec → planned` across
     DB/API/UI with a one-time migration + backward-compat read alias; updates
     AGENTS.md Invariant 9 + `config.yaml` to match the `.basebuild` schema
     (**modifies** `plan-pipeline`, `openspec-artifacts`; new cap
     `plan-status-migration`). Artifacts generated 2026-07-05 (0/12). Dep
     `basebuild-planning-skill` merged (PR #20).
-13. `planning-file-ingestion` — app reads/syncs `.basebuild` planning files
+14. `planning-file-ingestion` — app reads/syncs `.basebuild` planning files
     (categories/ideas/plans) into the workspace, non-destructive + idempotent
     (new cap `planning-file-ingestion`). Artifacts generated 2026-07-05 (0/13).
     Deps `basebuild-planning-skill` + `unified-planning-workspace` merged
     (PR #20); pairs with `plan-status-rename` for the `planned` vocabulary.
-14. `plan-import` — import pre-existing external plans (unexecuted OpenSpec
-    changes etc.) into `.basebuild` plan records with `engine`/`external`/derived
-    status, confirmed + idempotent (new cap `plan-import`). Artifacts generated
-    2026-07-05 (0/13). Dep `basebuild-planning-skill` merged (PR #20); pairs with
-    `planning-file-ingestion`.
+15. `project-grid-workspace` — multi-panel **split-tree grid** workspace with
+    per-project persistence; activity sidebar with panel list + status +
+    history drawer. Artifacts complete (8 new capabilities: `workspace-history`,
+    `panel-grid`, `panel-drag-split`, `desktop-shell` modified, `ide-workspace-state`
+    modified, `chat-composer-controls` modified, `agent-chat` modified,
+    `activity-sidebar`); 0/33 tasks. Pairs with the merged `parallel-plan-workspaces`
+    grid (which ported the chat harness into chat tabs); this change extends the
+   grid concept to the full workspace (terminals, schematics, files alongside
+   chats). Its urgent corrupt-state/creation reliability slice is tracked in
+   `panel-grid-state-reliability` above and should land before the remaining
+   grid expansion tasks.
 
 ### Proposed (no artifacts yet — run `/propose <name>` when its turn comes)
 
-_All six previously-proposed plans had their dependencies satisfied (all deps
+_All previously-proposed plans had their dependencies satisfied (all deps
 merged/archived) and were generated on **2026-07-05**; they now carry full
 artifacts and moved to **Next** above. No proposed-without-artifacts plans
 remain._
@@ -197,13 +211,16 @@ their turn comes — stale specs are worse than none.
 ## Status
 
 <!-- status:begin -->
-_Last refreshed: 2026-07-06 (`node scripts/openspec-status.mjs --write`)_
+_Last refreshed: 2026-07-07 (`node scripts/openspec-status.mjs --write`)_
 
 |Change|Progress|Status|Next command|
 |---|---|---|---|
 |`chat-first-shell`|17/31|in progress|`/apply chat-first-shell`|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
+|`panel-grid-state-reliability`|28/31|in progress|`/apply panel-grid-state-reliability`|
 |`plan-import`|11/13|in progress|`/apply plan-import`|
+|`planning-command-center`|46/48|in progress|`/apply planning-command-center`|
+|`provider-parity-workspace-fixes`|28/42|in progress|`/apply provider-parity-workspace-fixes`|
 |`chat-history-persistence`|0/21|not started|`/apply chat-history-persistence`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|
@@ -212,12 +229,11 @@ _Last refreshed: 2026-07-06 (`node scripts/openspec-status.mjs --write`)_
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
 |`omp-terminal-usage-sync`|0/33|not started|`/apply omp-terminal-usage-sync`|
 |`plan-status-rename`|0/12|not started|`/apply plan-status-rename`|
-|`planning-command-center`|0/48|not started|`/apply planning-command-center`|
 |`planning-file-ingestion`|0/13|not started|`/apply planning-file-ingestion`|
 |`project-grid-workspace`|0/33|not started|`/apply project-grid-workspace`|
 |`schematic-enhance-ui`|0/14|not started|`/apply schematic-enhance-ui`|
 |`session-compaction`|0/13|not started|`/apply session-compaction`|
-|`parallel-plan-workspaces`|32/32|complete — archive|`/archive parallel-plan-workspaces`|
+|`planning-cockpit`|31/31|complete — archive|`/archive planning-cockpit`|
 <!-- status:end -->
 
 ## Archiving
@@ -256,6 +272,39 @@ merge into canonical `openspec/specs/` and the folder moves to
   "Proposal selection state persists"). The `plan_proposals` portion is
   superseded by the in-flight `unified-planning-workspace` change, which
   drops that table in favor of the unified `ideas` catalog.
+- **2026-07-06a** — `unified-planning-workspace` merged in **PR #20** and
+  archived: unified the two parallel planning surfaces (`plan_proposals` chat
+  cards + right-panel `ideas` catalog) into one `Categories → Ideas → Plans`
+  model. 32/34 tasks — 8.4 (UI smoke) + 8.5 (freeze watchdog) consciously
+  waived (live-only). Modified `plan-pipeline`, `plan-pipeline-ui`,
+  `plan-run-queue`, `agent-chat`, `plan-chat-assignment` (delta from
+  `parallel-plan-workspaces` applied later).
+- **2026-07-06b** — `basebuild-planning-skill` merged in **PR #20** and
+  archived: portable planning suite (`skills/basebuild-planning`, schematic
+  skill v2). 18/18 tasks; no app code touched.
+- **2026-07-06c** — `schematic-grounded-planning` merged in **PR #22** and
+  archived: schematic wizard + grounded generation. 23/25 tasks — 5.2 (UI
+  smoke) waived (live-only). New canonical specs: `schematic-wizard`,
+  `schematic-skill-workflow`, `schematic-inspector`, `planning-skill-workflow`,
+  `planning-prompt-settings`, `planning-file-schema`, `grounded-generation`,
+  `chat-idea-generation`. Modified `plan-pipeline` (project-derived
+  categories), `plan-pipeline-ui` (removed Generate Plans modal). **Spec gap:**
+  schematic-wizard "AI-enhanced descriptions" (task 2.3) unshipped —
+  `schematic-enhance-ui` covers it.
+- **2026-07-06d** — `parallel-plan-workspaces` merged in **PR #24** (32/32
+  tasks) and archived: multi-chat split-tree grid (`M×N` layout, per-tab
+  persistence), ported chat harness (per-chat header, composer rail,
+  transcript), plan→chat→worktree→PR pipeline, per-provider concurrency
+  governance. 4 new canonical specs (`chat-grid-layout`, `chat-header-context`,
+  `plan-chat-assignment`, `run-concurrency-limits`) + 8 modified
+  (`parallel-workspaces` gained fetched-default-branch + worktree-retained-
+  until-pruned + manual branch switch, `ide-workspace-state` gained per-tab
+  grid restore, `desktop-shell` gained chat-tab-as-grid-container, `agent-chat`
+  gained chat-panel-inside-grid-column, `chat-composer-controls` gained
+  per-chat rail, `chat-model-defaults` gained per-column selection, `plan-run-
+  queue` gained per-provider limits replacing single N, `plan-final-touches`
+  gained gh CLI + browser fallback). Clears the gate for
+  `planning-command-center`.
 - **Out-of-band** — PR #18 merged OMP credential integration + AI commit
   message generation (Source panel). Not tracked as an OpenSpec change; no
   delta specs. Affects `native_chat_service`, `provider_client`,

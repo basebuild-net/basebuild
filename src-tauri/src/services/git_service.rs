@@ -105,6 +105,18 @@ impl GitService {
         run_git(path.as_ref(), &["commit", "-m", message])
     }
     pub fn log(path: impl AsRef<Path>, limit: usize) -> Result<Vec<GitCommit>, String> {
+        // Pre-check: if HEAD is unborn (no commits yet), `git log` fails.
+        // Return an empty history instead of an error.
+        let has_head = std::process::Command::new("git")
+            .args(["rev-parse", "--verify", "--quiet", "HEAD"])
+            .current_dir(path.as_ref())
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !has_head {
+            return Ok(Vec::new());
+        }
+
         // %H=full hash %h=short %s=subject %an=author %ad=date
         // %P=parent hashes (space-separated) %d=ref names (decorate)
         let format = "%H%x1f%h%x1f%s%x1f%an%x1f%ad%x1f%P%x1f%d";
@@ -241,14 +253,20 @@ fn parse_porcelain_v2(output: &str) -> GitStatus {
         staged: Vec::new(),
         unstaged: Vec::new(),
         untracked: Vec::new(),
+        unborn: false,
     };
 
     for line in output.split('\0').map(str::trim) {
         if line.is_empty() {
             continue;
         }
-
-        if line.starts_with("# branch.head ") {
+        if line.starts_with("# branch.oid ") {
+            // `(initial)` indicates an unborn HEAD (no commits yet).
+            let oid = line.strip_prefix("# branch.oid ").unwrap_or("").trim();
+            if oid == "(initial)" {
+                status.unborn = true;
+            }
+        } else if line.starts_with("# branch.head ") {
             status.branch.branch = line
                 .strip_prefix("# branch.head ")
                 .unwrap_or("")
@@ -328,5 +346,32 @@ fn change_type_for(status: char) -> FileChangeType {
         '?' => FileChangeType::Untracked,
         'U' => FileChangeType::Unmerged,
         _ => FileChangeType::Other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_porcelain_v2_detects_unborn_head() {
+        // `git status --porcelain=v2` on a fresh `git init` repo outputs
+        // `# branch.oid (initial)` to indicate an unborn HEAD.
+        let output = "# branch.oid (initial)\0# branch.head main\0# branch.upstream \0? file1.txt\0? file2.txt\0";
+        let status = parse_porcelain_v2(output);
+        assert!(status.unborn, "unborn should be true for (initial) oid");
+        assert_eq!(status.branch.branch, "main");
+        assert_eq!(status.untracked.len(), 2);
+        assert!(status.staged.is_empty());
+        assert!(status.unstaged.is_empty());
+    }
+
+    #[test]
+    fn parse_porcelain_v2_normal_repo_not_unborn() {
+        // A normal repo with commits has a real OID, not "(initial)".
+        let output = "# branch.oid abc123def456\0# branch.head main\0# branch.upstream origin/main\0# branch.ab +0 -0\0";
+        let status = parse_porcelain_v2(output);
+        assert!(!status.unborn, "unborn should be false for a real OID");
+        assert_eq!(status.branch.branch, "main");
     }
 }

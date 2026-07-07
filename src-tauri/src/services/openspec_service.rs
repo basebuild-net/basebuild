@@ -2,7 +2,13 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::params;
 
-use crate::{models::plan::Plan, services::storage_service::StorageService};
+use crate::{
+    models::openspec_catalog::{
+        ChangeCatalogEntry, StructuredTask, StructuredTasks, TaskPhase,
+    },
+    models::plan::Plan,
+    services::storage_service::StorageService,
+};
 
 type DbResult<T> = Result<T, String>;
 
@@ -184,6 +190,83 @@ pub fn link_plan_to_change(plan_id: &str, change_name: &str) -> DbResult<()> {
     Ok(())
 }
 
+/// Unlink a plan from its change directory. Clears the `change_name` column.
+/// Refuses if the linked plan is in a running/ready status (active run).
+pub fn unlink_plan_from_change(plan_id: &str) -> DbResult<()> {
+    let conn = StorageService::connect()?;
+    // Check current plan status before unlinking.
+    let status_str: Option<String> = conn
+        .query_row(
+            "SELECT status FROM plans WHERE id = ?1",
+            params![plan_id],
+            |row| row.get(0),
+        )
+        .ok();
+    if let Some(status) = status_str {
+        let plan_status = crate::models::plan::PlanStatus::from_str(&status);
+        if matches!(
+            plan_status,
+            crate::models::plan::PlanStatus::Running
+                | crate::models::plan::PlanStatus::Ready
+        ) {
+            return Err(format!(
+                "Cannot unlink: plan is {status} (must be finished, cancelled, draft, or openspec)."
+            ));
+        }
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or_default();
+    conn.execute(
+        "UPDATE plans SET change_name = NULL, updated_at = ?1 WHERE id = ?2",
+        params![now, plan_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Link a change to a plan (by plan id). Refuses if another plan is already
+/// linked to this change (double-link guard).
+pub fn link_change_to_plan(change_name: &str, plan_id: &str) -> DbResult<()> {
+    // Check for double-link: is another plan already linked to this change?
+    if let Some(existing) = find_plan_by_change(change_name)? {
+        if existing.id != plan_id {
+            return Err(format!(
+                "Change '{change_name}' is already linked to plan {} ({})",
+                existing.reference_id, existing.id
+            ));
+        }
+    }
+    link_plan_to_change(plan_id, change_name)
+}
+
+/// Re-parse a change's tasks.md and emit a TaskProgressChanged event if the
+/// progress has changed since the last known counts. Used by the liveness
+/// poller and the post-write hook.
+pub fn refresh_task_progress(
+    app: &tauri::AppHandle,
+    project_path: &str,
+    change_name: &str,
+    last_completed: u32,
+    last_total: u32,
+) -> DbResult<bool> {
+    let (completed, total) = read_task_progress(project_path, change_name);
+    if completed == last_completed && total == last_total {
+        return Ok(false);
+    }
+    let _ = crate::services::planning_events::emit(
+        app,
+        crate::models::planning_event::PlanningEventKind::TaskProgressChanged,
+        change_name,
+        project_path,
+        None,
+        &format!("{change_name}/tasks.md"),
+        Some(format!("{completed}/{total}")),
+    );
+    Ok(true)
+}
+
 /// Get the plan linked to a change (for navigation from the file viewer).
 pub fn find_plan_by_change(change_name: &str) -> DbResult<Option<Plan>> {
     let conn = StorageService::connect()?;
@@ -225,9 +308,400 @@ pub fn find_plan_by_change(change_name: &str) -> DbResult<Option<Plan>> {
         .map_err(|e| e.to_string())
 }
 
+/// Parse a `tasks.md` string into structured phases + tasks with line
+/// offsets. Lossless: only reads headings (`## `) and checkbox lines
+/// (`- [ ]` / `- [x]`); all other content is ignored. Line numbers are
+/// 1-indexed for toggle operations.
+pub fn parse_tasks_structured(content: &str) -> StructuredTasks {
+    let mut phases: Vec<TaskPhase> = Vec::new();
+    let mut current: Option<TaskPhase> = None;
+    let mut total = 0u32;
+    let mut completed = 0u32;
+
+    for (idx, line) in content.lines().enumerate() {
+        let line_no = (idx + 1) as u32;
+        let trimmed = line.trim_start();
+
+        // Phase heading: `## Title`
+        if let Some(rest) = trimmed.strip_prefix("## ") {
+            if let Some(phase) = current.take() {
+                phases.push(phase);
+            }
+            current = Some(TaskPhase {
+                name: rest.trim().to_string(),
+                line: line_no,
+                tasks: Vec::new(),
+            });
+            continue;
+        }
+
+        // Task line: `- [x] text` or `- [ ] text` (with optional id)
+        let (checked, rest) = if let Some(r) = trimmed.strip_prefix("- [x]") {
+            (true, r)
+        } else if let Some(r) = trimmed.strip_prefix("- [X]") {
+            (true, r)
+        } else if let Some(r) = trimmed.strip_prefix("- [ ]") {
+            (false, r)
+        } else {
+            continue;
+        };
+
+        let rest = rest.trim_start();
+        let (id, text) = parse_task_id(rest);
+
+        total += 1;
+        if checked {
+            completed += 1;
+        }
+
+        let task = StructuredTask {
+            line: line_no,
+            checked,
+            id,
+            text,
+        };
+
+        match &mut current {
+            Some(phase) => phase.tasks.push(task),
+            None => {
+                current = Some(TaskPhase {
+                    name: "Tasks".to_string(),
+                    line: 0,
+                    tasks: vec![task],
+                });
+            }
+        }
+    }
+
+    if let Some(phase) = current.take() {
+        phases.push(phase);
+    }
+
+    StructuredTasks {
+        phases,
+        total,
+        completed,
+    }
+}
+
+/// Parse an optional task id prefix like "1.1 " or "2.3 " from the task
+/// text. Returns (id, remaining_text).
+fn parse_task_id(text: &str) -> (Option<String>, String) {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == 0 || i >= bytes.len() || bytes[i] != b'.' {
+        return (None, text.to_string());
+    }
+    i += 1;
+    let start = i;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == start {
+        return (None, text.to_string());
+    }
+    if i < bytes.len() && !bytes[i].is_ascii_whitespace() {
+        return (None, text.to_string());
+    }
+    let id = text[..i].to_string();
+    let remaining = text[i..].trim_start().to_string();
+    (Some(id), remaining)
+}
+
+/// Enumerate all changes in `openspec/changes/` (and the archive directory).
+/// Tolerant of malformed changes — a missing `proposal.md` or unparseable
+/// `.openspec.yaml` degrades to defaults, not an error.
+pub fn list_changes(project_path: &str) -> DbResult<Vec<ChangeCatalogEntry>> {
+    let changes_dir = changes_dir(project_path);
+    let archive_dir = changes_dir.join("archive");
+
+    let mut entries = Vec::new();
+
+    if changes_dir.exists() {
+        for entry in std::fs::read_dir(&changes_dir).map_err(|e| format!("Failed to read changes dir: {e}"))? {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name == "archive" {
+                continue;
+            }
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            entries.push(catalog_entry(&path, &name, false, project_path));
+        }
+    }
+
+    if archive_dir.exists() {
+        for entry in std::fs::read_dir(&archive_dir).map_err(|e| format!("Failed to read archive dir: {e}"))? {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            let name = entry.file_name().to_string_lossy().to_string();
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            entries.push(catalog_entry(&path, &name, true, project_path));
+        }
+    }
+
+    entries.sort_by(|a, b| match (a.archived, b.archived) {
+        (false, true) => std::cmp::Ordering::Less,
+        (true, false) => std::cmp::Ordering::Greater,
+        _ => a.name.cmp(&b.name),
+    });
+
+    Ok(entries)
+}
+
+fn catalog_entry(path: &Path, name: &str, archived: bool, project_path: &str) -> ChangeCatalogEntry {
+    let has_proposal = path.join("proposal.md").exists();
+    let has_design = path.join("design.md").exists();
+    let has_tasks = path.join("tasks.md").exists();
+    let has_specs = path
+        .join("specs")
+        .is_dir()
+        && std::fs::read_dir(path.join("specs"))
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(false);
+
+    let (completed, total) = if has_tasks {
+        read_task_progress(project_path, name)
+    } else {
+        (0, 0)
+    };
+
+    let linked_plan_reference_id =
+        find_plan_by_change(name).ok().flatten().map(|p| p.reference_id);
+
+    let created_at = parse_openspec_created_at(path);
+
+    ChangeCatalogEntry {
+        name: name.to_string(),
+        has_proposal,
+        has_design,
+        has_tasks,
+        has_specs,
+        completed,
+        total,
+        linked_plan_reference_id,
+        archived,
+        created_at,
+    }
+}
+
+fn parse_openspec_created_at(path: &Path) -> i64 {
+    let yaml_path = path.join(".openspec.yaml");
+    let content = match std::fs::read_to_string(&yaml_path) {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("created:") {
+            let val = rest.trim().trim_matches(|c| c == '"' || c == '\'');
+            if let Ok(secs) = val.parse::<i64>() {
+                return secs;
+            }
+            // YYYY-MM-DD format: best-effort parse to epoch via a simple split.
+            return parse_date_to_epoch(val);
+        }
+    }
+    0
+}
+
+/// Best-effort parse of a `YYYY-MM-DD` date string to epoch seconds (UTC).
+/// Returns 0 on any parse failure.
+fn parse_date_to_epoch(val: &str) -> i64 {
+    let parts: Vec<&str> = val.split('-').collect();
+    if parts.len() != 3 {
+        return 0;
+    }
+    let year: i64 = parts[0].parse().unwrap_or(0);
+    let month: i64 = parts[1].parse().unwrap_or(0);
+    let day: i64 = parts[2].parse().unwrap_or(0);
+    if year < 1970 || month < 1 || month > 12 || day < 1 || day > 31 {
+        return 0;
+    }
+    // Days since 1970-01-01 (UTC). Ignores leap years for simplicity —
+    // this is a best-effort sort key, not a precision timestamp.
+    let years_since_epoch = year - 1970;
+    let days_in_months = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut day_of_year: i64 = day;
+    for m in 0..(month as usize - 1) {
+        day_of_year += days_in_months[m];
+    }
+    years_since_epoch * 365 * 86400 + (day_of_year - 1) * 86400
+}
+
+/// Format the current local date as `YYYY-MM-DD` using std-only.
+fn current_date_string() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    // Convert epoch seconds to YYYY-MM-DD (UTC). Simple division.
+    let days = secs / 86400;
+    let mut year = 1970i64;
+    let mut remaining = days;
+    loop {
+        let year_days = if is_leap_year(year) { 366 } else { 365 };
+        if remaining < year_days {
+            break;
+        }
+        remaining -= year_days;
+        year += 1;
+    }
+    let days_in_months = if is_leap_year(year) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+    let mut month = 1usize;
+    for &dim in &days_in_months {
+        if remaining < dim {
+            break;
+        }
+        remaining -= dim;
+        month += 1;
+    }
+    let day = remaining + 1;
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+fn is_leap_year(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+/// Toggle the checkbox on a specific line of a change's `tasks.md`.
+/// Canonicalizes the path under `openspec/changes/` (no traversal), verifies
+/// the line content matches the expected state before writing, and rewrites
+/// atomically via temp + rename. Emits a `TaskProgressChanged` event.
+pub fn toggle_task<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    project_path: &str,
+    change_name: &str,
+    line_no: u32,
+    make_checked: bool,
+) -> DbResult<()> {
+    if change_name.contains('/') || change_name.contains('\\') || change_name.contains("..") {
+        return Err("Invalid change name.".to_string());
+    }
+
+    let tasks_path = change_dir(project_path, change_name).join("tasks.md");
+    let content = std::fs::read_to_string(&tasks_path)
+        .map_err(|e| format!("Failed to read tasks.md: {e}"))?;
+
+    let lines: Vec<&str> = content.lines().collect();
+    let idx = line_no as usize;
+    if idx == 0 || idx > lines.len() {
+        return Err(format!("Line {line_no} is out of range (1..={}).", lines.len()));
+    }
+
+    let target = lines[idx - 1];
+    let (old_marker, new_marker) = if make_checked {
+        ("- [ ]", "- [x]")
+    } else {
+        ("- [x]", "- [ ]")
+    };
+
+    let trimmed = target.trim_start();
+    let leading_ws_len = target.len() - trimmed.len();
+    if !trimmed.starts_with(old_marker) {
+        if trimmed.starts_with(new_marker) {
+            return Ok(());
+        }
+        return Err(format!("Line {line_no} is not a {old_marker} checkbox."));
+    }
+
+    let leading_ws = &target[..leading_ws_len];
+    let rest = &trimmed[old_marker.len()..];
+    let new_line = format!("{leading_ws}{new_marker}{rest}");
+
+    let mut new_lines = lines.clone();
+    new_lines[idx - 1] = &new_line;
+    let new_content = new_lines.join("\n");
+    let new_content = if content.ends_with('\n') {
+        format!("{new_content}\n")
+    } else {
+        new_content
+    };
+
+    let tmp_path = tasks_path.with_extension("md.tmp");
+    std::fs::write(&tmp_path, &new_content)
+        .map_err(|e| format!("Failed to write temp tasks.md: {e}"))?;
+    std::fs::rename(&tmp_path, &tasks_path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        format!("Failed to rename tasks.md: {e}")
+    })?;
+
+    let (completed, total) = parse_task_progress(&new_content);
+    let _ = crate::services::planning_events::emit(
+        app,
+        crate::models::planning_event::PlanningEventKind::TaskProgressChanged,
+        change_name,
+        project_path,
+        None,
+        &format!("{change_name}/tasks.md"),
+        Some(format!("{completed}/{total}")),
+    );
+
+    Ok(())
+}
+
+/// Archive a change by moving its directory to `openspec/changes/archive/`.
+/// Refuses if the linked plan is in a non-terminal status. The archive
+/// directory is created if it doesn't exist.
+pub fn archive_change(project_path: &str, change_name: &str) -> DbResult<()> {
+    if change_name.contains('/') || change_name.contains('\\') || change_name.contains("..") {
+        return Err("Invalid change name.".to_string());
+    }
+
+    if let Some(plan) = find_plan_by_change(change_name)? {
+        let status = plan.status;
+        if !matches!(
+            status,
+            crate::models::plan::PlanStatus::Finished | crate::models::plan::PlanStatus::Cancelled
+        ) {
+            return Err(format!(
+                "Cannot archive: linked plan {} is {} (must be finished or cancelled).",
+                plan.reference_id,
+                status.as_str()
+            ));
+        }
+    }
+
+    let src = change_dir(project_path, change_name);
+    if !src.exists() {
+        return Err(format!("Change directory not found: {change_name}"));
+    }
+
+    let archive_dir = changes_dir(project_path).join("archive");
+    std::fs::create_dir_all(&archive_dir)
+        .map_err(|e| format!("Failed to create archive dir: {e}"))?;
+
+    let date = current_date_string();
+    let archived_name = format!("{date}-{change_name}");
+    let dest = archive_dir.join(&archived_name);
+
+    std::fs::rename(&src, &dest)
+        .map_err(|e| format!("Failed to move change to archive: {e}"))?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tauri::Manager;
 
     #[test]
     fn derive_change_name_kebab_cases_titles() {
@@ -339,5 +813,140 @@ mod tests {
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn parse_tasks_structured_basic() {
+        let content = "# Tasks: foo\n\n## Phase 1\n\n- [ ] 1.1 First task\n- [x] 1.2 Second task\n\n## Phase 2\n\n- [ ] 2.1 Third task\n";
+        let parsed = parse_tasks_structured(content);
+        assert_eq!(parsed.phases.len(), 2);
+        assert_eq!(parsed.phases[0].name, "Phase 1");
+        assert_eq!(parsed.phases[0].tasks.len(), 2);
+        assert_eq!(parsed.phases[0].tasks[0].id.as_deref(), Some("1.1"));
+        assert_eq!(parsed.phases[0].tasks[0].text, "First task");
+        assert!(!parsed.phases[0].tasks[0].checked);
+        assert!(parsed.phases[0].tasks[1].checked);
+        assert_eq!(parsed.phases[1].tasks.len(), 1);
+        assert_eq!(parsed.total, 3);
+        assert_eq!(parsed.completed, 1);
+    }
+
+    #[test]
+    fn parse_tasks_structured_empty() {
+        let parsed = parse_tasks_structured("");
+        assert!(parsed.phases.is_empty());
+        assert_eq!(parsed.total, 0);
+    }
+
+    #[test]
+    fn parse_tasks_structured_tasks_without_heading() {
+        let content = "- [ ] task one\n- [x] task two\n";
+        let parsed = parse_tasks_structured(content);
+        assert_eq!(parsed.phases.len(), 1);
+        assert_eq!(parsed.phases[0].name, "Tasks");
+        assert_eq!(parsed.total, 2);
+        assert_eq!(parsed.completed, 1);
+    }
+
+    #[test]
+    fn parse_task_id_no_id() {
+        let (id, text) = parse_task_id("just some text");
+        assert!(id.is_none());
+        assert_eq!(text, "just some text");
+    }
+
+    #[test]
+    fn parse_task_id_with_id() {
+        let (id, text) = parse_task_id("1.1 Do the thing");
+        assert_eq!(id.as_deref(), Some("1.1"));
+        assert_eq!(text, "Do the thing");
+    }
+
+    #[test]
+    fn toggle_task_rejects_traversal() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        #[cfg(not(target_os = "windows"))]
+        {
+            let app = tauri::test::mock_app().app_handle().clone();
+            let result = toggle_task(&app, "/test", "../escape", 1, true);
+            assert!(result.is_err());
+            assert!(result.unwrap_err().contains("Invalid change name"));
+        }
+    }
+
+    #[test]
+    fn archive_change_rejects_traversal() {
+        let result = archive_change("/test", "../escape");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid change name"));
+    }
+
+    #[test]
+    fn archive_change_rejects_missing_dir() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let result = archive_change(dir.path().to_str().unwrap(), "nonexistent-change");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Change directory not found"));
+    }
+
+    #[test]
+    fn link_change_to_plan_rejects_double_link() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        // Create two plans and a change.
+        let conn = crate::services::storage_service::StorageService::connect().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at) VALUES ('sess-1', '/test', 'Test', ?1, ?1)",
+            params![now],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO plans (id, session_id, reference_id, title, description, goal, status, priority, tags, ai_enhanced, context, idea_id, change_name, created_at, updated_at, finished_at)
+             VALUES ('plan-a', 'sess-1', 'PLAN-001', 'Plan A', '', '', 'draft', 1, '[]', 0, NULL, NULL, 'test-change', ?1, ?1, NULL)",
+            params![now],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO plans (id, session_id, reference_id, title, description, goal, status, priority, tags, ai_enhanced, context, idea_id, change_name, created_at, updated_at, finished_at)
+             VALUES ('plan-b', 'sess-1', 'PLAN-002', 'Plan B', '', '', 'draft', 1, '[]', 0, NULL, NULL, NULL, ?1, ?1, NULL)",
+            params![now],
+        ).unwrap();
+        drop(conn);
+
+        // Linking plan-b to a change already linked to plan-a should fail.
+        let result = link_change_to_plan("test-change", "plan-b");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("already linked"), "Expected double-link error, got: {err}");
+    }
+
+    #[test]
+    fn unlink_plan_from_change_rejects_active_plan() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = crate::services::storage_service::StorageService::connect().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at) VALUES ('sess-1', '/test', 'Test', ?1, ?1)",
+            params![now],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO plans (id, session_id, reference_id, title, description, goal, status, priority, tags, ai_enhanced, context, idea_id, change_name, created_at, updated_at, finished_at)
+             VALUES ('plan-run', 'sess-1', 'PLAN-003', 'Running Plan', '', '', 'running', 1, '[]', 0, NULL, NULL, 'test-change', ?1, ?1, NULL)",
+            params![now],
+        ).unwrap();
+        drop(conn);
+
+        let result = unlink_plan_from_change("plan-run");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Cannot unlink"), "Expected active-plan rejection, got: {err}");
     }
 }

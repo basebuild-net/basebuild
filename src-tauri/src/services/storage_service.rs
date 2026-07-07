@@ -541,6 +541,33 @@ impl StorageService {
                     updated_at INTEGER NOT NULL
                 );
                 DROP TABLE IF EXISTS plan_proposals;
+
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    kind TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    entity_kind TEXT NOT NULL,
+                    project_path TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    detail TEXT,
+                    read INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(read) WHERE read = 0;
+
+                CREATE TABLE IF NOT EXISTS pending_interactions (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    session_id TEXT NOT NULL,
+                    run_id TEXT,
+                    questions_json TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    answers_json TEXT,
+                    created_at INTEGER NOT NULL,
+                    resolved_at INTEGER
+                );
+                CREATE INDEX IF NOT EXISTS idx_pending_interactions_session ON pending_interactions(session_id);
+                CREATE INDEX IF NOT EXISTS idx_pending_interactions_status ON pending_interactions(status) WHERE status = 'pending';
             ")
             .map_err(|error| format!("Failed to initialize Basebuild state database: {error}"))?;
         // Migration: add last_active_session_id to existing databases
@@ -565,10 +592,42 @@ impl StorageService {
             );
         }
 
-        // Migration: add model_api_id to native_provider_model_cache for
-        // provider-specific model ids (e.g. "umans-glm-5.2") distinct from the
-        // canonical model_id used as the cache primary key. Null for legacy
-        // bundled/discovered rows; resolve_client falls back to model_id.
+        // Migration (provider-parity-workspace-fixes): add api_kind, base_url,
+        // cost_input, cost_output, and bundled_version columns to
+        // native_provider_model_cache. api_kind is the OMP wire-protocol kind
+        // (e.g. "devin-agent") used by resolve_client to route chat turns.
+        // base_url is the model's catalog base URL. bundled_version stamps
+        // bundled rows so stale ones can be replaced on catalog version bump.
+        let has_api_kind = connection
+            .prepare("SELECT api_kind FROM native_provider_model_cache LIMIT 0")
+            .is_ok();
+        if !has_api_kind {
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN api_kind TEXT NOT NULL DEFAULT ''",
+                [],
+            );
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN base_url TEXT NOT NULL DEFAULT ''",
+                [],
+            );
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN cost_input REAL",
+                [],
+            );
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN cost_output REAL",
+                [],
+            );
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN bundled_version TEXT",
+                [],
+            );
+        }
+
+        // Migration (provider-parity-workspace-fixes): add model_api_id to
+        // native_provider_model_cache. This is the provider-specific API id
+        // (e.g. "umans-glm-5.2") resolved by resolve_model_api_id and written
+        // by the catalog sync; nullable so legacy/bundled rows carry no id.
         let has_model_api_id = connection
             .prepare("SELECT model_api_id FROM native_provider_model_cache LIMIT 0")
             .is_ok();

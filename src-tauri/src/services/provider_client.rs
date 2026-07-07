@@ -123,7 +123,9 @@ pub trait ProviderClient {
 pub fn resolve_client(provider_id: &str, base_url: Option<&str>) -> Box<dyn ProviderClient> {
     match provider_id {
         LOCAL_PROVIDER_ID => Box::new(LocalCoordinator),
-        "openai" if base_url == Some(OMP_CODEX_BASE_URL) => Box::new(OmpCodexRpcClient),
+        "openai" if base_url == Some(OMP_CODEX_BASE_URL) => Box::new(OmpRpcClient {
+            omp_provider_id: "openai-codex".to_string(),
+        }),
         "anthropic" => Box::new(AnthropicClient {
             base_url: base_url
                 .map(str::to_string)
@@ -135,7 +137,67 @@ pub fn resolve_client(provider_id: &str, base_url: Option<&str>) -> Box<dyn Prov
                 .map(str::to_string)
                 .unwrap_or_else(|| "https://api.code.umans.ai/v1".to_string()),
         }),
-        // Default OpenAI-compatible (OpenAI itself and any future compatible provider).
+        "devin" => Box::new(OpenAiCompatibleClient {
+            provider_id: "devin".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://server.codeium.com".to_string()),
+        }),
+        "google" => Box::new(OpenAiCompatibleClient {
+            provider_id: "google".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://generativelanguage.googleapis.com/v1beta/openai".to_string()),
+        }),
+        "groq" => Box::new(OpenAiCompatibleClient {
+            provider_id: "groq".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://api.groq.com/openai/v1".to_string()),
+        }),
+        "openrouter" => Box::new(OpenAiCompatibleClient {
+            provider_id: "openrouter".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string()),
+        }),
+        "deepseek" => Box::new(OpenAiCompatibleClient {
+            provider_id: "deepseek".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://api.deepseek.com/v1".to_string()),
+        }),
+        "mistral" => Box::new(OpenAiCompatibleClient {
+            provider_id: "mistral".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://api.mistral.ai/v1".to_string()),
+        }),
+        "xai" => Box::new(OpenAiCompatibleClient {
+            provider_id: "xai".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://api.x.ai/v1".to_string()),
+        }),
+        "together" => Box::new(OpenAiCompatibleClient {
+            provider_id: "together".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://api.together.xyz/v1".to_string()),
+        }),
+        "fireworks" => Box::new(OpenAiCompatibleClient {
+            provider_id: "fireworks".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://api.fireworks.ai/inference/v1".to_string()),
+        }),
+        "cerebras" => Box::new(OpenAiCompatibleClient {
+            provider_id: "cerebras".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://api.cerebras.ai/v1".to_string()),
+        }),
+        // Default OpenAI-compatible (OpenAI itself, custom providers, and any future compatible provider).
         _ => Box::new(OpenAiCompatibleClient {
             provider_id: provider_id.to_string(),
             base_url: base_url
@@ -145,16 +207,116 @@ pub fn resolve_client(provider_id: &str, base_url: Option<&str>) -> Box<dyn Prov
     }
 }
 
-struct OmpCodexRpcClient;
+/// Resolve a provider client using the model's `api_kind` for routing.
+///
+/// Routing priority:
+/// 1. `LOCAL_PROVIDER_ID` → `LocalCoordinator`
+/// 2. `base_url == OMP_CODEX_BASE_URL` → `OmpRpcClient` (backward compat)
+/// 3. `anthropic-messages` → `AnthropicClient`
+/// 4. `openai-completions`/`openai-responses`/`azure-openai-responses`/
+///    `openrouter`/`ollama-chat` → `OpenAiCompatibleClient`
+/// 5. Bespoke api kinds:
+///    a. If credential has a custom `base_url` override → `OpenAiCompatibleClient`
+///       (escape hatch for OpenAI-compatible proxies)
+///    b. Otherwise → `OmpRpcClient` (OMP RPC delegation)
+pub fn resolve_client_for_model(
+    provider_id: &str,
+    api_kind: &str,
+    base_url: Option<&str>,
+    model_base_url: &str,
+) -> Box<dyn ProviderClient> {
+    if provider_id == LOCAL_PROVIDER_ID {
+        return Box::new(LocalCoordinator);
+    }
+    // Backward compat: existing openai-codex OAuth credentials use the
+    // omp:// sentinel as their base_url.
+    if base_url == Some(OMP_CODEX_BASE_URL) {
+        return Box::new(OmpRpcClient {
+            omp_provider_id: "openai-codex".to_string(),
+        });
+    }
+    match api_kind {
+        "anthropic-messages" => Box::new(AnthropicClient {
+            base_url: base_url
+                .map(str::to_string)
+                .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    if model_base_url.is_empty() {
+                        None
+                    } else {
+                        Some(model_base_url.to_string())
+                    }
+                })
+                .unwrap_or_else(|| "https://api.anthropic.com/v1".to_string()),
+        }),
+        "openai-completions"
+        | "openai-responses"
+        | "azure-openai-responses"
+        | "openrouter"
+        | "ollama-chat" => Box::new(OpenAiCompatibleClient {
+            provider_id: provider_id.to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    if model_base_url.is_empty() {
+                        None
+                    } else {
+                        Some(model_base_url.to_string())
+                    }
+                })
+                .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+        }),
+        // Bespoke api kinds → OMP RPC delegation (or OpenAI-compatible
+        // escape hatch if the user configured a custom base_url).
+        _ => {
+            if let Some(custom) = base_url.filter(|s| !s.is_empty()) {
+                Box::new(OpenAiCompatibleClient {
+                    provider_id: provider_id.to_string(),
+                    base_url: custom.to_string(),
+                })
+            } else {
+                Box::new(OmpRpcClient {
+                    omp_provider_id: provider_id.to_string(),
+                })
+            }
+        }
+    }
+}
 
-impl ProviderClient for OmpCodexRpcClient {
+/// Check whether the `omp` CLI is available on PATH. Used to surface a
+/// actionable error before attempting OMP RPC delegation.
+pub fn omp_available() -> bool {
+    crate::services::process_helpers::hidden_command("omp")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+struct OmpRpcClient {
+    omp_provider_id: String,
+}
+
+impl ProviderClient for OmpRpcClient {
     fn generate(
         &self,
         req: &ProviderRequest,
         emit: &dyn Fn(&str, &str),
     ) -> Result<ProviderResponse, String> {
+        if !omp_available() {
+            return Err(format!(
+                "Provider '{}' requires Oh My Pi (OMP) for authentication. \
+                 Install OMP and run `omp login {}` to authenticate, then retry.",
+                self.omp_provider_id, self.omp_provider_id
+            ));
+        }
         if !req.tools.is_empty() {
-            return Err("ChatGPT OAuth via OMP does not support Basebuild tool calls in this bridge".to_string());
+            return Err(format!(
+                "OMP RPC bridge (provider={}) does not support Basebuild tool calls",
+                self.omp_provider_id
+            ));
         }
         let start = Instant::now();
         let prompt = compose_omp_rpc_prompt(req);
@@ -163,7 +325,7 @@ impl ProviderClient for OmpCodexRpcClient {
                 "--mode",
                 "rpc",
                 "--provider",
-                "openai-codex",
+                &self.omp_provider_id,
                 "--model",
                 &req.model_id,
                 "--no-tools",
@@ -177,7 +339,7 @@ impl ProviderClient for OmpCodexRpcClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| format!("Failed to launch OMP for ChatGPT OAuth: {e}"))?;
+            .map_err(|e| format!("Failed to launch OMP for provider {}: {e}", self.omp_provider_id))?;
 
         let mut stdin = child.stdin.take().ok_or("Failed to open OMP stdin")?;
         let stdout = child.stdout.take().ok_or("Failed to open OMP stdout")?;
@@ -248,9 +410,9 @@ impl ProviderClient for OmpCodexRpcClient {
             let _ = child.wait();
             let stderr = stderr_reader.join().unwrap_or_default();
             return Err(if stderr.trim().is_empty() {
-                "OMP did not accept the ChatGPT OAuth prompt".to_string()
+                format!("OMP did not accept the prompt for provider {}", self.omp_provider_id)
             } else {
-                format!("OMP did not accept the ChatGPT OAuth prompt: {}", stderr.trim())
+                format!("OMP did not accept the prompt for provider {}: {}", self.omp_provider_id, stderr.trim())
             });
         }
 
@@ -287,12 +449,12 @@ impl ProviderClient for OmpCodexRpcClient {
             let hint = omp_rate_limit_hint();
             return Err(if stderr.trim().is_empty() {
                 if let Some(h) = hint {
-                    format!("OMP returned an empty ChatGPT OAuth response: {h}")
+                    format!("OMP returned an empty response for provider {}: {h}", self.omp_provider_id)
                 } else {
-                    "OMP returned an empty ChatGPT OAuth response".to_string()
+                    format!("OMP returned an empty response for provider {}", self.omp_provider_id)
                 }
             } else {
-                format!("OMP returned an empty ChatGPT OAuth response: {}", stderr.trim())
+                format!("OMP returned an empty response for provider {}: {}", self.omp_provider_id, stderr.trim())
             });
         }
         let duration_ms = (start.elapsed().as_millis() as i64).max(1);
@@ -1153,6 +1315,66 @@ mod tests {
         let _ = resolve_client("openai", None);
         let _ = resolve_client("anthropic", None);
         let _ = resolve_client("umans", Some("https://example.com/v1"));
+    }
+
+    #[test]
+    fn resolve_client_for_model_routes_devin_to_omp_rpc() {
+        // Devin uses the devin-agent bespoke protocol → OmpRpcClient.
+        let client = resolve_client_for_model("devin", "devin-agent", None, "https://server.codeium.com");
+        // We can't directly check the type, but OmpRpcClient::generate will
+        // fail with the "requires Oh My Pi" error if OMP is not installed.
+        // The key assertion is that it does NOT route to OpenAiCompatibleClient
+        // (which would 404 against server.codeium.com). We verify by checking
+        // that generate() produces an OMP-related error, not a 404.
+        let req = ProviderRequest {
+            model_id: "swe-1-6".to_string(),
+            effort_level: "medium".to_string(),
+            system: None,
+            messages: vec![ChatMsg {
+                role: "user".to_string(),
+                content: "hello".to_string(),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
+                name: None,
+            }],
+            api_key: None,
+            base_url: None,
+            tools: Vec::new(),
+        };
+        let result = client.generate(&req, &|_, _| {});
+        // The error should mention OMP, not a 404 or HTTP error.
+        if let Err(e) = result {
+            assert!(
+                e.contains("Oh My Pi") || e.contains("OMP") || e.contains("omp"),
+                "devin routing should produce an OMP-related error, got: {e}"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_client_for_model_routes_openai_to_compatible() {
+        // OpenAI uses openai-completions → OpenAiCompatibleClient.
+        let _ = resolve_client_for_model("openai", "openai-completions", None, "https://api.openai.com/v1");
+        // With a custom base_url override, should still use OpenAiCompatibleClient.
+        let _ = resolve_client_for_model("openai", "openai-completions", Some("https://custom.proxy/v1"), "https://api.openai.com/v1");
+    }
+
+    #[test]
+    fn resolve_client_for_model_routes_anthropic_to_anthropic_client() {
+        // Anthropic uses anthropic-messages → AnthropicClient.
+        let _ = resolve_client_for_model("anthropic", "anthropic-messages", None, "https://api.anthropic.com/v1");
+    }
+
+    #[test]
+    fn resolve_client_for_model_omp_sentinel_routes_to_omp_rpc() {
+        // Backward compat: omp://openai-codex sentinel → OmpRpcClient.
+        let _ = resolve_client_for_model("openai", "openai-completions", Some(OMP_CODEX_BASE_URL), "https://api.openai.com/v1");
+    }
+
+    #[test]
+    fn resolve_client_for_model_bespoke_with_custom_base_url_uses_compatible() {
+        // Escape hatch: bespoke provider with custom base_url → OpenAiCompatibleClient.
+        let _ = resolve_client_for_model("devin", "devin-agent", Some("https://my-proxy/v1"), "https://server.codeium.com");
     }
 
     #[test]

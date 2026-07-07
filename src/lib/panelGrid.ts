@@ -33,6 +33,10 @@ export type Panel = {
   tabs?: PanelTab[];
   /** The currently visible tab id (only meaningful when `tabs` has ≥ 2). */
   activeTabId?: string | null;
+  /** True while a backing tab/process is being acquired for this panel.
+   *  Panel-mutating actions are disabled and the renderer shows a pending
+   *  state. Cleared once the resource binds or the reservation is rolled back. */
+  creating?: boolean;
 };
 
 /** A tab within a multi-tab panel. Same shape as a single panel's identity
@@ -380,25 +384,49 @@ export function closePanel(state: PanelGridState, panelId: string): PanelGridSta
   return { root: newRoot, activePanelId: newActive, closedPanels: newClosed };
 }
 
-/** Reopen a panel from history: remove from closedPanels, add to the grid
- *  (split-right of the active panel, or as sole panel if empty). */
+/** Remove a panel from the live tree without adding it to history. Used to
+ *  roll back a pending reservation when resource acquisition fails. Repairs
+ *  `activePanelId` to the first remaining live panel. */
+export function removePanelFromGrid(state: PanelGridState, panelId: string): PanelGridState {
+  if (!findPanel(state.root, panelId)) return state;
+  const newRoot = removePanel(state.root, panelId);
+  const remaining = flattenPanels(newRoot);
+  return {
+    root: newRoot,
+    activePanelId: remaining.length > 0 ? remaining[0].id : null,
+    closedPanels: state.closedPanels,
+  };
+}
+
+/** Reopen a panel from history through the checked insertion contract. The
+ *  panel is removed from history only after insertion succeeds; a stale
+ *  `activePanelId` is repaired to a deterministic live fallback and cannot
+ *  cause a silent no-op or loss of the history entry. Returns the original
+ *  state unchanged when the panel is absent or insertion fails. */
 export function reopenPanel(state: PanelGridState, panelId: string): PanelGridState {
+  const result = reopenPanelChecked(state, panelId);
+  return result.ok ? result.state : state;
+}
+
+/** Checked variant of `reopenPanel` that reports why a re-open could not
+ *  complete. The history entry is preserved on failure. */
+export function reopenPanelChecked(state: PanelGridState, panelId: string): InsertPanelResult {
   const panel = state.closedPanels.find((p) => p.id === panelId);
-  if (!panel) return state;
-  const newClosed = state.closedPanels.filter((p) => p.id !== panelId);
-  let newRoot: SplitNode;
-  if (!state.root) {
-    newRoot = { kind: "leaf", panel };
-  } else {
-    // Split-right of the active panel (or the last panel).
-    const anchorId = state.activePanelId ?? flattenPanels(state.root).at(-1)?.id;
-    if (anchorId) {
-      newRoot = splitPanelAt(state.root, anchorId, panel, "right");
-    } else {
-      newRoot = { kind: "leaf", panel };
-    }
+  if (!panel) {
+    return { ok: false, reason: `Panel ${panelId} is not in history.` };
   }
-  return { root: newRoot, activePanelId: panelId, closedPanels: newClosed };
+  // Remove from history first so `insertPanel`'s duplicate-id check does not
+  // reject the panel we are re-opening.
+  const withoutHistory: PanelGridState = {
+    ...state,
+    closedPanels: state.closedPanels.filter((p) => p.id !== panelId),
+  };
+  const result = insertPanel(withoutHistory, panel, { side: "right", anchorId: state.activePanelId });
+  if (!result.ok) {
+    // Insertion failed — preserve the history entry by returning the original state.
+    return result;
+  }
+  return { ok: true, state: result.state };
 }
 
 /** Delete a panel permanently: remove from closedPanels. The caller handles
@@ -417,20 +445,359 @@ export function serializePanelGrid(state: PanelGridState): string {
   return JSON.stringify(state);
 }
 
-/** Parse a PanelGridState JSON string. Returns empty grid on null/invalid. */
+/** Parse a PanelGridState JSON string. Returns a normalized empty grid on
+ *  null/invalid. Tree shape, panel ids, sizes, and `activePanelId` are
+ *  recursively validated and repaired; see `normalizePanelGridState`. */
 export function parsePanelGrid(raw: string | null | undefined): PanelGridState {
-  if (!raw) return emptyGrid();
+  return parsePanelGridWithDiagnostics(raw).state;
+}
+
+/** Parse and normalize a PanelGridState JSON string, returning repair
+ *  diagnostics alongside the normalized state. Callers that need to surface
+ *  corruption (e.g. project restore) should use this instead of
+ *  `parsePanelGrid`. */
+export function parsePanelGridWithDiagnostics(raw: string | null | undefined): NormalizeResult {
+  if (!raw) return { state: emptyGrid(), diagnostics: [], repaired: false };
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return emptyGrid();
-    // Minimal validation: root is null or a valid SplitNode.
-    if (parsed.root !== null && typeof parsed.root === "object" && parsed.root.kind) {
-      return parsed as PanelGridState;
-    }
-    return emptyGrid();
+    parsed = JSON.parse(raw);
   } catch {
-    return emptyGrid();
+    return {
+      state: emptyGrid(),
+      diagnostics: [{ kind: "malformed-node", message: "Workspace grid JSON was malformed and could not be parsed." }],
+      repaired: true,
+    };
   }
+  return normalizePanelGridState(parsed);
+}
+
+// ── Normalization & checked insertion ──────────────────────────────────────
+
+/** A repair diagnostic emitted while normalizing a restored grid. */
+export type PanelGridDiagnostic = {
+  kind: "stale-active" | "duplicate-id" | "malformed-node" | "invalid-size" | "quarantined";
+  message: string;
+  /** The panel id the diagnostic is about, when applicable. */
+  panelId?: string;
+};
+
+/** Result of normalizing a restored grid blob. `repaired` is true when any
+ *  diagnostic was emitted or the state was changed from the input. */
+export type NormalizeResult = {
+  state: PanelGridState;
+  diagnostics: PanelGridDiagnostic[];
+  repaired: boolean;
+};
+
+const VALID_PANEL_TYPES: readonly PanelType[] = ["chat", "terminal", "file", "schematic", "omp"];
+const SIZE_EPSILON = 0.02;
+
+/** True when a value is a finite number at or above `MIN_SPLIT_SIZE`. */
+function isValidSize(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= MIN_SPLIT_SIZE;
+}
+
+/** Validate a panel object. Returns a normalized `Panel` or null if the panel
+ *  is structurally unusable. */
+function validatePanel(raw: unknown): Panel | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const p = raw as Record<string, unknown>;
+  if (typeof p.id !== "string" || p.id.length === 0) return null;
+  if (typeof p.type !== "string" || !VALID_PANEL_TYPES.includes(p.type as PanelType)) return null;
+  if (typeof p.title !== "string") return null;
+  const panel: Panel = {
+    id: p.id,
+    type: p.type as PanelType,
+    title: p.title,
+    chatSessionId: typeof p.chatSessionId === "string" ? p.chatSessionId : null,
+    terminalId: typeof p.terminalId === "number" ? p.terminalId : null,
+    filePath: typeof p.filePath === "string" ? p.filePath : null,
+  };
+  if (Array.isArray(p.tabs) && p.tabs.length > 1) {
+    const tabs = p.tabs.map(validateTab).filter((t): t is PanelTab => t !== null);
+    if (tabs.length > 1) {
+      panel.tabs = tabs;
+      panel.activeTabId = typeof p.activeTabId === "string" ? p.activeTabId : tabs[0].id;
+    }
+  }
+  return panel;
+}
+
+/** Validate a `PanelTab`. Returns null if unusable. */
+function validateTab(raw: unknown): PanelTab | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const t = raw as Record<string, unknown>;
+  if (typeof t.id !== "string" || t.id.length === 0) return null;
+  if (typeof t.type !== "string" || !VALID_PANEL_TYPES.includes(t.type as PanelType)) return null;
+  if (typeof t.title !== "string") return null;
+  return {
+    id: t.id,
+    type: t.type as PanelType,
+    title: t.title,
+    chatSessionId: typeof t.chatSessionId === "string" ? t.chatSessionId : null,
+    terminalId: typeof t.terminalId === "number" ? t.terminalId : null,
+    filePath: typeof t.filePath === "string" ? t.filePath : null,
+  };
+}
+
+/** Recursively validate a split node. Drops unusable leaves, collapses
+ *  single-child splits, and rebalances invalid size vectors. Records
+ *  diagnostics for malformed nodes and invalid sizes. */
+function validateNode(
+  raw: unknown,
+  seenIds: Set<string>,
+  diagnostics: PanelGridDiagnostic[],
+): SplitNode | null {
+  if (typeof raw !== "object" || raw === null) {
+    diagnostics.push({ kind: "malformed-node", message: "A grid node was not an object and was dropped." });
+    return null;
+  }
+  const node = raw as Record<string, unknown>;
+  if (node.kind === "leaf") {
+    const panel = validatePanel(node.panel);
+    if (!panel) {
+      diagnostics.push({ kind: "malformed-node", message: "A leaf node had an unusable panel and was dropped." });
+      return null;
+    }
+    if (seenIds.has(panel.id)) {
+      diagnostics.push({ kind: "duplicate-id", message: `Duplicate panel id ${panel.id} was quarantined; the first occurrence is kept.`, panelId: panel.id });
+      return null;
+    }
+    seenIds.add(panel.id);
+    return { kind: "leaf", panel };
+  }
+  if (node.kind === "split") {
+    const direction = node.direction === "row" || node.direction === "column" ? node.direction : null;
+    if (!direction) {
+      diagnostics.push({ kind: "malformed-node", message: "A split node had an invalid direction and was dropped." });
+      return null;
+    }
+    if (!Array.isArray(node.children)) {
+      diagnostics.push({ kind: "malformed-node", message: "A split node had no children array and was dropped." });
+      return null;
+    }
+    const children = node.children
+      .map((child) => validateNode(child, seenIds, diagnostics))
+      .filter((c): c is SplitNode => c !== null);
+    if (children.length === 0) return null;
+    if (children.length === 1) return children[0]; // collapse single-child split
+    // Validate sizes: must be a number array matching children length, each
+    // ≥ MIN_SPLIT_SIZE, summing to ~1. Otherwise rebalance to equal shares.
+    let sizes: number[] | null = null;
+    if (Array.isArray(node.sizes) && node.sizes.length === children.length) {
+      const candidate = node.sizes as unknown[];
+      if (candidate.every(isValidSize)) {
+        const sum = candidate.reduce((acc, v) => acc + (v as number), 0);
+        if (Math.abs(sum - 1) <= SIZE_EPSILON) {
+          sizes = candidate as number[];
+        }
+      }
+    }
+    if (!sizes) {
+      if (Array.isArray(node.sizes) || node.sizes !== undefined) {
+        diagnostics.push({ kind: "invalid-size", message: `A ${direction} split had an invalid size vector and was rebalanced.` });
+      }
+      sizes = Array.from({ length: children.length }, () => 1 / children.length);
+    }
+    return { kind: "split", direction, children, sizes };
+  }
+  diagnostics.push({ kind: "malformed-node", message: "A grid node had an unknown kind and was dropped." });
+  return null;
+}
+
+/** Normalize a parsed grid blob (unknown shape) into a valid, repaired
+ *  `PanelGridState` plus diagnostics. Backing sessions are never deleted —
+ *  duplicate or unusable panels are simply dropped from the visible tree. */
+export function normalizePanelGridState(input: unknown): NormalizeResult {
+  const diagnostics: PanelGridDiagnostic[] = [];
+  if (typeof input !== "object" || input === null) {
+    return { state: emptyGrid(), diagnostics, repaired: false };
+  }
+  const raw = input as Record<string, unknown>;
+  const seenIds = new Set<string>();
+  const root = validateNode(raw.root, seenIds, diagnostics);
+
+  // Validate closedPanels (history). Drop unusable entries and duplicates
+  // against live ids or within history — but never delete backing sessions.
+  const closedPanels: Panel[] = [];
+  if (Array.isArray(raw.closedPanels)) {
+    for (const entry of raw.closedPanels) {
+      const panel = validatePanel(entry);
+      if (!panel) {
+        diagnostics.push({ kind: "quarantined", message: "A closed-panel history entry was unusable and dropped from history." });
+        continue;
+      }
+      if (seenIds.has(panel.id)) {
+        diagnostics.push({ kind: "duplicate-id", message: `Closed panel ${panel.id} duplicates a live panel and was quarantined.`, panelId: panel.id });
+        continue;
+      }
+      if (closedPanels.some((p) => p.id === panel.id)) {
+        diagnostics.push({ kind: "duplicate-id", message: `Closed panel ${panel.id} appears twice in history; one copy was quarantined.`, panelId: panel.id });
+        continue;
+      }
+      seenIds.add(panel.id);
+      closedPanels.push(panel);
+    }
+  }
+
+  // Repair activePanelId: must identify a live leaf, or null for an empty tree.
+  const livePanels = flattenPanels(root);
+  let activePanelId: string | null = null;
+  const rawActive = raw.activePanelId;
+  if (livePanels.length > 0) {
+    const firstLive = livePanels[0].id;
+    if (typeof rawActive === "string" && findPanel(root, rawActive)) {
+      activePanelId = rawActive;
+    } else {
+      if (typeof rawActive === "string" && rawActive.length > 0) {
+        diagnostics.push({ kind: "stale-active", message: `activePanelId ${rawActive} is not a live panel; repaired to ${firstLive}.`, panelId: rawActive });
+      }
+      activePanelId = firstLive;
+    }
+  } else if (typeof rawActive === "string" && rawActive.length > 0) {
+    diagnostics.push({ kind: "stale-active", message: `activePanelId ${rawActive} referenced no panel in an empty tree; cleared.`, panelId: rawActive });
+  }
+
+  const state: PanelGridState = { root, activePanelId, closedPanels };
+  return { state, diagnostics, repaired: diagnostics.length > 0 };
+}
+
+/** Repair `activePanelId` on an already-valid state. Used after operations
+ *  that may leave a stale active pointer. Returns the same state ref if no
+ *  repair was needed. */
+export function repairActivePanelId(state: PanelGridState): PanelGridState {
+  const live = flattenPanels(state.root);
+  if (live.length === 0) {
+    return state.activePanelId === null ? state : { ...state, activePanelId: null };
+  }
+  const firstLive = live[0].id;
+  if (state.activePanelId && findPanel(state.root, state.activePanelId)) {
+    return state;
+  }
+  return { ...state, activePanelId: firstLive };
+}
+
+/** Generate a collision-resistant panel id. Uses `crypto.randomUUID` when
+ *  available; falls back to a timestamp + random suffix. Concurrent creation
+ *  in the same clock tick cannot collide. */
+export function newPanelId(): string {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi && typeof cryptoApi.randomUUID === "function") {
+    return `panel-${cryptoApi.randomUUID()}`;
+  }
+  return `panel-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** Where to place a new panel relative to a resolved anchor. */
+export type PanelPlacement = {
+  side: DropSide;
+  /** Optional explicit anchor panel id. If absent or not a live leaf, the
+   *  helper falls back to a deterministic live leaf (first in tree order). */
+  anchorId?: string | null;
+};
+
+/** Result of a checked panel insertion. A stale or missing anchor never
+ *  produces a silent no-op: the helper resolves a valid fallback or reports
+ *  a reason. */
+export type InsertPanelResult =
+  | { ok: true; state: PanelGridState }
+  | { ok: false; reason: string };
+
+/** Resolve a valid live anchor id from the current tree. Returns null only
+ *  when the tree is empty. */
+function resolveAnchor(root: SplitNode | null, requestedId: string | null | undefined): string | null {
+  if (!root) return null;
+  if (requestedId && findPanel(root, requestedId)) return requestedId;
+  return flattenPanels(root)[0]?.id ?? null;
+}
+
+/** Insert a panel through one checked contract. Resolves a valid live anchor
+ *  (or accepts the panel as the sole root for an empty grid), verifies the
+ *  new panel appears exactly once, and returns either the new state with the
+ *  panel focused or a actionable failure reason. A stale `activePanelId` /
+ *  anchor cannot turn this into a silent no-op. */
+export function insertPanel(state: PanelGridState, panel: Panel, placement: PanelPlacement): InsertPanelResult {
+  // Reject a panel id that already exists in the live tree or history.
+  if (findPanel(state.root, panel.id) || state.closedPanels.some((p) => p.id === panel.id)) {
+    return { ok: false, reason: `Panel id ${panel.id} already exists.` };
+  }
+  if (!state.root) {
+    return { ok: true, state: singlePanelGrid(panel) };
+  }
+  const anchorId = resolveAnchor(state.root, placement.anchorId);
+  if (!anchorId) {
+    return { ok: false, reason: "No live anchor panel is available to split beside." };
+  }
+  const newRoot = splitPanelAt(state.root, anchorId, panel, placement.side);
+  // Verify the new panel exists exactly once. `splitPanelAt` returns the
+  // original tree when the target is missing, so this catches a stale anchor
+  // that slipped past resolution.
+  const occurrences = flattenPanels(newRoot).filter((p) => p.id === panel.id).length;
+  if (occurrences !== 1) {
+    return { ok: false, reason: `Insertion did not place panel ${panel.id} exactly once (found ${occurrences}).` };
+  }
+  return { ok: true, state: { root: newRoot, activePanelId: panel.id, closedPanels: state.closedPanels } };
+}
+
+/** A backing session tab that has no reachable visible or history panel after
+ *  normalization. Surfaced for non-destructive recovery; never auto-deleted. */
+export type OrphanedTab = {
+  /** The session tab id from the backend. */
+  tabId: string;
+  /** The panel id the tab was originally bound to, when known. */
+  panelId?: string;
+  /** The chat session id, when the tab is a chat. */
+  chatSessionId?: string;
+  /** The terminal id, when the tab is a terminal/omp. */
+  terminalId?: number;
+  kind: PanelType;
+  title: string;
+};
+
+/** Detect backing session tabs that are not reachable from the normalized
+ *  visible grid or history. A tab is orphaned when its panel id (or
+ *  chatSessionId / terminalId binding) does not match any live or closed
+ *  panel. This is non-destructive: callers must confirm before deleting. */
+export function detectOrphanedTabs(state: PanelGridState, tabs: ReadonlyArray<{
+  id: string;
+  kind: PanelType | string;
+  title: string;
+  chatSessionId?: string | null;
+  terminalId?: number | null;
+  panelId?: string | null;
+}>): OrphanedTab[] {
+  const livePanels = flattenPanels(state.root);
+  const liveIds = new Set(livePanels.map((p) => p.id));
+  const liveChat = new Set(livePanels.map((p) => p.chatSessionId).filter((id): id is string => !!id));
+  const liveTerm = new Set(livePanels.map((p) => p.terminalId).filter((id): id is number => id != null));
+  const closedIds = new Set(state.closedPanels.map((p) => p.id));
+  const closedChat = new Set(state.closedPanels.map((p) => p.chatSessionId).filter((id): id is string => !!id));
+  const closedTerm = new Set(state.closedPanels.map((p) => p.terminalId).filter((id): id is number => id != null));
+  // A `creating` panel is in the process of binding a backing tab — its
+  // chatSessionId/terminalId is still null. Don't flag tabs that match a
+  // creating panel's kind (the binding will complete or roll back).
+  const creatingKinds = new Set(livePanels.filter((p) => p.creating).map((p) => p.type));
+  const orphans: OrphanedTab[] = [];
+  for (const tab of tabs) {
+    const chat = tab.chatSessionId ?? null;
+    const term = tab.terminalId ?? null;
+    const reachable =
+      (chat && (liveChat.has(chat) || closedChat.has(chat))) ||
+      (term != null && (liveTerm.has(term) || closedTerm.has(term)));
+    // Skip tabs whose kind matches a creating panel — binding is in flight.
+    const isBinding = creatingKinds.has(tab.kind as PanelType);
+    if (!reachable && !isBinding) {
+      orphans.push({
+        tabId: tab.id,
+        panelId: tab.panelId ?? undefined,
+        chatSessionId: tab.chatSessionId ?? undefined,
+        terminalId: tab.terminalId ?? undefined,
+        kind: tab.kind as PanelType,
+        title: tab.title,
+      });
+    }
+  }
+  return orphans;
 }
 
 // ── Drag-reorder math (ported from reference IDE) ──────────────────────────

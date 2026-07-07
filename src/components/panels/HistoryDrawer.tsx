@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Clock, FileText, LayoutTemplate, MessageSquare, TerminalSquare, Trash2, Zap, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Panel, PanelType } from "../../lib/panelGrid";
+import { ConfirmDialog } from "../layout/ConfirmDialog";
 
 const typeIcons: Record<PanelType, LucideIcon> = {
   chat: MessageSquare,
@@ -38,6 +39,9 @@ export function HistoryDrawer({ closedPanels, onReopen, onDelete, onClose }: His
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
+  // Permanent deletion is confirm-gated: no automatic session/tab deletion.
+  const [pendingDelete, setPendingDelete] = useState<Panel | null>(null);
+
   return (
     <div className="history-drawer" role="dialog" aria-label="Closed panels history">
       <div className="history-drawer-header">
@@ -68,7 +72,7 @@ export function HistoryDrawer({ closedPanels, onReopen, onDelete, onClose }: His
                   className="btn-icon btn-icon-sm"
                   type="button"
                   title="Delete permanently"
-                  onClick={() => onDelete(panel.id)}
+                  onClick={() => setPendingDelete(panel)}
                 >
                   <Trash2 size={11} />
                 </button>
@@ -77,6 +81,23 @@ export function HistoryDrawer({ closedPanels, onReopen, onDelete, onClose }: His
           );
         })
       )}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete panel permanently?"
+        message={
+          pendingDelete
+            ? `Permanently delete "${pendingDelete.title}"? This removes the local ${pendingDelete.type} data and cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete permanently"
+        cancelLabel="Keep"
+        destructive
+        onConfirm={() => {
+          if (pendingDelete) onDelete(pendingDelete.id);
+          setPendingDelete(null);
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

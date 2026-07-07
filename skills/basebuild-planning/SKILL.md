@@ -183,3 +183,29 @@ recent activity, picked ideas with no plan — without mutating anything.
 - Never overwrite an existing planning file without surfacing the conflict.
 - Never invent statuses, frontmatter keys, or project facts beyond schema.md
   and the analysis. When unsure, ask — a wrong plan is worse than a question.
+
+## Interactive surfaces (when available)
+
+When running inside the Basebuild app with the native agent loop, the
+`ask_user` tool is available for any decision that would otherwise require the
+user to type a response. Use it to present clickable options instead of prose
+questions:
+
+- **Category confirmation**: after generating categories, call `ask_user` with
+  an `options` question per category (keep / rename / remove) or a single
+  `multi` question to select which to keep.
+- **Idea picking**: in the picking loop, call `ask_user` with an `options`
+  question listing the generated idea titles; mark the recommended one.
+  Fall back to numbered prose if `ask_user` is not available.
+- **Promote gate**: before promoting, call `ask_user` to confirm which ideas to
+  promote and whether to bundle.
+- **Plan approval**: before setting `status: planned`, call `ask_user` with a
+  `confirm` question to get explicit approval.
+
+When `ask_user` is NOT available (CLI-only sessions, no native loop), fall back
+to prose questions and wait for the user's typed response. The skill works
+identically either way — `ask_user` is a UX enhancement, not a dependency.
+
+Each `ask_user` question needs: `id`, `prompt`, `kind` (options|multi|confirm|
+text), `options` (for non-text kinds), `recommended` (optional index), and
+`allowFreeText` (optional, defaults false). Answers come back keyed by `id`.

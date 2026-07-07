@@ -28,7 +28,7 @@ export function ProjectDescriptionModal({ open, onClose, existingContent, onSave
             <X size={14} />
           </button>
         </div>
-        <div className="modal-body stack" style={{ gap: "10px" }}>
+        <div className="modal-body stack focus-plan-body">
           <p className="text-sm text-muted">
             Basebuild uses this file as the source of truth for AI plan generation.
             Save it to `.basebuild/project-schematic.md`.

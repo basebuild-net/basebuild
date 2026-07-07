@@ -3,7 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { TerminalSquare } from "lucide-react";
-import { listenTerminalOutput, listTerminals, resizeTerminal, writeTerminal } from "../../lib/terminal";
+import { listenTerminalOutput, listTerminals, resizeTerminal, terminalReplay, writeTerminal } from "../../lib/terminal";
 
 type TerminalPanelProps = {
   /** Existing terminal ID to connect to. If null, shows empty state. */
@@ -26,52 +26,36 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Debug state — visible on-screen so no DevTools needed.
-  const [debugLines, setDebugLines] = useState<string[]>([]);
-  const debugRef = useRef<HTMLDivElement | null>(null);
-
-  function dbg(line: string) {
-    const ts = new Date().toLocaleTimeString();
-    const entry = `[${ts}] ${line}`;
-    setDebugLines((prev) => [...prev.slice(-30), entry]);
-    // Also log to console in case DevTools is open.
-    console.log("[terminal]", entry);
-  }
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let disposed = false;
 
     function waitForSize(el: HTMLElement): Promise<boolean> {
-      return new Promise((resolve) => {
-        if (el.clientWidth > 0 && el.clientHeight > 0) {
+      const { promise, resolve } = Promise.withResolvers<boolean>();
+      if (el.clientWidth > 0 && el.clientHeight > 0) {
+        resolve(true);
+        return promise;
+      }
+      const observer = new ResizeObserver(() => {
+        if (disposed) {
+          observer.disconnect();
+          resolve(false);
+        } else if (el.clientWidth > 0 && el.clientHeight > 0) {
+          observer.disconnect();
           resolve(true);
-          return;
         }
-        const observer = new ResizeObserver(() => {
-          if (disposed) {
-            observer.disconnect();
-            resolve(false);
-          } else if (el.clientWidth > 0 && el.clientHeight > 0) {
-            observer.disconnect();
-            resolve(true);
-          }
-        });
-        observer.observe(el);
       });
+      observer.observe(el);
+      return promise;
     }
 
     async function init() {
       const container = containerRef.current;
       if (!container || disposed) return;
 
-      dbg(`init: container=${container.clientWidth}x${container.clientHeight}`);
-
       const sized = await waitForSize(container);
-      if (!sized || disposed || !containerRef.current) {
-        dbg("init: waitForSize returned false, aborting");
-        return;
-      }
+      if (!sized || disposed || !containerRef.current) return;
 
       const terminal = new Terminal({
         cursorBlink: true,
@@ -111,38 +95,42 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
 
       const id = terminalId;
       if (id === null || id === undefined) {
-        dbg("init: no terminalId, showing empty state");
         setConnected(false);
         return;
       }
 
-      dbg(`init: terminalId=${id}, checking liveness...`);
-
       // Check if the terminal session actually exists in the backend.
       try {
         const alive = await listTerminals();
-        dbg(`listTerminals: ${alive.length} sessions: ${JSON.stringify(alive.map((t) => `#${t.id}(alive=${t.alive})`))}`);
         if (disposed) return;
         if (!alive.some((t) => t.id === id && t.alive)) {
-          dbg(`init: terminal #${id} NOT in alive list — showing reconnect overlay`);
           setConnected(false);
           return;
         }
-        dbg(`init: terminal #${id} is alive, connecting...`);
       } catch (e) {
-        dbg(`listTerminals failed: ${e}`);
+        setError(String(e));
       }
 
-      // Listen for output from this terminal
+      // Track the last seq we've seen to deduplicate replayed bytes
+      // against live events that arrive during replay.
+      let lastSeenSeq = 0;
+
+      // Listen for output from this terminal BEFORE requesting replay
+      // to avoid a race window where bytes arrive between replay and
+      // listener registration.
       const listener = await listenTerminalOutput((event) => {
-        dbg(`output event: ${JSON.stringify(event.payload)}`);
-        if (event.payload.id === id) {
-          if (event.payload.kind === "data") {
-            terminal.write(event.payload.data);
-            if (onOutput) onOutput(event.payload.data);
-          } else if (event.payload.kind === "close") {
-            terminal.writeln("\r\n[terminal closed]");
-          }
+        if (event.payload.id !== id) return;
+        if (event.payload.kind === "data") {
+          const seq = event.payload.seq;
+          // Drop live events that were already captured in the replay
+          // buffer (seq <= lastSeenSeq means they're in the replay).
+          if (seq !== undefined && seq <= lastSeenSeq) return;
+          if (seq !== undefined) lastSeenSeq = seq;
+          terminal.write(event.payload.data);
+          if (onOutput) onOutput(event.payload.data);
+        } else if (event.payload.kind === "close") {
+          terminal.writeln("\r\n[terminal closed]");
+          setConnected(false);
         }
       });
       if (disposed) {
@@ -152,29 +140,29 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
       }
       unlisten = () => listener();
 
+      // Request scrollback replay after listener is registered.
+      // This catches the shell startup prompt that was produced
+      // before the listener attached.
+      try {
+        const replay = await terminalReplay(id);
+        if (disposed) return;
+        if (replay.data) {
+          terminal.write(replay.data);
+          lastSeenSeq = replay.lastSeq;
+        }
+      } catch {
+        // Replay is best-effort; live events will still flow.
+      }
+
       terminal.onData((data) => {
-        dbg(`onData: ${JSON.stringify(data)}`);
-        void writeTerminal(id, data)
-          .then(() => dbg(`writeTerminal ok: ${JSON.stringify(data)}`))
-          .catch((err) => {
-            dbg(`writeTerminal FAILED: ${String(err)}`);
-            setConnected(false);
-            terminal.writeln("\r\n\x1b[31m[terminal closed — click Reconnect]\x1b[0m");
-          });
+        void writeTerminal(id, data).catch(() => {
+          setConnected(false);
+          terminal.writeln("\r\n\x1b[31m[terminal closed — click Reconnect]\x1b[0m");
+        });
       });
 
       setConnected(true);
-      dbg("connected=true, calling terminal.focus()");
-
       terminal.focus();
-
-      // Verify the hidden textarea exists and has focus.
-      const textarea = containerRef.current?.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
-      if (textarea) {
-        dbg(`textarea found: left=${getComputedStyle(textarea).left}, opacity=${getComputedStyle(textarea).opacity}, focused=${document.activeElement === textarea}`);
-      } else {
-        dbg("WARNING: xterm-helper-textarea NOT found in DOM");
-      }
 
       requestAnimationFrame(() => {
         if (disposed) return;
@@ -201,27 +189,21 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
   }, [terminalId]);
 
   useEffect(() => {
-    function handleResize() {
+    const handleResize = () => {
+      if (!fitAddonRef.current || !terminalRef.current) return;
       try {
-        fitAddonRef.current?.fit();
+        fitAddonRef.current.fit();
       } catch {
-        return;
+        /* ignore */
       }
-      if (terminalId != null) {
-        const dims = fitAddonRef.current?.proposeDimensions();
-        if (dims) void resizeTerminal(terminalId, dims.rows, dims.cols);
+      const dims = fitAddonRef.current.proposeDimensions();
+      if (dims && terminalId != null) {
+        void resizeTerminal(terminalId, dims.rows, dims.cols).catch(() => {});
       }
-    }
+    };
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, [terminalId]);
-
-  // Auto-scroll debug panel to bottom.
-  useEffect(() => {
-    if (debugRef.current) {
-      debugRef.current.scrollTop = debugRef.current.scrollHeight;
-    }
-  }, [debugLines]);
 
   if (terminalId == null && !cwd) {
     return (
@@ -242,22 +224,6 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
         <span className="terminal-status">
           {connected ? `● Terminal #${terminalId}` : error ? "Error" : "Connecting..."}
         </span>
-        {connected && terminalId != null ? (
-          <button
-            className="btn btn-sm"
-            type="button"
-            title="Send 'echo hello' directly to PTY (bypasses xterm keyboard)"
-            onClick={() => {
-              const id = terminalId!;
-              dbg(`TEST: sending 'echo hello\\r' directly to writeTerminal(${id})`);
-              void writeTerminal(id, "echo hello\r")
-                .then(() => dbg("TEST: writeTerminal('echo hello\\r') ok"))
-                .catch((err) => dbg(`TEST: writeTerminal FAILED: ${String(err)}`));
-            }}
-          >
-            Test input
-          </button>
-        ) : null}
       </div>
       {error ? <div className="terminal-error">{error}</div> : null}
       <div className="terminal-viewport" ref={containerRef} />
@@ -274,16 +240,6 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
           </button>
         </div>
       ) : null}
-      {/* Debug overlay — visible at bottom of terminal panel. */}
-      <div className="terminal-debug-panel" ref={debugRef}>
-        {debugLines.length === 0 ? (
-          <span className="terminal-debug-empty">Waiting for init...</span>
-        ) : (
-          debugLines.map((line, i) => (
-            <div key={i} className="terminal-debug-line">{line}</div>
-          ))
-        )}
-      </div>
     </div>
   );
 }

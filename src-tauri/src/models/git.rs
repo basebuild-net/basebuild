@@ -39,6 +39,8 @@ pub struct GitStatus {
     pub staged: Vec<FileEntry>,
     pub unstaged: Vec<FileEntry>,
     pub untracked: Vec<FileEntry>,
+    /// True when the repo has no commits yet (unborn HEAD).
+    pub unborn: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

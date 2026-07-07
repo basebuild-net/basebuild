@@ -1,7 +1,10 @@
 use tauri::{AppHandle, State};
 
-use crate::{app_state::AppState, models::terminal::TerminalSession};
-
+use crate::{
+    app_state::AppState,
+    models::terminal::TerminalSession,
+    services::terminal_service::TerminalReplay,
+};
 #[tauri::command]
 pub fn create_terminal(
     app: AppHandle,
@@ -51,4 +54,16 @@ pub fn list_terminals(state: State<AppState>) -> Result<Vec<TerminalSession>, St
         .terminals
         .lock()
         .list())
+}
+
+#[tauri::command]
+pub fn terminal_replay(
+    state: State<AppState>,
+    id: u64,
+) -> Result<serde_json::Value, String> {
+    let replay = state.terminals.lock().replay(id)?;
+    Ok(serde_json::json!({
+        "data": replay.data,
+        "lastSeq": replay.last_seq,
+    }))
 }

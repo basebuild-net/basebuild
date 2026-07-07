@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { usePromptDelivery } from "../../lib/promptDelivery";
 import { ChatComposerRail } from "./ChatComposerRail";
 import { ChatHeader } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
+import { QuestionCard } from "./QuestionCard";
 import {
   AlertCircle,
   BarChart3,
@@ -22,9 +24,10 @@ import { agentStart, agentSend, agentStop } from "../../lib/agent";
 import { gitBranchList, gitBranchSwitch, gitBranchCreate, gitCurrentBranch, type GitBranch } from "../../lib/git";
 import { listWorkspaces } from "../../lib/workspaces";
 import { prRecommend, prCreate, type PrRecommendation } from "../../lib/pullRequests";
-import { onPlanRunEvent } from "../../lib/planRuns";
+import { onPlanRunEvent, assignPlanToChat } from "../../lib/planRuns";
 import { listPlans } from "../../lib/plans";
-import type { AgentMode } from "../../lib/sessions";
+import { nativeInteractionListAll, nativeInteractionResolve } from "../../lib/interactions";
+import type { PendingInteraction } from "../../lib/interactions";
 import { getRuntimeDefaults } from "../../lib/settings";
 import {
   nativeChatMessages,
@@ -53,6 +56,7 @@ import { resolveToolApproval } from "../../lib/native-chat";
 import { useIdeaState } from "../../state/ideas";
 import type { Idea } from "../../lib/ideas";
 import { inspectProjectSchematic, type SchematicReport } from "../../lib/schematic";
+import type { AgentMode } from "../../lib/sessions";
 import { useLogs } from "../../state/log";
 
 const SEND_TIMEOUT_MS = 45_000;
@@ -62,13 +66,45 @@ const LOGIN_POLL_MS = 1500;
 
 type LegacyChatMessage = { role: "user" | "assistant" | "system"; content: string };
 
+/**
+ * Detect enumerated quick-reply options in a completed assistant message.
+ * Conservative: only matches `^[A-H][).:\s]\s` patterns or explicit
+ * "reply with X/Y" phrasing. Skips content inside code fences. Returns
+ * at most 8 option labels.
+ */
+function detectProseQuickReplies(content: string): string[] {
+  // Strip code fences so we don't match code blocks.
+  const stripped = content.replace(/```[\s\S]*?```/g, "");
+  const lines = stripped.split("\n");
+  const options: string[] = [];
+  const optionPattern = /^([A-H])[)\.:]\s+(.+)/;
+  for (const line of lines) {
+    const m = line.match(optionPattern);
+    if (m) {
+      const label = `${m[1]}. ${m[2].trim()}`;
+      if (label.length <= 80 && !options.includes(label)) {
+        options.push(label);
+      }
+    }
+    if (options.length >= 8) break;
+  }
+  // Also check for "reply with X/Y/Z" phrasing.
+  if (options.length === 0) {
+    const replyMatch = stripped.match(/reply with\s+([A-Za-z0-9 ]+(?:\/[A-Za-z0-9 ]+)+)/i);
+    if (replyMatch) {
+      const parts = replyMatch[1].split("/").map((s) => s.trim()).filter(Boolean);
+      for (const part of parts) {
+        if (part.length <= 40 && !options.includes(part)) options.push(part);
+      }
+    }
+  }
+  return options;
+}
+
 type ChatPanelProps = {
   projectPath: string;
   chatSessionId?: string | null;
   onChatSessionCreated?: (id: string) => void;
-  draftPrompt?: string | null;
-  onDraftConsumed?: () => void;
-  autoSendDraft?: boolean;
   /** Project session id — used to persist generated ideas and seed plans. */
   activeSessionId?: string | null;
   /** Project schematic content, sent to the provider for idea generation. */
@@ -192,9 +228,6 @@ export function ChatPanel({
   projectPath,
   chatSessionId,
   onChatSessionCreated,
-  draftPrompt,
-  onDraftConsumed,
-  autoSendDraft,
   activeSessionId,
   schematicContent,
   onCreatePlanFromIdea,
@@ -212,6 +245,7 @@ export function ChatPanel({
   const [nativeSessionId, setNativeSessionId] = useState<string | null>(chatSessionId ?? null);
   const [nativeMessages, setNativeMessages] = useState<NativeChatMessage[]>([]);
   const [toolEvents, setToolEvents] = useState<NativeToolEvent[]>([]);
+  const [interactions, setInteractions] = useState<PendingInteraction[]>([]);
   const [legacyMessages, setLegacyMessages] = useState<LegacyChatMessage[]>([]);
   const [providerId, setProviderId] = useState(LOCAL_PROVIDER_ID);
   const [modelId, setModelId] = useState("basebuild-local-coordinator");
@@ -251,6 +285,15 @@ export function ChatPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   // Expose the native session id on the DOM for e2e tests (data-native-session-id).
   const panelRef = useRef<HTMLDivElement>(null);
+  // Ref indirection so the loadOrCreate effect doesn't re-run when the
+  // inline onChatSessionCreated callback changes identity (it's a new
+  // function on every render). Without this, calling onChatSessionCreated
+  // triggers a grid update → re-render → new callback → effect re-runs →
+  // calls onChatSessionCreated again → infinite loop.
+  const onChatSessionCreatedRef = useRef<((id: string) => void) | null>(null);
+  useEffect(() => {
+    onChatSessionCreatedRef.current = onChatSessionCreated ?? null;
+  }, [onChatSessionCreated]);
   useEffect(() => {
     if (panelRef.current) {
       panelRef.current.dataset.nativeSessionId = nativeSessionId ?? "";
@@ -279,13 +322,9 @@ export function ChatPanel({
   const ideaState = useIdeaState(activeSessionId ?? null);
 
   const filteredModels = useMemo(() => {
-    const models = catalog?.models ?? [];
+    const models = catalog?.models.filter((m) => m.providerId === providerId) ?? [];
     const needle = modelFilter.trim().toLowerCase();
-    const ranked = models.slice().sort((a, b) => {
-      if (a.providerId === providerId && b.providerId !== providerId) return -1;
-      if (a.providerId !== providerId && b.providerId === providerId) return 1;
-      return a.label.localeCompare(b.label);
-    });
+    const ranked = models.slice().sort((a, b) => a.label.localeCompare(b.label));
     if (!needle) return ranked;
     return ranked.filter((model) => {
       const provider = catalog?.providers.find((p) => p.id === model.providerId);
@@ -312,6 +351,7 @@ export function ChatPanel({
     let cancelled = false;
     async function load() {
       try {
+        addLog("debug", "Chat config loading", `projectPath=${projectPath}`);
         const [defaults, cat, met, resolved] = await Promise.all([
           getRuntimeDefaults(),
           nativeProviderCatalog(),
@@ -326,6 +366,7 @@ export function ChatPanel({
         setModelId(resolved.modelId);
         setEffortLevel(resolved.effortLevel);
         setModelNotice(resolved.notice);
+        addLog("debug", "Chat config loaded", `provider=${resolved.providerId} model=${resolved.modelId} models=${cat.models.length}`);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to load chat config", msg);
@@ -351,48 +392,68 @@ export function ChatPanel({
     setNativeSessionId(chatSessionId ?? null);
   }, [chatSessionId]);
 
-  // Native mode: load or create session
+  // Native mode: load or create session. Times out after 15s so the panel
+  // never hangs forever in "initializing" — the user sees an actionable
+  // error and can retry or close the panel.
   useEffect(() => {
     if (!nativeMode || !catalog) return;
     let cancelled = false;
+    let timer: number | undefined;
     async function loadOrCreate() {
       try {
         if (nativeSessionId) {
-          const [msgs, events] = await Promise.all([
+          addLog("debug", "Chat session loading", `Loading messages for ${nativeSessionId}`);
+          const [msgs, events, intrs] = await Promise.all([
             nativeChatMessages(nativeSessionId),
             nativeChatToolEvents(nativeSessionId),
+            nativeInteractionListAll(nativeSessionId),
           ]);
-          if (!cancelled) {
-            setNativeMessages(msgs);
-            setToolEvents(events);
-          }
+          if (cancelled) return;
+          setNativeMessages(msgs);
+          setToolEvents(events);
+          setInteractions(intrs);
+          addLog("debug", "Chat session loaded", `${nativeSessionId}: ${msgs.length} messages`);
           return;
         }
-        const session = await nativeChatStart({
-          projectPath,
-          title: "Native Chat",
-          providerId,
-          modelId,
-          effortLevel,
-        });
+        addLog("debug", "Chat session creating", `projectPath=${projectPath} provider=${providerId} model=${modelId}`);
+        const session = await Promise.race([
+          nativeChatStart({
+            projectPath,
+            title: "Native Chat",
+            providerId,
+            modelId,
+            effortLevel,
+          }),
+          new Promise<never>((_, reject) => {
+            timer = window.setTimeout(() => reject(new Error("Chat session creation timed out after 15s")), 15_000);
+          }),
+        ]);
         if (cancelled) return;
         setNativeSessionId(session.id);
-        onChatSessionCreated?.(session.id);
-        setNativeMessages([]);
         setToolEvents([]);
+        setInteractions([]);
         setError(null);
+        addLog("debug", "Chat session created", session.id);
+        // Notify the shell so it can bind chatSessionId on the panel + tab
+        // and clear the `creating` flag. Without this the panel stays
+        // "initializing" forever. Use the ref so the loadOrCreate effect
+        // doesn't depend on the callback identity (inline arrow → new fn
+        // every render → infinite loop if it's in the deps array).
+        onChatSessionCreatedRef.current?.(session.id);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to open native chat", msg);
         if (!cancelled) setError(msg);
+      } finally {
+        if (timer) window.clearTimeout(timer);
       }
     }
     void loadOrCreate();
     return () => {
       cancelled = true;
+      if (timer) window.clearTimeout(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nativeMode, catalog, nativeSessionId, projectPath, onChatSessionCreated, addLog]);
+  }, [nativeMode, catalog, nativeSessionId, projectPath, providerId, modelId, effortLevel, addLog]);
 
   // Native mode: listen for streamed assistant chunks for this session
   useEffect(() => {
@@ -465,9 +526,21 @@ export function ChatPanel({
         createdAt: Math.floor(Date.now() / 1000),
       }]);
     });
+    const unlistenInteraction = listen<{ sessionId: string; interactionId?: string }>(
+      "native-chat://interactive-request",
+      (event) => {
+        if (event.payload.sessionId !== nativeSessionId) return;
+        // Refresh the full interaction list (pending + answered) so history
+        // reloads correctly and new questions render inline.
+        void nativeInteractionListAll(nativeSessionId)
+          .then((list) => setInteractions(list))
+          .catch(() => { /* best-effort */ });
+      },
+    );
     return () => {
       void unlistenTool.then((fn) => fn());
       void unlistenApproval.then((fn) => fn());
+      void unlistenInteraction.then((fn) => fn());
     };
   }, [nativeMode, nativeSessionId]);
 
@@ -689,29 +762,36 @@ export function ChatPanel({
     [nativeMode, nativeSessionId, selectedProvider, loading, providerId, modelId, effortLevel, agentId, addLog],
   );
 
-  // Draft prompt injection. Wait for catalog to load before auto-sending
-  // so the resolved provider/model is used, not the initial local default.
-  // The schematic wizard needs a model that supports tools (read_file,
-  // write_file, etc.) — if the active model can't call tools, show a notice
-  // instead of sending a prompt the model can only echo back as text.
+  // Prompt delivery consumption — replaces the old draft-prompt props.
+  // The shell queues a delivery via `deliverPrompt({ chatSessionId, text,
+  // mode })`; this hook surfaces it when our native session is ready.
+  // insert → set composer text + focus (no send); send → one user turn,
+  // composer left empty. Tool-incapable model + wizard prompt → insert +
+  // inline notice (no send).
+  const { delivery, consume } = usePromptDelivery(nativeSessionId);
   useEffect(() => {
-    if (!draftPrompt) return;
-    setInput(draftPrompt);
-    onDraftConsumed?.();
-    if (autoSendDraft && catalog && !loading) {
-      const isWizardPrompt = draftPrompt.includes("basebuild-project-schematic");
-      const modelSupportsTools = selectedModel?.supportsTools ?? false;
-      if (isWizardPrompt && !modelSupportsTools) {
-        setCommandNotice(
-          selectedModel
-            ? `${selectedModel.label} does not support tool calling — the wizard needs a model that can read/write files. Pick a tool-capable model (e.g. Claude, GPT-4, umans-glm) and try again.`
-            : "The schematic wizard needs a model that supports tool calling. Pick a tool-capable model and try again.",
-        );
-        return;
-      }
-      void sendMessage(draftPrompt.trim());
+    if (!delivery || !nativeSessionId) return;
+    const isWizardPrompt = delivery.text.includes("basebuild-project-schematic");
+    if (delivery.mode === "insert") {
+      setInput(delivery.text);
+      consume();
+      return;
     }
-  }, [draftPrompt, autoSendDraft, onDraftConsumed, sendMessage, catalog, loading, selectedModel]);
+    // send mode — wait for catalog so the resolved provider/model is used.
+    if (!catalog || loading) return;
+    const modelSupportsTools = selectedModel?.supportsTools ?? false;
+    if (isWizardPrompt && !modelSupportsTools) {
+      setInput(delivery.text);
+      setCommandNotice(
+        selectedModel
+          ? `${selectedModel.label} does not support tool calling — the wizard needs a model that can read/write files. Pick a tool-capable model (e.g. Claude, GPT-4, umans-glm) and try again.`
+          : "The schematic wizard needs a model that supports tool calling. Pick a tool-capable model and try again.",
+      );
+      consume();
+      return;
+    }
+    void sendMessage(delivery.text.trim()).then(() => consume());
+  }, [delivery, consume, nativeSessionId, catalog, loading, selectedModel, sendMessage]);
 
   // Auto-scroll
   useEffect(() => {
@@ -735,7 +815,39 @@ export function ChatPanel({
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
+    addLog("debug", "Chat send", `text=${text.slice(0, 80)} nativeMode=${nativeMode} session=${nativeSessionId ?? "none"}`);
     if (!text) return;
+    // Composer answer routing: if there's a pending text/free-text question,
+    // capture the next send as the answer (unless escaped with /send).
+    const pendingInteraction = interactions.find((i) => i.status === "pending");
+    if (nativeMode && pendingInteraction) {
+      const textQuestion = pendingInteraction.questions.find(
+        (q) => q.kind === "text" || (q.kind === "options" && q.allowFreeText),
+      );
+      if (textQuestion) {
+        // /send escape: send as a normal message instead of answering.
+        if (text.startsWith("/send ")) {
+          setInput(text.slice(6));
+          return;
+        }
+        // Route the text as the answer.
+        try {
+          const answers = pendingInteraction.questions.map((q) => ({
+            questionId: q.id,
+            selected: q.kind === "text" || (q.kind === "options" && q.allowFreeText)
+              ? undefined
+              : [],
+            text: q.id === textQuestion.id ? text : undefined,
+          }));
+          const resolved = await nativeInteractionResolve(pendingInteraction.id, answers);
+          setInteractions((prev) => prev.map((i) => i.id === resolved.id ? resolved : i));
+          setInput("");
+        } catch (e) {
+          addLog("error", "Failed to submit answer", e instanceof Error ? e.message : String(e));
+        }
+        return;
+      }
+    }
     if (nativeMode && text.startsWith("/")) {
       const [rawCommand, ...parts] = text.slice(1).split(/\s+/);
       const command = rawCommand.toLowerCase();
@@ -824,7 +936,7 @@ export function ChatPanel({
       return;
     }
     await sendMessage(text);
-  }, [input, nativeMode, sendMessage, catalog, addLog]);
+  }, [input, nativeMode, sendMessage, catalog, addLog, interactions]);
 
   const handleStopAgent = useCallback(async () => {
     if (sendTimerRef.current) {
@@ -1093,12 +1205,17 @@ export function ChatPanel({
   }, [activeSessionId, addLog]);
 
   const handleAssignPlan = useCallback(async (planId: string) => {
-    if (!planId) return;
+    if (!planId || !nativeSessionId) return;
     setShowAssignPlanPicker(false);
-    setAssignedPlanId(planId);
-    // The run starts via the plan-run flow; the plan_run://event listener
-    // binds the badge when the run starts.
-  }, []);
+    try {
+      await assignPlanToChat(planId, nativeSessionId);
+      setAssignedPlanId(planId);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to assign plan to chat", msg);
+      setError(msg);
+    }
+  }, [nativeSessionId, addLog]);
 
   const handleCreatePullRequest = useCallback(() => {
     setShowPrCard(true);
@@ -1198,7 +1315,8 @@ export function ChatPanel({
               // chronological position — not grouped by message.
               type ChatEvent =
                 | { kind: "user" | "assistant" | "system"; id: string; content: string; reasoning: string | null; createdAt: number | null; providerId: string | null; index: number }
-                | { kind: "tool"; id: string; event: NativeToolEvent; createdAt: number | null; index: number };
+                | { kind: "tool"; id: string; event: NativeToolEvent; createdAt: number | null; index: number }
+                | { kind: "interaction"; id: string; interaction: PendingInteraction; createdAt: number | null; index: number };
 
               type Grouped = { type: "single" | "group"; events: NativeToolEvent[] };
 
@@ -1267,6 +1385,16 @@ export function ChatPanel({
                   });
                 }
               }
+              // Live interactions go at the end (no messageId binding yet).
+              for (const intr of interactions) {
+                events.push({
+                  kind: "interaction",
+                  id: intr.id,
+                  interaction: intr,
+                  createdAt: intr.createdAt ?? null,
+                  index: events.length,
+                });
+              }
 
               // Sort by (createdAt, index) — stable chronological order.
               events.sort((a, b) => {
@@ -1292,6 +1420,18 @@ export function ChatPanel({
               for (const ev of events) {
                 if (ev.kind === "tool") {
                   toolBatch.push(ev.event);
+                  continue;
+                }
+                if (ev.kind === "interaction") {
+                  flushToolBatch(`pre-intr-${ev.id}`);
+                  rendered.push(
+                    <QuestionCard
+                      key={`intr-${ev.id}`}
+                      interaction={ev.interaction}
+                      onResolved={(resolved) => setInteractions((prev) => prev.map((i) => i.id === resolved.id ? resolved : i))}
+                      onCancelled={(id) => setInteractions((prev) => prev.map((i) => i.id === id ? { ...i, status: "cancelled" } : i))}
+                    />,
+                  );
                   continue;
                 }
                 // Flush any pending tool events before the next message.
@@ -1355,6 +1495,32 @@ export function ChatPanel({
             </button>
           </div>
         ) : null}
+        {!streaming && !loading && interactions.length === 0 ? (() => {
+          // Find the last assistant message content from renderMessages.
+          let lastAssistantContent: string | null = null;
+          for (let i = renderMessages.length - 1; i >= 0; i--) {
+            const msg = renderMessages[i];
+            if (msg.role === "assistant") { lastAssistantContent = msg.content; break; }
+          }
+          if (!lastAssistantContent) return null;
+          const chips = detectProseQuickReplies(lastAssistantContent);
+          if (chips.length < 2) return null;
+          return (
+            <div className="chat-quick-replies" title="Quick-reply options detected from the last message">
+              {chips.map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  className="chat-quick-reply-chip"
+                  title={`Send: ${chip}`}
+                  onClick={() => void sendMessage(chip)}
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+          );
+        })() : null}
       </div>
 
       {/* Generated ideas surface */}
@@ -1412,6 +1578,17 @@ export function ChatPanel({
         <div className="chat-error-bar">
           <AlertCircle size={12} />
           <span className="text-sm">{error}</span>
+          <button
+            className="btn btn-sm"
+            type="button"
+            title="Retry creating the chat session"
+            onClick={() => {
+              setError(null);
+              setNativeSessionId(null);
+            }}
+          >
+            <RefreshCw size={12} /> Retry
+          </button>
           <button className="btn-icon btn-icon-sm" title="Clear error" type="button" onClick={() => setError(null)}>
             <X size={11} />
           </button>
@@ -1660,6 +1837,18 @@ export function ChatPanel({
                       title={`${provider.label}: ${provider.configured ? "connected" : "not connected"}`}
                       onClick={() => {
                         setProviderId(provider.id);
+                        // Auto-select first model from this provider if current model doesn't match
+                        const providerModels = catalog?.models.filter((m) => m.providerId === provider.id) ?? [];
+                        const firstModel = providerModels[0];
+                        if (firstModel && (modelId !== firstModel.id || providerId !== provider.id)) {
+                          setModelId(firstModel.id);
+                          const next: ChatModelDefault = {
+                            providerId: provider.id,
+                            modelId: firstModel.id,
+                            effortLevel,
+                          };
+                          void nativeChatSetProjectModelDefault(projectPath, next);
+                        }
                         setShowProviderPicker(false);
                         setShowLogin(!provider.configured && provider.id !== LOCAL_PROVIDER_ID);
                         setSetupRequired(null);
@@ -1675,7 +1864,7 @@ export function ChatPanel({
             {showModelPicker && catalog ? (
               <div className="chat-picker" role="dialog" aria-label="Choose model">
                 <div className="chat-picker-header">
-                  <span>Choose model</span>
+                  <span>Choose model · {selectedProvider?.label ?? providerId}</span>
                   <button className="btn-icon btn-icon-sm" type="button" title="Close model picker" onClick={() => setShowModelPicker(false)}>
                     <X size={11} />
                   </button>
@@ -1714,7 +1903,7 @@ export function ChatPanel({
                         }}
                       >
                         <span className="chat-picker-main">{model.label}</span>
-                        <span className="chat-picker-meta">{provider?.label ?? model.providerId} · {model.supportedEfforts.length ? model.supportedEfforts.join("/") : "standard"} · {model.source}</span>
+                        <span className="chat-picker-meta">{model.supportedEfforts.length ? model.supportedEfforts.join("/") : "standard"} · {model.source}</span>
                       </button>
                     );
                   })}
@@ -1736,6 +1925,19 @@ export function ChatPanel({
             ) : null}
           </>
         ) : null}
+        {(() => {
+          const pending = interactions.find((i) => i.status === "pending");
+          if (!pending) return null;
+          const textQ = pending.questions.find((q) => q.kind === "text" || (q.kind === "options" && q.allowFreeText));
+          if (!textQ) return null;
+          return (
+            <div className="chat-answering-banner" title="Your next send will be submitted as the answer. Use /send <text> to send a normal message instead.">
+              <span className="chat-answering-icon">?</span>
+              <span className="chat-answering-text">Answering: {textQ.prompt}</span>
+              <span className="chat-answering-hint text-muted">/send to escape</span>
+            </div>
+          );
+        })()}
         <div className="chat-input-row">
           <textarea
             className="input chat-input"

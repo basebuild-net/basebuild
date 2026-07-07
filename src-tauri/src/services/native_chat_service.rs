@@ -14,11 +14,12 @@ use crate::{
             NativeRequestMetricsSummary, NativeSetupRequired, NativeToolApprovalRequest,
             NativeToolApprovalResult, NativeToolEvent, ResolvedChatModelDefault,
         },
+        omp_catalog,
         permission::PermissionDecision,
         plan::Plan,
     },
     services::{
-        provider_client::{resolve_client, ChatMsg, ProviderRequest, OMP_CODEX_BASE_URL},
+        provider_client::{resolve_client, resolve_client_for_model, ChatMsg, ProviderRequest, OMP_CODEX_BASE_URL},
         session_service::SessionService,
         settings_service::SettingsService,
         storage_service::StorageService,
@@ -351,7 +352,7 @@ impl NativeChatService {
             if key.is_empty() { return None; }
             let is_omp_codex_oauth = omp_id == "openai-codex" && cred_type == "oauth";
             Some(NativeProviderCredential {
-                provider_id: basebuild_id.to_string(),
+                provider_id: basebuild_id,
                 label: omp_id,
                 api_key: key,
                 base_url: is_omp_codex_oauth.then(|| OMP_CODEX_BASE_URL.to_string()),
@@ -510,7 +511,8 @@ impl NativeChatService {
 
     /// Assemble the opening context for a plan run session: plan title/goal,
     /// linked OpenSpec change path, and project schematic summary.
-    fn build_plan_opening_context(plan: &Plan, project_path: &str) -> String {
+
+    pub fn build_plan_opening_context(plan: &Plan, project_path: &str) -> String {
         let mut parts: Vec<String> = Vec::new();
         parts.push(format!("# Plan: {}\n{}", plan.title, plan.description));
         if let Some(goal) = &plan.goal {
@@ -663,6 +665,9 @@ impl NativeChatService {
         let resolved_model_id = Self::resolve_model_api_id(&provider_id, &model_id)
             .unwrap_or_else(|| model_id.clone());
 
+        // Look up the model's api_kind and base_url for routing.
+        let (api_kind, model_base_url) = Self::resolve_model_routing(&provider_id, &model_id);
+
         let req = ProviderRequest {
             model_id: resolved_model_id.clone(),
             effort_level: effort_level.clone(),
@@ -672,15 +677,23 @@ impl NativeChatService {
             base_url: credential.as_ref().and_then(|c| c.base_url.clone()),
             tools: Vec::new(),
         };
-        let uses_omp_codex_oauth = req.base_url.as_deref() == Some(OMP_CODEX_BASE_URL);
+        let uses_omp_rpc = req.base_url.as_deref() == Some(OMP_CODEX_BASE_URL)
+            || (api_kind != "openai-completions"
+                && api_kind != "openai-responses"
+                && api_kind != "azure-openai-responses"
+                && api_kind != "anthropic-messages"
+                && api_kind != "openrouter"
+                && api_kind != "ollama-chat"
+                && !is_local
+                && req.base_url.is_none());
 
         let started_at = now_millis();
 
         // Check if the model supports tools → use the agent loop. OMP-backed
-        // ChatGPT OAuth is provider-only here: OMP owns its Codex transport, but
-        // Basebuild tool schemas cannot be passed through this RPC bridge.
+        // providers are provider-only here: OMP owns their transport, but
+        // Basebuild tool schemas cannot be passed through the RPC bridge.
         let supports_tools = !is_local
-            && !uses_omp_codex_oauth
+            && !uses_omp_rpc
             && Self::model_supports_tools(&provider_id, &model_id);
 
         if supports_tools {
@@ -758,8 +771,7 @@ impl NativeChatService {
             });
         }
 
-        // Plain chat turn (no tools support, or local coordinator).
-        let client = resolve_client(&provider_id, req.base_url.as_deref());
+        let client = resolve_client_for_model(&provider_id, &api_kind, req.base_url.as_deref(), &model_base_url);
         let session_id_for_emit = request.session_id.clone();
         let app_for_emit = app.clone();
         let emit = move |delta: &str, channel: &str| {
@@ -950,6 +962,8 @@ impl NativeChatService {
         .unwrap_or_default();
         let prompt = format!("{}{}", idea_template.replace("{conversation}", &convo), category_direction);
 
+        let (api_kind, model_base_url) = Self::resolve_model_routing(&provider_id, &model_id);
+
         let req = ProviderRequest {
             model_id,
             effort_level,
@@ -966,7 +980,7 @@ impl NativeChatService {
             tools: Vec::new(),
         };
 
-        let client = resolve_client(&provider_id, req.base_url.as_deref());
+        let client = resolve_client_for_model(&provider_id, &api_kind, req.base_url.as_deref(), &model_base_url);
         let session_id_for_emit = request.session_id.clone();
         let app_for_emit = app.clone();
         // Emit on the main content channel so the generation turn is visible in
@@ -1146,6 +1160,40 @@ impl NativeChatService {
         .flatten()
     }
 
+    /// Look up a model's `api_kind` and `base_url` from the cache for
+    /// provider routing. Falls back to the bundled OMP catalog if the
+    /// model is not in the cache or has no `api_kind` set.
+    pub fn resolve_model_routing(
+        provider_id: &str,
+        model_id: &str,
+    ) -> (String, String) {
+        // Try the DB cache first.
+        if let Ok(conn) = StorageService::connect() {
+            if let Ok(row) = conn.query_row(
+                "SELECT api_kind, base_url FROM native_provider_model_cache
+                 WHERE provider_id = ?1 AND model_id = ?2",
+                params![provider_id, model_id],
+                |row| {
+                    let api_kind: String = row.get(0).unwrap_or_default();
+                    let base_url: String = row.get(1).unwrap_or_default();
+                    Ok((api_kind, base_url))
+                },
+            ) {
+                if !row.0.is_empty() {
+                    return row;
+                }
+            }
+        }
+        // Fall back to the bundled OMP catalog.
+        if let Some(cm) = omp_catalog::models_for(provider_id)
+            .iter()
+            .find(|m| m.id == model_id)
+        {
+            return (cm.api_kind.clone(), cm.base_url.clone());
+        }
+        (String::new(), String::new())
+    }
+
     fn validate_provider_model(provider_id: &str, model_id: &str, allow_unconfigured: bool) -> DbResult<()> {
         let catalog = Self::provider_catalog();
         let provider = catalog
@@ -1171,7 +1219,7 @@ impl NativeChatService {
         Ok(())
     }
 
-    fn insert_message(
+    pub fn insert_message(
         session_id: &str,
         role: &str,
         content: &str,
@@ -1465,19 +1513,19 @@ static OMP_AGENT_DIR: std::sync::LazyLock<std::path::PathBuf> = std::sync::LazyL
     }
 });
 
-/// Map OMP provider ids to Basebuild provider ids. Returns None for providers
-/// Basebuild doesn't know about.
-///
-/// `openai-codex` maps to Basebuild's `openai`, but its credential is tagged
-/// with `OMP_CODEX_BASE_URL` so requests route through OMP's Codex/ChatGPT
-/// RPC path instead of the standard OpenAI API endpoint.
-fn omp_to_basebuild_provider(omp_id: &str) -> Option<&'static str> {
-    match omp_id {
-        "umans" => Some("umans"),
-        "openai" | "openai-codex" => Some("openai"),
-        "anthropic" => Some("anthropic"),
-        _ => None,
+/// Map an OMP provider id to a Basebuild provider id. With the vendored OMP
+/// catalog, this is an identity mapping for all catalog providers, with one
+/// historical sentinel: `openai-codex` (ChatGPT OAuth) maps to `openai` so
+/// its credentials flow through the existing `OMP_CODEX_BASE_URL` routing.
+fn omp_to_basebuild_provider(omp_id: &str) -> Option<String> {
+    if omp_id == "openai-codex" {
+        return Some("openai".to_string());
     }
+    // Identity mapping for all OMP catalog providers.
+    if omp_catalog::provider_ids().contains(&omp_id) {
+        return Some(omp_id.to_string());
+    }
+    None
 }
 
 /// OAuth token cache: (token, fetched_at). TTL prevents per-send CLI spawns.
@@ -1645,10 +1693,12 @@ mod tests {
 
     #[test]
     fn omp_provider_ids_map_to_basebuild_ids() {
-        assert_eq!(omp_to_basebuild_provider("openai-codex"), Some("openai"));
-        assert_eq!(omp_to_basebuild_provider("openai"), Some("openai"));
-        assert_eq!(omp_to_basebuild_provider("anthropic"), Some("anthropic"));
-        assert_eq!(omp_to_basebuild_provider("umans"), Some("umans"));
+        assert_eq!(omp_to_basebuild_provider("openai-codex"), Some("openai".to_string()));
+        assert_eq!(omp_to_basebuild_provider("openai"), Some("openai".to_string()));
+        assert_eq!(omp_to_basebuild_provider("anthropic"), Some("anthropic".to_string()));
+        assert_eq!(omp_to_basebuild_provider("umans"), Some("umans".to_string()));
+        assert_eq!(omp_to_basebuild_provider("devin"), Some("devin".to_string()));
+        assert_eq!(omp_to_basebuild_provider("groq"), Some("groq".to_string()));
         assert_eq!(omp_to_basebuild_provider("something-else"), None);
     }
 

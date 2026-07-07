@@ -116,6 +116,27 @@ pub struct NativeModel {
     /// callers fall back to `id` when null. Populated by catalog sync.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_api_id: Option<String>,
+    /// Wire-protocol kind from the OMP catalog: `openai-completions`,
+    /// `anthropic-messages`, `devin-agent`, `openai-codex-responses`,
+    /// `cursor-agent`, `google-generative-ai`, `google-vertex`,
+    /// `google-gemini-cli`, `bedrock-converse-stream`, `ollama-chat`,
+    /// `openrouter`, `openai-responses`, `azure-openai-responses`,
+    /// `gitlab-duo-agent`. Empty for legacy rows; `resolve_client` treats
+    /// an empty kind as `openai-completions` (the historical default).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub api_kind: String,
+    /// The model's API base URL from the OMP catalog (e.g.
+    /// `https://server.codeium.com` for devin). Empty for legacy rows and
+    /// for providers whose base URL is credential-driven.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub base_url: String,
+    /// Per-million-token input cost (USD), from the OMP catalog. Null when
+    /// unknown (legacy rows, discovered models without cost metadata).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_input: Option<f64>,
+    /// Per-million-token output cost (USD), from the OMP catalog.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_output: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

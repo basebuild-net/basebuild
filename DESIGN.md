@@ -323,6 +323,28 @@ Every interactive element has a hover state:
 - Font sizes: 12px body, 11px secondary, 10px micro/mono.
 - Compact icon sizes: 14px in lists, 18px in rail, 20px in headers.
 
+## Planning cockpit surfaces
+
+New surfaces added by the `planning-cockpit` change:
+
+- **Command strip** — session header row with 5 stage icons + counts. Status
+  colors: active = CTA orange pulse, empty = muted, ok = positive green.
+  Collapses to a badge; 0px radius on all elements.
+- **Destination picker** — managed modal dialog listing open chat panels +
+  "New conversation". Uses the standard `.modal-overlay` / `.modal` pattern.
+- **Changes panel** — OpenSpec change catalog with artifact chips (P/D/T/S),
+  progress bars, phase-grouped task checklists. 0px radius on all cards,
+  chips, and checkboxes.
+- **Completion card** — rendered in the Flow board's Finished stage. Shows
+  run status, source-control context, and confirm-gated Commit / Create PR
+  actions in collapsible `<details>` sections.
+- **Confirm dialog** — managed modal replacing `window.confirm`. Destructive
+  variant uses negative red border.
+- **Quick-reply chips** — small clickable buttons below assistant messages
+  with enumerated options. 0px radius, CTA orange on hover.
+- **Wide layouts** — container queries at ≥1100px switch planning and
+  source surfaces to master–detail row layout; stacked below.
+
 ## Visual Inspection Workflow
 
 After every UI change, visually verify by:

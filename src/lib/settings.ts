@@ -149,3 +149,11 @@ export async function addApprovalRule(rule: ApprovalRule): Promise<void> {
 export async function removeApprovalRule(id: string): Promise<void> {
   return invoke("remove_approval_rule", { id });
 }
+
+export async function getMilestoneAutoCommit(projectPath: string): Promise<boolean> {
+  return invoke<boolean>("get_milestone_auto_commit", { projectPath });
+}
+
+export async function setMilestoneAutoCommit(projectPath: string, enabled: boolean): Promise<void> {
+  return invoke("set_milestone_auto_commit", { projectPath, enabled });
+}

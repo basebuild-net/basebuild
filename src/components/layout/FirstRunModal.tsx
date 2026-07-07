@@ -58,14 +58,14 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
 
   return (
     <div className="modal-overlay" onClick={onSkip}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+      <div className="modal modal-first-run" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Welcome to Basebuild</h2>
           <button className="btn-icon" title="Skip setup" type="button" onClick={onSkip}>
             <X size={16} />
           </button>
         </div>
-        <div className="modal-body stack" style={{ gap: 12 }}>
+        <div className="modal-body stack modal-first-run-body">
           {step === "welcome" ? (
             <>
               <TerminalSquare size={32} className="text-muted" />

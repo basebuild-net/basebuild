@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Download, Globe, Key, Lightbulb, Lock, LogOut, Plug, RefreshCw, Settings2, Shield, Trash2, Unplug, User, X } from "lucide-react";
+import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Lock, LogOut, Plug, RefreshCw, Settings2, Shield, Trash2, Unplug, User, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { CopyButton } from "./CopyButton";
 import { FinalTouchesTab } from "./FinalTouchesTab";
@@ -45,6 +45,11 @@ import {
   type AuditEntry,
 } from "../../lib/settings";
 import {
+  notificationGetSettings,
+  notificationSetSettings,
+  type NotificationSettings as NotificationSettingsType,
+} from "../../lib/notifications";
+ import {
   getAnalyticsConsent,
   setAnalyticsConsent,
   analyticsEventCount,
@@ -79,7 +84,7 @@ type SettingsModalProps = {
   updates: UpdaterState;
 };
 
-type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "mcp" | "planning" | "final_touches" | "concurrency" | "about";
+type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "mcp" | "planning" | "final_touches" | "concurrency" | "notifications" | "about";
 
 export function SettingsModal({ open, onClose, projectPath, account, updates }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
@@ -278,6 +283,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
     { id: "mcp", label: "MCP Servers", icon: Plug },
     { id: "planning", label: "Planning", icon: Lightbulb },
     { id: "final_touches", label: "Final Touches", icon: Settings2 },
+    { id: "notifications", label: "Notifications", icon: Bell },
     { id: "concurrency", label: "Concurrency", icon: Settings2 },
   ];
 
@@ -942,6 +948,10 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
               <FinalTouchesTab projectPath={projectPath} />
             ) : null}
 
+            {tab === "notifications" ? (
+              <NotificationsTab />
+            ) : null}
+
             {/* ─── Concurrency ─── */}
             {tab === "concurrency" ? (
               <ConcurrencyTab projectPath={projectPath} />
@@ -1265,8 +1275,8 @@ function ModelProvidersPanel() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
+  const [baseUrlDrafts, setBaseUrlDrafts] = useState<Record<string, string>>({});
   const pollRef = useRef<number | null>(null);
-
   const refresh = useCallback(async () => {
     try {
       setCatalog(await nativeProviderCatalog());
@@ -1327,7 +1337,7 @@ function ModelProvidersPanel() {
       setBusyId(providerId);
       setError(null);
       try {
-        await nativeSaveProviderCredential({ providerId, label, apiKey: key, baseUrl: null });
+        await nativeSaveProviderCredential({ providerId, label, apiKey: key, baseUrl: baseUrlDrafts[providerId]?.trim() || null });
         setKeyDrafts((prev) => ({ ...prev, [providerId]: "" }));
         await refresh();
       } catch (e) {
@@ -1363,6 +1373,15 @@ function ModelProvidersPanel() {
       <p className="text-muted text-sm">
         Connect model providers with a web flow or an API key. Credentials are stored locally on this device only.
       </p>
+      <button
+        className="btn btn-sm"
+        type="button"
+        title="Refresh model catalog from all configured providers"
+        disabled={busyId === "refresh"}
+        onClick={async () => { setBusyId("refresh"); await refresh(); setBusyId(null); }}
+      >
+        <RefreshCw size={12} /> Refresh models
+      </button>
       {providers.map((p) => (
         <div key={p.id} className="requirement-row" style={{ alignItems: "flex-start" }}>
           <span className={`requirement-badge is-${p.configured ? "ok" : "attention"}`}>
@@ -1370,8 +1389,13 @@ function ModelProvidersPanel() {
           </span>
           <div style={{ flex: 1 }}>
             <div className="requirement-name">
-              {p.label} {p.configured ? <span className="text-muted text-sm">connected</span> : null}
+              {p.label} {p.configured ? <span className="text-muted text-sm">connected</span> : null}{p.modelCount > 0 ? <span className="text-muted text-sm"> · {p.modelCount} model{p.modelCount === 1 ? "" : "s"}</span> : null}
             </div>
+            {p.apiKeyUrl && !p.configured ? (
+              <a href={p.apiKeyUrl} target="_blank" rel="noopener noreferrer" className="text-muted text-sm" title={`Get an API key from ${p.label}`}>
+                Get API key →
+              </a>
+            ) : null}
             {p.configured ? (
               <button
                 className="btn btn-sm"
@@ -1419,12 +1443,31 @@ function ModelProvidersPanel() {
                     <Key size={12} /> Save
                   </button>
                 </div>
+                {p.id === "custom" ? (
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="Base URL (e.g. https://api.example.com/v1)"
+                    value={baseUrlDrafts[p.id] ?? ""}
+                    onChange={(e) => setBaseUrlDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                    title="Base URL for the custom OpenAI-compatible endpoint"
+                  />
+                ) : null}
               </div>
             )}
           </div>
         </div>
       ))}
       {error ? <p className="text-danger text-sm">{error}</p> : null}
+      {catalog?.providers.some((p) => p.error && !p.localOnly) ? (
+        <div className="stack-sm">
+          {catalog.providers.filter((p) => p.error && !p.localOnly).map((p) => (
+            <p key={p.id} className="text-danger text-sm" title={p.error ?? ""}>
+              {p.label}: {p.error}
+            </p>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1572,6 +1615,94 @@ function ConcurrencyTab({ projectPath }: { projectPath: string | null }) {
       <p className="text-muted text-sm" title="Effective value = project override else global default">
         Effective value shown at the point of use when a run is queued.
       </p>
+    </div>
+  );
+}
+
+const NOTIFICATION_KIND_LABELS: { kind: string; label: string; defaultDelivery: string }[] = [
+  { kind: "run_finished", label: "Run finished", defaultDelivery: "toast_and_center" },
+  { kind: "run_failed", label: "Run failed", defaultDelivery: "toast_and_center" },
+  { kind: "run_started", label: "Run started", defaultDelivery: "toast_and_center" },
+  { kind: "plan_created", label: "Plan created", defaultDelivery: "toast_and_center" },
+  { kind: "plan_status_changed", label: "Plan status changed", defaultDelivery: "toast_and_center" },
+  { kind: "pending_question", label: "Pending question", defaultDelivery: "toast_and_center" },
+  { kind: "integration_action", label: "Integration results", defaultDelivery: "toast_and_center" },
+  { kind: "schematic_drift_suspected", label: "Schematic drift", defaultDelivery: "toast_and_center" },
+  { kind: "stage_succeeded", label: "Stage succeeded", defaultDelivery: "toast_and_center" },
+  { kind: "stage_failed", label: "Stage failed", defaultDelivery: "toast_and_center" },
+  { kind: "idea_captured", label: "Idea captured", defaultDelivery: "center_only" },
+  { kind: "idea_status_changed", label: "Idea status changed", defaultDelivery: "center_only" },
+  { kind: "category_created", label: "Category created", defaultDelivery: "center_only" },
+  { kind: "schematic_updated", label: "Schematic updated", defaultDelivery: "center_only" },
+  { kind: "stage_started", label: "Stage started", defaultDelivery: "center_only" },
+  { kind: "stage_cancelled", label: "Stage cancelled", defaultDelivery: "center_only" },
+];
+
+const DELIVERY_LABELS: { value: string; label: string }[] = [
+  { value: "toast_and_center", label: "Toast + Center" },
+  { value: "center_only", label: "Center only" },
+  { value: "off", label: "Off" },
+];
+
+function NotificationsTab() {
+  const [settings, setSettings] = useState<NotificationSettingsType | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+
+  useEffect(() => {
+    void notificationGetSettings().then(setSettings).catch(() => {});
+  }, []);
+
+  const effective = (kind: string, defaultDelivery: string): string =>
+    settings?.overrides[kind] ?? defaultDelivery;
+
+  const save = useCallback(async (kind: string, delivery: string, defaultDelivery: string) => {
+    if (!settings) return;
+    setSaving(kind);
+    try {
+      const newOverrides = { ...settings.overrides };
+      if (delivery === defaultDelivery) {
+        delete newOverrides[kind];
+      } else {
+        newOverrides[kind] = delivery;
+      }
+      const updated = { overrides: newOverrides };
+      await notificationSetSettings(updated);
+      setSettings(updated);
+    } catch {
+      // ignore
+    } finally {
+      setSaving(null);
+    }
+  }, [settings]);
+
+  if (!settings) {
+    return <p className="text-muted text-sm">Loading notification settings…</p>;
+  }
+
+  return (
+    <div className="settings-section">
+      <h3 className="settings-section-title">Notification delivery</h3>
+      <p className="text-muted text-sm" title="Per-kind delivery: toast + center, center only, or off. Changes apply immediately.">
+        Control where each event type surfaces. Defaults are conservative (high-signal events toast + center; idea/category events center only).
+      </p>
+      <div className="settings-list">
+        {NOTIFICATION_KIND_LABELS.map(({ kind, label, defaultDelivery }) => (
+          <div key={kind} className="settings-row">
+            <span className="settings-label" title={`Default: ${defaultDelivery}`}>{label}</span>
+            <select
+              className="select"
+              title={`Delivery for ${label}`}
+              value={effective(kind, defaultDelivery)}
+              disabled={saving === kind}
+              onChange={(e) => void save(kind, e.target.value, defaultDelivery)}
+            >
+              {DELIVERY_LABELS.map((d) => (
+                <option key={d.value} value={d.value}>{d.label}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
