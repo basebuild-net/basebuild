@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { ChatComposerRail } from "./ChatComposerRail";
 import { ChatHeader } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
+import { QuestionCard } from "./QuestionCard";
 import {
   AlertCircle,
   BarChart3,
@@ -24,7 +25,8 @@ import { listWorkspaces } from "../../lib/workspaces";
 import { prRecommend, prCreate, type PrRecommendation } from "../../lib/pullRequests";
 import { onPlanRunEvent } from "../../lib/planRuns";
 import { listPlans } from "../../lib/plans";
-import type { AgentMode } from "../../lib/sessions";
+import { nativeInteractionListAll, nativeInteractionResolve } from "../../lib/interactions";
+import type { PendingInteraction } from "../../lib/interactions";
 import { getRuntimeDefaults } from "../../lib/settings";
 import {
   nativeChatMessages,
@@ -53,6 +55,7 @@ import { resolveToolApproval } from "../../lib/native-chat";
 import { useIdeaState } from "../../state/ideas";
 import type { Idea } from "../../lib/ideas";
 import { inspectProjectSchematic, type SchematicReport } from "../../lib/schematic";
+import type { AgentMode } from "../../lib/sessions";
 import { useLogs } from "../../state/log";
 
 const SEND_TIMEOUT_MS = 45_000;
@@ -212,6 +215,7 @@ export function ChatPanel({
   const [nativeSessionId, setNativeSessionId] = useState<string | null>(chatSessionId ?? null);
   const [nativeMessages, setNativeMessages] = useState<NativeChatMessage[]>([]);
   const [toolEvents, setToolEvents] = useState<NativeToolEvent[]>([]);
+  const [interactions, setInteractions] = useState<PendingInteraction[]>([]);
   const [legacyMessages, setLegacyMessages] = useState<LegacyChatMessage[]>([]);
   const [providerId, setProviderId] = useState(LOCAL_PROVIDER_ID);
   const [modelId, setModelId] = useState("basebuild-local-coordinator");
@@ -358,13 +362,15 @@ export function ChatPanel({
     async function loadOrCreate() {
       try {
         if (nativeSessionId) {
-          const [msgs, events] = await Promise.all([
+          const [msgs, events, intrs] = await Promise.all([
             nativeChatMessages(nativeSessionId),
             nativeChatToolEvents(nativeSessionId),
+            nativeInteractionListAll(nativeSessionId),
           ]);
           if (!cancelled) {
             setNativeMessages(msgs);
             setToolEvents(events);
+            setInteractions(intrs);
           }
           return;
         }
@@ -377,9 +383,8 @@ export function ChatPanel({
         });
         if (cancelled) return;
         setNativeSessionId(session.id);
-        onChatSessionCreated?.(session.id);
-        setNativeMessages([]);
         setToolEvents([]);
+        setInteractions([]);
         setError(null);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -465,9 +470,21 @@ export function ChatPanel({
         createdAt: Math.floor(Date.now() / 1000),
       }]);
     });
+    const unlistenInteraction = listen<{ sessionId: string; interactionId?: string }>(
+      "native-chat://interactive-request",
+      (event) => {
+        if (event.payload.sessionId !== nativeSessionId) return;
+        // Refresh the full interaction list (pending + answered) so history
+        // reloads correctly and new questions render inline.
+        void nativeInteractionListAll(nativeSessionId)
+          .then((list) => setInteractions(list))
+          .catch(() => { /* best-effort */ });
+      },
+    );
     return () => {
       void unlistenTool.then((fn) => fn());
       void unlistenApproval.then((fn) => fn());
+      void unlistenInteraction.then((fn) => fn());
     };
   }, [nativeMode, nativeSessionId]);
 
@@ -736,6 +753,37 @@ export function ChatPanel({
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text) return;
+    // Composer answer routing: if there's a pending text/free-text question,
+    // capture the next send as the answer (unless escaped with /send).
+    const pendingInteraction = interactions.find((i) => i.status === "pending");
+    if (nativeMode && pendingInteraction) {
+      const textQuestion = pendingInteraction.questions.find(
+        (q) => q.kind === "text" || (q.kind === "options" && q.allowFreeText),
+      );
+      if (textQuestion) {
+        // /send escape: send as a normal message instead of answering.
+        if (text.startsWith("/send ")) {
+          setInput(text.slice(6));
+          return;
+        }
+        // Route the text as the answer.
+        try {
+          const answers = pendingInteraction.questions.map((q) => ({
+            questionId: q.id,
+            selected: q.kind === "text" || (q.kind === "options" && q.allowFreeText)
+              ? undefined
+              : [],
+            text: q.id === textQuestion.id ? text : undefined,
+          }));
+          const resolved = await nativeInteractionResolve(pendingInteraction.id, answers);
+          setInteractions((prev) => prev.map((i) => i.id === resolved.id ? resolved : i));
+          setInput("");
+        } catch (e) {
+          addLog("error", "Failed to submit answer", e instanceof Error ? e.message : String(e));
+        }
+        return;
+      }
+    }
     if (nativeMode && text.startsWith("/")) {
       const [rawCommand, ...parts] = text.slice(1).split(/\s+/);
       const command = rawCommand.toLowerCase();
@@ -824,7 +872,7 @@ export function ChatPanel({
       return;
     }
     await sendMessage(text);
-  }, [input, nativeMode, sendMessage, catalog, addLog]);
+  }, [input, nativeMode, sendMessage, catalog, addLog, interactions]);
 
   const handleStopAgent = useCallback(async () => {
     if (sendTimerRef.current) {
@@ -1198,7 +1246,8 @@ export function ChatPanel({
               // chronological position — not grouped by message.
               type ChatEvent =
                 | { kind: "user" | "assistant" | "system"; id: string; content: string; reasoning: string | null; createdAt: number | null; providerId: string | null; index: number }
-                | { kind: "tool"; id: string; event: NativeToolEvent; createdAt: number | null; index: number };
+                | { kind: "tool"; id: string; event: NativeToolEvent; createdAt: number | null; index: number }
+                | { kind: "interaction"; id: string; interaction: PendingInteraction; createdAt: number | null; index: number };
 
               type Grouped = { type: "single" | "group"; events: NativeToolEvent[] };
 
@@ -1267,6 +1316,16 @@ export function ChatPanel({
                   });
                 }
               }
+              // Live interactions go at the end (no messageId binding yet).
+              for (const intr of interactions) {
+                events.push({
+                  kind: "interaction",
+                  id: intr.id,
+                  interaction: intr,
+                  createdAt: intr.createdAt ?? null,
+                  index: events.length,
+                });
+              }
 
               // Sort by (createdAt, index) — stable chronological order.
               events.sort((a, b) => {
@@ -1292,6 +1351,18 @@ export function ChatPanel({
               for (const ev of events) {
                 if (ev.kind === "tool") {
                   toolBatch.push(ev.event);
+                  continue;
+                }
+                if (ev.kind === "interaction") {
+                  flushToolBatch(`pre-intr-${ev.id}`);
+                  rendered.push(
+                    <QuestionCard
+                      key={`intr-${ev.id}`}
+                      interaction={ev.interaction}
+                      onResolved={(resolved) => setInteractions((prev) => prev.map((i) => i.id === resolved.id ? resolved : i))}
+                      onCancelled={(id) => setInteractions((prev) => prev.map((i) => i.id === id ? { ...i, status: "cancelled" } : i))}
+                    />,
+                  );
                   continue;
                 }
                 // Flush any pending tool events before the next message.
@@ -1736,6 +1807,19 @@ export function ChatPanel({
             ) : null}
           </>
         ) : null}
+        {(() => {
+          const pending = interactions.find((i) => i.status === "pending");
+          if (!pending) return null;
+          const textQ = pending.questions.find((q) => q.kind === "text" || (q.kind === "options" && q.allowFreeText));
+          if (!textQ) return null;
+          return (
+            <div className="chat-answering-banner" title="Your next send will be submitted as the answer. Use /send <text> to send a normal message instead.">
+              <span className="chat-answering-icon">?</span>
+              <span className="chat-answering-text">Answering: {textQ.prompt}</span>
+              <span className="chat-answering-hint text-muted">/send to escape</span>
+            </div>
+          );
+        })()}
         <div className="chat-input-row">
           <textarea
             className="input chat-input"

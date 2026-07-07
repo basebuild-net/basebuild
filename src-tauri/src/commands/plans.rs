@@ -1,5 +1,5 @@
 use crate::{
-    models::plan::{NewPlan, Plan, PlanFocusContext, PlanStatus},
+    models::plan::{BatchPromoteResult, NewPlan, Plan, PlanFocusContext, PlanStatus},
     services::{plan_service::PlanService, session_service::SessionService},
 };
 
@@ -157,4 +157,32 @@ pub fn set_plan_context(id: String, context: PlanFocusContext) -> Result<Plan, S
 #[tauri::command]
 pub fn delete_plan(id: String) -> Result<(), String> {
     PlanService::delete(&id)
+}
+
+/// Batch-promote multiple ideas to plans. Returns created plans and per-idea
+/// errors (idea_id, error message). Emits a planning event per created plan.
+#[tauri::command]
+pub fn batch_promote_ideas(
+    app: AppHandle,
+    session_id: String,
+    idea_ids: Vec<String>,
+) -> Result<BatchPromoteResult, String> {
+    let (created, errors) = PlanService::batch_promote_ideas(&session_id, &idea_ids)?;
+    // Emit a planning event per created plan so the UI refreshes.
+    for plan in &created {
+        let _ = crate::services::planning_events::emit(
+            &app,
+            crate::models::planning_event::PlanningEventKind::PlanCreated,
+            plan.id.clone(),
+            "", // project_path — not available here; the event is session-scoped
+            Some(session_id.clone()),
+            plan.title.clone(),
+            Some(format!("Batch-promoted {} plan(s)", created.len())),
+        );
+    }
+    let errors: Vec<crate::models::plan::BatchPromoteError> = errors
+        .into_iter()
+        .map(|(idea_id, error)| crate::models::plan::BatchPromoteError { idea_id, error })
+        .collect();
+    Ok(BatchPromoteResult { created, errors })
 }

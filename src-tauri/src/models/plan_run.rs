@@ -88,6 +88,7 @@ impl PlanRunStatus {
 pub enum RunnerKind {
     Native,
     Omp,
+    OmpRpc,
 }
 
 impl RunnerKind {
@@ -95,12 +96,14 @@ impl RunnerKind {
         match self {
             RunnerKind::Native => "native",
             RunnerKind::Omp => "omp",
+            RunnerKind::OmpRpc => "omp-rpc",
         }
     }
 
     pub fn from_str(s: &str) -> Self {
         match s {
             "omp" => RunnerKind::Omp,
+            "omp-rpc" => RunnerKind::OmpRpc,
             _ => RunnerKind::Native,
         }
     }

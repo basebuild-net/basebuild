@@ -379,6 +379,43 @@ impl PlanRunnerService {
                 )
             };
             Self::emit_planning_event(app, run, run_kind, run_detail);
+            // Re-align nudge: if the plan finished and the schematic mtime
+            // predates the run start, emit a drift-suspected notification.
+            if succeeded && new_plan_status == PlanStatus::Finished {
+                let session = SessionService::get(&run.session_id).ok().flatten();
+                let project_path = session.as_ref().map(|s| s.project_path.as_str()).unwrap_or("");
+                if !project_path.is_empty() {
+                    let schematic_mtime = std::fs::metadata(
+                        std::path::Path::new(project_path).join(".basebuild/project-schematic.md"),
+                    )
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                    let run_start = run.started_at.unwrap_or(0);
+                    if schematic_mtime > 0 && run_start > 0 && schematic_mtime < run_start {
+                        // Schematic is older than the run — drift suspected.
+                        let _ = crate::services::planning_events::emit(
+                            app,
+                            PlanningEventKind::SchematicUpdated,
+                            run.plan_id.clone(),
+                            project_path,
+                            Some(run.session_id.clone()),
+                            "Schematic drift suspected".to_string(),
+                            Some("Plan finished but schematic predates the run. Consider re-aligning the schematic.".to_string()),
+                        );
+                        let _ = crate::services::notification_service::NotificationService::insert(
+                            crate::models::notification::NotificationKind::SchematicDriftSuspected,
+                            &run.plan_id,
+                            "plan",
+                            project_path,
+                            "Schematic drift suspected",
+                            Some("Plan finished but the schematic hasn't been updated since before the run. Re-align the schematic to reflect completed work."),
+                        );
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -772,6 +809,7 @@ mod tests {
     fn runner_kind_round_trip() {
         assert_eq!(RunnerKind::from_str("native").as_str(), "native");
         assert_eq!(RunnerKind::from_str("omp").as_str(), "omp");
+        assert_eq!(RunnerKind::from_str("omp-rpc").as_str(), "omp-rpc");
         assert_eq!(RunnerKind::from_str("unknown").as_str(), "native");
     }
 

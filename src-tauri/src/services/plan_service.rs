@@ -207,6 +207,58 @@ impl PlanService {
             .map_err(|e| e.to_string())?;
         Ok(())
     }
+
+    /// Promote a batch of ideas to plans in one call. Per-idea errors are
+    /// captured so partial success is reported. Returns the created plans and
+    /// a list of per-idea errors (idea_id, error message).
+    pub fn batch_promote_ideas(
+        session_id: &str,
+        idea_ids: &[String],
+    ) -> DbResult<(Vec<Plan>, Vec<(String, String)>)> {
+        let mut created = Vec::new();
+        let mut errors = Vec::new();
+        for idea_id in idea_ids {
+            // Load the idea to get its title/description.
+            let idea = match crate::services::session_service::SessionService::get_idea(idea_id) {
+                Ok(Some(i)) => i,
+                Ok(None) => {
+                    errors.push((idea_id.clone(), "Idea not found".to_string()));
+                    continue;
+                }
+                Err(e) => {
+                    errors.push((idea_id.clone(), e));
+                    continue;
+                }
+            };
+            // Create the plan from the idea.
+            let new_plan = NewPlan {
+                title: idea.title.clone(),
+                description: idea.description.clone(),
+                goal: Some(idea.description.clone()),
+                status: crate::models::plan::PlanStatus::Ready,
+                priority: Some(50),
+                tags: vec![],
+                idea_id: Some(idea.id.clone()),
+            };
+            match Self::create(session_id, &new_plan) {
+                Ok(plan) => {
+                    // Mark the idea as picked.
+                    let _ = crate::services::session_service::SessionService::update_idea_status(
+                        &idea.id,
+                        crate::models::idea::IdeaStatus::Picked,
+                    );
+                    created.push(plan);
+                }
+                Err(e) => {
+                    errors.push((idea_id.clone(), e));
+                }
+            }
+        }
+        // Note: planning event emission is the caller's responsibility (the
+        // command layer has the AppHandle). Per-idea plan_created events are
+        // emitted by the command layer after each successful promote.
+        Ok((created, errors))
+    }
 }
 
 /// Map a rusqlite row (in the column order used by `list`/`get`) to a `Plan`.

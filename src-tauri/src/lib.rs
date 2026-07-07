@@ -13,6 +13,10 @@ static APP_HANDLE: LazyLock<Mutex<Option<AppHandle>>> = LazyLock::new(|| Mutex::
 use commands::{
     agent::{agent_capabilities, agent_send, agent_start, agent_stop},
     app::{app_version, open_url},
+    interactions::{
+        native_interaction_cancel, native_interaction_list_all,
+        native_interaction_list_pending, native_interaction_resolve,
+    },
     connectors::{
         connector_approve_claim, connector_delete, connector_deny_claim, connector_get,
         connector_list, connector_list_claims, connector_list_grants, connector_record_grant,
@@ -47,6 +51,10 @@ use commands::{
     omp::{
         omp_config_list, omp_debug_context, omp_stats, omp_status, omp_stream_command, omp_usage,
     },
+    omp_rpc::{
+        omp_rpc_cancel, omp_rpc_probe, omp_rpc_resolve, omp_rpc_send, omp_rpc_shutdown,
+        omp_rpc_start, omp_rpc_status,
+    },
     omp_telemetry::{
         omp_telemetry_refresh, omp_telemetry_snapshot, omp_telemetry_start, omp_telemetry_stop,
     },
@@ -64,13 +72,14 @@ use commands::{
         native_save_provider_credential,
     },
     plans::{
-        create_plan, delete_plan, get_plan, list_plans, set_plan_context, set_plan_status,
+        batch_promote_ideas, create_plan, delete_plan, get_plan, list_plans, set_plan_context, set_plan_status,
         update_plan,
     },
     final_touches::{
         final_touch_create_step, final_touch_delete_step, final_touch_list_steps,
         final_touch_reorder_step, final_touch_set_enabled, final_touch_update_step,
     },
+    integration::{integration_cleanup, integration_list},
     pipeline::{pipeline_cancel, pipeline_get_run, pipeline_list_runs, pipeline_start},
     plan_runs::{
         plan_run_cancel, plan_run_check_completion, plan_run_complete, plan_run_enqueue,
@@ -108,12 +117,13 @@ use commands::{
         get_run_concurrency_defaults, set_run_concurrency_defaults,
         get_run_concurrency_overrides, set_run_concurrency_override,
         remove_run_concurrency_override, effective_run_concurrency,
+        get_milestone_auto_commit, set_milestone_auto_commit,
     },
     sessions::{
         create_session, create_tab, delete_session, delete_tab, list_sessions, list_tabs,
         rename_session, update_tab_chat_session, update_tab_file_path, update_tab_terminal,
     },
-    skills::read_skill,
+    skills::{read_skill, list_resolved_skills, read_resolved_skill, provision_skill_dirs},
     stability::{
         stability_delete_report, stability_list_reports, stability_mark_seen,
         stability_read_report, stability_recent_telemetry, stability_renderer_heartbeat,
@@ -201,7 +211,7 @@ pub fn run() {
     builder
         .manage(app_state::AppState::default())
         .manage(std::sync::Mutex::new(crate::services::agent_service::AgentManager::default()))
-        .manage(CloseToTrayState::default())
+        .manage(crate::services::omp_rpc_session_service::OmpRpcSessionRegistry::default())
         .setup(|app| {
             // Store handle so the panic hook can emit to the frontend
             if let Ok(mut handle) = APP_HANDLE.lock() {
@@ -298,6 +308,13 @@ pub fn run() {
             omp_usage,
             omp_debug_context,
             omp_stream_command,
+            omp_rpc_probe,
+            omp_rpc_start,
+            omp_rpc_send,
+            omp_rpc_cancel,
+            omp_rpc_shutdown,
+            omp_rpc_resolve,
+            omp_rpc_status,
             omp_telemetry_start,
             omp_telemetry_stop,
             omp_telemetry_snapshot,
@@ -307,6 +324,7 @@ pub fn run() {
             set_project_schematic,
             inspect_project_schematic,
             create_plan,
+            batch_promote_ideas,
             list_plans,
             get_plan,
             update_plan,
@@ -329,7 +347,8 @@ pub fn run() {
             connector_deny_claim,
             pipeline_get_run,
             final_touch_list_steps,
-            final_touch_create_step,
+            integration_list,
+            integration_cleanup,
             final_touch_update_step,
             final_touch_set_enabled,
             final_touch_reorder_step,
@@ -359,7 +378,9 @@ pub fn run() {
             mcp_oauth_clear,
             mcp_shutdown_all,
             read_skill,
-            stability_list_reports,
+            list_resolved_skills,
+            read_resolved_skill,
+            provision_skill_dirs,
             stability_read_report,
             stability_delete_report,
             stability_mark_seen,
@@ -470,8 +491,9 @@ pub fn run() {
             set_run_concurrency_defaults,
             get_run_concurrency_overrides,
             set_run_concurrency_override,
-            remove_run_concurrency_override,
             effective_run_concurrency,
+            get_milestone_auto_commit,
+            set_milestone_auto_commit,
             get_analytics_consent,
             set_analytics_consent,
             list_analytics_events,
@@ -506,7 +528,12 @@ pub fn run() {
             clear_skipped_update,
             notification_list,
             notification_unread_count,
-            notification_mark_read,
+            notification_set_settings,
+            native_interaction_list_pending,
+            native_interaction_list_all,
+            native_interaction_resolve,
+            native_interaction_cancel,
+             get_skipped_update_version,
             notification_mark_all_read,
             notification_delete,
             notification_get_settings,

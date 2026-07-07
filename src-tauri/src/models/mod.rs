@@ -1,6 +1,7 @@
 pub mod config_pack;
 pub mod git;
 pub mod idea;
+pub mod interaction;
 pub mod omp;
 pub mod omp_telemetry;
 pub mod connector;

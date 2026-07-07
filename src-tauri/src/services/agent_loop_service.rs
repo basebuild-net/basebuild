@@ -61,6 +61,51 @@ pub struct ApprovalResolution {
 static PENDING_APPROVALS: LazyLock<Mutex<std::collections::HashMap<String, PendingApproval>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
+/// `native_interaction_resolve` command removes and resolves.
+pub(crate) static PENDING_INTERACTIONS: LazyLock<Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<InteractionResolution>>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// The UI's resolution of a pending ask_user interaction.
+#[derive(Debug, Clone)]
+pub struct InteractionResolution {
+    /// The answers the user provided, keyed by question id.
+    pub answers: Vec<crate::models::interaction::QuestionAnswer>,
+    /// Whether the interaction was cancelled.
+    pub cancelled: bool,
+}
+
+/// Resolve a pending interaction from the UI. Called by the
+/// `native_interaction_resolve` command. Returns an error if no pending
+/// interaction exists for the given id.
+pub fn resolve_interaction(
+    interaction_id: &str,
+    answers: Vec<crate::models::interaction::QuestionAnswer>,
+) -> Result<(), String> {
+    let tx = {
+        let mut pending = PENDING_INTERACTIONS.lock();
+        pending.remove(interaction_id)
+    };
+    let Some(tx) = tx else {
+        return Err(format!("No pending interaction for id: {interaction_id}"));
+    };
+    let _ = tx.send(InteractionResolution { answers, cancelled: false });
+    Ok(())
+}
+
+/// Cancel a pending interaction from the UI. Called by the
+/// `native_interaction_cancel` command.
+pub fn cancel_interaction(interaction_id: &str) -> Result<(), String> {
+    let tx = {
+        let mut pending = PENDING_INTERACTIONS.lock();
+        pending.remove(interaction_id)
+    };
+    if let Some(tx) = tx {
+        let _ = tx.send(InteractionResolution { answers: vec![], cancelled: true });
+    }
+    Ok(())
+}
+
+ /// Register a pending approval and block until the UI resolves it (or timeout).
 /// Register a pending approval and block until the UI resolves it (or timeout).
 /// Returns the resolution, or a timeout denial if no response within 10 minutes.
 fn await_approval(
@@ -456,11 +501,21 @@ fn process_tool_calls(
             results.push((calls[idx].clone(), result));
         }
     }
+    // Intercept ask_user calls: persist the interaction, emit an event so
+    // the frontend renders question cards, park the iteration until the user
+    // responds or the run is cancelled. Never reaches the generic executor.
+    for (idx, call) in calls.iter().enumerate() {
+        if call.name == "ask_user" {
+            let result = execute_ask_user(app, session_id, call);
+            record_tool_event(app, session_id, call, &result, tool_events);
+            results.push((calls[idx].clone(), result));
+        }
+    }
     // Filter out intercepted calls so they aren't double-processed.
     let remaining: Vec<(usize, &ToolCallRequest)> = calls
         .iter()
         .enumerate()
-        .filter(|(_, c)| c.name != "propose_ideas")
+        .filter(|(_, c)| c.name != "propose_ideas" && c.name != "ask_user")
         .collect();
 
     let read_only: Vec<(usize, &ToolCallRequest)> = remaining
@@ -621,6 +676,91 @@ fn execute_propose_ideas(session_id: &str, call: &ToolCallRequest) -> ToolResult
     }
 }
 
+/// Intercept the ask_user tool: parse questions, persist a pending
+/// interaction, emit `native-chat://interactive-request` so the frontend
+/// renders question cards, then park the iteration on a channel until the
+/// user resolves or cancels. On resolve, returns the answers as a JSON
+/// string the model can consume. On cancel/timeout, returns a notice.
+fn execute_ask_user(app: &AppHandle, session_id: &str, call: &ToolCallRequest) -> ToolResult {
+    let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
+    let Some(questions) = args.get("questions").and_then(Value::as_array) else {
+        return ToolResult::failure("ask_user requires a 'questions' array.".to_string());
+    };
+    if questions.is_empty() {
+        return ToolResult::failure("ask_user requires at least one question.".to_string());
+    }
+    // Parse questions into the interaction model.
+    let mut parsed: Vec<crate::models::interaction::Question> = Vec::with_capacity(questions.len());
+    for q in questions {
+        let id = q.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+        let prompt = q.get("prompt").and_then(Value::as_str).unwrap_or("").to_string();
+        let kind_str = q.get("kind").and_then(Value::as_str).unwrap_or("text");
+        let kind = crate::models::interaction::QuestionKind::from_str(kind_str);
+        let options: Vec<crate::models::interaction::QuestionOption> = q
+            .get("options")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|o| {
+                        let label = o.get("label").and_then(Value::as_str).unwrap_or("").to_string();
+                        if label.is_empty() { return None; }
+                        let description = o.get("description").and_then(Value::as_str).map(str::to_string);
+                        Some(crate::models::interaction::QuestionOption { label, description })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let recommended = q.get("recommended").and_then(Value::as_i64).map(|i| i as usize);
+        let allow_free_text = q.get("allowFreeText").and_then(Value::as_bool).unwrap_or(false);
+        parsed.push(crate::models::interaction::Question {
+            id,
+            prompt,
+            kind,
+            options,
+            recommended,
+            allow_free_text,
+        });
+    }
+    // Persist the pending interaction.
+    let interaction = match crate::services::interaction_service::InteractionService::create(
+        session_id,
+        Some(&call.id),
+        &parsed,
+    ) {
+        Ok(i) => i,
+        Err(e) => return ToolResult::failure(format!("Failed to create interaction: {e}")),
+    };
+    let _ = app.emit(
+        "native-chat://interactive-request",
+        json!({
+            "sessionId": session_id,
+            "interactionId": interaction.id,
+            "toolCallId": call.id,
+        }),
+    );
+    // Park the iteration on a channel until the UI resolves or cancels.
+    let (tx, rx) = std::sync::mpsc::channel::<InteractionResolution>();
+    {
+        let mut pending = PENDING_INTERACTIONS.lock();
+        pending.insert(interaction.id.clone(), tx);
+    }
+    match rx.recv_timeout(std::time::Duration::from_secs(600)) {
+        Ok(resolution) => {
+            if resolution.cancelled {
+                ToolResult::success("User cancelled the interaction.".to_string())
+            } else {
+                // Serialize answers as a JSON string the model can consume.
+                let answers_json = serde_json::to_string(&resolution.answers).unwrap_or_else(|_| "[]".to_string());
+                ToolResult::success(answers_json)
+            }
+        }
+        Err(_) => {
+            // Timeout: clean up and return a notice.
+            let _ = crate::services::interaction_service::InteractionService::cancel(&interaction.id);
+            ToolResult::failure("ask_user timed out waiting for user response (600s).".to_string())
+        }
+    }
+}
 /// Execute a tool call through the approval gateway. When the gateway requires
 /// a prompt, blocks on `await_approval` until the UI resolves it. Tool events
 /// are emitted live and persisted to `native_tool_events` via the caller.

@@ -89,6 +89,23 @@ export async function deletePlan(id: string): Promise<void> {
   return invoke("delete_plan", { id });
 }
 
+export type BatchPromoteError = {
+  ideaId: string;
+  error: string;
+};
+
+export type BatchPromoteResult = {
+  created: Plan[];
+  errors: BatchPromoteError[];
+};
+
+/** Batch-promote multiple ideas to plans in one call. Per-idea errors are captured. */
+export async function batchPromoteIdeas(
+  sessionId: string,
+  ideaIds: string[],
+): Promise<BatchPromoteResult> {
+  return invoke<BatchPromoteResult>("batch_promote_ideas", { sessionId, ideaIds });
+}
 export const PLAN_STATUSES: PlanStatus[] = ["draft", "openspec", "ready", "running", "finished", "cancelled"];
 
 export const PLAN_STATUS_LABEL: Record<PlanStatus, string> = {

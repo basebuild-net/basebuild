@@ -203,6 +203,50 @@ pub fn registry() -> Vec<ToolDef> {
             kind: ToolKind::ReadOnly,
             execute: propose_ideas_fallback,
         },
+        ToolDef {
+            schema: ToolSchema {
+                name: "ask_user".to_string(),
+                description: "Present one or more questions to the user and wait for their response. Each question carries an id, a prompt, a kind (options, multi, confirm, text), an optional option list, an optional recommended-option index, and an optional allow-free-text flag. The loop pauses until the user responds or the run is cancelled.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "questions": {
+                            "type": "array",
+                            "description": "Questions to present. All render in one card; answers are returned keyed by question id.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": { "type": "string", "description": "Unique question id (used to key the answer)." },
+                                    "prompt": { "type": "string", "description": "The question text shown to the user." },
+                                    "kind": { "type": "string", "enum": ["options", "multi", "confirm", "text"], "description": "Question kind: single-select, multi-select, confirm/deny, or free-text." },
+                                    "options": {
+                                        "type": "array",
+                                        "description": "Options for `options`/`multi`/`confirm` kinds. Ignored for `text`.",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "label": { "type": "string", "description": "Option label shown as a button." },
+                                                "description": { "type": "string", "description": "Optional longer description shown in the button tooltip." }
+                                            },
+                                            "required": ["label"]
+                                        }
+                                    },
+                                    "recommended": { "type": "integer", "description": "Index into `options` of the recommended choice. The recommended option is visibly marked." },
+                                    "allowFreeText": { "type": "boolean", "description": "If true, allow free-text input even for `options` kind.", "default": false }
+                                },
+                                "required": ["id", "prompt", "kind"]
+                            }
+                        }
+                    },
+                    "required": ["questions"]
+                }),
+            },
+            // Intercepted by the agent loop before reaching the generic
+            // executor; this execute fn is a no-op fallback that should
+            // never be called directly.
+            kind: ToolKind::ReadOnly,
+            execute: ask_user_fallback,
+        },
     ]
 }
 
@@ -708,6 +752,16 @@ fn propose_ideas_fallback(_workspace_root: &Path, _args: &Value) -> ToolResult {
         "propose_ideas must be intercepted by the agent loop. This fallback should never be called.".to_string(),
     )
 }
+
+/// Fallback executor for the ask_user tool. The agent loop intercepts this
+/// tool before it reaches the generic executor and parks the iteration on
+/// the interaction substrate. This fn exists only so the ToolDef has a valid
+/// execute pointer; if called directly, it returns a notice.
+fn ask_user_fallback(_workspace_root: &Path, _args: &Value) -> ToolResult {
+    ToolResult::failure(
+        "ask_user must be intercepted by the agent loop. This fallback should never be called.".to_string(),
+    )
+}
 trait ChildWaitTimeoutExt {
     /// Returns `Ok(Some(status))` on exit, `Ok(None)` on timeout.
     fn wait_timeout(&mut self, dur: std::time::Duration) -> std::io::Result<Option<std::process::ExitStatus>>;
@@ -718,14 +772,15 @@ impl ChildWaitTimeoutExt for std::process::Child {
         // Poll-based: check every 50ms.
         let start = Instant::now();
         loop {
-            match self.try_wait()? {
-                Some(status) => return Ok(Some(status)),
-                None => {
+            match self.try_wait() {
+                Ok(Some(status)) => return Ok(Some(status)),
+                Ok(None) => {
                     if start.elapsed() >= dur {
                         return Ok(None); // Timeout.
                     }
                     std::thread::sleep(std::time::Duration::from_millis(50));
                 }
+                Err(e) => return Err(e),
             }
         }
     }

@@ -572,3 +572,77 @@ when `BASEBUILD_HOME` is unset. A shared test-util constructor
 (`test_util::test::isolated_home`) provisions a fresh temp dir + global lock +
 env var. The user's real `~/.basebuild/state.db` is never read or written
 during tests.
+
+## OMP RPC chat bridge
+
+The `omp-rpc` chat runtime profile runs a persistent `omp --mode rpc` child
+per session (`omp_rpc_session_service.rs`), exchanging line-delimited JSON
+frames over stdio. Unlike the one-shot `OmpCodexRpcClient` (which uses
+`--no-tools --no-session`), the session bridge enables session+tools and
+stays alive for the duration of the chat.
+
+### Frame map
+
+Frames are untrusted child-process output. Parsing is tolerant: malformed
+lines are skipped, unknown frame kinds render as inert collapsed debug rows.
+Never executes or interpolates frame content.
+
+| Frame type | Mapping |
+|---|---|
+| `response` (command=prompt, success=false) | Error chunk on `native-chat://chunk` |
+| `assistantMessageEvent` / `event` | Nested event: `text_delta` → content, `reasoning_delta` → reasoning, `tool_*` → tool card |
+| `turn_end` / `agent_end` | Turn-end marker on `native-chat://chunk` |
+| `user_input` / `ask` / `question` | Pending interaction (question card) via `InteractionService`; answer returned over stdin |
+| Unknown | Inert debug row on `native-chat://chunk` (channel=debug) |
+
+### Lifecycle
+
+- `probe_omp_rpc()` gates the profile: `omp --version` must succeed.
+- `start_session()` spawns a hidden `omp --mode rpc` child, reads stdout on a
+  background thread, and emits `omp-rpc://status` events.
+- Process exit → `omp-rpc://status` (status=exited) → session-ended state;
+  visible history retained.
+- `cancel_session()` sends a cancel frame and cancels pending interactions.
+- `resolve_user_input()` sends the user's answer back over stdin.
+
+### Plan runs
+
+Plan-chat assignment supports `omp-rpc` as a runner kind
+(`RunnerKind::OmpRpc`, stored as `omp-rpc`). Run streaming, status
+transitions, and completion handling have parity with native runs.
+
+## Shared skill registry
+
+`skill_registry_service.rs` resolves one skill set from two roots:
+
+- **Bundled**: `skills/` directory shipped with the app.
+- **User**: `~/.basebuild/skills/` (created on first resolve).
+
+User skills override bundled on name collision (marked `override` in the
+listing). Both runtimes consume the same resolved set: native harness
+planning/schematic turns read skill content through the registry
+(`PlanningPromptService` routes `basebuild-planning` through it), and
+app-launched OMP sessions are provisioned to discover the same directories
+via `provision_dirs()`.
+
+Skill content is instructions (prompt context), never code — injected as
+prompt context only, never executed.
+
+Settings → Skills lists every resolved skill with name, description, source
+(bundled/user/override), and consuming runtimes. The listing refreshes on
+every call (no cache) so user-directory changes appear without restart.
+
+## Integration queue
+
+`integration_service.rs` lists finished worktree runs with branch,
+ahead/behind, merged state, and PR state. The flow board's Finished stage
+renders an `IntegrationQueue` component with confirm-gated cleanup actions:
+merged branches offer safe cleanup; unmerged branches require force
+confirmation.
+
+## Milestone auto-commit
+
+Per-project setting (`get/set_milestone_auto_commit`) controls whether the
+plan runner commits after each completed task milestone in the run worktree.
+Default: false. Stored in `app_defaults` under
+`milestone_auto_commit:<project_path>`.

@@ -445,10 +445,10 @@ You are now running the Project Schematic skill for this project. ${target}
 
 Rules:
 - Read the repository first (manifests, README, AGENTS.md, directory structure, recent git history) and prefill observable facts for confirmation instead of asking the user to recite them.
-- Ask ONE question at a time. Wait for the user's answer before moving on.
+- Use the \`ask_user\` tool for every question — it presents clickable option cards instead of prose. One question at a time; wait for the user's answer before moving on.
 - Let the user finish whenever they want — they can say "done" to stop, or keep going to add more context.
 - Never fabricate facts. If something is not observable, ask.
-- Do not write the schematic file until the user explicitly approves. When ready, show the full proposed document (or per-section diff) and ask for approval before writing to .basebuild/project-schematic.md.
+- Do not write the schematic file until the user explicitly approves. When ready, use \`ask_user\` with a confirm question to get approval, then write to .basebuild/project-schematic.md.
 - Keep it concise — readable in under three minutes.`;
       // Focus or create a chat tab, inject the prompt, and auto-send.
       const activeChat = session.tabs.find((t) => t.id === session.activeTabId && t.kind === "chat");

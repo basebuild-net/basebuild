@@ -138,3 +138,13 @@ pub fn effective_run_concurrency(
 ) -> Result<RunConcurrencyEntry, String> {
     SettingsService::effective_run_concurrency(&project_path, &provider_id)
 }
+
+#[tauri::command]
+pub fn get_milestone_auto_commit(project_path: String) -> Result<bool, String> {
+    SettingsService::get_milestone_auto_commit(&project_path)
+}
+
+#[tauri::command]
+pub fn set_milestone_auto_commit(project_path: String, enabled: bool) -> Result<(), String> {
+    SettingsService::set_milestone_auto_commit(&project_path, enabled)
+}

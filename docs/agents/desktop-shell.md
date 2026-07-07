@@ -207,3 +207,18 @@ completes; `finished` is gated on pipeline success. Remote-writing kinds
 When the project is a git repository, parallel plan runs can each execute in
 an isolated git worktree (branch `bb/<ref>-<slug>`). Non-git projects fall back
 to sequential execution (concurrency capped at 1).
+
+## Flow board
+
+The Planning Inspector's **Flow** tab renders a kanban-style board with
+stages: Draft → OpenSpec → Ready → Running → Finished. Each stage shows
+a count and the plans in that stage. Batch operations (promote, cancel)
+are available via the inspector's batch bar.
+
+## Integration queue
+
+The Flow board's **Finished** stage renders an `IntegrationQueue` component
+listing finished worktree runs with branch, ahead/behind, merged state, and
+PR state. Each entry has a confirm-gated cleanup action: merged branches
+offer safe worktree+branch removal; unmerged branches require force
+confirmation. PR state is shown with a link to the PR URL when available.

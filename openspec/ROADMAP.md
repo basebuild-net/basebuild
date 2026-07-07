@@ -65,12 +65,16 @@ top **ungated** item is what can actually start now.
    `planning-flow-board`, `planning-feedback-loop`, `plan-merge-cleanup`,
    `omp-rpc-chat`, `shared-skill-registry`; **modifies** `plan-pipeline`,
    `plan-pipeline-ui`, `plan-chat-assignment`, `plan-final-touches`,
-   `grounded-generation`. Artifacts generated 2026-07-06 (0/48). **Gate
-   cleared** — `parallel-plan-workspaces` archived 2026-07-06; its
-   `plan-chat-assignment` / `run-concurrency-limits` / `parallel-workspaces`
-   deltas are now canonical bases. Phased A–E delivery (events+notifications →
-   interactive elements → repair+flow board → loop closure → RPC bridge +
-   skill registry), each phase a PR.
+   `grounded-generation`. **Phases A+B complete (19/48):** planning event
+   bus + notifications (Phase A, tasks 1–2) and interactive elements (Phase B,
+   tasks 3–4: `pending_interactions` table, `ask_user` tool registration,
+   agent-loop park/resume, `QuestionCard.tsx` with option/multi/confirm/text
+   kinds, composer answer routing, tool-event persistence, skills updated
+   with `ask_user` contract, pipeline turns expose `ask_user`, Playwright
+   e2e). **Gate cleared** — `parallel-plan-workspaces` archived 2026-07-06;
+   its `plan-chat-assignment` / `run-concurrency-limits` / `parallel-workspaces`
+   deltas are now canonical bases. Phases C–E remain (repair+flow board →
+   loop closure → RPC bridge + skill registry), each phase a PR.
 2. `chat-history-persistence` — **live-bug fix + feature; ungated, ready now.**
    Reopening the app does not load chat history. Diagnosed two restore bugs on
    the running `feat/chat-first-shell` build: (1) `save_workspace_restore_state`
@@ -160,14 +164,14 @@ their turn comes — stale specs are worse than none.
 ## Status
 
 <!-- status:begin -->
-_Last refreshed: 2026-07-06 (`node scripts/openspec-status.mjs --write`)_
+_Last refreshed: 2026-07-07 (`node scripts/openspec-status.mjs --write`)_
 
 |Change|Progress|Status|Next command|
 |---|---|---|---|
 |`chat-first-shell`|17/31|in progress|`/apply chat-first-shell`|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
 |`plan-import`|11/13|in progress|`/apply plan-import`|
-|`planning-command-center`|9/48|in progress|`/apply planning-command-center`|
+|`planning-command-center`|46/48|in progress|`/apply planning-command-center`|
 |`chat-history-persistence`|0/21|not started|`/apply chat-history-persistence`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|

@@ -2,13 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import { FolderTree, LayoutGrid, Lightbulb, Plus, Sparkles, Trash2, X } from "lucide-react";
 import type { Plan, PlanStatus } from "../../lib/plans";
 import { isTerminalStatus, PLAN_STATUSES, PLAN_STATUS_LABEL } from "../../lib/plans";
+import { batchPromoteIdeas } from "../../lib/plans";
 import { PlanPanel } from "./PlanPanel";
+import { IntegrationQueue } from "../panels/IntegrationQueue";
 import { useIdeaState } from "../../state/ideas";
 import type { IdeaCategory, IdeaStatus } from "../../lib/ideas";
 import { useProjectSchematic } from "../../state/schematic";
 import { useLogs } from "../../state/log";
 
-type Tab = "plans" | "ideas" | "categories";
+type Tab = "plans" | "ideas" | "categories" | "flow";
 
 type PlanningInspectorProps = {
   sessionId: string | null;
@@ -64,10 +66,11 @@ export function PlanningInspector({
   const [selectedCategory, setSelectedCategory] = useState<IdeaCategory | null>(null);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryDesc, setNewCategoryDesc] = useState("");
+  const [selectedIdeaIds, setSelectedIdeaIds] = useState<Set<string>>(new Set());
+  const [batchResult, setBatchResult] = useState<string | null>(null);
   const ideaState = useIdeaState(sessionId);
   const schematic = useProjectSchematic(projectPath);
   const { addLog } = useLogs();
-
   // Categories tab: no auto-seeding (schematic-grounded-planning). The empty
   // state offers "Generate categories from project" and manual add.
   useEffect(() => {
@@ -88,6 +91,27 @@ export function PlanningInspector({
     [onPromoteIdea, ideaState, addLog, activeChatSessionId],
   );
 
+  const handleBatchPromote = useCallback(async () => {
+    if (!sessionId || selectedIdeaIds.size === 0) return;
+    setBatchResult(null);
+    try {
+      const ideaIds = Array.from(selectedIdeaIds);
+      const result = await batchPromoteIdeas(sessionId, ideaIds);
+      const createdCount = result.created.length;
+      const errorCount = result.errors.length;
+      if (errorCount > 0) {
+        setBatchResult(`Promoted ${createdCount} plan(s); ${errorCount} failed.`);
+        addLog("warn", "Batch promote partial failure", `${createdCount} ok, ${errorCount} failed`);
+      } else {
+        setBatchResult(`Promoted ${createdCount} plan(s).`);
+      }
+      setSelectedIdeaIds(new Set());
+      void ideaState.refresh();
+    } catch (e) {
+      addLog("error", "Batch promote failed", e instanceof Error ? e.message : String(e));
+      setBatchResult(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [sessionId, selectedIdeaIds, ideaState, addLog]);
   const handleCreateCategory = useCallback(() => {
     if (!sessionId || !newCategoryName.trim()) return;
     void (async () => {
@@ -161,6 +185,14 @@ export function PlanningInspector({
             Categories
           </button>
           <button
+            className={`inspector-tab${tab === "flow" ? " is-active" : ""}`}
+            type="button"
+            title="Flow board — live stage counts across the planning pipeline"
+            onClick={() => setTab("flow")}
+          >
+            Flow
+          </button>
+          <button
             className="btn-icon btn-icon-sm"
             title="Collapse planning inspector"
             type="button"
@@ -187,7 +219,6 @@ export function PlanningInspector({
           onCopyReference={onCopyReference}
           onOpenInTerminal={onOpenInTerminal}
           onOpenChatSession={onOpenChatSession}
-          showHeader={false}
         />
       ) : null}
 
@@ -206,6 +237,28 @@ export function PlanningInspector({
               </button>
             ))}
           </div>
+          {selectedIdeaIds.size > 0 ? (
+            <div className="inspector-batch-bar" title="Batch-promote selected concept ideas to plans">
+              <span className="text-sm">{selectedIdeaIds.size} selected</span>
+              <button
+                className="btn btn-sm btn-primary"
+                type="button"
+                title="Promote selected ideas into plans"
+                onClick={() => void handleBatchPromote()}
+              >
+                Approve selected
+              </button>
+              <button
+                className="btn btn-sm"
+                type="button"
+                title="Clear selection"
+                onClick={() => setSelectedIdeaIds(new Set())}
+              >
+                Clear
+              </button>
+            </div>
+          ) : null}
+          {batchResult ? <p className="text-sm text-muted">{batchResult}</p> : null}
           <div className="inspector-ideas-list">
             {filteredIdeas.length === 0 ? (
               <p className="text-muted text-sm">No ideas {statusFilter === "all" ? "yet" : `in ${statusFilter}`}.</p>
@@ -213,6 +266,22 @@ export function PlanningInspector({
             {filteredIdeas.map((idea) => (
               <div key={idea.id} className={`chat-idea-card chat-idea-status-${idea.status}`}>
                 <div className="chat-idea-card-top">
+                  {idea.status === "concept" ? (
+                    <input
+                      type="checkbox"
+                      className="idea-select-checkbox"
+                      title="Select for batch promote"
+                      checked={selectedIdeaIds.has(idea.id)}
+                      onChange={(e) => {
+                        setSelectedIdeaIds((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(idea.id);
+                          else next.delete(idea.id);
+                          return next;
+                        });
+                      }}
+                    />
+                  ) : null}
                   <span className="chat-idea-title">{idea.title}</span>
                   {idea.status === "concept" ? (
                     <div className="chat-idea-card-actions">
@@ -369,6 +438,89 @@ export function PlanningInspector({
               )}
             </>
           )}
+        </div>
+      ) : null}
+
+      {tab === "flow" ? (
+        <div className="flow-board stack">
+          {/* Schematic stage */}
+          <div className="flow-stage" title="Project schematic — the steering document">
+            <div className="flow-stage-header">
+              <span className="flow-stage-name">Schematic</span>
+              <span className={`flow-stage-count flow-count-${schematic.report ? (schematic.report.health === "complete" ? "ok" : "warn") : "empty"}`}>
+                {schematic.report ? (schematic.report.health === "complete" ? "✓" : "!") : "0"}
+              </span>
+            </div>
+            <span className="flow-stage-detail text-muted text-sm">
+              {schematic.report ? `${schematic.report.sections.filter((s) => s.state === "filled").length}/${schematic.report.sections.length} sections` : "No schematic"}
+            </span>
+          </div>
+
+          {/* Ideas stage */}
+          <div className="flow-stage" title="Generated ideas across all categories">
+            <div className="flow-stage-header">
+              <span className="flow-stage-name">Ideas</span>
+              <span className="flow-stage-count">{ideaState.ideas.length}</span>
+            </div>
+            <span className="flow-stage-detail text-muted text-sm">
+              {ideaState.ideas.filter((i) => i.status === "concept").length} concept, {ideaState.ideas.filter((i) => i.status === "picked").length} picked
+            </span>
+          </div>
+
+          {/* Plans stage */}
+          <div className="flow-stage" title="Plans promoted from ideas">
+            <div className="flow-stage-header">
+              <span className="flow-stage-name">Plans</span>
+              <span className="flow-stage-count">{plans.length}</span>
+            </div>
+            <span className="flow-stage-detail text-muted text-sm">
+              {plans.filter((p) => p.status === "draft" || p.status === "openspec").length} draft, {plans.filter((p) => p.status === "ready").length} ready
+            </span>
+            {plans.filter((p) => p.status === "ready").length > 0 ? (
+              <button
+                className="btn btn-sm btn-primary flow-stage-action"
+                type="button"
+                title={`Launch ${plans.filter((p) => p.status === "ready").length} ready plan(s) — spawns chats/worktrees/branches via assignment`}
+                onClick={() => {
+                  const readyPlans = plans.filter((p) => p.status === "ready");
+                  if (window.confirm(`Launch ${readyPlans.length} ready plan(s)? Each will spawn a chat, worktree, and branch via the assignment path.`)) {
+                    for (const plan of readyPlans) {
+                      void onSetPlanStatus(plan.id, "running");
+                    }
+                  }
+                }}
+              >
+                Launch {plans.filter((p) => p.status === "ready").length} ready
+              </button>
+            ) : null}
+          </div>
+
+          {/* Running stage */}
+          <div className="flow-stage" title="Plans currently running in worktrees">
+            <div className="flow-stage-header">
+              <span className="flow-stage-name">Running</span>
+              <span className={`flow-stage-count flow-count-${plans.some((p) => p.status === "running") ? "active" : "empty"}`}>
+                {plans.filter((p) => p.status === "running").length}
+              </span>
+            </div>
+            <span className="flow-stage-detail text-muted text-sm">
+              {plans.filter((p) => p.status === "running").length} active run(s)
+            </span>
+          </div>
+
+          {/* Finished stage */}
+          <div className="flow-stage" title="Finished and cancelled plans">
+            <div className="flow-stage-header">
+              <span className="flow-stage-name">Finished</span>
+              <span className="flow-stage-count flow-count-ok">{plans.filter((p) => p.status === "finished").length}</span>
+            </div>
+            <span className="flow-stage-detail text-muted text-sm">
+              {plans.filter((p) => p.status === "finished").length} done, {plans.filter((p) => p.status === "cancelled").length} cancelled
+            </span>
+            {plans.filter((p) => p.status === "finished").length > 0 ? (
+              <IntegrationQueue sessionId={sessionId} projectPath={projectPath} />
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>

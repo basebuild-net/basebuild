@@ -171,3 +171,27 @@ OMP/Git/editors, not a replacement); include the plan lifecycle and status
 semantics; preserve the rule that agents modify `AGENTS.md` and this schematic
 only with explicit user approval; note that skills live in
 `skills/<name>/SKILL.md`.
+
+## Interactive surfaces (when available)
+
+When running inside the Basebuild app with the native agent loop, the
+`ask_user` tool is available for any decision that would otherwise require the
+user to type a response. Use it to present clickable options instead of prose
+questions:
+
+- **Wizard section confirmations**: in Create mode, after prefilling each
+  section, call `ask_user` with a `confirm` question (accept / edit / skip)
+  before moving to the next section.
+- **Re-align approvals**: in Re-align mode, for each drifted section, call
+  `ask_user` with a `confirm` question to apply the proposed replacement text
+  or skip it.
+- **Enhance approval**: in Enhance mode, present the before/after diff via
+  `ask_user` with a `confirm` question before applying.
+
+When `ask_user` is NOT available (CLI-only sessions, no native loop), fall back
+to prose questions and wait for the user's typed response. The skill works
+identically either way — `ask_user` is a UX enhancement, not a dependency.
+
+Each `ask_user` question needs: `id`, `prompt`, `kind` (options|multi|confirm|
+text), `options` (for non-text kinds), `recommended` (optional index), and
+`allowFreeText` (optional, defaults false). Answers come back keyed by `id`.
