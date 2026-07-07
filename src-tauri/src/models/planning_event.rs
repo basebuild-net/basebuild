@@ -29,6 +29,8 @@ pub enum PlanningEventKind {
     RunFailed,
     // Integration queue actions (merge/test/prune)
     IntegrationAction,
+    // OpenSpec task progress (tasks.md toggle / agent edit)
+    TaskProgressChanged,
 }
 
 impl PlanningEventKind {
@@ -50,6 +52,7 @@ impl PlanningEventKind {
             PlanningEventKind::RunFinished => "run_finished",
             PlanningEventKind::RunFailed => "run_failed",
             PlanningEventKind::IntegrationAction => "integration_action",
+            PlanningEventKind::TaskProgressChanged => "task_progress_changed",
         }
     }
 }

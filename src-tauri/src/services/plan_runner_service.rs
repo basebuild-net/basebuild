@@ -732,6 +732,121 @@ impl PlanRunnerService {
             .ok_or_else(|| "Plan run not found after execution".to_string())
     }
 
+    /// Assign a plan to an *existing* chat session and start the run.
+    /// Unlike `execute_run` (which creates a fresh chat session), this
+    /// binds the run to the user-chosen `chat_session_id`, seeds opening
+    /// context into it, provisions a worktree per policy, and emits the
+    /// running event with the same chat session id.
+    pub fn assign_to_chat(
+        app: &AppHandle,
+        plan_id: &str,
+        chat_session_id: &str,
+    ) -> DbResult<PlanRun> {
+        // Validate the plan exists and is ready (or running — re-assign is
+        // allowed only if the prior run was cancelled).
+        let plan = PlanService::get(plan_id)?
+            .ok_or_else(|| "Plan not found".to_string())?;
+        if plan.status != PlanStatus::Ready && plan.status != PlanStatus::Draft && plan.status != PlanStatus::Openspec {
+            return Err(format!("Plan must be ready to assign, but is {}.", plan.status.as_str()));
+        }
+
+        // Validate the chat session exists.
+        let chat_session = crate::services::native_chat_service::NativeChatService::get_session(chat_session_id)?
+            .ok_or_else(|| "Chat session not found".to_string())?;
+
+        // Check no active run is already bound to this chat session.
+        let conn = StorageService::connect()?;
+        let existing: Option<String> = conn
+            .query_row(
+                "SELECT id FROM plan_runs WHERE chat_session_id = ?1 AND status IN ('running','pending') LIMIT 1",
+                params![chat_session_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        if existing.is_some() {
+            return Err("Chat session is already assigned to an active plan run.".to_string());
+        }
+
+        let run_id = gen_id();
+        let created = now();
+        // Provision a worktree if the project is a git repo.
+        let workspace_path = if Self::worktrees_enabled_for(&chat_session.project_path) {
+            let slug = crate::services::worktree_service::WorktreeService::slugify(&plan.title);
+            crate::services::worktree_service::WorktreeService::create_with_base(
+                &chat_session.project_path,
+                Some(plan_id),
+                &plan.reference_id,
+                &slug,
+                true,
+            )
+            .ok()
+            .map(|w| w.path)
+        } else {
+            None
+        };
+
+        // Seed the opening context into the existing chat session.
+        let opening = crate::services::native_chat_service::NativeChatService::build_plan_opening_context(&plan, &chat_session.project_path);
+        if !opening.is_empty() {
+            let _ = crate::services::native_chat_service::NativeChatService::insert_message(
+                chat_session_id,
+                "system",
+                &opening,
+                None,
+                Some(&chat_session.provider_id),
+                Some(&chat_session.model_id),
+                Some(&chat_session.effort_level),
+            );
+        }
+
+        // Insert the plan_run row with the existing chat_session_id.
+        conn.execute(
+            "INSERT INTO plan_runs (id, plan_id, session_id, chat_session_id, workspace_path,
+             status, runner_kind, error, steps_output, started_at, finished_at, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'running', 'native', NULL, '[]', ?6, NULL, ?7)",
+            params![run_id, plan_id, plan.session_id, chat_session_id, workspace_path, created, created],
+        )
+        .map_err(|e| format!("Failed to insert plan run: {e}"))?;
+
+        // Mark running.
+        conn.execute(
+            "UPDATE plan_runs SET started_at = ?1 WHERE id = ?2",
+            params![created, run_id],
+        )
+        .map_err(|e| format!("Failed to mark run started: {e}"))?;
+
+        // Transition the plan to running.
+        let _ = PlanService::set_status(plan_id, PlanStatus::Running);
+
+        // Register the cancellation token.
+        let token = RunCancellationToken::new();
+        if let Ok(mut map) = RUNNING_RUNS.lock() {
+            map.insert(run_id.clone(), token);
+        }
+
+        // Emit the running event with the existing chat_session_id.
+        let _ = app.emit(
+            PLAN_RUN_EVENT,
+            PlanRunEvent {
+                run_id: run_id.clone(),
+                session_id: plan.session_id.clone(),
+                plan_id: plan_id.to_string(),
+                status: PlanRunStatus::Running,
+                chat_session_id: Some(chat_session_id.to_string()),
+                error: None,
+            },
+        );
+
+        // Emit a typed planning event.
+        if let Some(run) = Self::get_run(&run_id)? {
+            Self::emit_planning_event(app, &run, PlanningEventKind::RunStarted, None);
+        }
+
+        Self::get_run(&run_id)?
+            .ok_or_else(|| "Plan run not found after assignment".to_string())
+    }
+
     /// Worktrees are enabled when the project is a git repo. Called by
     /// the dispatcher to decide whether to cap concurrency at 1.
     fn worktrees_enabled_for(project_path: &str) -> bool {
@@ -912,5 +1027,88 @@ mod tests {
     fn worktrees_not_supported_for_nonexistent_path() {
         // A non-git path returns false from worktrees_enabled_for.
         assert!(!PlanRunnerService::worktrees_enabled_for("/nonexistent/path/that/does/not/exist"));
+    }
+
+    #[test]
+    fn assign_to_chat_rejects_nonexistent_plan() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        #[cfg(not(target_os = "windows"))]
+        {
+            let app = tauri::test::mock_app().app_handle().clone();
+            let result = PlanRunnerService::assign_to_chat(&app, "nonexistent-plan", "nonexistent-chat");
+            assert!(result.is_err());
+            assert!(result.unwrap_err().contains("Plan not found"));
+        }
+    }
+
+    #[test]
+    fn assign_to_chat_rejects_nonexistent_chat_session() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        // Seed a session + plan.
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+             VALUES ('s1', '/test', 'Test', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plans (id, session_id, reference_id, title, description, status, priority, tags, ai_enhanced, created_at, updated_at)
+             VALUES ('p1', 's1', 'bb-aaa', 'Plan 1', 'desc', 'ready', 50, '[]', 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+        #[cfg(not(target_os = "windows"))]
+        {
+            let app = tauri::test::mock_app().app_handle().clone();
+            let result = PlanRunnerService::assign_to_chat(&app, "p1", "nonexistent-chat");
+            assert!(result.is_err());
+            assert!(result.unwrap_err().contains("Chat session not found"));
+        }
+    }
+
+    #[test]
+    fn assign_to_chat_rejects_non_ready_plan() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+             VALUES ('s1', '/test', 'Test', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plans (id, session_id, reference_id, title, description, status, priority, tags, ai_enhanced, created_at, updated_at)
+             VALUES ('p1', 's1', 'bb-aaa', 'Plan 1', 'desc', 'running', 50, '[]', 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+        // Seed a chat session.
+        conn.execute(
+            "INSERT INTO native_chat_sessions (id, project_path, title, profile_id, provider_id, model_id, effort_level, status, created_at, updated_at)
+             VALUES ('c1', '/test', 'Chat', 'basebuild-native', 'basebuild-local', 'local', 'low', 'ready', 0, 0)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+        #[cfg(not(target_os = "windows"))]
+        {
+            let app = tauri::test::mock_app().app_handle().clone();
+            let result = PlanRunnerService::assign_to_chat(&app, "p1", "c1");
+            assert!(result.is_err());
+            assert!(result.unwrap_err().contains("ready to assign"));
+        }
+    }
+
+    #[test]
+    fn slugify_handles_titles() {
+        assert_eq!(crate::services::worktree_service::WorktreeService::slugify("My Plan Title"), "my-plan-title");
+        assert_eq!(crate::services::worktree_service::WorktreeService::slugify("  spaces  "), "spaces");
+        assert_eq!(crate::services::worktree_service::WorktreeService::slugify("!!!"), "plan");
+        assert_eq!(crate::services::worktree_service::WorktreeService::slugify("a-b_c"), "a-b-c");
     }
  }

@@ -511,7 +511,8 @@ impl NativeChatService {
 
     /// Assemble the opening context for a plan run session: plan title/goal,
     /// linked OpenSpec change path, and project schematic summary.
-    fn build_plan_opening_context(plan: &Plan, project_path: &str) -> String {
+
+    pub fn build_plan_opening_context(plan: &Plan, project_path: &str) -> String {
         let mut parts: Vec<String> = Vec::new();
         parts.push(format!("# Plan: {}\n{}", plan.title, plan.description));
         if let Some(goal) = &plan.goal {
@@ -1218,7 +1219,7 @@ impl NativeChatService {
         Ok(())
     }
 
-    fn insert_message(
+    pub fn insert_message(
         session_id: &str,
         role: &str,
         content: &str,

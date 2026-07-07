@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LayoutTemplate, Settings2, TerminalSquare, X } from "lucide-react";
+import { deliverPrompt, type PromptMode } from "../../lib/promptDelivery";
+import { DestinationPicker, type DestinationChoice } from "./DestinationPicker";
 
 import { useSessionState } from "../../state/sessions";
 import { usePlans } from "../../state/plans";
@@ -88,9 +90,13 @@ export function AppShell({ updates }: AppShellProps) {
   const [focusingPlan, setFocusingPlan] = useState<Plan | null>(null);
   const [descriptionOpen, setDescriptionOpen] = useState(false);
   const firstRun = useFirstRun();
-  const [chatDraft, setChatDraft] = useState<string | null>(null);
-  const [chatDraftTabId, setChatDraftTabId] = useState<string | null>(null);
-  const [autoSendDraft, setAutoSendDraft] = useState(false);
+  // Prompts queued for new panels that don't have a chatSessionId yet.
+  // Flushed in onChatSessionCreated once the native session is created.
+  const pendingNewPanelPrompts = useRef<Map<string, { text: string; mode: PromptMode }>>(new Map());
+  // Destination picker state — when open, the pending prompt is held here
+  // until the user picks a destination (or cancels).
+  const [destinationPickerOpen, setDestinationPickerOpen] = useState(false);
+  const [pendingDelivery, setPendingDelivery] = useState<{ text: string; mode: PromptMode } | null>(null);
   const [focusedChatId, setFocusedChatId] = useState<string | null>(null);
   const [panelGridState, setPanelGridState] = useState<PanelGridState>(emptyGrid());
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
@@ -404,13 +410,16 @@ export function AppShell({ updates }: AppShellProps) {
       const existingChat = activeChat ?? session.tabs.filter((t) => t.kind === "chat").slice(-1)[0] ?? null;
       if (existingChat) {
         session.setActiveTabId(existingChat.id);
+        if (existingChat.chatSessionId) {
+          deliverPrompt({ chatSessionId: existingChat.chatSessionId, text: draftPrompt, mode: "insert" });
+        } else {
+          pendingNewPanelPrompts.current.set(existingChat.id, { text: draftPrompt, mode: "insert" });
+        }
       } else {
         const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
-        await session.createTab("chat", `Chat ${chatCount}`);
+        const tab = await session.createTab("chat", `Chat ${chatCount}`);
+        if (tab) pendingNewPanelPrompts.current.set(tab.id, { text: draftPrompt, mode: "insert" });
       }
-      // Inject the draft prompt — ChatPanel consumes it once
-      setChatDraft(draftPrompt);
-      setChatDraftTabId(session.activeTabId);
     },
     [session],
   );
@@ -450,31 +459,37 @@ Rules:
 - Never fabricate facts. If something is not observable, ask.
 - Do not write the schematic file until the user explicitly approves. When ready, use \`ask_user\` with a confirm question to get approval, then write to .basebuild/project-schematic.md.
 - Keep it concise — readable in under three minutes.`;
-      // Focus or create a chat tab, inject the prompt, and auto-send.
-      const activeChat = session.tabs.find((t) => t.id === session.activeTabId && t.kind === "chat");
-      const existingChat = activeChat ?? session.tabs.filter((t) => t.kind === "chat").slice(-1)[0] ?? null;
-      if (existingChat) {
-        session.setActiveTabId(existingChat.id);
-      } else {
-        const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
-        await session.createTab("chat", `Chat ${chatCount}`);
-      }
-      setChatDraft(prompt);
-      setChatDraftTabId(session.activeTabId);
-      setAutoSendDraft(true);
+      // Open the destination picker — the user chooses which chat gets
+      // the wizard prompt. The delivery happens in the picker's onSelect.
+      setPendingDelivery({ text: prompt, mode: "send" });
+      setDestinationPickerOpen(true);
     },
     [session],
   );
 
   const handleOpenSchematic = useCallback(() => {
-    // Focus or create an "empty" tab (the schematic tab).
-    const existingEmpty = session.tabs.find((t) => t.kind === "empty");
-    if (existingEmpty) {
-      session.setActiveTabId(existingEmpty.id);
-    } else {
-      void session.createTab("empty", "Schematic");
+    // Focus or create a schematic panel in the grid (not a legacy empty tab).
+    const allPanels = flattenPanels(panelGridState.root);
+    const existing = allPanels.find((p) => p.type === "schematic");
+    if (existing) {
+      setPanelGridState((prev) => ({ ...prev, activePanelId: existing.id }));
+      return;
     }
-  }, [session]);
+    const newPanel: Panel = {
+      id: `panel-${Date.now()}`,
+      type: "schematic",
+      title: "Schematic",
+      chatSessionId: null,
+      terminalId: null,
+      filePath: null,
+    };
+    setPanelGridState((prev) => {
+      if (!prev.root) return singlePanelGrid(newPanel);
+      const anchor = prev.activePanelId ?? flattenPanels(prev.root).at(-1)?.id ?? "";
+      const newRoot = splitPanelAt(prev.root, anchor, newPanel, "right");
+      return { ...prev, root: newRoot, activePanelId: newPanel.id };
+    });
+  }, [panelGridState.root]);
 
    const handleOpenSchematicFile = useCallback(async () => {
     if (!activeProjectPath) return;
@@ -613,7 +628,15 @@ Rules:
             projectPath={activeProjectPath ?? ""}
             chatSessionId={panel.chatSessionId ?? tab?.chatSessionId ?? null}
             onChatSessionCreated={(chatSessionId) => {
-              if (tab) void session.setTabChatSession(tab.id, chatSessionId);
+              if (tab) {
+                void session.setTabChatSession(tab.id, chatSessionId);
+                // Flush any prompt queued for this tab before its session existed.
+                const pending = pendingNewPanelPrompts.current.get(tab.id);
+                if (pending) {
+                  pendingNewPanelPrompts.current.delete(tab.id);
+                  deliverPrompt({ chatSessionId, text: pending.text, mode: pending.mode });
+                }
+              }
               // Also update the panel's chatSessionId in the grid so the link
               // persists across restarts.
               setPanelGridState((prev) => ({
@@ -621,9 +644,6 @@ Rules:
                 root: updatePanelInTree(prev.root, panel.id, { chatSessionId }),
               }));
             }}
-            draftPrompt={chatDraft}
-            autoSendDraft={autoSendDraft}
-            onDraftConsumed={() => { setChatDraft(null); setChatDraftTabId(null); setAutoSendDraft(false); }}
             activeSessionId={session.activeSessionId}
             schematicContent={schematic.content}
             onCreatePlanFromIdea={handleCreatePlanFromIdea}
@@ -732,7 +752,7 @@ Rules:
       }
       return null;
     },
-    [session, activeProjectPath, chatDraft, autoSendDraft, schematic.content, handleCreatePlanFromIdea, handleOpenPlanningInspector, handleOpenSchematic, handleTerminalOutput, handleStartSchematicWizard],
+    [session, activeProjectPath, schematic.content, handleCreatePlanFromIdea, handleOpenPlanningInspector, handleOpenSchematic, handleTerminalOutput, handleStartSchematicWizard],
   );
 
   /** Handle panel grid state changes. */
@@ -789,14 +809,6 @@ Rules:
       if (newTab) {
         await session.setTabChatSession(newTab.id, chatSessionId);
       }
-    },
-    [session],
-  );
-
-
-  const handleChatSessionCreated = useCallback(
-    (tabId: string) => (chatSessionId: string) => {
-      void session.setTabChatSession(tabId, chatSessionId);
     },
     [session],
   );
@@ -1073,6 +1085,31 @@ Rules:
         onSkip={() => firstRun.skip()}
       />
       <ToastStack />
+      <DestinationPicker
+        open={destinationPickerOpen}
+        onClose={() => { setDestinationPickerOpen(false); setPendingDelivery(null); }}
+        panels={flattenPanels(panelGridState.root)}
+        title="Send wizard to…"
+        onSelect={(choice: DestinationChoice) => {
+          if (!pendingDelivery) return;
+          if (choice.kind === "existing") {
+            deliverPrompt({
+              chatSessionId: choice.chatSessionId,
+              text: pendingDelivery.text,
+              mode: pendingDelivery.mode,
+            });
+            // Focus the panel that hosts this chat.
+            setPanelGridState((prev) => ({ ...prev, activePanelId: choice.panelId }));
+          } else {
+            // New conversation — create a chat tab + panel, queue the prompt.
+            const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
+            void session.createTab("chat", `Chat ${chatCount}`).then((tab) => {
+              if (tab) pendingNewPanelPrompts.current.set(tab.id, { text: pendingDelivery.text, mode: pendingDelivery.mode });
+            });
+          }
+          setPendingDelivery(null);
+        }}
+      />
     </div>
   );
 }

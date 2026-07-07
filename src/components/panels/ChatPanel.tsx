@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { usePromptDelivery } from "../../lib/promptDelivery";
 import { ChatComposerRail } from "./ChatComposerRail";
 import { ChatHeader } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
@@ -23,7 +24,7 @@ import { agentStart, agentSend, agentStop } from "../../lib/agent";
 import { gitBranchList, gitBranchSwitch, gitBranchCreate, gitCurrentBranch, type GitBranch } from "../../lib/git";
 import { listWorkspaces } from "../../lib/workspaces";
 import { prRecommend, prCreate, type PrRecommendation } from "../../lib/pullRequests";
-import { onPlanRunEvent } from "../../lib/planRuns";
+import { onPlanRunEvent, assignPlanToChat } from "../../lib/planRuns";
 import { listPlans } from "../../lib/plans";
 import { nativeInteractionListAll, nativeInteractionResolve } from "../../lib/interactions";
 import type { PendingInteraction } from "../../lib/interactions";
@@ -69,9 +70,6 @@ type ChatPanelProps = {
   projectPath: string;
   chatSessionId?: string | null;
   onChatSessionCreated?: (id: string) => void;
-  draftPrompt?: string | null;
-  onDraftConsumed?: () => void;
-  autoSendDraft?: boolean;
   /** Project session id — used to persist generated ideas and seed plans. */
   activeSessionId?: string | null;
   /** Project schematic content, sent to the provider for idea generation. */
@@ -195,9 +193,6 @@ export function ChatPanel({
   projectPath,
   chatSessionId,
   onChatSessionCreated,
-  draftPrompt,
-  onDraftConsumed,
-  autoSendDraft,
   activeSessionId,
   schematicContent,
   onCreatePlanFromIdea,
@@ -702,29 +697,36 @@ export function ChatPanel({
     [nativeMode, nativeSessionId, selectedProvider, loading, providerId, modelId, effortLevel, agentId, addLog],
   );
 
-  // Draft prompt injection. Wait for catalog to load before auto-sending
-  // so the resolved provider/model is used, not the initial local default.
-  // The schematic wizard needs a model that supports tools (read_file,
-  // write_file, etc.) — if the active model can't call tools, show a notice
-  // instead of sending a prompt the model can only echo back as text.
+  // Prompt delivery consumption — replaces the old draft-prompt props.
+  // The shell queues a delivery via `deliverPrompt({ chatSessionId, text,
+  // mode })`; this hook surfaces it when our native session is ready.
+  // insert → set composer text + focus (no send); send → one user turn,
+  // composer left empty. Tool-incapable model + wizard prompt → insert +
+  // inline notice (no send).
+  const { delivery, consume } = usePromptDelivery(nativeSessionId);
   useEffect(() => {
-    if (!draftPrompt) return;
-    setInput(draftPrompt);
-    onDraftConsumed?.();
-    if (autoSendDraft && catalog && !loading) {
-      const isWizardPrompt = draftPrompt.includes("basebuild-project-schematic");
-      const modelSupportsTools = selectedModel?.supportsTools ?? false;
-      if (isWizardPrompt && !modelSupportsTools) {
-        setCommandNotice(
-          selectedModel
-            ? `${selectedModel.label} does not support tool calling — the wizard needs a model that can read/write files. Pick a tool-capable model (e.g. Claude, GPT-4, umans-glm) and try again.`
-            : "The schematic wizard needs a model that supports tool calling. Pick a tool-capable model and try again.",
-        );
-        return;
-      }
-      void sendMessage(draftPrompt.trim());
+    if (!delivery || !nativeSessionId) return;
+    const isWizardPrompt = delivery.text.includes("basebuild-project-schematic");
+    if (delivery.mode === "insert") {
+      setInput(delivery.text);
+      consume();
+      return;
     }
-  }, [draftPrompt, autoSendDraft, onDraftConsumed, sendMessage, catalog, loading, selectedModel]);
+    // send mode — wait for catalog so the resolved provider/model is used.
+    if (!catalog || loading) return;
+    const modelSupportsTools = selectedModel?.supportsTools ?? false;
+    if (isWizardPrompt && !modelSupportsTools) {
+      setInput(delivery.text);
+      setCommandNotice(
+        selectedModel
+          ? `${selectedModel.label} does not support tool calling — the wizard needs a model that can read/write files. Pick a tool-capable model (e.g. Claude, GPT-4, umans-glm) and try again.`
+          : "The schematic wizard needs a model that supports tool calling. Pick a tool-capable model and try again.",
+      );
+      consume();
+      return;
+    }
+    void sendMessage(delivery.text.trim()).then(() => consume());
+  }, [delivery, consume, nativeSessionId, catalog, loading, selectedModel, sendMessage]);
 
   // Auto-scroll
   useEffect(() => {
@@ -1137,12 +1139,17 @@ export function ChatPanel({
   }, [activeSessionId, addLog]);
 
   const handleAssignPlan = useCallback(async (planId: string) => {
-    if (!planId) return;
+    if (!planId || !nativeSessionId) return;
     setShowAssignPlanPicker(false);
-    setAssignedPlanId(planId);
-    // The run starts via the plan-run flow; the plan_run://event listener
-    // binds the badge when the run starts.
-  }, []);
+    try {
+      await assignPlanToChat(planId, nativeSessionId);
+      setAssignedPlanId(planId);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to assign plan to chat", msg);
+      setError(msg);
+    }
+  }, [nativeSessionId, addLog]);
 
   const handleCreatePullRequest = useCallback(() => {
     setShowPrCard(true);

@@ -11,6 +11,11 @@ pub fn plan_run_enqueue(request: EnqueuePlanRequest) -> Result<PlanQueueEntry, S
 }
 
 #[tauri::command]
+pub fn plan_assign_to_chat(app: AppHandle, plan_id: String, chat_session_id: String) -> Result<PlanRun, String> {
+    PlanRunnerService::assign_to_chat(&app, &plan_id, &chat_session_id)
+}
+
+#[tauri::command]
 pub fn plan_run_list_queue(session_id: String) -> Result<Vec<PlanQueueEntry>, String> {
     PlanRunnerService::list_queue(&session_id)
 }

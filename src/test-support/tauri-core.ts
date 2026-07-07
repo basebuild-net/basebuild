@@ -212,6 +212,9 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return undefined as T;
     case "native_chat_tool_events":
       return [] as T;
+    case "native_interaction_list_all":
+    case "native_interaction_list_pending":
+      return [] as T;
     case "stability_list_reports":
       return [] as T;
     case "stability_read_report":
@@ -354,6 +357,23 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return undefined as T;
     }
     case "plan_run_start":
+      return undefined as T;
+    case "plan_assign_to_chat": {
+      const planId = typeof args.planId === "string" ? args.planId : "";
+      const chatSessionId = typeof args.chatSessionId === "string" ? args.chatSessionId : "";
+      const run = { id: `run-${Date.now()}`, planId, sessionId: typeof args.sessionId === "string" ? args.sessionId : "", chatSessionId, workspacePath: undefined, status: "running", runnerKind: "native", error: undefined, stepsOutput: [], createdAt: Date.now() };
+      s.planRuns.push(run);
+      return run as T;
+    }
+    case "openspec_list_changes":
+      return [] as T;
+    case "openspec_parse_tasks_structured":
+      return { phases: [], total: 0, completed: 0 } as T;
+    case "openspec_read_tasks_structured":
+      return { phases: [], total: 0, completed: 0 } as T;
+    case "openspec_toggle_task":
+      return undefined as T;
+    case "openspec_archive_change":
       return undefined as T;
     case "plan_run_pause":
       return undefined as T;

@@ -33,3 +33,66 @@ export async function openspecParseTaskProgress(content: string): Promise<TaskPr
   });
   return { completed, total };
 }
+
+export type StructuredTask = {
+  line: number;
+  checked: boolean;
+  id?: string;
+  text: string;
+};
+
+export type TaskPhase = {
+  name: string;
+  line: number;
+  tasks: StructuredTask[];
+};
+
+export type StructuredTasks = {
+  phases: TaskPhase[];
+  total: number;
+  completed: number;
+};
+
+export type ChangeCatalogEntry = {
+  name: string;
+  hasProposal: boolean;
+  hasDesign: boolean;
+  hasTasks: boolean;
+  hasSpecs: boolean;
+  completed: number;
+  total: number;
+  linkedPlanReferenceId?: string;
+  archived: boolean;
+  createdAt: number;
+};
+
+export async function openspecListChanges(projectPath: string): Promise<ChangeCatalogEntry[]> {
+  return invoke<ChangeCatalogEntry[]>("openspec_list_changes", { projectPath });
+}
+
+export async function openspecParseTasksStructured(content: string): Promise<StructuredTasks> {
+  return invoke<StructuredTasks>("openspec_parse_tasks_structured", { content });
+}
+
+export async function openspecReadTasksStructured(
+  projectPath: string,
+  changeName: string,
+): Promise<StructuredTasks> {
+  return invoke<StructuredTasks>("openspec_read_tasks_structured", { projectPath, changeName });
+}
+
+export async function openspecToggleTask(
+  projectPath: string,
+  changeName: string,
+  line: number,
+  makeChecked: boolean,
+): Promise<void> {
+  await invoke<void>("openspec_toggle_task", { projectPath, changeName, line, makeChecked });
+}
+
+export async function openspecArchiveChange(
+  projectPath: string,
+  changeName: string,
+): Promise<void> {
+  await invoke<void>("openspec_archive_change", { projectPath, changeName });
+}

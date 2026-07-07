@@ -3,14 +3,16 @@ import { FolderTree, LayoutGrid, Lightbulb, Plus, Sparkles, Trash2, X } from "lu
 import type { Plan, PlanStatus } from "../../lib/plans";
 import { isTerminalStatus, PLAN_STATUSES, PLAN_STATUS_LABEL } from "../../lib/plans";
 import { batchPromoteIdeas } from "../../lib/plans";
+import { enqueuePlan, startQueue } from "../../lib/planRuns";
 import { PlanPanel } from "./PlanPanel";
 import { IntegrationQueue } from "../panels/IntegrationQueue";
+import { ChangesPanel } from "../panels/ChangesPanel";
 import { useIdeaState } from "../../state/ideas";
 import type { IdeaCategory, IdeaStatus } from "../../lib/ideas";
 import { useProjectSchematic } from "../../state/schematic";
 import { useLogs } from "../../state/log";
 
-type Tab = "plans" | "ideas" | "categories" | "flow";
+type Tab = "plans" | "ideas" | "categories" | "flow" | "changes";
 
 type PlanningInspectorProps = {
   sessionId: string | null;
@@ -194,6 +196,14 @@ export function PlanningInspector({
             onClick={() => setTab("flow")}
           >
             Flow
+          </button>
+          <button
+            className={`inspector-tab${tab === "changes" ? " is-active" : ""}`}
+            type="button"
+            title="OpenSpec change catalog — browse and toggle tasks"
+            onClick={() => setTab("changes")}
+          >
+            Changes
           </button>
           {hostContext === "dock" ? (
             <button
@@ -485,13 +495,28 @@ export function PlanningInspector({
               <button
                 className="btn btn-sm btn-primary flow-stage-action"
                 type="button"
-                title={`Launch ${plans.filter((p) => p.status === "ready").length} ready plan(s) — spawns chats/worktrees/branches via assignment`}
-                onClick={() => {
+                title={`Launch ${plans.filter((p) => p.status === "ready").length} ready plan(s) — enqueues real runs with chats/worktrees/branches`}
+                onClick={async () => {
                   const readyPlans = plans.filter((p) => p.status === "ready");
-                  if (window.confirm(`Launch ${readyPlans.length} ready plan(s)? Each will spawn a chat, worktree, and branch via the assignment path.`)) {
-                    for (const plan of readyPlans) {
-                      void onSetPlanStatus(plan.id, "running");
+                  if (!sessionId) return;
+                  // Enqueue each ready plan, then start the queue — real runs
+                  // with chat sessions and worktrees, not status flips.
+                  for (const plan of readyPlans) {
+                    try {
+                      await enqueuePlan({ sessionId, planId: plan.id });
+                    } catch (e) {
+                      const msg = e instanceof Error ? e.message : String(e);
+                      addLog("error", `Failed to enqueue plan ${plan.referenceId}`, msg);
                     }
+                  }
+                  try {
+                    await startQueue({
+                      sessionId,
+                      profile: { concurrency: 1, providerId: "", modelId: "" },
+                    });
+                  } catch (e) {
+                    const msg = e instanceof Error ? e.message : String(e);
+                    addLog("error", "Failed to start plan queue", msg);
                   }
                 }}
               >
@@ -519,6 +544,7 @@ export function PlanningInspector({
               <span className="flow-stage-name">Finished</span>
               <span className="flow-stage-count flow-count-ok">{plans.filter((p) => p.status === "finished").length}</span>
             </div>
+
             <span className="flow-stage-detail text-muted text-sm">
               {plans.filter((p) => p.status === "finished").length} done, {plans.filter((p) => p.status === "cancelled").length} cancelled
             </span>
@@ -527,6 +553,16 @@ export function PlanningInspector({
             ) : null}
           </div>
         </div>
+      ) : null}
+
+      {tab === "changes" ? (
+        <ChangesPanel
+          projectPath={projectPath}
+          onFocusPlan={(refId) => {
+            const plan = plans.find((p) => p.referenceId === refId);
+            if (plan) onFocusPlan(plan);
+          }}
+        />
       ) : null}
     </div>
   );

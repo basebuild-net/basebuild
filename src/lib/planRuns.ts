@@ -116,6 +116,13 @@ export async function startOmpPlanRun(
   return invoke<PlanRun>("plan_run_start_omp", { sessionId, planId });
 }
 
+export async function assignPlanToChat(
+  planId: string,
+  chatSessionId: string,
+): Promise<PlanRun> {
+  return invoke<PlanRun>("plan_assign_to_chat", { planId, chatSessionId });
+}
+
 export async function cancelPlanRun(
   runId: string,
   cancelPlan: boolean,
