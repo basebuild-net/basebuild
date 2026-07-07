@@ -1275,8 +1275,8 @@ function ModelProvidersPanel() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
+  const [baseUrlDrafts, setBaseUrlDrafts] = useState<Record<string, string>>({});
   const pollRef = useRef<number | null>(null);
-
   const refresh = useCallback(async () => {
     try {
       setCatalog(await nativeProviderCatalog());
@@ -1337,7 +1337,7 @@ function ModelProvidersPanel() {
       setBusyId(providerId);
       setError(null);
       try {
-        await nativeSaveProviderCredential({ providerId, label, apiKey: key, baseUrl: null });
+        await nativeSaveProviderCredential({ providerId, label, apiKey: key, baseUrl: baseUrlDrafts[providerId]?.trim() || null });
         setKeyDrafts((prev) => ({ ...prev, [providerId]: "" }));
         await refresh();
       } catch (e) {
@@ -1373,6 +1373,15 @@ function ModelProvidersPanel() {
       <p className="text-muted text-sm">
         Connect model providers with a web flow or an API key. Credentials are stored locally on this device only.
       </p>
+      <button
+        className="btn btn-sm"
+        type="button"
+        title="Refresh model catalog from all configured providers"
+        disabled={busyId === "refresh"}
+        onClick={async () => { setBusyId("refresh"); await refresh(); setBusyId(null); }}
+      >
+        <RefreshCw size={12} /> Refresh models
+      </button>
       {providers.map((p) => (
         <div key={p.id} className="requirement-row" style={{ alignItems: "flex-start" }}>
           <span className={`requirement-badge is-${p.configured ? "ok" : "attention"}`}>
@@ -1380,8 +1389,13 @@ function ModelProvidersPanel() {
           </span>
           <div style={{ flex: 1 }}>
             <div className="requirement-name">
-              {p.label} {p.configured ? <span className="text-muted text-sm">connected</span> : null}
+              {p.label} {p.configured ? <span className="text-muted text-sm">connected</span> : null}{p.modelCount > 0 ? <span className="text-muted text-sm"> · {p.modelCount} model{p.modelCount === 1 ? "" : "s"}</span> : null}
             </div>
+            {p.apiKeyUrl && !p.configured ? (
+              <a href={p.apiKeyUrl} target="_blank" rel="noopener noreferrer" className="text-muted text-sm" title={`Get an API key from ${p.label}`}>
+                Get API key →
+              </a>
+            ) : null}
             {p.configured ? (
               <button
                 className="btn btn-sm"
@@ -1429,12 +1443,31 @@ function ModelProvidersPanel() {
                     <Key size={12} /> Save
                   </button>
                 </div>
+                {p.id === "custom" ? (
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="Base URL (e.g. https://api.example.com/v1)"
+                    value={baseUrlDrafts[p.id] ?? ""}
+                    onChange={(e) => setBaseUrlDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                    title="Base URL for the custom OpenAI-compatible endpoint"
+                  />
+                ) : null}
               </div>
             )}
           </div>
         </div>
       ))}
       {error ? <p className="text-danger text-sm">{error}</p> : null}
+      {catalog?.providers.some((p) => p.error && !p.localOnly) ? (
+        <div className="stack-sm">
+          {catalog.providers.filter((p) => p.error && !p.localOnly).map((p) => (
+            <p key={p.id} className="text-danger text-sm" title={p.error ?? ""}>
+              {p.label}: {p.error}
+            </p>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

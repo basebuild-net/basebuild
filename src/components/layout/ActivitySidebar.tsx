@@ -5,6 +5,7 @@ import {
   Clock,
   FileText,
   FolderPlus,
+  LayoutList,
   LayoutTemplate,
   MessageSquare,
   Plus,
@@ -51,6 +52,7 @@ export type ActivitySidebarProps = {
   onFocusPanel: (panelId: string) => void;
   onCreateChat: () => void;
   onOpenHistory: () => void;
+  onOpenPlans: () => void;
   onOpenSettings: () => void;
   onCreateTerminal: () => void;
   collapsed: boolean;
@@ -71,6 +73,7 @@ export function ActivitySidebar({
   onCreateChat,
   onCreateTerminal,
   onOpenHistory,
+  onOpenPlans,
   onOpenSettings,
   collapsed,
   onToggleCollapse,
@@ -87,6 +90,9 @@ export function ActivitySidebar({
           </button>
           <button className="btn-icon" type="button" title="History" onClick={onOpenHistory}>
             <Clock size={14} />
+          </button>
+          <button className="btn-icon" type="button" title="Plans & Ideas" onClick={onOpenPlans} disabled={!activeProjectPath}>
+            <LayoutList size={14} />
           </button>
           <button className="btn-icon" type="button" title="Add project folder" onClick={onOpenFolder}>
             <FolderPlus size={14} />
@@ -184,6 +190,16 @@ export function ActivitySidebar({
             </div>
           ) : null}
         </div>
+        <button
+          className="activity-sidebar-history-btn"
+          type="button"
+          title="Plans & Ideas"
+          onClick={onOpenPlans}
+          disabled={!activeProjectPath}
+        >
+          <LayoutList size={11} />
+          <span>Plans & Ideas</span>
+        </button>
         <button
           className="activity-sidebar-history-btn"
           type="button"

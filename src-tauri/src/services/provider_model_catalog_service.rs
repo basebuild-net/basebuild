@@ -488,6 +488,56 @@ fn provider_specs() -> Vec<ProviderSpec> {
             detail: "Anthropic API — enter your API key to connect.",
             default_base_url: Some("https://api.anthropic.com/v1"),
         },
+        ProviderSpec {
+            id: "devin",
+            label: "Devin.ai",
+            credential_owner: "user",
+            local_only: false,
+            auth_method: "api_key",
+            api_key_url: Some("https://app.devin.ai/settings/api-keys"),
+            detail: "Devin.ai API — OpenAI-compatible. Enter your API key to connect.",
+            default_base_url: Some("https://api.devin.ai/v1"),
+        },
+        ProviderSpec {
+            id: "google",
+            label: "Google Gemini",
+            credential_owner: "user",
+            local_only: false,
+            auth_method: "api_key",
+            api_key_url: Some("https://aistudio.google.com/apikey"),
+            detail: "Google Gemini API — OpenAI-compatible endpoint. Enter your API key to connect.",
+            default_base_url: Some("https://generativelanguage.googleapis.com/v1beta/openai"),
+        },
+        ProviderSpec {
+            id: "groq",
+            label: "Groq",
+            credential_owner: "user",
+            local_only: false,
+            auth_method: "api_key",
+            api_key_url: Some("https://console.groq.com/keys"),
+            detail: "Groq API — OpenAI-compatible. Enter your API key to connect.",
+            default_base_url: Some("https://api.groq.com/openai/v1"),
+        },
+        ProviderSpec {
+            id: "openrouter",
+            label: "OpenRouter",
+            credential_owner: "user",
+            local_only: false,
+            auth_method: "api_key",
+            api_key_url: Some("https://openrouter.ai/keys"),
+            detail: "OpenRouter API — OpenAI-compatible. Enter your API key to connect.",
+            default_base_url: Some("https://openrouter.ai/api/v1"),
+        },
+        ProviderSpec {
+            id: "custom",
+            label: "Custom (OpenAI-compatible)",
+            credential_owner: "user",
+            local_only: false,
+            auth_method: "api_key",
+            api_key_url: None,
+            detail: "Any OpenAI-compatible endpoint. Enter your API key and base URL.",
+            default_base_url: None,
+        },
     ]
 }
 
@@ -589,6 +639,26 @@ fn bundled_models(provider_id: &str) -> Vec<NativeModel> {
             bundled("anthropic", "claude-sonnet-4-6", "Claude Sonnet 4.6", 1000000, 64000, true, vec!["minimal", "low", "medium", "high"], true),
             bundled("anthropic", "claude-sonnet-5", "Claude Sonnet 5", 1000000, 128000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
         ],
+        "devin" => vec![
+            bundled("devin", "devin-2.6", "Devin 2.6", 128000, 16384, false, Vec::new(), true),
+        ],
+        "google" => vec![
+            bundled("google", "gemini-2.5-pro", "Gemini 2.5 Pro", 2000000, 65536, true, vec!["low", "medium", "high"], true),
+            bundled("google", "gemini-2.5-flash", "Gemini 2.5 Flash", 1000000, 65536, true, vec!["low", "medium", "high"], true),
+            bundled("google", "gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite", 1000000, 65536, false, Vec::new(), true),
+            bundled("google", "gemini-2.0-flash", "Gemini 2.0 Flash", 1000000, 8192, false, Vec::new(), true),
+            bundled("google", "gemini-2.0-flash-thinking", "Gemini 2.0 Flash Thinking", 1000000, 8192, true, vec!["low", "medium", "high"], true),
+        ],
+        "groq" => vec![
+            bundled("groq", "llama-3.3-70b-versatile", "Llama 3.3 70B Versatile", 128000, 32768, false, Vec::new(), true),
+            bundled("groq", "llama-3.1-8b-instant", "Llama 3.1 8B Instant", 128000, 32768, false, Vec::new(), true),
+            bundled("groq", "mixtral-8x7b-32768", "Mixtral 8x7B", 32768, 32768, false, Vec::new(), true),
+            bundled("groq", "qwen-2.5-72b", "Qwen 2.5 72B", 128000, 32768, false, Vec::new(), true),
+        ],
+        "openrouter" => vec![
+            bundled("openrouter", "auto", "OpenRouter Auto", 128000, 16384, false, Vec::new(), true),
+        ],
+        "custom" => Vec::new(),
         _ => Vec::new(),
     }
 }
@@ -682,7 +752,8 @@ fn supports_reasoning(provider_id: &str, id: &str) -> bool {
     match provider_id {
         "openai" => ["gpt-5", "o1", "o3", "o4", "codex"].iter().any(|prefix| id == *prefix || id.starts_with(&format!("{prefix}-"))),
         "anthropic" => id.starts_with("claude-") || id.contains("sonnet") || id.contains("opus") || id.contains("haiku"),
-        _ => id.contains("reason") || id.contains("glm") || id.contains("thinking"),
+        "google" => id.contains("pro") || id.contains("thinking") || id.contains("2.5"),
+        _ => id.contains("reason") || id.contains("glm") || id.contains("thinking") || id.contains("pro"),
     }
 }
 

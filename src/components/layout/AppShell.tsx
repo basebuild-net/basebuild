@@ -905,6 +905,7 @@ Rules:
             })();
           }}
           onOpenHistory={() => setHistoryDrawerOpen(true)}
+          onOpenPlans={() => setPlansModalOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((v) => !v)}

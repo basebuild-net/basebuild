@@ -135,7 +135,31 @@ pub fn resolve_client(provider_id: &str, base_url: Option<&str>) -> Box<dyn Prov
                 .map(str::to_string)
                 .unwrap_or_else(|| "https://api.code.umans.ai/v1".to_string()),
         }),
-        // Default OpenAI-compatible (OpenAI itself and any future compatible provider).
+        "devin" => Box::new(OpenAiCompatibleClient {
+            provider_id: "devin".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://api.devin.ai/v1".to_string()),
+        }),
+        "google" => Box::new(OpenAiCompatibleClient {
+            provider_id: "google".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://generativelanguage.googleapis.com/v1beta/openai".to_string()),
+        }),
+        "groq" => Box::new(OpenAiCompatibleClient {
+            provider_id: "groq".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://api.groq.com/openai/v1".to_string()),
+        }),
+        "openrouter" => Box::new(OpenAiCompatibleClient {
+            provider_id: "openrouter".to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string()),
+        }),
+        // Default OpenAI-compatible (OpenAI itself, custom providers, and any future compatible provider).
         _ => Box::new(OpenAiCompatibleClient {
             provider_id: provider_id.to_string(),
             base_url: base_url

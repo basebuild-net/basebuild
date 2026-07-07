@@ -142,10 +142,11 @@ html, body, #root {
 .account-name { font-size: 11px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-chevron { color: var(--bb-muted); flex-shrink: 0; }
 .account-dropdown {
-  position: absolute; top: 100%; right: 0; z-index: 200;
+  position: fixed; z-index: 10000;
   min-width: 180px;
   background: var(--bb-surface-high); border: 1px solid var(--bb-border-strong);
   padding: 4px; display: flex; flex-direction: column; gap: 2px;
+  box-shadow: 0 -2px 12px rgba(0,0,0,0.4);
 }
 .account-dropdown-header { padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--bb-border); margin-bottom: 4px; }
 .account-dropdown-item {
