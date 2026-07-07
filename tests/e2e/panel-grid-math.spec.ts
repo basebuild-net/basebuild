@@ -753,4 +753,14 @@ test.describe("panel-grid orphan recovery", () => {
     // The state is untouched.
     expect(findPanel(state.root, "a")).toBeTruthy();
   });
+
+  test("6.1 a tab whose kind matches a creating panel is not orphaned", () => {
+    const creatingPanel: Panel = { id: "c", type: "chat", title: "Chat C", chatSessionId: null, terminalId: null, filePath: null, creating: true };
+    const state: PanelGridState = { root: { kind: "leaf", panel: creatingPanel }, activePanelId: "c", closedPanels: [] };
+    const tabs = [
+      { id: "c-tab", kind: "chat", title: "Chat C", chatSessionId: null }, // binding in flight
+    ];
+    const orphans = detectOrphanedTabs(state, tabs);
+    expect(orphans).toEqual([]);
+  });
 });

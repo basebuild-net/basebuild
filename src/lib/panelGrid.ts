@@ -773,16 +773,20 @@ export function detectOrphanedTabs(state: PanelGridState, tabs: ReadonlyArray<{
   const closedIds = new Set(state.closedPanels.map((p) => p.id));
   const closedChat = new Set(state.closedPanels.map((p) => p.chatSessionId).filter((id): id is string => !!id));
   const closedTerm = new Set(state.closedPanels.map((p) => p.terminalId).filter((id): id is number => id != null));
+  // A `creating` panel is in the process of binding a backing tab — its
+  // chatSessionId/terminalId is still null. Don't flag tabs that match a
+  // creating panel's kind (the binding will complete or roll back).
+  const creatingKinds = new Set(livePanels.filter((p) => p.creating).map((p) => p.type));
   const orphans: OrphanedTab[] = [];
   for (const tab of tabs) {
-    const panelId = tab.panelId ?? tab.id;
     const chat = tab.chatSessionId ?? null;
     const term = tab.terminalId ?? null;
     const reachable =
-      liveIds.has(panelId) || closedIds.has(panelId) ||
       (chat && (liveChat.has(chat) || closedChat.has(chat))) ||
       (term != null && (liveTerm.has(term) || closedTerm.has(term)));
-    if (!reachable) {
+    // Skip tabs whose kind matches a creating panel — binding is in flight.
+    const isBinding = creatingKinds.has(tab.kind as PanelType);
+    if (!reachable && !isBinding) {
       orphans.push({
         tabId: tab.id,
         panelId: tab.panelId ?? undefined,

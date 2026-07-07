@@ -120,6 +120,9 @@ export function AppShell({ updates }: AppShellProps) {
   // Per-type in-flight guard serializing rapid repeated creation clicks so
   // one click creates exactly one panel + one backing resource.
   const creatingInFlightRef = useRef<Set<string>>(new Set());
+  // Ref indirection so openOrFocusChat (defined before handleCreateTypedPanel)
+  // can call it without a forward-reference error.
+  const handleCreateTypedPanelRef = useRef<(type: "chat" | "terminal" | "omp" | "schematic", pendingPrompt?: { text: string; mode: PromptMode }) => void>(() => {});
   const [workspaceRestore, setWorkspaceRestore] = useState<WorkspaceRestoreState | null>(null);
   const titlePendingRef = useRef(false);
   const sidebar = useProjectSidebar(activeProjectPath);
@@ -190,14 +193,14 @@ export function AppShell({ updates }: AppShellProps) {
     if (!activeProjectPath) {
       setWorkspaceRestore(null);
       restoredProjectRef.current = null;
-      setProjectRestoreLoading(false);
+      loggedOrphanIdsRef.current.clear();
       return;
     }
     // Project-keyed loading boundary: disable panel mutations until this
     // project's restore resolves. The generation token ensures a late
     // response from a prior project cannot hydrate the current grid.
     const generation = ++restoreGenerationRef.current;
-    setProjectRestoreLoading(true);
+    loggedOrphanIdsRef.current.clear();
     let cancelled = false;
     void getWorkspaceRestoreState(activeProjectPath).then((state) => {
       if (cancelled || generation !== restoreGenerationRef.current) return;
@@ -267,10 +270,13 @@ export function AppShell({ updates }: AppShellProps) {
     }
   }, [workspaceRestore, addLog]);
   // Detect orphaned backing tabs after restore or when tabs change —
-  // non-destructive: log only, never delete.
+  // non-destructive: log only, never delete. Each orphan is logged once.
+  const loggedOrphanIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const orphans = detectOrphanedTabs(panelGridState, session.tabs);
     for (const o of orphans) {
+      if (loggedOrphanIdsRef.current.has(o.tabId)) continue;
+      loggedOrphanIdsRef.current.add(o.tabId);
       addLog("warn", "Orphaned session tab recovered", `Tab ${o.tabId} (${o.kind}) has no reachable panel; recover it from history or delete it explicitly.`);
     }
   }, [panelGridState, session.tabs, addLog]);
@@ -491,9 +497,7 @@ export function AppShell({ updates }: AppShellProps) {
           pendingNewPanelPrompts.current.set(existingChat.id, { text: draftPrompt, mode: "insert" });
         }
       } else {
-        const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
-        const tab = await session.createTab("chat", `Chat ${chatCount}`);
-        if (tab) pendingNewPanelPrompts.current.set(tab.id, { text: draftPrompt, mode: "insert" });
+        handleCreateTypedPanelRef.current("chat", { text: draftPrompt, mode: "insert" });
       }
     },
     [session],
@@ -639,7 +643,7 @@ Rules:
    *  rolled back on failure. Rapid clicks are serialized by a per-type
    *  in-flight guard so one click creates exactly one panel + one resource. */
   const handleCreateTypedPanel = useCallback(
-    (type: "chat" | "terminal" | "omp" | "schematic"): void => {
+    (type: "chat" | "terminal" | "omp" | "schematic", pendingPrompt?: { text: string; mode: PromptMode }): void => {
       if (!session.activeSessionId) return;
       if (projectRestoreLoading) {
         addLog("warn", "Panel creation blocked", "The project is still loading; please wait.");
@@ -672,14 +676,13 @@ Rules:
         void (async () => {
           try {
             const tab = await session.createTab("chat", `Chat ${chatCount}`);
-            // Bind: clear `creating`. The chatSessionId is linked later by
-            // ChatPanel via onChatSessionCreated.
-            setPanelGridState((prev) => ({
-              ...prev,
-              root: updatePanelInTree(prev.root, panelId, { creating: false }),
-            }));
+            // The chatSessionId is linked later by ChatPanel via
+            // onChatSessionCreated. Keep `creating: true` until then so
+            // orphan detection doesn't flag the in-flight tab.
             if (!tab) {
               addLog("warn", "Chat tab creation returned no tab", panelId);
+            } else if (pendingPrompt) {
+              pendingNewPanelPrompts.current.set(tab.id, pendingPrompt);
             }
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
@@ -732,6 +735,7 @@ Rules:
     },
     [session, activeProjectPath, projectRestoreLoading, panelGridState, commitInsert, addLog],
   );
+  handleCreateTypedPanelRef.current = handleCreateTypedPanel;
 
   /** Render a panel's content by type. */
   const renderPanel = useCallback(
@@ -764,12 +768,9 @@ Rules:
               // persists across restarts.
               setPanelGridState((prev) => ({
                 ...prev,
-                root: updatePanelInTree(prev.root, panel.id, { chatSessionId }),
+                root: updatePanelInTree(prev.root, panel.id, { chatSessionId, creating: false }),
               }));
             }}
-            activeSessionId={session.activeSessionId}
-            schematicContent={schematic.content}
-            onCreatePlanFromIdea={handleCreatePlanFromIdea}
             onOpenPlanningInspector={handleOpenPlanningInspector}
             onOpenSchematic={handleOpenSchematic}
             onCloseChat={() => setPanelGridState((prev) => closePanel(prev, panel.id))}
@@ -1194,11 +1195,8 @@ Rules:
             // Focus the panel that hosts this chat.
             setPanelGridState((prev) => ({ ...prev, activePanelId: choice.panelId }));
           } else {
-            // New conversation — create a chat tab + panel, queue the prompt.
-            const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
-            void session.createTab("chat", `Chat ${chatCount}`).then((tab) => {
-              if (tab) pendingNewPanelPrompts.current.set(tab.id, { text: pendingDelivery.text, mode: pendingDelivery.mode });
-            });
+            // New conversation — create a chat panel + backing tab, queue the prompt.
+            handleCreateTypedPanel("chat", { text: pendingDelivery.text, mode: pendingDelivery.mode });
           }
           setPendingDelivery(null);
         }}
