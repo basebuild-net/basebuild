@@ -13,7 +13,7 @@ use crate::{
     },
     services::{
         native_chat_service::NativeChatService, planning_events,
-        provider_client::{resolve_client, ChatMsg, ProviderRequest},
+        provider_client::{resolve_client_for_model, ChatMsg, ProviderRequest},
         session_service::SessionService, storage_service::StorageService,
     },
 };
@@ -734,7 +734,8 @@ impl PipelineService {
             tools: vec![ask_user_tool_schema()],
         };
 
-        let client = resolve_client(provider_id, req.base_url.as_deref());
+        let (api_kind, model_base_url) = NativeChatService::resolve_model_routing(provider_id, model_id);
+        let client = resolve_client_for_model(provider_id, &api_kind, req.base_url.as_deref(), &model_base_url);
         let session_id_for_emit = session_id.to_string();
         let run_id_for_check = run_id.to_string();
         let token_clone = token.clone();

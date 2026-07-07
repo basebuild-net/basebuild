@@ -18,7 +18,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::models::permission::{PermissionDecision, SessionRule};
 use crate::services::provider_client::{
-    resolve_client, ChatMsg, ProviderRequest, ToolCallRequest,
+    resolve_client_for_model, ChatMsg, ProviderRequest, ToolCallRequest,
     ToolSchema,
 };
 use crate::services::settings_service::SettingsService;
@@ -406,7 +406,8 @@ fn run_loop_inner(
             tools: tools.clone(),
         };
 
-        let client = resolve_client(provider_id, base_url.as_deref());
+        let (api_kind, model_base_url) = crate::services::native_chat_service::NativeChatService::resolve_model_routing(provider_id, model_id);
+        let client = resolve_client_for_model(provider_id, &api_kind, base_url.as_deref(), &model_base_url);
         let session_id_for_emit = session_id.to_string();
         let app_for_emit = app.clone();
         let emit = move |delta: &str, channel: &str| {

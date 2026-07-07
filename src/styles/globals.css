@@ -559,9 +559,6 @@ a { color: inherit; text-decoration: none; }
 .terminal-error { padding: 6px 8px; color: var(--bb-negative); font-size: 12px; }
 .terminal-reconnect-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.8); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; z-index: 10; }
 .terminal-reconnect-overlay p { font-size: 11px; color: var(--bb-muted); }
-.terminal-debug-panel { max-height: 120px; overflow-y: auto; background: #1a1a1a; border-top: 1px solid var(--bb-border); padding: 4px 6px; font-family: var(--bb-mono); font-size: 10px; color: #aaa; flex-shrink: 0; }
-.terminal-debug-line { white-space: pre-wrap; word-break: break-all; line-height: 1.4; }
-.terminal-debug-empty { color: #666; font-style: italic; }
 .terminal-toolbar .btn-sm { font-size: 10px; height: 18px; padding: 0 6px; }
 
 /* ─── OMP panel ─── */
@@ -773,7 +770,7 @@ a { color: inherit; text-decoration: none; }
 }
 .project-schematic-toolbar { display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 28px; border-bottom: 1px solid var(--bb-border); background: var(--bb-surface); }
 .project-schematic-toolbar-title { flex: 1; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--bb-muted); }
-.schematic-health-badge { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; border: 1px solid var(--bb-border); }
+.schematic-health-badge { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; border: 1px solid var(--bb-border); cursor: default; }
 .schematic-health-badge.is-complete { color: var(--bb-positive); border-color: rgba(74, 222, 128, 0.4); }
 .schematic-health-badge.is-partial { color: var(--bb-warning); border-color: rgba(250, 204, 21, 0.4); }
 .schematic-health-badge.is-missing { color: var(--bb-negative); border-color: rgba(248, 113, 113, 0.4); }
@@ -1329,8 +1326,8 @@ a { color: inherit; text-decoration: none; }
 .modal {
   background: var(--bb-bg); border: 1px solid var(--bb-border);
   border-radius: 0;
-  width: 720px; height: 540px;
-  max-width: 90vw; max-height: 85vh;
+  width: min(92vw, 960px); height: min(85vh, 640px);
+  max-width: 92vw; max-height: 85vh;
   display: flex; flex-direction: column; overflow: hidden;
 }
 .modal-header {
@@ -1339,10 +1336,10 @@ a { color: inherit; text-decoration: none; }
   flex-shrink: 0;
 }
 .modal-header h2 { margin: 0; font-size: 13px; font-weight: 600; }
-.modal-body { display: flex; flex: 1; overflow: auto; }
+.modal-body { display: flex; flex: 1; overflow: auto; width: 100%; }
 .modal-body-scroll { flex: 1; overflow-y: auto; padding: 12px; }
-.settings-modal { width: 720px; height: 540px; }
-.plan-modal { width: 720px; height: 540px; }
+.settings-modal { width: min(92vw, 960px); height: min(85vh, 640px); }
+.plan-modal { width: min(92vw, 960px); height: min(85vh, 640px); }
 .plan-modal .modal-body { flex-direction: column; overflow: auto; padding: 12px; }
 .plan-mode-list { display: flex; flex-direction: column; gap: 4px; }
 .plan-mode-card {
@@ -1371,7 +1368,7 @@ a { color: inherit; text-decoration: none; }
   padding: 8px 12px; border-top: 1px solid var(--bb-border);
   flex-shrink: 0;
 }
-.modal-plan-import { width: 720px; height: 540px; }
+.modal-plan-import { width: min(92vw, 960px); height: min(85vh, 640px); }
 .modal-plan-import .modal-body { flex-direction: column; overflow: auto; padding: 12px; gap: 8px; }
 .text-error { color: var(--bb-danger, #e5484d); }
 .import-candidate-list, .import-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -1537,6 +1534,13 @@ a { color: inherit; text-decoration: none; }
 .integration-pr-closed { color: var(--bb-danger, #c53030); }
 .integration-pr-link { color: var(--bb-muted); display: inline-flex; }
 .integration-entry-actions { display: flex; gap: 4px; }
+.inspector-ideas-filter { display: flex; gap: 4px; flex-wrap: wrap; padding: 4px 0; }
+.inspector-filter-chip {
+  font-size: 10px; padding: 2px 8px; border: 1px solid var(--bb-border);
+  border-radius: 0; background: transparent; color: var(--bb-muted);
+  cursor: pointer; white-space: nowrap;
+}
+.inspector-filter-chip:hover { color: var(--bb-text); border-color: var(--bb-text-muted, var(--bb-muted)); }
 .inspector-filter-chip.is-active { color: var(--bb-text); border-color: var(--bb-cta); }
 .inspector-ideas-list { display: flex; flex-direction: column; gap: 4px; max-height: 400px; overflow-y: auto; }
 .inspector-categories { padding: 4px; gap: 6px; }

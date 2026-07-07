@@ -1002,6 +1002,7 @@ Rules:
                 loading={plans.loading}
                 collapsed={false}
                 onToggleCollapse={() => {}}
+                hostContext="modal"
                 onCreatePlan={() => { setPlansModalOpen(false); handleCreatePlan(); }}
                 onEditPlan={(p) => { setPlansModalOpen(false); handleEditPlan(p); }}
                 onFocusPlan={handleFocusPlan}

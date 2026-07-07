@@ -21,6 +21,12 @@ export type TerminalDataEvent = {
   id: number;
   kind: "data";
   data: string;
+  seq?: number;
+};
+
+export type TerminalReplay = {
+  data: string;
+  lastSeq: number;
 };
 
 export type TerminalEvent = TerminalCloseEvent | TerminalDataEvent;
@@ -47,4 +53,8 @@ export async function listenTerminalOutput(handler: EventCallback<TerminalEvent>
 
 export async function listTerminals(): Promise<TerminalSession[]> {
   return invoke<TerminalSession[]>("list_terminals");
+}
+
+export async function terminalReplay(id: number): Promise<TerminalReplay> {
+  return invoke<TerminalReplay>("terminal_replay", { id });
 }

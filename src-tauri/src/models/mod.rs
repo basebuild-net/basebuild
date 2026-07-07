@@ -13,6 +13,7 @@ pub mod planning_event;
 pub mod planning_prompt;
 pub mod pipeline;
 pub mod native_chat;
+pub mod omp_catalog;
 pub mod project;
 pub mod permission;
 pub mod runtime;

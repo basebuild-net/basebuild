@@ -592,16 +592,34 @@ impl StorageService {
             );
         }
 
-        // Migration: add model_api_id to native_provider_model_cache for
-        // provider-specific model ids (e.g. "umans-glm-5.2") distinct from the
-        // canonical model_id used as the cache primary key. Null for legacy
-        // bundled/discovered rows; resolve_client falls back to model_id.
-        let has_model_api_id = connection
-            .prepare("SELECT model_api_id FROM native_provider_model_cache LIMIT 0")
+        // Migration (provider-parity-workspace-fixes): add api_kind, base_url,
+        // cost_input, cost_output, and bundled_version columns to
+        // native_provider_model_cache. api_kind is the OMP wire-protocol kind
+        // (e.g. "devin-agent") used by resolve_client to route chat turns.
+        // base_url is the model's catalog base URL. bundled_version stamps
+        // bundled rows so stale ones can be replaced on catalog version bump.
+        let has_api_kind = connection
+            .prepare("SELECT api_kind FROM native_provider_model_cache LIMIT 0")
             .is_ok();
-        if !has_model_api_id {
+        if !has_api_kind {
             let _ = connection.execute(
-                "ALTER TABLE native_provider_model_cache ADD COLUMN model_api_id TEXT",
+                "ALTER TABLE native_provider_model_cache ADD COLUMN api_kind TEXT NOT NULL DEFAULT ''",
+                [],
+            );
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN base_url TEXT NOT NULL DEFAULT ''",
+                [],
+            );
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN cost_input REAL",
+                [],
+            );
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN cost_output REAL",
+                [],
+            );
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN bundled_version TEXT",
                 [],
             );
         }

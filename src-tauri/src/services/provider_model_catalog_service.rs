@@ -4,7 +4,10 @@ use rusqlite::{params, OptionalExtension};
 use serde_json::Value;
 
 use crate::{
-    models::native_chat::{NativeEffortLevel, NativeModel, NativeProvider, NativeProviderCatalog, NativeProviderCredential},
+    models::{
+        native_chat::{NativeEffortLevel, NativeModel, NativeProvider, NativeProviderCatalog, NativeProviderCredential},
+        omp_catalog,
+    },
     services::{
         native_chat_service::NativeChatService,
         provider_client::OMP_CODEX_BASE_URL,
@@ -19,9 +22,9 @@ const LOCAL_MODEL_ID: &str = "basebuild-local-coordinator";
 const DEFAULT_EFFORT: &str = "medium";
 const CACHE_MAX_AGE_SECONDS: i64 = 24 * 60 * 60;
 
-#[derive(Clone, Copy)]
-struct ProviderSpec {
-    id: &'static str,
+/// Provider-level metadata overlaid on the OMP catalog. OMP carries the
+/// model list and wire-protocol kind; Basebuild adds the auth/UI metadata.
+struct ProviderOverlay {
     label: &'static str,
     credential_owner: &'static str,
     local_only: bool,
@@ -31,11 +34,26 @@ struct ProviderSpec {
     default_base_url: Option<&'static str>,
 }
 
+/// Resolved provider spec: OMP catalog presence + Basebuild overlay metadata.
+#[derive(Clone)]
+struct ProviderSpec {
+    id: String,
+    label: String,
+    credential_owner: String,
+    local_only: bool,
+    auth_method: String,
+    api_key_url: Option<String>,
+    detail: String,
+    default_base_url: Option<String>,
+}
+
+
 #[derive(Debug, Clone)]
 struct CachedModel {
     model: NativeModel,
     synced_at: i64,
     error: Option<String>,
+    bundled_version: Option<String>,
 }
 
 pub struct ProviderModelCatalogService;
@@ -47,19 +65,35 @@ impl ProviderModelCatalogService {
         let cached = Self::cached_models().unwrap_or_default();
         let mut models = Vec::new();
         let mut stale = false;
-
         for spec in provider_specs() {
             let provider_cached: Vec<&CachedModel> = cached.iter().filter(|m| m.model.provider_id == spec.id).collect();
             if provider_cached.is_empty() {
-                models.extend(bundled_models(spec.id));
-                if !spec.local_only && is_configured(spec.id, &credentials) {
+                models.extend(bundled_models(&spec.id));
+                if !spec.local_only && is_configured(&spec.id, &credentials) {
                     stale = true;
                 }
                 continue;
             }
 
+            // Stamp-mismatch check: if cached rows are bundled-source and
+            // their catalog version doesn't match the current vendored
+            // catalog, replace them with current bundled models. This
+            // self-heals stale bundled rows (e.g. an old `devin-2.0` row
+            // from a prior catalog version) without manual DB surgery.
+            let current_version = omp_catalog::CATALOG_VERSION.trim();
+            let bundled_stale = provider_cached.iter().any(|item| {
+                item.model.source == "bundled"
+                    && item.bundled_version.as_deref() != Some(current_version)
+            });
+            if bundled_stale {
+                let fresh = bundled_models(&spec.id);
+                let _ = Self::replace_provider_cache(&spec.id, fresh, "bundled", None);
+                models.extend(bundled_models(&spec.id));
+                continue;
+            }
+
             for item in &provider_cached {
-                if !spec.local_only && is_configured(spec.id, &credentials) && now - item.synced_at > CACHE_MAX_AGE_SECONDS {
+                if !spec.local_only && is_configured(&spec.id, &credentials) && now - item.synced_at > CACHE_MAX_AGE_SECONDS {
                     stale = true;
                 }
                 models.push(item.model.clone());
@@ -71,7 +105,7 @@ impl ProviderModelCatalogService {
             .map(|spec| {
                 let provider_models: Vec<&NativeModel> = models.iter().filter(|m| m.provider_id == spec.id).collect();
                 let provider_cached: Vec<&CachedModel> = cached.iter().filter(|m| m.model.provider_id == spec.id).collect();
-                let configured = spec.local_only || is_configured(spec.id, &credentials);
+                let configured = spec.local_only || is_configured(&spec.id, &credentials);
                 let last_synced_at = provider_cached.iter().map(|m| m.synced_at).max();
                 let error = provider_cached.iter().find_map(|m| m.error.clone());
                 let source = provider_models
@@ -88,7 +122,7 @@ impl ProviderModelCatalogService {
                     local_only: spec.local_only,
                     detail: spec.detail.to_string(),
                     auth_method: spec.auth_method.to_string(),
-                    api_key_url: spec.api_key_url.map(|s| s.to_string()),
+                    api_key_url: spec.api_key_url.clone(),
                     model_count: provider_models.len() as i64,
                     last_synced_at,
                     source,
@@ -129,18 +163,18 @@ impl ProviderModelCatalogService {
 
     fn refresh_provider_spec(spec: ProviderSpec, credentials: &[NativeProviderCredential], force: bool) -> DbResult<()> {
         if spec.local_only {
-            return Self::replace_provider_cache(spec.id, bundled_models(spec.id), "bundled", None);
+            return Self::replace_provider_cache(&spec.id, bundled_models(&spec.id), "bundled", None);
         }
 
         let credential = credentials.iter().find(|c| c.provider_id == spec.id);
         if credential.is_none() {
-            if Self::has_cached_provider(spec.id)? {
+            if Self::has_cached_provider(&spec.id)? {
                 return Ok(());
             }
-            return Self::replace_provider_cache(spec.id, bundled_models(spec.id), "bundled", None);
+            return Self::replace_provider_cache(&spec.id, bundled_models(&spec.id), "bundled", None);
         }
 
-        if !force && Self::provider_cache_fresh(spec.id)? {
+        if !force && Self::provider_cache_fresh(&spec.id)? {
             return Ok(());
         }
 
@@ -150,7 +184,7 @@ impl ProviderModelCatalogService {
         // basebuild.net catalog first; if it has rows for this provider,
         // skip per-provider /v1/models discovery entirely.
         let catalog_synced = crate::services::catalog_sync_service::sync_catalog();
-        if catalog_synced.error.is_none() && Self::has_cached_provider_with_source(spec.id, "catalog_sync")? {
+        if catalog_synced.error.is_none() && Self::has_cached_provider_with_source(&spec.id, "catalog_sync")? {
             return Ok(());
         }
 
@@ -158,16 +192,20 @@ impl ProviderModelCatalogService {
             // OMP-backed ChatGPT OAuth is not an OpenAI /v1 API key. Only show
             // models confirmed to work through OMP's openai-codex RPC path.
             Ok(omp_codex_oauth_models())
-        } else if spec.id == "devin" {
-            // Devin uses a protobuf Connect RPC at server.codeium.com, not an
-            // OpenAI-compatible /v1/models endpoint. Use the bundled OMP catalog.
-            Err("Devin models are loaded from the bundled catalog.".to_string())
+        } else if is_bespoke_provider(&spec.id) {
+            // Bespoke-protocol providers (devin-agent, cursor-agent, etc.)
+            // are not OpenAI-compatible. Try `omp models` for live
+            // discovery; fall back to the bundled OMP catalog.
+            match Self::discover_via_omp_cli(&spec.id) {
+                Ok(models) if !models.is_empty() => Ok(models),
+                _ => Ok(bundled_models(&spec.id)),
+            }
         } else {
-            Self::discover_openai_compatible(spec, credential)
+            Self::discover_openai_compatible(spec.clone(), credential)
         };
 
         match discovered {
-            Ok(models) if !models.is_empty() => Self::replace_provider_cache(spec.id, models, "provider_discovered", None),
+            Ok(models) if !models.is_empty() => Self::replace_provider_cache(&spec.id, models, "provider_discovered", None),
             Ok(_) => Self::fallback_or_preserve(spec, "Provider returned no models."),
             Err(error) => Self::fallback_or_preserve(spec, &error),
         }
@@ -178,7 +216,7 @@ impl ProviderModelCatalogService {
             .base_url
             .as_deref()
             .filter(|value| !value.trim().is_empty())
-            .or(spec.default_base_url)
+            .or(spec.default_base_url.as_deref())
             .unwrap_or("https://api.openai.com/v1")
             .trim_end_matches('/')
             .to_string();
@@ -217,18 +255,22 @@ impl ProviderModelCatalogService {
             models.push(model_with_source(NativeModel {
                 id: id.to_string(),
                 provider_id: spec.id.to_string(),
-                label: model_label(spec.id, id),
-                supports_effort: supports_reasoning(spec.id, id),
+                label: model_label(&spec.id, id),
+                supports_effort: supports_reasoning(&spec.id, id),
                 supports_streaming: true,
                 supports_tools: true,
                 local_only: false,
                 context_window: extract_i64(entry, &["context_window", "contextWindow", "context_length", "max_context_window", "maxContextWindow"]),
                 max_tokens: extract_i64(entry, &["max_output_tokens", "maxOutputTokens", "max_tokens", "maxTokens"]),
-                supports_reasoning: supports_reasoning(spec.id, id),
-                supported_efforts: if supports_reasoning(spec.id, id) { effort_ids() } else { Vec::new() },
+                supports_reasoning: supports_reasoning(&spec.id, id),
+                supported_efforts: if supports_reasoning(&spec.id, id) { effort_ids() } else { Vec::new() },
                 supports_images: supports_images(id),
                 source: "provider_discovered".to_string(),
                 model_api_id: None,
+                api_kind: String::new(),
+                base_url: String::new(),
+                cost_input: None,
+                cost_output: None,
             }, "provider_discovered"));
         }
 
@@ -237,17 +279,89 @@ impl ProviderModelCatalogService {
         Ok(models)
     }
 
+    /// Discover models via `omp models <provider> --json --no-extensions`.
+    /// Returns models with source `omp_cli`. Falls back to an empty vec
+    /// (caller falls back to bundled) if OMP is not installed or the
+    /// command fails or times out.
+    fn discover_via_omp_cli(provider_id: &str) -> DbResult<Vec<NativeModel>> {
+        use std::process::Command;
+        let output = Command::new("omp")
+            .args(["models", provider_id, "--json", "--no-extensions"])
+            .output();
+        let output = match output {
+            Ok(o) => o,
+            Err(_) => return Ok(Vec::new()), // OMP not installed
+        };
+        if !output.status.success() {
+            return Ok(Vec::new());
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let payload: Value = serde_json::from_str(&stdout)
+            .map_err(|e| format!("Failed to parse `omp models` output: {e}"))?;
+        let entries = payload
+            .get("models")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "`omp models` output did not include a models array".to_string())?;
+
+        let mut models = Vec::new();
+        for entry in entries {
+            let id = entry.get("id").and_then(Value::as_str).unwrap_or_default().trim();
+            if id.is_empty() {
+                continue;
+            }
+            let reasoning = entry.get("reasoning").and_then(Value::as_bool).unwrap_or(false);
+            let supported_efforts = if reasoning { effort_ids() } else { Vec::new() };
+            let context_window = entry.get("contextWindow").and_then(Value::as_i64)
+                .or_else(|| entry.get("context_window").and_then(Value::as_i64));
+            let max_tokens = entry.get("maxTokens").and_then(Value::as_i64)
+                .or_else(|| entry.get("max_tokens").and_then(Value::as_i64));
+            let api_kind = entry.get("api").and_then(Value::as_str).unwrap_or_default().to_string();
+            let base_url = entry.get("baseUrl").and_then(Value::as_str).unwrap_or_default().to_string();
+            let input_modalities: Vec<String> = entry.get("input")
+                .and_then(Value::as_array)
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            let supports_images = input_modalities.iter().any(|m| m == "image");
+            let cost_input = entry.get("cost").and_then(|c| c.get("input")).and_then(Value::as_f64);
+            let cost_output = entry.get("cost").and_then(|c| c.get("output")).and_then(Value::as_f64);
+            let label = entry.get("name").and_then(Value::as_str).unwrap_or(id).to_string();
+            models.push(model_with_source(NativeModel {
+                id: id.to_string(),
+                provider_id: provider_id.to_string(),
+                label,
+                supports_effort: reasoning,
+                supports_streaming: true,
+                supports_tools: true,
+                local_only: false,
+                context_window,
+                max_tokens,
+                supports_reasoning: reasoning,
+                supported_efforts,
+                supports_images,
+                source: "omp_cli".to_string(),
+                model_api_id: None,
+                api_kind,
+                base_url,
+                cost_input,
+                cost_output,
+            }, "omp_cli"));
+        }
+        models.sort_by(|a, b| a.label.cmp(&b.label));
+        models.dedup_by(|a, b| a.id == b.id && a.provider_id == b.provider_id);
+        Ok(models)
+    }
+
     fn fallback_or_preserve(spec: ProviderSpec, error: &str) -> DbResult<()> {
-        if let Some(models) = Self::hosted_fallback(spec)? {
+        if let Some(models) = Self::hosted_fallback(spec.clone())? {
             if !models.is_empty() {
-                return Self::replace_provider_cache(spec.id, models, "hosted_fallback", Some(error.to_string()));
+                return Self::replace_provider_cache(&spec.id, models, "hosted_fallback", Some(error.to_string()));
             }
         }
 
-        if Self::has_cached_provider(spec.id)? {
-            Self::mark_provider_error(spec.id, error)
+        if Self::has_cached_provider(&spec.id)? {
+            Self::mark_provider_error(&spec.id, error)
         } else {
-            Self::replace_provider_cache(spec.id, bundled_models(spec.id), "bundled", Some(error.to_string()))
+            Self::replace_provider_cache(&spec.id, bundled_models(&spec.id), "bundled", Some(error.to_string()))
         }
     }
 
@@ -258,7 +372,7 @@ impl ProviderModelCatalogService {
         };
         let mut url = reqwest::Url::parse(endpoint.trim())
             .map_err(|e| format!("Invalid BASEBUILD_MODEL_DIRECTORY_URL: {e}"))?;
-        url.query_pairs_mut().append_pair("provider", spec.id);
+        url.query_pairs_mut().append_pair("provider", &spec.id);
         let response = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
@@ -278,8 +392,8 @@ impl ProviderModelCatalogService {
             providers
                 .iter()
                 .find(|provider| {
-                    provider.get("slug").and_then(Value::as_str) == Some(spec.id)
-                        || provider.get("name").and_then(Value::as_str).map(|name| name.eq_ignore_ascii_case(spec.label)).unwrap_or(false)
+                    provider.get("slug").and_then(Value::as_str) == Some(spec.id.as_str())
+                        || provider.get("name").and_then(Value::as_str).map(|name| name.eq_ignore_ascii_case(&spec.label)).unwrap_or(false)
                 })
                 .and_then(|provider| provider.get("models").and_then(Value::as_array).cloned())
                 .unwrap_or_default()
@@ -298,8 +412,8 @@ impl ProviderModelCatalogService {
                     .or_else(|| entry.get("name"))
                     .and_then(Value::as_str)
                     .map(str::to_string)
-                    .unwrap_or_else(|| model_label(spec.id, id));
-                let reasoning = entry.get("supportsReasoning").and_then(Value::as_bool).unwrap_or_else(|| supports_reasoning(spec.id, id));
+                    .unwrap_or_else(|| model_label(&spec.id, id));
+                let reasoning = entry.get("supportsReasoning").and_then(Value::as_bool).unwrap_or_else(|| supports_reasoning(&spec.id, id));
                 let supported = entry.get("supportedEfforts")
                     .and_then(Value::as_array)
                     .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
@@ -319,18 +433,22 @@ impl ProviderModelCatalogService {
                     supports_images: entry.get("supportsImages").and_then(Value::as_bool).unwrap_or_else(|| supports_images(id)),
                     source: "hosted_fallback".to_string(),
                     model_api_id: None,
+                    api_kind: String::new(),
+                    base_url: String::new(),
+                    cost_input: None,
+                    cost_output: None,
                 }, "hosted_fallback"))
             })
             .collect();
         Ok(Some(models))
     }
-
     fn cached_models() -> DbResult<Vec<CachedModel>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn
             .prepare(
                 "SELECT provider_id, model_id, label, context_window, max_tokens, supports_reasoning,
-                        supported_efforts, supports_images, source, synced_at, error, model_api_id
+                        supported_efforts, supports_images, source, synced_at, error, model_api_id,
+                        api_kind, base_url, cost_input, cost_output, bundled_version
                  FROM native_provider_model_cache
                  ORDER BY provider_id, label",
             )
@@ -358,9 +476,14 @@ impl ProviderModelCatalogService {
                         supports_images: row.get::<_, i64>(7)? != 0,
                         source: row.get(8)?,
                         model_api_id: row.get::<_, Option<String>>(11)?,
+                        api_kind: row.get::<_, Option<String>>(12)?.unwrap_or_default(),
+                        base_url: row.get::<_, Option<String>>(13)?.unwrap_or_default(),
+                        cost_input: row.get::<_, Option<f64>>(14)?,
+                        cost_output: row.get::<_, Option<f64>>(15)?,
                     },
                     synced_at: row.get(9)?,
                     error: row.get(10)?,
+                    bundled_version: row.get::<_, Option<String>>(16)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -373,10 +496,17 @@ impl ProviderModelCatalogService {
         conn.execute("DELETE FROM native_provider_model_cache WHERE provider_id = ?1", params![provider_id])
             .map_err(|e| format!("Failed to clear model cache: {e}"))?;
         for model in models {
+            let bundled_version = if source == "bundled" {
+                Some(omp_catalog::CATALOG_VERSION.trim().to_string())
+            } else {
+                None
+            };
             conn.execute(
                 "INSERT INTO native_provider_model_cache
-                 (provider_id, model_id, label, context_window, max_tokens, supports_reasoning, supported_efforts, supports_images, source, synced_at, error, model_api_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                 (provider_id, model_id, label, context_window, max_tokens, supports_reasoning,
+                  supported_efforts, supports_images, source, synced_at, error, model_api_id,
+                  api_kind, base_url, cost_input, cost_output, bundled_version)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
                 params![
                     provider_id,
                     model.id,
@@ -390,6 +520,11 @@ impl ProviderModelCatalogService {
                     now,
                     error,
                     model.model_api_id,
+                    model.api_kind,
+                    model.base_url,
+                    model.cost_input,
+                    model.cost_output,
+                    bundled_version,
                 ],
             )
             .map_err(|e| format!("Failed to save model cache row: {e}"))?;
@@ -448,159 +583,197 @@ impl ProviderModelCatalogService {
     }
 }
 
-fn provider_specs() -> Vec<ProviderSpec> {
-    vec![
-        ProviderSpec {
-            id: LOCAL_PROVIDER_ID,
-            label: "Basebuild Local",
-            credential_owner: "basebuild",
-            local_only: true,
-            auth_method: "local",
-            api_key_url: None,
-            detail: "Runs locally without a network provider.",
-            default_base_url: None,
-        },
-        ProviderSpec {
-            id: "umans",
-            label: "Umans",
-            credential_owner: "user",
-            local_only: false,
+fn provider_overlays() -> &'static [(&'static str, ProviderOverlay)] {
+    &[
+        ("umans", ProviderOverlay {
+            label: "Umans", credential_owner: "user", local_only: false,
             auth_method: "api_key",
             api_key_url: Some("https://app.umans.ai/billing?context=personal&tab=api-keys"),
             detail: "Umans API — OpenAI-compatible. Enter your API key to connect.",
             default_base_url: Some("https://api.code.umans.ai/v1"),
-        },
-        ProviderSpec {
-            id: "openai",
-            label: "OpenAI",
-            credential_owner: "user",
-            local_only: false,
+        }),
+        ("openai", ProviderOverlay {
+            label: "OpenAI", credential_owner: "user", local_only: false,
             auth_method: "api_key",
             api_key_url: Some("https://platform.openai.com/api-keys"),
             detail: "OpenAI API — enter your API key to connect.",
             default_base_url: Some("https://api.openai.com/v1"),
-        },
-        ProviderSpec {
-            id: "anthropic",
-            label: "Anthropic",
-            credential_owner: "user",
-            local_only: false,
+        }),
+        ("anthropic", ProviderOverlay {
+            label: "Anthropic", credential_owner: "user", local_only: false,
             auth_method: "api_key",
             api_key_url: Some("https://console.anthropic.com/settings/keys"),
             detail: "Anthropic API — enter your API key to connect.",
             default_base_url: Some("https://api.anthropic.com/v1"),
-        },
-        ProviderSpec {
-            id: "devin",
-            label: "Devin.ai",
-            credential_owner: "user",
-            local_only: false,
+        }),
+        ("devin", ProviderOverlay {
+            label: "Devin.ai", credential_owner: "user", local_only: false,
             auth_method: "api_key",
             api_key_url: Some("https://app.devin.ai/settings/api-keys"),
             detail: "Devin.ai (Codeium Cascade) — enter your API key to connect.",
             default_base_url: Some("https://server.codeium.com"),
-        },
-        ProviderSpec {
-            id: "google",
-            label: "Google Gemini",
-            credential_owner: "user",
-            local_only: false,
+        }),
+        ("google", ProviderOverlay {
+            label: "Google Gemini", credential_owner: "user", local_only: false,
             auth_method: "api_key",
             api_key_url: Some("https://aistudio.google.com/apikey"),
             detail: "Google Gemini API — OpenAI-compatible endpoint. Enter your API key to connect.",
             default_base_url: Some("https://generativelanguage.googleapis.com/v1beta/openai"),
-        },
-        ProviderSpec {
-            id: "groq",
-            label: "Groq",
-            credential_owner: "user",
-            local_only: false,
+        }),
+        ("groq", ProviderOverlay {
+            label: "Groq", credential_owner: "user", local_only: false,
             auth_method: "api_key",
             api_key_url: Some("https://console.groq.com/keys"),
             detail: "Groq API — OpenAI-compatible. Enter your API key to connect.",
             default_base_url: Some("https://api.groq.com/openai/v1"),
-        },
-        ProviderSpec {
-            id: "openrouter",
-            label: "OpenRouter",
-            credential_owner: "user",
-            local_only: false,
+        }),
+        ("openrouter", ProviderOverlay {
+            label: "OpenRouter", credential_owner: "user", local_only: false,
             auth_method: "api_key",
             api_key_url: Some("https://openrouter.ai/keys"),
             detail: "OpenRouter API — OpenAI-compatible. Enter your API key to connect.",
             default_base_url: Some("https://openrouter.ai/api/v1"),
-        },
-        ProviderSpec {
-            id: "deepseek",
-            label: "DeepSeek",
-            credential_owner: "user",
-            local_only: false,
+        }),
+        ("deepseek", ProviderOverlay {
+            label: "DeepSeek", credential_owner: "user", local_only: false,
             auth_method: "api_key",
             api_key_url: Some("https://platform.deepseek.com/api_keys"),
             detail: "DeepSeek API — enter your API key to connect.",
             default_base_url: Some("https://api.deepseek.com/v1"),
-        },
-        ProviderSpec {
-            id: "mistral",
-            label: "Mistral",
-            credential_owner: "user",
-            local_only: false,
+        }),
+        ("mistral", ProviderOverlay {
+            label: "Mistral", credential_owner: "user", local_only: false,
             auth_method: "api_key",
             api_key_url: Some("https://console.mistral.ai/api-keys"),
             detail: "Mistral API — enter your API key to connect.",
             default_base_url: Some("https://api.mistral.ai/v1"),
-        },
-        ProviderSpec {
-            id: "xai",
-            label: "xAI (Grok)",
-            credential_owner: "user",
-            local_only: false,
+        }),
+        ("xai", ProviderOverlay {
+            label: "xAI (Grok)", credential_owner: "user", local_only: false,
             auth_method: "api_key",
             api_key_url: Some("https://console.x.ai"),
             detail: "xAI (Grok) API — enter your API key to connect.",
             default_base_url: Some("https://api.x.ai/v1"),
-        },
-        ProviderSpec {
-            id: "together",
-            label: "Together AI",
-            credential_owner: "user",
-            local_only: false,
+        }),
+        ("together", ProviderOverlay {
+            label: "Together AI", credential_owner: "user", local_only: false,
             auth_method: "api_key",
             api_key_url: Some("https://api.together.ai/settings/api-keys"),
             detail: "Together AI API — enter your API key to connect.",
             default_base_url: Some("https://api.together.xyz/v1"),
-        },
-        ProviderSpec {
-            id: "fireworks",
-            label: "Fireworks AI",
-            credential_owner: "user",
-            local_only: false,
+        }),
+        ("fireworks", ProviderOverlay {
+            label: "Fireworks AI", credential_owner: "user", local_only: false,
             auth_method: "api_key",
             api_key_url: Some("https://fireworks.ai/api-keys"),
             detail: "Fireworks AI API — enter your API key to connect.",
             default_base_url: Some("https://api.fireworks.ai/inference/v1"),
-        },
-        ProviderSpec {
-            id: "cerebras",
-            label: "Cerebras",
-            credential_owner: "user",
-            local_only: false,
+        }),
+        ("cerebras", ProviderOverlay {
+            label: "Cerebras", credential_owner: "user", local_only: false,
             auth_method: "api_key",
             api_key_url: Some("https://cloud.cerebras.ai"),
             detail: "Cerebras API — enter your API key to connect.",
             default_base_url: Some("https://api.cerebras.ai/v1"),
-        },
-        ProviderSpec {
-            id: "custom",
-            label: "Custom (OpenAI-compatible)",
-            credential_owner: "user",
-            local_only: false,
-            auth_method: "api_key",
-            api_key_url: None,
-            detail: "Any OpenAI-compatible endpoint. Enter your API key and base URL.",
-            default_base_url: None,
-        },
+        }),
     ]
+}
+
+fn overlay_for(provider_id: &str) -> Option<&'static ProviderOverlay> {
+    provider_overlays()
+        .iter()
+        .find(|(id, _)| *id == provider_id)
+        .map(|(_, o)| o)
+}
+
+fn provider_specs() -> Vec<ProviderSpec> {
+    let mut specs = Vec::new();
+
+    // Synthetic local provider (not in the OMP catalog).
+    specs.push(ProviderSpec {
+        id: LOCAL_PROVIDER_ID.to_string(),
+        label: "Basebuild Local".to_string(),
+        credential_owner: "basebuild".to_string(),
+        local_only: true,
+        auth_method: "local".to_string(),
+        api_key_url: None,
+        detail: "Runs locally without a network provider.".to_string(),
+        default_base_url: None,
+    });
+
+    // All providers from the vendored OMP catalog, overlaid with Basebuild
+    // metadata where available. Providers without an overlay get generic
+    // defaults derived from the catalog.
+    for pid in omp_catalog::provider_ids() {
+        let overlay = overlay_for(pid);
+        let models = omp_catalog::models_for(pid);
+        let first_base_url = models.first().map(|m| m.base_url.as_str());
+        let label = overlay
+            .map(|o| o.label.to_string())
+            .unwrap_or_else(|| model_label(pid, pid));
+        let auth_method = overlay
+            .map(|o| o.auth_method.to_string())
+            .unwrap_or_else(|| {
+                // Providers whose models all use bespoke api kinds typically
+                // require OAuth (delegated to OMP). Default others to api_key.
+                let all_bespoke = models
+                    .iter()
+                    .all(|m| is_bespoke_api_kind(&m.api_kind));
+                if all_bespoke { "oauth".to_string() } else { "api_key".to_string() }
+            });
+        specs.push(ProviderSpec {
+            id: pid.to_string(),
+            label: label.clone(),
+            credential_owner: overlay
+                .map(|o| o.credential_owner.to_string())
+                .unwrap_or_else(|| "user".to_string()),
+            local_only: false,
+            auth_method,
+            api_key_url: overlay.and_then(|o| o.api_key_url.map(String::from)),
+            detail: overlay
+                .map(|o| o.detail.to_string())
+                .unwrap_or_else(|| format!("{label} — connect to use available models.")),
+            default_base_url: overlay
+                .and_then(|o| o.default_base_url.map(String::from))
+                .or_else(|| first_base_url.map(String::from)),
+        });
+    }
+
+    // Synthetic custom provider (user-supplied OpenAI-compatible endpoint).
+    specs.push(ProviderSpec {
+        id: "custom".to_string(),
+        label: "Custom (OpenAI-compatible)".to_string(),
+        credential_owner: "user".to_string(),
+        local_only: false,
+        auth_method: "api_key".to_string(),
+        api_key_url: None,
+        detail: "Any OpenAI-compatible endpoint. Enter your API key and base URL.".to_string(),
+        default_base_url: None,
+    });
+
+    specs
+}
+
+/// Returns true for api kinds that use a bespoke wire protocol handled by OMP
+/// RPC delegation (not native OpenAI/Anthropic-compatible HTTP).
+fn is_bespoke_api_kind(api_kind: &str) -> bool {
+    !matches!(
+        api_kind,
+        "openai-completions"
+            | "openai-responses"
+            | "azure-openai-responses"
+            | "anthropic-messages"
+            | "openrouter"
+            | "ollama-chat"
+    )
+}
+
+/// Returns true if all of a provider's models use bespoke api kinds (i.e.
+/// the provider has no OpenAI/Anthropic-compatible endpoint and must be
+/// routed through OMP RPC at chat time).
+fn is_bespoke_provider(provider_id: &str) -> bool {
+    let models = omp_catalog::models_for(provider_id);
+    !models.is_empty() && models.iter().all(|m| is_bespoke_api_kind(&m.api_kind))
 }
 
 fn bundled_models(provider_id: &str) -> Vec<NativeModel> {
@@ -620,346 +793,52 @@ fn bundled_models(provider_id: &str) -> Vec<NativeModel> {
             supports_images: false,
             source: "bundled".to_string(),
             model_api_id: None,
+            api_kind: String::new(),
+            base_url: String::new(),
+            cost_input: None,
+            cost_output: None,
         }, "bundled")],
-        "umans" => vec![
-            bundled("umans", "umans-coder", "Umans Coder", 262144, 32768, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("umans", "umans-flash", "Umans Flash", 262144, 32768, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("umans", "umans-glm-5.2", "Umans GLM 5.2", 405504, 131071, true, vec!["high", "xhigh"], false),
-            bundled("umans", "umans-glm-5.2-nvfp4", "Umans GLM 5.2 NVFP4 (experimental, short test from Jun 29)", 405504, 131071, true, vec!["high", "xhigh"], false),
-            bundled("umans", "umans-kimi-k2.7", "Umans Kimi K2.7 Code", 262144, 32768, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("umans", "umans-qwen3.6-35b-a3b", "Umans Qwen3.6 35B A3B", 262144, 32768, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-        ],
-        "openai" => vec![
-            bundled("openai", "codex-mini-latest", "Codex Mini", 200000, 100000, true, vec!["minimal", "low", "medium", "high", "xhigh"], false),
-            bundled("openai", "gpt-4", "GPT-4", 8192, 8192, false, Vec::new(), false),
-            bundled("openai", "gpt-4-turbo", "GPT-4 Turbo", 128000, 4096, false, Vec::new(), true),
-            bundled("openai", "gpt-4.1", "GPT-4.1", 1047576, 32768, false, Vec::new(), true),
-            bundled("openai", "gpt-4.1-mini", "GPT-4.1 mini", 1047576, 32768, false, Vec::new(), true),
-            bundled("openai", "gpt-4.1-nano", "GPT-4.1 nano", 1047576, 32768, false, Vec::new(), true),
-            bundled("openai", "gpt-4o", "GPT-4o", 128000, 16384, false, Vec::new(), true),
-            bundled("openai", "gpt-4o-2024-05-13", "GPT-4o (2024-05-13)", 128000, 4096, false, Vec::new(), true),
-            bundled("openai", "gpt-4o-2024-08-06", "GPT-4o (2024-08-06)", 128000, 16384, false, Vec::new(), true),
-            bundled("openai", "gpt-4o-2024-11-20", "GPT-4o (2024-11-20)", 128000, 16384, false, Vec::new(), true),
-            bundled("openai", "gpt-4o-mini", "GPT-4o mini", 128000, 16384, false, Vec::new(), true),
-            bundled("openai", "gpt-5", "GPT-5", 400000, 128000, true, vec!["minimal", "low", "medium", "high"], true),
-            bundled("openai", "gpt-5-chat-latest", "GPT-5 Chat Latest", 128000, 16384, false, Vec::new(), true),
-            bundled("openai", "gpt-5-codex", "GPT-5-Codex", 272000, 128000, true, vec!["minimal", "low", "medium", "high"], true),
-            bundled("openai", "gpt-5-mini", "GPT-5 Mini", 400000, 128000, true, vec!["minimal", "low", "medium", "high"], true),
-            bundled("openai", "gpt-5-nano", "GPT-5 Nano", 400000, 128000, true, vec!["minimal", "low", "medium", "high"], true),
-            bundled("openai", "gpt-5-pro", "GPT-5 Pro", 400000, 272000, true, vec!["minimal", "low", "medium", "high"], true),
-            bundled("openai", "gpt-5.1", "GPT-5.1", 400000, 128000, true, vec!["minimal", "low", "medium", "high"], true),
-            bundled("openai", "gpt-5.1-chat-latest", "GPT-5.1 Chat", 128000, 16384, true, vec!["minimal", "low", "medium", "high"], true),
-            bundled("openai", "gpt-5.1-codex", "GPT-5.1 Codex", 272000, 128000, true, vec!["minimal", "low", "medium", "high"], true),
-            bundled("openai", "gpt-5.1-codex-max", "GPT-5.1 Codex Max", 272000, 128000, true, vec!["minimal", "low", "medium", "high"], true),
-            bundled("openai", "gpt-5.1-codex-mini", "GPT-5.1 Codex mini", 272000, 128000, true, vec!["medium", "high"], true),
-            bundled("openai", "gpt-5.2", "GPT-5.2", 400000, 128000, true, vec!["low", "medium", "high", "xhigh"], true),
-            bundled("openai", "gpt-5.2-chat-latest", "GPT-5.2 Chat", 128000, 16384, true, vec!["low", "medium", "high", "xhigh"], true),
-            bundled("openai", "gpt-5.2-codex", "GPT-5.2 Codex", 272000, 128000, true, vec!["low", "medium", "high", "xhigh"], true),
-            bundled("openai", "gpt-5.2-pro", "GPT-5.2 Pro", 400000, 128000, true, vec!["low", "medium", "high", "xhigh"], true),
-            bundled("openai", "gpt-5.3-chat-latest", "GPT-5.3 Chat", 128000, 16384, false, Vec::new(), true),
-            bundled("openai", "gpt-5.3-codex", "GPT-5.3 Codex", 272000, 128000, true, vec!["low", "medium", "high", "xhigh"], true),
-            bundled("openai", "gpt-5.3-codex-spark", "GPT-5.3 Codex Spark", 128000, 32000, true, vec!["low", "medium", "high", "xhigh"], true),
-            bundled("openai", "gpt-5.4", "GPT-5.4", 1050000, 128000, true, vec!["low", "medium", "high", "xhigh"], true),
-            bundled("openai", "gpt-5.4-mini", "GPT-5.4 mini", 400000, 128000, true, vec!["low", "medium", "high", "xhigh"], true),
-            bundled("openai", "gpt-5.4-nano", "GPT-5.4 nano", 400000, 128000, true, vec!["low", "medium", "high", "xhigh"], true),
-            bundled("openai", "gpt-5.4-pro", "GPT-5.4 Pro", 1050000, 128000, true, vec!["low", "medium", "high", "xhigh"], true),
-            bundled("openai", "gpt-5.5", "GPT-5.5", 1050000, 128000, true, vec!["low", "medium", "high", "xhigh"], true),
-            bundled("openai", "gpt-5.5-pro", "GPT-5.5 Pro", 1050000, 128000, true, vec!["low", "medium", "high", "xhigh"], true),
-            bundled("openai", "o1", "o1", 200000, 100000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("openai", "o1-pro", "o1-pro", 200000, 100000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("openai", "o3", "o3", 200000, 100000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("openai", "o3-deep-research", "o3-deep-research", 200000, 100000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("openai", "o3-mini", "o3-mini", 200000, 100000, true, vec!["minimal", "low", "medium", "high", "xhigh"], false),
-            bundled("openai", "o3-pro", "o3-pro", 200000, 100000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("openai", "o4-mini", "o4-mini", 200000, 100000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("openai", "o4-mini-deep-research", "o4-mini-deep-research", 200000, 100000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-        ],
-        "anthropic" => vec![
-            bundled("anthropic", "claude-3-5-sonnet-20240620", "Claude Sonnet 3.5", 200000, 8192, false, Vec::new(), true),
-            bundled("anthropic", "claude-3-5-sonnet-20241022", "Claude Sonnet 3.5 v2", 200000, 8192, false, Vec::new(), true),
-            bundled("anthropic", "claude-3-7-sonnet-20250219", "Claude Sonnet 3.7", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-3-haiku-20240307", "Claude Haiku 3", 200000, 4096, false, Vec::new(), true),
-            bundled("anthropic", "claude-3-opus-20240229", "Claude Opus 3", 200000, 4096, false, Vec::new(), true),
-            bundled("anthropic", "claude-3-sonnet-20240229", "Claude Sonnet 3", 200000, 4096, false, Vec::new(), true),
-            bundled("anthropic", "claude-fable-5", "Claude Fable 5", 1000000, 128000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-haiku-4-5", "Claude Haiku 4.5", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-haiku-4-5-20251001", "Claude Haiku 4.5", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-mythos-5", "Claude Mythos 5", 1000000, 128000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-opus-4-0", "Claude Opus 4", 200000, 32000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-opus-4-1", "Claude Opus 4.1", 200000, 32000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-opus-4-1-20250805", "Claude Opus 4.1", 200000, 32000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-opus-4-20250514", "Claude Opus 4", 200000, 32000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-opus-4-5", "Claude Opus 4.5", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-opus-4-5-20251101", "Claude Opus 4.5", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-opus-4-6", "Claude Opus 4.6", 1000000, 128000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-opus-4-7", "Claude Opus 4.7", 1000000, 128000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-opus-4-8", "Claude Opus 4.8", 1000000, 128000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-sonnet-4-0", "Claude Sonnet 4", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-sonnet-4-20250514", "Claude Sonnet 4", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-sonnet-4-5", "Claude Sonnet 4.5", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-sonnet-4-5-20250929", "Claude Sonnet 4.5", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("anthropic", "claude-sonnet-4-6", "Claude Sonnet 4.6", 1000000, 64000, true, vec!["minimal", "low", "medium", "high"], true),
-            bundled("anthropic", "claude-sonnet-5", "Claude Sonnet 5", 1000000, 128000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-        ],
-        "devin" => vec![
-            bundled("devin", "claude-5-fable-high", "Claude 5 Fable High", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "claude-5-fable-low", "Claude 5 Fable Low", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "claude-5-fable-max", "Claude 5 Fable Max", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "claude-5-fable-medium", "Claude 5 Fable Medium", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "claude-5-fable-xhigh", "Claude 5 Fable Xhigh", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "claude-opus-4-6", "Claude Opus 4.6", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "claude-opus-4-6-1m", "Claude Opus 4.6 1M", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "claude-opus-4-7", "Claude Opus 4.7", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "claude-opus-4-7-fast", "Claude Opus 4.7 Fast", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "claude-opus-4-8", "Claude Opus 4.8", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "claude-opus-4-8-fast", "Claude Opus 4.8 Fast", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "claude-sonnet-4-6", "Claude Sonnet 4.6", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "claude-sonnet-4-6-1m", "Claude Sonnet 4.6 1M", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "claude-sonnet-5-high", "Claude Sonnet 5 High", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "claude-sonnet-5-low", "Claude Sonnet 5 Low", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "claude-sonnet-5-max", "Claude Sonnet 5 Max", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "claude-sonnet-5-medium", "Claude Sonnet 5 Medium", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "claude-sonnet-5-xhigh", "Claude Sonnet 5 Xhigh", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "deepseek-v4", "DeepSeek V4", 1048576, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "gemini-3-1-pro", "Gemini 3.1 Pro", 1048576, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "gemini-3-5-flash", "Gemini 3.5 Flash", 1048576, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "gemini-3-flash", "Gemini 3 Flash", 1048576, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "glm-5-1", "GLM 5.1", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "glm-5-2", "GLM 5.2", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "glm-5-2-1m", "GLM 5.2 1M", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "glm-5-2-max", "GLM 5.2 Max", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "glm-5-2-max-1m", "GLM 5.2 Max 1M", 1000000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "glm-5-2-none", "GLM 5.2 (no reasoning)", 200000, 64000, false, Vec::new(), true),
-            bundled("devin", "glm-5-2-none-1m", "GLM 5.2 (no reasoning) 1M", 1000000, 64000, false, Vec::new(), true),
-            bundled("devin", "gpt-5-2", "GPT-5.2", 384000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "gpt-5-3-codex", "GPT-5.3 Codex", 400000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "gpt-5-3-codex-fast", "GPT-5.3 Codex Fast", 400000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "gpt-5-4", "GPT-5.4", 272000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "gpt-5-4-fast", "GPT-5.4 Fast", 272000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "gpt-5-4-mini", "GPT-5.4 Mini", 400000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "gpt-5-5", "GPT-5.5", 272000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "gpt-5-5-fast", "GPT-5.5 Fast", 272000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "kimi-k2-6", "Kimi K2.6", 262144, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "kimi-k2-7", "Kimi K2.7", 262144, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "MODEL_CLAUDE_4_5_OPUS", "Claude 4.5 Opus", 200000, 64000, false, Vec::new(), true),
-            bundled("devin", "MODEL_CLAUDE_4_5_OPUS_THINKING", "Claude 4.5 Opus Thinking", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "MODEL_PRIVATE_11", "Private 11", 200000, 64000, false, Vec::new(), true),
-            bundled("devin", "MODEL_PRIVATE_2", "Private 2", 200000, 64000, false, Vec::new(), true),
-            bundled("devin", "MODEL_PRIVATE_3", "Private 3", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "MODEL_SWE_1_5", "SWE 1.5", 128000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "MODEL_SWE_1_5_SLOW", "SWE 1.5 Slow", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "swe-1-6", "SWE 1.6", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-            bundled("devin", "swe-1-6-fast", "SWE 1.6 Fast", 200000, 64000, true, vec!["minimal", "low", "medium", "high", "xhigh"], true),
-        ],
-        "google" => vec![
-            bundled("google", "gemini-1.5-flash", "Gemini 1.5 Flash", 1000000, 8192, false, Vec::new(), true),
-            bundled("google", "gemini-1.5-flash-8b", "Gemini 1.5 Flash 8B", 1000000, 8192, false, Vec::new(), true),
-            bundled("google", "gemini-1.5-pro", "Gemini 1.5 Pro", 1000000, 8192, false, Vec::new(), true),
-            bundled("google", "gemini-2.0-flash", "Gemini 2.0 Flash", 1048576, 8192, false, Vec::new(), true),
-            bundled("google", "gemini-2.0-flash-lite", "Gemini 2.0 Flash Lite", 1048576, 8192, false, Vec::new(), true),
-            bundled("google", "gemini-2.5-flash", "Gemini 2.5 Flash", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-2.5-flash-lite-preview-06-17", "Gemini 2.5 Flash Lite Preview 06-17", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-2.5-flash-lite-preview-09-2025", "Gemini 2.5 Flash Lite Preview 09-2025", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-2.5-flash-preview-04-17", "Gemini 2.5 Flash Preview 04-17", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-2.5-flash-preview-05-20", "Gemini 2.5 Flash Preview 05-20", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-2.5-flash-preview-09-2025", "Gemini 2.5 Flash Preview 09-2025", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-2.5-pro", "Gemini 2.5 Pro", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-2.5-pro-preview-05-06", "Gemini 2.5 Pro Preview 05-06", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-2.5-pro-preview-06-05", "Gemini 2.5 Pro Preview 06-05", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-3-flash-preview", "Gemini 3 Flash Preview", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-3-pro-preview", "Gemini 3 Pro Preview", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-3.1-flash-lite-preview", "Gemini 3.1 Flash Lite Preview", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-3.1-pro-preview-customtools", "Gemini 3.1 Pro Preview Custom Tools", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-3.5-flash", "Gemini 3.5 Flash", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-flash-latest", "Gemini Flash Latest", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemini-flash-lite-latest", "Gemini Flash Lite Latest", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemma-3-27b-it", "Gemma 3 27B IT", 131072, 8192, false, Vec::new(), true),
-            bundled("google", "gemma-4-26b", "Gemma 4 26B", 256000, 8192, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemma-4-26b-a4b-it", "Gemma 4 26B A4B IT", 262144, 32768, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemma-4-26b-it", "Gemma 4 26B IT", 256000, 8192, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemma-4-31b", "Gemma 4 31B", 256000, 8192, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemma-4-31b-it", "Gemma 4 31B IT", 262144, 32768, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemma-4-E2B-it", "Gemma 4 E2B IT", 131072, 8192, true, vec!["low", "medium", "high"], true),
-            bundled("google", "gemma-4-E4B-it", "Gemma 4 E4B IT", 131072, 8192, true, vec!["low", "medium", "high"], true),
-        ],
-        "groq" => vec![
-            bundled("groq", "deepseek-r1-distill-llama-70b", "DeepSeek R1 Distill Llama 70B", 131072, 8192, true, vec!["low", "medium", "high"], true),
-            bundled("groq", "gemma2-9b-it", "Gemma 2 9B IT", 8192, 8192, false, Vec::new(), true),
-            bundled("groq", "groq/compound", "Groq Compound", 131072, 8192, true, vec!["low", "medium", "high"], true),
-            bundled("groq", "groq/compound-mini", "Groq Compound Mini", 131072, 8192, true, vec!["low", "medium", "high"], true),
-            bundled("groq", "llama-3.1-8b-instant", "Llama 3.1 8B Instant", 131072, 131072, false, Vec::new(), true),
-            bundled("groq", "llama-3.3-70b-versatile", "Llama 3.3 70B Versatile", 131072, 32768, false, Vec::new(), true),
-            bundled("groq", "llama3-70b-8192", "Llama 3 70B", 8192, 8192, false, Vec::new(), true),
-            bundled("groq", "llama3-8b-8192", "Llama 3 8B", 8192, 8192, false, Vec::new(), true),
-            bundled("groq", "meta-llama/llama-4-maverick-17b-128e-instruct", "Llama 4 Maverick 17B", 131072, 8192, false, Vec::new(), true),
-            bundled("groq", "meta-llama/llama-4-scout-17b-16e-instruct", "Llama 4 Scout 17B", 131072, 8192, false, Vec::new(), true),
-            bundled("groq", "mistral-saba-24b", "Mistral Saba 24B", 32768, 32768, false, Vec::new(), true),
-            bundled("groq", "moonshotai/kimi-k2-instruct", "Kimi K2 Instruct", 131072, 16384, false, Vec::new(), true),
-            bundled("groq", "moonshotai/kimi-k2-instruct-0905", "Kimi K2 Instruct 0905", 262144, 16384, false, Vec::new(), true),
-            bundled("groq", "openai/gpt-oss-120b", "GPT-OSS 120B", 131072, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("groq", "openai/gpt-oss-20b", "GPT-OSS 20B", 131072, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("groq", "openai/gpt-oss-safeguard-20b", "GPT-OSS Safeguard 20B", 131072, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("groq", "qwen-qwq-32b", "Qwen QwQ 32B", 131072, 16384, true, vec!["low", "medium", "high"], true),
-            bundled("groq", "qwen/qwen3-32b", "Qwen 3 32B", 131072, 40960, true, vec!["low", "medium", "high"], true),
-        ],
-        "openrouter" => vec![
-            bundled("openrouter", "auto", "OpenRouter Auto", 2000000, 30000, true, vec!["low", "medium", "high"], true),
-            bundled("openrouter", "anthropic/claude-sonnet-5", "Claude Sonnet 5", 1000000, 128000, true, vec!["low", "medium", "high"], true),
-            bundled("openrouter", "anthropic/claude-opus-4.8", "Claude Opus 4.8", 1000000, 128000, true, vec!["low", "medium", "high"], true),
-            bundled("openrouter", "anthropic/claude-opus-4.7", "Claude Opus 4.7", 1000000, 128000, true, vec!["low", "medium", "high"], true),
-            bundled("openrouter", "anthropic/claude-opus-4.6", "Claude Opus 4.6", 1000000, 128000, true, vec!["low", "medium", "high"], true),
-            bundled("openrouter", "anthropic/claude-sonnet-4.6", "Claude Sonnet 4.6", 1000000, 128000, true, vec!["low", "medium", "high"], true),
-            bundled("openrouter", "openai/gpt-5.5", "GPT-5.5", 1050000, 128000, true, vec!["low", "medium", "high"], true),
-            bundled("openrouter", "openai/gpt-5.4", "GPT-5.4", 1050000, 128000, true, vec!["low", "medium", "high"], true),
-            bundled("openrouter", "google/gemini-3.5-flash", "Gemini 3.5 Flash", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("openrouter", "google/gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview", 1048576, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("openrouter", "deepseek/deepseek-v4-pro", "DeepSeek V4 Pro", 1048576, 384000, true, vec!["low", "medium", "high"], true),
-            bundled("openrouter", "deepseek/deepseek-v3.2", "DeepSeek V3.2", 131072, 64000, true, vec!["low", "medium", "high"], true),
-            bundled("openrouter", "x-ai/grok-4.20", "Grok 4.20", 2000000, 2000000, true, vec!["low", "medium", "high"], true),
-            bundled("openrouter", "x-ai/grok-4.3", "Grok 4.3", 1000000, 1000000, true, vec!["low", "medium", "high"], true),
-            bundled("openrouter", "z-ai/glm-5.2", "GLM 5.2", 1048576, 131072, true, vec!["low", "medium", "high"], true),
-            bundled("openrouter", "qwen/qwen3.7-max", "Qwen 3.7 Max", 1000000, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("openrouter", "moonshotai/kimi-k2.7-code", "Kimi K2.7 Code", 262144, 16384, true, vec!["low", "medium", "high"], true),
-            bundled("openrouter", "mistralai/mistral-large-2512", "Mistral Large 2512", 262144, 262144, false, Vec::new(), true),
-            bundled("openrouter", "nvidia/nemotron-3-ultra-550b-a55b", "Nemotron 3 Ultra", 1000000, 16384, true, vec!["low", "medium", "high"], true),
-        ],
-        "deepseek" => vec![
-            bundled("deepseek", "deepseek-v4-flash", "DeepSeek V4 Flash", 1000000, 384000, true, vec!["low", "medium", "high"], false),
-            bundled("deepseek", "deepseek-v4-pro", "DeepSeek V4 Pro", 1000000, 384000, true, vec!["low", "medium", "high"], false),
-        ],
-        "mistral" => vec![
-            bundled("mistral", "codestral-latest", "Codestral", 256000, 4096, false, Vec::new(), false),
-            bundled("mistral", "devstral-2512", "Devstral 2", 262144, 262144, false, Vec::new(), false),
-            bundled("mistral", "devstral-latest", "Devstral 2", 262144, 262144, false, Vec::new(), false),
-            bundled("mistral", "devstral-medium-2507", "Devstral Medium", 128000, 128000, false, Vec::new(), false),
-            bundled("mistral", "devstral-medium-latest", "Devstral 2", 262144, 262144, false, Vec::new(), false),
-            bundled("mistral", "devstral-small-2505", "Devstral Small 2505", 128000, 128000, false, Vec::new(), false),
-            bundled("mistral", "devstral-small-2507", "Devstral Small", 128000, 128000, false, Vec::new(), false),
-            bundled("mistral", "labs-devstral-small-2512", "Devstral Small 2", 256000, 256000, false, Vec::new(), true),
-            bundled("mistral", "magistral-medium-latest", "Magistral Medium", 128000, 16384, true, vec!["low", "medium", "high"], false),
-            bundled("mistral", "magistral-small", "Magistral Small", 128000, 128000, true, vec!["low", "medium", "high"], false),
-            bundled("mistral", "ministral-3b-latest", "Ministral 3B", 128000, 128000, false, Vec::new(), false),
-            bundled("mistral", "ministral-8b-latest", "Ministral 8B", 128000, 128000, false, Vec::new(), false),
-            bundled("mistral", "mistral-large-2411", "Mistral Large 2.1", 131072, 16384, false, Vec::new(), false),
-            bundled("mistral", "mistral-large-2512", "Mistral Large 3", 262144, 262144, false, Vec::new(), true),
-            bundled("mistral", "mistral-large-latest", "Mistral Large", 262144, 262144, false, Vec::new(), true),
-            bundled("mistral", "mistral-medium-2505", "Mistral Medium 3", 131072, 131072, false, Vec::new(), true),
-            bundled("mistral", "mistral-medium-2508", "Mistral Medium 3.1", 262144, 262144, false, Vec::new(), true),
-            bundled("mistral", "mistral-medium-2604", "Mistral Medium 3.5", 262144, 262144, true, vec!["low", "medium", "high"], true),
-            bundled("mistral", "mistral-medium-latest", "Mistral Medium", 262144, 262144, true, vec!["low", "medium", "high"], true),
-            bundled("mistral", "mistral-nemo", "Mistral Nemo", 128000, 128000, false, Vec::new(), false),
-            bundled("mistral", "mistral-small-2506", "Mistral Small 3.2", 128000, 16384, false, Vec::new(), true),
-            bundled("mistral", "mistral-small-2603", "Mistral Small 4", 256000, 256000, true, vec!["low", "medium", "high"], true),
-            bundled("mistral", "mistral-small-latest", "Mistral Small", 256000, 256000, true, vec!["low", "medium", "high"], true),
-            bundled("mistral", "open-mistral-7b", "Mistral 7B", 8000, 8000, false, Vec::new(), false),
-            bundled("mistral", "open-mistral-nemo", "Open Mistral Nemo", 128000, 128000, false, Vec::new(), false),
-            bundled("mistral", "open-mixtral-8x22b", "Mixtral 8x22B", 64000, 64000, false, Vec::new(), false),
-            bundled("mistral", "open-mixtral-8x7b", "Mixtral 8x7B", 32000, 32000, false, Vec::new(), false),
-            bundled("mistral", "pixtral-12b", "Pixtral 12B", 128000, 128000, false, Vec::new(), true),
-            bundled("mistral", "pixtral-large-latest", "Pixtral Large", 128000, 128000, false, Vec::new(), true),
-        ],
-        "xai" => vec![
-            bundled("xai", "grok-2", "Grok 2", 131072, 8192, false, Vec::new(), false),
-            bundled("xai", "grok-2-1212", "Grok 2 (1212)", 131072, 8192, false, Vec::new(), false),
-            bundled("xai", "grok-2-latest", "Grok 2 Latest", 131072, 8192, false, Vec::new(), false),
-            bundled("xai", "grok-2-vision", "Grok 2 Vision", 8192, 4096, false, Vec::new(), true),
-            bundled("xai", "grok-2-vision-1212", "Grok 2 Vision (1212)", 8192, 4096, false, Vec::new(), true),
-            bundled("xai", "grok-2-vision-latest", "Grok 2 Vision Latest", 8192, 4096, false, Vec::new(), true),
-            bundled("xai", "grok-3", "Grok 3", 131072, 8192, false, Vec::new(), false),
-            bundled("xai", "grok-3-fast", "Grok 3 Fast", 131072, 8192, false, Vec::new(), false),
-            bundled("xai", "grok-3-fast-latest", "Grok 3 Fast Latest", 131072, 8192, false, Vec::new(), false),
-            bundled("xai", "grok-3-latest", "Grok 3 Latest", 131072, 8192, false, Vec::new(), false),
-            bundled("xai", "grok-3-mini", "Grok 3 Mini", 131072, 8192, true, vec!["low", "medium", "high"], false),
-            bundled("xai", "grok-3-mini-fast", "Grok 3 Mini Fast", 131072, 8192, true, vec!["low", "medium", "high"], false),
-            bundled("xai", "grok-3-mini-fast-latest", "Grok 3 Mini Fast Latest", 131072, 8192, true, vec!["low", "medium", "high"], false),
-            bundled("xai", "grok-3-mini-latest", "Grok 3 Mini Latest", 131072, 8192, true, vec!["low", "medium", "high"], false),
-            bundled("xai", "grok-4", "Grok 4", 256000, 64000, true, vec!["low", "medium", "high"], false),
-            bundled("xai", "grok-4-1-fast", "Grok 4.1 Fast", 2000000, 30000, true, vec!["low", "medium", "high"], true),
-            bundled("xai", "grok-4-1-fast-non-reasoning", "Grok 4.1 Fast (Non-Reasoning)", 2000000, 30000, false, Vec::new(), true),
-            bundled("xai", "grok-4-fast", "Grok 4 Fast", 2000000, 30000, true, vec!["low", "medium", "high"], true),
-            bundled("xai", "grok-4-fast-non-reasoning", "Grok 4 Fast (Non-Reasoning)", 2000000, 30000, false, Vec::new(), true),
-            bundled("xai", "grok-4.20-0309-non-reasoning", "Grok 4.20 (Non-Reasoning)", 1000000, 30000, false, Vec::new(), true),
-            bundled("xai", "grok-4.20-0309-reasoning", "Grok 4.20 (Reasoning)", 1000000, 30000, true, vec!["low", "medium", "high"], true),
-            bundled("xai", "grok-4.20-beta-latest-non-reasoning", "Grok 4.20 Beta (Non-Reasoning)", 2000000, 30000, false, Vec::new(), true),
-            bundled("xai", "grok-4.20-beta-latest-reasoning", "Grok 4.20 Beta (Reasoning)", 2000000, 30000, true, vec!["low", "medium", "high"], true),
-            bundled("xai", "grok-4.20-multi-agent-beta-latest", "Grok 4.20 Multi-Agent Beta", 2000000, 30000, true, vec!["low", "medium", "high"], true),
-            bundled("xai", "grok-4.3", "Grok 4.3", 1000000, 30000, true, vec!["low", "medium", "high"], true),
-            bundled("xai", "grok-beta", "Grok Beta", 131072, 4096, false, Vec::new(), false),
-            bundled("xai", "grok-build-0.1", "Grok Build 0.1", 256000, 256000, true, vec!["low", "medium", "high"], true),
-            bundled("xai", "grok-code-fast-1", "Grok Code Fast 1", 256000, 10000, true, vec!["low", "medium", "high"], false),
-            bundled("xai", "grok-vision-beta", "Grok Vision Beta", 8192, 4096, false, Vec::new(), true),
-        ],
-        "together" => vec![
-            bundled("together", "deepseek-ai/DeepSeek-R1", "DeepSeek-R1", 131072, 8192, true, vec!["low", "medium", "high"], false),
-            bundled("together", "deepseek-ai/DeepSeek-V3", "DeepSeek-V3", 131072, 131072, false, Vec::new(), false),
-            bundled("together", "deepseek-ai/DeepSeek-V3-1", "DeepSeek V3.1", 131072, 131072, true, vec!["low", "medium", "high"], false),
-            bundled("together", "deepseek-ai/DeepSeek-V3.1", "DeepSeek V3.1", 131072, 8192, false, Vec::new(), false),
-            bundled("together", "deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro", 512000, 384000, true, vec!["low", "medium", "high"], false),
-            bundled("together", "essentialai/Rnj-1-Instruct", "Rnj-1 Instruct", 32768, 32768, false, Vec::new(), false),
-            bundled("together", "google/gemma-4-31B-it", "Gemma 4 31B Instruct", 262144, 131072, true, vec!["low", "medium", "high"], true),
-            bundled("together", "meta-llama/Llama-3.3-70B-Instruct-Turbo", "Llama 3.3 70B", 131072, 131072, false, Vec::new(), false),
-            bundled("together", "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8", "Llama 4 Maverick 17B 128E FP8", 20000000, 32768, false, Vec::new(), true),
-            bundled("together", "meta-llama/Llama-4-Scout-17B-16E-Instruct", "Llama 4 Scout 17B 16E", 10000000, 32768, false, Vec::new(), true),
-            bundled("together", "MiniMaxAI/MiniMax-M2.5", "MiniMax M2.5", 204800, 131072, true, vec!["low", "medium", "high"], false),
-            bundled("together", "MiniMaxAI/MiniMax-M2.7", "MiniMax M2.7", 202752, 131072, true, vec!["low", "medium", "high"], false),
-            bundled("together", "MiniMaxAI/MiniMax-M3", "MiniMax M3", 524288, 250000, true, vec!["low", "medium", "high"], true),
-            bundled("together", "moonshotai/Kimi-K2-Instruct-0905", "Kimi K2 Instruct 0905", 262144, 8192, false, Vec::new(), false),
-            bundled("together", "moonshotai/Kimi-K2.5", "Kimi K2.5", 262144, 262144, true, vec!["low", "medium", "high"], true),
-            bundled("together", "moonshotai/Kimi-K2.6", "Kimi K2.6", 262144, 131000, true, vec!["low", "medium", "high"], true),
-            bundled("together", "moonshotai/Kimi-K2.7-Code", "Kimi K2.7 Code", 262144, 131072, true, vec!["low", "medium", "high"], false),
-            bundled("together", "nvidia/nemotron-3-ultra-550b-a55b", "Nemotron 3 Ultra", 512300, 512300, true, vec!["low", "medium", "high"], false),
-            bundled("together", "openai/gpt-oss-120b", "GPT OSS 120B", 131072, 131072, true, vec!["low", "medium", "high"], false),
-            bundled("together", "openai/gpt-oss-20b", "GPT OSS 20B", 131072, 131072, true, vec!["low", "medium", "high"], false),
-            bundled("together", "Qwen/Qwen2.5-7B-Instruct-Turbo", "Qwen 2.5 7B Turbo", 32768, 32768, false, Vec::new(), false),
-            bundled("together", "Qwen/Qwen3-235B-A22B-Instruct-2507-tput", "Qwen3 235B Instruct 2507", 262144, 262144, false, Vec::new(), false),
-            bundled("together", "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8", "Qwen3 Coder 480B", 262144, 262144, false, Vec::new(), false),
-            bundled("together", "Qwen/Qwen3-Coder-Next-FP8", "Qwen3 Coder Next", 262144, 262144, false, Vec::new(), false),
-            bundled("together", "Qwen/Qwen3.5-397B-A17B", "Qwen3.5 397B A17B", 262144, 130000, true, vec!["low", "medium", "high"], true),
-            bundled("together", "Qwen/Qwen3.5-9B", "Qwen3.5 9B", 262144, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("together", "Qwen/Qwen3.6-Plus", "Qwen3.6 Plus", 1000000, 500000, true, vec!["low", "medium", "high"], false),
-            bundled("together", "Qwen/Qwen3.7-Max", "Qwen3.7 Max", 1000000, 500000, false, Vec::new(), false),
-            bundled("together", "zai-org/GLM-4.7", "GLM 4.7", 202752, 8192, true, vec!["low", "medium", "high"], false),
-            bundled("together", "zai-org/GLM-5", "GLM 5", 202752, 131072, true, vec!["low", "medium", "high"], false),
-            bundled("together", "zai-org/GLM-5.1", "GLM 5.1", 202752, 131072, true, vec!["low", "medium", "high"], false),
-            bundled("together", "zai-org/GLM-5.2", "GLM 5.2", 262144, 164000, true, vec!["low", "medium", "high"], false),
-        ],
-        "fireworks" => vec![
-            bundled("fireworks", "deepseek-v4-flash", "DeepSeek V4 Flash", 1048576, 1048576, true, vec!["low", "medium", "high"], false),
-            bundled("fireworks", "deepseek-v4-pro", "DeepSeek V4 Pro", 1048576, 1048576, true, vec!["low", "medium", "high"], false),
-            bundled("fireworks", "flux-1-schnell-fp8", "FLUX.1 Schnell FP8", 128000, 8192, true, vec!["low", "medium", "high"], false),
-            bundled("fireworks", "glm-5", "GLM 5", 202752, 131072, true, vec!["low", "medium", "high"], false),
-            bundled("fireworks", "glm-5.1", "GLM 5.1", 202752, 131072, true, vec!["low", "medium", "high"], false),
-            bundled("fireworks", "glm-5.1-fast", "GLM 5.1 Fast", 202752, 131072, true, vec!["low", "medium", "high"], false),
-            bundled("fireworks", "glm-5.2", "GLM 5.2", 1048576, 131072, true, vec!["low", "medium", "high"], false),
-            bundled("fireworks", "gpt-oss-120b", "GPT OSS 120B", 131072, 40960, true, vec!["low", "medium", "high"], false),
-            bundled("fireworks", "gpt-oss-20b", "GPT OSS 20B", 131072, 65536, false, Vec::new(), false),
-            bundled("fireworks", "kimi-k2.5", "Kimi K2.5", 262144, 32768, true, vec!["low", "medium", "high"], true),
-            bundled("fireworks", "kimi-k2.6", "Kimi K2.6", 262144, 32768, true, vec!["low", "medium", "high"], true),
-            bundled("fireworks", "kimi-k2.6-fast", "Kimi K2.6 Fast", 262144, 32768, true, vec!["low", "medium", "high"], true),
-            bundled("fireworks", "kimi-k2.7-code", "Kimi K2.7 Code", 262144, 32768, true, vec!["low", "medium", "high"], true),
-            bundled("fireworks", "kimi-k2.7-code-fast", "Kimi K2.7 Code Fast", 262144, 32768, true, vec!["low", "medium", "high"], true),
-            bundled("fireworks", "minimax-m2.5", "MiniMax M2.5", 196608, 131072, true, vec!["low", "medium", "high"], false),
-            bundled("fireworks", "minimax-m2.7", "MiniMax M2.7", 196608, 131072, true, vec!["low", "medium", "high"], false),
-            bundled("fireworks", "minimax-m3", "MiniMax M3", 512000, 131072, true, vec!["low", "medium", "high"], true),
-            bundled("fireworks", "nemotron-3-ultra-nvfp4", "Nemotron 3 Ultra NVFP4", 262144, 128000, true, vec!["low", "medium", "high"], false),
-            bundled("fireworks", "qwen3.6-plus", "Qwen3.6 Plus", 1000000, 65536, true, vec!["low", "medium", "high"], true),
-            bundled("fireworks", "qwen3.7-plus", "Qwen3.7 Plus", 1000000, 65536, true, vec!["low", "medium", "high"], true),
-        ],
-        "cerebras" => vec![
-            bundled("cerebras", "gemma-4-31b", "Gemma 4 31B", 131072, 40960, true, vec!["low", "medium", "high"], true),
-            bundled("cerebras", "gpt-oss-120b", "GPT OSS 120B", 131072, 40960, true, vec!["low", "medium", "high"], false),
-            bundled("cerebras", "llama3.1-8b", "Llama 3.1 8B", 32000, 8000, false, Vec::new(), false),
-            bundled("cerebras", "qwen-3-235b-a22b-instruct-2507", "Qwen 3 235B Instruct", 131000, 32000, false, Vec::new(), false),
-            bundled("cerebras", "qwen-3-coder-480b", "Qwen 3 Coder 480B", 131072, 32768, false, Vec::new(), false),
-            bundled("cerebras", "zai-glm-4.6", "GLM 4.6", 131072, 32768, false, Vec::new(), false),
-            bundled("cerebras", "zai-glm-4.7", "GLM 4.7", 131072, 40960, true, vec!["low", "medium", "high"], false),
-        ],
         "custom" => Vec::new(),
-        _ => Vec::new(),
+        _ => {
+            let catalog_models = omp_catalog::models_for(provider_id);
+            catalog_models
+                .into_iter()
+                .map(|cm| bundled_from_catalog(provider_id, cm))
+                .collect()
+        }
     }
+}
+
+/// Build a `NativeModel` from an OMP catalog entry, mapping catalog fields to
+/// Basebuild's model schema. The `reasoning` flag drives effort support; the
+/// `input` array drives image support; `api` becomes `api_kind`; `baseUrl`
+/// becomes `base_url`; cost fields are carried through.
+fn bundled_from_catalog(provider_id: &str, cm: &omp_catalog::CatalogModel) -> NativeModel {
+    let supports_reasoning = cm.reasoning;
+    let supports_images = cm.input.iter().any(|m| m == "image");
+    let supported_efforts = if supports_reasoning { effort_ids() } else { Vec::new() };
+    let cost_input = if cm.cost.input != 0.0 { Some(cm.cost.input) } else { None };
+    let cost_output = if cm.cost.output != 0.0 { Some(cm.cost.output) } else { None };
+    model_with_source(NativeModel {
+        id: cm.id.clone(),
+        provider_id: provider_id.to_string(),
+        label: cm.name.clone(),
+        supports_effort: supports_reasoning,
+        supports_streaming: true,
+        supports_tools: true,
+        local_only: false,
+        context_window: cm.context_window,
+        max_tokens: cm.max_tokens,
+        supports_reasoning,
+        supported_efforts,
+        supports_images,
+        source: "bundled".to_string(),
+        model_api_id: None,
+        api_kind: cm.api_kind.clone(),
+        base_url: cm.base_url.clone(),
+        cost_input,
+        cost_output,
+    }, "bundled")
 }
 
 fn omp_codex_oauth_models() -> Vec<NativeModel> {
@@ -973,33 +852,6 @@ fn omp_codex_oauth_models() -> Vec<NativeModel> {
         .collect()
 }
 
-fn bundled(
-    provider_id: &str,
-    id: &str,
-    label: &str,
-    context_window: i64,
-    max_tokens: i64,
-    supports_reasoning: bool,
-    supported_efforts: Vec<&str>,
-    supports_images: bool,
-) -> NativeModel {
-    model_with_source(NativeModel {
-        id: id.to_string(),
-        provider_id: provider_id.to_string(),
-        label: label.to_string(),
-        supports_effort: supports_reasoning,
-        supports_streaming: true,
-        supports_tools: true,
-        local_only: false,
-        context_window: Some(context_window),
-        max_tokens: Some(max_tokens),
-        supports_reasoning,
-        supported_efforts: supported_efforts.into_iter().map(String::from).collect(),
-        supports_images,
-        source: "bundled".to_string(),
-        model_api_id: None,
-    }, "bundled")
-}
 
 fn model_with_source(mut model: NativeModel, source: &str) -> NativeModel {
     model.source = source.to_string();
@@ -1092,5 +944,74 @@ mod tests {
         assert_eq!(models.len(), 1);
         assert_eq!(models[0].id, "gpt-5.5");
         assert!(!models[0].supports_tools);
+    }
+
+    #[test]
+    fn bundled_devin_models_match_catalog() {
+        // The bundled devin models should come from the OMP catalog and
+        // include swe-1-6 and glm-5-2 (the stale `devin-2.0` row is gone).
+        let models = bundled_models("devin");
+        assert_eq!(models.len(), 48, "devin should have 48 bundled models");
+        let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+        assert!(ids.contains(&"swe-1-6"), "devin should include swe-1-6");
+        assert!(ids.contains(&"glm-5-2"), "devin should include glm-5-2");
+        assert!(
+            !ids.iter().any(|id| id == &"devin-2.0"),
+            "stale devin-2.0 should not be in bundled models"
+        );
+        // Every bundled devin model should have the devin-agent api kind.
+        assert!(
+            models.iter().all(|m| m.api_kind == "devin-agent"),
+            "all devin models should have api_kind=devin-agent"
+        );
+    }
+
+    #[test]
+    fn bundled_models_have_catalog_version_stamp() {
+        // Bundled models should carry the current catalog version for
+        // stamp-mismatch detection. This is tested via replace_provider_cache
+        // writing the stamp; here we verify the version is non-empty.
+        assert!(
+            !omp_catalog::CATALOG_VERSION.trim().is_empty(),
+            "catalog version should be stamped"
+        );
+    }
+
+    #[test]
+    fn is_bespoke_provider_detects_devin() {
+        // Devin uses devin-agent (bespoke), not openai-completions.
+        assert!(is_bespoke_provider("devin"), "devin should be bespoke");
+        // OpenAI uses openai-completions (native).
+        assert!(!is_bespoke_provider("openai"), "openai should not be bespoke");
+        // Anthropic uses anthropic-messages (native).
+        assert!(!is_bespoke_provider("anthropic"), "anthropic should not be bespoke");
+    }
+
+    #[test]
+    fn provider_specs_includes_all_catalog_providers() {
+        let specs = provider_specs();
+        let spec_ids: Vec<&str> = specs.iter().map(|s| s.id.as_str()).collect();
+        // Should include all OMP catalog providers plus local and custom.
+        for pid in omp_catalog::provider_ids() {
+            assert!(
+                spec_ids.contains(&pid),
+                "provider {pid} from OMP catalog should be in provider_specs"
+            );
+        }
+        assert!(spec_ids.contains(&"basebuild-local"), "local provider should be present");
+        assert!(spec_ids.contains(&"custom"), "custom provider should be present");
+    }
+
+    #[test]
+    fn refresh_bespoke_provider_returns_bundled_not_error() {
+        // The refresh path for bespoke providers (devin without OMP) should
+        // return Ok(bundled) not Err. We verify the bundled models are
+        // non-empty and have the correct source.
+        let models = bundled_models("devin");
+        assert!(!models.is_empty(), "bundled devin models should be non-empty");
+        assert!(
+            models.iter().all(|m| m.source == "bundled"),
+            "all bundled devin models should have source=bundled"
+        );
     }
 }

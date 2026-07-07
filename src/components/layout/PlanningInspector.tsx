@@ -31,6 +31,8 @@ type PlanningInspectorProps = {
   onSuggestForCategory?: (category: IdeaCategory | null) => void;
   activeChatSessionId?: string | null;
   showHeader?: boolean;
+  /** When "modal", collapse toggle is hidden (no-op in modal context). */
+  hostContext?: "dock" | "modal";
 };
 
 const STATUS_FILTERS: { value: IdeaStatus | "all"; label: string }[] = [
@@ -60,6 +62,7 @@ export function PlanningInspector({
   onSuggestForCategory,
   activeChatSessionId,
   showHeader = true,
+  hostContext = "dock",
 }: PlanningInspectorProps) {
   const [tab, setTab] = useState<Tab>("plans");
   const [statusFilter, setStatusFilter] = useState<IdeaStatus | "all">("all");
@@ -192,14 +195,16 @@ export function PlanningInspector({
           >
             Flow
           </button>
-          <button
-            className="btn-icon btn-icon-sm"
-            title="Collapse planning inspector"
-            type="button"
-            onClick={onToggleCollapse}
-          >
-            <X size={11} />
-          </button>
+          {hostContext === "dock" ? (
+            <button
+              className="btn-icon btn-icon-sm"
+              title="Collapse planning inspector"
+              type="button"
+              onClick={onToggleCollapse}
+            >
+              <X size={11} />
+            </button>
+          ) : null}
         </div>
       </div>
 

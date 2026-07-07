@@ -66,6 +66,15 @@ export type NativeModel = {
   supportedEfforts: string[];
   supportsImages: boolean;
   source: string;
+  /** Wire-protocol kind from the OMP catalog (e.g. "devin-agent"). Empty
+   *  for legacy rows; resolveClient treats empty as "openai-completions". */
+  apiKind?: string;
+  /** Model's API base URL from the OMP catalog. Empty for legacy rows. */
+  baseUrl?: string;
+  /** Per-million-token input cost (USD), null when unknown. */
+  costInput?: number | null;
+  /** Per-million-token output cost (USD), null when unknown. */
+  costOutput?: number | null;
 };
 
 export type NativeEffortLevel = {
@@ -263,6 +272,16 @@ export async function nativeProviderLoginPoll(providerId: string): Promise<Provi
 
 export async function nativeProviderLoginCancel(providerId: string): Promise<void> {
   return invoke("native_provider_login_cancel", { providerId });
+}
+
+export async function nativeProviderOmpLoginCommand(providerId: string): Promise<string> {
+  return invoke<string>("native_provider_omp_login_command", { providerId });
+}
+
+export async function nativeProviderRefreshOmpCredentials(
+  providerId: string,
+): Promise<NativeProviderCatalog> {
+  return invoke<NativeProviderCatalog>("native_provider_refresh_omp_credentials", { providerId });
 }
 
 // ─── Chat Model Defaults ───

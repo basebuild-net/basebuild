@@ -585,6 +585,11 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
             </div>
           ) : null}
         </div>
+      ) : commits.length === 0 ? (
+        <div className="empty-state">
+          <h3>No commits yet</h3>
+          <p>This repository has no commit history. Stage files in the Changes tab and create your first commit.</p>
+        </div>
       ) : (
         <CommitGraph commits={commits} />
       )}
