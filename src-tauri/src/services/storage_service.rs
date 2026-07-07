@@ -624,6 +624,20 @@ impl StorageService {
             );
         }
 
+        // Migration (provider-parity-workspace-fixes): add model_api_id to
+        // native_provider_model_cache. This is the provider-specific API id
+        // (e.g. "umans-glm-5.2") resolved by resolve_model_api_id and written
+        // by the catalog sync; nullable so legacy/bundled rows carry no id.
+        let has_model_api_id = connection
+            .prepare("SELECT model_api_id FROM native_provider_model_cache LIMIT 0")
+            .is_ok();
+        if !has_model_api_id {
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN model_api_id TEXT",
+                [],
+            );
+        }
+
         // Migration (plan-pipeline-harness): add idea_id and change_name to
         // plans for idea→plan promotion and OpenSpec change linkage. Both
         // nullable: legacy plans and unpromoted drafts carry no link.
