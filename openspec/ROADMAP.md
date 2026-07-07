@@ -87,7 +87,21 @@ top **ungated** item is what can actually start now.
    modifies `plan-chat-assignment`, `chat-interactive-elements`,
    `planning-flow-board`, `chat-idea-generation`. Artifacts generated
    2026-07-07 (31/31 — all tasks complete; ready to merge).
-2. `provider-parity-workspace-fixes` — ★ **owner-prioritized (2026-07-07
+2. `panel-grid-state-reliability` — ★ **owner-prioritized live-bug repair
+   (2026-07-07); ready now.** Running-app diagnosis reproduced project-specific
+   failure of the header `+` menu and sidebar creation controls. A persisted
+   `activePanelId` referenced no live split-tree leaf, so every insertion was a
+   silent no-op; Chat/Terminal still created hidden `session_tabs` rows and
+   Terminal spawned an unreachable PTY. Adds restore normalization, checked
+   anchor fallback, transactional panel/resource creation with rollback,
+   project-keyed hydration/persistence race guards, unique ids, non-destructive
+   orphan recovery, and one-shot project selection diagnostics. Urgent
+   reliability amendment to `project-grid-workspace`; uses its substrate
+   already present on the current feature branch rather than creating a second
+   grid architecture. Modifies `panel-grid`, `ide-workspace-state`,
+   `desktop-shell`, and `workspace-history`. Artifacts generated 2026-07-07
+   (31/31 — all tasks complete; ready to merge).
+3. `provider-parity-workspace-fixes` — ★ **owner-prioritized (2026-07-07
    ask); ungated, ready now.** OMP provider/model parity + dev-build fixes
    from live testing: vendored OMP `models.json` catalog (58 providers /
    ~4.6k models, Devin first), api-kind transport routing with per-turn OMP
@@ -103,7 +117,7 @@ top **ungated** item is what can actually start now.
    `terminal-output-replay`, `source-control-resilience`; modifies
    `provider-model-catalog`, `provider-web-login`, `chat-environment-panel`.
    Artifacts generated 2026-07-07 (0/42).
-3. `chat-history-persistence` — **live-bug fix + feature; ungated, ready now.**
+4. `chat-history-persistence` — **live-bug fix + feature; ungated, ready now.**
    Reopening the app does not load chat history. Diagnosed two restore bugs on
    the running `feat/chat-first-shell` build: (1) `save_workspace_restore_state`
    fails every call (`missing field sideCollapsed`) because `AppShell` omits the
@@ -116,7 +130,7 @@ top **ungated** item is what can actually start now.
    cap `chat-history-loading`; **modifies** `session-lifecycle` (restore
    last-active session) and `ide-workspace-state` (restore-state integrity;
    additive — no conflict with #1). Artifacts generated 2026-07-06 (0/21).
-4. `omp-terminal-usage-sync` — day-one OMP workflow on the installed build:
+5. `omp-terminal-usage-sync` — day-one OMP workflow on the installed build:
    fix dead PTY output/input/resize plumbing (omp.exe spawns but renders
    nothing), stale-tab disconnected states, omp 16.x telemetry parser drift
    (`reports[].limits[]`), manual Sync-now ungated from auto-sync with
@@ -129,56 +143,58 @@ top **ungated** item is what can actually start now.
    PTY output plumbing (P0) is now implemented by
    `provider-parity-workspace-fixes` (scrollback replay) — apply the rest
    without redoing it.
-5. `file-viewer-editor` — file tabs become the single view/edit/diff
+6. `file-viewer-editor` — file tabs become the single view/edit/diff
    surface: syntax-highlighted virtualized viewing, markdown preview,
    images, explicit-save editing with mtime conflict guard, and unified
    diff mode fed from the Source panel (staged/unstaged/untracked).
    Provides the rendering surface `diff-review-workflow` can reuse.
-6. `harness-context-files` — system-prompt assembly: AGENTS.md discovery,
+7. `harness-context-files` — system-prompt assembly: AGENTS.md discovery,
    schematic injection, skills metadata, context inspector. Feeds the merged
    budget guard; no remaining gate.
-7. `native-app-login-mcp` — device-auth account connection + first-party usage
+8. `native-app-login-mcp` — device-auth account connection + first-party usage
    sync with basebuild.net. Independent of everything above.
-8. `diff-review-workflow` — per-run changeset baseline, file-level review
+9. `diff-review-workflow` — per-run changeset baseline, file-level review
    (approve/revert/send-back), review gate before commit/PR final touches.
    **After `plan-pipeline-harness`** (archived PR #15 — gate satisfied);
    pairs with `file-viewer-editor`'s diff surface.
-9. `schematic-enhance-ui` — per-section **Enhance** action on the schematic
+10. `schematic-enhance-ui` — per-section **Enhance** action on the schematic
    tab: plain words → agent-optimized rewrite shown as an approve/discard
    before/after diff (new cap `schematic-enhance`). Fulfills the
    schematic-wizard "AI-enhanced descriptions" requirement left unshipped by
    `schematic-grounded-planning` (task 2.3). Artifacts generated 2026-07-05
    (0/14). Dep `schematic-grounded-planning` merged (PR #22).
-10. `session-compaction` — summarize-and-continue history compaction past the
+11. `session-compaction` — summarize-and-continue history compaction past the
    truncation guard (new cap `session-compaction`; **modifies**
    `context-budget-guard` to prefer compaction over whole-turn dropping).
    Deferred out of `native-agent-loop`. Artifacts generated 2026-07-05 (0/13).
    Unblocked — `native-agent-loop` archived (PR #9).
-11. `harness-subagents` — scoped subagent delegation tool: a parent turn spawns
+12. `harness-subagents` — scoped subagent delegation tool: a parent turn spawns
     bounded, worktree-isolated native sub-sessions (omp task-tool parity) on the
     run queue and folds their results back (new cap `harness-subagents`).
     Artifacts generated 2026-07-05 (0/16). Gate satisfied — `plan-pipeline-harness`
     archived (PR #15).
-12. `plan-status-rename` — rename plan status `openspec → planned` across
+13. `plan-status-rename` — rename plan status `openspec → planned` across
     DB/API/UI with a one-time migration + backward-compat read alias; updates
     AGENTS.md Invariant 9 + `config.yaml` to match the `.basebuild` schema
     (**modifies** `plan-pipeline`, `openspec-artifacts`; new cap
     `plan-status-migration`). Artifacts generated 2026-07-05 (0/12). Dep
     `basebuild-planning-skill` merged (PR #20).
-13. `planning-file-ingestion` — app reads/syncs `.basebuild` planning files
+14. `planning-file-ingestion` — app reads/syncs `.basebuild` planning files
     (categories/ideas/plans) into the workspace, non-destructive + idempotent
     (new cap `planning-file-ingestion`). Artifacts generated 2026-07-05 (0/13).
     Deps `basebuild-planning-skill` + `unified-planning-workspace` merged
     (PR #20); pairs with `plan-status-rename` for the `planned` vocabulary.
-14. `project-grid-workspace` — multi-panel **split-tree grid** workspace with
+15. `project-grid-workspace` — multi-panel **split-tree grid** workspace with
     per-project persistence; activity sidebar with panel list + status +
     history drawer. Artifacts complete (8 new capabilities: `workspace-history`,
     `panel-grid`, `panel-drag-split`, `desktop-shell` modified, `ide-workspace-state`
     modified, `chat-composer-controls` modified, `agent-chat` modified,
     `activity-sidebar`); 0/33 tasks. Pairs with the merged `parallel-plan-workspaces`
     grid (which ported the chat harness into chat tabs); this change extends the
-    grid concept to the full workspace (terminals, schematics, files alongside
-    chats).
+   grid concept to the full workspace (terminals, schematics, files alongside
+   chats). Its urgent corrupt-state/creation reliability slice is tracked in
+   `panel-grid-state-reliability` above and should land before the remaining
+   grid expansion tasks.
 
 ### Proposed (no artifacts yet — run `/propose <name>` when its turn comes)
 
@@ -201,6 +217,7 @@ _Last refreshed: 2026-07-07 (`node scripts/openspec-status.mjs --write`)_
 |---|---|---|---|
 |`chat-first-shell`|17/31|in progress|`/apply chat-first-shell`|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
+|`panel-grid-state-reliability`|28/31|in progress|`/apply panel-grid-state-reliability`|
 |`plan-import`|11/13|in progress|`/apply plan-import`|
 |`planning-command-center`|46/48|in progress|`/apply planning-command-center`|
 |`provider-parity-workspace-fixes`|28/42|in progress|`/apply provider-parity-workspace-fixes`|

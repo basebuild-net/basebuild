@@ -9,11 +9,18 @@ import {
   findParentSplit,
   flattenPanels,
   getDragAffectedIds,
+  insertPanel,
   movePanel,
+  newPanelId,
+  normalizePanelGridState,
   panelCount,
   parsePanelGrid,
-  reopenPanel,
+  parsePanelGridWithDiagnostics,
+  removePanelFromGrid,
   removePanel,
+  reopenPanel,
+  detectOrphanedTabs,
+  repairActivePanelId,
   resizeSplitChild,
   resolveDragDistance,
   resolveDragIndex,
@@ -23,6 +30,7 @@ import {
   splitPanelAt,
   type Panel,
   type PanelDragState,
+  type PanelGridState,
   type PanelMetric,
   type SplitNode,
 } from "../../src/lib/panelGrid";
@@ -448,5 +456,301 @@ test.describe("panelGrid split-tree math", () => {
       metrics: makeMetrics(["a", "b", "c"]),
     };
     expect(getDragAffectedIds(state)).toEqual(["a", "b", "c"]);
+  });
+});
+
+// ── Regression: stale activePanelId (panel-grid-state-reliability) ────────
+
+test.describe("panel-grid stale-anchor regression", () => {
+  /** Fixture matching the live failure: one valid live leaf plus an
+   *  `activePanelId` that is absent from the tree. */
+  function corruptFixture(): PanelGridState {
+    const live = makePanel("panel-1783338273743", "chat");
+    return {
+      root: { kind: "leaf", panel: live },
+      activePanelId: "panel-1783407506176", // not present in the tree
+      closedPanels: [],
+    };
+  }
+
+  test("1.1 fixture has a valid root leaf with a stale activePanelId", () => {
+    const fx = corruptFixture();
+    expect(findPanel(fx.root, "panel-1783338273743")).toBeTruthy();
+    expect(findPanel(fx.root, fx.activePanelId!)).toBeNull();
+  });
+
+  test("1.2 splitPanelAt is a no-op when the target is absent from the tree", () => {
+    const fx = corruptFixture();
+    const before = fx.root;
+    // The current math returns the original tree when the target is missing.
+    const after = splitPanelAt(fx.root, fx.activePanelId!, makePanel("new"), "right");
+    expect(after).toBe(before);
+    expect(flattenPanels(after).map((p) => p.id)).toEqual(["panel-1783338273743"]);
+  });
+
+  test("1.2 checked insertion does not treat a stale anchor as success", () => {
+    const fx = corruptFixture();
+    const newPanel = makePanel("new", "chat");
+    const result = insertPanel(fx, newPanel, { side: "right", anchorId: fx.activePanelId });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The stale anchor is repaired to the live leaf, the new panel is placed
+    // exactly once, and the active id is repaired to the new panel.
+    expect(flattenPanels(result.state.root).map((p) => p.id)).toContain("new");
+    expect(result.state.activePanelId).toBe("new");
+    expect(findPanel(result.state.root, "panel-1783338273743")).toBeTruthy();
+  });
+
+  test("1.2 checked insertion fails on a duplicate panel id instead of no-op", () => {
+    const fx = corruptFixture();
+    const dup = makePanel("panel-1783338273743", "chat");
+    const result = insertPanel(fx, dup, { side: "right", anchorId: fx.activePanelId });
+    expect(result.ok).toBe(false);
+  });
+});
+
+// ── Normalization & repair (panel-grid-state-reliability) ──────────────────
+
+test.describe("panel-grid normalization", () => {
+  test("2.4 malformed JSON returns an empty grid with a diagnostic", () => {
+    const result = parsePanelGridWithDiagnostics("not json");
+    expect(result.state).toEqual(emptyGrid());
+    expect(result.repaired).toBe(true);
+    expect(result.diagnostics.some((d) => d.kind === "malformed-node")).toBe(true);
+  });
+
+  test("2.4 stale active id is repaired to the first live panel", () => {
+    const live = makePanel("a");
+    const raw = JSON.stringify({ root: { kind: "leaf", panel: live }, activePanelId: "missing", closedPanels: [] });
+    const result = parsePanelGridWithDiagnostics(raw);
+    expect(result.state.activePanelId).toBe("a");
+    expect(result.diagnostics.some((d) => d.kind === "stale-active")).toBe(true);
+    expect(result.repaired).toBe(true);
+  });
+
+  test("2.4 empty tree clears a stale active id", () => {
+    const raw = JSON.stringify({ root: null, activePanelId: "ghost", closedPanels: [] });
+    const result = parsePanelGridWithDiagnostics(raw);
+    expect(result.state.root).toBeNull();
+    expect(result.state.activePanelId).toBeNull();
+    expect(result.diagnostics.some((d) => d.kind === "stale-active")).toBe(true);
+  });
+
+  test("2.4 nested splits with invalid sizes are rebalanced", () => {
+    const root = {
+      kind: "split" as const,
+      direction: "row" as const,
+      children: [
+        { kind: "leaf" as const, panel: makePanel("a") },
+        {
+          kind: "split" as const,
+          direction: "column" as const,
+          children: [
+            { kind: "leaf" as const, panel: makePanel("b") },
+            { kind: "leaf" as const, panel: makePanel("c") },
+          ],
+          sizes: [0.9, 0.9], // invalid: sums to 1.8
+        },
+      ],
+      sizes: [0.5, 0.5],
+    };
+    const raw = JSON.stringify({ root, activePanelId: "a", closedPanels: [] });
+    const result = parsePanelGridWithDiagnostics(raw);
+    expect(findPanel(result.state.root, "a")).toBeTruthy();
+    expect(findPanel(result.state.root, "b")).toBeTruthy();
+    expect(findPanel(result.state.root, "c")).toBeTruthy();
+    expect(result.diagnostics.some((d) => d.kind === "invalid-size")).toBe(true);
+  });
+
+  test("2.4 duplicate live ids are quarantined to one occurrence", () => {
+ const raw = JSON.stringify({
+      root: {
+        kind: "split",
+        direction: "row",
+        children: [
+          { kind: "leaf", panel: makePanel("a") },
+          { kind: "leaf", panel: makePanel("a") }, // duplicate
+          { kind: "leaf", panel: makePanel("b") },
+        ],
+        sizes: [1 / 3, 1 / 3, 1 / 3],
+      },
+      activePanelId: "a",
+      closedPanels: [],
+    });
+    const result = parsePanelGridWithDiagnostics(raw);
+    const ids = flattenPanels(result.state.root).map((p) => p.id);
+    expect(ids.filter((id) => id === "a")).toHaveLength(1);
+    expect(result.diagnostics.some((d) => d.kind === "duplicate-id")).toBe(true);
+  });
+
+  test("2.2 duplicate ids across live and history quarantine the history copy", () => {
+    const raw = JSON.stringify({
+      root: { kind: "leaf", panel: makePanel("a") },
+      activePanelId: "a",
+      closedPanels: [makePanel("a"), makePanel("b")], // "a" duplicates live
+    });
+    const result = parsePanelGridWithDiagnostics(raw);
+    expect(findPanel(result.state.root, "a")).toBeTruthy();
+    expect(result.state.closedPanels.map((p) => p.id)).toEqual(["b"]);
+    expect(result.diagnostics.some((d) => d.kind === "duplicate-id" && d.panelId === "a")).toBe(true);
+  });
+
+  test("2.4 malformed leaf panel is dropped without deleting backing sessions", () => {
+    const raw = JSON.stringify({
+      root: {
+        kind: "split",
+        direction: "row",
+        children: [
+          { kind: "leaf", panel: makePanel("a") },
+          { kind: "leaf", panel: { id: 123, type: "chat", title: "bad" } }, // bad id
+        ],
+        sizes: [0.5, 0.5],
+      },
+      activePanelId: "a",
+      closedPanels: [],
+    });
+    const result = parsePanelGridWithDiagnostics(raw);
+    expect(flattenPanels(result.state.root).map((p) => p.id)).toEqual(["a"]);
+    expect(result.diagnostics.some((d) => d.kind === "malformed-node")).toBe(true);
+  });
+
+  test("2.4 parsePanelGrid round-trips a normalized state", () => {
+    const g = singlePanelGrid(A);
+    const root = splitPanelAt(g.root, "a", B, "right")!;
+    const state: PanelGridState = { root, activePanelId: "a", closedPanels: [C] };
+    const parsed = parsePanelGrid(serializePanelGrid(state));
+    expect(parsed.activePanelId).toBe("a");
+    expect(findPanel(parsed.root, "a")).toBeTruthy();
+    expect(findPanel(parsed.root, "b")).toBeTruthy();
+    expect(parsed.closedPanels.find((p) => p.id === "c")).toBeTruthy();
+  });
+
+  test("repairActivePanelId repairs a stale active pointer", () => {
+    const state: PanelGridState = {
+      root: { kind: "leaf", panel: A },
+      activePanelId: "missing",
+      closedPanels: [],
+    };
+    const repaired = repairActivePanelId(state);
+    expect(repaired.activePanelId).toBe("a");
+  });
+
+  test("repairActivePanelId is a no-op when the active id is valid", () => {
+    const state: PanelGridState = {
+      root: { kind: "leaf", panel: A },
+      activePanelId: "a",
+      closedPanels: [],
+    };
+    expect(repairActivePanelId(state)).toBe(state);
+  });
+});
+
+// ── Checked insertion & unique ids (panel-grid-state-reliability) ──────────
+
+test.describe("panel-grid checked insertion", () => {
+  test("3.1 empty grid accepts the first panel as the root", () => {
+    const result = insertPanel(emptyGrid(), A, { side: "right" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.state.root).toEqual({ kind: "leaf", panel: A });
+    expect(result.state.activePanelId).toBe("a");
+  });
+
+  test("3.1 stale anchor falls back to a deterministic live leaf", () => {
+    const state: PanelGridState = {
+      root: splitPanelAt(makeLeaf("a"), "a", B, "right"),
+      activePanelId: "missing",
+      closedPanels: [],
+    };
+    const result = insertPanel(state, C, { side: "right", anchorId: state.activePanelId });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(flattenPanels(result.state.root).map((p) => p.id)).toContain("c");
+    expect(result.state.activePanelId).toBe("c");
+  });
+
+  test("3.1 new panel appears exactly once after insertion", () => {
+    const state = singlePanelGrid(A);
+    const result = insertPanel(state, B, { side: "right" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(flattenPanels(result.state.root).filter((p) => p.id === "b")).toHaveLength(1);
+  });
+
+  test("3.1 insertion fails when the panel id already exists", () => {
+    const state = singlePanelGrid(A);
+    const result = insertPanel(state, A, { side: "right" });
+    expect(result.ok).toBe(false);
+  });
+
+  test("3.3 newPanelId is collision-resistant across rapid calls", () => {
+    const ids = new Set<string>();
+    for (let i = 0; i < 500; i++) ids.add(newPanelId());
+    expect(ids.size).toBe(500);
+  });
+
+  test("reopen preserves history when insertion fails", () => {
+    // Force a failure by re-opening a panel whose id already lives in the tree.
+    const state: PanelGridState = {
+      root: { kind: "leaf", panel: A },
+      activePanelId: "a",
+      closedPanels: [A], // duplicate id → insertion must fail
+    };
+    const after = reopenPanel(state, "a");
+    expect(after.closedPanels.find((p) => p.id === "a")).toBeTruthy();
+    expect(after.root).toBe(state.root);
+  });
+
+  test("4.4 removePanelFromGrid rolls back a reservation without touching history", () => {
+    const state: PanelGridState = {
+      root: splitPanelAt(makeLeaf("a"), "a", B, "right"),
+      activePanelId: "b",
+      closedPanels: [C],
+    };
+    const after = removePanelFromGrid(state, "b");
+    expect(findPanel(after.root, "b")).toBeNull();
+    expect(after.activePanelId).toBe("a");
+    expect(after.closedPanels).toEqual([C]);
+  });
+
+  test("4.4 removePanelFromGrid is a no-op for an absent panel", () => {
+    const state = singlePanelGrid(A);
+    expect(removePanelFromGrid(state, "missing")).toBe(state);
+  });
+});
+
+test.describe("panel-grid orphan recovery", () => {
+  test("6.1 detectOrphanedTabs flags a tab with no reachable panel", () => {
+    const state = singlePanelGrid(A);
+    const tabs = [
+      { id: "a", kind: "chat", title: "Chat A", chatSessionId: "chat-a" }, // reachable
+      { id: "orphan-1", kind: "chat", title: "Orphan", chatSessionId: "chat-x" }, // not reachable
+    ];
+    const orphans = detectOrphanedTabs(state, tabs);
+    expect(orphans.map((o) => o.tabId)).toEqual(["orphan-1"]);
+  });
+
+  test("6.1 a tab reachable via history is not orphaned", () => {
+    const state: PanelGridState = {
+      root: null,
+      activePanelId: null,
+      closedPanels: [B],
+    };
+    const tabs = [
+      { id: "b", kind: "chat", title: "Chat B", chatSessionId: "chat-b" },
+    ];
+    const orphans = detectOrphanedTabs(state, tabs);
+    expect(orphans).toEqual([]);
+  });
+
+  test("6.2 detectOrphanedTabs never deletes — it only reports", () => {
+    const state = singlePanelGrid(A);
+    const tabs = [
+      { id: "ghost", kind: "terminal", title: "Ghost", terminalId: 99 },
+    ];
+    const orphans = detectOrphanedTabs(state, tabs);
+    expect(orphans).toHaveLength(1);
+    // The state is untouched.
+    expect(findPanel(state.root, "a")).toBeTruthy();
   });
 });

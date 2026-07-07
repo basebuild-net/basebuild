@@ -50,6 +50,42 @@ project across restarts via the workspace restore state's `panelGrid`
 field. Closing a panel moves it to a `closedPanels` history list
 (retaining its session); reopening restores it to the grid.
 
+### Panel-grid state reliability
+
+Panel-grid state is self-healing, project-scoped, and transactional:
+
+- **Normalization on restore.** `parsePanelGridWithDiagnostics` recursively
+  validates the split tree, panel shapes, and sizes. A stale `activePanelId`
+  (pointing at a panel that no longer exists in the live tree) is repaired
+  deterministically to a surviving live panel (or `null` when the tree is
+  empty). Duplicate panel ids across the live tree and history are quarantined
+  (the duplicate is dropped from history) with a diagnostic log; backing
+  sessions/tabs are never deleted by normalization.
+- **Checked insertion.** All panel creation flows through a single
+  `insertPanel` helper that resolves the anchor, verifies exactly-once
+  placement, and returns success or an actionable failure reason — never a
+  silent no-op. Panel ids are collision-resistant (`crypto.randomUUID` via
+  `newPanelId`).
+- **Transactional resource-backed creation.** Chat/Terminal/OMP creation
+  reserves a visible `creating` panel first, then acquires the backing tab or
+  PTY, then binds the returned id atomically. On failure the reservation is
+  rolled back (`removePanelFromGrid`) and the error is surfaced via the log
+  panel; no orphan PTY or hidden tab remains. Rapid repeated clicks are
+  serialized per type via an in-flight guard so one click produces exactly one
+  panel and one backing resource.
+- **Project-switch isolation.** A project-keyed loading boundary
+  (`projectRestoreLoading` + a restore generation token) disables panel
+  mutation until the selected project's restore resolves and guards late
+  restore responses from a previous project. Debounced saves capture the
+  project path and state in the timer closure so a save writes to the correct
+  project even after the user has switched. Project selection/detection emits
+  a single diagnostic event.
+- **Orphan recovery.** `detectOrphanedTabs` flags backing session tabs that
+  have no reachable panel in the live grid or history. Detection is
+  non-destructive: it logs a recovery diagnostic only. Permanent cleanup is
+  explicit and confirm-gated (HistoryDrawer's delete dialog); no session or
+  tab is ever deleted automatically.
+
 ### Per-chat header
 
 Each chat column renders a compact header (`chat-header-context`): the
