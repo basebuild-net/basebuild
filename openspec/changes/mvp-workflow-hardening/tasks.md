@@ -55,7 +55,7 @@ Ownership map:
 - [x] 3.4 Add CI invariant checks for extra stylesheets, inline styles, non-zero
       radius, and interactive elements without `title=`; document reviewed
       computed-geometry exceptions.
-- [ ] 3.5 Playwright visual/interaction snapshots at 960×640 and 1280×800 for
+- [x] 3.5 Playwright visual/interaction snapshots at 960×640 and 1280×800 for
       shell, account menu, planning board, picker/dialogs, and 1/2/4 chat panels.
 
 ## 4. Questionnaire-first schematic and ideation
