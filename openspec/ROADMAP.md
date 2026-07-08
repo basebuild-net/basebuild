@@ -44,6 +44,20 @@ _None. Completed OpenSpec changes are archived into canonical specs._
 Ordered by owner priority. Gated items show their blocking dependency; the
 top **ungated** item is what can actually start now.
 
+1. `openspec-chat-workbench` — ★ **owner-prioritized (2026-07-09 ask);
+   ungated, ready after the PR #26 merge decision.** Re-centers Basebuild as a
+   chat-first wrapper around OpenSpec: Settings-managed OpenSpec install/health,
+   idea-generation prompts only for scoping, visual Planning Command Center
+   cards/counts/actions for idea → OpenSpec → ready → queued/running → review/
+   merge/archive, OpenSpec-owned artifacts/apply/archive, ungrouped chronological
+   thinking/tool/question timeline, clickable choices for all agent conversations,
+   per-chat branch/worktree/plan/progress/context strip adapted from the verified
+   T3 Code under-input branch/worktree pattern without copying source, zoom
+   controls, decluttered left navigation, and a looser tokenized `DESIGN.md`.
+   New caps `openspec-runtime-settings`, `openspec-wrapper-flow`,
+   `theme-zoom-shell`, `chat-context-status-strip`; modifies planning-flow-board,
+   agent chat, transcript rendering, interactive questions, OpenSpec artifacts,
+   plan assignment, shell/header/composer, and planning prompts.
 1. `provider-parity-workspace-fixes` — ★ **owner-prioritized (2026-07-07
    ask); ungated, ready now.** OMP provider/model parity + dev-build fixes
    from live testing: vendored OMP `models.json` catalog (58 providers /
@@ -168,6 +182,7 @@ _Last refreshed: 2026-07-08 (`node scripts/openspec-status.mjs --write`)_
 |`harness-subagents`|0/16|not started|`/apply harness-subagents`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
 |`omp-terminal-usage-sync`|0/33|not started|`/apply omp-terminal-usage-sync`|
+|`openspec-chat-workbench`|0/71|not started|`/apply openspec-chat-workbench`|
 |`plan-status-rename`|0/12|not started|`/apply plan-status-rename`|
 |`planning-file-ingestion`|0/13|not started|`/apply planning-file-ingestion`|
 |`project-grid-workspace`|0/33|not started|`/apply project-grid-workspace`|
