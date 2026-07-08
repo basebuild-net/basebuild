@@ -95,10 +95,10 @@ Ownership map:
       and safe/YOLO scheduling controls with a complete confirmation summary.
 - [x] 6.3 Implement safe dispatcher ordering and live file claims; queue/block
       conflicts, surface reasons, and re-evaluate when claims/progress change.
-- [ ] 6.4 Add the shared run board for plan, priority, prerequisites, owner chat,
+- [x] 6.4 Add the shared run board for plan, priority, prerequisites, owner chat,
       provider/model/skill, branch/worktree, claims, progress, blockers, and
       merge readiness. Every state transition emits a debug log/event.
-- [ ] 6.5 Show the same project/workspace/branch/plan/run context in each chat
+- [x] 6.5 Show the same project/workspace/branch/plan/run context in each chat
       header; sequential fallback and non-Git limitations are explicit.
 - [x] 6.6 Feed completed workers into a dependency-aware merge-review queue using
       artifacts and diff claims; YOLO conflicts require review and all
