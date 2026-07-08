@@ -64,7 +64,7 @@ Ownership map:
       destination-aware planning action router and exactly-once `send` delivery.
 - [x] 4.2 Verify repository read + `ask_user` capability before delivery; choose a
       compatible coordinator or show a model/provider/tool repair card.
-- [ ] 4.3 Make category and idea generation visible: close or demote the planning
+- [x] 4.3 Make category and idea generation visible: close or demote the planning
       modal, focus the named destination, render question cards, and refresh
       persisted results/counts on completion.
 - [ ] 4.4 Add feedback/regenerate/batch-select loops with no required prompt
