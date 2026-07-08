@@ -3,11 +3,15 @@
 Basebuild's app shell is a two-region, chat-first grid organized into four
 ownership levels:
 
-1. **Global navigation** — project/chat history and account/update controls in
-   the left sidebar.
+1. **Global navigation** — Projects, Chats, Settings, and Updates in the
+   left sidebar. Plans/Ideas/Files/Source/Flow are not persistent left-nav
+   items; they live in chat controls, context strip/header actions, or
+   project modals.
 2. **Project command strip** — stage-driven actions (Schematic, Ideas, Plans,
    Running, Done).
-3. **Active chat** — transcript/activity timeline and composer.
+3. **Active chat** — transcript/activity timeline, composer, and per-chat
+   context strip showing workspace id, branch, worktree, plan, progress,
+   model, context-window usage, and run state.
 4. **Project modals** — Schematic, Planning, Changes, Files, and Settings.
 
 A control belongs to one level only. A stage button opens its exact destination;

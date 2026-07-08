@@ -3,13 +3,10 @@ import type { NativeProviderCatalog } from "../../lib/native-chat";
 
 /** Compact single-line composer rail (`chat-composer-controls`).
  *
- * Ported from the reference IDE's chat composer, adapted to basebuild's
- * `globals.css`-only stack (0px radius, no Radix, no CSS modules, no UI-
- * primitive library). Renders provider/model/effort/connect/refresh + the
- * Ideas entry point on a single line above the textarea, with truncation
- * and per-column independence.
- *
- * Reference: dream IDE (MIT). Attribution: docs/agents/design-system.md. */
+ * Renders provider/model/effort/connect/refresh + the Ideas entry point on
+ * a single line above the textarea, with truncation and per-column
+ * independence. Every interactive element has a `title=` tooltip.
+ */
 
 export type ChatComposerRailProps = {
   catalog: NativeProviderCatalog | null;
@@ -90,7 +87,7 @@ export function ChatComposerRail(props: ChatComposerRailProps) {
               <Key size={11} />
             </button>
           ) : null}
-          {props.providerId !== props.localProviderId && !providerDegraded ? (
+          {props.providerId !== props.localProviderId ? (
             <button
               className="btn-icon btn-icon-sm"
               type="button"

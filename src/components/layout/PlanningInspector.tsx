@@ -4,7 +4,9 @@ import type { Plan, PlanStatus } from "../../lib/plans";
 import { isTerminalStatus } from "../../lib/plans";
 import { batchPromoteIdeas } from "../../lib/plans";
 import { enqueuePlan, listPlanRuns, markPlanRunComplete, startQueue } from "../../lib/planRuns";
+import { useOpenSpecRuntime } from "../../state/useOpenSpecRuntime";
 import { PlanPanel } from "./PlanPanel";
+import { PlanningCommandCenter } from "./PlanningCommandCenter";
 import { IntegrationQueue } from "../panels/IntegrationQueue";
 import { ChangesPanel } from "../panels/ChangesPanel";
 import { CompletionCard } from "../panels/CompletionCard";
@@ -88,6 +90,8 @@ export function PlanningInspector({
   onShowToast,
   initialTab = "plans",
 }: PlanningInspectorProps) {
+  const runtime = useOpenSpecRuntime(projectPath);
+  const runtimeReady = runtime.status?.state === "ready";
   const [tab, setTab] = useState<PlanningTab>(initialTab);
   const [statusFilter, setStatusFilter] = useState<IdeaStatus | "all">("all");
   const [selectedCategory, setSelectedCategory] = useState<IdeaCategory | null>(null);
@@ -913,6 +917,23 @@ export function PlanningInspector({
 
       {tab === "flow" ? (
         <div className="flow-board stack">
+          {/* Visual command center — stage cards with counts and actions */}
+          <PlanningCommandCenter
+            ideas={ideaState.ideas.length}
+            openspec={plans.filter((p) => p.status === "openspec").length}
+            ready={plans.filter((p) => p.status === "ready").length}
+            queued={planRuns.filter((r) => r.status === "pending").length}
+            running={plans.filter((p) => p.status === "running").length}
+            blocked={planRuns.filter((r) => r.status === "failed").length}
+            review={planRuns.filter((r) => r.status === "awaiting_review").length}
+            finished={plans.filter((p) => p.status === "finished").length}
+            onGenerateIdeas={() => { setTab("ideas"); }}
+            onRunThroughOpenSpec={() => { setTab("plans"); }}
+            onAddWorker={() => { /* Future: create a new chat panel */ }}
+            onReview={() => { /* Future: focus review queue */ }}
+            onMerge={() => { /* Future: open merge queue */ }}
+            onArchiveSync={() => { setTab("changes"); }}
+          />
           {/* Launch profile */}
           <div className="launch-profile-form" title="Configure how ready plans are launched">
             <div className="launch-profile-row">
@@ -1047,7 +1068,7 @@ export function PlanningInspector({
                     </button>
                   </div>
                 </div>
-              ) : (
+              ) : runtimeReady ? (
                 <button
                   className="btn btn-sm btn-primary flow-stage-action"
                   type="button"
@@ -1056,6 +1077,12 @@ export function PlanningInspector({
                 >
                   Launch {plans.filter((p) => p.status === "ready").length} ready
                 </button>
+              ) : (
+                <div className="flow-runtime-blocked" title="OpenSpec runtime not configured">
+                  <span className="text-sm text-muted">
+                    OpenSpec runtime {runtime.status?.state ?? "missing"}. Configure in Settings → OpenSpec.
+                  </span>
+                </div>
               )
             ) : null}
           </div>

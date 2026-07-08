@@ -102,6 +102,7 @@ use commands::{
         openspec_read_tasks_structured, openspec_refresh_task_progress,
         openspec_resolve_change_name, openspec_task_progress, openspec_toggle_task,
         openspec_unlink_plan_from_change,
+        openspec_runtime_status, openspec_runtime_install, openspec_runtime_update,
     },
     notifications::{
         notification_delete, notification_get_settings, notification_list,
@@ -429,6 +430,9 @@ pub fn run() {
             openspec_link_change_to_plan,
             openspec_unlink_plan_from_change,
             openspec_refresh_task_progress,
+            openspec_runtime_status,
+            openspec_runtime_install,
+            openspec_runtime_update,
             openspec_archive_change,
             plan_import_detect,
             plan_import_apply,

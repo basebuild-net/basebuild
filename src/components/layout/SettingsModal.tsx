@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Lock, LogOut, Plug, RefreshCw, Settings2, Shield, Trash2, Unplug, User, X } from "lucide-react";
+import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Lock, LogOut, Plug, RefreshCw, Settings2, Shield, Trash2, Unplug, User, Wrench, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { CopyButton } from "./CopyButton";
 import { FinalTouchesTab } from "./FinalTouchesTab";
+import { OpenSpecSettingsTab } from "./OpenSpecSettingsTab";
 import { PlanningTab } from "./PlanningTab";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
 import { appVersion } from "../../lib/app";
@@ -85,7 +86,7 @@ type SettingsModalProps = {
   updates: UpdaterState;
 };
 
-type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "mcp" | "planning" | "final_touches" | "concurrency" | "notifications" | "about";
+type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "mcp" | "planning" | "openspec" | "final_touches" | "concurrency" | "notifications" | "about";
 
 export function SettingsModal({ open, onClose, projectPath, account, updates }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
@@ -284,6 +285,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
     { id: "configs", label: "Config Packs", icon: Settings2 },
     { id: "mcp", label: "MCP Servers", icon: Plug },
     { id: "planning", label: "Planning", icon: Lightbulb },
+    { id: "openspec", label: "OpenSpec", icon: Wrench },
     { id: "final_touches", label: "Final Touches", icon: Settings2 },
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "concurrency", label: "Concurrency", icon: Settings2 },
@@ -938,9 +940,12 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
               </div>
             ) : null}
 
-            {/* ─── Planning ─── */}
             {tab === "planning" ? (
               <PlanningTab projectPath={projectPath} />
+            ) : null}
+
+            {tab === "openspec" ? (
+              <OpenSpecSettingsTab projectPath={projectPath} />
             ) : null}
 
             {tab === "final_touches" ? (

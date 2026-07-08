@@ -352,11 +352,16 @@ Every activity item carries:
 
 ### Presentation
 
-- **Collapsed**: one live activity group shows the latest operation and its
-  status. Consecutive non-approval tool calls collapse into a running count with
-  aggregate status.
-- **Expanded**: preserves sequence and exposes each individual call as its own
-  card in a height-capped, scrollable list.
+- **Ungrouped by default**: the timeline renders a flat chronological list.
+  Every tool call, thinking block, question, notice, error, approval, and
+  capture is its own row in the order received. No grouping or lumping.
+- **Thinking blocks split**: when a tool call, question, or other activity
+  interrupts reasoning, the current thinking block closes and later reasoning
+  starts a new `ThinkingBlock` row. Thinking is never concatenated with
+  assistant text.
+- **Loading rows**: streaming, thinking, running tools, waiting for answer,
+  queued, blocked, and failed states each show a loading row with both an
+  icon and text — never color alone.
 - **States**: running, waiting, blocked, and failed states surface the latest
   operation summary, expandable detail, and safe actions such as cancellation
   and retry where the backend allows it.

@@ -1,7 +1,9 @@
 use tauri::AppHandle;
 
 use crate::services::openspec_service;
+use crate::services::openspec_runtime_service::OpenSpecRuntimeService;
 use crate::models::openspec_catalog::{ChangeCatalogEntry, StructuredTasks};
+use crate::models::openspec_runtime::OpenSpecRuntimeStatus;
 
 /// Derive a kebab-case change name from a title.
 #[tauri::command]
@@ -98,4 +100,24 @@ pub fn openspec_refresh_task_progress(
     last_total: u32,
 ) -> Result<bool, String> {
     openspec_service::refresh_task_progress(&app, &project_path, &change_name, last_completed, last_total)
+}
+
+/// Check OpenSpec runtime status for a project. No network calls.
+#[tauri::command]
+pub fn openspec_runtime_status(project_path: Option<String>) -> Result<OpenSpecRuntimeStatus, String> {
+    Ok(OpenSpecRuntimeService::status(project_path.as_deref()))
+}
+
+/// Install OpenSpec (stub until a distribution source is configured).
+/// No network call; returns an actionable error.
+#[tauri::command]
+pub fn openspec_runtime_install(project_path: Option<String>) -> Result<OpenSpecRuntimeStatus, String> {
+    OpenSpecRuntimeService::install(project_path.as_deref())
+}
+
+/// Update OpenSpec (stub until a distribution source is configured).
+/// No network call; returns an actionable error.
+#[tauri::command]
+pub fn openspec_runtime_update(project_path: Option<String>) -> Result<OpenSpecRuntimeStatus, String> {
+    OpenSpecRuntimeService::update(project_path.as_deref())
 }

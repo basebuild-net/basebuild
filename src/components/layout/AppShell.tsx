@@ -6,6 +6,7 @@ import { generateCategoriesAction, generateIdeasAction, schematicWizardAction, t
 import { DestinationPicker, type DestinationChoice } from "./DestinationPicker";
 
 import { useSessionState } from "../../state/sessions";
+import { useZoom } from "../../state/useZoom";
 import { usePlans } from "../../state/plans";
 import { ProjectSidebar, useProjectSidebar } from "./ProjectSidebar";
 import { ActivitySidebar } from "./ActivitySidebar";
@@ -89,6 +90,7 @@ type AppShellProps = {
 
 export function AppShell({ updates }: AppShellProps) {
   const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null);
+  const { zoom, zoomIn, zoomOut, zoomReset } = useZoom();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [gridView, setGridView] = useState(false);
   const [fileModalOpen, setFileModalOpen] = useState(false);
@@ -533,7 +535,7 @@ export function AppShell({ updates }: AppShellProps) {
       await plans.createPlan({
         title,
         description,
-        status: "draft",
+        status: "openspec",
         priority: 50,
         tags: chatSessionId ? [`chat:${chatSessionId}`] : [],
       });
@@ -1404,6 +1406,14 @@ export function AppShell({ updates }: AppShellProps) {
           setPendingDelivery(null);
         }}
       />
+      <div className="zoom-indicator" title={`Zoom: ${zoom}%. Ctrl+/- to adjust, Ctrl+0 to reset.`}>
+        <button className="zoom-indicator-btn" type="button" title="Zoom out (Ctrl+-)" onClick={zoomOut}>−</button>
+        <span>{zoom}%</span>
+        <button className="zoom-indicator-btn" type="button" title="Zoom in (Ctrl++)" onClick={zoomIn}>+</button>
+        {zoom !== 100 ? (
+          <button className="zoom-indicator-btn zoom-indicator-reset" type="button" title="Reset zoom (Ctrl+0)" onClick={zoomReset}>reset</button>
+        ) : null}
+      </div>
     </div>
   );
 }

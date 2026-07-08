@@ -11,6 +11,10 @@ minimal typing, clear state, and recoverable automation.
 > confirm it yourself in the live app, leave it unchecked.
 ## Golden path
 
+The accepted MVP loop is: `generate ideas → generate OpenSpec artifacts/full
+implementation plans → process queue → final touches/merge/archive`, with
+worktrees used when configured.
+
 - [ ] Open or add a project folder. Only one folder picker can be open.
 - [ ] Show a blocking project-loading surface while project-scoped sessions,
       panels, planning counts, provider/model state, and source state restore.
@@ -22,15 +26,17 @@ minimal typing, clear state, and recoverable automation.
       user add, edit, remove, or regenerate them without writing a prompt.
 - [ ] Generate multiple grounded ideas for one or more categories, select ideas
       in bulk, provide feedback, and repeat a round with one click.
-- [ ] Browse every pending idea in one command center, grouped and filterable by
-      category/status, with its grounding and next action visible.
-- [ ] Promote one or more ideas to plans. Choose the planning engine (native or
-      OpenSpec), model/provider/effort, and planning skill before generation.
-- [ ] Generate and validate complete artifacts. Preview them, request changes,
-      approve them, and transition the plan to `ready` only after validation.
+- [ ] Browse every pending idea in one visual command center with stage cards,
+      live counts, status words/colors, progress bars, and obvious `+` actions.
+- [ ] Promote one or more ideas to plans. Plans default to `engine: openspec`;
+      artifact generation, apply, verify, and archive route through OpenSpec.
+- [ ] Generate and validate complete OpenSpec artifacts. Preview them, request
+      changes, approve them, and transition the plan to `ready` only after
+      validation and OpenSpec runtime readiness.
 - [ ] Assign a ready plan to an existing or new chat. The selected chat receives
       the artifacts once and starts or queues the run rather than only changing
-      status.
+      status. The opening prompt says "Do not create a second implementation
+      plan."
 - [ ] Configure worker count and execution policy before launch: isolated
       worktree per worker, or sequential primary-workspace execution.
 - [ ] Show prerequisite, affected-path, and collision analysis before dispatch.
@@ -38,11 +44,13 @@ minimal typing, clear state, and recoverable automation.
 - [ ] Every worker reports through the shared run board (plan, priority,
       prerequisites, files claimed, branch, worktree, progress, blockers). This
       board—not free-form agent-to-agent chat—is the coordination source of truth.
-- [ ] Every chat header always shows project, workspace/worktree, branch, model,
-      assigned plan, and run state; narrow layouts may compact but not hide them.
+- [ ] Every chat shows a context strip under the input with workspace id, branch,
+      worktree, plan, progress, model, context-window usage, and queue state.
 - [ ] Review worker diffs against their plan artifacts, resolve collisions in a
       dependency-aware merge queue, and keep commit/PR/merge/prune actions
       explicitly confirmed.
+- [ ] Archive/sync completed OpenSpec changes after merge; the action previews
+      affected specs and roadmap updates before applying.
 
 ## Interaction and quality gates
 

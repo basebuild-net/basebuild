@@ -3,6 +3,7 @@ import { usePromptDelivery } from "../../lib/promptDelivery";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { markStart, markEnd } from "../../lib/timing";
 import { ChatComposerRail } from "./ChatComposerRail";
+import { ChatContextStrip } from "./ChatContextStrip";
 import { ChatHeader } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
 import { QuestionCard } from "./QuestionCard";
@@ -14,10 +15,12 @@ import {
   Key,
   LayoutGrid,
   Lightbulb,
+  Loader2,
   RefreshCw,
   Send,
   Sparkles,
   Square,
+  Unplug,
   X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -138,42 +141,20 @@ function formatMetric(value: number | null | undefined, suffix = "") {
   return `${Math.round(value * 10) / 10}${suffix}`;
 }
 
-function ToolEventGroup({ events }: { events: NativeToolEvent[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const runningCount = events.filter((e) => e.status === "running" || e.status === "pending").length;
-  const latest = events[events.length - 1];
-  const statusLabel = runningCount > 0 ? "running" : latest.status;
-  return (
-    <div className="tool-card tool-card-group" title={`${events.length} tool calls in this group`}>
-      <div className="tool-card-header" onClick={() => setExpanded(!expanded)} role="button" tabIndex={0}>
-        <span className="tool-card-icon">🔧</span>
-        <span className="tool-card-name">{events.length} tool calls</span>
-        <span className={`tool-card-status tool-card-status-${runningCount > 0 ? "running" : "success"}`}>{statusLabel}</span>
-        <span className="tool-card-summary-truncated text-muted text-sm">latest: {latest.kind.replace(/_/g, " ")} — {latest.summary.slice(0, 80)}{latest.summary.length > 80 ? "…" : ""}</span>
-        <span className="tool-card-expand">{expanded ? "▼" : "▶"}</span>
-      </div>
-      {expanded ? (
-        <div className="tool-card-body tool-card-group-list">
-          {events.map((ev) => <ToolEventCard key={ev.id} event={ev} />)}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function ReasoningFold({ reasoning }: { reasoning: string }) {
+function ThinkingBlock({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className="chat-reasoning-fold" title="Model thinking — click to expand">
+    <div className="chat-thinking-block" title="Model thinking — click to expand">
       <button
-        className="chat-reasoning-toggle"
+        className="chat-thinking-toggle"
         type="button"
         onClick={() => setExpanded(!expanded)}
       >
+        <Brain size={11} />
         {expanded ? "▼" : "▶"} Thinking…
       </button>
       {expanded ? (
-        <pre className="chat-reasoning-content">{reasoning}</pre>
+        <pre className="chat-thinking-content">{text}</pre>
       ) : null}
     </div>
   );
@@ -1452,37 +1433,14 @@ export function ChatPanel({
         ) : null}
         {nativeMode
           ? (() => {
-              // Chronological stream: merge messages + tool events + reasoning
-              // into a single sorted list of ChatEvent, ordered by
-              // (createdAt, sortOrder). Each event renders at its
-              // chronological position — not grouped by message.
+              // Flat chronological timeline: merge messages + tool events +
+              // reasoning into a single sorted list, rendered in order.
+              // No grouping — each tool call is its own row. Thinking blocks
+              // render as separate rows, split around tool calls/questions.
               type ChatEvent =
                 | { kind: "user" | "assistant" | "system"; id: string; content: string; reasoning: string | null; createdAt: number | null; providerId: string | null; index: number }
                 | { kind: "tool"; id: string; event: NativeToolEvent; createdAt: number | null; index: number }
                 | { kind: "interaction"; id: string; interaction: PendingInteraction; createdAt: number | null; index: number };
-
-              type Grouped = { type: "single" | "group"; events: NativeToolEvent[] };
-
-              const groupEvents = (events: NativeToolEvent[]) => {
-                const groups: Grouped[] = [];
-                for (const ev of events) {
-                  const isApproval = ev.kind === "approval" || ev.status === "pending";
-                  if (isApproval) {
-                    groups.push({ type: "single", events: [ev] });
-                  } else {
-                    const last = groups[groups.length - 1];
-                    if (last && last.type === "group") last.events.push(ev);
-                    else groups.push({ type: "group", events: [ev] });
-                  }
-                }
-                return groups.map((g, i) => {
-                  if (g.type === "single" || g.events.length === 1) {
-                    const ev = g.events[0];
-                    return <ToolEventCard key={ev.id} event={ev} onResolveApproval={ev.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined} />;
-                  }
-                  return <ToolEventGroup key={`group-${i}`} events={g.events} />;
-                });
-              };
 
               // Build the merged event list.
               const events: ChatEvent[] = [];
@@ -1547,26 +1505,23 @@ export function ChatPanel({
                 return a.index - b.index;
               });
 
-              // Render the flat chronological list.
-              // Group adjacent tool events for compact display.
+              // Render the flat chronological list — no grouping.
+              // Each tool event renders as its own row. Reasoning renders
+              // as a separate block before the message content.
               const rendered: React.ReactNode[] = [];
-              let toolBatch: NativeToolEvent[] = [];
-              const flushToolBatch = (batchKey: string) => {
-                if (toolBatch.length > 0) {
-                  rendered.push(
-                    <div key={`tools-${batchKey}`} className="chat-tool-events">{groupEvents(toolBatch)}</div>,
-                  );
-                  toolBatch = [];
-                }
-              };
-
               for (const ev of events) {
                 if (ev.kind === "tool") {
-                  toolBatch.push(ev.event);
+                  // Each tool call is its own row — no grouping.
+                  rendered.push(
+                    <ToolEventCard
+                      key={`tool-${ev.id}`}
+                      event={ev.event}
+                      onResolveApproval={ev.event.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined}
+                    />,
+                  );
                   continue;
                 }
                 if (ev.kind === "interaction") {
-                  flushToolBatch(`pre-intr-${ev.id}`);
                   rendered.push(
                     <QuestionCard
                       key={`intr-${ev.id}`}
@@ -1577,12 +1532,19 @@ export function ChatPanel({
                   );
                   continue;
                 }
-                // Flush any pending tool events before the next message.
+                // Render reasoning as a separate thinking block row before
+                // the message content, so thinking splits around tool calls.
                 const isOfflineTurn = ev.kind === "assistant" && ev.providerId === LOCAL_PROVIDER_ID;
                 const timeStr = ev.createdAt != null
                   ? new Date(ev.createdAt * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
                   : null;
                 const fullDate = ev.createdAt != null ? new Date(ev.createdAt * 1000).toLocaleString() : null;
+                // Thinking block as its own row (split around interruptions).
+                if (ev.reasoning && ev.reasoning.trim()) {
+                  rendered.push(
+                    <ThinkingBlock key={`thinking-${ev.id}`} text={ev.reasoning} />,
+                  );
+                }
                 rendered.push(
                   <div key={ev.id} className={`chat-message chat-message-${ev.kind}`}>
                     <span className="chat-message-role">
@@ -1590,13 +1552,29 @@ export function ChatPanel({
                       {isOfflineTurn ? <span className="chat-offline-tag" title="No external model was contacted">Offline</span> : null}
                       {timeStr ? <span className="chat-message-time" title={fullDate ?? ""}>{timeStr}</span> : null}
                     </span>
-                    {ev.reasoning ? <ReasoningFold reasoning={ev.reasoning} /> : null}
                     <pre className="chat-message-content">{ev.content}</pre>
                   </div>,
                 );
               }
-              // Flush any remaining tool events at the end.
-              flushToolBatch("live");
+
+              // Loading row for streaming/thinking state.
+              if (streaming) {
+                rendered.push(
+                  <div key="loading-streaming" className="chat-loading-row" title="Assistant is responding">
+                    <Loader2 size={12} className="is-spinning" />
+                    <span className="text-sm text-muted">Thinking…</span>
+                  </div>,
+                );
+              }
+              // Loading row for queued state.
+              if (loading && !streaming) {
+                rendered.push(
+                  <div key="loading-queued" className="chat-loading-row" title="Request in progress">
+                    <Loader2 size={12} className="is-spinning" />
+                    <span className="text-sm text-muted">Working…</span>
+                  </div>,
+                );
+              }
 
               return rendered;
             })()
@@ -2016,35 +1994,75 @@ export function ChatPanel({
                       </div>
                       <div className="provider-card-grid">
                         {orderedProviders.map((provider) => (
-                          <button
+                          <div
                             key={provider.id}
                             className={`provider-card is-${provider.configured ? "connected" : "available"}${provider.id === providerId ? " is-active" : ""}`}
-                            type="button"
                             title={`${provider.label}: ${provider.configured ? "connected" : "not connected"}; ${provider.modelCount} models`}
-                            onClick={() => {
-                              addLog("debug", "Provider selected", `provider=${provider.id}; connected=${provider.configured}`);
-                              setProviderId(provider.id);
-                              const providerModels = catalog.models.filter((model) => model.providerId === provider.id);
-                              const currentIsValid = providerModels.some((model) => model.id === modelId);
-                              if (!currentIsValid && providerModels[0]) setModelId(providerModels[0].id);
-                              setSetupRequired(null);
-                              setModelFilter("");
-                              if (!provider.configured && provider.id !== LOCAL_PROVIDER_ID) {
-                                setShowProviderPicker(false);
-                                setShowModelPicker(false);
-                                setShowLogin(true);
-                              }
-                            }}
                           >
-                            <span className="provider-card-topline">
-                              <span className="provider-card-name">{provider.label}</span>
-                              <span className={`provider-status is-${provider.configured ? "connected" : "available"}`}>
-                                <span className="provider-status-dot" />
-                                {provider.configured ? "Connected" : "Available"}
+                            <button
+                              className="provider-card-select"
+                              type="button"
+                              title={`${provider.label}: ${provider.configured ? "connected" : "not connected"}; ${provider.modelCount} models. Click to browse models.`}
+                              onClick={() => {
+                                addLog("debug", "Provider selected", `provider=${provider.id}; connected=${provider.configured}`);
+                                setProviderId(provider.id);
+                                const providerModels = catalog.models.filter((model) => model.providerId === provider.id);
+                                const currentIsValid = providerModels.some((model) => model.id === modelId);
+                                if (!currentIsValid && providerModels[0]) setModelId(providerModels[0].id);
+                                setSetupRequired(null);
+                                setModelFilter("");
+                              }}
+                            >
+                              <span className="provider-card-topline">
+                                <span className="provider-card-name">{provider.label}</span>
+                                <span className={`provider-status is-${provider.configured ? "connected" : "available"}`}>
+                                  <span className="provider-status-dot" />
+                                  {provider.configured ? "Connected" : "Available"}
+                                </span>
                               </span>
-                            </span>
-                            <span className="provider-card-meta">{provider.modelCount} models</span>
-                          </button>
+                              <span className="provider-card-meta">{provider.modelCount} models</span>
+                            </button>
+                            {provider.id !== LOCAL_PROVIDER_ID ? (
+                              <div className="provider-card-actions">
+                                {provider.configured ? (
+                                  <button
+                                    className="btn btn-sm provider-card-action-btn"
+                                    type="button"
+                                    title={`Disconnect ${provider.label} — removes the stored API key`}
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      try {
+                                        await nativeDeleteProviderCredential(provider.id);
+                                        await refreshCatalog();
+                                        addLog("debug", "Provider disconnected", `provider=${provider.id}`);
+                                      } catch (err) {
+                                        addLog("error", "Failed to disconnect provider", err instanceof Error ? err.message : String(err));
+                                      }
+                                    }}
+                                  >
+                                    <Unplug size={11} /> Disconnect
+                                  </button>
+                                ) : null}
+                                <button
+                                  className="btn btn-sm provider-card-action-btn"
+                                  type="button"
+                                  title={provider.configured ? `Reconnect ${provider.label} — enter a new API key` : `Connect ${provider.label} — enter an API key`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setProviderId(provider.id);
+                                    const providerModels = catalog.models.filter((model) => model.providerId === provider.id);
+                                    const currentIsValid = providerModels.some((model) => model.id === modelId);
+                                    if (!currentIsValid && providerModels[0]) setModelId(providerModels[0].id);
+                                    setShowProviderPicker(false);
+                                    setShowModelPicker(false);
+                                    setShowLogin(true);
+                                  }}
+                                >
+                                  <Key size={11} /> {provider.configured ? "Reconnect" : "Connect"}
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
                         ))}
                       </div>
                     </section>
@@ -2179,6 +2197,16 @@ export function ChatPanel({
             </button>
           )}
         </div>
+        <ChatContextStrip
+          projectPath={projectPath}
+          workspaceId={nativeSessionId}
+          branch={branch}
+          worktreePath={worktreePath}
+          plan={planBadge ? { referenceId: planBadge.referenceId, title: planBadge.title, status: planBadge.status } : null}
+          runState={streaming ? "running" : loading ? "queued" : "idle"}
+          modelLabel={modelName}
+          contextUsage={{ used: null, limit: null }}
+        />
       </div>
     </div>
   );

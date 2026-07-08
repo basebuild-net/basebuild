@@ -523,7 +523,11 @@ impl NativeChatService {
         if let Some(change_name) = &plan.change_name {
             let change_path = format!("{project_path}/openspec/changes/{change_name}");
             parts.push(format!(
-                "**OpenSpec change:** `{change_path}` — read the proposal, specs, design, and tasks.md there for the full plan. Work through tasks.md checkboxes in order."
+                "You are applying the OpenSpec change at {change_path}/.\n\
+                 Read proposal.md, design.md if present, specs/**/spec.md, and tasks.md.\n\
+                 Work tasks.md top-to-bottom. Mark each checkbox immediately after completing it.\n\
+                 Do not create a second implementation plan. Update docs/DESIGN/mvp only where tasks.md says so.\n\
+                 Run the relevant verification commands before reporting completion."
             ));
         }
         // Append project schematic if it exists.

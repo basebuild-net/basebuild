@@ -127,6 +127,7 @@ pub fn resolve_client(provider_id: &str, base_url: Option<&str>) -> Box<dyn Prov
             omp_provider_id: "openai-codex".to_string(),
         }),
         "anthropic" => Box::new(AnthropicClient {
+            provider_id: "anthropic".to_string(),
             base_url: base_url
                 .map(str::to_string)
                 .unwrap_or_else(|| "https://api.anthropic.com/v1".to_string()),
@@ -254,6 +255,7 @@ pub fn resolve_client_for_model(
     }
     match api_kind {
         "anthropic-messages" => Box::new(AnthropicClient {
+            provider_id: provider_id.to_string(),
             base_url: base_url
                 .map(str::to_string)
                 .filter(|s| !s.is_empty())
@@ -1114,6 +1116,7 @@ impl AnthropicStreamState {
 }
 
 pub struct AnthropicClient {
+    pub provider_id: String,
     pub base_url: String,
 }
 
@@ -1216,9 +1219,9 @@ impl ProviderClient for AnthropicClient {
         if !status.is_success() {
             let text = resp.text().unwrap_or_default();
             return Err(ProviderError::HttpError {
-                provider: "anthropic".to_string(),
+                provider: self.provider_id.clone(),
                 status: status.as_u16(),
-                message: provider_http_error(status.as_u16(), "anthropic", &text),
+                message: provider_http_error(status.as_u16(), &self.provider_id, &text),
             }.into());
         }
         let mut state = AnthropicStreamState::default();

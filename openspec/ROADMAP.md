@@ -173,6 +173,7 @@ _Last refreshed: 2026-07-08 (`node scripts/openspec-status.mjs --write`)_
 |---|---|---|---|
 |`chat-first-shell`|17/31|in progress|`/apply chat-first-shell`|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
+|`openspec-chat-workbench`|65/71|in progress|`/apply openspec-chat-workbench`|
 |`plan-import`|11/13|in progress|`/apply plan-import`|
 |`provider-parity-workspace-fixes`|28/42|in progress|`/apply provider-parity-workspace-fixes`|
 |`chat-history-persistence`|0/21|not started|`/apply chat-history-persistence`|
@@ -182,7 +183,6 @@ _Last refreshed: 2026-07-08 (`node scripts/openspec-status.mjs --write`)_
 |`harness-subagents`|0/16|not started|`/apply harness-subagents`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
 |`omp-terminal-usage-sync`|0/33|not started|`/apply omp-terminal-usage-sync`|
-|`openspec-chat-workbench`|0/71|not started|`/apply openspec-chat-workbench`|
 |`plan-status-rename`|0/12|not started|`/apply plan-status-rename`|
 |`planning-file-ingestion`|0/13|not started|`/apply planning-file-ingestion`|
 |`project-grid-workspace`|0/33|not started|`/apply project-grid-workspace`|

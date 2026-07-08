@@ -15,12 +15,9 @@ import type { GitBranch as GitBranchInfo } from "../../lib/git";
 
 /** Per-chat column header (`chat-header-context`).
  *
- * Ported from the reference IDE's chat header structure, adapted to
- * basebuild's `globals.css`-only stack (0px radius, no Radix, no CSS modules).
- * Renders above the conversation, never scrolls out of view. Every interactive
- * element has a `title=` tooltip (Invariant 3).
- *
- * Reference: dream IDE (MIT). Attribution: docs/agents/design-system.md. */
+ * Renders above the conversation, never scrolls out of view. Every
+ * interactive element has a `title=` tooltip.
+ */
 
 type PlanBadge = {
   referenceId: string;

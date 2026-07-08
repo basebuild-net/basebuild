@@ -26,6 +26,7 @@ pub mod native_chat_service;
 pub mod mcp_service;
 pub mod mcp_oauth_service;
 pub mod openspec_service;
+pub mod openspec_runtime_service;
 pub mod process_helpers;
 pub mod provider_client;
 pub mod provider_login_service;

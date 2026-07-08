@@ -12,6 +12,7 @@ pub mod plan_run;
 pub mod plan_dependency;
 pub mod planning_event;
 pub mod openspec_catalog;
+pub mod openspec_runtime;
 pub mod planning_prompt;
 pub mod pipeline;
 pub mod native_chat;

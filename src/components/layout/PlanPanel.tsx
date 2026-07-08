@@ -33,6 +33,7 @@ import {
 } from "../../lib/planDependencies";
 import { PlanQueueSection } from "./PlanQueueSection";
 import { openspecTaskProgress } from "../../lib/openspec";
+import { useOpenSpecRuntime } from "../../state/useOpenSpecRuntime";
 import { PlanImportModal } from "./PlanImportModal";
 
 type EffortLevel = "low" | "medium" | "high";
@@ -500,6 +501,8 @@ function PlanPromotionForm({
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [reviseMessage, setReviseMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const runtime = useOpenSpecRuntime(projectPath);
+  const runtimeReady = runtime.status?.state === "ready";
 
   useEffect(() => {
     setForm(defaults);
@@ -700,11 +703,20 @@ function PlanPromotionForm({
       ) : null}
       {reviseMessage ? <p className="text-sm text-muted">{reviseMessage}</p> : null}
       <div className="plan-promotion-actions">
+        {runtimeReady ? null : (
+          <div className="plan-runtime-blocked" title="OpenSpec runtime not ready">
+            <AlertCircle size={12} />
+            <span className="text-sm">
+              OpenSpec runtime is {runtime.status?.state ?? "missing"}.{" "}
+              Configure it in Settings → OpenSpec before promoting.
+            </span>
+          </div>
+        )}
         <button
           className="btn btn-sm btn-primary"
           type="button"
-          title="Validate readiness and promote to ready"
-          disabled={loading || hasErrors}
+          title={runtimeReady ? "Validate readiness and promote to ready" : "OpenSpec runtime not configured"}
+          disabled={loading || hasErrors || !runtimeReady}
           onClick={() => void handlePromote()}
         >
           {loading ? <RefreshCw size={11} className="is-spinning" /> : <Rocket size={11} />}

@@ -5,9 +5,11 @@ change. This document links to it and adds agent-specific rules.
 
 ## Core principles
 
-- **Pure black canvas** (`#000000`), pure white text (`#ffffff`), single orange
-  accent (`#ff5606`). Exception: app update install CTAs use blue (`#2563eb`)
-  so releases are visually distinct from normal actions.
+- **Dark canvas** (`--bb-bg`), white text (`--bb-text`), orange CTA accent
+  (`--bb-cta`). Plan statuses, tool call types, and context meters use vibrant
+  semantic CSS-variable colors (green, blue, purple, amber, red). Color never
+  acts alone — every state has a word and icon. Exception: app update install
+  CTAs use blue (`#2563eb`) so releases are visually distinct from normal actions.
 - **0px border radius everywhere.** No exceptions.
 - **No decorative borders.** Layer on whitespace, hover lifts, and uppercase
   typography.
@@ -15,6 +17,13 @@ change. This document links to it and adds agent-specific rules.
 - **Compact and dense.** Minimal padding, no wasted space.
 - **Tooltips on every interactive element** (`title` attribute). Verify with
   `title=`, not just `aria-label`.
+- **CSS variables only.** All colors, sizes, and scales are tokenized in
+  `globals.css` `:root` so themes can be swapped in the future. No hardcoded
+  color values in component files.
+- **Panel-grid and chat-header patterns use Basebuild-owned split-tree and
+  context-header primitives.** If external code is vendored in the future, add
+  it as an explicit module with license notice; do not leave ad-hoc source
+  references in component comments.
 
 ## Product hierarchy and ownership
 

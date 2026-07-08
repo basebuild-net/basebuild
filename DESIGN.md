@@ -1,7 +1,7 @@
 ---
 version: beta
 name: Basebuild Mono Desktop
-description: Desktop adaptation of the basebuild Mono design system. Pure black canvas, pure white type, a single high-contrast orange accent, square geometry (0px radius), and a borderless aesthetic adapted to a dense desktop tool. Collapsible columns, icon-only collapse modes, tooltips on every interactive element.
+description: Desktop adaptation of the basebuild design system. Dark tokenized canvas, white type, vibrant semantic status colors for plan/tool/status types, square geometry (0px radius), and a borderless aesthetic adapted to a dense desktop tool. All colors are CSS variables for future theme support. Collapsible columns, icon-only collapse modes, tooltips on every interactive element.
 colors:
   background: "#000000"
   surface: "#0a0a0a"
@@ -158,10 +158,16 @@ components:
 
 ## Overview
 
-Basebuild Mono Desktop adapts the basebuild Mono web design system for a
-desktop tool. The personality is preserved - **pure black canvas, pure white
-type, a single electric orange (`#ff5606`) accent, and square geometry** - but
-adapted for a dense, compact, instrument-like workspace.
+Basebuild Mono Desktop adapts the basebuild web design system for a
+desktop tool. The personality is preserved - **dark canvas, white type,
+vibrant semantic colors for status/tool types, and square geometry** - but
+adapted for a dense, compact, instrument-like workspace. Colors are tokenized
+as CSS variables in `globals.css` so themes can be swapped in the future.
+
+The single orange accent (`#ff5606`) remains the primary CTA color, but
+plan statuses, tool call types, and context meters use vibrant semantic
+colors (green, blue, purple, amber, red) to make state visible at a glance.
+Color never acts alone — every state has a word and icon alongside it.
 
 This is a desktop tool, not a marketing site. The UI is **extremely compact**:
 minimal padding, no wasted whitespace between elements, no large empty regions.
