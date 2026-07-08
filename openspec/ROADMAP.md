@@ -166,12 +166,13 @@ their turn comes — stale specs are worse than none.
 ## Status
 
 <!-- status:begin -->
-_Last refreshed: 2026-07-07 (`node scripts/openspec-status.mjs --write`)_
+_Last refreshed: 2026-07-08 (`node scripts/openspec-status.mjs --write`)_
 
 |Change|Progress|Status|Next command|
 |---|---|---|---|
 |`chat-first-shell`|17/31|in progress|`/apply chat-first-shell`|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
+|`mvp-workflow-hardening`|26/35|in progress|`/apply mvp-workflow-hardening`|
 |`plan-import`|11/13|in progress|`/apply plan-import`|
 |`provider-parity-workspace-fixes`|28/42|in progress|`/apply provider-parity-workspace-fixes`|
 |`chat-history-persistence`|0/21|not started|`/apply chat-history-persistence`|
@@ -179,7 +180,6 @@ _Last refreshed: 2026-07-07 (`node scripts/openspec-status.mjs --write`)_
 |`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
 |`harness-subagents`|0/16|not started|`/apply harness-subagents`|
-|`mvp-workflow-hardening`|0/35|not started|`/apply mvp-workflow-hardening`|
 |`native-app-login-mcp`|0/20|not started|`/apply native-app-login-mcp`|
 |`omp-terminal-usage-sync`|0/33|not started|`/apply omp-terminal-usage-sync`|
 |`plan-status-rename`|0/12|not started|`/apply plan-status-rename`|
