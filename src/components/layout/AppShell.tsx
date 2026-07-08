@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LayoutTemplate, Settings2, TerminalSquare, X } from "lucide-react";
 import { deliverPrompt, type PromptMode } from "../../lib/promptDelivery";
 import { generateCategoriesAction, generateIdeasAction, schematicWizardAction, type PlanningAction } from "../../lib/planningActions";
@@ -9,30 +9,30 @@ import { usePlans } from "../../state/plans";
 import { ProjectSidebar, useProjectSidebar } from "./ProjectSidebar";
 import { ActivitySidebar } from "./ActivitySidebar";
 import { ChatEnvironmentPanel } from "./ChatEnvironmentPanel";
-import { FileExplorerModal } from "./FileExplorerModal";
-import { PlanningInspector } from "./PlanningInspector";
+const FileExplorerModal = lazy(() => import("./FileExplorerModal").then((m) => ({ default: m.FileExplorerModal })));
+const PlanningInspector = lazy(() => import("./PlanningInspector").then((m) => ({ default: m.PlanningInspector })));
+const EditPlanModal = lazy(() => import("./EditPlanModal").then((m) => ({ default: m.EditPlanModal })));
+const FocusPlanModal = lazy(() => import("./FocusPlanModal").then((m) => ({ default: m.FocusPlanModal })));
+const SourcePanel = lazy(() => import("../panels/SourcePanel").then((m) => ({ default: m.SourcePanel })));
+const SettingsModal = lazy(() => import("./SettingsModal").then((m) => ({ default: m.SettingsModal })));
+const ProjectDescriptionModal = lazy(() => import("./ProjectDescriptionModal").then((m) => ({ default: m.ProjectDescriptionModal })));
 import { CommandStrip } from "./CommandStrip";
 import { ToastStack } from "./ToastStack";
-import { SourcePanel } from "../panels/SourcePanel";
-import { EditPlanModal } from "./EditPlanModal";
-import { FocusPlanModal } from "./FocusPlanModal";
-import { ProjectDescriptionModal } from "./ProjectDescriptionModal";
 import { useProjectSchematic } from "../../state/schematic";
 import { getLastFocusedProject, revealInExplorer, setLastFocusedProject } from "../../lib/projects";
 import { onPlanRunEvent } from "../../lib/planRuns";
 import { generateSessionTitle, readSkill } from "../../lib/skills";
 import { getWorkspaceRestoreState, saveWorkspaceRestoreState, type WorkspaceRestoreState } from "../../lib/workspace";
-import { SettingsModal } from "./SettingsModal";
 import { FirstRunModal } from "./FirstRunModal";
 import { useFirstRun } from "../../state/first-run";
 import { createTerminal } from "../../lib/terminal";
-import { TerminalPanel } from "../panels/TerminalPanel";
-import { FileViewer } from "../panels/FileViewer";
+const TerminalPanel = lazy(() => import("../panels/TerminalPanel").then((m) => ({ default: m.TerminalPanel })));
+const FileViewer = lazy(() => import("../panels/FileViewer").then((m) => ({ default: m.FileViewer })));
 import { ProjectSchematicTab } from "../panels/ProjectSchematicTab";
 import { ChatPanel } from "../panels/ChatPanel";
 import { PanelGrid } from "../panels/PanelGrid";
 import { PanelStatusProvider } from "../panels/PanelStatusContext";
-import { HistoryDrawer } from "../panels/HistoryDrawer";
+const HistoryDrawer = lazy(() => import("../panels/HistoryDrawer").then((m) => ({ default: m.HistoryDrawer })));
 import {
   closePanel,
   deletePanelFromHistory,
@@ -58,12 +58,12 @@ import {
 import { parseTabGridStates, serializeTabGridStates } from "../../lib/workspace";
 import { ompStatus } from "../../lib/omp";
 import { stabilityRendererHeartbeat } from "../../lib/stability";
-import { OmpTerminalTab } from "../panels/OmpTerminalTab";
+const OmpTerminalTab = lazy(() => import("../panels/OmpTerminalTab").then((m) => ({ default: m.OmpTerminalTab })));
 import { StatusBar } from "./StatusBar";
 import { WindowControls } from "./WindowControls";
-import { LogPanel } from "./LogPanel";
+const LogPanel = lazy(() => import("./LogPanel").then((m) => ({ default: m.LogPanel })));
 import { CrashReportNotice } from "./CrashReportNotice";
-import { DebugPanel } from "../panels/DebugPanel";
+const DebugPanel = lazy(() => import("../panels/DebugPanel").then((m) => ({ default: m.DebugPanel })));
 import { useLogs } from "../../state/log";
 import { useAccount } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
@@ -871,7 +871,7 @@ export function AppShell({ updates }: AppShellProps) {
           // Try to find a terminal tab by title match (legacy panels).
           const tab = session.tabs.find((t) => t.kind === "terminal" && (t.id === panel.id || t.title === panel.title));
           if (tab?.terminalId) {
-            return <TerminalPanel terminalId={tab.terminalId} onOutput={handleTerminalOutput} />;
+            return <Suspense fallback={null}><TerminalPanel terminalId={tab.terminalId} onOutput={handleTerminalOutput} /></Suspense>;
           }
           return (
             <div className="empty-state">
@@ -902,28 +902,30 @@ export function AppShell({ updates }: AppShellProps) {
           );
         }
         return (
-          <TerminalPanel
-            terminalId={panel.terminalId}
-            onOutput={handleTerminalOutput}
-            onReconnect={() => {
-              void (async () => {
-                const shell = DEFAULT_SHELL();
-                const term = await createTerminal(shell, activeProjectPath ?? undefined);
-                setPanelGridState((prev) => ({
-                  ...prev,
-                  root: updatePanelInTree(prev.root, panel.id, {
-                    terminalId: term.id,
-                    title: `Terminal ${term.id}`,
-                  }),
-                }));
-              })();
-            }}
-          />
+          <Suspense fallback={null}>
+            <TerminalPanel
+              terminalId={panel.terminalId}
+              onOutput={handleTerminalOutput}
+              onReconnect={() => {
+                void (async () => {
+                  const shell = DEFAULT_SHELL();
+                  const term = await createTerminal(shell, activeProjectPath ?? undefined);
+                  setPanelGridState((prev) => ({
+                    ...prev,
+                    root: updatePanelInTree(prev.root, panel.id, {
+                      terminalId: term.id,
+                      title: `Terminal ${term.id}`,
+                    }),
+                  }));
+                })();
+              }}
+            />
+          </Suspense>
         );
       }
       if (panel.type === "file") {
         if (!panel.filePath) return null;
-        return <FileViewer path={panel.filePath} />;
+        return <Suspense fallback={null}><FileViewer path={panel.filePath} /></Suspense>;
       }
       if (panel.type === "schematic") {
         return (
@@ -949,10 +951,10 @@ export function AppShell({ updates }: AppShellProps) {
           })();
         };
         if (panel.terminalId) {
-          return <OmpTerminalTab terminalId={panel.terminalId} onOutput={handleTerminalOutput} onReconnect={reconnectOmp} />;
+          return <Suspense fallback={null}><OmpTerminalTab terminalId={panel.terminalId} onOutput={handleTerminalOutput} onReconnect={reconnectOmp} /></Suspense>;
         }
         const tab = session.tabs.find((t) => t.kind === "omp" && (t.id === panel.id || t.title === panel.title));
-        return <OmpTerminalTab terminalId={tab?.terminalId ?? null} onOutput={handleTerminalOutput} onReconnect={reconnectOmp} />;
+        return <Suspense fallback={null}><OmpTerminalTab terminalId={tab?.terminalId ?? null} onOutput={handleTerminalOutput} onReconnect={reconnectOmp} /></Suspense>;
       }
       return null;
     },
@@ -1163,24 +1165,28 @@ export function AppShell({ updates }: AppShellProps) {
                   viewportHeight={typeof window !== "undefined" ? window.innerHeight - 120 : 700}
                 />
                 {historyDrawerOpen ? (
-                  <HistoryDrawer
-                    closedPanels={panelGridState.closedPanels}
-                    onReopen={handlePanelReopen}
-                    onDelete={handlePanelDelete}
-                    onClose={() => setHistoryDrawerOpen(false)}
-                  />
+                  <Suspense fallback={null}>
+                    <HistoryDrawer
+                      closedPanels={panelGridState.closedPanels}
+                      onReopen={handlePanelReopen}
+                      onDelete={handlePanelDelete}
+                      onClose={() => setHistoryDrawerOpen(false)}
+                    />
+                  </Suspense>
                 ) : null}
               </PanelStatusProvider>
             ) : null}
           </div>
         </section>
       </main>
-      <FileExplorerModal
-        projectPath={activeProjectPath}
-        open={fileModalOpen}
-        onClose={() => setFileModalOpen(false)}
-        onOpenFile={handleOpenFileInTab}
-      />
+      <Suspense fallback={null}>
+        <FileExplorerModal
+          projectPath={activeProjectPath}
+          open={fileModalOpen}
+          onClose={() => setFileModalOpen(false)}
+          onOpenFile={handleOpenFileInTab}
+        />
+      </Suspense>
       {changesModalOpen && activeProjectPath ? (
         <div className="modal-overlay" role="dialog" aria-label="Changes" onClick={() => setChangesModalOpen(false)}>
           <div className="modal modal-changes" onClick={(e) => e.stopPropagation()}>
@@ -1189,7 +1195,7 @@ export function AppShell({ updates }: AppShellProps) {
               <button className="btn-icon" type="button" title="Close (Esc)" onClick={() => setChangesModalOpen(false)}><X size={14} /></button>
             </div>
             <div className="modal-body">
-              <SourcePanel projectPath={activeProjectPath} />
+              <Suspense fallback={null}><SourcePanel projectPath={activeProjectPath} /></Suspense>
             </div>
           </div>
         </div>
@@ -1202,33 +1208,35 @@ export function AppShell({ updates }: AppShellProps) {
               <button className="btn-icon" type="button" title="Close (Esc)" onClick={() => setPlansModalOpen(false)}><X size={14} /></button>
             </div>
             <div className="modal-body">
-              <PlanningInspector
-                sessionId={session.activeSessionId}
-                projectPath={activeProjectPath}
-                plans={plans.plans}
-                loading={plans.loading}
-                collapsed={false}
-                onToggleCollapse={() => {}}
-                hostContext="modal"
-                onCreatePlan={() => { setPlansModalOpen(false); handleCreatePlan(); }}
-                onEditPlan={(p) => { setPlansModalOpen(false); handleEditPlan(p); }}
-                onFocusPlan={handleFocusPlan}
-                onCopyReference={handleCopyReference}
-                onOpenInTerminal={handleOpenPlanInTerminal}
-                onSetPlanStatus={plans.setPlanStatus}
-                onDeletePlan={plans.deletePlan}
-                onOpenChatSession={(id) => { setPlansModalOpen(false); handleOpenChatSession(id); }}
-                onSuggestForCategory={handleSuggestForCategory}
-                onGenerateCategories={handleGenerateCategories}
-                showHeader={false}
-              />
+              <Suspense fallback={null}>
+                <PlanningInspector
+                  sessionId={session.activeSessionId}
+                  projectPath={activeProjectPath}
+                  plans={plans.plans}
+                  loading={plans.loading}
+                  collapsed={false}
+                  onToggleCollapse={() => {}}
+                  hostContext="modal"
+                  onCreatePlan={() => { setPlansModalOpen(false); handleCreatePlan(); }}
+                  onEditPlan={(p) => { setPlansModalOpen(false); handleEditPlan(p); }}
+                  onFocusPlan={handleFocusPlan}
+                  onCopyReference={handleCopyReference}
+                  onOpenInTerminal={handleOpenPlanInTerminal}
+                  onSetPlanStatus={plans.setPlanStatus}
+                  onDeletePlan={plans.deletePlan}
+                  onOpenChatSession={(id) => { setPlansModalOpen(false); handleOpenChatSession(id); }}
+                  onSuggestForCategory={handleSuggestForCategory}
+                  onGenerateCategories={handleGenerateCategories}
+                  showHeader={false}
+                />
+              </Suspense>
             </div>
           </div>
         </div>
       ) : null}
       <StatusBar onClick={() => setLogPanelOpen(true)} />
       <CrashReportNotice onViewReports={() => setDebugPanelOpen(true)} />
-      <LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} />
+      <Suspense fallback={null}><LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} /></Suspense>
       {debugPanelOpen ? (
         <div className="debug-panel-overlay" role="dialog" aria-label="Debug Panel">
           <div className="debug-panel-modal">
@@ -1245,35 +1253,43 @@ export function AppShell({ updates }: AppShellProps) {
               </button>
             </div>
             <div className="debug-panel-body">
-              <DebugPanel />
+              <Suspense fallback={null}><DebugPanel /></Suspense>
             </div>
           </div>
         </div>
       ) : null}
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} account={account} updates={updates} />
-      <EditPlanModal
-        plan={editingPlan}
-        open={!!editingPlan}
-        onClose={() => setEditingPlan(null)}
-        onSave={handleSavePlan}
-      />
-      <FocusPlanModal
-        plan={focusingPlan}
-        open={!!focusingPlan}
-        projectPath={activeProjectPath ?? ""}
-        onClose={() => setFocusingPlan(null)}
-        onSetStatus={plans.setPlanStatus}
-        onCopyReference={handleCopyReference}
-        onOpenInTerminal={handleOpenPlanInTerminal}
-        onSetContext={(id, ctx: PlanFocusContext) => void plans.setPlanContext(id, ctx)}
-      />
-      <ProjectDescriptionModal
-        open={descriptionOpen}
-        onClose={() => setDescriptionOpen(false)}
-        existingContent={schematic.content}
-        onSave={schematic.write}
-        onOpenFile={handleOpenSchematicFile}
-      />
+      <Suspense fallback={null}>
+        <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} account={account} updates={updates} />
+      </Suspense>
+      <Suspense fallback={null}>
+        <EditPlanModal
+          plan={editingPlan}
+          open={!!editingPlan}
+          onClose={() => setEditingPlan(null)}
+          onSave={handleSavePlan}
+        />
+      </Suspense>
+      <Suspense fallback={null}>
+        <FocusPlanModal
+          plan={focusingPlan}
+          open={!!focusingPlan}
+          projectPath={activeProjectPath ?? ""}
+          onClose={() => setFocusingPlan(null)}
+          onSetStatus={plans.setPlanStatus}
+          onCopyReference={handleCopyReference}
+          onOpenInTerminal={handleOpenPlanInTerminal}
+          onSetContext={(id, ctx: PlanFocusContext) => void plans.setPlanContext(id, ctx)}
+        />
+      </Suspense>
+      <Suspense fallback={null}>
+        <ProjectDescriptionModal
+          open={descriptionOpen}
+          onClose={() => setDescriptionOpen(false)}
+          existingContent={schematic.content}
+          onSave={schematic.write}
+          onOpenFile={handleOpenSchematicFile}
+        />
+      </Suspense>
       <FirstRunModal
         open={!firstRun.completed && !firstRun.loading}
         onComplete={() => firstRun.complete()}

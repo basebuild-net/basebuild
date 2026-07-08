@@ -1,19 +1,52 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AlertCircle,
+  CheckCircle,
   ChevronLeft,
   ChevronRight,
   Copy,
   Download,
   MoreHorizontal,
   Pencil,
+  RefreshCw,
+  Rocket,
+  Send,
   TerminalSquare,
   Trash2,
+  Wrench,
 } from "lucide-react";
 import type { Plan, PlanStatus } from "../../lib/plans";
 import { PLAN_STATUSES, PLAN_STATUS_LABEL, isTerminalStatus } from "../../lib/plans";
+import type {
+  EngineKind,
+  LaunchProfile,
+  SchedulingMode,
+  ValidationResult,
+  WorkspacePolicy,
+} from "../../lib/planDependencies";
+import {
+  getLaunchProfile,
+  setDependencies,
+  setLaunchProfile,
+  validateReadiness,
+} from "../../lib/planDependencies";
 import { PlanQueueSection } from "./PlanQueueSection";
 import { openspecTaskProgress } from "../../lib/openspec";
 import { PlanImportModal } from "./PlanImportModal";
+
+type EffortLevel = "low" | "medium" | "high";
+
+type ProfileForm = {
+  engine: EngineKind;
+  providerId: string;
+  modelId: string;
+  effortLevel: EffortLevel;
+  skillId: string;
+  workerCount: number;
+  workspacePolicy: WorkspacePolicy;
+  schedulingMode: SchedulingMode;
+};
+
 type PlanPanelProps = {
   sessionId: string | null;
   projectPath: string | null;
@@ -29,6 +62,8 @@ type PlanPanelProps = {
   onCopyReference: (refId: string) => void;
   onOpenInTerminal: (plan: Plan) => void;
   onOpenChatSession: (chatSessionId: string) => void;
+  onAssignPlan?: (plan: Plan, profile: LaunchProfile) => void;
+  onShowToast?: (title: string, detail?: string, kind?: "success" | "error") => void;
   showHeader?: boolean;
 };
 
