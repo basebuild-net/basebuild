@@ -67,9 +67,9 @@ Ownership map:
 - [x] 4.3 Make category and idea generation visible: close or demote the planning
       modal, focus the named destination, render question cards, and refresh
       persisted results/counts on completion.
-- [ ] 4.4 Add feedback/regenerate/batch-select loops with no required prompt
+- [x] 4.4 Add feedback/regenerate/batch-select loops with no required prompt
       typing and consistent header/flow/catalog counts.
-- [ ] 4.5 Tests: repo-prefilled schematic cards, approve-before-write, provider
+- [x] 4.5 Tests: repo-prefilled schematic cards, approve-before-write, provider
       failure recovery, categories→ideas multi-round flow, cancelled destination,
       and no dropped/double/prose-only question.
 
@@ -89,21 +89,21 @@ Ownership map:
 
 ## 6. Dependency-aware workers and merge queue
 
-- [ ] 6.1 Add plan priority, prerequisites, declared affected paths, and inferred
+- [x] 6.1 Add plan priority, prerequisites, declared affected paths, and inferred
       overlap service/model/API with cycle and stale-plan validation.
 - [ ] 6.2 Add launch-time worker count, effective provider cap, workspace policy,
       and safe/YOLO scheduling controls with a complete confirmation summary.
-- [ ] 6.3 Implement safe dispatcher ordering and live file claims; queue/block
+- [x] 6.3 Implement safe dispatcher ordering and live file claims; queue/block
       conflicts, surface reasons, and re-evaluate when claims/progress change.
 - [ ] 6.4 Add the shared run board for plan, priority, prerequisites, owner chat,
       provider/model/skill, branch/worktree, claims, progress, blockers, and
       merge readiness. Every state transition emits a debug log/event.
 - [ ] 6.5 Show the same project/workspace/branch/plan/run context in each chat
       header; sequential fallback and non-Git limitations are explicit.
-- [ ] 6.6 Feed completed workers into a dependency-aware merge-review queue using
+- [x] 6.6 Feed completed workers into a dependency-aware merge-review queue using
       artifacts and diff claims; YOLO conflicts require review and all
       commit/PR/merge/prune operations retain explicit confirmation.
-- [ ] 6.7 Tests: 4 workers with provider cap 2, prerequisite chain, disjoint pair,
+- [x] 6.7 Tests: 4 workers with provider cap 2, prerequisite chain, disjoint pair,
       initial and late collision, safe serialization, YOLO confirmation, failed
       worker recovery, and ordered merge review.
 
