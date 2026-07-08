@@ -1,3 +1,14 @@
+import {
+  MVP_BASELINE_TIMINGS,
+  MVP_FIXTURE_CATEGORIES,
+  MVP_FIXTURE_IDEAS,
+  MVP_FIXTURE_PLANS,
+  MVP_FIXTURE_PROJECTS,
+  MVP_FIXTURE_SCHEMATIC,
+  MVP_FIXTURE_SESSIONS,
+  MVP_FIXTURE_TABS,
+} from "./fixture-data";
+
 type Session = {
   id: string;
   projectPath: string;
@@ -74,6 +85,15 @@ type Idea = {
   updatedAt: number;
 };
 
+type Category = {
+  id: string;
+  sessionId: string;
+  name: string;
+  description: string;
+  createdAt: number;
+};
+
+
 type Plan = {
   id: string;
   sessionId: string;
@@ -106,11 +126,16 @@ type E2eState = {
   nativeChatSessions: NativeChatSession[];
   nativeChatMessages: NativeChatMessage[];
   nativeRequestMetrics: NativeRequestMetric[];
+  categories: Category[];
   ideas: Idea[];
+  nextCategoryId: number;
   nextIdeaId: number;
   planQueue: { id: string; sessionId: string; planId: string; sortOrder: number; createdAt: number }[];
   planRuns: { id: string; planId: string; sessionId: string; chatSessionId?: string; status: string; runnerKind: string; error?: string; stepsOutput: unknown[]; startedAt?: number; finishedAt?: number; createdAt: number }[];
   workspaceRestoreByProject: Map<string, unknown>;
+  recentProjects: { path: string; name: string; lastOpenedAt: number; lastActiveSessionId: string | null }[];
+  pickProjectCalls: number;
+  fixtureName: string | null;
   auth: { accessToken: string; expiresAt: string; scopes: string[]; user: { id: string; username: string; email: string; image: string | null; isAdmin: boolean; isEditor: boolean } | null } | null;
   updateInstallCount: number;
   autoSyncEnabled?: boolean;
@@ -120,8 +145,103 @@ type E2eState = {
   notificationSettings: { overrides: Record<string, string> };
 };
 
-const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState };
+const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState; __BASEBUILD_E2E_FIXTURE__?: string; __BASEBUILD_E2E_PICK_PROJECT_PATH__?: string; __BASEBUILD_E2E_PICKER_DELAY_MS__?: number };
 
+
+function panelGridFor(panelId: string, chatSessionId: string | null = null): string {
+  return JSON.stringify({
+    root: {
+      kind: "leaf",
+      panel: {
+        id: panelId,
+        type: "chat",
+        title: "Chat",
+        chatSessionId,
+        terminalId: null,
+        filePath: null,
+      },
+    },
+    activePanelId: panelId,
+    closedPanels: [],
+  });
+}
+
+function applyMvpFixture(s: E2eState): void {
+  s.fixtureName = "mvp-baseline";
+  s.projectPath = MVP_FIXTURE_PROJECTS[2]?.path ?? s.projectPath;
+  s.recentProjects = MVP_FIXTURE_PROJECTS.map((project) => ({ ...project }));
+  s.sessions = MVP_FIXTURE_SESSIONS.map((session) => ({ ...session }));
+  s.tabs = MVP_FIXTURE_TABS.map((tab) => ({ ...tab }));
+  s.categories = MVP_FIXTURE_CATEGORIES.map((category) => ({ ...category }));
+  s.ideas = MVP_FIXTURE_IDEAS.map((idea) => ({ ...idea }));
+  s.plans = MVP_FIXTURE_PLANS.map((plan) => ({ ...plan }));
+  s.nativeChatSessions = [
+    {
+      id: "mvp-native-charlie",
+      projectPath: "C:\\basebuild-e2e\\charlie",
+      title: "Charlie MVP chat",
+      profileId: "basebuild-native",
+      providerId: "umans",
+      modelId: "umans-glm-5.2",
+      effortLevel: "high",
+      status: "ready",
+      createdAt: 1_800_000_000,
+      updatedAt: 1_800_000_000,
+    },
+  ];
+  s.nativeChatMessages = [
+    {
+      id: "mvp-msg-user",
+      sessionId: "mvp-native-charlie",
+      role: "user",
+      content: "Start MVP baseline",
+      sortOrder: 0,
+      providerId: "umans",
+      modelId: "umans-glm-5.2",
+      effortLevel: "high",
+      createdAt: 1_800_000_000,
+    },
+  ];
+  s.workspaceRestoreByProject.set("C:\\basebuild-e2e\\alpha", {
+    projectPath: "C:\\basebuild-e2e\\alpha",
+    lastSessionId: "mvp-session-alpha",
+    lastTabId: "mvp-tab-alpha-chat",
+    sideSection: "plans",
+    sidebarCollapsed: false,
+    sideCollapsed: false,
+    sideWidth: 260,
+    panelGrid: panelGridFor("mvp-panel-alpha"),
+    updatedAt: 1_800_000_000,
+  });
+  s.workspaceRestoreByProject.set("C:\\basebuild-e2e\\bravo", {
+    projectPath: "C:\\basebuild-e2e\\bravo",
+    lastSessionId: "mvp-session-bravo",
+    lastTabId: "mvp-tab-bravo-chat",
+    sideSection: "plans",
+    sidebarCollapsed: false,
+    sideCollapsed: false,
+    sideWidth: 260,
+    panelGrid: panelGridFor("mvp-panel-bravo"),
+    updatedAt: 1_800_000_000,
+  });
+  s.workspaceRestoreByProject.set("C:\\basebuild-e2e\\charlie", {
+    projectPath: "C:\\basebuild-e2e\\charlie",
+    lastSessionId: "mvp-session-charlie",
+    lastTabId: "mvp-tab-charlie-schematic",
+    sideSection: "plans",
+    sidebarCollapsed: false,
+    sideCollapsed: false,
+    sideWidth: 260,
+    panelGrid: panelGridFor("mvp-panel-charlie", "mvp-native-charlie"),
+    updatedAt: 1_800_000_000,
+  });
+  s.auth = {
+    accessToken: "mvp-test-token",
+    expiresAt: "2026-12-31T00:00:00Z",
+    scopes: ["profile:read"],
+    user: { id: "mvp-user", username: "MVPUser", email: "mvp@example.test", image: null, isAdmin: false, isEditor: false },
+  };
+}
 
 function state(): E2eState {
   if (!globalState.__BASEBUILD_E2E_STATE__) {
@@ -140,11 +260,16 @@ function state(): E2eState {
       nativeChatSessions: [],
       nativeChatMessages: [],
       nativeRequestMetrics: [],
+      categories: [],
       ideas: [],
+      nextCategoryId: 1,
       nextIdeaId: 1,
       planQueue: [],
       planRuns: [],
       workspaceRestoreByProject: new Map(),
+      recentProjects: [],
+      pickProjectCalls: 0,
+      fixtureName: null,
       auth: null,
       updateInstallCount: 0,
       gitChangeStaged: false,
@@ -152,6 +277,9 @@ function state(): E2eState {
       notifications: [],
       notificationSettings: { overrides: {} },
     };
+    if (globalState.__BASEBUILD_E2E_FIXTURE__ === "mvp-baseline") {
+      applyMvpFixture(globalState.__BASEBUILD_E2E_STATE__);
+    }
   }
   return globalState.__BASEBUILD_E2E_STATE__!;
 }
@@ -190,13 +318,49 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
 
   switch (command) {
     case "list_recent_projects":
-      return [] as T;
-    case "pick_project_directory":
-      return s.projectPath as T;
-    case "remember_recent_project":
-      return { path: args.path as string, name: "project", lastOpenedAt: Math.floor(Date.now() / 1000), lastActiveSessionId: null } as T;
+      return s.recentProjects.slice(0, Number(args.limit ?? 10)) as T;
+    case "pick_project_directory": {
+      s.pickProjectCalls += 1;
+      const delayMs = globalState.__BASEBUILD_E2E_PICKER_DELAY_MS__ ?? 0;
+      if (delayMs > 0) {
+        const { promise, resolve } = Promise.withResolvers<void>();
+        setTimeout(resolve, delayMs);
+        await promise;
+      }
+      return (globalState.__BASEBUILD_E2E_PICK_PROJECT_PATH__ ?? s.projectPath) as T;
+    }
+    case "remember_recent_project": {
+      const path = args.path as string;
+      s.projectPath = path;
+      const name = path.split("\\").pop() || "project";
+      const existing = s.recentProjects.find((project) => project.path === path);
+      const project = { path, name, lastOpenedAt: Math.floor(Date.now() / 1000), lastActiveSessionId: existing?.lastActiveSessionId ?? null };
+      s.recentProjects = [project, ...s.recentProjects.filter((item) => item.path !== path)];
+      return project as T;
+    }
+    case "get_last_focused_project": {
+      const focusedPath = typeof localStorage !== "undefined" ? localStorage.getItem("basebuild:last-focused-project") : null;
+      const path = focusedPath ?? (s.fixtureName === "mvp-baseline" ? s.projectPath : s.recentProjects[0]?.path) ?? null;
+      return (path ? s.recentProjects.find((project) => project.path === path) ?? null : null) as T;
+    }
+    case "set_last_focused_project": {
+      const path = args.path as string;
+      if (typeof localStorage !== "undefined") localStorage.setItem("basebuild:last-focused-project", path);
+      s.projectPath = path;
+      const existing = s.recentProjects.find((project) => project.path === path);
+      const name = path.split("\\").pop() || "project";
+      const project = { path, name, lastOpenedAt: Math.floor(Date.now() / 1000), lastActiveSessionId: existing?.lastActiveSessionId ?? null };
+      s.recentProjects = [project, ...s.recentProjects.filter((item) => item.path !== path)];
+      return project as T;
+    }
     case "remove_recent_project":
-    case "set_last_active_session":
+      s.recentProjects = s.recentProjects.filter((project) => project.path !== args.path);
+      return undefined as T;
+    case "set_last_active_session": {
+      const project = s.recentProjects.find((item) => item.path === args.projectPath);
+      if (project) project.lastActiveSessionId = args.sessionId as string;
+      return undefined as T;
+    }
     case "reveal_in_explorer":
     case "set_project_schematic":
     case "delete_tab":
@@ -335,7 +499,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "has_project_schematic":
       return true as T;
     case "get_project_schematic":
-      return { content: "# Project Schematic: E2E Fixture\n\n## Purpose\nExercise plan context generation." } as T;
+      return { content: s.fixtureName === "mvp-baseline" ? MVP_FIXTURE_SCHEMATIC : "# Project Schematic: E2E Fixture\n\n## Purpose\nExercise plan context generation." } as T;
     case "list_plans":
       return s.plans.filter((plan) => plan.sessionId === args.sessionId) as T;
     case "create_plan": {
@@ -600,10 +764,14 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "native_delete_provider_credential":
       return undefined as T;
     case "list_categories":
-      return [] as T;
-    case "create_category":
-      return { id: `cat-${Date.now()}`, sessionId: args.sessionId as string, name: args.name as string, description: args.description as string, createdAt: Math.floor(Date.now() / 1000) } as T;
+      return s.categories.filter((category) => category.sessionId === args.sessionId) as T;
+    case "create_category": {
+      const category: Category = { id: `cat-${s.nextCategoryId++}`, sessionId: args.sessionId as string, name: args.name as string, description: args.description as string, createdAt: Math.floor(Date.now() / 1000) };
+      s.categories.push(category);
+      return category as T;
+    }
     case "delete_category":
+      s.categories = s.categories.filter((category) => category.id !== args.id);
       return undefined as T;
     case "list_ideas":
       return s.ideas.filter((idea) => idea.sessionId === args.sessionId) as T;

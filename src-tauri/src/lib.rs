@@ -103,9 +103,10 @@ use commands::{
      planning_prompts::{planning_prompt_list, planning_prompt_reset, planning_prompt_set},
     slash_commands::{expand_slash_command, list_slash_commands},
     projects::{
-        create_project_basebuild_config, detect_project, list_recent_projects, pick_context_file,
-        pick_context_folder, pick_project_directory, remember_recent_project, remove_recent_project,
-        reveal_in_explorer, set_last_active_session,
+        create_project_basebuild_config, detect_project, get_last_focused_project,
+        list_recent_projects, pick_context_file, pick_context_folder, pick_project_directory,
+        remember_recent_project, remove_recent_project, reveal_in_explorer,
+        set_last_active_session, set_last_focused_project,
     },
     requirements::list_requirements,
     schematic::{
@@ -296,6 +297,8 @@ pub fn run() {
             open_url,
             remember_recent_project,
             list_recent_projects,
+            get_last_focused_project,
+            set_last_focused_project,
             detect_project,
             pick_project_directory,
             pick_context_file,
