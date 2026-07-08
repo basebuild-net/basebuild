@@ -771,7 +771,9 @@ export function ChatPanel({
   const { delivery, consume } = usePromptDelivery(nativeSessionId);
   useEffect(() => {
     if (!delivery || !nativeSessionId) return;
-    const isWizardPrompt = delivery.text.includes("basebuild-project-schematic");
+    // Planning actions require tool calling (ask_user + repo read).
+    // Detect them by the `ask_user` marker that all planning prompts share.
+    const requiresTools = delivery.text.includes("ask_user") || delivery.text.includes("basebuild-project-schematic") || delivery.text.includes("Read the project schematic") || delivery.text.includes("Read the repository");
     if (delivery.mode === "insert") {
       setInput(delivery.text);
       consume();
@@ -780,12 +782,12 @@ export function ChatPanel({
     // send mode — wait for catalog so the resolved provider/model is used.
     if (!catalog || loading) return;
     const modelSupportsTools = selectedModel?.supportsTools ?? false;
-    if (isWizardPrompt && !modelSupportsTools) {
+    if (requiresTools && !modelSupportsTools) {
       setInput(delivery.text);
       setCommandNotice(
         selectedModel
-          ? `${selectedModel.label} does not support tool calling — the wizard needs a model that can read/write files. Pick a tool-capable model (e.g. Claude, GPT-4, umans-glm) and try again.`
-          : "The schematic wizard needs a model that supports tool calling. Pick a tool-capable model and try again.",
+          ? `${selectedModel.label} does not support tool calling — planning actions need a model that can read files and ask questions. Pick a tool-capable model (e.g. Claude, GPT-4, umans-glm) and try again.`
+          : "This planning action needs a model that supports tool calling (file read + ask_user). Pick a tool-capable model and try again.",
       );
       consume();
       return;
