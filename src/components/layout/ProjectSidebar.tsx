@@ -363,7 +363,6 @@ export function useProjectSidebar(activeProjectPath: string | null) {
       addLog("debug", "Folder picker already open — reusing in-flight promise");
       return pickerPromiseRef.current;
     }
-    if (pickerInFlight) return null;
     setPickerInFlight(true);
     const promise = (async () => {
       addLog("info", "Opening folder picker...");
@@ -383,15 +382,15 @@ export function useProjectSidebar(activeProjectPath: string | null) {
         const message = err instanceof Error ? err.message : String(err);
         addLog("error", "Folder picker failed", message);
         throw err;
+      } finally {
+        setPickerInFlight(false);
       }
     })();
     pickerPromiseRef.current = promise;
-    try {
-      return await promise;
-    } finally {
+    promise.finally(() => {
       pickerPromiseRef.current = null;
-      setPickerInFlight(false);
-    }
+    });
+    return promise;
   }
 
   async function removeProject(path: string) {
@@ -411,5 +410,5 @@ export function useProjectSidebar(activeProjectPath: string | null) {
     }
   }, [activeProjectPath]);
 
-  return { projects, projectDetection, sessionsByProject, refreshProjects, refreshSessions, selectProject, removeProject, openFolder, pickerInFlight };
+  return { projects, projectDetection, sessionsByProject, refreshProjects, refreshSessions, selectProject, removeProject, openFolder, pickerInFlight, isPickerInFlight: () => pickerPromiseRef.current !== null };
 }

@@ -165,16 +165,26 @@ export function AppShell({ updates }: AppShellProps) {
     }
   }, [activeProjectPath, session.sessions.length, session.activeSessionId, session.activeSession, session, projectRestoreLoading]);
 
-  // Auto-create a chat tab when a session is active but has no tabs
+  // Auto-create a chat tab when a session is active but has no tabs.
+  // Gated on restore completion to avoid racing with tab loading:
+  // without this, the effect fires after restore sets loading=false
+  // but before refreshTabs loads the fixture tabs, creating a spurious
+  // orphan tab.
   useEffect(() => {
     if (!activeProjectPath || !session.activeSessionId || projectRestoreLoading) return;
+    if (restoredProjectRef.current !== activeProjectPath) return;
     if (session.tabs.length > 0) return;
+    // If the restore state has a lastSessionId, the session should already
+    // have tabs — don't auto-create a spurious tab that races with the
+    // tab loader and becomes a false orphan.
+    if (workspaceRestore?.lastSessionId) return;
     if (session.activeSession?.title === "New Session") return;
     void session.createTab("chat", "Chat 1");
-  }, [activeProjectPath, session.activeSessionId, session.tabs.length, session.activeSession?.title, session, projectRestoreLoading]);
+  }, [activeProjectPath, session.activeSessionId, session.tabs.length, session.activeSession?.title, session, projectRestoreLoading, workspaceRestore]);
   // Auto-create a chat panel when the panel grid is empty and a session is active.
   useEffect(() => {
     if (!activeProjectPath || !session.activeSessionId || projectRestoreLoading) return;
+    if (restoredProjectRef.current !== activeProjectPath) return;
     if (panelGridState.root) return; // grid already has panels
     if (session.activeSession?.title === "New Session") return;
     const newPanel: Panel = {
@@ -214,6 +224,7 @@ export function AppShell({ updates }: AppShellProps) {
     if (!activeProjectPath) {
       addLog("debug", "Project deselected", "clearing workspace restore");
       setWorkspaceRestore(null);
+      setPanelGridState(emptyGrid());
       restoredProjectRef.current = null;
       loggedOrphanIdsRef.current.clear();
       return;
@@ -226,7 +237,6 @@ export function AppShell({ updates }: AppShellProps) {
     const generation = ++restoreGenerationRef.current;
     setProjectRestoreLoading(true);
     setProjectRestoreError(null);
-    loggedOrphanIdsRef.current.clear();
     addLog("debug", "Project selected", `${activeProjectPath} (gen=${generation})`);
     let cancelled = false;
     void getWorkspaceRestoreState(activeProjectPath).then((state) => {
@@ -307,6 +317,10 @@ export function AppShell({ updates }: AppShellProps) {
   // project switch is expected (different project, different tabs).
   const loggedOrphanIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
+    // Don't run orphan detection while a project restore is in flight —
+    // the panel grid is stale (from the previous project) and would
+    // produce false orphan warnings for the new project's tabs.
+    if (projectRestoreLoading) return;
     const orphans = detectOrphanedTabs(panelGridState, session.tabs);
     const newOrphans = orphans.filter((o) => !loggedOrphanIdsRef.current.has(o.tabId));
     if (newOrphans.length === 0) return;
@@ -317,7 +331,7 @@ export function AppShell({ updates }: AppShellProps) {
     }, {});
     const breakdown = Object.entries(byKind).map(([k, n]) => `${n} ${k}`).join(", ");
     addLog("warn", "Orphaned session tabs recovered", `${newOrphans.length} tab(s) have no reachable panel (${breakdown}). Recover from history or delete explicitly.`);
-  }, [panelGridState, session.tabs, addLog]);
+  }, [panelGridState, session.tabs, projectRestoreLoading, addLog]);
 
 
   useEffect(() => {
@@ -411,6 +425,10 @@ export function AppShell({ updates }: AppShellProps) {
   }, [activeProjectPath, session.activeSessionId, session.activeSession?.title, terminalOutputBuffer, session.tabs]);
 
   const handleOpenFolder = useCallback(async () => {
+    // Synchronous guard: if the picker is already in flight, skip.
+    // The ref is set synchronously inside openFolder before any async
+    // work, so this catches rapid concurrent clicks (Promise.all).
+    if (sidebar.isPickerInFlight()) return;
     try {
       const path = await sidebar.openFolder();
       if (path) {
