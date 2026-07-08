@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { FolderTree, LayoutGrid, Lightbulb, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { FolderTree, LayoutGrid, Lightbulb, Plus, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
 import type { Plan, PlanStatus } from "../../lib/plans";
 import { isTerminalStatus, PLAN_STATUSES, PLAN_STATUS_LABEL } from "../../lib/plans";
 import { batchPromoteIdeas } from "../../lib/plans";
@@ -13,6 +13,16 @@ import { useIdeaState } from "../../state/ideas";
 import type { IdeaCategory, IdeaStatus } from "../../lib/ideas";
 import { useProjectSchematic } from "../../state/schematic";
 import { useLogs } from "../../state/log";
+import {
+  getLaunchProfile,
+  setLaunchProfile as saveLaunchProfile,
+  getDependencyGraph,
+  type LaunchProfile,
+  type DependencyGraph,
+  type EngineKind,
+  type WorkspacePolicy,
+  type SchedulingMode,
+} from "../../lib/planDependencies";
 
 type Tab = "plans" | "ideas" | "categories" | "flow" | "changes";
 
@@ -37,6 +47,8 @@ type PlanningInspectorProps = {
   activeChatSessionId?: string | null;
   showHeader?: boolean;
   hostContext?: "dock" | "modal";
+  onAssignPlan?: (plan: Plan, profile: LaunchProfile) => void;
+  onShowToast?: (title: string, detail?: string, kind?: "success" | "error") => void;
 };
 
 const STATUS_FILTERS: { value: IdeaStatus | "all"; label: string }[] = [
@@ -46,7 +58,6 @@ const STATUS_FILTERS: { value: IdeaStatus | "all"; label: string }[] = [
   { value: "rejected", label: "Rejected" },
   { value: "archived", label: "Archived" },
 ];
-
 export function PlanningInspector({
   sessionId,
   projectPath,
@@ -68,6 +79,8 @@ export function PlanningInspector({
   activeChatSessionId,
   showHeader = true,
   hostContext = "dock",
+  onAssignPlan,
+  onShowToast,
 }: PlanningInspectorProps) {
   const [tab, setTab] = useState<Tab>("plans");
   const [statusFilter, setStatusFilter] = useState<IdeaStatus | "all">("all");
@@ -78,6 +91,32 @@ export function PlanningInspector({
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [planRuns, setPlanRuns] = useState<PlanRun[]>([]);
   const [completionDismissed, setCompletionDismissed] = useState<Set<string>>(new Set());
+  const [launchProfile, setLaunchProfile] = useState<LaunchProfile | null>(null);
+  const [launchForm, setLaunchForm] = useState<{
+    workerCount: number;
+    workspacePolicy: WorkspacePolicy;
+    schedulingMode: SchedulingMode;
+    engine: EngineKind;
+  }>({
+    workerCount: 2,
+    workspacePolicy: "isolated_worktrees",
+    schedulingMode: "safe",
+    engine: "openspec",
+  });
+  const [launchConfirmOpen, setLaunchConfirmOpen] = useState(false);
+  const [launchSummary, setLaunchSummary] = useState<{
+    workerCount: number;
+    providerCap: number;
+    startCount: number;
+    queueCount: number;
+    worktrees: number;
+    branches: number;
+    prerequisites: number;
+    collisions: number;
+    policy: WorkspacePolicy;
+    schedulingMode: SchedulingMode;
+  } | null>(null);
+  const [launchSaving, setLaunchSaving] = useState(false);
   const ideaState = useIdeaState(sessionId);
   const schematic = useProjectSchematic(projectPath);
   const { addLog } = useLogs();
@@ -99,6 +138,30 @@ export function PlanningInspector({
       .then(setPlanRuns)
       .catch(() => setPlanRuns([]));
   }, [sessionId, plans]);
+  // Load saved launch profile for this project.
+  useEffect(() => {
+    if (!projectPath) {
+      setLaunchProfile(null);
+      return;
+    }
+    void getLaunchProfile(projectPath)
+      .then((profile) => {
+        setLaunchProfile(profile);
+        if (profile) {
+          setLaunchForm({
+            workerCount: Math.min(Math.max(profile.workerCount, 1), 8),
+            workspacePolicy: profile.workspacePolicy === "sequential_primary" ? "sequential_primary" : "isolated_worktrees",
+            schedulingMode: profile.schedulingMode === "yolo" ? "yolo" : "safe",
+            engine: profile.engine === "native" ? "native" : "openspec",
+          });
+        }
+      })
+      .catch(() => setLaunchProfile(null));
+  }, [projectPath]);
+  // Close launch confirmation when the plan list changes so the summary stays in sync.
+  useEffect(() => {
+    setLaunchConfirmOpen(false);
+  }, [plans]);
 
   const handlePromoteIdea = useCallback(
     async (idea: { id: string; title: string; description: string }) => {
@@ -126,6 +189,11 @@ export function PlanningInspector({
       } else {
         setBatchResult(`Promoted ${createdCount} plan(s).`);
       }
+      // Mark successfully promoted ideas as picked so counts refresh.
+      const pickedIds = new Set(result.created.map((p) => p.ideaId).filter((id): id is string => !!id));
+      await Promise.all(
+        Array.from(pickedIds).map((id) => ideaState.updateIdeaStatus(id, "picked")),
+      );
       setSelectedIdeaIds(new Set());
       void ideaState.refresh();
     } catch (e) {
@@ -133,6 +201,14 @@ export function PlanningInspector({
       setBatchResult(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }, [sessionId, selectedIdeaIds, ideaState, addLog]);
+
+  const handleRejectSelected = useCallback(async () => {
+    if (selectedIdeaIds.size === 0) return;
+    const ids = Array.from(selectedIdeaIds);
+    await Promise.all(ids.map((id) => ideaState.rejectIdea(id)));
+    setSelectedIdeaIds(new Set());
+    void ideaState.refresh();
+  }, [selectedIdeaIds, ideaState]);
   const handleCreateCategory = useCallback(() => {
     if (!sessionId || !newCategoryName.trim()) return;
     void (async () => {
@@ -141,6 +217,89 @@ export function PlanningInspector({
       setNewCategoryDesc("");
     })();
   }, [sessionId, newCategoryName, newCategoryDesc, ideaState]);
+  const handleSaveLaunchProfile = useCallback(async () => {
+    if (!projectPath) return;
+    setLaunchSaving(true);
+    try {
+      const profile: LaunchProfile = {
+        projectPath,
+        engine: launchForm.engine,
+        providerId: launchProfile?.providerId ?? "",
+        modelId: launchProfile?.modelId ?? "",
+        workerCount: launchForm.workerCount,
+        workspacePolicy: launchForm.workspacePolicy,
+        schedulingMode: launchForm.schedulingMode,
+        updatedAt: Date.now(),
+      };
+      await saveLaunchProfile(profile);
+      setLaunchProfile(profile);
+    } catch (e) {
+      addLog("error", "Failed to save launch profile", e instanceof Error ? e.message : String(e));
+    } finally {
+      setLaunchSaving(false);
+    }
+  }, [projectPath, launchForm, launchProfile, addLog]);
+
+  const handleLaunchClick = useCallback(async () => {
+    const readyPlans = plans.filter((p) => p.status === "ready");
+    let graphData: DependencyGraph | null = null;
+    if (sessionId) {
+      try {
+        graphData = await getDependencyGraph(sessionId);
+      } catch (e) {
+        addLog("warn", "Failed to load dependency graph for launch summary", e instanceof Error ? e.message : String(e));
+      }
+    }
+    const readyIds = new Set(readyPlans.map((p) => p.id));
+    const readyNodes = graphData?.nodes.filter((n) => readyIds.has(n.planId)) ?? [];
+    const startCount = Math.min(launchForm.workerCount, readyPlans.length);
+    const queueCount = Math.max(0, readyPlans.length - launchForm.workerCount);
+    const worktrees = launchForm.workspacePolicy === "isolated_worktrees" ? startCount : 0;
+    const branches = launchForm.workspacePolicy === "isolated_worktrees" ? startCount : 1;
+    const prerequisites = readyNodes.reduce((sum, n) => sum + n.prerequisites.length, 0);
+    const collisions = readyNodes.reduce((sum, n) => sum + n.collisions.length, 0);
+    setLaunchSummary({
+      workerCount: launchForm.workerCount,
+      providerCap: launchForm.workerCount,
+      startCount,
+      queueCount,
+      worktrees,
+      branches,
+      prerequisites,
+      collisions,
+      policy: launchForm.workspacePolicy,
+      schedulingMode: launchForm.schedulingMode,
+    });
+    setLaunchConfirmOpen(true);
+  }, [plans, sessionId, launchForm, addLog]);
+
+  const handleLaunchConfirm = useCallback(async () => {
+    setLaunchConfirmOpen(false);
+    const readyPlans = plans.filter((p) => p.status === "ready");
+    if (!sessionId) return;
+    for (const plan of readyPlans) {
+      try {
+        await enqueuePlan({ sessionId, planId: plan.id });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        addLog("error", `Failed to enqueue plan ${plan.referenceId}`, msg);
+      }
+    }
+    try {
+      await startQueue({
+        sessionId,
+        profile: {
+          concurrency: launchForm.workerCount,
+          providerId: launchProfile?.providerId ?? "",
+          modelId: launchProfile?.modelId ?? "",
+          effortLevel: launchProfile?.effortLevel,
+        },
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to start plan queue", msg);
+    }
+  }, [plans, sessionId, launchForm, launchProfile, addLog]);
 
   const filteredIdeas = statusFilter === "all"
     ? ideaState.ideas
@@ -254,6 +413,8 @@ export function PlanningInspector({
           onCopyReference={onCopyReference}
           onOpenInTerminal={onOpenInTerminal}
           onOpenChatSession={onOpenChatSession}
+          onAssignPlan={onAssignPlan}
+          onShowToast={onShowToast}
         />
       ) : null}
 
@@ -273,7 +434,7 @@ export function PlanningInspector({
             ))}
           </div>
           {selectedIdeaIds.size > 0 ? (
-            <div className="inspector-batch-bar" title="Batch-promote selected concept ideas to plans">
+            <div className="inspector-batch-bar" title="Batch actions for selected concept ideas">
               <span className="text-sm">{selectedIdeaIds.size} selected</span>
               <button
                 className="btn btn-sm btn-primary"
@@ -282,6 +443,14 @@ export function PlanningInspector({
                 onClick={() => void handleBatchPromote()}
               >
                 Approve selected
+              </button>
+              <button
+                className="btn btn-sm"
+                type="button"
+                title="Reject all selected ideas"
+                onClick={() => void handleRejectSelected()}
+              >
+                Reject all
               </button>
               <button
                 className="btn btn-sm"
@@ -394,6 +563,14 @@ export function PlanningInspector({
                 >
                   <Sparkles size={11} /> Suggest more ideas
                 </button>
+                <button
+                  className="btn btn-sm"
+                  type="button"
+                  title={`Regenerate ideas for ${selectedCategory.name}`}
+                  onClick={() => onSuggestForCategory?.(selectedCategory)}
+                >
+                  <RefreshCw size={11} /> Regenerate
+                </button>
               </div>
               {categoryIdeas.length === 0 ? (
                 <p className="text-muted text-sm">No ideas in this category yet.</p>
@@ -478,6 +655,73 @@ export function PlanningInspector({
 
       {tab === "flow" ? (
         <div className="flow-board stack">
+          {/* Launch profile */}
+          <div className="launch-profile-form" title="Configure how ready plans are launched">
+            <div className="launch-profile-row">
+              <label className="launch-profile-field" title="Number of workers that may run simultaneously (1–8)">
+                <span>Workers</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={8}
+                  value={launchForm.workerCount}
+                  onChange={(e) => {
+                    const value = Math.min(Math.max(parseInt(e.target.value, 10) || 1, 1), 8);
+                    setLaunchForm((prev) => ({ ...prev, workerCount: value }));
+                  }}
+                  title="Worker count"
+                />
+              </label>
+              <label className="launch-profile-field" title="Effective concurrent provider call cap derived from worker count">
+                <span>Provider cap</span>
+                <span className="launch-profile-summary">{launchForm.workerCount}</span>
+              </label>
+              <label className="launch-profile-field" title="Workspace isolation policy for launched runs">
+                <span>Workspace</span>
+                <select
+                  value={launchForm.workspacePolicy}
+                  onChange={(e) => setLaunchForm((prev) => ({ ...prev, workspacePolicy: e.target.value as WorkspacePolicy }))}
+                  title="Workspace policy"
+                >
+                  <option value="isolated_worktrees">Isolated worktrees</option>
+                  <option value="sequential_primary">Sequential primary</option>
+                </select>
+              </label>
+              <label className="launch-profile-field" title="Scheduling safety mode">
+                <span>Scheduling</span>
+                <select
+                  value={launchForm.schedulingMode}
+                  onChange={(e) => setLaunchForm((prev) => ({ ...prev, schedulingMode: e.target.value as SchedulingMode }))}
+                  title="Scheduling mode"
+                >
+                  <option value="safe">Safe</option>
+                  <option value="yolo">Yolo</option>
+                </select>
+              </label>
+              <label className="launch-profile-field" title="Execution engine for launched plans">
+                <span>Engine</span>
+                <select
+                  value={launchForm.engine}
+                  onChange={(e) => setLaunchForm((prev) => ({ ...prev, engine: e.target.value as EngineKind }))}
+                  title="Engine kind"
+                >
+                  <option value="openspec">OpenSpec</option>
+                  <option value="native">Native</option>
+                </select>
+              </label>
+            </div>
+            <div className="launch-profile-confirm-actions">
+              <button
+                className="btn btn-sm btn-primary"
+                type="button"
+                title="Save launch profile for this project"
+                onClick={() => void handleSaveLaunchProfile()}
+                disabled={launchSaving || !projectPath}
+              >
+                {launchSaving ? "Saving…" : "Save launch profile"}
+              </button>
+            </div>
+          </div>
           {/* Schematic stage */}
           <div className="flow-stage" title="Project schematic — the steering document">
             <div className="flow-stage-header">
@@ -512,36 +756,49 @@ export function PlanningInspector({
               {plans.filter((p) => p.status === "draft" || p.status === "openspec").length} draft, {plans.filter((p) => p.status === "ready").length} ready
             </span>
             {plans.filter((p) => p.status === "ready").length > 0 ? (
-              <button
-                className="btn btn-sm btn-primary flow-stage-action"
-                type="button"
-                title={`Launch ${plans.filter((p) => p.status === "ready").length} ready plan(s) — enqueues real runs with chats/worktrees/branches`}
-                onClick={async () => {
-                  const readyPlans = plans.filter((p) => p.status === "ready");
-                  if (!sessionId) return;
-                  // Enqueue each ready plan, then start the queue — real runs
-                  // with chat sessions and worktrees, not status flips.
-                  for (const plan of readyPlans) {
-                    try {
-                      await enqueuePlan({ sessionId, planId: plan.id });
-                    } catch (e) {
-                      const msg = e instanceof Error ? e.message : String(e);
-                      addLog("error", `Failed to enqueue plan ${plan.referenceId}`, msg);
-                    }
-                  }
-                  try {
-                    await startQueue({
-                      sessionId,
-                      profile: { concurrency: 1, providerId: "", modelId: "" },
-                    });
-                  } catch (e) {
-                    const msg = e instanceof Error ? e.message : String(e);
-                    addLog("error", "Failed to start plan queue", msg);
-                  }
-                }}
-              >
-                Launch {plans.filter((p) => p.status === "ready").length} ready
-              </button>
+              launchConfirmOpen && launchSummary ? (
+                <div className="launch-profile-confirm" title="Review launch summary before dispatching">
+                  <span className="launch-profile-confirm-title">Launch summary</span>
+                  <ul className="launch-profile-confirm-list">
+                    <li><span className="label">Workers</span><span className="value">{launchSummary.workerCount}</span></li>
+                    <li><span className="label">Provider cap</span><span className="value">{launchSummary.providerCap}</span></li>
+                    <li><span className="label">Start / queue</span><span className="value">{launchSummary.startCount} / {launchSummary.queueCount}</span></li>
+                    <li><span className="label">Worktrees</span><span className="value">{launchSummary.worktrees}</span></li>
+                    <li><span className="label">Branches</span><span className="value">{launchSummary.branches}</span></li>
+                    <li><span className="label">Prerequisites</span><span className="value">{launchSummary.prerequisites}</span></li>
+                    <li><span className="label">Collisions</span><span className="value">{launchSummary.collisions}</span></li>
+                    <li><span className="label">Policy</span><span className="value">{launchSummary.policy}</span></li>
+                    <li><span className="label">Scheduling</span><span className="value">{launchSummary.schedulingMode}</span></li>
+                  </ul>
+                  <div className="launch-profile-confirm-actions">
+                    <button
+                      className="btn btn-sm"
+                      type="button"
+                      title="Cancel launch"
+                      onClick={() => setLaunchConfirmOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="btn btn-sm btn-primary"
+                      type="button"
+                      title={`Launch ${launchSummary.startCount + launchSummary.queueCount} ready plan(s)`}
+                      onClick={() => void handleLaunchConfirm()}
+                    >
+                      Confirm launch
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  className="btn btn-sm btn-primary flow-stage-action"
+                  type="button"
+                  title={`Launch ${plans.filter((p) => p.status === "ready").length} ready plan(s) — review summary before dispatch`}
+                  onClick={() => void handleLaunchClick()}
+                >
+                  Launch {plans.filter((p) => p.status === "ready").length} ready
+                </button>
+              )
             ) : null}
           </div>
 
