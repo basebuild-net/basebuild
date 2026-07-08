@@ -62,7 +62,7 @@ Ownership map:
 
 - [x] 4.1 Replace schematic/category/idea `openOrFocusChat` paths with one typed,
       destination-aware planning action router and exactly-once `send` delivery.
-- [ ] 4.2 Verify repository read + `ask_user` capability before delivery; choose a
+- [x] 4.2 Verify repository read + `ask_user` capability before delivery; choose a
       compatible coordinator or show a model/provider/tool repair card.
 - [ ] 4.3 Make category and idea generation visible: close or demote the planning
       modal, focus the named destination, render question cards, and refresh
