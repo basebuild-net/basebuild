@@ -75,15 +75,15 @@ Ownership map:
 
 ## 5. Plan readiness controls
 
-- [ ] 5.1 Add a promotion/revision form for engine, provider/model/effort, skill,
+- [x] 5.1 Add a promotion/revision form for engine, provider/model/effort, skill,
       artifact destination, and project defaults; show detected OpenSpec/native
       engines and skill source.
-- [ ] 5.2 Validate proposal/design/spec/tasks completeness, scenario syntax,
+- [x] 5.2 Validate proposal/design/spec/tasks completeness, scenario syntax,
       dependencies, affected paths, verification commands, and status before
       approval can transition a plan to `ready`.
-- [ ] 5.3 Route feedback to artifact revision, retain versions/diff, and require a
+- [x] 5.3 Route feedback to artifact revision, retain versions/diff, and require a
       fresh validation pass after changes.
-- [ ] 5.4 Assignment to an existing/new chat passes the immutable validated
+- [x] 5.4 Assignment to an existing/new chat passes the immutable validated
       artifact bundle and chosen launch profile, then creates a queued/running
       run rather than a status-only transition.
 
