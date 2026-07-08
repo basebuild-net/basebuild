@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LayoutTemplate, Settings2, TerminalSquare, X } from "lucide-react";
 import { deliverPrompt, type PromptMode } from "../../lib/promptDelivery";
+import { generateIdeasAction, schematicWizardAction, type PlanningAction } from "../../lib/planningActions";
 import { DestinationPicker, type DestinationChoice } from "./DestinationPicker";
 
 import { useSessionState } from "../../state/sessions";
@@ -551,15 +552,14 @@ export function AppShell({ updates }: AppShellProps) {
     },
     [session],
   );
-
   const handleSuggestForCategory = useCallback(
     (category: IdeaCategory | null) => {
-      const prompt = category
-        ? `Generate new ideas for the "${category.name}" category. ${category.description ?? ""}`.trim()
-        : "Generate ideas for this project.";
-      void openOrFocusChat(prompt);
+      const action = generateIdeasAction(category?.name, category?.description ?? undefined);
+      addLog("debug", "Planning action routed", action.context ?? action.type);
+      setPendingDelivery({ text: action.text, mode: action.mode });
+      setDestinationPickerOpen(true);
     },
-    [openOrFocusChat],
+    [addLog],
   );
   const handleStartSchematicWizard = useCallback(
     async (section?: string) => {
@@ -571,28 +571,12 @@ export function AppShell({ updates }: AppShellProps) {
       } catch {
         skillBody = "";
       }
-      const target = section
-        ? `Focus on the "${section}" section only. Read what the repository already says about it, prefill what you can, then ask the user one focused question to confirm or fill the gap. Do not rewrite other sections.`
-        : `Start in Create mode (or Update mode if a schematic already exists). Begin with the Blueprint questions — archetype, team size, stage — since they scope every later answer. Then work through the remaining sections in template order.`;
-      const prompt = `${skillBody}
-
----
-
-You are now running the Project Schematic skill for this project. ${target}
-
-Rules:
-- Read the repository first (manifests, README, AGENTS.md, directory structure, recent git history) and prefill observable facts for confirmation instead of asking the user to recite them.
-- Use the \`ask_user\` tool for every question — it presents clickable option cards instead of prose. One question at a time; wait for the user's answer before moving on.
-- Let the user finish whenever they want — they can say "done" to stop, or keep going to add more context.
-- Never fabricate facts. If something is not observable, ask.
-- Do not write the schematic file until the user explicitly approves. When ready, use \`ask_user\` with a confirm question to get approval, then write to .basebuild/project-schematic.md.
-- Keep it concise — readable in under three minutes.`;
-      // Open the destination picker — the user chooses which chat gets
-      // the wizard prompt. The delivery happens in the picker's onSelect.
-      setPendingDelivery({ text: prompt, mode: "send" });
+      const action = schematicWizardAction(skillBody, section);
+      addLog("debug", "Planning action routed", action.context ?? action.type);
+      setPendingDelivery({ text: action.text, mode: action.mode });
       setDestinationPickerOpen(true);
     },
-    [session],
+    [session, addLog],
   );
 
   const handleOpenSchematic = useCallback(() => {
@@ -1267,7 +1251,7 @@ Rules:
         open={destinationPickerOpen}
         onClose={() => { setDestinationPickerOpen(false); setPendingDelivery(null); }}
         panels={flattenPanels(panelGridState.root)}
-        title="Send wizard to…"
+        title="Send to…"
         onSelect={(choice: DestinationChoice) => {
           if (!pendingDelivery) {
             addLog("debug", "DestinationPicker onSelect", "no pending delivery — skipping");

@@ -145,7 +145,7 @@ type E2eState = {
   notificationSettings: { overrides: Record<string, string> };
 };
 
-const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState; __BASEBUILD_E2E_FIXTURE__?: string; __BASEBUILD_E2E_PICK_PROJECT_PATH__?: string; __BASEBUILD_E2E_PICKER_DELAY_MS__?: number };
+const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState; __BASEBUILD_E2E_FIXTURE__?: string; __BASEBUILD_E2E_PICK_PROJECT_PATH__?: string; __BASEBUILD_E2E_PICKER_DELAY_MS__?: number; __BASEBUILD_E2E_RESTORE_DELAY_MS__?: number };
 
 
 function panelGridFor(panelId: string, chatSessionId: string | null = null): string {
@@ -740,6 +740,12 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "get_workspace_restore_state": {
       const projectPath = args.projectPath as string;
+      const restoreDelayMs = globalState.__BASEBUILD_E2E_RESTORE_DELAY_MS__ ?? 0;
+      if (restoreDelayMs > 0) {
+        const { promise, resolve } = Promise.withResolvers<void>();
+        setTimeout(resolve, restoreDelayMs);
+        await promise;
+      }
       return (s.workspaceRestoreByProject.get(projectPath) ?? {
         projectPath,
         lastSessionId: null,
