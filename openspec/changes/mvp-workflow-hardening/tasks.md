@@ -121,8 +121,8 @@ Ownership map:
       diagnostics on regression.
 - [x] 7.4 Update `DESIGN.md`, desktop-shell/agent-runtime/testing/workflow docs,
       and keep `mvp.md` aligned with shipped behavior.
-- [ ] 7.5 Run `npx tsc --noEmit`, `npm run build`, `cargo check`, `cargo test`, and
+- [x] 7.5 Run `npx tsc --noEmit`, `npm run build`, `cargo check`, `cargo test`, and
       `BASEBUILD_E2E=1 npm run test:e2e`; perform live 960×640 + 1280×800 desktop
       smoke with screenshots.
-- [ ] 7.6 Run `node scripts/openspec-status.mjs --write` and manually reconcile
+- [x] 7.6 Run `node scripts/openspec-status.mjs --write` and manually reconcile
       roadmap gates/status/archive narrative.
