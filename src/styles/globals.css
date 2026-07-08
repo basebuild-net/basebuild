@@ -1314,6 +1314,13 @@ a { color: inherit; text-decoration: none; }
 .empty-state p { margin: 0; color: var(--bb-muted); font-size: 12px; }
 .empty-state-actions { display: flex; gap: 8px; margin-top: 4px; }
 
+/* ─── Project restore boundary ─── */
+.project-restore-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 32px; color: var(--bb-muted); font-size: 12px; flex: 1; }
+.project-restore-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--bb-border); border-top-color: var(--bb-cta); border-radius: 0; }
+.project-restore-error { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 32px; text-align: center; flex: 1; }
+.project-restore-error h3 { margin: 0; font-size: 14px; color: var(--bb-danger, #e5484d); }
+.project-restore-error p { margin: 0; color: var(--bb-muted); font-size: 12px; max-width: 400px; word-break: break-word; }
+
 /* ─── Scrollbar ─── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -2359,3 +2366,98 @@ a { color: inherit; text-decoration: none; }
 .settings-row:last-child { border-bottom: 0; }
 .settings-label { font-size: 12px; color: var(--bb-text); }
 .settings-row .select { height: 24px; font-size: 11px; padding: 0 4px; min-width: 140px; }
+
+/* ─── Compact viewport (960×640 and below) ─── */
+@media (max-width: 960px) {
+  .session-header { gap: 4px; padding: 0 4px; min-height: 26px; }
+  .session-title { font-size: 11px; max-width: 100px; }
+  .session-path-pill { font-size: 9px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-env-panel { gap: 0; }
+  .chat-env-tab { padding: 3px 4px; font-size: 9px; }
+  .chat-env-tab-title { max-width: 50px; }
+  .panel-header { min-height: 26px; padding: 0 4px; gap: 2px; }
+  .panel-header-title { max-width: 80px; font-size: 10px; }
+  .panel-header-tab { padding: 0 4px; font-size: 9px; }
+  .panel-header-tab-title { max-width: 40px; }
+  .activity-sidebar-project-name { font-size: 9px; }
+  .activity-sidebar-row { padding: 3px 4px; font-size: 10px; }
+  .activity-sidebar-history-btn { padding: 4px 6px; font-size: 10px; }
+  .command-strip { padding: 0 4px; }
+  .command-strip-item { font-size: 9px; padding: 2px 4px; }
+  .status-pill { font-size: 9px; padding: 1px 4px; }
+}
+
+@media (max-width: 720px) {
+  .session-title { max-width: 60px; font-size: 10px; }
+  .session-path-pill { display: none; }
+  .chat-env-tab-title { display: none; }
+  .panel-header-tab-title { display: none; }
+  .panel-header-title { max-width: 50px; }
+}
+
+/* ─── Inline-style debt replacements ─── */
+/* Icon rotations for chevron/back navigation */
+.icon-rotate-180 { transform: rotate(180deg); flex-shrink: 0; }
+/* Icon inline alignment for inline icons in text */
+.icon-inline { display: inline; vertical-align: middle; }
+.icon-inline-mr { display: inline; vertical-align: middle; margin-right: 4px; }
+/* Spacing utilities for static margins */
+.mt-2 { margin-top: 2px; }
+.mt-4 { margin-top: 4px; }
+.mt-6 { margin-top: 6px; }
+.mt-8 { margin-top: 8px; }
+.mt-12 { margin-top: 12px; }
+.mt-16 { margin-top: 16px; }
+.mb-2 { margin-bottom: 2px; }
+.mb-4 { margin-bottom: 4px; }
+.mb-6 { margin-bottom: 6px; }
+.mb-8 { margin-bottom: 8px; }
+/* Fixed-width label columns */
+.label-w-64 { width: 64px; flex-shrink: 0; }
+.input-w-100 { width: 100px; }
+.input-w-140 { width: 140px; }
+/* Flexbox helpers */
+.flex-wrap { flex-wrap: wrap; }
+.justify-between { justify-content: space-between; }
+.flex-col-stretch { flex-direction: column; align-items: stretch; }
+/* Scroll containers */
+.scroll-y-200 { max-height: 200px; overflow-y: auto; }
+.scroll-y-300 { max-height: 300px; overflow-y: auto; }
+/* Empty state compact padding */
+.empty-state-compact { padding: 16px; }
+/* Pre-wrap text blocks */
+.pre-wrap { white-space: pre-wrap; }
+/* Grid span 2 */
+.grid-span-2 { grid-column: span 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Danger pill variant */
+.pill-danger { border-color: rgba(239, 68, 68, 0.35); color: var(--bb-danger, #e5484d); }
+/* Approval gateway section */
+.approval-gateway-section { margin-top: 16px; border-top: 1px solid var(--bb-border); padding-top: 16px; }
+/* Requirement row compact */
+.requirement-row-compact { margin-bottom: 4px; }
+/* Select auto-width compact */
+.select-auto-compact { width: auto; font-size: 10px; padding: 2px 4px; }
+/* Ideas header label */
+.ideas-header-label { margin: 0; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--bb-muted); }
+/* Check icon opacity states */
+.check-icon-selected { opacity: 1; }
+.check-icon-unselected { opacity: 0.3; }
+/* OMP output margin */
+.omp-output-margin { margin-top: 8px; }
+/* SVG flex shrink */
+.svg-flex-shrink { flex-shrink: 0; }
+/* Stack with top margin */
+.stack-mt-8 { margin-top: 8px; }
+.stack-mt-12 { margin-top: 12px; }
+/* Row between */
+.row-between { display: flex; align-items: center; justify-content: space-between; }
+/* Debug item column */
+.debug-item-col { flex-direction: column; align-items: stretch; }
+/* Debug pre block */
+.debug-pre-block { margin-top: 4px; max-height: 300px; overflow: auto; white-space: pre-wrap; }
+/* Config panel row margin */
+.config-row-mt { margin-top: 6px; }
+/* Splash progress fill width is dynamic — keep inline */
+/* Progress bar fill width is dynamic — keep inline */
+/* Panel grid split flex values are dynamic — keep inline */
+/* Commit graph row height is dynamic — keep inline */

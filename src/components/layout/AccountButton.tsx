@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, LogOut, User } from "lucide-react";
 import type { AccountState } from "../../state/account";
+import { useViewportClampedPopover } from "../../lib/popover";
 
 type AccountButtonProps = {
   account: AccountState;
@@ -8,20 +9,18 @@ type AccountButtonProps = {
 };
 
 export function AccountButton({ account, onOpenSettings }: AccountButtonProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
+  const { open: menuOpen, position, toggle, close, triggerRef } = useViewportClampedPopover({ placement: "bottom-end" });
   const [imgFailed, setImgFailed] = useState(false);
-  const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number } | null>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!menuOpen) return;
     function handleOutside(e: MouseEvent) {
       const target = e.target as HTMLElement;
-      if (!target.closest(".account-button")) setMenuOpen(false);
+      if (!target.closest(".account-button")) close();
     }
     document.addEventListener("mousedown", handleOutside);
     return () => document.removeEventListener("mousedown", handleOutside);
-  }, [menuOpen]);
+  }, [menuOpen, close]);
 
   if (account.loading) {
     return <div className="account-button account-button-loading" />;
@@ -33,11 +32,10 @@ export function AccountButton({ account, onOpenSettings }: AccountButtonProps) {
         <button
           className="account-signin-btn"
           type="button"
-          title="Sign in to basebuild.net"
+          title="Sign in to your account"
           onClick={onOpenSettings}
         >
-          <User size={13} />
-          <span>Sign in</span>
+          <User size={12} /> Sign in
         </button>
       </div>
     );
@@ -48,17 +46,11 @@ export function AccountButton({ account, onOpenSettings }: AccountButtonProps) {
   return (
     <div className="account-button">
       <button
-        ref={triggerRef}
+        ref={triggerRef as React.RefObject<HTMLButtonElement>}
         className="account-trigger"
         type="button"
         title={`${account.profile.username} — ${account.profile.email}`}
-        onClick={() => {
-          if (triggerRef.current) {
-            const rect = triggerRef.current.getBoundingClientRect();
-            setDropdownPos({ top: rect.top - 180, right: window.innerWidth - rect.right });
-          }
-          setMenuOpen((v) => !v);
-        }}
+        onClick={toggle}
       >
         {account.profile.image && !imgFailed ? (
           <img
@@ -73,10 +65,10 @@ export function AccountButton({ account, onOpenSettings }: AccountButtonProps) {
         <span className="account-name">{account.profile.username}</span>
         <ChevronDown size={11} className="account-chevron" />
       </button>
-      {menuOpen && dropdownPos ? (
+      {menuOpen && position ? (
         <div
           className="account-dropdown"
-          style={{ top: dropdownPos.top, right: dropdownPos.right }}
+          style={{ top: position.top, left: position.left }}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="account-dropdown-header">
@@ -87,7 +79,7 @@ export function AccountButton({ account, onOpenSettings }: AccountButtonProps) {
             className="account-dropdown-item"
             type="button"
             title="Open settings"
-            onClick={() => { setMenuOpen(false); onOpenSettings(); }}
+            onClick={() => { close(); onOpenSettings(); }}
           >
             <User size={12} /> Settings
           </button>
@@ -95,7 +87,7 @@ export function AccountButton({ account, onOpenSettings }: AccountButtonProps) {
             className="account-dropdown-item account-dropdown-danger"
             type="button"
             title="Sign out and revoke this device's token"
-            onClick={() => { setMenuOpen(false); void account.signOut(); }}
+            onClick={() => { close(); void account.signOut(); }}
           >
             <LogOut size={12} /> Sign out
           </button>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronLeft,
@@ -313,6 +313,8 @@ export function useProjectSidebar(activeProjectPath: string | null) {
   const [projects, setProjects] = useState<RecentProject[]>([]);
   const [projectDetection, setProjectDetection] = useState<ProjectDetection | null>(null);
   const [sessionsByProject, setSessionsByProject] = useState<Map<string, Session[]>>(new Map());
+  const [pickerInFlight, setPickerInFlight] = useState(false);
+  const pickerPromiseRef = useRef<Promise<string | null> | null>(null);
   const { addLog } = useLogs();
 
   async function refreshProjects() {
@@ -354,23 +356,41 @@ export function useProjectSidebar(activeProjectPath: string | null) {
   }
 
   async function openFolder() {
-    addLog("info", "Opening folder picker...");
-    try {
-      const path = await pickProjectDirectory();
-      if (!path) {
-        addLog("info", "No folder selected");
-        return null;
+    // Single-flight: if a picker is already open, return the same promise so
+    // repeated clicks coalesce into one dialog. Tauri's native picker is
+    // modal but rapid clicks can still queue duplicate invocations.
+    if (pickerPromiseRef.current) {
+      addLog("debug", "Folder picker already open — reusing in-flight promise");
+      return pickerPromiseRef.current;
+    }
+    if (pickerInFlight) return null;
+    setPickerInFlight(true);
+    const promise = (async () => {
+      addLog("info", "Opening folder picker...");
+      try {
+        const path = await pickProjectDirectory();
+        if (!path) {
+          addLog("info", "No folder selected");
+          return null;
+        }
+        addLog("info", `Folder selected: ${path}`);
+        await rememberRecentProject(path);
+        await refreshProjects();
+        // Detection runs once via the `activeProjectPath` effect below; do not
+        // call `selectProject` here — that would duplicate the diagnostic event.
+        return path;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        addLog("error", "Folder picker failed", message);
+        throw err;
       }
-      addLog("info", `Folder selected: ${path}`);
-      await rememberRecentProject(path);
-      await refreshProjects();
-      // Detection runs once via the `activeProjectPath` effect below; do not
-      // call `selectProject` here — that would duplicate the diagnostic event.
-      return path;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      addLog("error", "Folder picker failed", message);
-      throw err;
+    })();
+    pickerPromiseRef.current = promise;
+    try {
+      return await promise;
+    } finally {
+      pickerPromiseRef.current = null;
+      setPickerInFlight(false);
     }
   }
 
@@ -391,5 +411,5 @@ export function useProjectSidebar(activeProjectPath: string | null) {
     }
   }, [activeProjectPath]);
 
-  return { projects, projectDetection, sessionsByProject, refreshProjects, refreshSessions, selectProject, removeProject, openFolder };
+  return { projects, projectDetection, sessionsByProject, refreshProjects, refreshSessions, selectProject, removeProject, openFolder, pickerInFlight };
 }

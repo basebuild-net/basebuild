@@ -49,6 +49,7 @@ export type ActivitySidebarProps = {
   updates: UpdaterState;
   onSelectProject: (path: string) => void;
   onOpenFolder: () => void;
+  pickerInFlight: boolean;
   onFocusPanel: (panelId: string) => void;
   onCreateChat: () => void;
   onOpenHistory: () => void;
@@ -69,6 +70,7 @@ export function ActivitySidebar({
   updates,
   onSelectProject,
   onOpenFolder,
+  pickerInFlight,
   onFocusPanel,
   onCreateChat,
   onCreateTerminal,
@@ -94,7 +96,7 @@ export function ActivitySidebar({
           <button className="btn-icon" type="button" title="Plans & Ideas" onClick={onOpenPlans} disabled={!activeProjectPath}>
             <LayoutList size={14} />
           </button>
-          <button className="btn-icon" type="button" title="Add project folder" onClick={onOpenFolder}>
+          <button className="btn-icon" type="button" title={pickerInFlight ? "Opening folder picker…" : "Add project folder"} onClick={onOpenFolder} disabled={pickerInFlight}>
             <FolderPlus size={14} />
           </button>
           <button className="btn-icon" type="button" title="Expand sidebar" onClick={onToggleCollapse}>
@@ -131,7 +133,7 @@ export function ActivitySidebar({
         <button className="btn-icon" type="button" title="New terminal" onClick={onCreateTerminal} disabled={!activeProjectPath}>
           <TerminalSquare size={14} />
         </button>
-        <button className="btn-icon" type="button" title="Add project folder" onClick={onOpenFolder}>
+        <button className="btn-icon" type="button" title={pickerInFlight ? "Opening folder picker…" : "Add project folder"} onClick={onOpenFolder} disabled={pickerInFlight}>
           <FolderPlus size={14} />
         </button>
         <button className="btn-icon" type="button" title="Collapse sidebar" onClick={onToggleCollapse}>

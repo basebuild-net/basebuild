@@ -17,7 +17,7 @@ import { EditPlanModal } from "./EditPlanModal";
 import { FocusPlanModal } from "./FocusPlanModal";
 import { ProjectDescriptionModal } from "./ProjectDescriptionModal";
 import { useProjectSchematic } from "../../state/schematic";
-import { revealInExplorer } from "../../lib/projects";
+import { getLastFocusedProject, revealInExplorer, setLastFocusedProject } from "../../lib/projects";
 import { onPlanRunEvent } from "../../lib/planRuns";
 import { generateSessionTitle, readSkill } from "../../lib/skills";
 import { getWorkspaceRestoreState, saveWorkspaceRestoreState, type WorkspaceRestoreState } from "../../lib/workspace";
@@ -116,6 +116,8 @@ export function AppShell({ updates }: AppShellProps) {
   // selected project's restore resolves. A generation token guards late
   // restore responses from a prior project so they cannot hydrate the grid.
   const [projectRestoreLoading, setProjectRestoreLoading] = useState(false);
+  const [projectRestoreError, setProjectRestoreError] = useState<string | null>(null);
+  const [restoreRetryToken, setRestoreRetryToken] = useState(0);
   const restoreGenerationRef = useRef(0);
   // Per-type in-flight guard serializing rapid repeated creation clicks so
   // one click creates exactly one panel + one backing resource.
@@ -125,6 +127,7 @@ export function AppShell({ updates }: AppShellProps) {
   const handleCreateTypedPanelRef = useRef<(type: "chat" | "terminal" | "omp" | "schematic", pendingPrompt?: { text: string; mode: PromptMode }) => void>(() => {});
   const [workspaceRestore, setWorkspaceRestore] = useState<WorkspaceRestoreState | null>(null);
   const titlePendingRef = useRef(false);
+  const focusRestoreStartedRef = useRef(false);
   const sidebar = useProjectSidebar(activeProjectPath);
   const activeProject = sidebar.projects.find((p) => p.path === activeProjectPath);
   const session = useSessionState(activeProjectPath, activeProject?.lastActiveSessionId);
@@ -151,24 +154,26 @@ export function AppShell({ updates }: AppShellProps) {
     // Launch does not mint sessions: if sessions exist, select the most
     // recent (created_at DESC from the backend). Only create a session when
     // the project has zero sessions (first open) — never on restart.
-    if (!activeProjectPath || session.activeSessionId) return;
+    // Gated by projectRestoreLoading so restore completes before session
+    // hydration mutates UI state.
+    if (!activeProjectPath || session.activeSessionId || projectRestoreLoading) return;
     if (session.sessions.length > 0) {
       void session.selectSession(session.sessions[0].id);
     } else if (!session.activeSession) {
       void session.createSession();
     }
-  }, [activeProjectPath, session.sessions.length, session.activeSessionId, session.activeSession, session]);
+  }, [activeProjectPath, session.sessions.length, session.activeSessionId, session.activeSession, session, projectRestoreLoading]);
 
   // Auto-create a chat tab when a session is active but has no tabs
   useEffect(() => {
-    if (!activeProjectPath || !session.activeSessionId) return;
+    if (!activeProjectPath || !session.activeSessionId || projectRestoreLoading) return;
     if (session.tabs.length > 0) return;
     if (session.activeSession?.title === "New Session") return;
     void session.createTab("chat", "Chat 1");
-  }, [activeProjectPath, session.activeSessionId, session.tabs.length, session.activeSession?.title, session]);
+  }, [activeProjectPath, session.activeSessionId, session.tabs.length, session.activeSession?.title, session, projectRestoreLoading]);
   // Auto-create a chat panel when the panel grid is empty and a session is active.
   useEffect(() => {
-    if (!activeProjectPath || !session.activeSessionId) return;
+    if (!activeProjectPath || !session.activeSessionId || projectRestoreLoading) return;
     if (panelGridState.root) return; // grid already has panels
     if (session.activeSession?.title === "New Session") return;
     const newPanel: Panel = {
@@ -180,14 +185,29 @@ export function AppShell({ updates }: AppShellProps) {
       filePath: null,
     };
     setPanelGridState(singlePanelGrid(newPanel));
-  }, [activeProjectPath, session.activeSessionId, panelGridState.root, session.activeSession?.title]);
+  }, [activeProjectPath, session.activeSessionId, panelGridState.root, session.activeSession?.title, projectRestoreLoading]);
 
-  // Auto-select the most recent project when none is active. Setting the
-  // path is enough: the `useProjectSidebar` effect runs detection once.
+
+  // Auto-select the explicitly focused project on startup. Recent ordering is
+  // only a fallback; focusing a project is persisted separately from list order.
   useEffect(() => {
-    if (activeProjectPath || sidebar.projects.length === 0) return;
-    setActiveProjectPath(sidebar.projects[0].path);
-  }, [activeProjectPath, sidebar]);
+    if (activeProjectPath || sidebar.projects.length === 0 || focusRestoreStartedRef.current) return;
+    focusRestoreStartedRef.current = true;
+    void getLastFocusedProject()
+      .then((project) => {
+        const fallback = sidebar.projects[0]?.path ?? null;
+        const focusedPath = project && sidebar.projects.some((item) => item.path === project.path)
+          ? project.path
+          : fallback;
+        if (focusedPath) setActiveProjectPath(focusedPath);
+      })
+      .catch((caught) => {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        addLog("warn", "Failed to restore last focused project", message);
+        const fallback = sidebar.projects[0]?.path;
+        if (fallback) setActiveProjectPath(fallback);
+      });
+  }, [activeProjectPath, sidebar.projects, addLog]);
 
   useEffect(() => {
     if (!activeProjectPath) {
@@ -199,8 +219,12 @@ export function AppShell({ updates }: AppShellProps) {
     }
     // Project-keyed loading boundary: disable panel mutations until this
     // project's restore resolves. The generation token ensures a late
-    // response from a prior project cannot hydrate the current grid.
+    // response from a prior project cannot hydrate the current grid. Setting
+    // loading true synchronously here prevents the session/tab/panel effects
+    // from mutating UI state before restore completes.
     const generation = ++restoreGenerationRef.current;
+    setProjectRestoreLoading(true);
+    setProjectRestoreError(null);
     loggedOrphanIdsRef.current.clear();
     addLog("debug", "Project selected", `${activeProjectPath} (gen=${generation})`);
     let cancelled = false;
@@ -213,17 +237,19 @@ export function AppShell({ updates }: AppShellProps) {
       setSidebarCollapsed(state.sidebarCollapsed);
       restoredProjectRef.current = activeProjectPath;
       setProjectRestoreLoading(false);
+      setProjectRestoreError(null);
       addLog("debug", "Workspace restored", `${activeProjectPath} panels=${flattenPanels(state.panelGrid ? parsePanelGridWithDiagnostics(state.panelGrid).state.root : null).length}`);
     }).catch((caught) => {
       if (cancelled || generation !== restoreGenerationRef.current) return;
       const message = caught instanceof Error ? caught.message : String(caught);
       addLog("warn", "Failed to restore workspace state", message);
       setProjectRestoreLoading(false);
+      setProjectRestoreError(message);
     });
     return () => {
       cancelled = true;
     };
-  }, [activeProjectPath, addLog]);
+  }, [activeProjectPath, addLog, restoreRetryToken]);
   // Plan-run event listener: when a run starts with a chat session, surface
   // it as a new panel in the panel grid (per `panel-grid`).
   useEffect(() => {
@@ -387,6 +413,7 @@ export function AppShell({ updates }: AppShellProps) {
     try {
       const path = await sidebar.openFolder();
       if (path) {
+        await setLastFocusedProject(path);
         setActiveProjectPath(path);
       }
     } catch (err) {
@@ -397,9 +424,10 @@ export function AppShell({ updates }: AppShellProps) {
 
   const handleSelectProject = useCallback(
     async (path: string) => {
-      // Only set the path — the `useProjectSidebar` effect runs detection
-      // once. Calling `selectProject` here too would duplicate diagnostics.
+      // Only set the path after focus persistence succeeds — the
+      // `useProjectSidebar` effect runs detection once.
       try {
+        await setLastFocusedProject(path);
         setActiveProjectPath(path);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -408,6 +436,10 @@ export function AppShell({ updates }: AppShellProps) {
     },
     [addLog],
   );
+
+  const handleRetryRestore = useCallback(() => {
+    setRestoreRetryToken((token) => token + 1);
+  }, []);
 
   const handleRemoveProject = useCallback(
     async (path: string) => {
@@ -1034,6 +1066,7 @@ Rules:
           updates={updates}
           onSelectProject={handleSelectProject}
           onOpenFolder={handleOpenFolder}
+          pickerInFlight={sidebar.pickerInFlight}
           onFocusPanel={(panelId) => setPanelGridState((prev) => ({ ...prev, activePanelId: panelId }))}
           onCreateChat={() => handleCreateTypedPanel("chat")}
           onCreateTerminal={() => handleCreateTypedPanel("terminal")}
@@ -1083,10 +1116,26 @@ Rules:
                 <TerminalSquare size={32} className="text-muted" />
                 <h3>No project open</h3>
                 <p>Open a folder to start managing terminals, files, source control, and plans.</p>
-                <button className="btn btn-primary" type="button" onClick={handleOpenFolder}>Open project</button>
+                <button className="btn btn-primary" type="button" title={sidebar.pickerInFlight ? "Opening folder picker…" : "Open a project folder"} onClick={handleOpenFolder} disabled={sidebar.pickerInFlight}>Open project</button>
               </div>
             ) : null}
-            {activeProjectPath ? (
+            {activeProjectPath && projectRestoreError ? (
+              <div className="project-restore-error" role="alert">
+                <h3>Project restore failed</h3>
+                <p>{projectRestoreError}</p>
+                <div className="empty-state-actions">
+                  <button className="btn btn-primary" type="button" title="Retry project restore" onClick={handleRetryRestore}>Retry</button>
+                  <button className="btn" type="button" title="Switch to another project" onClick={() => setActiveProjectPath(null)}>Switch project</button>
+                </div>
+              </div>
+            ) : null}
+            {activeProjectPath && !projectRestoreError && projectRestoreLoading ? (
+              <div className="project-restore-loading" role="status" aria-live="polite">
+                <span className="is-spinning project-restore-spinner" aria-hidden="true" />
+                <span>Loading project…</span>
+              </div>
+            ) : null}
+            {activeProjectPath && !projectRestoreError && !projectRestoreLoading ? (
               <PanelStatusProvider>
                 <PanelGrid
                   state={panelGridState}
