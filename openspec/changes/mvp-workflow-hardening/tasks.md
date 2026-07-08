@@ -40,7 +40,7 @@ Ownership map:
       content, show subsystem progress/retry, and ignore late prior responses.
 - [x] 2.4 Make the native folder picker single-flight across all entry points and
       disable/relabel triggers until it resolves.
-- [ ] 2.5 Regression tests: select project C → restart restores C + last chat and
+- [x] 2.5 Regression tests: select project C → restart restores C + last chat and
       panel; rapid A→B→C settles only C; partial failure has no stale model/counts;
       repeated folder clicks create one dialog; ordinary switches produce no
       false orphan warnings or duplicate config loads.
@@ -52,7 +52,7 @@ Ownership map:
       branch/worktree, assigned plan, model, and run state reachable.
 - [x] 3.3 Remove repository inline-style debt into documented `globals.css`
       classes; preserve 0px radius and add titles to missing interactions.
-- [ ] 3.4 Add CI invariant checks for extra stylesheets, inline styles, non-zero
+- [x] 3.4 Add CI invariant checks for extra stylesheets, inline styles, non-zero
       radius, and interactive elements without `title=`; document reviewed
       computed-geometry exceptions.
 - [ ] 3.5 Playwright visual/interaction snapshots at 960×640 and 1280×800 for
@@ -60,7 +60,7 @@ Ownership map:
 
 ## 4. Questionnaire-first schematic and ideation
 
-- [ ] 4.1 Replace schematic/category/idea `openOrFocusChat` paths with one typed,
+- [x] 4.1 Replace schematic/category/idea `openOrFocusChat` paths with one typed,
       destination-aware planning action router and exactly-once `send` delivery.
 - [ ] 4.2 Verify repository read + `ask_user` capability before delivery; choose a
       compatible coordinator or show a model/provider/tool repair card.
