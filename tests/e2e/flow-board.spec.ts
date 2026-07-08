@@ -7,7 +7,7 @@ async function openFixtureProject(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Open project" }).click();
   await expect(
-    page.locator(".status-pill", { hasText: "C:\\basebuild-e2e\\project" }),
+    page.locator(".activity-sidebar-project-name", { hasText: "project" }),
   ).toBeVisible();
 }
 
@@ -15,8 +15,8 @@ test.describe("Flow board + batch operations", () => {
   test("flow tab renders five stages with live counts", async ({ page }) => {
     await openFixtureProject(page);
 
-    // Open the Plans & Ideas modal via the command strip.
-    await page.locator(".command-strip-stage").first().click();
+    // Open the Plans & Ideas modal via the command strip Plans stage.
+    await page.locator("button[title^='Plans:']").first().click();
     await expect(page.locator(".modal-plans")).toBeVisible({ timeout: 5_000 });
 
     // Click the Flow tab.
@@ -36,8 +36,8 @@ test.describe("Flow board + batch operations", () => {
   test("ideas tab shows multi-select checkboxes for concept ideas", async ({ page }) => {
     await openFixtureProject(page);
 
-    // Open the Plans & Ideas modal via the command strip.
-    await page.locator(".command-strip-stage").first().click();
+    // Open the Plans & Ideas modal via the command strip Ideas stage.
+    await page.locator("button[title^='Ideas:']").first().click();
     await expect(page.locator(".modal-plans")).toBeVisible({ timeout: 5_000 });
 
     const ideasTab = page.locator(".inspector-tab", { hasText: "Ideas" }).first();
@@ -59,8 +59,8 @@ test.describe("Flow board + batch operations", () => {
   test("flow board shows launch button when ready plans exist", async ({ page }) => {
     await openFixtureProject(page);
 
-    // Open the Plans & Ideas modal via the command strip.
-    await page.locator(".command-strip-stage").first().click();
+    // Open the Plans & Ideas modal via the command strip Plans stage.
+    await page.locator("button[title^='Plans:']").first().click();
     await expect(page.locator(".modal-plans")).toBeVisible({ timeout: 5_000 });
 
     const flowTab = page.locator(".inspector-tab", { hasText: "Flow" }).first();

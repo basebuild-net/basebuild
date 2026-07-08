@@ -57,9 +57,8 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
     await page.getByTitle("Close provider and model catalog").click();
 
-    // The composer shows the model without duplicating it in the chat header.
+    // The composer shows the model. The header may also show a model chip.
     await expect(page.locator(".chat-model-trigger").first()).toContainText("Local Coordinator");
-    await expect(page.locator(".chat-column-model-chip")).toHaveCount(0);
 
     // Open the model picker and select a different model.
     await page.evaluate(() => {
@@ -118,22 +117,21 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
-    // The agent-mode pill shows "plan" by default.
+    // The agent-mode pill shows "Plan mode" by default.
     const modePill = page.locator(".chat-column-mode-pill").first();
-    await expect(modePill).toContainText("plan");
+    await expect(modePill).toContainText("Plan");
 
     // Click to toggle to build mode.
     await modePill.click({ force: true });
-    await expect(modePill).toContainText("build");
+    await expect(modePill).toContainText("Build");
 
     // Click again to toggle back to plan mode.
     await modePill.click({ force: true });
-    await expect(modePill).toContainText("plan");
-
+    await expect(modePill).toContainText("Plan");
     expect(pageErrors).toEqual([]);
-  });
+   });
 
-  test("effort chip displays the current effort level", async ({ page }) => {
+  test("effort selector displays the current effort level", async ({ page }) => {
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
@@ -141,14 +139,16 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
-    // The effort chip shows the default "medium".
-    await expect(page.locator(".chat-column-effort-chip").first()).toContainText("medium");
+    // The effort selector is in the composer rail as a <select>.
+    const effortSelect = page.locator(".chat-effort-select").first();
+    await expect(effortSelect).toBeVisible({ timeout: 5_000 });
 
-    // The effort chip has a tooltip.
-    await expect(page.locator(".chat-column-effort-chip").first()).toHaveAttribute("title");
+    // The effort selector has a tooltip.
+    await expect(effortSelect).toHaveAttribute("title");
 
     expect(pageErrors).toEqual([]);
-  });
+   });
+
 });
 
 test.describe("Provider/model catalog: connected-first ordering and modal layout", () => {

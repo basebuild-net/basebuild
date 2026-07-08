@@ -266,6 +266,7 @@ export function ChatPanel({
   const [reasoningText, setReasoningText] = useState("");
   const streamBufRef = useRef("");
   const reasoningBufRef = useRef("");
+  const firstActivityRef = useRef(true);
   // Provider connection UI.
   const [showLogin, setShowLogin] = useState(false);
   const [apiKey, setApiKey] = useState("");
@@ -456,9 +457,8 @@ export function ChatPanel({
             timer = window.setTimeout(() => reject(new Error("Chat session creation timed out after 15s")), 15_000);
           }),
         ]);
-        if (cancelled) return;
-        setNativeSessionId(session.id);
         markStart("first-activity-event");
+        firstActivityRef.current = true;
         setToolEvents([]);
         setInteractions([]);
         setError(null);
@@ -518,7 +518,10 @@ export function ChatPanel({
       ruleSource?: string;
     }>("native-chat://tool-event", (event) => {
       if (event.payload.sessionId !== nativeSessionId) return;
-      if (toolEvents.length === 0) markEnd("first-activity-event");
+      if (firstActivityRef.current) {
+        firstActivityRef.current = false;
+        markEnd("first-activity-event");
+      }
       const id = event.payload.toolCallId ?? `te-${Date.now()}-${Math.random()}`;
       setToolEvents((prev) => {
         const existing = prev.find((e) => e.id === id);

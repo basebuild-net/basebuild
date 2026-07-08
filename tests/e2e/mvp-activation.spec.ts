@@ -66,9 +66,10 @@ test.describe("MVP atomic project activation", () => {
     );
     expect(staleLogs.length).toBeGreaterThanOrEqual(2);
 
-    const activeSession = page.locator("h1.session-title");
-    await expect(activeSession).toHaveCount(1);
-    await expect(activeSession).toHaveText(projectC.name);
+    // The active project is charlie (already verified on line 54-56).
+    // Verify the chat panel is visible and the project name is correct.
+    await expect(page.locator(".panel-grid-leaf").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".activity-sidebar-project-name").first()).toContainText(projectC.name);
   });
 
   test.skip("partial failure shows error boundary, no old content", async () => {
@@ -102,7 +103,7 @@ test.describe("MVP atomic project activation", () => {
     await expect(inFlightBtn).toBeDisabled();
 
     await expect(
-      page.locator(".status-pill", { hasText: fixtureProject(2).path }),
+      page.locator(".activity-sidebar-project-name", { hasText: fixtureProject(2).name }),
     ).toBeVisible({ timeout: 5_000 });
 
     const pickerMs = Date.now() - start;

@@ -1229,6 +1229,7 @@ export function AppShell({ updates }: AppShellProps) {
             <div className="modal-body">
               <Suspense fallback={<ModalLoading />}>
                 <PlanningInspector
+                  showHeader={false}
                   initialTab={plansModalTab}
                   sessionId={session.activeSessionId}
                   projectPath={activeProjectPath}

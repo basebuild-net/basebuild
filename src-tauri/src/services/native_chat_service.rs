@@ -1321,11 +1321,19 @@ impl NativeChatService {
         };
         conn.execute(
             "INSERT INTO native_tool_events (id, session_id, message_id, kind, status, summary, sequence, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![event.id, event.session_id, event.message_id, event.kind, event.status, event.summary, event.sequence, event.created_at],
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, (SELECT COALESCE(MAX(sequence), 0) + 1 FROM native_tool_events WHERE session_id = ?2), ?7)",
+            params![event.id, event.session_id, event.message_id, event.kind, event.status, event.summary, event.created_at],
         )
         .map_err(|e| format!("Failed to save native tool event: {e}"))?;
-        Ok(event)
+        // Read back the assigned sequence so the returned event matches what was persisted.
+        let persisted_seq: i64 = conn
+            .query_row(
+                "SELECT sequence FROM native_tool_events WHERE id = ?1",
+                params![event.id],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Failed to read back tool event sequence: {e}"))?;
+        Ok(NativeToolEvent { sequence: persisted_seq, ..event })
     }
 
     pub fn list_tool_events(session_id: &str) -> DbResult<Vec<NativeToolEvent>> {

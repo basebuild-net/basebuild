@@ -23,7 +23,10 @@ async function openFixtureProjectWithCorruptGrid(page: Page) {
       tabGridStates: null,
     });
   }, CORRUPT_PANEL_GRID);
+  // Reload so the restore re-reads the corrupt grid from the mock state.
+  await page.reload();
   await waitForAppReady(page);
+  await page.waitForTimeout(1500);
 }
 
 /** Click a button by title using evaluate to bypass overlay interception. */
@@ -136,7 +139,7 @@ test.describe("panel-grid project isolation", () => {
     // we verify the steady-state: after restore, the grid has exactly the
     // repaired panels and no duplicates.
     await page.getByRole("button", { name: "Open project" }).click();
-    await expect(page.locator(".status-pill", { hasText: "C:\\basebuild-e2e\\project" })).toBeVisible();
+    await expect(page.locator(".activity-sidebar-project-name", { hasText: "project" })).toBeVisible();
     await page.waitForTimeout(1500);
 
     const panels = await page.locator(".panel-grid-leaf").count();

@@ -76,7 +76,7 @@ test.describe("MVP workflow baseline", () => {
 
     // Wait for the delayed picker to resolve and the selected project to become active.
     const projectC = fixtureProject(2);
-    await expect(page.locator(".status-pill", { hasText: projectC.path })).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".activity-sidebar-project-name", { hasText: projectC.name })).toBeVisible({ timeout: 5_000 });
     const pickerMs = Date.now() - start;
 
     await attachScreenshot(page, "folder-picker-single-flight-screenshot");

@@ -7,7 +7,7 @@ async function openFixtureProject(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Open project" }).click();
   await expect(
-    page.locator(".status-pill", { hasText: "C:\\basebuild-e2e\\project" }),
+    page.locator(".activity-sidebar-project-name", { hasText: "project" }),
   ).toBeVisible();
   // Seed an awaiting_review run into the mock state. Attach to all sessions
   // for this project so the active session's run list includes it.

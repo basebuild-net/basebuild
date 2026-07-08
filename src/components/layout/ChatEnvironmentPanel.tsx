@@ -165,6 +165,7 @@ export function ChatEnvironmentPanel({
             ) : null}
           </div>
         </div>
+        <NotificationCenter />
       </div>
       <div className="chat-env-context">
         {projectPath ? (
