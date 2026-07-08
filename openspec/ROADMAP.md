@@ -15,23 +15,13 @@ _None. Completed OpenSpec changes are archived into canonical specs._
 
 ### Now (in flight)
 
-1. `ai-workbench-course-correction` — ★ **owner-prioritized live UI course
-   correction (2026-07-08); 9/43 tasks done.** Converts the hardened MVP into a
-   legible AI workbench: exact Schematic/Ideas/Plans routing, dedicated project
-   modals, AI-only plan origin, visible agent/tool/question activity, truthful
-   connected-first provider/model controls, a modal-first configuration rule,
-   semantic visual states, sticky session selections, stable compact layouts,
-   and a focused interaction/performance harness. The first
-   live-audit fixes are implemented on this branch. Before deeper shell work,
-   reconcile overlap with `chat-first-shell`; consume protocol/auth capability
-   truth from `provider-parity-workspace-fixes` instead of duplicating it.
-2. `connector-permission-gateway` — phases 1+2 merged in PR #17 (gateway
+1. `connector-permission-gateway` — phases 1+2 merged in PR #17 (gateway
    contract, storage, backend permission broker, Tauri commands, TS wrappers;
    9/29 tasks done). Phase 2 OMP connector integration + frontend UX + web
    bridge + verification remain (tasks 2.2 partial, 3.1–6.5). Permission broker
    extends the merged `native-agent-loop` approval substrate (modes, rules,
    prompts, audit trail); the task 1.1 merge gate is satisfied as of PR #9.
-3. `chat-first-shell` — full shell redesign around the conversation: one global
+2. `chat-first-shell` — full shell redesign around the conversation: one global
    left column (top `New chat`/`Search`, projects+chats list showing 5 recent
    per project with relative timestamps + pinning + `Show more`, bottom account
    row), a chat-focused center, a floating top-right environment block (source/
@@ -44,7 +34,7 @@ _None. Completed OpenSpec changes are archived into canonical specs._
    tasks done. Relocates the `unified-planning-workspace` inspector unchanged;
    reuses `file-viewer-editor`'s viewer for modal file content; pairs with
    `diff-review-workflow` in the Changes fold.
-4. `plan-import` — import pre-existing external plans (unexecuted OpenSpec
+3. `plan-import` — import pre-existing external plans (unexecuted OpenSpec
    changes etc.) into `.basebuild` plan records with `engine`/`external`/derived
    status, confirmed + idempotent (new cap `plan-import`). 11/13 tasks done.
    Dep `basebuild-planning-skill` merged (PR #20); pairs with
@@ -167,7 +157,6 @@ _Last refreshed: 2026-07-08 (`node scripts/openspec-status.mjs --write`)_
 
 |Change|Progress|Status|Next command|
 |---|---|---|---|
-|`ai-workbench-course-correction`|9/43|in progress|`/apply ai-workbench-course-correction`|
 |`chat-first-shell`|17/31|in progress|`/apply chat-first-shell`|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
 |`plan-import`|11/13|in progress|`/apply plan-import`|
@@ -271,6 +260,21 @@ merge into canonical `openspec/specs/` and the folder moves to
   audit found interaction-level gaps now tracked by
   `ai-workbench-course-correction` rather than hidden behind completed task
   counts.
+
+- **2026-07-08b** — `ai-workbench-course-correction` archived after 43/43
+  tasks. 1 new canonical spec (`ai-workbench-shell`) + 6 modified
+  (`plan-pipeline-ui` gained AI-only plan origin + generation auditability +
+  unified inspector exact-tab routing, `provider-model-catalog` gained
+  connected-first ordering + session selection restoration + transport
+  capability truth, `tool-transcript-rendering` gained normalized activity
+  timeline + dense grouped states + unsupported-transport prevention,
+  `schematic-inspector` gained dedicated project-modal questionnaire,
+  `ide-workspace-state` gained loading-boundary restore + project-switch
+  isolation, `testing-automation` gained compact-layout gates + responsiveness
+  budgets). Converts the hardened MVP into a legible AI workbench with exact
+  stage routing, visible agent activity, truthful provider/model controls, and
+  modal-first configuration.
+
 - **Out-of-band** — PR #18 merged OMP credential integration + AI commit
   message generation (Source panel). Not tracked as an OpenSpec change; no
   delta specs. Affects `native_chat_service`, `provider_client`,

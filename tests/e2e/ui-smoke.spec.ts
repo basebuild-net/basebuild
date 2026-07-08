@@ -150,3 +150,72 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     expect(pageErrors).toEqual([]);
   });
 });
+
+test.describe("Provider/model catalog: connected-first ordering and modal layout", () => {
+  test("provider catalog modal shows connected providers first with green state", async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+    await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
+
+    // Open the provider catalog modal via the composer trigger.
+    const providerTrigger = page.locator(".chat-provider-trigger").first();
+    await expect(providerTrigger).toBeVisible({ timeout: 5_000 });
+    await providerTrigger.click({ force: true });
+
+    // The modal overlay should be visible.
+    await expect(page.locator(".provider-catalog-overlay")).toBeVisible({ timeout: 5_000 });
+
+    // Connected providers (green) should appear before available (grey).
+    const connected = page.locator(".provider-status.is-connected");
+    const available = page.locator(".provider-status.is-available");
+    const connectedCount = await connected.count();
+    const availableCount = await available.count();
+
+    // The fixture has at least one configured provider (basebuild-local).
+    expect(connectedCount).toBeGreaterThan(0);
+
+    // If there are both connected and available, verify ordering.
+    if (connectedCount > 0 && availableCount > 0) {
+      const firstConnectedBox = await connected.first().boundingBox();
+      const firstAvailableBox = await available.first().boundingBox();
+      if (firstConnectedBox && firstAvailableBox) {
+        expect(firstConnectedBox.y).toBeLessThanOrEqual(firstAvailableBox.y);
+      }
+    }
+
+    // Escape closes the modal.
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".provider-catalog-overlay")).toHaveCount(0);
+
+    expect(pageErrors).toEqual([]);
+  });
+
+  test("provider catalog modal has capability badges on models", async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+    await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
+
+    // Open the provider catalog modal.
+    await page.locator(".chat-provider-trigger").first().click({ force: true });
+    await expect(page.locator(".provider-catalog-overlay")).toBeVisible({ timeout: 5_000 });
+
+    // Model rows should have capability badges (Tools, Reasoning, or effort).
+    const modelBadges = page.locator(".provider-model-badges .provider-capability");
+    const badgeCount = await modelBadges.count();
+    expect(badgeCount).toBeGreaterThan(0);
+
+    // At least one badge should mention "Tools" or "Reasoning".
+    const badgeTexts = await modelBadges.allTextContents();
+    const hasCapabilityBadge = badgeTexts.some((t) => t.includes("Tools") || t.includes("Reasoning"));
+    expect(hasCapabilityBadge).toBe(true);
+
+    await page.keyboard.press("Escape");
+    expect(pageErrors).toEqual([]);
+  });
+});

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useEscapeKey } from "../../lib/useEscapeKey";
 import { Download, X } from "lucide-react";
 import type { PlanImportCandidate, PlanImportResult } from "../../lib/planImport";
 import { planImportApply, planImportDetect } from "../../lib/planImport";
@@ -15,6 +16,7 @@ export function PlanImportModal({ projectPath, onClose }: PlanImportModalProps) 
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<PlanImportResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useEscapeKey(true, onClose);
   const { addLog } = useLogs();
 
   const detect = useCallback(async () => {

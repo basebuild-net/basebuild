@@ -100,3 +100,9 @@ retained; the custom in-app top bar goes away.
     workspace tab. Sequence so the modal reuses that viewer.
   - `diff-review-workflow` (roadmap, not started) can render its changeset in the
     env block's Changes fold / diff popover.
+  - **`ai-workbench-course-correction`** (in flight) supersedes the "Planning
+    Inspector unchanged" assumption in task 3.3: it evolves that surface with
+    exact stage routing, AI-only plan origin, and visible agent activity. The
+    relocation itself (3.3) stays complete; the evolution is owned by
+    `ai-workbench-course-correction` phases 3 and 6. Retained here: composer
+    mic/usage (5.x) and native chrome/menu (6.x).

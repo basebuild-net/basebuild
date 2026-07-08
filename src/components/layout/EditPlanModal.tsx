@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useEscapeKey } from "../../lib/useEscapeKey";
 import { X } from "lucide-react";
 import type { NewPlan, Plan, PlanStatus } from "../../lib/plans";
 import { PLAN_STATUS_LABEL } from "../../lib/plans";
@@ -16,6 +17,7 @@ export function EditPlanModal({ plan, open, onClose, onSave }: EditPlanModalProp
   const [goal, setGoal] = useState("");
   const [status, setStatus] = useState<PlanStatus>("draft");
   const [priority, setPriority] = useState(50);
+  useEscapeKey(open, onClose);
   const [tags, setTags] = useState("");
 
   useEffect(() => {

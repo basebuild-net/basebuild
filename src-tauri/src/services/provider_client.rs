@@ -207,6 +207,23 @@ pub fn resolve_client(provider_id: &str, base_url: Option<&str>) -> Box<dyn Prov
     }
 }
 
+/// Whether the transport for `api_kind` can carry Basebuild tool schemas.
+/// Native kinds route to `AnthropicClient`/`OpenAiCompatibleClient` and pass
+/// tools; bespoke kinds route to `OmpRpcClient` which composes a text prompt
+/// and cannot carry structured tool definitions. An empty `api_kind` is the
+/// legacy default (`openai-completions`) and is tool-capable.
+pub fn transport_supports_tools(api_kind: &str) -> bool {
+    matches!(
+        api_kind,
+        "" | "openai-completions"
+            | "openai-responses"
+            | "azure-openai-responses"
+            | "anthropic-messages"
+            | "openrouter"
+            | "ollama-chat"
+    )
+}
+
 /// Resolve a provider client using the model's `api_kind` for routing.
 ///
 /// Routing priority:
@@ -1375,6 +1392,31 @@ mod tests {
     fn resolve_client_for_model_bespoke_with_custom_base_url_uses_compatible() {
         // Escape hatch: bespoke provider with custom base_url → OpenAiCompatibleClient.
         let _ = resolve_client_for_model("devin", "devin-agent", Some("https://my-proxy/v1"), "https://server.codeium.com");
+    }
+
+    #[test]
+    fn transport_supports_tools_native_kinds() {
+        // Native kinds that route to AnthropicClient/OpenAiCompatibleClient.
+        assert!(transport_supports_tools(""));
+        assert!(transport_supports_tools("openai-completions"));
+        assert!(transport_supports_tools("openai-responses"));
+        assert!(transport_supports_tools("azure-openai-responses"));
+        assert!(transport_supports_tools("anthropic-messages"));
+        assert!(transport_supports_tools("openrouter"));
+        assert!(transport_supports_tools("ollama-chat"));
+    }
+
+    #[test]
+    fn transport_supports_tools_bespoke_kinds_are_false() {
+        // Bespoke kinds route to OmpRpcClient which cannot carry tool schemas.
+        assert!(!transport_supports_tools("devin-agent"));
+        assert!(!transport_supports_tools("cursor-agent"));
+        assert!(!transport_supports_tools("openai-codex-responses"));
+        assert!(!transport_supports_tools("google-generative-ai"));
+        assert!(!transport_supports_tools("google-vertex"));
+        assert!(!transport_supports_tools("google-gemini-cli"));
+        assert!(!transport_supports_tools("bedrock-converse-stream"));
+        assert!(!transport_supports_tools("gitlab-duo-agent"));
     }
 
     #[test]

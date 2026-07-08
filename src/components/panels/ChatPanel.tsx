@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { usePromptDelivery } from "../../lib/promptDelivery";
+import { useEscapeKey } from "../../lib/useEscapeKey";
+import { markStart, markEnd } from "../../lib/timing";
 import { ChatComposerRail } from "./ChatComposerRail";
 import { ChatHeader } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
@@ -35,6 +37,7 @@ import {
   nativeChatModelDefault,
   nativeChatSend,
   nativeChatSetProjectModelDefault,
+  nativeChatUpdateSessionModel,
   nativeChatStart,
   nativeChatToolEvents,
   nativeDeleteProviderCredential,
@@ -281,6 +284,10 @@ export function ChatPanel({
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelFilter, setModelFilter] = useState("");
+  useEscapeKey(showProviderPicker || showModelPicker, () => {
+    setShowProviderPicker(false);
+    setShowModelPicker(false);
+  });
   const sendTimerRef = useRef<number | null>(null);
   const assistantBufferRef = useRef("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -366,6 +373,7 @@ export function ChatPanel({
     let cancelled = false;
     async function load() {
       try {
+        markStart("provider-model-restore");
         addLog("debug", "Chat config loading", `projectPath=${projectPath}`);
         const [defaults, cat, met, resolved, storedSession] = await Promise.all([
           getRuntimeDefaults(),
@@ -386,6 +394,7 @@ export function ChatPanel({
         setEffortLevel(effectiveEffortLevel);
         setModelNotice(storedSession ? null : resolved.notice);
         addLog("debug", "Chat config loaded", `source=${storedSession ? "session" : resolved.source} provider=${effectiveProviderId} model=${effectiveModelId} models=${cat.models.length}`);
+        markEnd("provider-model-restore");
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to load chat config", msg);
@@ -449,6 +458,7 @@ export function ChatPanel({
         ]);
         if (cancelled) return;
         setNativeSessionId(session.id);
+        markStart("first-activity-event");
         setToolEvents([]);
         setInteractions([]);
         setError(null);
@@ -508,6 +518,7 @@ export function ChatPanel({
       ruleSource?: string;
     }>("native-chat://tool-event", (event) => {
       if (event.payload.sessionId !== nativeSessionId) return;
+      if (toolEvents.length === 0) markEnd("first-activity-event");
       const id = event.payload.toolCallId ?? `te-${Date.now()}-${Math.random()}`;
       setToolEvents((prev) => {
         const existing = prev.find((e) => e.id === id);
@@ -521,6 +532,7 @@ export function ChatPanel({
           kind: event.payload.toolName,
           status: event.payload.status,
           summary: event.payload.summary,
+          sequence: prev.length + 1,
           createdAt: Math.floor(Date.now() / 1000),
         }];
       });
@@ -542,6 +554,7 @@ export function ChatPanel({
         kind: "approval",
         status: "pending",
         summary,
+        sequence: prev.length + 1,
         createdAt: Math.floor(Date.now() / 1000),
       }]);
     });
@@ -800,16 +813,10 @@ export function ChatPanel({
     }
     // send mode — wait for catalog so the resolved provider/model is used.
     if (!catalog || loading) return;
-    const nativeToolApiKinds = new Set([
-      "",
-      "openai-completions",
-      "openai-responses",
-      "azure-openai-responses",
-      "anthropic-messages",
-      "openrouter",
-      "ollama-chat",
-    ]);
-    const modelSupportsTools = !!selectedModel?.supportsTools && nativeToolApiKinds.has(selectedModel.apiKind ?? "");
+    // `supportsTools` is the backend-computed effective capability: it is false
+    // for OMP-RPC-bridged transports (bespoke api_kinds) that cannot carry
+    // structured tool schemas, and for the local coordinator.
+    const modelSupportsTools = !!selectedModel?.supportsTools;
     if (requiresTools && !modelSupportsTools) {
       setInput(delivery.text);
       setCommandNotice(
@@ -1103,6 +1110,28 @@ export function ChatPanel({
       addLog("error", "Failed to disconnect provider", e instanceof Error ? e.message : String(e));
     }
   }, [selectedProvider, refreshCatalog, addLog]);
+
+  // Persist provider/model/effort to both the session record (so it survives
+  // restart) and the project default (so new sessions inherit it). The session
+  // update is best-effort — if it fails (e.g. session not yet created), the
+  // project default still captures the selection.
+  const persistSelection = useCallback(
+    (nextProviderId: string, nextModelId: string, nextEffort: string) => {
+      const next: ChatModelDefault = { providerId: nextProviderId, modelId: nextModelId, effortLevel: nextEffort };
+      void nativeChatSetProjectModelDefault(projectPath, next);
+      if (nativeSessionId) {
+        void nativeChatUpdateSessionModel({
+          sessionId: nativeSessionId,
+          providerId: nextProviderId,
+          modelId: nextModelId,
+          effortLevel: nextEffort,
+        }).catch((e) => {
+          addLog("warn", "Failed to persist session model selection", e instanceof Error ? e.message : String(e));
+        });
+      }
+    },
+    [projectPath, nativeSessionId, addLog],
+  );
 
   const handleGenerateIdeas = useCallback(async () => {
     if (!nativeSessionId || generatingIdeas) return;
@@ -1739,8 +1768,7 @@ export function ChatPanel({
               }}
               onChangeEffort={(effort) => {
                 setEffortLevel(effort);
-                const next: ChatModelDefault = { providerId, modelId, effortLevel: effort };
-                void nativeChatSetProjectModelDefault(projectPath, next);
+                persistSelection(providerId, modelId, effort);
               }}
               onRefresh={() => void refreshCatalog(true, selectedProvider?.id)}
               onConnect={() => {
@@ -1956,12 +1984,7 @@ export function ChatPanel({
                               setShowModelPicker(false);
                               setSetupRequired(null);
                               setModelNotice(null);
-                              const next: ChatModelDefault = {
-                                providerId: model.providerId,
-                                modelId: model.id,
-                                effortLevel,
-                              };
-                              void nativeChatSetProjectModelDefault(projectPath, next);
+                              persistSelection(model.providerId, model.id, effortLevel);
                             }}
                           >
                             <span className="provider-model-main">

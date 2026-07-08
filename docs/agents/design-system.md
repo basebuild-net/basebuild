@@ -16,6 +16,30 @@ change. This document links to it and adds agent-specific rules.
 - **Tooltips on every interactive element** (`title` attribute). Verify with
   `title=`, not just `aria-label`.
 
+## Product hierarchy and ownership
+
+The shell has four ownership levels. A control belongs to one level only; a stage
+button opens its exact destination and never creates a surrogate chat or defaults
+to a sibling tab.
+
+1. **Global navigation** — project/chat history and account controls.
+2. **Project command strip** — Schematic, Ideas, Plans, Running, Done, Changes.
+3. **Active chat** — transcript/activity timeline and composer.
+4. **Project modals** — Schematic, Planning, Changes, Files, and Settings.
+
+The top bar is an orientation/action strip, not a telemetry dump. It contains
+named project utilities, project/branch/workspace context, and planning stages.
+Provider/model/effort live in the composer configuration area; raw session ids,
+inactive-plan placeholders, and duplicate model/project badges do not render.
+
+### Modal versus popover
+
+Use a popover only for a short, single-step choice that can be understood in
+roughly 6-8 rows (chat actions, branch switch, New panel). Use a modal for
+search/browse configuration, multi-column content, previews, forms, or catalogs
+(provider/model, Schematic, Planning, Changes, Files, Settings). Modal layouts
+may obscure the chat: focused configuration is the current task.
+
 ## CSS rules
 
 - `src/styles/globals.css` is the only stylesheet. No CSS modules, no styled
@@ -190,6 +214,63 @@ below the plan list. It contains:
 Settings → Final Touches tab uses `.final-touch-list`, `.final-touch-step`,
 `.final-touch-toggle`, and `.final-touch-add` classes. All inputs, selects,
 and buttons use 0px radius and `var(--bb-surface)` backgrounds.
+
+## Semantic visual states
+
+State is communicated with redundant text, icon, and shape cues. Color never
+carries meaning alone.
+
+- **Green (`--bb-success` / `--bb-positive`)** — connected, succeeded, complete,
+  added, ok. Examples: `.provider-card.is-connected`,
+  `.provider-status.is-connected`, `.tool-card-status-success`,
+  `.schematic-health-badge.is-complete`, `.chat-health-dot.is-ok`, `.text-ok`,
+  `.plan-queue-run-status-succeeded`.
+- **Grey (`--bb-muted` / `--bb-unavailable`)** — unavailable, inactive, cancelled,
+  archived, placeholder, disabled. Examples: `.provider-card.is-available`,
+  `.provider-status` default, `.provider-capability` default,
+  `.plan-queue-run-status-cancelled`, `.text-muted`, `.idea-status.is-archived`.
+- **Amber (`--bb-warning`)** — warning, partial, stuck, stale, offline. Examples:
+  `.schematic-health-badge.is-partial`,
+  `.schematic-section-card.is-missing`/`.is-placeholder`, `.schematic-nudge`,
+  `.chat-stuck-bar`, `.chat-setup-bar`, `.chat-command-notice`,
+  `.chat-offline-tag`, `.idea-outside-focus`, `.chat-health-dot.is-warn`,
+  `.badge-warn`, `.command-strip-count-warn`.
+- **Red (`--bb-danger` / `--bb-negative`)** — error, failed, missing, deleted,
+  denied, destructive. Examples: `.tool-card-error`, `.tool-card-status-error`,
+  `.question-card-error`, `.chat-error-bar`, `.chat-more-menu-item.is-danger`,
+  `.text-danger`, `.badge-error`, `.plan-queue-run-status-failed`,
+  `.schematic-health-badge.is-missing`, `.source-file-status.is-deleted`.
+- **Orange (`--bb-cta`)** — active selection, current focus, pending/running, CTA.
+  Examples: `.provider-model-row.is-active`, `.provider-card.is-active`,
+  `.settings-tab.is-active`, `.tool-card-running`, `.tool-card-status-running`,
+  `.question-card-pending`, `.chat-message-user`, `.chat-row.is-active`,
+  `.command-strip-count-active`.
+
+## Agent activity timeline
+
+The chat transcript normalizes native and OMP-backed events into ordered
+activity items: `assistant_text`, `reasoning`, `tool_call`, `question`, `capture`,
+`approval`, `notice`, and `error`. Each item carries a stable id, sequence,
+status, summary, timestamps, and optional expandable detail.
+
+Rendering contract:
+
+- Collapsed presentation is dense: one live activity group with the latest
+  operation visible. Use `.tool-card-group` with `.tool-card-group-list`; the
+  list is height-capped and auto-follows the newest call while a run is active.
+- Expansion preserves ordering and exposes individual calls. Use `.tool-card`
+  for each call with `.tool-card-status-success`, `.tool-card-status-error`,
+  `.tool-card-status-running`, and `.tool-card-expand` for the detail body.
+- Reasoning/thinking tokens render in `.reasoning-fold` above the assistant
+  reply; the fold auto-expands while streaming and collapses on completion.
+  Reasoning is never concatenated into the persisted content string.
+- Question and approval items remain inline and block the run visibly. Use
+  `.question-card` (`.question-card-pending`, `.question-card-success`,
+  `.question-card-error`) for these cards.
+- Captured ideas render as `.chat-idea-card` rows; notices and errors use
+  `.chat-command-notice`, `.chat-notice-bar`, and `.chat-error-bar`.
+- Unsupported transports produce an explicit capability state before launch, not
+  a fake tools-capable run.
 
 ## Screenshot verification
 

@@ -159,6 +159,14 @@ export function ChatHeader(props: ChatHeaderProps) {
             <span className="chat-column-title-text">{props.title}</span>
           </button>
         )}
+        {props.modelChip ? (
+          <span
+            className="chat-column-model-chip"
+            title={`Model: ${props.modelChip}`}
+          >
+            {truncate(props.modelChip, 16)}
+          </span>
+        ) : null}
         <button
           className={`chat-column-mode-pill${props.agentMode === "build" ? " is-build" : " is-plan"}`}
           type="button"

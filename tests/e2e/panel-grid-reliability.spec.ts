@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openMvpFixtureProject, waitForAppReady } from "./helpers";
 
 /** Corrupt panel-grid blob matching the live failure: one valid live leaf
  *  plus a stale `activePanelId` that is absent from the tree. */
@@ -9,33 +10,20 @@ const CORRUPT_PANEL_GRID = JSON.stringify({
 });
 
 async function openFixtureProjectWithCorruptGrid(page: Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem("basebuild:first-run-complete", "true");
-  });
-  await page.goto("/");
-  // Inject the corrupt panel-grid blob for the fixture project before open.
+  await openMvpFixtureProject(page);
   await page.evaluate((blob) => {
     const w = window as unknown as { __BASEBUILD_E2E_STATE__?: { workspaceRestoreByProject: Map<string, unknown> } };
     const s = w.__BASEBUILD_E2E_STATE__;
     if (!s) return;
-    s.workspaceRestoreByProject.set("C:\\basebuild-e2e\\project", {
-      projectPath: "C:\\basebuild-e2e\\project",
+    s.workspaceRestoreByProject.set('C:\\basebuild-e2e\\charlie', {
+      projectPath: 'C:\\basebuild-e2e\\charlie',
       lastSessionId: null,
-      lastTabId: null,
-      sideSection: "plans",
-      sidebarCollapsed: false,
-      sideCollapsed: false,
-      sideWidth: 260,
-      panelGrid: blob,
-      updatedAt: 0,
+      lastActiveSessionId: null,
+      panelGrid: JSON.parse(blob),
+      tabGridStates: null,
     });
   }, CORRUPT_PANEL_GRID);
-  await page.getByRole("button", { name: "Open project" }).click();
-  await expect(
-    page.locator(".status-pill", { hasText: "C:\\basebuild-e2e\\project" }),
-  ).toBeVisible();
-  // Wait for restore + auto chat panel creation to settle.
-  await page.waitForTimeout(1500);
+  await waitForAppReady(page);
 }
 
 /** Click a button by title using evaluate to bypass overlay interception. */

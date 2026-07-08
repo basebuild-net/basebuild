@@ -33,6 +33,8 @@ export type NativeToolEvent = {
   kind: string;
   status: string;
   summary: string;
+  /** Stable per-session monotonic order. */
+  sequence: number;
   createdAt: number;
 };
 
@@ -231,6 +233,18 @@ export async function nativeChatList(projectPath: string): Promise<NativeChatSes
 
 export async function nativeChatMessages(sessionId: string): Promise<NativeChatMessage[]> {
   return invoke<NativeChatMessage[]>("native_chat_messages", { sessionId });
+}
+
+/** Persist provider/model/effort on an existing session so the selection
+ * survives restart. Called when the user changes the selection in the
+ * composer. Also persists the project default for new sessions. */
+export async function nativeChatUpdateSessionModel(input: {
+  sessionId: string;
+  providerId: string;
+  modelId: string;
+  effortLevel: string;
+}): Promise<NativeChatSession> {
+  return invoke<NativeChatSession>("native_chat_update_session_model", input);
 }
 
 export async function nativeChatSend(input: {

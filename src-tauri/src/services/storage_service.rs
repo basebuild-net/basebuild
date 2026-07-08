@@ -339,6 +339,7 @@ impl StorageService {
                     kind TEXT NOT NULL,
                     status TEXT NOT NULL,
                     summary TEXT NOT NULL,
+                    sequence INTEGER NOT NULL DEFAULT 0,
                     created_at INTEGER NOT NULL,
                     FOREIGN KEY (session_id) REFERENCES native_chat_sessions(id) ON DELETE CASCADE,
                     FOREIGN KEY (message_id) REFERENCES native_chat_messages(id) ON DELETE SET NULL
@@ -893,6 +894,19 @@ impl StorageService {
         if !has_reasoning {
             let _ = connection.execute(
                 "ALTER TABLE native_chat_messages ADD COLUMN reasoning TEXT",
+                [],
+            );
+        }
+
+        // Migration (ai-workbench-course-correction): add sequence column to
+        // native_tool_events for stable per-session ordering independent of
+        // timestamp resolution. Default 0 for legacy rows.
+        let has_tool_sequence = connection
+            .prepare("SELECT sequence FROM native_tool_events LIMIT 0")
+            .is_ok();
+        if !has_tool_sequence {
+            let _ = connection.execute(
+                "ALTER TABLE native_tool_events ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0",
                 [],
             );
         }

@@ -549,6 +549,32 @@ impl NativeChatService {
         .map_err(|e| e.to_string())
     }
 
+    /// Persist the provider/model/effort selection on an existing session.
+    /// Called when the user changes the selection in the composer so the
+    /// choice survives restart. Validates the provider/model pair first.
+    pub fn update_session_model(
+        session_id: &str,
+        provider_id: &str,
+        model_id: &str,
+        effort_level: &str,
+    ) -> DbResult<NativeChatSession> {
+        Self::validate_provider_model(provider_id, model_id, true)?;
+        let conn = StorageService::connect()?;
+        let now = now_seconds();
+        conn.execute(
+            "UPDATE native_chat_sessions
+             SET provider_id = ?2, model_id = ?3, effort_level = ?4, updated_at = ?5
+             WHERE id = ?1",
+            params![session_id, provider_id, model_id, effort_level, now],
+        )
+        .map_err(|e| e.to_string())?;
+        if conn.changes() == 0 {
+            return Err("Session not found.".to_string());
+        }
+        Self::get_session(session_id)?
+            .ok_or_else(|| "Session not found after update.".to_string())
+    }
+
     pub fn list_sessions(project_path: &str) -> DbResult<Vec<NativeChatSession>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn
@@ -1275,6 +1301,14 @@ impl NativeChatService {
         status: &str,
         summary: &str,
     ) -> DbResult<NativeToolEvent> {
+        let conn = StorageService::connect()?;
+        let next_seq: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM native_tool_events WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(1);
         let event = NativeToolEvent {
             id: gen_id("ntool"),
             session_id: session_id.to_string(),
@@ -1282,13 +1316,13 @@ impl NativeChatService {
             kind: kind.to_string(),
             status: status.to_string(),
             summary: summary.to_string(),
+            sequence: next_seq,
             created_at: now_seconds(),
         };
-        let conn = StorageService::connect()?;
         conn.execute(
-            "INSERT INTO native_tool_events (id, session_id, message_id, kind, status, summary, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![event.id, event.session_id, event.message_id, event.kind, event.status, event.summary, event.created_at],
+            "INSERT INTO native_tool_events (id, session_id, message_id, kind, status, summary, sequence, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![event.id, event.session_id, event.message_id, event.kind, event.status, event.summary, event.sequence, event.created_at],
         )
         .map_err(|e| format!("Failed to save native tool event: {e}"))?;
         Ok(event)
@@ -1298,8 +1332,8 @@ impl NativeChatService {
         let conn = StorageService::connect()?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, session_id, message_id, kind, status, summary, created_at
-                 FROM native_tool_events WHERE session_id = ?1 ORDER BY created_at ASC",
+                "SELECT id, session_id, message_id, kind, status, summary, sequence, created_at
+                 FROM native_tool_events WHERE session_id = ?1 ORDER BY sequence ASC, created_at ASC",
             )
             .map_err(|e| format!("Failed to prepare tool event query: {e}"))?;
         let rows = stmt
@@ -1311,7 +1345,8 @@ impl NativeChatService {
                     kind: row.get(3)?,
                     status: row.get(4)?,
                     summary: row.get(5)?,
-                    created_at: row.get(6)?,
+                    sequence: row.get(6)?,
+                    created_at: row.get(7)?,
                 })
             })
             .map_err(|e| format!("Failed to query tool events: {e}"))?;
@@ -1728,5 +1763,51 @@ mod tests {
         let resolved = resolved.expect("configured model should resolve");
         assert_ne!(resolved.effort_level, "medium");
         assert!(model.supported_efforts.contains(&resolved.effort_level));
+    }
+
+    #[test]
+    fn update_session_model_persists_and_rejects_invalid() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+        let session = NativeChatService::start_session(NativeChatStartRequest {
+            project_path: "/test/update-session".to_string(),
+            title: Some("Test".to_string()),
+            provider_id: Some(LOCAL_PROVIDER_ID.to_string()),
+            model_id: Some("basebuild-local-coordinator".to_string()),
+            effort_level: Some("medium".to_string()),
+        })
+        .unwrap();
+
+        // Update to a (valid) local model with a different effort.
+        let updated = NativeChatService::update_session_model(
+            &session.id,
+            LOCAL_PROVIDER_ID,
+            "basebuild-local-coordinator",
+            "high",
+        )
+        .unwrap();
+        assert_eq!(updated.effort_level, "high");
+
+        // Re-read to confirm persistence.
+        let reread = NativeChatService::get_session(&session.id).unwrap().unwrap();
+        assert_eq!(reread.effort_level, "high");
+
+        // Invalid provider/model pair should be rejected.
+        let err = NativeChatService::update_session_model(
+            &session.id,
+            "nonexistent-provider",
+            "nonexistent-model",
+            "medium",
+        );
+        assert!(err.is_err(), "invalid provider/model should be rejected");
+
+        // Nonexistent session should error.
+        let err = NativeChatService::update_session_model(
+            "no-such-session",
+            LOCAL_PROVIDER_ID,
+            "basebuild-local-coordinator",
+            "medium",
+        );
+        assert!(err.is_err(), "nonexistent session should error");
     }
 }

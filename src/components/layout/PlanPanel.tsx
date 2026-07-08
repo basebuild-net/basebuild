@@ -55,7 +55,7 @@ type PlanPanelProps = {
   loading: boolean;
   collapsed: boolean;
   onToggleCollapse: () => void;
-  onCreatePlan: () => void;
+
   onEditPlan: (plan: Plan) => void;
   onFocusPlan: (plan: Plan) => void;
   onSetPlanStatus: (id: string, status: PlanStatus) => void;
@@ -75,7 +75,7 @@ export function PlanPanel({
   loading,
   collapsed,
   onToggleCollapse,
-  onCreatePlan,
+
   onEditPlan,
   onFocusPlan,
   onSetPlanStatus,

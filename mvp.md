@@ -69,7 +69,7 @@ the post-archive reality, not only task completion in
 | Priority | Finding | Status |
 |---|---|---|
 | P0 | Schematic wizard is not questionnaire-first | **Reopened** — Schematic now opens its correct dedicated modal, but the live skill turn still stops at a prose “gathering facts” message with no visible tools or question card. |
-| P0 | Provider/model routing breaks the first-run path | **Mitigated** — session selection restores, connected providers are first, models/effort are scoped, and known bespoke transports no longer falsely pass the planning gate; catalog-owned effective capability and full event parity remain. |
+| P0 | Provider/model routing breaks the first-run path | **Fixed** — session selection restores, connected providers are first, models/effort are scoped, and the catalog's `supports_tools` field now reflects transport routing (bespoke/OMP-RPC kinds report `false`), so the frontend planning gate uses backend-owned effective capability truth instead of a duplicated api-kind allowlist. |
 | P0 | Category generation is a dead-end | **Fixed** — generation visible, modal closes on delivery, destination picker shown (4.3). |
 | P0 | Last focus is not restored | **Fixed** — `get/set_last_focused_project` backend + restore guard (2.1, 2.2). |
 | P1 | Project restore is not atomic | **Fixed** — generation-guarded activation coordinator + loading boundary (2.2, 2.3). |
@@ -87,7 +87,7 @@ the post-archive reality, not only task completion in
 - [x] Compact the duplicate top/chat context and prevent raw metadata overlap.
 - [x] Route Schematic to Project Schematic, Ideas to Ideas, and Plans to Plans.
 - [x] Remove the chat-level Ideas button and blank/manual Create plan affordance.
-- [x] Restore the chat session's provider/model and prioritize connected providers.
+- [x] Replace the frontend api-kind allowlist with backend-owned effective `supports_tools` (catalog + DB read path account for OMP-RPC transport).
 - [x] Keep effort choices within the selected model's supported efforts.
 - [x] Repair Settings columns and the wide Planning modal's blank/reflow failure.
 - [ ] Render native and OMP planning work as one visible tool/question/activity timeline.

@@ -21,6 +21,12 @@
   --bb-info: #818cf8;
   --bb-update: #2563eb;
   --bb-update-hover: #3b82f6;
+  /* Semantic visual states — color never acts alone; always pair with a text
+     label or icon. Connected/success → green, unavailable/inactive → grey,
+     warning → amber, error → red, active selection → orange (CTA). */
+  --bb-success: var(--bb-positive);
+  --bb-danger: var(--bb-negative);
+  --bb-unavailable: var(--bb-muted);
   --bb-font: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --bb-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --bb-sidebar-w: 220px;
@@ -1320,6 +1326,7 @@ a { color: inherit; text-decoration: none; }
 .project-restore-error { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 32px; text-align: center; flex: 1; }
 .project-restore-error h3 { margin: 0; font-size: 14px; color: var(--bb-danger, #e5484d); }
 .project-restore-error p { margin: 0; color: var(--bb-muted); font-size: 12px; max-width: 400px; word-break: break-word; }
+.modal-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 32px; color: var(--bb-muted); font-size: 12px; flex: 1; }
 
 /* ─── Scrollbar ─── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }

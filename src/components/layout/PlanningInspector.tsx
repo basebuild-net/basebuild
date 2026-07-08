@@ -37,7 +37,7 @@ type PlanningInspectorProps = {
   loading: boolean;
   collapsed: boolean;
   onToggleCollapse: () => void;
-  onCreatePlan: () => void;
+
   onEditPlan: (plan: Plan) => void;
   onFocusPlan: (plan: Plan) => void;
   onSetPlanStatus: (id: string, status: PlanStatus) => void;
@@ -70,7 +70,7 @@ export function PlanningInspector({
   loading,
   collapsed,
   onToggleCollapse,
-  onCreatePlan,
+
   onEditPlan,
   onFocusPlan,
   onSetPlanStatus,
@@ -664,7 +664,6 @@ export function PlanningInspector({
           loading={loading}
           collapsed={false}
           onToggleCollapse={() => setTab("ideas")}
-          onCreatePlan={onCreatePlan}
           onEditPlan={onEditPlan}
           onFocusPlan={onFocusPlan}
           onSetPlanStatus={onSetPlanStatus}

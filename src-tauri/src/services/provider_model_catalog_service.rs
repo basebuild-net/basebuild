@@ -460,6 +460,7 @@ impl ProviderModelCatalogService {
                 let supported_raw: String = row.get(6)?;
                 let supported_efforts = serde_json::from_str::<Vec<String>>(&supported_raw).unwrap_or_default();
                 let local_only = provider_id == LOCAL_PROVIDER_ID;
+                let api_kind = row.get::<_, Option<String>>(12)?.unwrap_or_default();
                 Ok(CachedModel {
                     model: NativeModel {
                         id: model_id,
@@ -467,7 +468,7 @@ impl ProviderModelCatalogService {
                         label: row.get(2)?,
                         supports_effort: row.get::<_, i64>(5)? != 0,
                         supports_streaming: !local_only,
-                        supports_tools: !local_only,
+                        supports_tools: !local_only && crate::services::provider_client::transport_supports_tools(&api_kind),
                         local_only,
                         context_window: row.get(3)?,
                         max_tokens: row.get(4)?,
@@ -476,7 +477,7 @@ impl ProviderModelCatalogService {
                         supports_images: row.get::<_, i64>(7)? != 0,
                         source: row.get(8)?,
                         model_api_id: row.get::<_, Option<String>>(11)?,
-                        api_kind: row.get::<_, Option<String>>(12)?.unwrap_or_default(),
+                        api_kind,
                         base_url: row.get::<_, Option<String>>(13)?.unwrap_or_default(),
                         cost_input: row.get::<_, Option<f64>>(14)?,
                         cost_output: row.get::<_, Option<f64>>(15)?,
@@ -825,7 +826,7 @@ fn bundled_from_catalog(provider_id: &str, cm: &omp_catalog::CatalogModel) -> Na
         label: cm.name.clone(),
         supports_effort: supports_reasoning,
         supports_streaming: true,
-        supports_tools: true,
+        supports_tools: crate::services::provider_client::transport_supports_tools(&cm.api_kind),
         local_only: false,
         context_window: cm.context_window,
         max_tokens: cm.max_tokens,
@@ -963,6 +964,18 @@ mod tests {
         assert!(
             models.iter().all(|m| m.api_kind == "devin-agent"),
             "all devin models should have api_kind=devin-agent"
+        );
+    }
+
+    #[test]
+    fn bundled_bespoke_models_have_supports_tools_false() {
+        // Bespoke api_kinds (devin-agent, cursor-agent, etc.) route through
+        // OmpRpcClient which cannot carry structured tool schemas, so the
+        // catalog must report supports_tools=false for those models.
+        let devin = bundled_models("devin");
+        assert!(
+            devin.iter().all(|m| !m.supports_tools),
+            "all devin (devin-agent) models should have supports_tools=false"
         );
     }
 

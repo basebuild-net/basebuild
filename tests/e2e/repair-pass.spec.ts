@@ -1,14 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openMvpFixtureProject, waitForAppReady } from "./helpers";
 
 async function openFixtureProject(page: Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem("basebuild:first-run-complete", "true");
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Open project" }).click();
-  await expect(
-    page.locator(".status-pill", { hasText: "C:\\basebuild-e2e\\project" }),
-  ).toBeVisible();
+  await openMvpFixtureProject(page);
+  await waitForAppReady(page);
 }
 
 test.describe("Repair pass: schematic wizard + category/idea flows", () => {
@@ -79,6 +74,6 @@ test.describe("Repair pass: schematic wizard + category/idea flows", () => {
     const toolCard = page.locator(".tool-card").filter({ hasText: "propose" });
     // In the mock, the card may or may not render depending on session state.
     // Just verify no crash.
-    expect(page.locator(".chat-panel")).toBeVisible();
+    await expect(page.locator(".chat-panel")).toBeVisible();
   });
 });

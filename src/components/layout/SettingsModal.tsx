@@ -75,6 +75,7 @@ import {
   DEFAULT_RUN_CONCURRENCY_ENTRY,
   type RunConcurrencyEntry,
 } from "../../lib/runConcurrency";
+import { useEscapeKey } from "../../lib/useEscapeKey";
 
 type SettingsModalProps = {
   open: boolean;
@@ -88,6 +89,7 @@ type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "con
 
 export function SettingsModal({ open, onClose, projectPath, account, updates }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
+  useEscapeKey(open, onClose);
   const [requirements, setRequirements] = useState<RequirementStatus[]>([]);
   const [loading, setLoading] = useState(false);
   // App version — compiled in at build time. Shows "0.0.0" in dev; the real

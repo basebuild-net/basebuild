@@ -40,6 +40,8 @@ pub struct NativeToolEvent {
     pub kind: String,
     pub status: String,
     pub summary: String,
+    /// Stable per-session monotonic order. Survives timestamp ties.
+    pub sequence: i64,
     pub created_at: i64,
 }
 

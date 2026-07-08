@@ -61,6 +61,7 @@ use commands::{
     native_chat::{
         native_chat_get, native_chat_list, native_chat_messages, native_chat_send,
         native_chat_start, native_chat_cancel, native_chat_resolve_approval,
+        native_chat_update_session_model,
         native_chat_tool_events, native_chat_model_default,
         native_chat_set_project_model_default,
         native_chat_set_global_model_default, native_catalog_sync,
@@ -491,6 +492,7 @@ pub fn run() {
             native_chat_get,
             native_chat_list,
             native_chat_messages,
+            native_chat_update_session_model,
             native_chat_send,
             native_request_metrics,
             native_request_metrics_summary,

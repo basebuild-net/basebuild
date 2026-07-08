@@ -89,33 +89,6 @@ spacing:
   xl: 24px
 components:
   sidebar:
-
-## Change coordination
-
-### `chat-first-shell` overlap
-
-`chat-first-shell` shipped the two-region shell, project/chat sidebar, floating
-environment panel, and file-explorer modal (tasks 1.1-4.5 complete). Its task
-3.3 mounted the Planning Inspector "unchanged" inside the environment fold;
-this change evolves that surface with exact stage routing, AI-only plan origin,
-and visible activity, so the "unchanged" assumption is superseded.
-
-Retained in `chat-first-shell` (distinct features, not duplicated here):
-- 5.1-5.5: composer microphone (voice-to-text) and context-size/usage readout.
-- 6.1-6.3: native window chrome and `File / Edit / View` application menu.
-- 7.1-7.2, 8.1-8.4: full verification and docs for the shell restructure.
-
-Sequence rule: finish or explicitly retire the retained `chat-first-shell`
-composer/menu tasks before applying phases 3-6 here, so the shell and composer
-are stable before the workbench hierarchy and activity timeline land on top.
-
-### `provider-parity-workspace-fixes` dependency
-
-That change owns protocol routing (api-kind), the vendored OMP catalog, and
-auth/capability truth. This change consumes those fields for connected-first
-ordering, capability badges, and unsupported-transport states. Once
-`provider-parity-workspace-fixes` exposes effective capability fields, remove
-any duplicated frontend api-kind heuristics from this change's picker.
     backgroundColor: "transparent"
     width: 220px
     borderRight: "1px solid {colors.outline}"
@@ -299,8 +272,52 @@ action row. The transition is a smooth width animation. In collapsed mode:
 
 The collapsed state is stored in React state (not persisted yet).
 
-## Tooltips
+## Product hierarchy
 
+The shell has four ownership levels. A control belongs to one level only:
+
+1. **Global navigation** — project/chat history and account controls (left
+   sidebar).
+2. **Project command strip** — Schematic, Ideas, Plans, Running, Done. Each
+   stage button opens its exact destination; it never creates a surrogate
+   chat or defaults to a sibling tab.
+3. **Active chat** — transcript/activity timeline and composer.
+4. **Project modals** — Schematic, Planning, Changes, Files, Settings.
+
+The top bar is an orientation/action strip, not a telemetry dump. It contains
+named project utilities, project/branch/workspace context, and planning stages.
+Provider/model/effort live in the composer configuration area; raw session ids,
+inactive-plan placeholders, and duplicate model/project badges do not render.
+
+### Modal versus popover
+
+Use a popover only for a short, single-step choice that can be understood in
+roughly 6-8 rows (chat actions, branch switch, New panel). Use a modal for
+search/browse configuration, multi-column content, previews, forms, or catalogs
+(provider/model, Schematic, Planning, Changes, Files, Settings). Modal layouts
+may obscure the chat: focused configuration is the current task.
+
+### Semantic visual states
+
+Color never acts alone — every state has text/icon redundancy:
+
+- **Connected/success** — green (`#4ade80`). Connected providers, staged files,
+  ahead count, completed runs.
+- **Unavailable/inactive** — grey (muted). Available providers, inactive stages.
+- **Warning** — amber (`#facc15`). Modified files, behind count, setup-required
+  providers, stale schematic.
+- **Error** — red (`#f87171`). Destructive actions, failed runs, deleted files.
+- **Active selection** — orange (`#ff5606`). Selected provider card, active
+  project, current tab.
+
+### Loading and errors
+
+Project switching immediately replaces project content with a stable loading
+surface. Modal bodies use visible skeleton/loading/error/empty states; Suspense
+fallbacks for user-opened surfaces are never blank. Errors include a retry and
+are debug-logged with action and project/session identifiers.
+
+## Tooltips
 Every interactive element has a tooltip via the `title` attribute. This is
 non-negotiable - density requires that users can discover what an icon does
 without clicking. For icon-only (collapsed) states, the tooltip is the primary

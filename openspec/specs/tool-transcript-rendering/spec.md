@@ -3,12 +3,23 @@
 ## Requirements
 
 ### Requirement: Tool cards in the transcript
-Tool calls SHALL render as collapsed cards in message order showing tool name, argument summary, status, and duration; expanding reveals full arguments and results. Cards SHALL update live while streaming/executing. All interactive elements SHALL have tooltips and 0px radius per the design contract.
+The system SHALL normalize native and OMP-backed agent events into one ordered
+activity timeline containing assistant text, reasoning availability, tool
+calls, questions, captures, approvals, notices, errors, and completion. Every
+active run SHALL show its latest operation and status; the UI SHALL NOT leave a
+run at an unexplained prose-only "gathering information" state.
 
-#### Scenario: Live tool card
-- **WHEN** a `run_command` call executes
-- **THEN** its card shows a running state with streaming output, then final exit code and duration on completion
+#### Scenario: Agent reads files then asks a question
+- **WHEN** a planning agent reads repository files and emits an `ask_user`
+  question
+- **THEN** the reads appear as tool activity in order, the question appears as
+  an interactive blocking card, and answering it resumes the same run once
 
+#### Scenario: Transport cannot expose activity
+- **WHEN** a provider transport cannot produce the event contract required by a
+  managed planning run
+- **THEN** the run is prevented before send with a visible capability error
+  rather than pretending to execute tools
 ### Requirement: Edit diffs and command output
 `edit_file`/`write_file` cards SHALL show a unified diff (added/removed lines); `run_command` cards SHALL show command text, size-capped interleaved output, exit code, and an "open in terminal" action that opens a workspace terminal tab at the same cwd. `read_file`/`search_files`/`list_files` cards SHALL summarize (path + ranges, match counts) without dumping full content.
 
@@ -28,25 +39,12 @@ The transcript SHALL surface context-budget truncation notices, iteration-cap no
 - **THEN** a system row states that older messages were truncated for this request
 
 ### Requirement: Grouped tool activity
-Consecutive tool calls in a single assistant turn SHALL render as one
-collapsed activity group, not N stacked cards. The collapsed group SHALL
-show a running count, aggregate status, and the latest call's one-line
-summary, updating live as new calls stream in. Expanding the group SHALL
-reveal the individual cards in a height-capped scrollable list (newest
-visible without manual scrolling while the run is active). A long agentic
-run MUST NOT push the conversation text out of view with tool cards.
+Consecutive activity items in one assistant turn SHALL collapse into a dense
+group that shows aggregate status, count, and latest operation while preserving
+the ordered individual cards on expansion. Waiting-for-user, approval-required,
+failed, cancelled, and completed states SHALL remain visually distinct.
 
-#### Scenario: Burst of calls collapses
-- **WHEN** the agent issues 15 `list_files`/`read_file` calls in one turn
-- **THEN** the transcript shows one group row ("15 tool calls · running ·
-  latest: read_file openspec/…/proposal.md") instead of 15 full cards
-
-#### Scenario: Latest call visible while running
-- **WHEN** the group is expanded during a live run
-- **THEN** the list auto-follows the newest call inside its capped-height
-  scroll area, and stops auto-following once the user scrolls up
-
-#### Scenario: Expand for detail
-- **WHEN** the user expands the group and clicks an individual call
-- **THEN** that call's full card (arguments, result, duration) opens without
-  losing position in the group list
+#### Scenario: Long planning run remains readable
+- **WHEN** a run emits many context reads, tool calls, and captures
+- **THEN** one compact live group preserves transcript readability while its
+  expanded view exposes every ordered item and current blocker

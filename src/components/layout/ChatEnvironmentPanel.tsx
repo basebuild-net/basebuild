@@ -23,7 +23,7 @@ type ChatEnvironmentPanelProps = {
   sessionId: string | null;
   plans: PlansState;
   planCallbacks: {
-    onCreatePlan: () => void;
+
     onEditPlan: (plan: Plan) => void;
     onFocusPlan: (plan: Plan) => void;
     onCopyReference: (refId: string) => void;

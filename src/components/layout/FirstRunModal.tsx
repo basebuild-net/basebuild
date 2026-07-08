@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useEscapeKey } from "../../lib/useEscapeKey";
 import { Check, ChevronRight, Sparkles, TerminalSquare, X } from "lucide-react";
 import { listRuntimeProfiles, getRuntimeDefaults, setRuntimeDefaults, type RuntimeProfile, type RuntimeDefaults } from "../../lib/settings";
 import { getAnalyticsConsent, setAnalyticsConsent, type AnalyticsConsent } from "../../lib/analytics";
@@ -15,6 +16,7 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
   const [step, setStep] = useState<Step>("welcome");
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([]);
   const [defaults, setDefaults] = useState<RuntimeDefaults | null>(null);
+  useEscapeKey(open, onSkip);
   const [consent, setConsent] = useState<AnalyticsConsent | null>(null);
 
   useEffect(() => {

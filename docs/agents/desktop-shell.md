@@ -1,30 +1,44 @@
 # Desktop Shell
 
-Basebuild's current app shell is a two-region, chat-first grid:
+Basebuild's app shell is a two-region, chat-first grid organized into four
+ownership levels:
 
-1. **Left sidebar** (220px → 36px collapsed) — projects and sessions.
-2. **Center workspace** — compact project command strip, chat context, workspace
-   tabs, transcript, and composer. Project-owned Schematic, Planning, Changes,
-   Files, and Settings surfaces open as modals; there is no persistent right
-   side panel. The Planning modal
-   with five tabs: Plans, Ideas, Categories, Flow, and Changes. The Plans tab
-   exposes an **Import** action (`plan_import_detect` / `plan_import_apply`): it scans
-   `openspec/changes/` for change folders not already linked to a `.basebuild`
-   plan, lists them as candidates (title from `proposal.md`, status derived
-   from `tasks.md` progress), and on explicit confirm writes
-   `.basebuild/plans/<slug>/plan.md` records (`engine: openspec`, `external:`
-   pointer, no duplicated task list). Detection never writes; re-import skips
-   already-linked sources; malformed sources are reported and skipped. The
-   **Flow** tab shows a board with per-stage counts (schematic, ideas, plans,
-   running, finished) and completion cards for runs in `awaiting_review` or
-   `succeeded` status. It also shows a **launch profile form** (worker count,
-   provider cap, workspace policy, scheduling mode) and a **run board** with
-   dependency graph nodes showing plan, priority, prerequisites, owner chat,
-   branch/worktree, affected-path claims, progress, blockers, and merge
-   readiness. A **merge-review queue** lists finished workers awaiting review
-   with approve/reject/merge actions. The **Changes** tab shows the OpenSpec
-   change catalog (see `docs/agents/openspec.md`).
+1. **Global navigation** — project/chat history and account/update controls in
+   the left sidebar.
+2. **Project command strip** — stage-driven actions (Schematic, Ideas, Plans,
+   Running, Done).
+3. **Active chat** — transcript/activity timeline and composer.
+4. **Project modals** — Schematic, Planning, Changes, Files, and Settings.
 
+A control belongs to one level only. A stage button opens its exact destination;
+it never creates a surrogate chat or defaults to a sibling tab.
+
+The left sidebar (220px → 36px collapsed) shows projects and sessions. The center
+workspace contains the command strip, chat context, workspace tabs, transcript,
+and composer. Project-owned surfaces open as modals; there is no persistent right
+side panel.
+
+The **Planning** modal has five tabs: Plans, Ideas, Categories, Flow, and
+Changes. The **Plans** tab exposes an **Import** action
+(`plan_import_detect` / `plan_import_apply`): it scans `openspec/changes/`
+for change folders not already linked to a `.basebuild` plan, lists them as
+candidates (title from `proposal.md`, status derived from `tasks.md` progress),
+and on explicit confirm writes `.basebuild/plans/<slug>/plan.md` records
+(`engine: openspec`, `external:` pointer, no duplicated task list). Detection
+never writes; re-import skips already-linked sources; malformed sources are
+reported and skipped. Plans otherwise originate from the promotion of one or
+more structured ideas into an AI generation run; the UI has no blank-create
+affordance.
+
+The **Flow** tab shows a board with per-stage counts (schematic, ideas, plans,
+running, finished) and completion cards for runs in `awaiting_review` or
+`succeeded` status. It also shows a **launch profile form** (worker count,
+provider cap, workspace policy, scheduling mode) and a **run board** with
+dependency graph nodes showing plan, priority, prerequisites, owner chat,
+branch/worktree, affected-path claims, progress, blockers, and merge
+readiness. A **merge-review queue** lists finished workers awaiting review
+with approve/reject/merge actions. The **Changes** tab shows the OpenSpec
+change catalog (see `docs/agents/openspec.md`).
 
 Account and update controls live at the bottom of the left sidebar. The update indicator
 checks on startup and every 5 minutes; when an update is available it becomes a
@@ -281,6 +295,28 @@ modal; Ideas and Plans open the Planning modal on their exact tabs; Running and
 Finished open Flow. Stage clicks never default to a sibling tab.
 The strip collapses to a compact badge; collapse state persists in workspace
 restore.
+
+## Modal ownership and loading states
+
+Project-owned configuration and catalog surfaces live as modals, not workspace
+panels. The five project modals are:
+
+- **Schematic** — project-level schematic wizard progress and questions.
+  No schematic workspace chat is created.
+- **Planning** — plans, ideas, categories, flow, and changes tabs.
+- **Changes** — OpenSpec change catalog (see `docs/agents/openspec.md`).
+- **Files** — project file explorer.
+- **Settings** — app and project configuration.
+
+Each modal body uses visible skeleton, loading, error, and empty states. The
+shared `ModalLoading` component provides the non-null fallback for Suspense
+boundaries on user-opened surfaces; `null` fallbacks are not allowed.
+
+Project switching immediately replaces project content with a stable loading
+surface. A project-keyed loading boundary disables panel mutation until the
+selected project's restore resolves and guards late restore responses from a
+previous project. Errors include a retry control and are debug-logged with
+action and project/session identifiers.
 
 ## Destination picker
 

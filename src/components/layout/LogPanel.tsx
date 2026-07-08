@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useEscapeKey } from "../../lib/useEscapeKey";
 import { Copy, Trash2, X } from "lucide-react";
 import { useLogs, type LogEntry, type LogLevel } from "../../state/log";
 
@@ -17,6 +18,7 @@ type LogPanelProps = {
 export function LogPanel({ open, onClose }: LogPanelProps) {
   const { logs, clear, addLog } = useLogs();
   const [filter, setFilter] = useState<LogLevel | "all">("all");
+  useEscapeKey(open, onClose);
   const [copied, setCopied] = useState(false);
 
   if (!open) return null;

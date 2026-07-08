@@ -105,15 +105,22 @@ The shell SHALL treat project selection, restore, and grid ownership as one tran
 - **THEN** project detection runs once and one "Project selected" event is recorded
 
 ### Requirement: Restore the most recently focused workspace
-The system SHALL persist the most recently focused project on every successful project selection and SHALL restore that project, its last session, chat, active panel, and panel layout on restart. “Recent project” ordering SHALL NOT substitute for explicit last-focus state.
+The system SHALL restore the most recently focused project, chat, panel, and
+valid session provider/model/effort after restart. Restoration SHALL complete
+behind a project loading boundary so no default project, stale chat, or fallback
+model flashes before the restored state is ready.
 
-#### Scenario: Restart after selecting a non-first project
-- **WHEN** project C is focused, its second chat and schematic panel are active, and the app restarts
-- **THEN** project C, that chat, and that panel regain focus after the atomic loading boundary completes
-
+#### Scenario: App restarts after provider and project change
+- **WHEN** the user last focused project C and an Anthropic chat using model M
+- **THEN** restart focuses project C, the same chat/panel, and Anthropic model M
+  without first displaying project A or another provider/model
 ### Requirement: Project state is isolated during restore
-Project restore SHALL be keyed by project and activation generation. Session/chat/model/planning state SHALL remain isolated, and orphan detection/persistence SHALL not run against a project until its restore has completed.
+The system SHALL clear prior project content immediately on project selection,
+commit restored sessions/panels/planning/catalog/source state as one guarded
+generation, and ignore late results from prior projects. The loading surface
+SHALL remain stable instead of shuffling partially restored screens.
 
-#### Scenario: Prior project restore completes late
-- **WHEN** project A's restore completes after the user has activated project B
-- **THEN** A's response is discarded, B remains active, and no false orphan warning, duplicate session, or A-derived model/count is produced
+#### Scenario: User switches projects during restore
+- **WHEN** project B is selected before project A finishes restoring
+- **THEN** only B's final state becomes visible and no A chat, plan count,
+  provider selection, branch, modal content, or warning appears under B

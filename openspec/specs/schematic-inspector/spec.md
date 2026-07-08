@@ -21,20 +21,21 @@ The system SHALL parse `.basebuild/project-schematic.md` into its template secti
 - **THEN** those sections are reported `missing`, other sections classify normally, and health is at most `partial`
 
 ### Requirement: Structured schematic view
-The schematic workspace tab SHALL render the parsed schematic as structured section cards in template order by default: Purpose and Vision as prose blocks, Blueprint as labeled facts (archetype, team size, stage), End goals as dated goal rows, Current priorities as a ranked list, Design constraints and Development conventions as the project's core rules, remaining sections as labeled blocks. Each card SHALL show its fill state; `placeholder`/`missing` sections SHALL render as actionable placeholders explaining what the section steers (e.g. "Vision steers idea generation"). A raw markdown view SHALL remain available as an explicit toggle, and editing SHALL remain available from both views. All interactive elements SHALL have `title=` tooltips and 0px radius.
+The system SHALL render the Project Schematic in a dedicated project modal with
+health, section status, raw/edit actions, and a managed questionnaire/activity
+region. Starting or continuing the wizard SHALL keep progress and `ask_user`
+cards in that modal and SHALL NOT create a schematic workspace chat or route to
+Plans & Ideas.
 
-#### Scenario: Structured view is the default
-- **WHEN** the user opens the schematic tab for a project with a schematic
-- **THEN** section cards render in template order with fill states, not a raw text dump
+#### Scenario: User starts the schematic wizard
+- **WHEN** the user opens Schematic and starts the wizard
+- **THEN** repository-prefill activity and the next clickable question appear
+  in the Schematic modal and the active chat/workspace remains unchanged
 
-#### Scenario: Raw view toggle
-- **WHEN** the user toggles the raw view
-- **THEN** the exact file content renders unmodified, and the toggle state persists while the tab is open
-
-#### Scenario: Missing section affordance
-- **WHEN** a section is `placeholder` or `missing`
-- **THEN** its card shows what the section is for and an action that starts the wizard scoped to that section
-
+#### Scenario: User reopens an incomplete wizard
+- **WHEN** a project has a pending schematic question and the user reopens the
+  Schematic modal
+- **THEN** the same pending run and question are restored without duplication
 ### Requirement: Schematic health surfacing
 Schematic health SHALL be visible where planning happens: a badge on the schematic tab header and in the planning inspector, with distinct `complete` / `partial` / `missing` states and explanatory tooltips naming incomplete sections. Health SHALL be recomputed when the schematic tab opens, after any schematic write, and after a wizard turn finishes.
 

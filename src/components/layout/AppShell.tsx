@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LayoutTemplate, Settings2, TerminalSquare, X } from "lucide-react";
 import { deliverPrompt, type PromptMode } from "../../lib/promptDelivery";
+import { markStart, markEnd } from "../../lib/timing";
 import { generateCategoriesAction, generateIdeasAction, schematicWizardAction, type PlanningAction } from "../../lib/planningActions";
 import { DestinationPicker, type DestinationChoice } from "./DestinationPicker";
 
@@ -61,6 +62,8 @@ import { ompStatus } from "../../lib/omp";
 import { stabilityRendererHeartbeat } from "../../lib/stability";
 const OmpTerminalTab = lazy(() => import("../panels/OmpTerminalTab").then((m) => ({ default: m.OmpTerminalTab })));
 import { StatusBar } from "./StatusBar";
+import { ModalLoading } from "./ModalLoading";
+import { useEscapeKey } from "../../lib/useEscapeKey";
 import { WindowControls } from "./WindowControls";
 const LogPanel = lazy(() => import("./LogPanel").then((m) => ({ default: m.LogPanel })));
 import { CrashReportNotice } from "./CrashReportNotice";
@@ -114,6 +117,11 @@ export function AppShell({ updates }: AppShellProps) {
   const [pendingAssign, setPendingAssign] = useState<{ plan: Plan; profile: LaunchProfile } | null>(null);
   const [appToast, setAppToast] = useState<{ title: string; detail?: string; kind: "success" | "error" } | null>(null);
   const [pendingDelivery, setPendingDelivery] = useState<{ text: string; mode: PromptMode } | null>(null);
+  // Escape-to-close for inline modals that don't have their own hook.
+  useEscapeKey(changesModalOpen, () => setChangesModalOpen(false));
+  useEscapeKey(plansModalOpen, () => setPlansModalOpen(false));
+  useEscapeKey(schematicModalOpen, () => setSchematicModalOpen(false));
+  useEscapeKey(debugPanelOpen, () => setDebugPanelOpen(false));
   const [focusedChatId, setFocusedChatId] = useState<string | null>(null);
   const [panelGridState, setPanelGridState] = useState<PanelGridState>(emptyGrid());
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
@@ -243,6 +251,7 @@ export function AppShell({ updates }: AppShellProps) {
     // loading true synchronously here prevents the session/tab/panel effects
     // from mutating UI state before restore completes.
     const generation = ++restoreGenerationRef.current;
+    markStart("project-activation");
     setProjectRestoreLoading(true);
     setProjectRestoreError(null);
     addLog("debug", "Project selected", `${activeProjectPath} (gen=${generation})`);
@@ -258,6 +267,7 @@ export function AppShell({ updates }: AppShellProps) {
       setProjectRestoreLoading(false);
       setProjectRestoreError(null);
       addLog("debug", "Workspace restored", `${activeProjectPath} panels=${flattenPanels(state.panelGrid ? parsePanelGridWithDiagnostics(state.panelGrid).state.root : null).length}`);
+      markEnd("project-activation");
     }).catch((caught) => {
       if (cancelled || generation !== restoreGenerationRef.current) return;
       const message = caught instanceof Error ? caught.message : String(caught);
@@ -516,16 +526,6 @@ export function AppShell({ updates }: AppShellProps) {
     setTerminalOutputBuffer((prev) => (prev + data).slice(-2500));
   }, []);
 
-  const handleCreatePlan = useCallback(() => {
-    if (!session.activeSessionId) return;
-    void plans.createPlan({
-      title: "New Plan",
-      description: "Describe this plan…",
-      status: "draft",
-      priority: 50,
-      tags: [],
-    });
-  }, [plans, session.activeSessionId]);
 
   const handleCreatePlanFromIdea = useCallback(
     async (title: string, description: string, chatSessionId: string | null) => {
@@ -542,8 +542,11 @@ export function AppShell({ updates }: AppShellProps) {
   );
   const openPlanningModal = useCallback((tab: PlanningTab) => {
     addLog("debug", "Planning modal opened", `tab=${tab}`);
+    markStart("modal-first-paint");
     setPlansModalTab(tab);
     setPlansModalOpen(true);
+    // Measure first paint after React commits the modal.
+    requestAnimationFrame(() => markEnd("modal-first-paint"));
   }, [addLog]);
   const handleOpenPlanningInspector = useCallback(() => {
     openPlanningModal("plans");
@@ -879,7 +882,7 @@ export function AppShell({ updates }: AppShellProps) {
           // Try to find a terminal tab by title match (legacy panels).
           const tab = session.tabs.find((t) => t.kind === "terminal" && (t.id === panel.id || t.title === panel.title));
           if (tab?.terminalId) {
-            return <Suspense fallback={null}><TerminalPanel terminalId={tab.terminalId} onOutput={handleTerminalOutput} /></Suspense>;
+            return <Suspense fallback={<ModalLoading />}><TerminalPanel terminalId={tab.terminalId} onOutput={handleTerminalOutput} /></Suspense>;
           }
           return (
             <div className="empty-state">
@@ -910,7 +913,7 @@ export function AppShell({ updates }: AppShellProps) {
           );
         }
         return (
-          <Suspense fallback={null}>
+          <Suspense fallback={<ModalLoading />}>
             <TerminalPanel
               terminalId={panel.terminalId}
               onOutput={handleTerminalOutput}
@@ -933,7 +936,7 @@ export function AppShell({ updates }: AppShellProps) {
       }
       if (panel.type === "file") {
         if (!panel.filePath) return null;
-        return <Suspense fallback={null}><FileViewer path={panel.filePath} /></Suspense>;
+        return <Suspense fallback={<ModalLoading />}><FileViewer path={panel.filePath} /></Suspense>;
       }
       if (panel.type === "schematic") {
         return (
@@ -959,10 +962,10 @@ export function AppShell({ updates }: AppShellProps) {
           })();
         };
         if (panel.terminalId) {
-          return <Suspense fallback={null}><OmpTerminalTab terminalId={panel.terminalId} onOutput={handleTerminalOutput} onReconnect={reconnectOmp} /></Suspense>;
+          return <Suspense fallback={<ModalLoading />}><OmpTerminalTab terminalId={panel.terminalId} onOutput={handleTerminalOutput} onReconnect={reconnectOmp} /></Suspense>;
         }
         const tab = session.tabs.find((t) => t.kind === "omp" && (t.id === panel.id || t.title === panel.title));
-        return <Suspense fallback={null}><OmpTerminalTab terminalId={tab?.terminalId ?? null} onOutput={handleTerminalOutput} onReconnect={reconnectOmp} /></Suspense>;
+        return <Suspense fallback={<ModalLoading />}><OmpTerminalTab terminalId={tab?.terminalId ?? null} onOutput={handleTerminalOutput} onReconnect={reconnectOmp} /></Suspense>;
       }
       return null;
     },
@@ -1111,7 +1114,6 @@ export function AppShell({ updates }: AppShellProps) {
                 sessionId={session.activeSessionId}
                 plans={plans}
                 planCallbacks={{
-                  onCreatePlan: handleCreatePlan,
                   onEditPlan: handleEditPlan,
                   onFocusPlan: handleFocusPlan,
                   onCopyReference: handleCopyReference,
@@ -1182,7 +1184,7 @@ export function AppShell({ updates }: AppShellProps) {
                   viewportHeight={typeof window !== "undefined" ? window.innerHeight - 120 : 700}
                 />
                 {historyDrawerOpen ? (
-                  <Suspense fallback={null}>
+                  <Suspense fallback={<ModalLoading />}>
                     <HistoryDrawer
                       closedPanels={panelGridState.closedPanels}
                       onReopen={handlePanelReopen}
@@ -1196,7 +1198,7 @@ export function AppShell({ updates }: AppShellProps) {
           </div>
         </section>
       </main>
-      <Suspense fallback={null}>
+      <Suspense fallback={<ModalLoading />}>
         <FileExplorerModal
           projectPath={activeProjectPath}
           open={fileModalOpen}
@@ -1212,7 +1214,7 @@ export function AppShell({ updates }: AppShellProps) {
               <button className="btn-icon" type="button" title="Close (Esc)" onClick={() => setChangesModalOpen(false)}><X size={14} /></button>
             </div>
             <div className="modal-body">
-              <Suspense fallback={null}><SourcePanel projectPath={activeProjectPath} /></Suspense>
+              <Suspense fallback={<ModalLoading />}><SourcePanel projectPath={activeProjectPath} /></Suspense>
             </div>
           </div>
         </div>
@@ -1225,7 +1227,7 @@ export function AppShell({ updates }: AppShellProps) {
               <button className="btn-icon" type="button" title="Close (Esc)" onClick={() => setPlansModalOpen(false)}><X size={14} /></button>
             </div>
             <div className="modal-body">
-              <Suspense fallback={null}>
+              <Suspense fallback={<ModalLoading />}>
                 <PlanningInspector
                   initialTab={plansModalTab}
                   sessionId={session.activeSessionId}
@@ -1235,7 +1237,6 @@ export function AppShell({ updates }: AppShellProps) {
                   collapsed={false}
                   onToggleCollapse={() => {}}
                   hostContext="modal"
-                  onCreatePlan={() => { setPlansModalOpen(false); handleCreatePlan(); }}
                   onEditPlan={(p) => { setPlansModalOpen(false); handleEditPlan(p); }}
                   onFocusPlan={handleFocusPlan}
                   onCopyReference={handleCopyReference}
@@ -1245,7 +1246,6 @@ export function AppShell({ updates }: AppShellProps) {
                   onOpenChatSession={(id) => { setPlansModalOpen(false); handleOpenChatSession(id); }}
                   onSuggestForCategory={handleSuggestForCategory}
                   onGenerateCategories={handleGenerateCategories}
-                  showHeader={false}
                   onAssignPlan={handleAssignPlan}
                   onShowToast={handleShowToast}
                 />
@@ -1273,7 +1273,7 @@ export function AppShell({ updates }: AppShellProps) {
       ) : null}
       <StatusBar onClick={() => setLogPanelOpen(true)} />
       <CrashReportNotice onViewReports={() => setDebugPanelOpen(true)} />
-      <Suspense fallback={null}><LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} /></Suspense>
+      <Suspense fallback={<ModalLoading />}><LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} /></Suspense>
       {debugPanelOpen ? (
         <div className="debug-panel-overlay" role="dialog" aria-label="Debug Panel">
           <div className="debug-panel-modal">
@@ -1290,15 +1290,15 @@ export function AppShell({ updates }: AppShellProps) {
               </button>
             </div>
             <div className="debug-panel-body">
-              <Suspense fallback={null}><DebugPanel /></Suspense>
+              <Suspense fallback={<ModalLoading />}><DebugPanel /></Suspense>
             </div>
           </div>
         </div>
       ) : null}
-      <Suspense fallback={null}>
+      <Suspense fallback={<ModalLoading />}>
         <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} account={account} updates={updates} />
       </Suspense>
-      <Suspense fallback={null}>
+      <Suspense fallback={<ModalLoading />}>
         <EditPlanModal
           plan={editingPlan}
           open={!!editingPlan}
@@ -1306,7 +1306,7 @@ export function AppShell({ updates }: AppShellProps) {
           onSave={handleSavePlan}
         />
       </Suspense>
-      <Suspense fallback={null}>
+      <Suspense fallback={<ModalLoading />}>
         <FocusPlanModal
           plan={focusingPlan}
           open={!!focusingPlan}
@@ -1318,7 +1318,7 @@ export function AppShell({ updates }: AppShellProps) {
           onSetContext={(id, ctx: PlanFocusContext) => void plans.setPlanContext(id, ctx)}
         />
       </Suspense>
-      <Suspense fallback={null}>
+      <Suspense fallback={<ModalLoading />}>
         <ProjectDescriptionModal
           open={descriptionOpen}
           onClose={() => setDescriptionOpen(false)}

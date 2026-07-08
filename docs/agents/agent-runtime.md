@@ -58,6 +58,8 @@ wins over the project default; effort controls contain only values present in
 the selected model's `supportedEfforts`. Until catalog-owned effective transport
 capabilities land, the UI also rejects known bespoke transports that cannot
 participate in the native tool loop rather than starting a false planning run.
+Transports that cannot expose tools produce an explicit capability state before
+launch; they do not advertise planning support or start a fake tools-capable run.
 
 ## Provider-backed turn execution
 
@@ -316,6 +318,55 @@ Before each provider request, the loop estimates tokens (4 chars ≈ 1 token) an
 truncates oldest turns first if the conversation exceeds the model's context
 window minus an output margin. The system prompt and latest user turn are always
 preserved. Oversized tool results are head+tail capped (full output stored locally).
+
+## Agent Activity Timeline
+
+Native and OMP-backed events normalize into ordered **activity items** so the chat
+UI can render one timeline for every supported runtime profile.
+
+### Activity item types
+
+Each item has one of the following types:
+
+- `assistant_text` — assistant prose rendered in the transcript.
+- `reasoning` — model reasoning/thinking content (often collapsed by default).
+- `tool_call` — a tool invocation, its inputs, status, and eventual result.
+- `question` — a blocking question posed to the user (e.g. OMP RPC `ask_user`).
+- `capture` — a captured artifact or checkpoint surfaced as an activity row.
+- `approval` — a pending tool approval gate.
+- `notice` — a non-blocking system or runtime notice.
+- `error` — a failure that stopped or degraded the run.
+
+### Common fields
+
+Every activity item carries:
+
+- `id` — stable identity for the item within the session.
+- `sequence` — ordering index; items render in sequence order when expanded.
+- `status` — current lifecycle state of the operation.
+- `summary` — short human-readable description shown in collapsed and expanded
+  views.
+- `startedAt` / `finishedAt` / `updatedAt` — timestamps when available.
+- `detail` — optional expandable payload (tool result, error trace, captured
+  output, etc.).
+
+### Presentation
+
+- **Collapsed**: one live activity group shows the latest operation and its
+  status. Consecutive non-approval tool calls collapse into a running count with
+  aggregate status.
+- **Expanded**: preserves sequence and exposes each individual call as its own
+  card in a height-capped, scrollable list.
+- **States**: running, waiting, blocked, and failed states surface the latest
+  operation summary, expandable detail, and safe actions such as cancellation
+  and retry where the backend allows it.
+
+### Blocking questions and approvals
+
+`question` and `approval` cards render inline in their owning surface (Schematic
+or planning) and visibly block the run. The run resumes the exact pending turn
+once, after the user answers or resolves the approval gate; duplicate or stale
+answers are ignored.
 
 ## Tool Runtime
 
