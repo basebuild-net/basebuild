@@ -1,14 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openMvpFixtureProject, waitForAppReady } from "./helpers";
 
 async function openFixtureProject(page: Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem("basebuild:first-run-complete", "true");
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Open project" }).click();
-  await expect(
-    page.locator(".status-pill", { hasText: "C:\\basebuild-e2e\\project" }),
-  ).toBeVisible();
+  await openMvpFixtureProject(page);
+  await waitForAppReady(page);
 }
 
 test.describe("Planning cockpit: command strip + layouts + idea browser", () => {
@@ -45,12 +40,22 @@ test.describe("Planning cockpit: command strip + layouts + idea browser", () => 
     await expect(page.locator(".command-strip").first()).toBeVisible({ timeout: 3_000 });
   });
 
-  test("command strip stages click through to Plans & Ideas", async ({ page }) => {
+  test("command strip routes schematic, ideas, and plans to their exact surfaces", async ({ page }) => {
     await openFixtureProject(page);
-    const stage = page.locator(".command-strip-stage").first();
-    await stage.click();
-    await page.waitForTimeout(500);
-    // Plans & Ideas modal should open.
-    await expect(page.locator('.modal-overlay[aria-label="Plans & Ideas"]')).toBeVisible({ timeout: 3_000 });
+
+    await page.getByTitle(/^Schematic:/).click();
+    await expect(page.locator('.modal-overlay[aria-label="Project Schematic"]')).toBeVisible({ timeout: 3_000 });
+    await page.getByTitle("Close project schematic").click();
+
+    await page.getByTitle(/^Ideas:/).click();
+    const planningModal = page.locator('.modal-overlay[aria-label="Plans & Ideas"]');
+    await expect(planningModal).toBeVisible({ timeout: 3_000 });
+    await expect(planningModal.getByRole("button", { name: "Ideas", exact: true })).toHaveClass(/is-active/);
+    await expect(planningModal.getByText(/No ideas/)).toBeVisible();
+    await page.getByTitle("Close (Esc)").click();
+
+    await page.getByTitle(/^Plans:/).click();
+    await expect(planningModal.getByRole("button", { name: "Plans", exact: true })).toHaveClass(/is-active/);
+    await expect(planningModal.getByRole("button", { name: "Create plan", exact: true })).toHaveCount(0);
   });
 });

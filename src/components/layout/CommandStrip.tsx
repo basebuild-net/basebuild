@@ -7,12 +7,12 @@ type CommandStripProps = {
   plans: Plan[];
   ideaCount: number;
   schematicHealth: "complete" | "incomplete" | "none";
-  onOpenPlans: () => void;
+  onOpenStage: (stage: StageKey) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
 };
 
-type StageKey = "schematic" | "ideas" | "plans" | "running" | "finished";
+export type StageKey = "schematic" | "ideas" | "plans" | "running" | "finished";
 
 const STAGE_META: Record<StageKey, { label: string; icon: typeof Activity }> = {
   schematic: { label: "Schematic", icon: FolderTree },
@@ -26,7 +26,7 @@ export function CommandStrip({
   plans,
   ideaCount,
   schematicHealth,
-  onOpenPlans,
+  onOpenStage,
   collapsed,
   onToggleCollapse,
 }: CommandStripProps) {
@@ -92,7 +92,7 @@ export function CommandStrip({
             type="button"
             className={`command-strip-stage command-strip-${stage.status}`}
             title={`${meta.label}: ${stage.count}${stage.key === "running" ? " running" : ""}`}
-            onClick={onOpenPlans}
+            onClick={() => onOpenStage(stage.key)}
           >
             <Icon size={11} />
             <span className="command-strip-stage-label">{meta.label}</span>

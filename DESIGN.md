@@ -89,6 +89,33 @@ spacing:
   xl: 24px
 components:
   sidebar:
+
+## Change coordination
+
+### `chat-first-shell` overlap
+
+`chat-first-shell` shipped the two-region shell, project/chat sidebar, floating
+environment panel, and file-explorer modal (tasks 1.1-4.5 complete). Its task
+3.3 mounted the Planning Inspector "unchanged" inside the environment fold;
+this change evolves that surface with exact stage routing, AI-only plan origin,
+and visible activity, so the "unchanged" assumption is superseded.
+
+Retained in `chat-first-shell` (distinct features, not duplicated here):
+- 5.1-5.5: composer microphone (voice-to-text) and context-size/usage readout.
+- 6.1-6.3: native window chrome and `File / Edit / View` application menu.
+- 7.1-7.2, 8.1-8.4: full verification and docs for the shell restructure.
+
+Sequence rule: finish or explicitly retire the retained `chat-first-shell`
+composer/menu tasks before applying phases 3-6 here, so the shell and composer
+are stable before the workbench hierarchy and activity timeline land on top.
+
+### `provider-parity-workspace-fixes` dependency
+
+That change owns protocol routing (api-kind), the vendored OMP catalog, and
+auth/capability truth. This change consumes those fields for connected-first
+ordering, capability badges, and unsupported-transport states. Once
+`provider-parity-workspace-fixes` exposes effective capability fields, remove
+any duplicated frontend api-kind heuristics from this change's picker.
     backgroundColor: "transparent"
     width: 220px
     borderRight: "1px solid {colors.outline}"
@@ -210,8 +237,9 @@ A compact, ~100px-tall block pinned to the top-right of the chat surface. It
 - **Changes / branch / source** — current git branch, ahead/behind, and the
   staged/unstaged/untracked counts. Inline actions: commit, push, pull. The
   diff/list view opens as a popover from the block, not a full column.
-- **Plans & Ideas** — the Planning Inspector (`Plans / Ideas / Categories`
-  tabs) lives here, folded by default. Schematic health badge and the End-goal
+- **Plans & Ideas** — the Planning Inspector (`Plans / Ideas / Categories /
+  Flow / Changes` tabs) opens as a project modal from the command strip and
+  remains available from the environment block. Schematic health and End-goal
   nudge render in this fold when relevant. Generation is still triggered from
   the chat composer's planning menu and runs as a visible chat turn — the block
   is for inspecting and managing, not for generation inputs.
@@ -223,11 +251,12 @@ A compact, ~100px-tall block pinned to the top-right of the chat surface. It
 The block is collapsible; when folded it shows just the branch name and a
   health dot. It floats above the transcript and never pushes chat content.
 
-### Workspace tabs (terminal, file viewer, schematic)
+### Workspace tabs and project surfaces
 
-Terminal sessions, the file viewer, and the project schematic open as
-**workspace tabs over the center** — same surface as chat, switchable. They are
-per-session and each has a `kind` (`terminal`, `file`, `schematic`, `chat`).
+Terminal sessions and the file viewer open as **workspace tabs over the
+center**. The Project Schematic is project-owned and opens in its dedicated
+modal from the top-level Schematic stage; it is not represented as a new chat.
+Workspace tabs are per-session and use `terminal`, `file`, and `chat` kinds.
 There is no always-visible tab bar; the active tab is indicated in the session
 header and switching is via the left column or keyboard. The default tab is the
 chat.

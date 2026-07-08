@@ -28,7 +28,7 @@ import {
   type SchedulingMode,
 } from "../../lib/planDependencies";
 
-type Tab = "plans" | "ideas" | "categories" | "flow" | "changes";
+export type PlanningTab = "plans" | "ideas" | "categories" | "flow" | "changes";
 
 type PlanningInspectorProps = {
   sessionId: string | null;
@@ -53,6 +53,7 @@ type PlanningInspectorProps = {
   hostContext?: "dock" | "modal";
   onAssignPlan?: (plan: Plan, profile: LaunchProfile) => void;
   onShowToast?: (title: string, detail?: string, kind?: "success" | "error") => void;
+  initialTab?: PlanningTab;
 };
 
 const STATUS_FILTERS: { value: IdeaStatus | "all"; label: string }[] = [
@@ -85,8 +86,9 @@ export function PlanningInspector({
   hostContext = "dock",
   onAssignPlan,
   onShowToast,
+  initialTab = "plans",
 }: PlanningInspectorProps) {
-  const [tab, setTab] = useState<Tab>("plans");
+  const [tab, setTab] = useState<PlanningTab>(initialTab);
   const [statusFilter, setStatusFilter] = useState<IdeaStatus | "all">("all");
   const [selectedCategory, setSelectedCategory] = useState<IdeaCategory | null>(null);
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -95,6 +97,9 @@ export function PlanningInspector({
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [planRuns, setPlanRuns] = useState<PlanRun[]>([]);
   const [completionDismissed, setCompletionDismissed] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
   const [launchProfile, setLaunchProfile] = useState<LaunchProfile | null>(null);
   const [launchForm, setLaunchForm] = useState<{
     workerCount: number;

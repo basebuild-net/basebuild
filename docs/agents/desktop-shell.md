@@ -1,17 +1,12 @@
 # Desktop Shell
 
-Basebuild's app shell is a three-column grid:
+Basebuild's current app shell is a two-region, chat-first grid:
 
 1. **Left sidebar** (220px → 36px collapsed) — projects and sessions.
-2. **Center workspace** — session header, workspace tabs, and the active tab
-   view (terminal, file viewer, chat, or project schematic). The schematic
-   tab renders structured section cards by default (Purpose, Vision, Blueprint,
-   End goals, Current priorities, core rules) with per-section fill states and
-   a health badge; a raw markdown toggle is available. The "Generate plans"
-   modal was removed (schematic-grounded-planning) — generation runs through
-   the chat planning menu.
-3. **Right side panel** (260px → 36px collapsed) — stacked accordion sections
-   for Plans, Files, and Source. The Plans section is a Planning Inspector
+2. **Center workspace** — compact project command strip, chat context, workspace
+   tabs, transcript, and composer. Project-owned Schematic, Planning, Changes,
+   Files, and Settings surfaces open as modals; there is no persistent right
+   side panel. The Planning modal
    with five tabs: Plans, Ideas, Categories, Flow, and Changes. The Plans tab
    exposes an **Import** action (`plan_import_detect` / `plan_import_apply`): it scans
    `openspec/changes/` for change folders not already linked to a `.basebuild`
@@ -31,8 +26,7 @@ Basebuild's app shell is a three-column grid:
    change catalog (see `docs/agents/openspec.md`).
 
 
-The global taskbar sits above the shell. Its right side contains the update
-indicator, account control, settings, and window controls. The update indicator
+Account and update controls live at the bottom of the left sidebar. The update indicator
 checks on startup and every 5 minutes; when an update is available it becomes a
 blue one-click download/install button next to the account avatar. When the
 update channel is broken (missing `latest.json`, malformed manifest, missing
@@ -282,7 +276,9 @@ confirmation. PR state is shown with a link to the PR URL when available.
 
 The `CommandStrip` sits in the session header, showing per-stage counts
 (schematic, ideas, plans, running, finished) with status colors and an
-activity pulse on active runs. Clicking a stage opens the Planning Inspector.
+activity pulse on active runs. Schematic opens the dedicated Project Schematic
+modal; Ideas and Plans open the Planning modal on their exact tabs; Running and
+Finished open Flow. Stage clicks never default to a sibling tab.
 The strip collapses to a compact badge; collapse state persists in workspace
 restore.
 

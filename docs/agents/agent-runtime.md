@@ -48,6 +48,17 @@ available, and the optional hosted Basebuild model directory is queried only
 when direct discovery is unavailable and without secrets, prompts, project
 paths, or local account identifiers.
 
+The composer opens provider/model configuration in one two-pane modal. A dense
+provider grid puts configured providers first with green Connected state;
+unconfigured providers use grey Available state. The adjacent searchable model
+pane stays scoped to the selected provider and shows capability badges. Models
+are keyed by both provider id and model id, so duplicate model
+ids cannot cross providers. On restore, the chat session's provider/model/effort
+wins over the project default; effort controls contain only values present in
+the selected model's `supportedEfforts`. Until catalog-owned effective transport
+capabilities land, the UI also rejects known bespoke transports that cannot
+participate in the native tool loop rather than starting a false planning run.
+
 ## Provider-backed turn execution
 
 Each chat turn is dispatched to the provider/model selected for that turn via the
@@ -520,12 +531,11 @@ get/set/reset/list operations.
 
 ## Planning Inspector
 
-The side panel's Planning section is a three-tab inspector:
+The project Planning modal is a five-tab inspector:
 
-- **Plans** — the existing plan pipeline (create, edit, focus, queue). The
-  "Generate plans" modal and input boxes were removed
-  (schematic-grounded-planning); generation runs through the chat planning
-  menu instead.
+- **Plans** — the existing plan pipeline (edit, focus, queue). The blank/manual
+  Create plan affordance, Generate plans modal, and input boxes are removed;
+  generation begins from AI ideas and existing plan metadata remains editable.
 - **Ideas** — filterable idea history (all/concept/picked/rejected/archived)
   with promote, reject, and delete actions. Each idea card shows its
   `grounding` evidence and `anchor` (or an "outside current focus" flag when
@@ -534,6 +544,8 @@ The side panel's Planning section is a three-tab inspector:
   form, and "Suggest more ideas" which opens a chat turn scoped to the
   category. The empty state offers "Generate categories from project"
   (no hardcoded seeds).
+- **Flow** — lifecycle counts, launch policy, run board, and merge queue.
+- **Changes** — the OpenSpec change catalog.
 
 A schematic health badge appears in the inspector header when health is not
 `complete`, with a tooltip naming incomplete sections.

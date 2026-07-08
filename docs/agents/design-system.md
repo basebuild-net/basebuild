@@ -71,6 +71,19 @@ dependencies are NOT adopted.
   ahead/behind, changed-file count, confirm-gated Create PR action).
 - `.settings-table` — concurrency settings grid (provider, global max,
   project max, subagents, subagent cap).
+- `.settings-modal .modal-body` — always a row: fixed `.settings-sidebar`
+  beside flexible, independently scrolling `.settings-content`.
+- `.chat-env-context` + `.chat-context-badge` — compact chat context badges;
+  truncate with tooltip text rather than wrapping over header actions.
+- `.provider-catalog-modal` — two-pane provider/model configuration workspace.
+  `.provider-card-grid` fits two provider cards per row; `.provider-card`
+  combines green Connected or grey Available rail/dot/text with model count.
+  `.provider-model-list` is provider-scoped and searchable, with compact
+  `.provider-capability` badges. This is a modal, not a composer dropdown.
+
+Use popovers only for short single-step menus (roughly 6-8 rows). Searchable
+catalogs, forms, previews, and multi-column configuration belong in a named
+modal and may intentionally obscure the chat while configuration is active.
 
 ## Component reuse
 
@@ -120,15 +133,17 @@ The composer must be structurally impossible to clip:
   transcript (title, description, `.chat-idea-card-actions` with `Promote` /
   `Reject`). Promoted cards show a `Planned` status badge; rejected cards
   show `Rejected`. Cards are append-only and reload with the session.
-- The Planning Inspector (`.planning-inspector`) has three tabs
-  (`.inspector-tab`): Plans, Ideas, and Categories. The Ideas tab has
+- The Planning Inspector (`.planning-inspector`) has five tabs
+  (`.inspector-tab`): Plans, Ideas, Categories, Flow, and Changes. In a modal,
+  `.planning-inspector-modal` stays column-oriented even when wide container
+  queries make docked inspectors master-detail. The Ideas tab has
   status filter chips (`.inspector-filter-chip`) and per-idea promote/reject
   actions. The Categories tab lists `.inspector-category-card` entries with
   idea counts and drill-down detail.
 
-## Project schematic tab (technical)
+## Project schematic modal (technical)
 
-The schematic tab (`.project-schematic-tab`) renders `.basebuild/project-schematic.md`
+The dedicated `.modal-schematic` hosts `.project-schematic-tab`, which renders `.basebuild/project-schematic.md`
 as a structured section-card view by default, with a raw-markdown toggle:
 
 - Toolbar: `.project-schematic-toolbar` + `.project-schematic-toolbar-title`,
@@ -151,8 +166,10 @@ as a structured section-card view by default, with a raw-markdown toggle:
 - Empty state uses `.empty-state-actions` (button row) offering `Start wizard`
   first.
 
-The wizard itself is not a modal: entry points inject a guided prompt into the
-chat (skill-driven turn). The chat soft-gate notice is a full-width button
+The Schematic stage always opens this modal; starting the current wizard may
+still route a skill-driven turn through the destination chooser. The
+`ai-workbench-course-correction` change tracks moving the managed questionnaire
+and activity into the modal itself. The chat soft-gate notice is a full-width button
 (`.chat-command-notice-button`) that opens the schematic tab.
 
 Idea grounding/anchor flags on idea cards and inspector rows:

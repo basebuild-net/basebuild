@@ -3,12 +3,10 @@ import {
   ChevronDown,
   Folder,
   GitBranch,
-  LayoutList,
   MessageSquare,
   Plus,
   TerminalSquare,
   Zap,
-  LayoutTemplate,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -18,6 +16,7 @@ import type { NewPlan, Plan, PlanFocusContext } from "../../lib/plans";
 import type { PlansState } from "../../state/plans";
 import { gitCurrentBranch } from "../../lib/git";
 import { listWorkspaces } from "../../lib/workspaces";
+import { useLogs } from "../../state/log";
 
 type ChatEnvironmentPanelProps = {
   projectPath: string | null;
@@ -41,11 +40,10 @@ type ChatEnvironmentPanelProps = {
   openPlansFoldSignal?: number;
 };
 
-type FoldId = "source" | "plans" | "files";
+type FoldId = "source" | "files";
 
 const FOLDS: { id: FoldId; icon: LucideIcon; label: string }[] = [
   { id: "source", icon: GitBranch, label: "Changes" },
-  { id: "plans", icon: LayoutList, label: "Plans & Ideas" },
   { id: "files", icon: Folder, label: "Files" },
 ];
 
@@ -53,7 +51,6 @@ const NEW_PANEL_OPTIONS: { type: "chat" | "terminal" | "omp" | "schematic"; icon
   { type: "chat", icon: MessageSquare, label: "Chat" },
   { type: "terminal", icon: TerminalSquare, label: "Terminal" },
   { type: "omp", icon: Zap, label: "Oh My Pi" },
-  { type: "schematic", icon: LayoutTemplate, label: "Project Schematic" },
 ];
 
 export function ChatEnvironmentPanel({
@@ -74,6 +71,7 @@ export function ChatEnvironmentPanel({
   const [branch, setBranch] = useState<string | null>(null);
   const [worktreePath, setWorktreePath] = useState<string | null>(null);
   const [gitAvailable, setGitAvailable] = useState<boolean | null>(null);
+  const { addLog } = useLogs();
 
   // Auto-open the Plans modal when the chat-side inspector button fires.
   const lastSignalRef = useState<{ value: number }>({ value: 0 })[0];
@@ -126,9 +124,9 @@ export function ChatEnvironmentPanel({
               type="button"
               title={label}
               onClick={() => {
+                addLog("debug", "Project utility opened", `surface=${id}; project=${projectPath}`);
                 if (id === "files") onOpenFiles();
-                else if (id === "source") onOpenChanges();
-                else if (id === "plans") onOpenPlans();
+                else onOpenChanges();
               }}
             >
               <Icon size={11} />
@@ -143,6 +141,7 @@ export function ChatEnvironmentPanel({
               onClick={() => setMenuOpen((v) => !v)}
             >
               <Plus size={11} />
+              <span>New</span>
               <ChevronDown size={8} />
             </button>
             {menuOpen ? (
@@ -152,7 +151,11 @@ export function ChatEnvironmentPanel({
                     key={type}
                     type="button"
                     title={`New ${label} panel`}
-                    onClick={() => { setMenuOpen(false); onCreatePanel(type); }}
+                    onClick={() => {
+                      addLog("debug", "New panel selected", `type=${type}; project=${projectPath}`);
+                      setMenuOpen(false);
+                      onCreatePanel(type);
+                    }}
                   >
                     <Icon size={11} />
                     <span>{label}</span>
@@ -184,10 +187,10 @@ export function ChatEnvironmentPanel({
               </span>
             ) : (
               <span
-                className="chat-context-badge chat-context-badge-warn"
-                title="Sequential fallback: no isolated Git worktree available"
+                className="chat-context-badge"
+                title="Primary workspace: this chat is using the open project checkout"
               >
-                sequential fallback
+                primary workspace
               </span>
             )}
           </>
@@ -210,18 +213,8 @@ export function ChatEnvironmentPanel({
             >
               #{activePlan.referenceId}
             </span>
-          ) : (
-            <span className="chat-context-badge chat-context-badge-muted" title="No active plan reference">
-              no plan
-            </span>
-          );
+          ) : null;
         })()}
-        <span
-          className="chat-context-badge"
-          title={sessionId ? `Run/session ID: ${sessionId}` : "No run/session ID"}
-        >
-          run: {sessionId ? sessionId.slice(0, 8) : "—"}
-        </span>
       </div>
     </div>
   );

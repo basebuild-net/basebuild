@@ -1,6 +1,6 @@
 # testing-automation Specification
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Mandatory UI invariants are machine-checked
 CI SHALL reject additional stylesheets, React inline styles, non-zero border radius, and interactive elements without a `title` tooltip, except for narrow reviewed computed-geometry cases documented beside the check. The repository SHALL clear existing violations before enabling the gate.

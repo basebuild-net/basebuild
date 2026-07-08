@@ -10,7 +10,7 @@ minimal typing, clear state, and recoverable automation.
 - [x] Show a blocking project-loading surface while project-scoped sessions,
       panels, planning counts, provider/model state, and source state restore.
 - [x] Restore the most recently focused project, chat, and panel after restart.
-- [x] Create or update the Project Schematic through one-question-at-a-time
+- [ ] Create or update the Project Schematic through one-question-at-a-time
       cards: repository facts are prefilled, choices are clickable, feedback is
       accepted, and no file is written before approval.
 - [x] Generate 3–8 grounded categories from the approved schematic, then let the
@@ -59,15 +59,17 @@ minimal typing, clear state, and recoverable automation.
 - [x] UI invariants are automated: `globals.css` only, 0px radius, and `title=`
       tooltips on interactive elements. New inline styles fail CI.
 
-## Live audit baseline — 2026-07-08 (updated 2026-07-07)
+## Live audit baseline — 2026-07-08
 
 Tested with the Tauri dev build using the native desktop UI. Items below show
-resolution status from the `mvp-workflow-hardening` change.
+the post-archive reality, not only task completion in
+`mvp-workflow-hardening`. Remaining work is specified in
+`openspec/changes/ai-workbench-course-correction/`.
 
 | Priority | Finding | Status |
 |---|---|---|
-| P0 | Schematic wizard is not questionnaire-first | **Fixed** — schematic/category/idea actions route through typed `PlanningAction` system (4.1-4.3). |
-| P0 | Provider/model routing breaks the first-run path | **Fixed** — capability check extended to require `supportsTools` (4.2). |
+| P0 | Schematic wizard is not questionnaire-first | **Reopened** — Schematic now opens its correct dedicated modal, but the live skill turn still stops at a prose “gathering facts” message with no visible tools or question card. |
+| P0 | Provider/model routing breaks the first-run path | **Mitigated** — session selection restores, connected providers are first, models/effort are scoped, and known bespoke transports no longer falsely pass the planning gate; catalog-owned effective capability and full event parity remain. |
 | P0 | Category generation is a dead-end | **Fixed** — generation visible, modal closes on delivery, destination picker shown (4.3). |
 | P0 | Last focus is not restored | **Fixed** — `get/set_last_focused_project` backend + restore guard (2.1, 2.2). |
 | P1 | Project restore is not atomic | **Fixed** — generation-guarded activation coordinator + loading boundary (2.2, 2.3). |
@@ -79,3 +81,14 @@ resolution status from the `mvp-workflow-hardening` change.
 | P2 | UI invariant debt is unguarded | **Fixed** — `scripts/check-ui-invariants.mjs` + all 43 violations fixed (3.4). |
 | P2 | Worker controls are detached from launch | **In progress** — backend dependency graph/claims/merge queue done (6.1, 6.3, 6.6); launch controls UI in progress (6.2). |
 | P2 | The renderer ships as one large main chunk | **Fixed** — lazy-loaded heavy modals/panels; initial chunk 389 kB (was 817 kB) (7.3). |
+
+### Course-correction fixes landed on this branch
+
+- [x] Compact the duplicate top/chat context and prevent raw metadata overlap.
+- [x] Route Schematic to Project Schematic, Ideas to Ideas, and Plans to Plans.
+- [x] Remove the chat-level Ideas button and blank/manual Create plan affordance.
+- [x] Restore the chat session's provider/model and prioritize connected providers.
+- [x] Keep effort choices within the selected model's supported efforts.
+- [x] Repair Settings columns and the wide Planning modal's blank/reflow failure.
+- [ ] Render native and OMP planning work as one visible tool/question/activity timeline.
+- [ ] Complete AI-only idea → artifacts → validation → approval → ready → chat assignment.

@@ -1,14 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openMvpFixtureProject, waitForAppReady } from "./helpers";
 
 async function openFixtureProject(page: Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem("basebuild:first-run-complete", "true");
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Open project" }).click();
-  await expect(
-    page.locator(".status-pill", { hasText: "C:\\basebuild-e2e\\project" }),
-  ).toBeVisible();
+  await openMvpFixtureProject(page);
+  await waitForAppReady(page);
 }
 
 async function ensureChatPanel(page: Page) {
@@ -56,22 +51,30 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
-    // The model chip shows the default model.
-    await expect(page.locator(".chat-column-model-chip").first()).toContainText("Local Coordinator");
+    // Establish a deterministic starting model; session restore may otherwise
+    // legitimately retain the model chosen by a previous test.
+    await page.locator(".chat-model-trigger").first().click();
+    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.getByTitle("Close provider and model catalog").click();
+
+    // The composer shows the model without duplicating it in the chat header.
+    await expect(page.locator(".chat-model-trigger").first()).toContainText("Local Coordinator");
+    await expect(page.locator(".chat-column-model-chip")).toHaveCount(0);
 
     // Open the model picker and select a different model.
     await page.evaluate(() => {
       const btn = document.querySelector<HTMLButtonElement>(".chat-model-trigger");
       btn?.click();
     });
-    await expect(page.locator(".chat-picker[aria-label='Choose model']")).toBeVisible();
+    await expect(page.locator(".provider-catalog-overlay[aria-label='Provider and model catalog']")).toBeVisible();
 
     // Select "Umans GLM 5.2" (a different provider/model).
-    const umansItem = page.locator(".chat-picker-item", { hasText: "Umans GLM 5.2" }).first();
+    await page.locator(".provider-card", { hasText: "Umans" }).click();
+    const umansItem = page.locator(".provider-model-row", { hasText: "Umans GLM 5.2" }).first();
     if (await umansItem.count() > 0) {
       await umansItem.click();
-      // The model chip updates to the new model.
-      await expect(page.locator(".chat-column-model-chip").first()).toContainText("Umans GLM 5.2");
+      // The composer model control updates to the new model.
+      await expect(page.locator(".chat-model-trigger").first()).toContainText("Umans GLM 5.2");
     }
 
     expect(pageErrors).toEqual([]);

@@ -183,11 +183,9 @@ export function PlanPanel({
         ) : loading ? (
           <p className="text-muted text-sm pad">Loading plans…</p>
         ) : plans.length === 0 ? (
-          <div className="plan-empty">
+          <div className="plan-empty plan-empty-ai">
             <p className="text-muted text-sm">No plans yet.</p>
-            <button className="btn btn-primary btn-sm" type="button" title="Create plan" onClick={onCreatePlan}>
-              Create plan
-            </button>
+            <p className="text-muted text-sm">Generate ideas with AI, then promote the ones worth building.</p>
           </div>
         ) : (
           PLAN_STATUSES.map((status) => {

@@ -31,6 +31,7 @@ import type { PendingInteraction } from "../../lib/interactions";
 import { getRuntimeDefaults } from "../../lib/settings";
 import {
   nativeChatMessages,
+  nativeChatGet,
   nativeChatModelDefault,
   nativeChatSend,
   nativeChatSetProjectModelDefault,
@@ -324,7 +325,11 @@ export function ChatPanel({
   const filteredModels = useMemo(() => {
     const models = catalog?.models.filter((m) => m.providerId === providerId) ?? [];
     const needle = modelFilter.trim().toLowerCase();
-    const ranked = models.slice().sort((a, b) => a.label.localeCompare(b.label));
+    const ranked = models.slice().sort((a, b) =>
+      Number(b.supportsTools) - Number(a.supportsTools) ||
+      Number(b.supportsReasoning) - Number(a.supportsReasoning) ||
+      a.label.localeCompare(b.label),
+    );
     if (!needle) return ranked;
     return ranked.filter((model) => {
       const provider = catalog?.providers.find((p) => p.id === model.providerId);
@@ -338,7 +343,17 @@ export function ChatPanel({
   }, [catalog, modelFilter, providerId]);
   const nativeMode = profileId === NATIVE_PROFILE_ID;
   const selectedProvider = catalog?.providers.find((p) => p.id === providerId) ?? null;
-  const selectedModel = catalog?.models.find((m) => m.id === modelId) ?? null;
+  const selectedModel = catalog?.models.find((m) => m.id === modelId && m.providerId === providerId) ?? null;
+  const orderedProviders = useMemo(() => {
+    if (!catalog) return [];
+    return catalog.providers.slice().sort((a, b) =>
+      Number(b.configured) - Number(a.configured) ||
+      Number(b.id === providerId) - Number(a.id === providerId) ||
+      a.label.localeCompare(b.label),
+    );
+  }, [catalog, providerId]);
+  const connectedProviders = orderedProviders.filter((provider) => provider.configured);
+  const availableProviders = orderedProviders.filter((provider) => !provider.configured);
   const availableModels = useMemo(
     () => catalog?.models.filter((m) => m.providerId === providerId) ?? [],
     [catalog, providerId],
@@ -352,21 +367,25 @@ export function ChatPanel({
     async function load() {
       try {
         addLog("debug", "Chat config loading", `projectPath=${projectPath}`);
-        const [defaults, cat, met, resolved] = await Promise.all([
+        const [defaults, cat, met, resolved, storedSession] = await Promise.all([
           getRuntimeDefaults(),
           nativeProviderCatalog(),
           nativeRequestMetricsSummary(),
           nativeChatModelDefault(projectPath),
+          nativeSessionId ? nativeChatGet(nativeSessionId) : Promise.resolve(null),
         ]);
         if (cancelled) return;
         setProfileId(defaults.defaultChatProfileId ?? NATIVE_PROFILE_ID);
         setCatalog(cat);
         setMetrics(met);
-        setProviderId(resolved.providerId);
-        setModelId(resolved.modelId);
-        setEffortLevel(resolved.effortLevel);
-        setModelNotice(resolved.notice);
-        addLog("debug", "Chat config loaded", `provider=${resolved.providerId} model=${resolved.modelId} models=${cat.models.length}`);
+        const effectiveProviderId = storedSession?.providerId ?? resolved.providerId;
+        const effectiveModelId = storedSession?.modelId ?? resolved.modelId;
+        const effectiveEffortLevel = storedSession?.effortLevel ?? resolved.effortLevel;
+        setProviderId(effectiveProviderId);
+        setModelId(effectiveModelId);
+        setEffortLevel(effectiveEffortLevel);
+        setModelNotice(storedSession ? null : resolved.notice);
+        addLog("debug", "Chat config loaded", `source=${storedSession ? "session" : resolved.source} provider=${effectiveProviderId} model=${effectiveModelId} models=${cat.models.length}`);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to load chat config", msg);
@@ -377,7 +396,7 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [addLog, projectPath]);
+  }, [addLog, projectPath, nativeSessionId]);
 
   // Fix model when provider changes
   useEffect(() => {
@@ -781,7 +800,16 @@ export function ChatPanel({
     }
     // send mode — wait for catalog so the resolved provider/model is used.
     if (!catalog || loading) return;
-    const modelSupportsTools = selectedModel?.supportsTools ?? false;
+    const nativeToolApiKinds = new Set([
+      "",
+      "openai-completions",
+      "openai-responses",
+      "azure-openai-responses",
+      "anthropic-messages",
+      "openrouter",
+      "ollama-chat",
+    ]);
+    const modelSupportsTools = !!selectedModel?.supportsTools && nativeToolApiKinds.has(selectedModel.apiKind ?? "");
     if (requiresTools && !modelSupportsTools) {
       setInput(delivery.text);
       setCommandNotice(
@@ -1693,23 +1721,21 @@ export function ChatPanel({
               modelId={modelId}
               modelName={modelName}
               effortLevel={effortLevel}
+              supportedEfforts={selectedModel?.supportedEfforts ?? []}
               catalogRefreshing={catalogRefreshing}
               lastSyncedAt={selectedProvider?.lastSyncedAt ?? null}
               localProviderId={LOCAL_PROVIDER_ID}
               onPickProvider={() => {
-                setShowProviderPicker((value) => !value);
+                addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}`);
+                setShowProviderPicker(true);
                 setShowModelPicker(false);
                 setShowPlanningMenu(false);
               }}
               onPickModel={() => {
-                setShowModelPicker((value) => !value);
+                addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
+                setShowModelPicker(true);
                 setShowProviderPicker(false);
                 setShowPlanningMenu(false);
-              }}
-              onToggleIdeas={() => {
-                setShowPlanningMenu((value) => !value);
-                setShowProviderPicker(false);
-                setShowModelPicker(false);
               }}
               onChangeEffort={(effort) => {
                 setEffortLevel(effort);
@@ -1824,93 +1850,135 @@ export function ChatPanel({
                 </div>
               </div>
             ) : null}
-            {showProviderPicker && catalog ? (
-              <div className="chat-picker" role="dialog" aria-label="Choose provider">
-                <div className="chat-picker-header">
-                  <span>Choose provider</span>
-                  <button className="btn-icon btn-icon-sm" type="button" title="Close provider picker" onClick={() => setShowProviderPicker(false)}>
-                    <X size={11} />
-                  </button>
-                </div>
-                <div className="chat-picker-list">
-                  {catalog.providers.map((provider) => (
+            {(showProviderPicker || showModelPicker) && catalog ? (
+              <div
+                className="modal-overlay provider-catalog-overlay"
+                role="dialog"
+                aria-label="Provider and model catalog"
+                onClick={() => {
+                  addLog("debug", "Provider catalog modal closed", "overlay");
+                  setShowProviderPicker(false);
+                  setShowModelPicker(false);
+                }}
+              >
+                <div className="modal provider-catalog-modal" onClick={(event) => event.stopPropagation()}>
+                  <div className="modal-header">
+                    <div className="provider-catalog-title">
+                      <h2>Provider &amp; model</h2>
+                      <span>{connectedProviders.length} connected · {catalog.providers.length} providers · {catalog.models.length} models</span>
+                    </div>
                     <button
-                      key={provider.id}
-                      className={`chat-picker-item${provider.id === providerId ? " is-active" : ""}`}
+                      className="btn-icon"
                       type="button"
-                      title={`${provider.label}: ${provider.configured ? "connected" : "not connected"}`}
+                      title="Close provider and model catalog"
                       onClick={() => {
-                        setProviderId(provider.id);
-                        // Auto-select first model from this provider if current model doesn't match
-                        const providerModels = catalog?.models.filter((m) => m.providerId === provider.id) ?? [];
-                        const firstModel = providerModels[0];
-                        if (firstModel && (modelId !== firstModel.id || providerId !== provider.id)) {
-                          setModelId(firstModel.id);
-                          const next: ChatModelDefault = {
-                            providerId: provider.id,
-                            modelId: firstModel.id,
-                            effortLevel,
-                          };
-                          void nativeChatSetProjectModelDefault(projectPath, next);
-                        }
+                        addLog("debug", "Provider catalog modal closed", "button");
                         setShowProviderPicker(false);
-                        setShowLogin(!provider.configured && provider.id !== LOCAL_PROVIDER_ID);
-                        setSetupRequired(null);
+                        setShowModelPicker(false);
                       }}
                     >
-                      <span className="chat-picker-main">{provider.label}</span>
-                      <span className="chat-picker-meta">{provider.configured ? `${provider.modelCount} models` : "connect"}</span>
+                      <X size={14} />
                     </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            {showModelPicker && catalog ? (
-              <div className="chat-picker" role="dialog" aria-label="Choose model">
-                <div className="chat-picker-header">
-                  <span>Choose model · {selectedProvider?.label ?? providerId}</span>
-                  <button className="btn-icon btn-icon-sm" type="button" title="Close model picker" onClick={() => setShowModelPicker(false)}>
-                    <X size={11} />
-                  </button>
-                </div>
-                <input
-                  className="input chat-picker-search"
-                  value={modelFilter}
-                  placeholder="Filter models"
-                  title="Filter models by provider, id, or label"
-                  onChange={(e) => setModelFilter(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") setShowModelPicker(false);
-                  }}
-                />
-                <div className="chat-picker-list">
-                  {filteredModels.map((model) => {
-                    const provider = catalog.providers.find((p) => p.id === model.providerId);
-                    return (
-                      <button
-                        key={`${model.providerId}:${model.id}`}
-                        className={`chat-picker-item${model.id === modelId && model.providerId === providerId ? " is-active" : ""}`}
-                        type="button"
-                        title={`${provider?.label ?? model.providerId} / ${model.id}. Source: ${model.source}`}
-                        onClick={() => {
-                          setProviderId(model.providerId);
-                          setModelId(model.id);
-                          setShowModelPicker(false);
-                          setSetupRequired(null);
-                          setModelNotice(null);
-                          const next: ChatModelDefault = {
-                            providerId: model.providerId,
-                            modelId: model.id,
-                            effortLevel,
-                          };
-                          void nativeChatSetProjectModelDefault(projectPath, next);
+                  </div>
+                  <div className="provider-catalog-body">
+                    <section className="provider-catalog-providers" aria-label="Providers">
+                      <div className="provider-catalog-section-heading">
+                        <span>Providers</span>
+                        <span className="text-muted">Select one to browse its models</span>
+                      </div>
+                      <div className="provider-card-grid">
+                        {orderedProviders.map((provider) => (
+                          <button
+                            key={provider.id}
+                            className={`provider-card is-${provider.configured ? "connected" : "available"}${provider.id === providerId ? " is-active" : ""}`}
+                            type="button"
+                            title={`${provider.label}: ${provider.configured ? "connected" : "not connected"}; ${provider.modelCount} models`}
+                            onClick={() => {
+                              addLog("debug", "Provider selected", `provider=${provider.id}; connected=${provider.configured}`);
+                              setProviderId(provider.id);
+                              const providerModels = catalog.models.filter((model) => model.providerId === provider.id);
+                              const currentIsValid = providerModels.some((model) => model.id === modelId);
+                              if (!currentIsValid && providerModels[0]) setModelId(providerModels[0].id);
+                              setSetupRequired(null);
+                              setModelFilter("");
+                              if (!provider.configured && provider.id !== LOCAL_PROVIDER_ID) {
+                                setShowProviderPicker(false);
+                                setShowModelPicker(false);
+                                setShowLogin(true);
+                              }
+                            }}
+                          >
+                            <span className="provider-card-topline">
+                              <span className="provider-card-name">{provider.label}</span>
+                              <span className={`provider-status is-${provider.configured ? "connected" : "available"}`}>
+                                <span className="provider-status-dot" />
+                                {provider.configured ? "Connected" : "Available"}
+                              </span>
+                            </span>
+                            <span className="provider-card-meta">{provider.modelCount} models</span>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                    <section className="provider-catalog-models" aria-label="Models">
+                      <div className="provider-catalog-section-heading">
+                        <span>{selectedProvider?.label ?? providerId} models</span>
+                        <span className={`provider-status is-${selectedProvider?.configured ? "connected" : "available"}`}>
+                          <span className="provider-status-dot" />
+                          {selectedProvider?.configured ? "Connected" : "Not connected"}
+                        </span>
+                      </div>
+                      <input
+                        className="input provider-model-search"
+                        value={modelFilter}
+                        placeholder="Search this provider's models"
+                        title="Filter models for the selected provider by id or label"
+                        onChange={(event) => setModelFilter(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            setShowProviderPicker(false);
+                            setShowModelPicker(false);
+                          }
                         }}
-                      >
-                        <span className="chat-picker-main">{model.label}</span>
-                        <span className="chat-picker-meta">{model.supportedEfforts.length ? model.supportedEfforts.join("/") : "standard"} · {model.source}</span>
-                      </button>
-                    );
-                  })}
+                      />
+                      <div className="provider-model-list">
+                        {filteredModels.map((model) => (
+                          <button
+                            key={`${model.providerId}:${model.id}`}
+                            className={`provider-model-row${model.id === modelId && model.providerId === providerId ? " is-active" : ""}`}
+                            type="button"
+                            title={`${selectedProvider?.label ?? model.providerId} / ${model.id}. Source: ${model.source}`}
+                            onClick={() => {
+                              addLog("debug", "Model selected", `provider=${model.providerId}; model=${model.id}`);
+                              setProviderId(model.providerId);
+                              setModelId(model.id);
+                              setShowProviderPicker(false);
+                              setShowModelPicker(false);
+                              setSetupRequired(null);
+                              setModelNotice(null);
+                              const next: ChatModelDefault = {
+                                providerId: model.providerId,
+                                modelId: model.id,
+                                effortLevel,
+                              };
+                              void nativeChatSetProjectModelDefault(projectPath, next);
+                            }}
+                          >
+                            <span className="provider-model-main">
+                              <span>{model.label}</span>
+                              <span className="provider-model-id">{model.id}</span>
+                            </span>
+                            <span className="provider-model-badges">
+                              {model.supportsTools ? <span className="provider-capability is-positive">Tools</span> : null}
+                              {model.supportsReasoning ? <span className="provider-capability">Reasoning</span> : null}
+                              <span className="provider-capability">{model.supportedEfforts.length ? model.supportedEfforts.join("/") : "Standard"}</span>
+                            </span>
+                          </button>
+                        ))}
+                        {filteredModels.length === 0 ? <p className="text-muted text-sm provider-model-empty">No matching models.</p> : null}
+                      </div>
+                    </section>
+                  </div>
                 </div>
               </div>
             ) : null}

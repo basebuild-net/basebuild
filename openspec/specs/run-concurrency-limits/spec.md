@@ -1,9 +1,10 @@
 # run-concurrency-limits Specification
 
+## Purpose
+Defines provider-aware worker limits and the controls that govern concurrent runs.
+
 <!-- Merges: ADDED from 'parallel-plan-workspaces' (archived 2026-07-06). -->
-
 ## Requirements
-
 ### Requirement: Per-provider concurrency limits
 The system SHALL store a maximum concurrency per provider as a global default with an optional per-project override. The run scheduler SHALL NOT execute more simultaneous provider requests (plan runs plus any subagents) for a given provider than that provider's effective limit; runs beyond the limit SHALL queue rather than fail. The default per-provider limit SHALL be conservative (`1`), reflecting that most providers rate-limit or meter concurrent requests and only unmetered / high-bandwidth endpoints tolerate many.
 
@@ -60,3 +61,10 @@ The concurrency and subagent limits SHALL be configurable in global Settings and
 #### Scenario: Effective value shown at the point of use
 - **WHEN** a run is queued because a provider limit is reached
 - **THEN** the queued notice names the provider and the effective limit responsible, so the user can find and adjust the right setting
+
+### Requirement: Launch-time worker and workspace controls
+The system SHALL expose worker count, effective per-provider concurrency, subagent allowance, and workspace policy at launch. `isolated_worktrees` SHALL provision one worktree/branch per concurrent plan; `sequential_primary` SHALL cap execution in the primary checkout at one. Values beyond effective limits SHALL queue and SHALL be explained before confirmation.
+
+#### Scenario: Primary workspace policy is selected
+- **WHEN** the user selects three plans and `sequential_primary`
+- **THEN** the confirmation states that one worker runs at a time in the primary checkout, no worktrees are created, and the remaining plans queue

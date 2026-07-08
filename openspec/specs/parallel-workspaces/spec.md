@@ -1,7 +1,9 @@
 # parallel-workspaces Specification
 
-<!-- Merges: MODIFIED from 'parallel-plan-workspaces' (archived 2026-07-06). -->
+## Purpose
+Defines isolated and sequential workspace policies used to execute plans safely.
 
+<!-- Merges: MODIFIED from 'parallel-plan-workspaces' (archived 2026-07-06). -->
 ## Requirements
 ### Requirement: Worktree-backed workspaces
 The system SHALL create isolated workspaces for concurrent plan runs using `git worktree`, each on a fresh branch named from the plan reference (`bb/<reference-id>-<slug>`) branched from the repository's default branch (auto-detected `main`/`master`) after fetching the remote, located under a managed directory outside the primary checkout. The worktree SHALL be created when the run starts (not at plan assignment). After the run reaches a terminal state the worktree and branch SHALL be retained until the user explicitly prunes; the branch is always kept even after prune. Workspaces SHALL be listed with their plan, branch, and path, and the chat header of a chat running in a worktree SHALL display the worktree indicator and branch.
@@ -36,3 +38,10 @@ When the project is not a git repository, worktrees are unsupported, or workspac
 #### Scenario: Non-git project
 - **WHEN** the user assigns plans to two chats on a non-git project
 - **THEN** the runs execute sequentially in place, the UI shows why parallelism and worktrees are unavailable, and chat headers in this project show no branch or worktree indicator
+
+### Requirement: Workspace context is always visible
+Every assigned/running chat and run-board row SHALL show project, branch, workspace/worktree path, plan, run state, and merge readiness. At compact sizes labels MAY collapse into a context control, but the information SHALL remain one click and keyboard action away. Sequential/non-Git fallback SHALL be explicitly labeled.
+
+#### Scenario: Four worktree workers are open at compact size
+- **WHEN** four plan chats run in isolated worktrees at 960×640
+- **THEN** each panel identifies its distinct branch/worktree and plan without clipping the composer, and the run board exposes full paths and merge readiness

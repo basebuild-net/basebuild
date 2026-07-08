@@ -1,6 +1,6 @@
 # desktop-shell Specification
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Atomic project activation surface
 The system SHALL treat project selection as a generation-guarded activation transaction and SHALL render a project loading surface before any project-scoped session, panel, planning, provider/model, or source state is shown. Content from the prior project SHALL be removed immediately; late responses from prior generations SHALL be ignored. Partial failure SHALL identify the failing subsystem and offer retry without exposing stale data.

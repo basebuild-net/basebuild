@@ -11,12 +11,13 @@ import { ActivitySidebar } from "./ActivitySidebar";
 import { ChatEnvironmentPanel } from "./ChatEnvironmentPanel";
 const FileExplorerModal = lazy(() => import("./FileExplorerModal").then((m) => ({ default: m.FileExplorerModal })));
 const PlanningInspector = lazy(() => import("./PlanningInspector").then((m) => ({ default: m.PlanningInspector })));
+import type { PlanningTab } from "./PlanningInspector";
 const EditPlanModal = lazy(() => import("./EditPlanModal").then((m) => ({ default: m.EditPlanModal })));
 const FocusPlanModal = lazy(() => import("./FocusPlanModal").then((m) => ({ default: m.FocusPlanModal })));
 const SourcePanel = lazy(() => import("../panels/SourcePanel").then((m) => ({ default: m.SourcePanel })));
 const SettingsModal = lazy(() => import("./SettingsModal").then((m) => ({ default: m.SettingsModal })));
 const ProjectDescriptionModal = lazy(() => import("./ProjectDescriptionModal").then((m) => ({ default: m.ProjectDescriptionModal })));
-import { CommandStrip } from "./CommandStrip";
+import { CommandStrip, type StageKey } from "./CommandStrip";
 import { ToastStack } from "./ToastStack";
 import { useProjectSchematic } from "../../state/schematic";
 import { getLastFocusedProject, revealInExplorer, setLastFocusedProject } from "../../lib/projects";
@@ -91,6 +92,8 @@ export function AppShell({ updates }: AppShellProps) {
   const [plansFoldSignal, setPlansFoldSignal] = useState(0);
   const [changesModalOpen, setChangesModalOpen] = useState(false);
   const [plansModalOpen, setPlansModalOpen] = useState(false);
+  const [plansModalTab, setPlansModalTab] = useState<PlanningTab>("plans");
+  const [schematicModalOpen, setSchematicModalOpen] = useState(false);
   const [commandStripCollapsed, setCommandStripCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logPanelOpen, setLogPanelOpen] = useState(false);
@@ -537,9 +540,14 @@ export function AppShell({ updates }: AppShellProps) {
     },
     [plans, session.activeSessionId],
   );
-  const handleOpenPlanningInspector = useCallback(() => {
+  const openPlanningModal = useCallback((tab: PlanningTab) => {
+    addLog("debug", "Planning modal opened", `tab=${tab}`);
+    setPlansModalTab(tab);
     setPlansModalOpen(true);
-  }, []);
+  }, [addLog]);
+  const handleOpenPlanningInspector = useCallback(() => {
+    openPlanningModal("plans");
+  }, [openPlanningModal]);
 
   const handleCloseChat = useCallback((chatId: string) => {
     // The grid's onCloseChat handles the visual removal; the session is retained.
@@ -618,23 +626,9 @@ export function AppShell({ updates }: AppShellProps) {
   );
 
   const handleOpenSchematic = useCallback(() => {
-    // Focus or create a schematic panel in the grid (not a legacy empty tab).
-    const allPanels = flattenPanels(panelGridState.root);
-    const existing = allPanels.find((p) => p.type === "schematic");
-    if (existing) {
-      setPanelGridState((prev) => ({ ...prev, activePanelId: existing.id }));
-      return;
-    }
-    const newPanel: Panel = {
-      id: newPanelId(),
-      type: "schematic",
-      title: "Schematic",
-      chatSessionId: null,
-      terminalId: null,
-      filePath: null,
-    };
-    commitInsert(newPanel, panelGridState.activePanelId, "right");
-  }, [panelGridState, commitInsert]);
+    addLog("debug", "Project schematic opened", activeProjectPath ?? "no project");
+    setSchematicModalOpen(true);
+  }, [activeProjectPath, addLog]);
 
    const handleOpenSchematicFile = useCallback(async () => {
     if (!activeProjectPath) return;
@@ -1104,7 +1098,7 @@ export function AppShell({ updates }: AppShellProps) {
           onCreateChat={() => handleCreateTypedPanel("chat")}
           onCreateTerminal={() => handleCreateTypedPanel("terminal")}
           onOpenHistory={() => setHistoryDrawerOpen(true)}
-          onOpenPlans={() => setPlansModalOpen(true)}
+          onOpenPlans={() => openPlanningModal("plans")}
           onOpenSettings={() => setSettingsOpen(true)}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
@@ -1112,7 +1106,6 @@ export function AppShell({ updates }: AppShellProps) {
         <section className="workspace-panel workspace-panel-chat-first">
           {activeProjectPath && session.activeSessionId ? (
             <div className="session-header">
-              <h1 className="session-title">{activeProjectPath.split(/[\\/]/).pop() ?? activeProjectPath}</h1>
               <ChatEnvironmentPanel
                 projectPath={activeProjectPath}
                 sessionId={session.activeSessionId}
@@ -1129,18 +1122,28 @@ export function AppShell({ updates }: AppShellProps) {
                 onGenerateCategories={handleGenerateCategories}
                 onOpenFiles={() => setFileModalOpen(true)}
                 onOpenChanges={() => setChangesModalOpen(true)}
-                onOpenPlans={() => setPlansModalOpen(true)}
+                onOpenPlans={() => openPlanningModal("plans")}
                 onCreatePanel={handleCreateTypedPanel}
               />
               <CommandStrip
                 plans={plans.plans}
                 ideaCount={0}
                 schematicHealth={schematic.report ? (schematic.report.health === "complete" ? "complete" : "incomplete") : "none"}
-                onOpenPlans={() => setPlansModalOpen(true)}
+                onOpenStage={(stage: StageKey) => {
+                  addLog("debug", "Planning stage opened", stage);
+                  if (stage === "schematic") {
+                    handleOpenSchematic();
+                  } else if (stage === "ideas") {
+                    openPlanningModal("ideas");
+                  } else if (stage === "plans") {
+                    openPlanningModal("plans");
+                  } else {
+                    openPlanningModal("flow");
+                  }
+                }}
                 collapsed={commandStripCollapsed}
                 onToggleCollapse={() => setCommandStripCollapsed((v) => !v)}
               />
-              <span className="status-pill session-path-pill" title={activeProjectPath}>{activeProjectPath}</span>
             </div>
           ) : null}
           <div className="workspace-scroll workspace-scroll-chat-first">
@@ -1224,6 +1227,7 @@ export function AppShell({ updates }: AppShellProps) {
             <div className="modal-body">
               <Suspense fallback={null}>
                 <PlanningInspector
+                  initialTab={plansModalTab}
                   sessionId={session.activeSessionId}
                   projectPath={activeProjectPath}
                   plans={plans.plans}
@@ -1246,6 +1250,23 @@ export function AppShell({ updates }: AppShellProps) {
                   onShowToast={handleShowToast}
                 />
               </Suspense>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {schematicModalOpen && activeProjectPath ? (
+        <div className="modal-overlay" role="dialog" aria-label="Project Schematic" onClick={() => setSchematicModalOpen(false)}>
+          <div className="modal modal-schematic" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Project Schematic</h2>
+              <button className="btn-icon" type="button" title="Close project schematic" onClick={() => setSchematicModalOpen(false)}><X size={14} /></button>
+            </div>
+            <div className="modal-body">
+              <ProjectSchematicTab
+                projectPath={activeProjectPath}
+                onStartWizard={handleStartSchematicWizard}
+                onOpenRaw={() => setDescriptionOpen(true)}
+              />
             </div>
           </div>
         </div>

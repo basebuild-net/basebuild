@@ -1,9 +1,10 @@
 # plan-chat-assignment Specification
 
+## Purpose
+Defines how validated plans are bound to chat sessions and launched with their execution context.
+
 <!-- Merges: ADDED from 'parallel-plan-workspaces' (archived 2026-07-06). -->
-
 ## Requirements
-
 ### Requirement: Assign a plan to a chat
 The system SHALL let the user assign a `ready` plan to a chat column. Assignment binds at most one active plan to a chat at a time. Assigning a plan to an empty or free-form chat SHALL be allowed. A chat without an assigned plan SHALL remain a normal free-form chat. Re-assigning a different plan to a chat that already has an active run SHALL require explicit confirmation and SHALL start a fresh run. Selecting a plan in the assignment picker SHALL take effect immediately: the plan binds to that chat's existing session and the run starts or queues (per `run-concurrency-limits`) — an assignment that only records UI state without dispatching a run is PROHIBITED.
 
@@ -121,3 +122,10 @@ concurrency caps SHALL queue with visible queued state.
 #### Scenario: Cancel maps to nothing
 - **WHEN** the user dismisses the mapping confirmation
 - **THEN** no run, chat, worktree, branch, or status change occurs
+
+### Requirement: Assignment carries validated execution context
+Assigning a ready plan to a chat SHALL bind an immutable validated artifact bundle plus the selected engine, provider/model/effort, skill, worker/workspace policy, priority, prerequisites, and affected paths. The action SHALL create a queued or running run; changing status without dispatch SHALL be an error.
+
+#### Scenario: Ready plan is assigned to an existing chat
+- **WHEN** the user assigns a validated ready plan to an idle existing chat
+- **THEN** the chat header shows the plan and execution context, the artifacts are delivered exactly once, and a run is queued or started according to dependency/concurrency policy

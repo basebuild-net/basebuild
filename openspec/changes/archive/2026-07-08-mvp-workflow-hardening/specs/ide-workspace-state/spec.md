@@ -1,6 +1,6 @@
 # ide-workspace-state Specification
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Restore the most recently focused workspace
 The system SHALL persist the most recently focused project on every successful project selection and SHALL restore that project, its last session, chat, active panel, and panel layout on restart. “Recent project” ordering SHALL NOT substitute for explicit last-focus state.

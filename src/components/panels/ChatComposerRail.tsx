@@ -1,4 +1,4 @@
-import { Key, Lightbulb, RefreshCw, Unplug } from "lucide-react";
+import { Key, RefreshCw, Unplug } from "lucide-react";
 import type { NativeProviderCatalog } from "../../lib/native-chat";
 
 /** Compact single-line composer rail (`chat-composer-controls`).
@@ -25,7 +25,7 @@ export type ChatComposerRailProps = {
   localProviderId: string;
   onPickProvider: () => void;
   onPickModel: () => void;
-  onToggleIdeas: () => void;
+  supportedEfforts: string[];
   onChangeEffort: (effort: string) => void;
   onRefresh: () => void;
   onConnect: () => void;
@@ -34,6 +34,7 @@ export type ChatComposerRailProps = {
 
 export function ChatComposerRail(props: ChatComposerRailProps) {
   const { catalog, providerDegraded, providerName, modelName, modelId, effortLevel } = props;
+  const effortOptions = catalog?.effortLevels.filter((effort) => props.supportedEfforts.includes(effort.id)) ?? [];
   return (
     <div className="chat-composer-header">
       {catalog ? (
@@ -56,18 +57,20 @@ export function ChatComposerRail(props: ChatComposerRailProps) {
             <span className="chat-trigger-kicker">Model</span>
             <span className="chat-trigger-label">{modelName}</span>
           </button>
-          <select
-            className="input chat-select chat-effort-select"
-            title="Select effort level"
-            value={effortLevel}
-            onChange={(e) => props.onChangeEffort(e.target.value)}
-          >
-            {catalog.effortLevels.map((ef) => (
-              <option key={ef.id} value={ef.id}>
-                {ef.label}
-              </option>
-            ))}
-          </select>
+          {effortOptions.length > 0 ? (
+            <select
+              className="input chat-select chat-effort-select"
+              title="Select an effort level supported by this model"
+              value={effortOptions.some((effort) => effort.id === effortLevel) ? effortLevel : effortOptions[0].id}
+              onChange={(e) => props.onChangeEffort(e.target.value)}
+            >
+              {effortOptions.map((ef) => (
+                <option key={ef.id} value={ef.id}>{ef.label}</option>
+              ))}
+            </select>
+          ) : (
+            <span className="chat-effort-static" title="This model does not expose reasoning effort controls">Standard</span>
+          )}
           <button
             className="btn-icon btn-icon-sm"
             type="button"
@@ -97,14 +100,6 @@ export function ChatComposerRail(props: ChatComposerRailProps) {
               <Unplug size={11} />
             </button>
           ) : null}
-          <button
-            className="btn btn-sm chat-ideas-trigger"
-            type="button"
-            title="Idea generation actions"
-            onClick={props.onToggleIdeas}
-          >
-            <Lightbulb size={11} /> Ideas
-          </button>
         </>
       ) : (
         <div className="chat-select-group">

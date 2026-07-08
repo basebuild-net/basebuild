@@ -1,6 +1,6 @@
 # plan-chat-assignment Specification
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Assignment carries validated execution context
 Assigning a ready plan to a chat SHALL bind an immutable validated artifact bundle plus the selected engine, provider/model/effort, skill, worker/workspace policy, priority, prerequisites, and affected paths. The action SHALL create a queued or running run; changing status without dispatch SHALL be an error.

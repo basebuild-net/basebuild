@@ -122,7 +122,7 @@ export function ChatHeader(props: ChatHeaderProps) {
     props.onCreateBranch(name);
   }
 
-  const modeLabel = props.agentMode === "build" ? "build" : "plan";
+  const modeLabel = props.agentMode === "build" ? "Build mode" : "Plan mode";
   const modeTitle = props.agentMode === "build"
     ? "Build mode — edits allowed (approval gateway). Click to switch to plan mode."
     : "Plan mode — read-only posture. Click to switch to build mode.";
@@ -159,12 +159,6 @@ export function ChatHeader(props: ChatHeaderProps) {
             <span className="chat-column-title-text">{props.title}</span>
           </button>
         )}
-        <span className="chat-column-model-chip" title={`Model: ${props.modelChip} (${props.modelId})`}>
-          {props.modelChip}
-        </span>
-        <span className="chat-column-effort-chip" title={`Effort: ${props.effortChip}`}>
-          {props.effortChip}
-        </span>
         <button
           className={`chat-column-mode-pill${props.agentMode === "build" ? " is-build" : " is-plan"}`}
           type="button"
@@ -185,31 +179,6 @@ export function ChatHeader(props: ChatHeaderProps) {
             <span className="chat-column-plan-title">{truncate(props.planBadge.title, 20)}</span>
           </button>
         ) : null}
-        <span className="chat-context-badge" title={`Project: ${props.projectPath}`}>
-          {props.projectPath.split(/[\\/]/).pop() ?? props.projectPath}
-        </span>
-        {props.sessionId ? (
-          <span className="chat-context-badge" title={`Run ID: ${props.sessionId}`}>
-            run: {props.sessionId.slice(0, 8)}
-          </span>
-        ) : null}
-        {props.branch ? (
-          props.worktreePath ? null : (
-            <span
-              className="chat-context-badge chat-context-badge-warn"
-              title="Sequential fallback: no isolated Git worktree for this chat"
-            >
-              sequential fallback
-            </span>
-          )
-        ) : (
-          <span
-            className="chat-context-badge chat-context-badge-warn"
-            title="Non-Git project: branch switching and worktree isolation unavailable"
-          >
-            non-Git
-          </span>
-        )}
       </div>
       <div className="chat-column-header-right">
         {props.branch ? (

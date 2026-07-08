@@ -15,13 +15,23 @@ _None. Completed OpenSpec changes are archived into canonical specs._
 
 ### Now (in flight)
 
-1. `connector-permission-gateway` — phases 1+2 merged in PR #17 (gateway
+1. `ai-workbench-course-correction` — ★ **owner-prioritized live UI course
+   correction (2026-07-08); 9/43 tasks done.** Converts the hardened MVP into a
+   legible AI workbench: exact Schematic/Ideas/Plans routing, dedicated project
+   modals, AI-only plan origin, visible agent/tool/question activity, truthful
+   connected-first provider/model controls, a modal-first configuration rule,
+   semantic visual states, sticky session selections, stable compact layouts,
+   and a focused interaction/performance harness. The first
+   live-audit fixes are implemented on this branch. Before deeper shell work,
+   reconcile overlap with `chat-first-shell`; consume protocol/auth capability
+   truth from `provider-parity-workspace-fixes` instead of duplicating it.
+2. `connector-permission-gateway` — phases 1+2 merged in PR #17 (gateway
    contract, storage, backend permission broker, Tauri commands, TS wrappers;
    9/29 tasks done). Phase 2 OMP connector integration + frontend UX + web
    bridge + verification remain (tasks 2.2 partial, 3.1–6.5). Permission broker
    extends the merged `native-agent-loop` approval substrate (modes, rules,
    prompts, audit trail); the task 1.1 merge gate is satisfied as of PR #9.
-2. `chat-first-shell` — full shell redesign around the conversation: one global
+3. `chat-first-shell` — full shell redesign around the conversation: one global
    left column (top `New chat`/`Search`, projects+chats list showing 5 recent
    per project with relative timestamps + pinning + `Show more`, bottom account
    row), a chat-focused center, a floating top-right environment block (source/
@@ -34,24 +44,11 @@ _None. Completed OpenSpec changes are archived into canonical specs._
    tasks done. Relocates the `unified-planning-workspace` inspector unchanged;
    reuses `file-viewer-editor`'s viewer for modal file content; pairs with
    `diff-review-workflow` in the Changes fold.
-3. `plan-import` — import pre-existing external plans (unexecuted OpenSpec
+4. `plan-import` — import pre-existing external plans (unexecuted OpenSpec
    changes etc.) into `.basebuild` plan records with `engine`/`external`/derived
    status, confirmed + idempotent (new cap `plan-import`). 11/13 tasks done.
    Dep `basebuild-planning-skill` merged (PR #20); pairs with
    `planning-file-ingestion`.
-4. `mvp-workflow-hardening` — ★ **owner-prioritized live MVP audit
-   (2026-07-08); archive gates satisfied on 2026-07-07.** Makes the full
-   `mvp.md` journey a release gate: restore the last project/chat/panel behind
-   an atomic loading boundary; make folder picking single-flight and menus
-   viewport-safe; repair questionnaire-first schematic/category/idea routing;
-   expose planning engine/model/skill, worker count, workspace policy,
-   prerequisites, and collisions at launch; coordinate workers through a shared
-   run ledger and dependency-aware safe/YOLO scheduler; and add 960×640 visual,
-   restart-persistence, invariant, latency, and freeze/noise regression tests.
-   Coordinate restore/provider/subagent slices with `chat-history-persistence`,
-   `provider-parity-workspace-fixes`, and `harness-subagents`. Artifacts
-   generated 2026-07-08 (0/35).
-
 ### Next (priority order)
 
 Ordered by owner priority. Gated items show their blocking dependency; the
@@ -170,6 +167,7 @@ _Last refreshed: 2026-07-08 (`node scripts/openspec-status.mjs --write`)_
 
 |Change|Progress|Status|Next command|
 |---|---|---|---|
+|`ai-workbench-course-correction`|9/43|in progress|`/apply ai-workbench-course-correction`|
 |`chat-first-shell`|17/31|in progress|`/apply chat-first-shell`|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
 |`plan-import`|11/13|in progress|`/apply plan-import`|
@@ -186,7 +184,6 @@ _Last refreshed: 2026-07-08 (`node scripts/openspec-status.mjs --write`)_
 |`project-grid-workspace`|0/33|not started|`/apply project-grid-workspace`|
 |`schematic-enhance-ui`|0/14|not started|`/apply schematic-enhance-ui`|
 |`session-compaction`|0/13|not started|`/apply session-compaction`|
-|`mvp-workflow-hardening`|35/35|complete — archive|`/archive mvp-workflow-hardening`|
 <!-- status:end -->
 
 ## Archiving
@@ -267,6 +264,13 @@ merge into canonical `openspec/specs/` and the folder moves to
   schematic chat routing, chat interactive elements, panel grid, and workspace
   history requirements; existing planning, desktop-shell, and workspace-state
   specs were updated.
+- **2026-07-08a** — `mvp-workflow-hardening` archived after 35/35 tasks. Added
+  canonical MVP journey/dependency-scheduling capabilities and strengthened
+  project activation, workspace restore, plan assignment, planning flow,
+  concurrency, schematic routing, and test automation. The post-archive live
+  audit found interaction-level gaps now tracked by
+  `ai-workbench-course-correction` rather than hidden behind completed task
+  counts.
 - **Out-of-band** — PR #18 merged OMP credential integration + AI commit
   message generation (Source panel). Not tracked as an OpenSpec change; no
   delta specs. Affects `native_chat_service`, `provider_client`,

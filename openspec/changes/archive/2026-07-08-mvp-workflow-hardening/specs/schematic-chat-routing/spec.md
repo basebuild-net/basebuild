@@ -1,6 +1,6 @@
 # schematic-chat-routing Specification
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Tool-capable questionnaire delivery
 Every schematic, category, and idea generation action SHALL route through one typed planning-action delivery path to a user-selected or explicitly named destination chat. Before sending, the system SHALL verify repository-read and interactive-question capability and SHALL apply the selected provider/model/effort/skill. Delivery SHALL be exactly once in send mode; missing capability or provider failure SHALL render a repair choice rather than falling back to prose or dropping the prompt.

@@ -1,6 +1,6 @@
 # planning-flow-board Specification
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: MVP planning controls are in the workflow
 The flow board SHALL expose the effective planning engine, provider/model/effort, skill, worker count, workspace policy, and scheduling mode at the promotion or launch step. Project defaults MAY prefill these values, but the launch confirmation SHALL show the effective values, provider concurrency cap, queued overflow, branches/worktrees, prerequisites, and collisions.
