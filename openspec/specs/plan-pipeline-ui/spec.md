@@ -141,3 +141,19 @@ The planning inspector SHALL show the schematic health badge with a wizard entry
 <!-- Removed: Generate Plans with File Context — **Reason**: The modal and its file-context picker are removed. File context is gathered by the agent through the tool loop during the generation turn. -->
 <!-- Removed: Structured plan proposal capture — **Reason**: Superseded by the unified ideas catalog (`unified-planning-workspace`): structured capture writes `ideas` rows rendered as idea cards; there is no separate proposal mechanism. -->
 <!-- Removed: Proposal selection state persists — **Reason**: Superseded by the ideas catalog's status history (`concept / picked / rejected / archived`), which persists per session and reloads (`Planning history and catalog access` in `plan-pipeline`). -->
+
+### Requirement: Event-driven inspector freshness
+The planning inspector SHALL refresh its Plans, Ideas, and Categories views
+live from planning events instead of requiring reopen or manual refetch, and
+the inspector's entry point (button/panel affordance) SHALL show an unread
+planning-activity badge sourced from the notification store, cleared when the
+inspector is opened.
+
+#### Scenario: Live idea appears while the inspector is open
+- **WHEN** a generation turn captures an idea while the Ideas tab is visible
+- **THEN** the idea row appears without any manual refresh action
+
+#### Scenario: Badge counts unseen planning activity
+- **WHEN** two plans are created while the inspector is closed
+- **THEN** the inspector entry point shows an unread badge of 2, and opening
+  the inspector clears it
