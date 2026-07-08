@@ -119,7 +119,7 @@ Ownership map:
       activation usable ≤1 s, and the initial renderer chunk below 500 kB
       minified by lazy-loading heavy planning/catalog/settings surfaces; capture
       diagnostics on regression.
-- [ ] 7.4 Update `DESIGN.md`, desktop-shell/agent-runtime/testing/workflow docs,
+- [x] 7.4 Update `DESIGN.md`, desktop-shell/agent-runtime/testing/workflow docs,
       and keep `mvp.md` aligned with shipped behavior.
 - [ ] 7.5 Run `npx tsc --noEmit`, `npm run build`, `cargo check`, `cargo test`, and
       `BASEBUILD_E2E=1 npm run test:e2e`; perform live 960×640 + 1280×800 desktop
