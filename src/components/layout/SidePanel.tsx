@@ -42,6 +42,7 @@ type SidePanelProps = {
   };
   onOpenChatSession: (chatSessionId: string) => void;
   onSuggestForCategory?: (category: IdeaCategory | null) => void;
+  onGenerateCategories?: () => void;
   activeChatSessionId?: string | null;
 };
 
@@ -127,6 +128,7 @@ export function SidePanel({
   planCallbacks,
   onOpenChatSession,
   onSuggestForCategory,
+  onGenerateCategories,
   activeChatSessionId,
 }: SidePanelProps) {
   const [order, setOrder] = useState<SideSectionId[]>(() => loadOrder());
@@ -278,7 +280,7 @@ export function SidePanel({
                     onDeletePlan={plans.deletePlan}
                     onOpenChatSession={onOpenChatSession}
                     onSuggestForCategory={onSuggestForCategory}
-                    activeChatSessionId={activeChatSessionId}
+                    onGenerateCategories={onGenerateCategories}
                     showHeader={false}
                   />
                 ) : id === "files" ? (

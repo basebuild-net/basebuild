@@ -30,7 +30,7 @@ type ChatEnvironmentPanelProps = {
   };
   onOpenChatSession: (chatSessionId: string) => void;
   onSuggestForCategory: (category: IdeaCategory | null) => void;
-  activeChatSessionId: string | null;
+  onGenerateCategories?: () => void;
   onOpenFiles: () => void;
   onOpenChanges: () => void;
   onOpenPlans: () => void;
@@ -61,7 +61,7 @@ export function ChatEnvironmentPanel({
   planCallbacks,
   onOpenChatSession,
   onSuggestForCategory,
-  activeChatSessionId,
+  onGenerateCategories,
   onOpenFiles,
   onOpenChanges,
   onOpenPlans,

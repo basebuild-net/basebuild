@@ -33,9 +33,9 @@ type PlanningInspectorProps = {
   onOpenChatSession: (chatSessionId: string) => void;
   onPromoteIdea?: (title: string, description: string, chatSessionId: string | null) => Promise<void> | void;
   onSuggestForCategory?: (category: IdeaCategory | null) => void;
+  onGenerateCategories?: () => void;
   activeChatSessionId?: string | null;
   showHeader?: boolean;
-  /** When "modal", collapse toggle is hidden (no-op in modal context). */
   hostContext?: "dock" | "modal";
 };
 
@@ -64,6 +64,7 @@ export function PlanningInspector({
   onOpenChatSession,
   onPromoteIdea,
   onSuggestForCategory,
+  onGenerateCategories,
   activeChatSessionId,
   showHeader = true,
   hostContext = "dock",
@@ -444,7 +445,7 @@ export function PlanningInspector({
                     className="btn btn-sm btn-primary"
                     type="button"
                     title="Generate categories from the project schematic"
-                    onClick={() => onSuggestForCategory?.(null)}
+                    onClick={() => onGenerateCategories?.() ?? onSuggestForCategory?.(null)}
                   >
                     <Sparkles size={11} /> Generate categories from project
                   </button>

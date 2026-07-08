@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LayoutTemplate, Settings2, TerminalSquare, X } from "lucide-react";
 import { deliverPrompt, type PromptMode } from "../../lib/promptDelivery";
-import { generateIdeasAction, schematicWizardAction, type PlanningAction } from "../../lib/planningActions";
+import { generateCategoriesAction, generateIdeasAction, schematicWizardAction, type PlanningAction } from "../../lib/planningActions";
 import { DestinationPicker, type DestinationChoice } from "./DestinationPicker";
 
 import { useSessionState } from "../../state/sessions";
@@ -576,6 +576,19 @@ export function AppShell({ updates }: AppShellProps) {
       addLog("debug", "Planning action routed", action.context ?? action.type);
       setPendingDelivery({ text: action.text, mode: action.mode });
       setDestinationPickerOpen(true);
+      // Demote the planning modal so the destination chat is visible.
+      setPlansModalOpen(false);
+    },
+    [addLog],
+  );
+  const handleGenerateCategories = useCallback(
+    () => {
+      const action = generateCategoriesAction();
+      addLog("debug", "Planning action routed", action.context ?? action.type);
+      setPendingDelivery({ text: action.text, mode: action.mode });
+      setDestinationPickerOpen(true);
+      // Demote the planning modal so the destination chat is visible.
+      setPlansModalOpen(false);
     },
     [addLog],
   );
@@ -593,6 +606,8 @@ export function AppShell({ updates }: AppShellProps) {
       addLog("debug", "Planning action routed", action.context ?? action.type);
       setPendingDelivery({ text: action.text, mode: action.mode });
       setDestinationPickerOpen(true);
+      // Demote the planning modal so the destination chat is visible.
+      setPlansModalOpen(false);
     },
     [session, addLog],
   );
@@ -1095,7 +1110,7 @@ export function AppShell({ updates }: AppShellProps) {
                 }}
                 onOpenChatSession={handleOpenChatSession}
                 onSuggestForCategory={handleSuggestForCategory}
-                activeChatSessionId={session.activeSessionId}
+                onGenerateCategories={handleGenerateCategories}
                 onOpenFiles={() => setFileModalOpen(true)}
                 onOpenChanges={() => setChangesModalOpen(true)}
                 onOpenPlans={() => setPlansModalOpen(true)}
@@ -1204,7 +1219,7 @@ export function AppShell({ updates }: AppShellProps) {
                 onDeletePlan={plans.deletePlan}
                 onOpenChatSession={(id) => { setPlansModalOpen(false); handleOpenChatSession(id); }}
                 onSuggestForCategory={handleSuggestForCategory}
-                activeChatSessionId={session.activeSessionId}
+                onGenerateCategories={handleGenerateCategories}
                 showHeader={false}
               />
             </div>
