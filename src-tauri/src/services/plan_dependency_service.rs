@@ -28,6 +28,26 @@ fn now() -> i64 {
         .unwrap_or_default()
 }
 
+const VALID_SCHEDULING_MODES: [&str; 2] = ["safe", "yolo"];
+const VALID_WORKSPACE_POLICIES: [&str; 2] = ["isolated_worktrees", "sequential_primary"];
+const VALID_EVENT_KINDS: [&str; 6] = ["progress", "blocker", "claim", "release", "artifact", "completion"];
+const VALID_MERGE_DECISIONS: [&str; 3] = ["approved", "rejected", "merged"];
+const VALID_CLAIM_ACTIONS: [&str; 2] = ["claim", "release"];
+
+/// Reject change names that could escape the openspec/changes directory.
+fn validate_change_name(name: &str) -> DbResult<()> {
+    if name.is_empty()
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains("..")
+        || name.contains('\0')
+    {
+        Err(format!("Invalid change name: '{name}'"))
+    } else {
+        Ok(())
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct PlanDependencyService;
 
@@ -39,6 +59,16 @@ impl PlanDependencyService {
     pub fn set_dependencies(req: &SetDependenciesRequest) -> DbResult<Plan> {
         let plan = PlanService::get(&req.plan_id)?
             .ok_or("Plan not found")?;
+        if let Some(mode) = &req.scheduling_mode {
+            if !VALID_SCHEDULING_MODES.contains(&mode.as_str()) {
+                return Err(format!("Invalid scheduling_mode: '{mode}'"));
+            }
+        }
+        if let Some(policy) = &req.workspace_policy {
+            if !VALID_WORKSPACE_POLICIES.contains(&policy.as_str()) {
+                return Err(format!("Invalid workspace_policy: '{policy}'"));
+            }
+        }
         let conn = StorageService::connect()?;
 
         let prerequisites_json =
@@ -435,6 +465,9 @@ impl PlanDependencyService {
 
         // Check OpenSpec artifacts exist if change_name is set.
         if let Some(change_name) = &plan.change_name {
+            if let Err(e) = validate_change_name(change_name) {
+                errors.push(e);
+            } else {
             let session = crate::services::session_service::SessionService::get(&plan.session_id)
                 .ok()
                 .flatten();
@@ -458,6 +491,7 @@ impl PlanDependencyService {
                     }
                 }
             }
+            }
         }
 
         let valid = errors.is_empty();
@@ -479,6 +513,9 @@ impl PlanDependencyService {
         paths: &[String],
         action: &str,
     ) -> DbResult<()> {
+        if !VALID_CLAIM_ACTIONS.contains(&action) {
+            return Err(format!("Invalid claim action: '{action}'"));
+        }
         let conn = StorageService::connect()?;
         let ts = now();
         for path in paths {
@@ -568,6 +605,9 @@ impl PlanDependencyService {
         kind: &str,
         payload: &str,
     ) -> DbResult<CoordinationEvent> {
+        if !VALID_EVENT_KINDS.contains(&kind) {
+            return Err(format!("Invalid event kind: '{kind}'"));
+        }
         let conn = StorageService::connect()?;
         let id = gen_id();
         let ts = now();
@@ -742,6 +782,17 @@ impl PlanDependencyService {
 
     /// Review a merge queue entry: approve or reject.
     pub fn review_merge_entry(entry_id: &str, decision: &str) -> DbResult<MergeReviewEntry> {
+        if !VALID_MERGE_DECISIONS.contains(&decision) {
+            return Err(format!("Invalid merge decision: '{decision}'"));
+        }
+        let existing = Self::get_merge_entry(entry_id)?;
+        // Reject transitions from terminal states.
+        if existing.status == "merged" {
+            return Err("Cannot review an already-merged entry".to_string());
+        }
+        if existing.status == decision {
+            return Err(format!("Entry is already '{decision}'"));
+        }
         let conn = StorageService::connect()?;
         let ts = now();
         conn.execute(

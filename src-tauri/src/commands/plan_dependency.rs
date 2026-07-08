@@ -17,18 +17,18 @@ pub async fn plan_set_dependencies(request: SetDependenciesRequest) -> AppResult
 }
 
 #[tauri::command]
-pub async fn plan_get_dependencies(planId: String) -> AppResult<PlanDependencies> {
-    PlanDependencyService::get_dependencies(&planId)
+pub async fn plan_get_dependencies(plan_id: String) -> AppResult<PlanDependencies> {
+    PlanDependencyService::get_dependencies(&plan_id)
 }
 
 #[tauri::command]
-pub async fn plan_dependency_graph(sessionId: String) -> AppResult<DependencyGraph> {
-    PlanDependencyService::build_graph(&sessionId)
+pub async fn plan_dependency_graph(session_id: String) -> AppResult<DependencyGraph> {
+    PlanDependencyService::build_graph(&session_id)
 }
 
 #[tauri::command]
-pub async fn plan_validate_readiness(planId: String) -> AppResult<ValidationResult> {
-    PlanDependencyService::validate_readiness(&planId)
+pub async fn plan_validate_readiness(plan_id: String) -> AppResult<ValidationResult> {
+    PlanDependencyService::validate_readiness(&plan_id)
 }
 
 #[tauri::command]
@@ -43,8 +43,8 @@ pub async fn plan_file_claims_set(request: SetFileClaimRequest) -> AppResult<()>
 }
 
 #[tauri::command]
-pub async fn plan_file_claims_list(sessionId: String) -> AppResult<Vec<FileClaim>> {
-    PlanDependencyService::list_file_claims(&sessionId)
+pub async fn plan_file_claims_list(session_id: String) -> AppResult<Vec<FileClaim>> {
+    PlanDependencyService::list_file_claims(&session_id)
 }
 
 #[tauri::command]
@@ -62,10 +62,10 @@ pub async fn plan_coordination_event_publish(
 
 #[tauri::command]
 pub async fn plan_coordination_events(
-    sessionId: String,
+    session_id: String,
     since: Option<i64>,
 ) -> AppResult<Vec<crate::models::plan_dependency::CoordinationEvent>> {
-    PlanDependencyService::list_events(&sessionId, since)
+    PlanDependencyService::list_events(&session_id, since)
 }
 
 #[tauri::command]
@@ -74,21 +74,21 @@ pub async fn plan_set_launch_profile(profile: LaunchProfile) -> AppResult<()> {
 }
 
 #[tauri::command]
-pub async fn plan_get_launch_profile(projectPath: String) -> AppResult<Option<LaunchProfile>> {
-    PlanDependencyService::get_launch_profile(&projectPath)
+pub async fn plan_get_launch_profile(project_path: String) -> AppResult<Option<LaunchProfile>> {
+    PlanDependencyService::get_launch_profile(&project_path)
 }
 
 #[tauri::command]
-pub async fn plan_merge_queue_list(sessionId: String) -> AppResult<Vec<MergeReviewEntry>> {
-    PlanDependencyService::list_merge_queue(&sessionId)
+pub async fn plan_merge_queue_list(session_id: String) -> AppResult<Vec<MergeReviewEntry>> {
+    PlanDependencyService::list_merge_queue(&session_id)
 }
 
 #[tauri::command]
 pub async fn plan_merge_queue_review(
-    entryId: String,
+    entry_id: String,
     decision: String,
 ) -> AppResult<MergeReviewEntry> {
-    PlanDependencyService::review_merge_entry(&entryId, &decision)
+    PlanDependencyService::review_merge_entry(&entry_id, &decision)
 }
 
 #[tauri::command]

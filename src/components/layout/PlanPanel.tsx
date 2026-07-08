@@ -25,6 +25,7 @@ import type {
   WorkspacePolicy,
 } from "../../lib/planDependencies";
 import {
+  getDependencies,
   getLaunchProfile,
   setDependencies,
   setLaunchProfile,
@@ -514,10 +515,11 @@ function PlanPromotionForm({
     setLoading(true);
     setReviseMessage(null);
     try {
+      const existing = await getDependencies(plan.id).catch(() => null);
       await setDependencies({
         planId: plan.id,
-        prerequisites: [],
-        affectedPaths: [],
+        prerequisites: existing?.prerequisites ?? [],
+        affectedPaths: existing?.affectedPaths ?? [],
         priority: plan.priority,
         schedulingMode: form.schedulingMode,
         workspacePolicy: form.workspacePolicy,

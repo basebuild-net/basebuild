@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { FolderTree, LayoutGrid, Lightbulb, Plus, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
+import { FolderTree, LayoutGrid, Plus, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
 import type { Plan, PlanStatus } from "../../lib/plans";
-import { isTerminalStatus, PLAN_STATUSES, PLAN_STATUS_LABEL } from "../../lib/plans";
+import { isTerminalStatus } from "../../lib/plans";
 import { batchPromoteIdeas } from "../../lib/plans";
 import { enqueuePlan, listPlanRuns, markPlanRunComplete, startQueue } from "../../lib/planRuns";
 import { PlanPanel } from "./PlanPanel";
@@ -160,7 +160,7 @@ export function PlanningInspector({
         setDependencyGraph(null);
       })
       .finally(() => setRunBoardLoading(false));
-  }, [sessionId, addLog]);
+  }, [sessionId, addLog, plans]);
   // Load merge-review queue for finished worktree runs.
   useEffect(() => {
     if (!sessionId) {
