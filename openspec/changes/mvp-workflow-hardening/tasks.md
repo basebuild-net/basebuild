@@ -109,10 +109,10 @@ Ownership map:
 
 ## 7. MVP harness, performance, and docs
 
-- [ ] 7.1 Add the full golden-path e2e: folder → schematic cards → categories →
+- [x] 7.1 Add the full golden-path e2e: folder → schematic cards → categories →
       ideas → plan/artifacts → approval → assignment → queued workers → progress
       → merge-review readiness, with mocked deterministic providers/Git.
-- [ ] 7.2 Add restart/focus and partial-failure desktop smoke plus a 60-second
+- [x] 7.2 Add restart/focus and partial-failure desktop smoke plus a 60-second
       streaming/project-switch/panel-resize run; assert zero freeze report,
       duplicate activation, false orphan warning, and unhandled error.
 - [ ] 7.3 Enforce performance budgets: feedback/loading paint ≤100 ms, fixture
