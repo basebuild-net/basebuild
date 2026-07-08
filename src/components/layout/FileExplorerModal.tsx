@@ -126,7 +126,7 @@ export function FileExplorerModal({ projectPath, open, onClose, onOpenFile }: Fi
                 onClick={() => { setPath(projectPath); setSelected(null); }}
                 title="Back to project root"
               >
-                <ChevronRight size={12} style={{ transform: "rotate(180deg)" }} />
+                <ChevronRight size={12} className="icon-rotate-180" />
                 <span>..</span>
               </button>
             ) : null}

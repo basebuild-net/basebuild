@@ -162,7 +162,7 @@ export function DebugPanel() {
               <div className="terminal-debug-card" key={t.id}>
                 <div className="terminal-debug-card-header">
                   <span className="terminal-debug-card-title">
-                    <TerminalSquare size={12} style={{ display: "inline", verticalAlign: "middle", marginRight: 4 }} />
+                    <TerminalSquare size={12} className="icon-inline-mr" />
                     #{t.id} · {t.shell}
                   </span>
                   <span className={`terminal-debug-card-status ${t.alive ? "is-active" : "is-dead"}`}>
@@ -174,7 +174,7 @@ export function DebugPanel() {
                   <span>Size: {t.rows}×{t.cols}</span>
                   <span>Started: {formatTimestamp(t.startedAt)}</span>
                   <span>Uptime: {formatDuration(t.startedAt)}</span>
-                  {t.cwd ? <span style={{ gridColumn: "span 2", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.cwd}>CWD: {t.cwd}</span> : null}
+                  {t.cwd ? <span className="grid-span-2" title={t.cwd}>CWD: {t.cwd}</span> : null}
                 </div>
               </div>
             ))}
@@ -249,8 +249,8 @@ export function DebugPanel() {
         ) : (
           <div className="stack">
             {reports.map((rpt) => (
-              <div key={rpt.id} className="debug-item" style={{ flexDirection: "column", alignItems: "stretch" }}>
-                <div className="row align-center" style={{ justifyContent: "space-between" }}>
+              <div key={rpt.id} className="debug-item debug-item-col">
+                <div className="row align-center justify-between">
                   <span>
                     <span className={`badge badge-${rpt.kind === "panic" ? "error" : rpt.kind === "freeze" ? "warning" : "info"}`}>{rpt.kind}</span>
                     {" "}{rpt.summary.slice(0, 80)}{rpt.summary.length > 80 ? "…" : ""}
@@ -285,7 +285,7 @@ export function DebugPanel() {
                   </div>
                 </div>
                 {selectedReport?.id === rpt.id ? (
-                  <pre className="text-xs mono" style={{ marginTop: 4, maxHeight: 300, overflow: "auto", whiteSpace: "pre-wrap" }}>
+                  <pre className="text-xs mono debug-pre-block">
                     {rpt.details}
                   </pre>
                 ) : null}
@@ -299,7 +299,7 @@ export function DebugPanel() {
       <div className="debug-section">
         <h3><Activity size={14} /> Command Telemetry</h3>
         {violations.length > 0 ? (
-          <div className="stack" style={{ marginBottom: 8 }}>
+          <div className="stack mb-8">
             <h4 className="text-danger text-sm">Violations (sync &gt;50ms)</h4>
             {violations.slice(0, 10).map((v, i) => (
               <div key={i} className="debug-item">

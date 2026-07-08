@@ -54,7 +54,7 @@ export function OmpPanel({ state }: OmpPanelProps) {
           </div>
         ) : (
           <div className="omp-info">
-            <span className="pill" style={{ borderColor: "rgba(239,68,68,.35)", color: "var(--danger)" }}>Not installed</span>
+            <span className="pill pill-danger">Not installed</span>
             {state.status.message ? <span className="text-sm text-muted">{state.status.message}</span> : null}
           </div>
         )}
@@ -91,7 +91,7 @@ export function OmpPanel({ state }: OmpPanelProps) {
             </button>
           </div>
           {output.length > 0 ? (
-            <div className="omp-output-box" style={{ marginTop: 8 }}>
+            <div className="omp-output-box mt-8">
               {output.map((line, i) => <pre key={i}>{line}</pre>)}
             </div>
           ) : null}

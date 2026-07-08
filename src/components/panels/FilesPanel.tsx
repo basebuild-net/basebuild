@@ -69,7 +69,7 @@ export function FilesPanel({ projectPath, onOpenFile }: FilesPanelProps) {
             onClick={() => setPath(projectPath)}
             title="Back to project root"
           >
-            <ChevronRight size={12} style={{ transform: "rotate(180deg)" }} />
+            <ChevronRight size={12} className="icon-rotate-180" />
             <span>..</span>
           </button>
         ) : null}

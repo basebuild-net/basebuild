@@ -491,7 +491,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                       />
                     </label>
 
-                    <label className="row gap-sm" style={{ marginTop: 4 }}>
+                    <label className="row gap-sm mt-4">
                       <input
                         type="checkbox"
                         title="Auto-send generated prompts — disabled by default for safety"
@@ -505,13 +505,13 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                     </p>
 
                     {/* GIT Ai — model used by Source → Generate commit */}
-                    <div className="stack-sm" style={{ marginTop: 12 }}>
-                      <h4 className="text-sm text-muted" style={{ marginBottom: 4 }}>GIT Ai</h4>
+                    <div className="stack-sm mt-12">
+                      <h4 className="text-sm text-muted mb-4">GIT Ai</h4>
                       <p className="text-muted text-sm">
                         Model used by Source → Generate commit. Only configured providers are listed. Falls back to your chat default when unset.
                       </p>
-                      <label className="row gap-sm" style={{ marginBottom: 4 }}>
-                        <span className="text-sm" style={{ width: 64 }}>Provider</span>
+                      <label className="row gap-sm mb-4">
+                        <span className="text-sm label-w-64">Provider</span>
                         <select
                           className="input"
                           title="GIT Ai provider — used by Source → Generate commit"
@@ -526,7 +526,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                       </label>
                       {defaults.gitAiProviderId ? (
                         <label className="row gap-sm">
-                          <span className="text-sm" style={{ width: 64 }}>Model</span>
+                          <span className="text-sm label-w-64">Model</span>
                           <select
                             className="input"
                             title="GIT Ai model — used by Source → Generate commit"
@@ -549,12 +549,12 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                 )}
 
                 {/* Profile validation */}
-                <div style={{ marginTop: 12 }}>
-                  <h4 className="text-sm text-muted" style={{ marginBottom: 6 }}>Adapter health</h4>
+                <div className="mt-12">
+                  <h4 className="text-sm text-muted mb-6">Adapter health</h4>
                   {profiles.map((p) => {
                     const v = profileValidations[p.id];
                     return (
-                      <div key={p.id} className={`requirement-row is-${v?.valid ? "ok" : "attention"}`} style={{ marginBottom: 4 }}>
+                      <div key={p.id} className={`requirement-row is-${v?.valid ? "ok" : "attention"} requirement-row-compact`}>
                         <span className={`requirement-badge is-${v?.valid ? "ok" : "attention"}`}>
                           {v?.valid ? "✓" : "!"}
                         </span>
@@ -620,7 +620,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                 </button>
 
                 {/* Approval Gateway */}
-                <div className="stack" style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+                <div className="stack approval-gateway-section">
                   <h4>Approval Gateway</h4>
                   <p className="text-muted text-sm">
                     Controls how the agent loop handles tool calls that need approval.
@@ -652,14 +652,14 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                   </p>
 
                   {/* Custom rules */}
-                  <div className="stack" style={{ marginTop: 8 }}>
+                  <div className="stack mt-8">
                     <h5>Custom Rules</h5>
                     {approvalRules.length === 0 ? (
                       <p className="text-muted text-sm">No custom rules. Default mode behavior applies.</p>
                     ) : (
                       <div className="stack">
                         {approvalRules.map((rule) => (
-                          <div key={rule.id} className="row gap-sm align-center" style={{ justifyContent: "space-between" }}>
+                          <div key={rule.id} className="row gap-sm align-center justify-between">
                             <span className="text-sm">
                               <strong>{rule.toolName}</strong>
                               {rule.commandPrefix ? <code className="text-muted"> {rule.commandPrefix}*</code> : null}
@@ -682,26 +682,23 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
 
                     {/* Add new rule */}
                     {projectPath ? (
-                      <div className="row gap-sm align-center" style={{ flexWrap: "wrap" }}>
+                      <div className="row gap-sm align-center flex-wrap">
                         <input
-                          className="input"
-                          style={{ width: 140 }}
+                          className="input input-w-140"
                           placeholder="tool name"
                           value={newRuleTool}
                           title="Tool name (e.g. run_command, edit_file)"
                           onChange={(e) => setNewRuleTool(e.target.value)}
                         />
                         <input
-                          className="input"
-                          style={{ width: 140 }}
+                          className="input input-w-140"
                           placeholder="command prefix (optional)"
                           value={newRulePrefix}
                           title="Only apply to commands starting with this prefix"
                           onChange={(e) => setNewRulePrefix(e.target.value)}
                         />
                         <select
-                          className="input"
-                          style={{ width: 100 }}
+                          className="input input-w-100"
                           value={newRuleDecision}
                           title="Decision for this rule"
                           onChange={(e) => setNewRuleDecision(e.target.value as PermissionDecision)}
@@ -737,8 +734,8 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                   </div>
 
                   {/* Audit trail */}
-                  <div className="stack" style={{ marginTop: 12 }}>
-                    <div className="row align-center" style={{ justifyContent: "space-between" }}>
+                  <div className="stack mt-12">
+                    <div className="row align-center justify-between">
                       <h5>Audit Trail</h5>
                       <button
                         className="btn btn-sm"
@@ -752,7 +749,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                     {auditTrail.length === 0 ? (
                       <p className="text-muted text-sm">No audit entries yet.</p>
                     ) : (
-                      <div className="stack" style={{ maxHeight: 200, overflowY: "auto" }}>
+                      <div className="stack scroll-y-200">
                         {auditTrail.map((entry) => (
                           <div key={entry.id} className="text-sm" style={{ borderBottom: "1px solid var(--border)", paddingBottom: 4 }}>
                             <span className={`badge badge-${entry.decision === "allow" ? "success" : entry.decision === "deny" ? "error" : "warning"}`}>

@@ -32,7 +32,7 @@ export function ConfigPanel({ projectPath }: { projectPath: string | null }) {
             <span className="badge">v{pack.manifest.version}</span>
           </div>
           <p className="text-muted text-sm">{pack.manifest.description}</p>
-          <div className="row gap-sm" style={{ marginTop: 6 }}>
+          <div className="row gap-sm mt-6">
             <span className="pill">{pack.manifest.source}</span>
             {pack.manifest.author ? <span className="text-sm text-muted">{pack.manifest.author}</span> : null}
           </div>

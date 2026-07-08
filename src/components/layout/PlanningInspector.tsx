@@ -86,7 +86,7 @@ export function PlanningInspector({
     if (tab === "categories" && sessionId) {
       void ideaState.refresh();
     }
-  }, [tab, sessionId, ideaState]);
+  }, [tab, sessionId, ideaState.refresh]);
 
   // Fetch plan runs for completion cards.
   useEffect(() => {
@@ -437,7 +437,7 @@ export function PlanningInspector({
                 </button>
               </div>
               {ideaState.categories.length === 0 ? (
-                <div className="empty-state" style={{ padding: "16px" }}>
+                <div className="empty-state empty-state-compact">
                   <FolderTree size={24} />
                   <p className="text-muted text-sm">No categories yet.</p>
                   <button
