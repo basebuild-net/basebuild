@@ -9,6 +9,7 @@ pub mod notification;
 pub mod plan;
 pub mod plan_import;
 pub mod plan_run;
+pub mod plan_dependency;
 pub mod planning_event;
 pub mod openspec_catalog;
 pub mod planning_prompt;

@@ -17,6 +17,7 @@ pub mod omp_service;
 pub mod final_touches_service;
 pub mod plan_runner_service;
 pub mod plan_service;
+pub mod plan_dependency_service;
 pub mod plan_import_service;
 pub mod pipeline_service;
 pub mod planning_events;

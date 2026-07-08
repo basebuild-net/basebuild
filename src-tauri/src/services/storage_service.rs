@@ -630,6 +630,74 @@ impl StorageService {
                 );
                 CREATE INDEX IF NOT EXISTS idx_pending_interactions_session ON pending_interactions(session_id);
                 CREATE INDEX IF NOT EXISTS idx_pending_interactions_status ON pending_interactions(status) WHERE status = 'pending';
+
+                /* Plan dependency metadata (plan-dependency-scheduling). */
+                CREATE TABLE IF NOT EXISTS plan_dependency_meta (
+                    plan_id TEXT PRIMARY KEY NOT NULL,
+                    prerequisites TEXT NOT NULL DEFAULT '[]',
+                    affected_paths TEXT NOT NULL DEFAULT '[]',
+                    scheduling_mode TEXT NOT NULL DEFAULT 'safe',
+                    workspace_policy TEXT NOT NULL DEFAULT 'isolated_worktrees',
+                    updated_at INTEGER NOT NULL,
+                    FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+                );
+
+                /* File claims published by running workers. */
+                CREATE TABLE IF NOT EXISTS plan_file_claims (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    run_id TEXT NOT NULL,
+                    plan_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    action TEXT NOT NULL DEFAULT 'claim',
+                    created_at INTEGER NOT NULL,
+                    released_at INTEGER,
+                    FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_plan_file_claims_session ON plan_file_claims(session_id);
+                CREATE INDEX IF NOT EXISTS idx_plan_file_claims_active ON plan_file_claims(session_id) WHERE released_at IS NULL;
+
+                /* Append-only coordination event ledger. */
+                CREATE TABLE IF NOT EXISTS plan_coordination_events (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    session_id TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    plan_id TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    payload TEXT NOT NULL DEFAULT '{}',
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_plan_coord_events_session ON plan_coordination_events(session_id, created_at);
+
+                /* Per-project launch profile. */
+                CREATE TABLE IF NOT EXISTS plan_launch_profiles (
+                    project_path TEXT PRIMARY KEY NOT NULL,
+                    engine TEXT NOT NULL DEFAULT 'openspec',
+                    provider_id TEXT NOT NULL DEFAULT '',
+                    model_id TEXT NOT NULL DEFAULT '',
+                    effort_level TEXT,
+                    skill_id TEXT,
+                    worker_count INTEGER NOT NULL DEFAULT 1,
+                    workspace_policy TEXT NOT NULL DEFAULT 'isolated_worktrees',
+                    scheduling_mode TEXT NOT NULL DEFAULT 'safe',
+                    updated_at INTEGER NOT NULL
+                );
+
+                /* Merge-review queue for completed runs. */
+                CREATE TABLE IF NOT EXISTS plan_merge_queue (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    run_id TEXT NOT NULL,
+                    plan_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    collision_review_required INTEGER NOT NULL DEFAULT 0,
+                    overlapping_plans TEXT NOT NULL DEFAULT '[]',
+                    reviewed_at INTEGER,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_plan_merge_queue_session ON plan_merge_queue(session_id);
             ")
             .map_err(|error| format!("Failed to initialize Basebuild state database: {error}"))?;
         // Migration: add last_active_session_id to existing databases
