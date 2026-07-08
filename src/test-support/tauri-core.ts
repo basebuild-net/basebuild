@@ -132,6 +132,7 @@ type E2eState = {
   nextIdeaId: number;
   planQueue: { id: string; sessionId: string; planId: string; sortOrder: number; createdAt: number }[];
   planRuns: { id: string; planId: string; sessionId: string; chatSessionId?: string; status: string; runnerKind: string; error?: string; stepsOutput: unknown[]; startedAt?: number; finishedAt?: number; createdAt: number }[];
+  planDependencies?: Map<string, { prerequisites: string[]; affectedPaths: string[]; schedulingMode: string; workspacePolicy: string }>;
   workspaceRestoreByProject: Map<string, unknown>;
   recentProjects: { path: string; name: string; lastOpenedAt: number; lastActiveSessionId: string | null }[];
   pickProjectCalls: number;
@@ -578,6 +579,101 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "plan_run_start_omp": {
       const { sessionId, planId } = args as { sessionId: string; planId: string };
       const run = { id: `run-${Date.now()}`, planId, sessionId, status: "running", runnerKind: "omp", error: undefined, stepsOutput: [], createdAt: Date.now() };
+      s.planRuns.push(run);
+      return run as T;
+    }
+    case "plan_set_dependencies": {
+      const req = args.request as { planId: string; prerequisites?: string[]; affectedPaths?: string[]; priority?: number; schedulingMode?: string; workspacePolicy?: string };
+      const plan = s.plans.find((p) => p.id === req.planId);
+      if (!plan) throw new Error(`Plan not found: ${req.planId}`);
+      if (req.priority !== undefined) plan.priority = req.priority;
+      if (!s.planDependencies) s.planDependencies = new Map();
+      const existing = s.planDependencies.get(req.planId) ?? { prerequisites: [], affectedPaths: [], schedulingMode: "safe", workspacePolicy: "isolated_worktrees" };
+      s.planDependencies.set(req.planId, {
+        prerequisites: req.prerequisites ?? existing.prerequisites,
+        affectedPaths: req.affectedPaths ?? existing.affectedPaths,
+        schedulingMode: req.schedulingMode ?? existing.schedulingMode,
+        workspacePolicy: req.workspacePolicy ?? existing.workspacePolicy,
+      });
+      return plan as T;
+    }
+    case "plan_get_dependencies": {
+      const planId = args.planId as string;
+      const deps = s.planDependencies?.get(planId);
+      const plan = s.plans.find((p) => p.id === planId);
+      return (deps ? { planId, ...deps, priority: plan?.priority ?? 50 } : { planId, prerequisites: [], affectedPaths: [], priority: plan?.priority ?? 50, schedulingMode: "safe", workspacePolicy: "isolated_worktrees" }) as T;
+    }
+    case "plan_dependency_graph": {
+      const sessionId = args.sessionId as string;
+      const sessionPlans = s.plans.filter((p) => p.sessionId === sessionId);
+      const nodes = sessionPlans.map((p) => {
+        const deps = s.planDependencies?.get(p.id);
+        const prerequisites = deps?.prerequisites ?? [];
+        const affectedPaths = deps?.affectedPaths ?? [];
+        const schedulingMode = deps?.schedulingMode ?? "safe";
+        const collisions: string[] = [];
+        for (const other of sessionPlans) {
+          if (other.id === p.id) continue;
+          const otherDeps = s.planDependencies?.get(other.id);
+          const otherPaths = otherDeps?.affectedPaths ?? [];
+          if (affectedPaths.some((ap) => otherPaths.includes(ap))) collisions.push(other.id);
+        }
+        const unmet = prerequisites.filter((pid) => {
+          const prereq = s.plans.find((pp) => pp.id === pid);
+          return !prereq || prereq.status !== "finished";
+        });
+        const runningCollisions = collisions.filter((cid) => {
+          const cp = s.plans.find((pp) => pp.id === cid);
+          return cp?.status === "running";
+        });
+        const readiness = p.status === "finished" ? "finished" : p.status === "cancelled" ? "cancelled" : p.status === "running" ? "running" : unmet.length > 0 ? "blocked" : (schedulingMode !== "yolo" && runningCollisions.length > 0) ? "blocked" : "ready";
+        const blockReason = readiness === "blocked" ? (unmet.length > 0 ? `Waiting on prerequisites: ${unmet.join(", ")}` : `File collision with running plan(s): ${runningCollisions.join(", ")}`) : undefined;
+        return { planId: p.id, referenceId: p.referenceId, title: p.title, status: p.status, priority: p.priority, prerequisites, affectedPaths, readiness, blockReason, collisions, dispatchable: readiness === "ready", yoloConfirmed: schedulingMode === "yolo" };
+      });
+      nodes.sort((a, b) => b.priority - a.priority);
+      return { sessionId, nodes, cycles: [] } as T;
+    }
+    case "plan_validate_readiness": {
+      const planId = args.planId as string;
+      const plan = s.plans.find((p) => p.id === planId);
+      if (!plan) return { planId, valid: false, errors: ["Plan not found"], warnings: [] } as T;
+      const errors: string[] = [];
+      const warnings: string[] = [];
+      if (plan.status !== "ready" && plan.status !== "openspec") errors.push(`Plan status is ${plan.status} — must be ready or openspec to dispatch.`);
+      const deps = s.planDependencies?.get(planId);
+      if (deps) {
+        for (const pid of deps.prerequisites) {
+          const prereq = s.plans.find((p) => p.id === pid);
+          if (!prereq) errors.push(`Prerequisite plan ${pid} not found.`);
+          else if (prereq.status !== "finished") errors.push(`Prerequisite '${prereq.title}' is not finished.`);
+        }
+      }
+      return { planId, valid: errors.length === 0, errors, warnings } as T;
+    }
+    case "plan_file_claims_set":
+      return undefined as T;
+    case "plan_file_claims_list":
+      return [] as T;
+    case "plan_coordination_event_publish": {
+      const req = args.request as { sessionId: string; runId: string; planId: string; kind: string; payload?: string };
+      return { id: `evt-${Date.now()}`, ...req, payload: req.payload ?? "{}", createdAt: Date.now() } as T;
+    }
+    case "plan_coordination_events":
+      return [] as T;
+    case "plan_set_launch_profile":
+      return undefined as T;
+    case "plan_get_launch_profile":
+      return null as T;
+    case "plan_merge_queue_list":
+      return [] as T;
+    case "plan_merge_queue_review":
+      return { id: args.entryId as string, runId: "", planId: "", sessionId: "", status: args.decision as string, collisionReviewRequired: false, overlappingPlans: [], reviewedAt: Date.now(), createdAt: 0 } as T;
+    case "plan_assign_with_profile": {
+      const req = args.request as { planId: string; chatSessionId: string };
+      const plan = s.plans.find((p) => p.id === req.planId);
+      if (!plan) throw new Error(`Plan not found: ${req.planId}`);
+      plan.status = "running";
+      const run = { id: `run-${Date.now()}`, planId: req.planId, sessionId: plan.sessionId, chatSessionId: req.chatSessionId, workspacePath: undefined, status: "running", runnerKind: "native", error: undefined, stepsOutput: [], startedAt: Date.now(), finishedAt: undefined, createdAt: Date.now() };
       s.planRuns.push(run);
       return run as T;
     }
