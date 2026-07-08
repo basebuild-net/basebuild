@@ -82,41 +82,11 @@ export function PlanPanel({
   onCopyReference,
   onOpenInTerminal,
   onOpenChatSession,
-  onAssignPlan,
-  onShowToast,
   showHeader = true,
 }: PlanPanelProps) {
   const [expandedFinished, setExpandedFinished] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [profileDefaults, setProfileDefaults] = useState<ProfileForm>({
-    engine: "openspec",
-    providerId: "",
-    modelId: "",
-    effortLevel: "medium",
-    skillId: "",
-    workerCount: 1,
-    workspacePolicy: "isolated_worktrees",
-    schedulingMode: "safe",
-  });
 
-  useEffect(() => {
-    if (!projectPath) return;
-    let cancelled = false;
-    void getLaunchProfile(projectPath).then((profile) => {
-      if (cancelled || !profile) return;
-      setProfileDefaults({
-        engine: (profile.engine as EngineKind) ?? "openspec",
-        providerId: profile.providerId ?? "",
-        modelId: profile.modelId ?? "",
-        effortLevel: (profile.effortLevel as EffortLevel) ?? "medium",
-        skillId: profile.skillId ?? "",
-        workerCount: profile.workerCount ?? 1,
-        workspacePolicy: (profile.workspacePolicy as WorkspacePolicy) ?? "isolated_worktrees",
-        schedulingMode: (profile.schedulingMode as SchedulingMode) ?? "safe",
-      });
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [projectPath]);
 
   const plansByStatus = useMemo(() => {
     const map = new Map<PlanStatus, Plan[]>();
@@ -184,20 +154,18 @@ export function PlanPanel({
           <div className="plan-empty">
             <p className="text-muted text-sm">No plans yet.</p>
             <button className="btn btn-primary btn-sm" type="button" title="Create plan" onClick={onCreatePlan}>
-                        <PlanCard
-                          key={plan.id}
-                          plan={plan}
-                          projectPath={projectPath}
-                          defaults={profileDefaults}
-                          onEdit={onEditPlan}
-                          onFocus={onFocusPlan}
-                          onSetStatus={onSetPlanStatus}
-                          onDeletePlan={onDeletePlan}
-                          onCopyReference={onCopyReference}
-                          onOpenInTerminal={onOpenInTerminal}
-                          onAssignPlan={onAssignPlan}
-                          onShowToast={onShowToast}
-                        />
+              Create plan
+            </button>
+          </div>
+        ) : (
+          PLAN_STATUSES.map((status) => {
+            const list = plansByStatus.get(status) ?? [];
+            if (isTerminalStatus(status)) {
+              if (status !== "finished") return null;
+              const finishedCount = list.length + (plansByStatus.get("cancelled")?.length ?? 0);
+              if (finishedCount === 0) return null;
+              return (
+                <div key={status} className="plan-lane">
                   <button
                     className="plan-lane-header"
                     type="button"
@@ -214,12 +182,15 @@ export function PlanPanel({
                           key={plan.id}
                           plan={plan}
                           projectPath={projectPath}
+                          defaults={profileDefaults}
                           onEdit={onEditPlan}
                           onFocus={onFocusPlan}
                           onSetStatus={onSetPlanStatus}
                           onDeletePlan={onDeletePlan}
                           onCopyReference={onCopyReference}
                           onOpenInTerminal={onOpenInTerminal}
+                          onAssignPlan={onAssignPlan}
+                          onShowToast={onShowToast}
                         />
                       ))}
                     </div>
