@@ -1193,7 +1193,12 @@ impl ProviderClient for AnthropicClient {
             body["tools"] = json!(tools);
         }
 
-        let url = format!("{}/messages", self.base_url.trim_end_matches('/'));
+        // Normalize: the Anthropic Messages API lives at /v1/messages, but
+        // the vendored OMP catalog has inconsistent baseUrl values — some
+        // include `/v1`, most don't. Without this, requests hit
+        // https://api.anthropic.com/messages → 404.
+        let normalized_base = self.base_url.trim_end_matches('/').trim_end_matches("/v1");
+        let url = format!("{normalized_base}/v1/messages");
         let start = Instant::now();
         let is_jwt = api_key.starts_with("eyJ");
         let resp = http_client()?

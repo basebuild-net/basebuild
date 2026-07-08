@@ -1,23 +1,28 @@
 # Basebuild MVP Workflow
 
 This is the acceptance checklist for Basebuild's first complete user journey.
-The MVP is not “the controls exist”; it is the whole loop working reliably with
+The MVP is not "the controls exist"; it is the whole loop working reliably with
 minimal typing, clear state, and recoverable automation.
 
+> **Human sign-off required.** Every item below starts unchecked. Only a human
+> who has personally verified the behavior in the running app may check an item
+> off. Automated tools, agents, and AI may never check items on their own
+> behalf — they may only surface evidence for a human to review. If you cannot
+> confirm it yourself in the live app, leave it unchecked.
 ## Golden path
 
-- [x] Open or add a project folder. Only one folder picker can be open.
-- [x] Show a blocking project-loading surface while project-scoped sessions,
+- [ ] Open or add a project folder. Only one folder picker can be open.
+- [ ] Show a blocking project-loading surface while project-scoped sessions,
       panels, planning counts, provider/model state, and source state restore.
-- [x] Restore the most recently focused project, chat, and panel after restart.
+- [ ] Restore the most recently focused project, chat, and panel after restart.
 - [ ] Create or update the Project Schematic through one-question-at-a-time
       cards: repository facts are prefilled, choices are clickable, feedback is
       accepted, and no file is written before approval.
-- [x] Generate 3–8 grounded categories from the approved schematic, then let the
+- [ ] Generate 3–8 grounded categories from the approved schematic, then let the
       user add, edit, remove, or regenerate them without writing a prompt.
-- [x] Generate multiple grounded ideas for one or more categories, select ideas
+- [ ] Generate multiple grounded ideas for one or more categories, select ideas
       in bulk, provide feedback, and repeat a round with one click.
-- [x] Browse every pending idea in one command center, grouped and filterable by
+- [ ] Browse every pending idea in one command center, grouped and filterable by
       category/status, with its grounding and next action visible.
 - [ ] Promote one or more ideas to plans. Choose the planning engine (native or
       OpenSpec), model/provider/effort, and planning skill before generation.
@@ -28,35 +33,35 @@ minimal typing, clear state, and recoverable automation.
       status.
 - [ ] Configure worker count and execution policy before launch: isolated
       worktree per worker, or sequential primary-workspace execution.
-- [x] Show prerequisite, affected-path, and collision analysis before dispatch.
+- [ ] Show prerequisite, affected-path, and collision analysis before dispatch.
       Safe mode orders/blocks conflicts; explicit YOLO mode confirms the risks.
 - [ ] Every worker reports through the shared run board (plan, priority,
       prerequisites, files claimed, branch, worktree, progress, blockers). This
       board—not free-form agent-to-agent chat—is the coordination source of truth.
 - [ ] Every chat header always shows project, workspace/worktree, branch, model,
       assigned plan, and run state; narrow layouts may compact but not hide them.
-- [x] Review worker diffs against their plan artifacts, resolve collisions in a
+- [ ] Review worker diffs against their plan artifacts, resolve collisions in a
       dependency-aware merge queue, and keep commit/PR/merge/prune actions
       explicitly confirmed.
 
 ## Interaction and quality gates
 
-- [x] No normal decision requires copying a letter or writing a command when a
+- [ ] No normal decision requires copying a letter or writing a command when a
       questionnaire, choice card, picker, or batch action can express it.
-- [x] Loading, empty, offline, queued, blocked, partial-failure, and retry states
+- [ ] Loading, empty, offline, queued, blocked, partial-failure, and retry states
       are visually distinct and never expose stale content from another project.
-- [x] Project switching gives immediate feedback and remains interactive; no
+- [ ] Project switching gives immediate feedback and remains interactive; no
       unexplained blank canvas, layout shuffle, or orphan-recovery warning.
-- [x] The shell, dialogs, account menu, planning board, and chat composer work at
+- [ ] The shell, dialogs, account menu, planning board, and chat composer work at
       the supported minimum 960×640 and at 1280×800, including 125%/150% scale.
-- [x] Account and context menus are viewport-clamped and keyboard reachable.
-- [x] Common UI actions respond within 100 ms; the project loading surface paints
+- [ ] Account and context menus are viewport-clamped and keyboard reachable.
+- [ ] Common UI actions respond within 100 ms; the project loading surface paints
       within 100 ms; restored content is usable within 1 s on the smoke fixture.
-- [x] A 60-second streaming/resize/project-switch smoke produces no freeze report
+- [ ] A 60-second streaming/resize/project-switch smoke produces no freeze report
       and no duplicate project/session load or false orphan warning.
-- [x] All interactions emit useful debug logs; duplicate handlers and skipped
+- [ ] All interactions emit useful debug logs; duplicate handlers and skipped
       branches are visible without turning expected transitions into warnings.
-- [x] UI invariants are automated: `globals.css` only, 0px radius, and `title=`
+- [ ] UI invariants are automated: `globals.css` only, 0px radius, and `title=`
       tooltips on interactive elements. New inline styles fail CI.
 
 ## Live audit baseline — 2026-07-08
@@ -84,11 +89,11 @@ the post-archive reality, not only task completion in
 
 ### Course-correction fixes landed on this branch
 
-- [x] Compact the duplicate top/chat context and prevent raw metadata overlap.
-- [x] Route Schematic to Project Schematic, Ideas to Ideas, and Plans to Plans.
-- [x] Remove the chat-level Ideas button and blank/manual Create plan affordance.
-- [x] Replace the frontend api-kind allowlist with backend-owned effective `supports_tools` (catalog + DB read path account for OMP-RPC transport).
-- [x] Keep effort choices within the selected model's supported efforts.
-- [x] Repair Settings columns and the wide Planning modal's blank/reflow failure.
+- [ ] Compact the duplicate top/chat context and prevent raw metadata overlap.
+- [ ] Route Schematic to Project Schematic, Ideas to Ideas, and Plans to Plans.
+- [ ] Remove the chat-level Ideas button and blank/manual Create plan affordance.
+- [ ] Replace the frontend api-kind allowlist with backend-owned effective `supports_tools` (catalog + DB read path account for OMP-RPC transport).
+- [ ] Keep effort choices within the selected model's supported efforts.
+- [ ] Repair Settings columns and the wide Planning modal's blank/reflow failure.
 - [ ] Render native and OMP planning work as one visible tool/question/activity timeline.
 - [ ] Complete AI-only idea → artifacts → validation → approval → ready → chat assignment.

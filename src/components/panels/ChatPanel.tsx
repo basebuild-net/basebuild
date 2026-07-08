@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Send,
   Sparkles,
+  Square,
   X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -32,8 +33,9 @@ import { nativeInteractionListAll, nativeInteractionResolve } from "../../lib/in
 import type { PendingInteraction } from "../../lib/interactions";
 import { getRuntimeDefaults } from "../../lib/settings";
 import {
-  nativeChatMessages,
+  nativeChatCancel,
   nativeChatGet,
+  nativeChatMessages,
   nativeChatModelDefault,
   nativeChatSend,
   nativeChatSetProjectModelDefault,
@@ -264,8 +266,13 @@ export function ChatPanel({
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [reasoningText, setReasoningText] = useState("");
+  const [streamPhase, setStreamPhase] = useState<"idle" | "thinking" | "streaming" | "tools">("idle");
   const streamBufRef = useRef("");
   const reasoningBufRef = useRef("");
+  // Monotonic id for the in-flight native send. Bumped on stop or on a new
+  // send so a superseded send's async resolution can't revive the spinner
+  // or duplicate messages.
+  const activeSendRef = useRef(0);
   const firstActivityRef = useRef(true);
   // Provider connection UI.
   const [showLogin, setShowLogin] = useState(false);
@@ -490,14 +497,38 @@ export function ChatPanel({
       "native-chat://chunk",
       (event) => {
         if (event.payload.sessionId !== nativeSessionId) return;
-        const channel = event.payload.channel;
+        const channel = event.payload.channel ?? "content";
+        // Status channel: the backend signals phase transitions so the UI
+        // can show a thinking indicator before the first token and clear
+        // streaming text between agent-loop iterations.
+        if (channel === "status") {
+          const phase = event.payload.delta;
+          if (phase === "thinking" || phase === "next") {
+            // Starting a new provider stream — clear previous iteration's
+            // text so each iteration gets a fresh streaming block.
+            streamBufRef.current = "";
+            reasoningBufRef.current = "";
+            setStreamText("");
+            setReasoningText("");
+            setStreamPhase("thinking");
+          } else if (phase === "tools") {
+            setStreamPhase("tools");
+          }
+          return;
+        }
+        // Tool-call argument fragments are raw JSON — don't pollute the
+        // content stream. They render as tool cards via the tool-event
+        // channel instead.
+        if (channel === "tool_call") return;
         if (channel === "reasoning") {
           reasoningBufRef.current += event.payload.delta;
           setReasoningText(reasoningBufRef.current);
+          setStreamPhase((prev) => prev === "thinking" ? "streaming" : prev);
           return;
         }
         streamBufRef.current += event.payload.delta;
         setStreamText(streamBufRef.current);
+        setStreamPhase("streaming");
       },
     );
     return () => {
@@ -719,6 +750,11 @@ export function ChatPanel({
         setStreamText("");
         setReasoningText("");
         setStreaming(true);
+        setStreamPhase("thinking");
+        // Claim this send. A stop or a newer send bumps activeSendRef so this
+        // send's async resolution becomes a no-op instead of reviving the
+        // spinner or duplicating the streamed reply.
+        const gen = ++activeSendRef.current;
         const tempUserId = `temp-${Date.now()}`;
         const tempUser: NativeChatMessage = {
           id: tempUserId,
@@ -734,6 +770,7 @@ export function ChatPanel({
         setNativeMessages((prev) => [...prev, tempUser]);
         try {
           const result = await nativeChatSend({ sessionId: nativeSessionId, content: text, providerId, modelId, effortLevel });
+          if (activeSendRef.current !== gen) return;
           setNativeMessages((prev) => {
             const base = prev.filter((m) => m.id !== tempUserId);
             const next = [...base, result.userMessage];
@@ -750,6 +787,7 @@ export function ChatPanel({
           }
           setMetrics(await nativeRequestMetricsSummary());
         } catch (e) {
+          if (activeSendRef.current !== gen) return;
           const msg = e instanceof Error ? e.message : String(e);
           addLog("error", "Failed to send native message", msg);
           try {
@@ -759,12 +797,31 @@ export function ChatPanel({
             /* ignore */
           }
         } finally {
-          setStreaming(false);
-          setStreamText("");
-          setReasoningText("");
-          streamBufRef.current = "";
-          reasoningBufRef.current = "";
-          setLoading(false);
+          if (activeSendRef.current === gen) {
+            // Normal completion — this send still owns the composer.
+            setStreaming(false);
+            setStreamText("");
+            setReasoningText("");
+            setStreamPhase("idle");
+            streamBufRef.current = "";
+            reasoningBufRef.current = "";
+            setLoading(false);
+          } else if (activeSendRef.current === gen + 1 && nativeSessionId) {
+            // Stopped by the user, no newer send yet — reflect whatever the
+            // backend persisted (partial reply + tool events) without touching
+            // the spinner state (handleStopNative already reset it).
+            try {
+              const msgs = await nativeChatMessages(nativeSessionId);
+              const events = await nativeChatToolEvents(nativeSessionId);
+              if (activeSendRef.current === gen + 1) {
+                setNativeMessages(msgs);
+                setToolEvents(events);
+              }
+            } catch {
+              /* best-effort */
+            }
+          }
+          // else: superseded by a newer send — leave its state untouched.
         }
         return;
       }
@@ -836,7 +893,7 @@ export function ChatPanel({
   // Auto-scroll
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [nativeMessages, legacyMessages, streamText, reasoningText]);
+  }, [nativeMessages, legacyMessages, streamText, reasoningText, streamPhase]);
 
   // Clear stuck timer
   useEffect(() => {
@@ -1006,6 +1063,28 @@ export function ChatPanel({
       })();
     }, 500);
   }, [agentId, projectPath, profileId]);
+  // Forcefully stop the in-flight native chat turn: cancel the backend run,
+  // invalidate the in-flight send so its resolution can't revive the spinner,
+  // and immediately free the composer so the user can send again.
+  const handleStopNative = useCallback(async () => {
+    if (!nativeSessionId) return;
+    // Bump the generation first so the in-flight send()'s finally treats this
+    // as a user stop (gen + 1) and reloads persisted partial output.
+    activeSendRef.current += 1;
+    setStreaming(false);
+    setStreamText("");
+    setReasoningText("");
+    setStreamPhase("idle");
+    streamBufRef.current = "";
+    reasoningBufRef.current = "";
+    setStuck(false);
+    setLoading(false);
+    try {
+      await nativeChatCancel(nativeSessionId);
+    } catch (e) {
+      addLog("error", "Failed to stop chat run", e instanceof Error ? e.message : String(e));
+    }
+  }, [nativeSessionId, addLog]);
 
   const refreshCatalog = useCallback(async (force = false, targetProviderId?: string) => {
     setCatalogRefreshing(true);
@@ -1536,18 +1615,36 @@ export function ChatPanel({
         {streaming && reasoningText ? (
           <div className="chat-message chat-message-assistant chat-message-reasoning" title="Live chain-of-thought from the model. Final answer follows.">
             <span className="chat-message-role">Thinking…</span>
-            <pre className="chat-message-content">{reasoningText}</pre>
+            <pre className="chat-message-content chat-reasoning-live">{reasoningText}<span className="chat-cursor" /></pre>
           </div>
         ) : null}
 
         {streaming && streamText ? (
           <div className="chat-message chat-message-assistant">
             <span className="chat-message-role">Basebuild</span>
-            <pre className="chat-message-content">{streamText}</pre>
+            <pre className="chat-message-content">{streamText}<span className="chat-cursor" /></pre>
           </div>
         ) : null}
 
-        {loading && (!streaming || (!streamText && !reasoningText)) ? (
+        {streaming && streamPhase === "thinking" && !streamText && !reasoningText ? (
+          <div className="chat-message chat-thinking-indicator" title="Waiting for the model to start responding">
+            <span className="chat-message-role">Basebuild</span>
+            <div className="chat-thinking-dots">
+              <span className="chat-thinking-dot" />
+              <span className="chat-thinking-dot" />
+              <span className="chat-thinking-dot" />
+            </div>
+          </div>
+        ) : null}
+
+        {streaming && streamPhase === "tools" ? (
+          <div className="chat-loading chat-loading-active" title="Executing tool calls — the model will continue after results arrive">
+            <span className="chat-loading-spinner" />
+            <span>Running tools…</span>
+          </div>
+        ) : null}
+
+        {loading && !streaming ? (
           <div className="chat-loading">{nativeMode ? "Working…" : "Agent is typing…"}</div>
         ) : null}
         {stuck ? (
@@ -2061,15 +2158,26 @@ export function ChatPanel({
             disabled={inputDisabled}
             title={nativeMode ? "Chat input — type a message and press Enter to send" : "Chat input — start the agent to enable sending"}
           />
-          <button
-            className="btn btn-primary chat-send-btn"
-            type="button"
-            title="Send message"
-            disabled={sendDisabled}
-            onClick={() => void handleSend()}
-          >
-            <Send size={14} />
-          </button>
+          {nativeMode && loading ? (
+            <button
+              className="btn chat-send-btn chat-stop-btn"
+              type="button"
+              title="Stop the agent and unlock the composer"
+              onClick={() => void handleStopNative()}
+            >
+              <Square size={13} />
+            </button>
+          ) : (
+            <button
+              className="btn btn-primary chat-send-btn"
+              type="button"
+              title="Send message"
+              disabled={sendDisabled}
+              onClick={() => void handleSend()}
+            >
+              <Send size={14} />
+            </button>
+          )}
         </div>
       </div>
     </div>

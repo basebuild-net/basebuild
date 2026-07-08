@@ -807,6 +807,9 @@ impl NativeChatService {
             );
         };
 
+        // Signal the UI that the model is thinking before the first token.
+        emit("thinking", "status");
+
         let response = match client.generate(&req, &emit) {
             Ok(r) => r,
             Err(e) => {

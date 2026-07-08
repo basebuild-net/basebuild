@@ -417,6 +417,11 @@ fn run_loop_inner(
             );
         };
 
+        // Signal the UI that the model is thinking (streaming will follow).
+        // On iterations > 1 this also clears the previous iteration's text
+        // so the UI shows a fresh streaming block for the new turn.
+        emit(if iteration > 1 { "next" } else { "thinking" }, "status");
+
         let response = match client.generate(&req, &emit) {
             Ok(r) => r,
             Err(e) => {
@@ -449,6 +454,9 @@ fn run_loop_inner(
                 tool_events,
             };
         }
+
+        // Signal the UI that tool execution is starting (clears streaming text).
+        emit("tools", "status");
 
         // Process tool calls.
         let tool_results = process_tool_calls(
