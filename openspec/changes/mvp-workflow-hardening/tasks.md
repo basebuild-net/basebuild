@@ -115,7 +115,7 @@ Ownership map:
 - [x] 7.2 Add restart/focus and partial-failure desktop smoke plus a 60-second
       streaming/project-switch/panel-resize run; assert zero freeze report,
       duplicate activation, false orphan warning, and unhandled error.
-- [ ] 7.3 Enforce performance budgets: feedback/loading paint ≤100 ms, fixture
+- [x] 7.3 Enforce performance budgets: feedback/loading paint ≤100 ms, fixture
       activation usable ≤1 s, and the initial renderer chunk below 500 kB
       minified by lazy-loading heavy planning/catalog/settings surfaces; capture
       diagnostics on regression.
