@@ -22,8 +22,13 @@ Basebuild's app shell is a three-column grid:
    already-linked sources; malformed sources are reported and skipped. The
    **Flow** tab shows a board with per-stage counts (schematic, ideas, plans,
    running, finished) and completion cards for runs in `awaiting_review` or
-   `succeeded` status. The **Changes** tab shows the OpenSpec change catalog
-   (see `docs/agents/openspec.md`).
+   `succeeded` status. It also shows a **launch profile form** (worker count,
+   provider cap, workspace policy, scheduling mode) and a **run board** with
+   dependency graph nodes showing plan, priority, prerequisites, owner chat,
+   branch/worktree, affected-path claims, progress, blockers, and merge
+   readiness. A **merge-review queue** lists finished workers awaiting review
+   with approve/reject/merge actions. The **Changes** tab shows the OpenSpec
+   change catalog (see `docs/agents/openspec.md`).
 
 
 The global taskbar sits above the shell. Its right side contains the update

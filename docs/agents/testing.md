@@ -132,3 +132,19 @@ self-healing, project-scoped, transactional panel-grid state:
 
 When adding new panel creation paths, route them through `insertPanel` /
 `commitInsert` and add a row to this matrix.
+
+### MVP workflow hardening test suites
+
+The `mvp-workflow-hardening` change adds regression coverage for the full MVP
+journey:
+
+| Regression | Suite | What it asserts |
+|---|---|---|
+| Atomic project activation | `mvp-activation.spec.ts` | Generation-guarded restore, loading boundary, no stale content from previous project. |
+| Folder picker single-flight | `mvp-activation.spec.ts` | Concurrent picker clicks produce exactly one native dialog. |
+| Visual snapshots at 960×640 | `mvp-visual-snapshots.spec.ts` | Shell, planning modal, chat, and command strip render correctly at minimum viewport. |
+| Planning flow | `mvp-planning-flow.spec.ts` | Schematic wizard destination picker, category generation, ideas batch-select, Flow tab counts. |
+| Dependency scheduling | `mvp-dependency-scheduling.spec.ts` | Dependency graph, collision detection, launch controls, safe serialization, merge queue. |
+| Golden path | `mvp-golden-path.spec.ts` | Full journey: folder → schematic → categories → ideas → plans → flow board, no unhandled errors. |
+| Restart/smoke | `mvp-restart-smoke.spec.ts` | Focus restore, no duplicate activation, no orphan warnings, 60s streaming, click-to-feedback budget. |
+| UI invariants | `scripts/check-ui-invariants.mjs` | One stylesheet, 0px radius, tooltips on interactive elements, no inline styles. |
