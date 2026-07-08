@@ -91,7 +91,7 @@ Ownership map:
 
 - [x] 6.1 Add plan priority, prerequisites, declared affected paths, and inferred
       overlap service/model/API with cycle and stale-plan validation.
-- [ ] 6.2 Add launch-time worker count, effective provider cap, workspace policy,
+- [x] 6.2 Add launch-time worker count, effective provider cap, workspace policy,
       and safe/YOLO scheduling controls with a complete confirmation summary.
 - [x] 6.3 Implement safe dispatcher ordering and live file claims; queue/block
       conflicts, surface reasons, and re-evaluate when claims/progress change.
