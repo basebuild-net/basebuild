@@ -154,7 +154,7 @@ export function ActivitySidebar({
           {/* Panels (chats) nested under the project */}
           {panels.length === 0 ? (
             <div className="sidebar-empty text-muted text-sm">
-              No panels open. <button className="chat-link-btn" type="button" onClick={onCreateChat}>Start a chat</button>.
+              No panels open. <button className="chat-link-btn" type="button" title="Start a new chat" onClick={onCreateChat}>Start a chat</button>.
             </div>
           ) : (
             panels.map((panel) => {

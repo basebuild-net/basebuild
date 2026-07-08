@@ -694,8 +694,8 @@ a { color: inherit; text-decoration: none; }
 /* ─── Commit graph ─── */
 .commit-graph { padding: 4px 0; }
 .commit-graph-rows { display: flex; flex-direction: column; }
-.commit-graph-row { display: flex; align-items: center; gap: 0; }
-.commit-graph-svg { display: block; }
+.commit-graph-row { display: flex; align-items: center; gap: 0; height: 42px; }
+.commit-graph-svg { display: block; flex-shrink: 0; }
 .commit-graph-info { flex: 1; min-width: 0; padding-right: 8px; }
 .commit-graph-msg {
   font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -2460,4 +2460,9 @@ a { color: inherit; text-decoration: none; }
 /* Splash progress fill width is dynamic — keep inline */
 /* Progress bar fill width is dynamic — keep inline */
 /* Panel grid split flex values are dynamic — keep inline */
-/* Commit graph row height is dynamic — keep inline */
+/* Commit graph row height is fixed in .commit-graph-row */
+/* Settings modal static margin debt */
+.mt-n4 { margin-top: -4px; }
+.mb-n4 { margin-bottom: -4px; }
+.items-start { align-items: flex-start; }
+.audit-entry { border-bottom: 1px solid var(--border); padding-bottom: 4px; }

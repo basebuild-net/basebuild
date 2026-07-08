@@ -41,10 +41,10 @@ export function ProjectDescriptionModal({ open, onClose, existingContent, onSave
             autoFocus
           />
           <div className="modal-actions">
-            <button className="btn" type="button" onClick={onClose}>
+            <button className="btn" type="button" title="Cancel" onClick={onClose}>
               Cancel
             </button>
-            <button className="btn" type="button" onClick={onOpenFile}>
+            <button className="btn" type="button" title="Open project schematic file" onClick={onOpenFile}>
               <FileText size={12} /> Open file
             </button>
             <button

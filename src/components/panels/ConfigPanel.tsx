@@ -22,7 +22,7 @@ export function ConfigPanel({ projectPath }: { projectPath: string | null }) {
         <input className="input" placeholder="New pack name" type="text" value={newName}
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") void create(); }} />
-        <button className="btn btn-primary" onClick={() => void create()} type="button">Create</button>
+        <button className="btn btn-primary" title="Create config pack" onClick={() => void create()} type="button">Create</button>
       </div>
       {packs.length === 0 ? <p className="text-muted">No config packs found.</p> : null}
       {packs.map((pack) => (

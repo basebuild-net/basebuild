@@ -11,6 +11,8 @@ export type OpenMvpFixtureOptions = {
   projectPath?: string;
   /** Artificial delay for the mocked folder picker (ms). Used to test single-flight behavior. */
   pickerDelayMs?: number;
+  /** Artificial delay for the mocked workspace restore (ms). Used to test generation-guard behavior. */
+  restoreDelayMs?: number;
 };
 
 /**
@@ -31,6 +33,7 @@ export async function openMvpFixtureProject(
       __BASEBUILD_E2E_FIXTURE__?: string;
       __BASEBUILD_E2E_PICK_PROJECT_PATH__?: string;
       __BASEBUILD_E2E_PICKER_DELAY_MS__?: number;
+      __BASEBUILD_E2E_RESTORE_DELAY_MS__?: number;
     };
     w.__BASEBUILD_E2E_FIXTURE__ = "mvp-baseline";
     if (opts.projectPath) {
@@ -38,6 +41,9 @@ export async function openMvpFixtureProject(
     }
     if (opts.pickerDelayMs !== undefined) {
       w.__BASEBUILD_E2E_PICKER_DELAY_MS__ = opts.pickerDelayMs;
+    }
+    if (opts.restoreDelayMs !== undefined) {
+      w.__BASEBUILD_E2E_RESTORE_DELAY_MS__ = opts.restoreDelayMs;
     }
   }, options);
   await page.goto("/");

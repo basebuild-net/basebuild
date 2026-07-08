@@ -58,10 +58,10 @@ export function ProjectSchematicTab({ projectPath, onStartWizard, onOpenRaw }: P
         <h3>Project description missing</h3>
         <p>This project has no <code>.basebuild/project-schematic.md</code> yet.</p>
         <div className="empty-state-actions">
-          <button className="btn btn-primary" type="button" onClick={() => onStartWizard()}>
+          <button className="btn btn-primary" type="button" title="Start project description wizard" onClick={() => onStartWizard()}>
             <Sparkles size={12} /> Start wizard
           </button>
-          <button className="btn" type="button" onClick={onOpenRaw}>Edit raw</button>
+          <button className="btn" type="button" title="Edit project description raw file" onClick={onOpenRaw}>Edit raw</button>
         </div>
       </div>
     );

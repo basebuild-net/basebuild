@@ -500,7 +500,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                       />
                       <span className="text-sm">Auto-send generated prompts</span>
                     </label>
-                    <p className="text-muted text-sm" style={{ marginTop: -4 }}>
+                    <p className="text-muted text-sm mt-n4">
                       When enabled, prompts from the chat planning menu are sent immediately. Disabled by default.
                     </p>
 
@@ -751,7 +751,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                     ) : (
                       <div className="stack scroll-y-200">
                         {auditTrail.map((entry) => (
-                          <div key={entry.id} className="text-sm" style={{ borderBottom: "1px solid var(--border)", paddingBottom: 4 }}>
+                          <div key={entry.id} className="text-sm audit-entry">
                             <span className={`badge badge-${entry.decision === "allow" ? "success" : entry.decision === "deny" ? "error" : "warning"}`}>
                               {entry.decision}
                             </span>{" "}
@@ -780,7 +780,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
 
                 {consent ? (
                   <>
-                    <label className="row gap-sm" style={{ marginTop: 4 }}>
+                    <label className="row gap-sm mt-4">
                       <input
                         type="checkbox"
                         title="Enable local usage analytics — stored on this device only"
@@ -789,11 +789,11 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                       />
                       <span className="text-sm">Enable local usage analytics</span>
                     </label>
-                    <p className="text-muted text-sm" style={{ marginTop: -4 }}>
+                    <p className="text-muted text-sm mt-n4">
                       Stores privacy-safe metadata (event name, feature area, outcome, duration) on this device only.
                     </p>
 
-                    <label className="row gap-sm" style={{ marginTop: 4 }}>
+                    <label className="row gap-sm mt-4">
                       <input
                         type="checkbox"
                         title="Enable remote upload of anonymous analytics — separate from local collection"
@@ -803,12 +803,12 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                       />
                       <span className="text-sm">Enable anonymous upload</span>
                     </label>
-                    <p className="text-muted text-sm" style={{ marginTop: -4 }}>
+                    <p className="text-muted text-sm mt-n4">
                       Upload is disabled until a reviewed endpoint is configured. No upload code runs unless this is enabled.
                     </p>
 
-                    <div style={{ marginTop: 8 }}>
-                      <h4 className="text-sm text-muted" style={{ marginBottom: 6 }}>Local analytics data</h4>
+                    <div className="mt-8">
+                      <h4 className="text-sm text-muted mb-6">Local analytics data</h4>
                       <div className="row gap-sm">
                         <span className="text-sm mono">{eventCount} events stored</span>
                         <button
@@ -837,7 +837,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                 )}
 
                 {consent && !consent.collectionEnabled ? (
-                  <div className="requirement-row is-ok" style={{ marginTop: 8 }}>
+                  <div className="requirement-row is-ok mt-8">
                     <span className="requirement-badge is-ok">✓</span>
                     <div>
                       <div className="requirement-name">Analytics disabled</div>
@@ -963,7 +963,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                   Desktop application for managing OMP terminals, source control,
                   ideas, and plans.
                 </p>
-                <div className="row gap-sm" style={{ marginTop: 8 }}>
+                <div className="row gap-sm mt-8">
                   <a
                     className="btn btn-sm"
                     href="https://github.com/basebuild-net/basebuild/issues/new?labels=bug&template=bug_report.md&title=Bug:"
@@ -997,7 +997,7 @@ function PermissionSelect({ label, title, value, onChange }: {
   onChange: (v: PermissionDecision) => void;
 }) {
   return (
-    <label className="stack-sm" style={{ marginBottom: 8 }}>
+    <label className="stack-sm mb-8">
       <span className="text-sm text-muted">{label}</span>
       <select
         className="input"
@@ -1172,8 +1172,8 @@ function UsageSyncPanel({ signedIn }: { signedIn: boolean }) {
         (model, provider, tokens, cost, timing) — never prompts, source code, or secrets.
       </p>
 
-      <div className="row gap-sm" style={{ alignItems: "center", flexWrap: "wrap" }}>
-        <label className="row gap-sm" style={{ alignItems: "center" }}>
+      <div className="row gap-sm flex-wrap">
+        <label className="row gap-sm">
           <input
             type="checkbox"
             checked={status?.enabled ?? false}
@@ -1365,7 +1365,7 @@ function ModelProvidersPanel() {
   const providers = (catalog?.providers ?? []).filter((p) => !p.localOnly);
 
   return (
-    <div className="stack" style={{ marginTop: 16 }}>
+    <div className="stack mt-16">
       <h3>Model Providers</h3>
       <p className="text-muted text-sm">
         Connect model providers with a web flow or an API key. Credentials are stored locally on this device only.
@@ -1380,11 +1380,11 @@ function ModelProvidersPanel() {
         <RefreshCw size={12} /> Refresh models
       </button>
       {providers.map((p) => (
-        <div key={p.id} className="requirement-row" style={{ alignItems: "flex-start" }}>
+        <div key={p.id} className="requirement-row items-start">
           <span className={`requirement-badge is-${p.configured ? "ok" : "attention"}`}>
             {p.configured ? "✓" : "!"}
           </span>
-          <div style={{ flex: 1 }}>
+          <div className="flex-1">
             <div className="requirement-name">
               {p.label} {p.configured ? <span className="text-muted text-sm">connected</span> : null}{p.modelCount > 0 ? <span className="text-muted text-sm"> · {p.modelCount} model{p.modelCount === 1 ? "" : "s"}</span> : null}
             </div>
@@ -1395,24 +1395,23 @@ function ModelProvidersPanel() {
             ) : null}
             {p.configured ? (
               <button
-                className="btn btn-sm"
+                className="btn btn-sm mt-6"
                 type="button"
                 title={`Disconnect ${p.label}`}
                 disabled={busyId === p.id}
                 onClick={() => void disconnect(p.id)}
-                style={{ marginTop: 6 }}
               >
                 <Unplug size={12} /> Disconnect
               </button>
             ) : busyId === p.id ? (
-              <div className="row gap-sm" style={{ marginTop: 6 }}>
+              <div className="row gap-sm mt-6">
                 <span className="text-muted text-sm">Waiting for browser…</span>
                 <button className="btn btn-sm" type="button" title="Cancel" onClick={() => cancelWeb(p.id)}>
                   Cancel
                 </button>
               </div>
             ) : (
-              <div className="stack-sm" style={{ marginTop: 6 }}>
+              <div className="stack-sm mt-6">
                 <button
                   className="btn btn-primary btn-sm"
                   type="button"

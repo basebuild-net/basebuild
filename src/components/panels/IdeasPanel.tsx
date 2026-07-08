@@ -136,10 +136,10 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
             onKeyDown={(e) => { if (e.key === "Enter") void handleCreateCategory(); }}
             autoFocus
           />
-          <button className="btn btn-primary" onClick={() => void handleCreateCategory()} type="button">Add</button>
+          <button className="btn btn-primary" title="Add category" onClick={() => void handleCreateCategory()} type="button">Add</button>
         </div>
       ) : (
-        <button className="btn btn-ghost text-sm" onClick={() => setShowCategoryInput(true)} type="button">
+        <button className="btn btn-ghost text-sm" title="Create new category" onClick={() => setShowCategoryInput(true)} type="button">
           <Plus size={12} /> New category
         </button>
       )}
@@ -153,7 +153,7 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
           onChange={(e) => setNewIdeaTitle(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") void handleCreateIdea(); }}
         />
-        <button className="btn btn-primary" disabled={!newIdeaTitle.trim()} onClick={() => void handleCreateIdea()} type="button">
+        <button className="btn btn-primary" title="Add idea" disabled={!newIdeaTitle.trim()} onClick={() => void handleCreateIdea()} type="button">
           <Plus size={12} /> Add
         </button>
       </div>

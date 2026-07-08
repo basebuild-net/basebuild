@@ -94,12 +94,11 @@ export function CommitGraph({ commits }: { commits: GitCommit[] }) {
     <div className="commit-graph">
       <div className="commit-graph-rows">
         {rows.map((row, i) => (
-          <div className="commit-graph-row" key={row.commit.hash} style={{ height: ROW_H }}>
+          <div className="commit-graph-row" key={row.commit.hash}>
             <svg
               className="commit-graph-svg"
               width={graphWidth}
               height={ROW_H}
-              style={{ flexShrink: 0 }}
             >
               {/* Curved connectors to parents */}
               {row.connectors.map((conn, j) => {

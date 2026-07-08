@@ -118,7 +118,7 @@ export function PlanPanel({
         ) : plans.length === 0 ? (
           <div className="plan-empty">
             <p className="text-muted text-sm">No plans yet.</p>
-            <button className="btn btn-primary btn-sm" type="button" onClick={onCreatePlan}>
+            <button className="btn btn-primary btn-sm" type="button" title="Create plan" onClick={onCreatePlan}>
               Create plan
             </button>
           </div>

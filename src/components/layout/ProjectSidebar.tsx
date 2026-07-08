@@ -175,14 +175,14 @@ export function ProjectSidebar({
                   </button>
                   {menuPath === project.path ? (
                     <div className="context-menu" onMouseLeave={() => setMenuPath(null)}>
-                      <button className="menu-item" type="button" onClick={() => handleReveal(project.path)}>
+                      <button className="menu-item" type="button" title="Open project in file explorer" onClick={() => handleReveal(project.path)}>
                         <ExternalLink size={13} /> Open in explorer
                       </button>
-                      <button className="menu-item" type="button" onClick={() => toggleHide(project.path)}>
+                      <button className="menu-item" type="button" title={hiddenPaths.has(project.path) ? "Show project in list" : "Hide project from list"} onClick={() => toggleHide(project.path)}>
                         {hiddenPaths.has(project.path) ? <Eye size={13} /> : <EyeOff size={13} />}
                         {hiddenPaths.has(project.path) ? "Show in list" : "Hide from list"}
                       </button>
-                      <button className="menu-item menu-item-danger" type="button" onClick={() => handleRemove(project.path)}>
+                      <button className="menu-item menu-item-danger" type="button" title="Remove project from list" onClick={() => handleRemove(project.path)}>
                         <X size={13} /> Remove
                       </button>
                     </div>
@@ -254,7 +254,7 @@ export function ProjectSidebar({
                         ) : null}
                         {sessionMenu === s.id ? (
                           <div className="context-menu" onMouseLeave={() => setSessionMenu(null)}>
-                            <button className="menu-item" type="button" onClick={() => {
+                            <button className="menu-item" type="button" title="Rename session" onClick={() => {
                               setEditingSession(s.id);
                               setEditValue(s.title);
                               setSessionMenu(null);
@@ -262,7 +262,7 @@ export function ProjectSidebar({
                               <Pencil size={13} /> Rename
                             </button>
                             {onDeleteSession ? (
-                              <button className="menu-item menu-item-danger" type="button" onClick={() => {
+                              <button className="menu-item menu-item-danger" type="button" title="Delete session" onClick={() => {
                                 if (confirm(`Delete session "${s.title}"? This cannot be undone.`)) {
                                   onDeleteSession(s.id);
                                 }
@@ -282,7 +282,7 @@ export function ProjectSidebar({
           })
         )}
         {hiddenPaths.size > 0 ? (
-          <button className="sidebar-show-hidden" type="button" onClick={() => setHiddenPaths(new Set())}>
+          <button className="sidebar-show-hidden" type="button" title="Show hidden projects" onClick={() => setHiddenPaths(new Set())}>
             <Eye size={13} /> Show {hiddenPaths.size} hidden
           </button>
         ) : null}

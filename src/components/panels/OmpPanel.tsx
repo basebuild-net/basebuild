@@ -39,7 +39,7 @@ export function OmpPanel({ state }: OmpPanelProps) {
         <div className="omp-status-row">
           <h3>OMP status</h3>
           {state.status?.installed ? (
-            <button className="btn btn-ghost" disabled={state.busy} onClick={() => void quickstart()} type="button">
+            <button className="btn btn-ghost" title="Run OMP quickstart" disabled={state.busy} onClick={() => void quickstart()} type="button">
               <Zap size={14} /> Quickstart
             </button>
           ) : null}
@@ -86,7 +86,7 @@ export function OmpPanel({ state }: OmpPanelProps) {
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") void runPrompt(); }}
             />
-            <button className="btn btn-primary" disabled={state.busy} onClick={() => void runPrompt()} type="button">
+            <button className="btn btn-primary" title="Run OMP prompt" disabled={state.busy} onClick={() => void runPrompt()} type="button">
               <Play size={14} /> Run
             </button>
           </div>
