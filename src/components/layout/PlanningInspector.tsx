@@ -17,8 +17,12 @@ import {
   getLaunchProfile,
   setLaunchProfile as saveLaunchProfile,
   getDependencyGraph,
+  listMergeQueue,
+  reviewMergeEntry,
   type LaunchProfile,
   type DependencyGraph,
+  type DependencyNode,
+  type MergeReviewEntry,
   type EngineKind,
   type WorkspacePolicy,
   type SchedulingMode,
@@ -117,6 +121,10 @@ export function PlanningInspector({
     schedulingMode: SchedulingMode;
   } | null>(null);
   const [launchSaving, setLaunchSaving] = useState(false);
+  const [dependencyGraph, setDependencyGraph] = useState<DependencyGraph | null>(null);
+  const [mergeQueue, setMergeQueue] = useState<MergeReviewEntry[]>([]);
+  const [runBoardLoading, setRunBoardLoading] = useState(false);
+  const [mergeQueueLoading, setMergeQueueLoading] = useState(false);
   const ideaState = useIdeaState(sessionId);
   const schematic = useProjectSchematic(projectPath);
   const { addLog } = useLogs();
@@ -138,6 +146,36 @@ export function PlanningInspector({
       .then(setPlanRuns)
       .catch(() => setPlanRuns([]));
   }, [sessionId, plans]);
+  // Load dependency graph for the run board.
+  useEffect(() => {
+    if (!sessionId) {
+      setDependencyGraph(null);
+      return;
+    }
+    setRunBoardLoading(true);
+    void getDependencyGraph(sessionId)
+      .then(setDependencyGraph)
+      .catch((e) => {
+        addLog("error", "Failed to load dependency graph", e instanceof Error ? e.message : String(e));
+        setDependencyGraph(null);
+      })
+      .finally(() => setRunBoardLoading(false));
+  }, [sessionId, addLog]);
+  // Load merge-review queue for finished worktree runs.
+  useEffect(() => {
+    if (!sessionId) {
+      setMergeQueue([]);
+      return;
+    }
+    setMergeQueueLoading(true);
+    void listMergeQueue(sessionId)
+      .then(setMergeQueue)
+      .catch((e) => {
+        addLog("error", "Failed to load merge queue", e instanceof Error ? e.message : String(e));
+        setMergeQueue([]);
+      })
+      .finally(() => setMergeQueueLoading(false));
+  }, [sessionId, addLog]);
   // Load saved launch profile for this project.
   useEffect(() => {
     if (!projectPath) {
@@ -301,6 +339,222 @@ export function PlanningInspector({
     }
   }, [plans, sessionId, launchForm, launchProfile, addLog]);
 
+  const handleReviewMergeEntry = useCallback(
+    async (entryId: string, decision: "approved" | "rejected" | "merged") => {
+      try {
+        const updated = await reviewMergeEntry(entryId, decision);
+        setMergeQueue((prev) => prev.map((e) => (e.id === entryId ? updated : e)));
+        onShowToast?.(
+          `Merge ${decision}`,
+          `Entry ${updated.planId.slice(0, 8)} reviewed as ${decision}`,
+          "success",
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        addLog("error", "Failed to review merge entry", msg);
+        onShowToast?.("Review failed", msg, "error");
+      }
+    },
+    [addLog, onShowToast],
+  );
+
+  function RunBoardRow({ node }: { node: DependencyNode }) {
+    const plan = plans.find((p) => p.id === node.planId);
+    const run = planRuns.find((r) => r.planId === node.planId);
+    const ownerChat = run?.chatSessionId ? `#${run.chatSessionId.slice(0, 8)}` : "unassigned";
+    const engine = launchProfile?.engine === "native" ? "native" : "openspec";
+    const provider = launchProfile?.providerId || "—";
+    const model = launchProfile?.modelId || "—";
+    const worktree = run?.workspacePath ?? "—";
+    const branch = run?.workspacePath ? run.workspacePath.split(/[\\/]/).pop() ?? run.workspacePath : "—";
+    const tooltip = [
+      `Plan: ${node.title} (#${node.referenceId})`,
+      `Status: ${node.status}`,
+      `Priority: ${node.priority}`,
+      `Readiness: ${node.readiness}`,
+      `Prerequisites: ${node.prerequisites.join(", ") || "none"}`,
+      `Affected paths: ${node.affectedPaths.join(", ") || "none"}`,
+      `Collisions: ${node.collisions.join(", ") || "none"}`,
+      `Owner chat: ${ownerChat}`,
+      `Engine: ${engine}`,
+      `Provider: ${provider}`,
+      `Model: ${model}`,
+      `Branch: ${branch}`,
+      `Worktree: ${worktree}`,
+      node.blockReason ? `Blocked: ${node.blockReason}` : null,
+      `Dispatchable: ${node.dispatchable ? "yes" : "no"}`,
+      `YOLO confirmed: ${node.yoloConfirmed ? "yes" : "no"}`,
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n");
+
+    return (
+      <div className="run-board-row" title={tooltip}>
+        <div className="run-board-cell run-board-cell-title">{node.title}</div>
+        <div className="run-board-cell" title={`Priority: ${node.priority}`}>{node.priority}</div>
+        <div className="run-board-cell run-board-cell-badges">
+          {node.prerequisites.length > 0
+            ? node.prerequisites.map((prereq) => (
+                <span key={prereq} className="run-board-badge" title={`Prerequisite: ${prereq}`}>
+                  {prereq}
+                </span>
+              ))
+            : <span className="run-board-badge run-board-badge-empty" title="No prerequisites">—</span>}
+        </div>
+        <div className="run-board-cell" title={`Owner chat: ${ownerChat}`}>{ownerChat}</div>
+        <div className="run-board-cell" title={`Engine: ${engine} | Provider: ${provider} | Model: ${model}`}>
+          {engine}/{provider}/{model}
+        </div>
+        <div className="run-board-cell" title={`Branch: ${branch} | Worktree: ${worktree}`}>
+          {branch}
+        </div>
+        <div className="run-board-cell run-board-cell-badges">
+          {node.affectedPaths.length > 0
+            ? node.affectedPaths.map((path) => (
+                <span key={path} className="run-board-badge" title={`Claimed path: ${path}`}>
+                  {path.split(/[\\/]/).pop() ?? path}
+                </span>
+              ))
+            : <span className="run-board-badge run-board-badge-empty" title="No affected paths">—</span>}
+        </div>
+        <div className="run-board-cell" title="Progress: not tracked">—</div>
+        <div className="run-board-cell" title={node.blockReason || "No blockers"}>
+          {node.blockReason ? "blocked" : "—"}
+        </div>
+        <div className="run-board-cell" title={`Collisions: ${node.collisions.join(", ") || "none"}`}>
+          {node.collisions.length}
+        </div>
+        <div className="run-board-cell" title={`Merge readiness: ${node.readiness}`}>
+          {node.readiness}
+        </div>
+      </div>
+    );
+  }
+
+  function RunBoard() {
+    if (!sessionId) {
+      return (
+        <div className="run-board">
+          <div className="run-board-empty" title="No session selected">No session selected</div>
+        </div>
+      );
+    }
+    if (runBoardLoading) {
+      return (
+        <div className="run-board">
+          <div className="run-board-empty" title="Loading dependency graph">Loading run board…</div>
+        </div>
+      );
+    }
+    if (!dependencyGraph?.nodes.length) {
+      return (
+        <div className="run-board">
+          <div className="run-board-empty" title="No dependency graph nodes available">No run board entries</div>
+        </div>
+      );
+    }
+    return (
+      <div className="run-board" title={`Dependency graph for session ${sessionId.slice(0, 8)}`}>
+        <div className="run-board-header">
+          <span className="run-board-header-title">Run board</span>
+          <span className="text-muted text-sm" title={`${dependencyGraph.nodes.length} node(s)`}>
+            {dependencyGraph.nodes.length} node(s)
+          </span>
+        </div>
+        <div className="run-board-row run-board-row-header" title="Run board column headers">
+          <div className="run-board-cell">Plan</div>
+          <div className="run-board-cell">Prio</div>
+          <div className="run-board-cell">Prereqs</div>
+          <div className="run-board-cell">Chat</div>
+          <div className="run-board-cell">Engine/Provider/Model</div>
+          <div className="run-board-cell">Branch</div>
+          <div className="run-board-cell">Claims</div>
+          <div className="run-board-cell">%</div>
+          <div className="run-board-cell">Blockers</div>
+          <div className="run-board-cell">Collisions</div>
+          <div className="run-board-cell">Readiness</div>
+        </div>
+        {dependencyGraph.nodes.map((node) => (
+          <RunBoardRow key={node.planId} node={node} />
+        ))}
+      </div>
+    );
+  }
+
+  function MergeQueue() {
+    if (mergeQueueLoading) {
+      return (
+        <div className="merge-queue">
+          <div className="run-board-empty" title="Loading merge-review queue">Loading merge queue…</div>
+        </div>
+      );
+    }
+    if (mergeQueue.length === 0) {
+      return (
+        <div className="merge-queue">
+          <div className="run-board-empty" title="No merge-review entries">No merge-review entries</div>
+        </div>
+      );
+    }
+    return (
+      <div className="merge-queue">
+        <div className="run-board-header">
+          <span className="run-board-header-title">Merge review</span>
+          <span className="text-muted text-sm" title={`${mergeQueue.length} entry(ies)`}>
+            {mergeQueue.length} entry(ies)
+          </span>
+        </div>
+        {mergeQueue.map((entry) => {
+          const plan = plans.find((p) => p.id === entry.planId);
+          const title = plan?.title ?? `Plan ${entry.planId.slice(0, 8)}`;
+          const tooltip = [
+            `Plan: ${title}`,
+            `Status: ${entry.status}`,
+            `Collision review required: ${entry.collisionReviewRequired ? "yes" : "no"}`,
+            `Overlapping plans: ${entry.overlappingPlans.join(", ") || "none"}`,
+            `Created: ${new Date(entry.createdAt).toLocaleString()}`,
+            entry.reviewedAt ? `Reviewed: ${new Date(entry.reviewedAt).toLocaleString()}` : null,
+          ]
+            .filter((line): line is string => Boolean(line))
+            .join("\n");
+          return (
+            <div key={entry.id} className="merge-queue-entry" title={tooltip}>
+              <div className="merge-queue-entry-main">
+                <span className="merge-queue-entry-title" title={title}>{title}</span>
+                <span className="merge-queue-entry-status" title={`Status: ${entry.status}`}>{entry.status}</span>
+              </div>
+              <div className="merge-queue-entry-actions">
+                <button
+                  className="btn btn-sm"
+                  type="button"
+                  title={`Approve merge entry ${entry.id.slice(0, 8)}`}
+                  onClick={() => void handleReviewMergeEntry(entry.id, "approved")}
+                >
+                  Approve
+                </button>
+                <button
+                  className="btn btn-sm"
+                  type="button"
+                  title={`Reject merge entry ${entry.id.slice(0, 8)}`}
+                  onClick={() => void handleReviewMergeEntry(entry.id, "rejected")}
+                >
+                  Reject
+                </button>
+                <button
+                  className="btn btn-sm btn-primary"
+                  type="button"
+                  title={`Merge entry ${entry.id.slice(0, 8)}`}
+                  onClick={() => void handleReviewMergeEntry(entry.id, "merged")}
+                >
+                  Merge
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
   const filteredIdeas = statusFilter === "all"
     ? ideaState.ideas
     : ideaState.ideas.filter((i) => i.status === statusFilter);
@@ -852,6 +1106,12 @@ export function PlanningInspector({
                 />
               ))}
           </div>
+
+          {/* Run board — dependency graph nodes */}
+          <RunBoard />
+
+          {/* Merge-review queue */}
+          <MergeQueue />
         </div>
       ) : null}
 

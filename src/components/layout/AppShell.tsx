@@ -70,6 +70,7 @@ import type { UpdaterState } from "../../state/updater";
 import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
 import type { IdeaCategory } from "../../lib/ideas";
 import type { SessionTab, TabKind } from "../../lib/sessions";
+import { assignPlanWithProfile, type LaunchProfile } from "../../lib/planDependencies";
 export type ToolId = "terminal";
 
 
@@ -105,6 +106,10 @@ export function AppShell({ updates }: AppShellProps) {
   // Destination picker state — when open, the pending prompt is held here
   // until the user picks a destination (or cancels).
   const [destinationPickerOpen, setDestinationPickerOpen] = useState(false);
+  // Plan assignment destination picker state — a ready plan + profile waiting
+  // for the user to choose a chat session.
+  const [pendingAssign, setPendingAssign] = useState<{ plan: Plan; profile: LaunchProfile } | null>(null);
+  const [appToast, setAppToast] = useState<{ title: string; detail?: string; kind: "success" | "error" } | null>(null);
   const [pendingDelivery, setPendingDelivery] = useState<{ text: string; mode: PromptMode } | null>(null);
   const [focusedChatId, setFocusedChatId] = useState<string | null>(null);
   const [panelGridState, setPanelGridState] = useState<PanelGridState>(emptyGrid());
@@ -662,6 +667,15 @@ export function AppShell({ updates }: AppShellProps) {
     void handleCreateTerminalTab();
     void navigator.clipboard.writeText(`#${plan.referenceId} ${plan.title}\n${plan.description}`);
   }, [handleCreateTerminalTab]);
+  const handleShowToast = useCallback((title: string, detail?: string, kind: "success" | "error" = "success") => {
+    setAppToast({ title, detail, kind });
+    window.setTimeout(() => setAppToast(null), 4000);
+  }, []);
+
+  const handleAssignPlan = useCallback((plan: Plan, profile: LaunchProfile) => {
+    setPendingAssign({ plan, profile });
+    setDestinationPickerOpen(true);
+  }, []);
 
 
   const activeTab = session.tabs.find((t) => t.id === session.activeTabId) ?? null;
@@ -1228,6 +1242,8 @@ export function AppShell({ updates }: AppShellProps) {
                   onSuggestForCategory={handleSuggestForCategory}
                   onGenerateCategories={handleGenerateCategories}
                   showHeader={false}
+                  onAssignPlan={handleAssignPlan}
+                  onShowToast={handleShowToast}
                 />
               </Suspense>
             </div>
@@ -1296,12 +1312,55 @@ export function AppShell({ updates }: AppShellProps) {
         onSkip={() => firstRun.skip()}
       />
       <ToastStack />
+      {appToast ? (
+        <div className="toast-stack">
+          <div className={`toast ${appToast.kind === "error" ? "toast-error" : "toast-success"}`}>
+            <div className="toast-content">
+              <span className="toast-title">{appToast.title}</span>
+              {appToast.detail ? <span className="toast-detail">{appToast.detail}</span> : null}
+            </div>
+            <button
+              className="toast-dismiss btn-icon"
+              title="Dismiss"
+              type="button"
+              onClick={() => setAppToast(null)}
+            >
+              <X size={12} />
+            </button>
+          </div>
+        </div>
+      ) : null}
       <DestinationPicker
         open={destinationPickerOpen}
-        onClose={() => { setDestinationPickerOpen(false); setPendingDelivery(null); }}
+        onClose={() => { setDestinationPickerOpen(false); setPendingDelivery(null); setPendingAssign(null); }}
         panels={flattenPanels(panelGridState.root)}
-        title="Send to…"
+        title={pendingAssign ? "Assign plan to chat" : "Send to…"}
         onSelect={(choice: DestinationChoice) => {
+          if (pendingAssign) {
+            if (choice.kind !== "existing" || !choice.chatSessionId) {
+              addLog("warn", "Assign plan", "Select an existing chat to assign a plan");
+              setAppToast({ title: "Select an existing chat", detail: "New chats cannot be assigned directly.", kind: "error" });
+              return;
+            }
+            void (async () => {
+              try {
+                await assignPlanWithProfile({
+                  planId: pendingAssign.plan.id,
+                  chatSessionId: choice.chatSessionId,
+                  profile: pendingAssign.profile,
+                });
+                handleShowToast("Plan assigned to chat", `${pendingAssign.plan.referenceId} ${pendingAssign.plan.title}`, "success");
+                setPanelGridState((prev) => ({ ...prev, activePanelId: choice.panelId }));
+              } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                handleShowToast("Failed to assign plan", msg, "error");
+              } finally {
+                setPendingAssign(null);
+                setDestinationPickerOpen(false);
+              }
+            })();
+            return;
+          }
           if (!pendingDelivery) {
             addLog("debug", "DestinationPicker onSelect", "no pending delivery — skipping");
             return;

@@ -692,7 +692,7 @@ function PlanPromotionForm({
           {validation.warnings.length > 0 ? (
             <div className="plan-promotion-messages is-warn">
               {validation.warnings.map((warn, i) => (
-                <p key={i} className="text-sm" style={{ color: "var(--bb-warning)" }}>{warn}</p>
+                <p key={i} className="text-sm text-warn">{warn}</p>
               ))}
             </div>
           ) : null}

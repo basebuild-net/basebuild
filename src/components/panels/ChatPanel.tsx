@@ -1262,6 +1262,8 @@ export function ChatPanel({
         onCloseAndDelete={() => onCloseAndDeleteChat?.()}
         prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
         onCreatePullRequest={handleCreatePullRequest}
+        projectPath={projectPath}
+        sessionId={nativeSessionId}
       />
       {showPrCard && prRec ? (
         <PrRecommendationCard

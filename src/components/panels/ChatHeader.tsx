@@ -58,6 +58,10 @@ type ChatHeaderProps = {
   /** Shown when a worktree run has finished; null otherwise. */
   prRecommendation: { branch: string; ahead: number; behind: number; changedFiles: number } | null;
   onCreatePullRequest: () => void;
+  /** Project path for the context badge. */
+  projectPath: string;
+  /** Chat session / run identifier. */
+  sessionId?: string | null;
   onDragStart?: (e: React.MouseEvent) => void;
   onDragEnd?: () => void;
   onDragOver?: (e: React.DragEvent) => void;
@@ -181,6 +185,31 @@ export function ChatHeader(props: ChatHeaderProps) {
             <span className="chat-column-plan-title">{truncate(props.planBadge.title, 20)}</span>
           </button>
         ) : null}
+        <span className="chat-context-badge" title={`Project: ${props.projectPath}`}>
+          {props.projectPath.split(/[\\/]/).pop() ?? props.projectPath}
+        </span>
+        {props.sessionId ? (
+          <span className="chat-context-badge" title={`Run ID: ${props.sessionId}`}>
+            run: {props.sessionId.slice(0, 8)}
+          </span>
+        ) : null}
+        {props.branch ? (
+          props.worktreePath ? null : (
+            <span
+              className="chat-context-badge chat-context-badge-warn"
+              title="Sequential fallback: no isolated Git worktree for this chat"
+            >
+              sequential fallback
+            </span>
+          )
+        ) : (
+          <span
+            className="chat-context-badge chat-context-badge-warn"
+            title="Non-Git project: branch switching and worktree isolation unavailable"
+          >
+            non-Git
+          </span>
+        )}
       </div>
       <div className="chat-column-header-right">
         {props.branch ? (
