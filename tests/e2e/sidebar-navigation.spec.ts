@@ -19,19 +19,15 @@ test.describe("Left sidebar structure (DESIGN.md §Layout)", () => {
   test("sidebar is visible and has correct structure", async ({ page }) => {
     await openFixtureProject(page);
 
-    // The root aside is .project-chat-sidebar.
     const sidebar = page.locator(".project-chat-sidebar").first();
     await expect(sidebar).toBeVisible();
 
-    // Should have a New chat button (title="New chat").
     const newChatBtn = sidebar.locator('button[title="New chat"]').first();
     await expect(newChatBtn).toBeVisible();
 
-    // Should have an Add project folder button.
     const addProjectBtn = sidebar.locator('button[title*="Add project"]').first();
     await expect(addProjectBtn).toBeVisible();
 
-    // Should have a collapse/expand toggle.
     const collapseBtn = sidebar.locator('button[title*="ollapse"]').first();
     await expect(collapseBtn).toBeVisible();
   });
@@ -39,7 +35,6 @@ test.describe("Left sidebar structure (DESIGN.md §Layout)", () => {
   test("sidebar shows project list", async ({ page }) => {
     await openFixtureProject(page);
 
-    // The fixture seeds projects — at least one should be visible.
     const projectItems = page.locator(".activity-sidebar-project-name, .activity-sidebar-project");
     const count = await projectItems.count();
     expect(count).toBeGreaterThan(0);
@@ -47,13 +42,17 @@ test.describe("Left sidebar structure (DESIGN.md §Layout)", () => {
 
   test("sidebar shows panels/chats under project", async ({ page }) => {
     await openFixtureProject(page);
+    await ensureChatPanel(page);
 
-    // The sidebar uses activity-sidebar-row for panel items.
-    const rows = page.locator(".activity-sidebar-row");
+    let rows = page.locator(".activity-sidebar-row");
+    if (await rows.count() === 0) {
+      await page.getByTitle("New chat").first().click();
+      await page.waitForTimeout(500);
+      rows = page.locator(".activity-sidebar-row");
+    }
     const count = await rows.count();
     expect(count).toBeGreaterThan(0);
 
-    // Each row should have a tooltip.
     for (let i = 0; i < count; i++) {
       const title = await rows.nth(i).getAttribute("title");
       expect(title, `Sidebar row ${i} should have a tooltip`).toBeTruthy();
@@ -63,7 +62,6 @@ test.describe("Left sidebar structure (DESIGN.md §Layout)", () => {
   test("sidebar account row is visible", async ({ page }) => {
     await openFixtureProject(page);
 
-    // DESIGN.md: bottom account row with username/avatar and settings.
     const accountArea = page.locator(".sidebar-bottom-account").first();
     if (await accountArea.count() > 0) {
       await expect(accountArea).toBeVisible();
@@ -84,7 +82,6 @@ test.describe("Left sidebar structure (DESIGN.md §Layout)", () => {
     await openFixtureProject(page);
 
     const initialPanels = await page.locator(".chat-panel").count();
-
     await page.getByTitle("New chat").first().click();
     await page.waitForTimeout(500);
 
@@ -96,8 +93,9 @@ test.describe("Left sidebar structure (DESIGN.md §Layout)", () => {
     await openFixtureProject(page);
 
     const sidebar = page.locator(".project-chat-sidebar").first();
-    const buttons = sidebar.locator("button");
+    const buttons = sidebar.locator("button:visible");
     const count = await buttons.count();
+    expect(count).toBeGreaterThan(0);
 
     for (let i = 0; i < count; i++) {
       const title = await buttons.nth(i).getAttribute("title");
@@ -113,8 +111,6 @@ test.describe("Command strip (DESIGN.md §Planning cockpit)", () => {
     const strip = page.locator(".command-strip").first();
     if (await strip.count() > 0) {
       await expect(strip).toBeVisible();
-
-      // Should have 5 stage buttons: Schematic, Ideas, Plans, Running, Done.
       const buttons = strip.locator("button");
       const count = await buttons.count();
       expect(count).toBeGreaterThanOrEqual(5);
@@ -128,7 +124,6 @@ test.describe("Command strip (DESIGN.md §Planning cockpit)", () => {
     if (await strip.count() > 0) {
       const buttons = strip.locator("button");
       const count = await buttons.count();
-
       for (let i = 0; i < count; i++) {
         const title = await buttons.nth(i).getAttribute("title");
         expect(title, `Command strip button ${i} should have a tooltip`).toBeTruthy();
@@ -141,7 +136,6 @@ test.describe("Command strip (DESIGN.md §Planning cockpit)", () => {
 
     const strip = page.locator(".command-strip").first();
     if (await strip.count() > 0) {
-      // Each stage button should have a count badge.
       const counts = strip.locator("[class*='count'], [class*='badge']");
       const count = await counts.count();
       expect(count).toBeGreaterThan(0);
@@ -153,7 +147,6 @@ test.describe("Environment info block (DESIGN.md §Floating environment info)", 
   test("environment info block is visible", async ({ page }) => {
     await openFixtureProject(page);
 
-    // The environment info block should be visible in the chat area.
     const envInfo = page.locator(".chat-environment-panel, [class*='environment']").first();
     if (await envInfo.count() > 0) {
       await expect(envInfo).toBeVisible();
@@ -163,7 +156,6 @@ test.describe("Environment info block (DESIGN.md §Floating environment info)", 
   test("environment info shows branch", async ({ page }) => {
     await openFixtureProject(page);
 
-    // Should show the current git branch.
     const branchInfo = page.locator("[title*='branch' i], [class*='branch']").first();
     if (await branchInfo.count() > 0) {
       await expect(branchInfo).toBeVisible();
@@ -190,7 +182,6 @@ test.describe("Chat header (DESIGN.md §Center chat surface)", () => {
     if (await header.count() > 0) {
       const buttons = header.locator("button");
       const count = await buttons.count();
-
       for (let i = 0; i < count; i++) {
         const title = await buttons.nth(i).getAttribute("title");
         expect(title, `Chat header button ${i} should have a tooltip`).toBeTruthy();

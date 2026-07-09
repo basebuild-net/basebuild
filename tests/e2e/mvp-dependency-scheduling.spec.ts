@@ -76,7 +76,7 @@ test.describe("Dependency-aware worker scheduling", () => {
     await page.locator('[title="Flow board — live stage counts across the planning pipeline"]').first().click();
 
     // The Finished stage should be visible.
-    await expect(page.locator("text=Finished")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("text=Finished").first()).toBeVisible({ timeout: 5_000 });
   });
 
   test("chat header shows project context", async ({ page }) => {

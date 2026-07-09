@@ -90,8 +90,12 @@ test.describe("native chat workspace", () => {
     const messageCountBefore = await page.locator(".chat-message-user").count();
     await page.getByTitle(/Chat input/).first().fill("should not send yet");
     await page.getByTitle("Send message").click();
-    await expect(page.locator(".chat-login-form")).toBeVisible();
-    await expect(page.locator(".chat-login-form input[placeholder='API key']")).toBeVisible();
+
+    const loginModal = page.locator(".modal-overlay").filter({
+      has: page.locator("input[type='password']"),
+    });
+    await expect(loginModal).toBeVisible();
+    await expect(loginModal.locator("input[placeholder='API key']")).toBeVisible();
     await expect(page.locator(".chat-message-user")).toHaveCount(messageCountBefore);
     await expect(page.getByTitle(/Chat input/).first()).toHaveValue("should not send yet");
 

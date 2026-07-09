@@ -1912,7 +1912,7 @@ export function ChatPanel({
                 <X size={16} />
               </button>
             </div>
-            <div className="modal-body stack">
+            <div className="modal-body stack" onClick={(e) => e.stopPropagation()} title={`Connect ${selectedProvider.label}`}>
               <p className="text-sm text-muted">
                 Enter your {selectedProvider.label} API key below.
                 {selectedProvider.apiKeyUrl ? (
