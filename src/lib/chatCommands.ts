@@ -37,6 +37,18 @@ export type ChatCommand = {
   arguments: CommandArgument[];
   examples: string[];
   source: CommandSource;
+  /**
+   * Command category — distinguishes commands that act inside the chat
+   * (inject skills, generate ideas, show reference output) from commands
+   * that trigger a Basebuild UI action (open a picker, clear chat, stop).
+   * - "in-chat" — does something in the conversation: injects a skill,
+   *   generates ideas, shows command reference output, etc.
+   * - "ui" — triggers a Basebuild UI action: opens a picker/modal/tab,
+   *   clears chat, stops a request, refreshes catalog.
+   * Every command MUST be one or the other — no command that only shows
+   * a static text notice and does nothing else.
+   */
+  category: "in-chat" | "ui";
   /** If true, executes a local UI action and never sends to the provider. */
   localOnly: boolean;
   /** If true, expands into a prompt sent to the provider. */
@@ -57,6 +69,7 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
     arguments: [],
     examples: ["/clear"],
     source: "builtin",
+    category: "ui",
     localOnly: true,
     expandsToPrompt: false,
   },
@@ -67,6 +80,7 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
     arguments: [],
     examples: ["/new"],
     source: "builtin",
+    category: "ui",
     localOnly: true,
     expandsToPrompt: false,
   },
@@ -79,6 +93,7 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
     ],
     examples: ["/model", "/model sonnet", "/model claude"],
     source: "builtin",
+    category: "ui",
     localOnly: true,
     expandsToPrompt: false,
   },
@@ -91,6 +106,7 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
     ],
     examples: ["/provider", "/provider openai", "/provider anthropic"],
     source: "builtin",
+    category: "ui",
     localOnly: true,
     expandsToPrompt: false,
   },
@@ -101,16 +117,18 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
     arguments: [],
     examples: ["/models refresh"],
     source: "builtin",
+    category: "ui",
     localOnly: true,
     expandsToPrompt: false,
   },
   {
     name: "commands",
-    description: "Show the complete command reference with names, descriptions, usage, and sources.",
+    description: "Show the complete command reference with names, descriptions, usage, categories, and sources.",
     usage: "/commands",
     arguments: [],
     examples: ["/commands"],
     source: "builtin",
+    category: "in-chat",
     localOnly: true,
     expandsToPrompt: false,
   },
@@ -121,6 +139,7 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
     arguments: [],
     examples: ["/help"],
     source: "builtin",
+    category: "in-chat",
     localOnly: true,
     expandsToPrompt: false,
   },
@@ -131,6 +150,7 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
     arguments: [],
     examples: ["/stop"],
     source: "builtin",
+    category: "ui",
     localOnly: true,
     expandsToPrompt: false,
   },
@@ -143,16 +163,18 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
     ],
     examples: ["/login", "/login anthropic"],
     source: "builtin",
+    category: "ui",
     localOnly: true,
     expandsToPrompt: false,
   },
   {
     name: "mcp",
-    description: "Manage MCP servers. Opens a notice pointing to Settings.",
+    description: "Manage MCP servers. Opens Settings to the MCP servers section.",
     usage: "/mcp",
     arguments: [],
     examples: ["/mcp"],
     source: "builtin",
+    category: "ui",
     localOnly: true,
     expandsToPrompt: false,
   },
@@ -165,18 +187,20 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
     ],
     examples: ["/plan list", "/plan run my-plan"],
     source: "builtin",
+    category: "ui",
     localOnly: true,
     expandsToPrompt: false,
   },
   {
     name: "idea",
-    description: "Idea commands: generate, promote. Executes idea generation UI actions.",
+    description: "Idea commands: generate, promote. Generate injects the planning skill into chat.",
     usage: "/idea [subcommand]",
     arguments: [
       { name: "subcommand", required: false, description: "generate | promote", placeholder: "generate" },
     ],
     examples: ["/idea generate"],
     source: "builtin",
+    category: "in-chat",
     localOnly: true,
     expandsToPrompt: false,
   },
@@ -189,8 +213,22 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
     ],
     examples: ["/openspec generate my-change"],
     source: "builtin",
+    category: "ui",
     localOnly: true,
     expandsToPrompt: false,
+  },
+  {
+    name: "schematic",
+    description: "Start the project schematic wizard in chat. Injects the schematic skill — the agent interviews you section by section to create or update .basebuild/project-schematic.md.",
+    usage: "/schematic [wizard|view|inspect]",
+    arguments: [
+      { name: "subcommand", required: false, description: "wizard (default) | view | inspect", placeholder: "wizard" },
+    ],
+    examples: ["/schematic", "/schematic wizard", "/schematic view", "/schematic inspect"],
+    source: "builtin",
+    category: "in-chat",
+    localOnly: false,
+    expandsToPrompt: true,
   },
   {
     name: "skill:",
@@ -202,6 +240,7 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
     ],
     examples: ["/skill:basebuild-session-title retitle this"],
     source: "skill",
+    category: "in-chat",
     localOnly: false,
     expandsToPrompt: true,
   },
@@ -455,13 +494,14 @@ export function tabComplete(command: ChatCommand): string {
 
 /**
  * Format the command reference for /commands and /help output.
- * Returns an array of { name, description, usage, source } lines.
+ * Returns an array of { name, description, usage, source, category } lines.
  */
 export function formatCommandReference(commands: ChatCommand[] = BUILTIN_COMMANDS): Array<{
   name: string;
   description: string;
   usage: string;
   source: string;
+  category: "in-chat" | "ui";
   localOnly: boolean;
 }> {
   return commands
@@ -472,6 +512,7 @@ export function formatCommandReference(commands: ChatCommand[] = BUILTIN_COMMAND
       description: c.description,
       usage: c.usage,
       source: c.source,
+      category: c.category,
       localOnly: c.localOnly,
     }));
 }
@@ -487,6 +528,11 @@ export function sourceLabel(source: CommandSource): string {
     case "skill": return "Skill";
     case "mcp": return "MCP";
   }
+}
+
+/** Human-readable category badge label. */
+export function categoryLabel(category: "in-chat" | "ui"): string {
+  return category === "in-chat" ? "In-Chat" : "UI";
 }
 
 /** Keyboard guide text for /help. */

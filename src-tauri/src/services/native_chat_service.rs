@@ -851,6 +851,154 @@ impl NativeChatService {
             });
         }
 
+        // OMP-RPC-bridged providers: route through the persistent OMP RPC
+        // session, which lets OMP use its own built-in tools (read_file,
+        // ask_user, etc.) without Basebuild passing tool schemas. The one-shot
+        // OmpRpcClient passes --no-tools and can't do multi-turn tool loops.
+        if uses_omp_rpc {
+            use crate::services::omp_rpc_session_service::{
+                start_session as omp_start_session,
+                send_prompt_and_wait as omp_send_prompt_and_wait,
+            };
+            use tauri::Manager;
+
+            // Start (or reuse) the persistent OMP RPC session.
+            let registry = app.state::<crate::services::omp_rpc_session_service::OmpRpcSessionRegistry>();
+            let needs_start = registry.get(&request.session_id).is_none();
+            if needs_start {
+                omp_start_session(
+                    app.clone(),
+                    request.session_id.clone(),
+                    &provider_id,
+                    &resolved_model_id,
+                )?;
+            }
+
+            // Emit a "thinking" status so the UI shows activity.
+            let _ = app.emit(
+                NATIVE_CHAT_CHUNK,
+                serde_json::json!({ "sessionId": &request.session_id, "delta": "thinking", "channel": "status" }),
+            );
+
+            // Send the prompt and wait for the turn to complete (5 min timeout).
+            let turn_result = omp_send_prompt_and_wait(
+                &app,
+                &request.session_id,
+                content,
+                300,
+            );
+
+            let completed_at = now_millis();
+            let duration_ms = completed_at.saturating_sub(started_at).max(1);
+
+            let (turn_content, turn_reasoning) = match turn_result {
+                Ok((c, r)) => (c, if r.is_empty() { None } else { Some(r) }),
+                Err(e) => {
+                    // Persist the error as an assistant message so the user
+                    // sees it in the transcript.
+                    let assistant_message = Self::insert_message(
+                        &request.session_id,
+                        "assistant",
+                        &format!("Error: {e}"),
+                        None,
+                        Some(&provider_id),
+                        Some(&model_id),
+                        Some(&effort_level),
+                    )?;
+                    let metric = NativeRequestMetric {
+                        id: gen_id("nreq"),
+                        session_id: request.session_id.clone(),
+                        provider_id: provider_id.clone(),
+                        model_id: model_id.clone(),
+                        effort_level: effort_level.clone(),
+                        started_at,
+                        completed_at: Some(completed_at),
+                        duration_ms: Some(duration_ms),
+                        ttft_ms: None,
+                        ttlt_ms: Some(duration_ms),
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        cache_read_tokens: 0,
+                        cache_write_tokens: 0,
+                        tokens_per_second: None,
+                        cost_total: Some(0.0),
+                        outcome: "error".to_string(),
+                        error_class: Some("omp_rpc_error".to_string()),
+                        created_at: now_seconds(),
+                    };
+                    let _ = Self::insert_metric(&metric);
+                    Self::touch_session(&request.session_id)?;
+                    return Ok(NativeChatSendResult {
+                        user_message,
+                        assistant_message: Some(assistant_message),
+                        metrics: Some(metric),
+                        tool_events: Vec::new(),
+                        setup_required: None,
+                        offline: false,
+                    });
+                }
+            };
+
+            let assistant_message = Self::insert_message(
+                &request.session_id,
+                "assistant",
+                &turn_content,
+                turn_reasoning.as_deref(),
+                Some(&provider_id),
+                Some(&model_id),
+                Some(&effort_level),
+            )?;
+
+            let output_tokens = estimate_tokens(&turn_content);
+            let input_tokens = estimate_tokens(content);
+            let tokens_per_second =
+                Some((output_tokens as f64) / ((duration_ms as f64) / 1000.0).max(0.001));
+
+            let metric = NativeRequestMetric {
+                id: gen_id("nreq"),
+                session_id: request.session_id.clone(),
+                provider_id: provider_id.clone(),
+                model_id: model_id.clone(),
+                effort_level: effort_level.clone(),
+                started_at,
+                completed_at: Some(completed_at),
+                duration_ms: Some(duration_ms),
+                ttft_ms: None,
+                ttlt_ms: Some(duration_ms),
+                input_tokens,
+                output_tokens,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                tokens_per_second,
+                cost_total: Some(0.0),
+                outcome: "success".to_string(),
+                error_class: None,
+                created_at: now_seconds(),
+            };
+            Self::insert_metric(&metric)?;
+
+            let summary = "OMP RPC turn: streamed via persistent OMP session with OMP built-in tools.";
+            let event = Self::insert_tool_event(
+                &request.session_id,
+                Some(&assistant_message.id),
+                "request_metrics",
+                "recorded",
+                summary,
+                None,
+            )?;
+
+            Self::touch_session(&request.session_id)?;
+
+            return Ok(NativeChatSendResult {
+                user_message,
+                assistant_message: Some(assistant_message),
+                metrics: Some(metric),
+                tool_events: vec![event],
+                setup_required: None,
+                offline: false,
+            });
+        }
+
         let client = resolve_client_for_model(&provider_id, &api_kind, req.base_url.as_deref(), &model_base_url);
         let session_id_for_emit = request.session_id.clone();
         let app_for_emit = app.clone();

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { GitBranch, Box, ListChecks, Cpu, Gauge } from "lucide-react";
+import { GitBranch, Box, ListChecks, Cpu, Gauge, Copy } from "lucide-react";
 import { openspecTaskProgress } from "../../lib/openspec";
 
 export type ChatContextStripProps = {
@@ -129,12 +129,19 @@ export function ChatContextStrip(props: ChatContextStripProps) {
         />
       ) : null}
       {props.workspaceId ? (
-        <ContextChip
-          icon={<Box size={11} />}
-          label="ws"
-          value={props.workspaceId}
-          title={`Workspace: ${props.workspaceId}`}
-        />
+        <span className="chat-context-chip chat-context-chip-copyable" title={`Workspace: ${props.workspaceId} — click copy icon to copy`}>
+          <Box size={11} />
+          <span className="chat-context-chip-label">ws</span>
+          <span className="chat-context-chip-value">{props.workspaceId}</span>
+          <button
+            type="button"
+            className="chat-context-chip-copy"
+            title="Copy session id"
+            onClick={(e) => { e.stopPropagation(); void navigator.clipboard.writeText(props.workspaceId ?? ""); }}
+          >
+            <Copy size={9} />
+          </button>
+        </span>
       ) : null}
       {props.plan ? (
         <ContextChip

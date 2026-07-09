@@ -24,6 +24,7 @@ import {
   BarChart3,
   Brain,
   Bug,
+  Copy,
   FolderTree,
   Key,
   LayoutGrid,
@@ -36,7 +37,6 @@ import {
   Unplug,
   X,
 } from "lucide-react";
-
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "../../lib/app";
@@ -80,6 +80,8 @@ import { resolveToolApproval } from "../../lib/native-chat";
 import { useIdeaState } from "../../state/ideas";
 import type { Idea } from "../../lib/ideas";
 import { inspectProjectSchematic, type SchematicReport } from "../../lib/schematic";
+import { schematicWizardAction } from "../../lib/planningActions";
+import { readSkill } from "../../lib/skills";
 import type { AgentMode } from "../../lib/sessions";
 import { useLogs } from "../../state/log";
 
@@ -196,7 +198,7 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
   const isMetrics = event.kind === "request_metrics";
   const icon = isApproval ? "🔐" : isCommand ? "▶" : isEdit ? "✎" : isMetrics ? "📊" : "🔧";
   const statusClass = isRunning ? "running" : isError ? "error" : event.status === "success" || event.status === "recorded" || event.status === "allow" ? "success" : "info";
-  const showExpanded = expanded || isApproval;
+  const showExpanded = expanded || isApproval || event.status === "running";
 
   const hasDiff = isEdit && /^\+|-/m.test(event.summary);
   const diffLines = hasDiff ? event.summary.split("\n") : [];
@@ -403,6 +405,8 @@ export function ChatPanel({
   }, [nativeSessionId]);
   // Chat header state: branch, worktree, plan badge, agent mode, PR recommendation.
   const [branch, setBranch] = useState<string | null>(null);
+  const branchRef = useRef<string | null>(null);
+  branchRef.current = branch;
   const [branches, setBranches] = useState<GitBranch[]>([]);
   const [worktreePath, setWorktreePath] = useState<string | null>(null);
   const [assignedPlanId, setAssignedPlanId] = useState<string | null>(null);
@@ -794,14 +798,21 @@ export function ChatPanel({
       }
       if (event.status === "succeeded") {
         // Load PR recommendation for the finished worktree run.
-        if (branch) {
-          void prRecommend(projectPath, branch)
+        // Use branchRef so the listener doesn't need to re-register
+        // when branch changes (avoids missing events during re-registration).
+        const br = branchRef.current;
+        if (br) {
+          void prRecommend(projectPath, br)
+            .then((rec) => {
+              setPrRec(rec);
+              setShowPrCard(true);
+            })
             .catch(() => { /* non-git or no remote — no recommendation */ });
         }
       }
     }).then((fn) => { unlisten = fn; });
     return () => { if (unlisten) unlisten(); };
-  }, [nativeSessionId, projectPath, branch]);
+  }, [nativeSessionId, projectPath]);
 
   // Handle approval mode changes from the UI (Allow All button, settings toggle).
   const handleSetApprovalMode = useCallback(async (mode: ApprovalMode) => {
@@ -1032,9 +1043,6 @@ export function ChatPanel({
   const { delivery, consume } = usePromptDelivery(nativeSessionId);
   useEffect(() => {
     if (!delivery || !nativeSessionId) return;
-    // Planning actions require tool calling (ask_user + repo read).
-    // Detect them by the `ask_user` marker that all planning prompts share.
-    const requiresTools = delivery.text.includes("ask_user") || delivery.text.includes("basebuild-project-schematic") || delivery.text.includes("Read the project schematic") || delivery.text.includes("Read the repository");
     if (delivery.mode === "insert") {
       setInput(delivery.text);
       consume();
@@ -1042,22 +1050,8 @@ export function ChatPanel({
     }
     // send mode — wait for catalog so the resolved provider/model is used.
     if (!catalog || loading) return;
-    // `supportsTools` is the backend-computed effective capability: it is false
-    // for OMP-RPC-bridged transports (bespoke api_kinds) that cannot carry
-    // structured tool schemas, and for the local coordinator.
-    const modelSupportsTools = !!selectedModel?.supportsTools;
-    if (requiresTools && !modelSupportsTools) {
-      setInput(delivery.text);
-      setCommandNotice(
-        selectedModel
-          ? `${selectedModel.label} does not support tool calling — planning actions need a model that can read files and ask questions. Pick a tool-capable model (e.g. Claude, GPT-4, umans-glm) and try again.`
-          : "This planning action needs a model that supports tool calling (file read + ask_user). Pick a tool-capable model and try again.",
-      );
-      consume();
-      return;
-    }
     void sendMessage(delivery.text.trim()).then(() => consume());
-  }, [delivery, consume, nativeSessionId, catalog, loading, selectedModel, sendMessage]);
+  }, [delivery, consume, nativeSessionId, catalog, loading, sendMessage]);
 
   // Auto-scroll
   useEffect(() => {
@@ -1093,6 +1087,9 @@ export function ChatPanel({
   // without a TDZ issue (handleStopNative is defined after handleSend).
   const stopNativeRef = useRef<() => Promise<void>>(async () => {});
   const persistSelectionRef = useRef<(providerId: string, modelId: string, effort: string) => void>(() => {});
+  // Ref to handleGenerateIdeas so /idea generate can call it without a TDZ
+  // issue (handleGenerateIdeas is defined after handleSend).
+  const generateIdeasRef = useRef<(() => Promise<void>) | null>(null);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
@@ -1212,13 +1209,20 @@ export function ChatPanel({
         },
         commands: () => {
           const ref = formatCommandReference(BUILTIN_COMMANDS);
-          const lines = ref.map((r) => `/${r.name} — ${r.description} [${r.usage}] (${sourceLabel(r.source as never)})`);
-          setCommandNotice(`Available commands (${ref.length}): ${lines.join("  |  ")}`);
+          const inChat = ref.filter((r) => r.category === "in-chat");
+          const ui = ref.filter((r) => r.category === "ui");
+          const fmt = (r: typeof ref[number]) => `/${r.name} — ${r.description} [${r.usage}]`;
+          setCommandNotice(
+            `In-Chat (${inChat.length}): ${inChat.map(fmt).join("  |  ")}  ||  UI (${ui.length}): ${ui.map(fmt).join("  |  ")}`,
+          );
         },
         help: () => {
           const ref = formatCommandReference(BUILTIN_COMMANDS);
-          const lines = ref.map((r) => `/${r.name} — ${r.description}`);
-          setCommandNotice(`${lines.join("  |  ")}  —  ${KEYBOARD_GUIDE.join(" ")}`);
+          const inChat = ref.filter((r) => r.category === "in-chat");
+          const ui = ref.filter((r) => r.category === "ui");
+          setCommandNotice(
+            `In-Chat: ${inChat.map((r) => `/${r.name}`).join(", ")}  |  UI: ${ui.map((r) => `/${r.name}`).join(", ")}  —  ${KEYBOARD_GUIDE.join(" ")}`,
+          );
         },
         mcp: () => {
           // MCP management is opened via Settings — show a notice.
@@ -1228,11 +1232,19 @@ export function ChatPanel({
           setCommandNotice(rest ? `Plan: ${rest}` : "Plan commands: list, run <ref>, status");
         },
         idea: () => {
-          setCommandNotice(rest ? `Idea: ${rest}` : "Idea commands: generate, promote");
+          if (rest === "generate") {
+            void generateIdeasRef.current?.();
+            setCommandNotice("Generating ideas…");
+          } else if (rest === "promote") {
+            setCommandNotice("Pick an idea in the Ideas panel to promote it to a plan.");
+          } else {
+            setCommandNotice("Idea commands: generate, promote");
+          }
         },
-        openspec: () => {
-          setCommandNotice(rest ? `OpenSpec: ${rest}` : "OpenSpec commands: generate <ref>, progress <ref>");
-        },
+        // schematic removed from builtinActions — all subcommands are
+        // handled after the builtinActions dispatch because wizard/create/
+        // update inject a skill into the chat (expandsToPrompt), and
+        // view/inspect are handled there too for cohesion.
       };
 
       if (command in builtinActions) {
@@ -1261,14 +1273,13 @@ export function ChatPanel({
         return;
       }
 
-      // /skill:<name> — inject skill content.
+      // /skill:<name> — inject skill content into the chat.
       if (command.startsWith("skill:")) {
         const skillName = command.slice(6);
         if (skillName) {
-          // Skill injection: fetch skill body and send as context.
           try {
-            const skillBody = await invoke<string>("read_skill", { name: skillName });
-            const prompt = `${skillBody}\n\n${rest}`;
+            const skill = await readSkill(skillName);
+            const prompt = `${skill.content}\n\n${rest}`;
             await sendMessage(prompt);
             setCommandRecency(recordCommandUse(command));
             setInput("");
@@ -1280,12 +1291,67 @@ export function ChatPanel({
         }
       }
 
+      // /schematic — in-chat skill injection (wizard) or UI action (view/inspect).
+      if (command === "schematic") {
+        // wizard / create / update / bare — inject the project-schematic
+        // skill into the chat so the agent runs the guided interview inline.
+        if (rest === "" || rest === "wizard" || rest === "create" || rest === "update") {
+          addLog("debug", "Schematic wizard started", `subcommand=${rest || "wizard"} model=${selectedModel?.label ?? modelId}`);
+          try {
+            const skill = await readSkill("basebuild-project-schematic");
+            const action = schematicWizardAction(skill.content, undefined);
+            await sendMessage(action.text);
+            setCommandRecency(recordCommandUse("schematic"));
+            setInput("");
+            return;
+          } catch {
+            addLog("error", "Schematic wizard failed", "Failed to load basebuild-project-schematic skill");
+            setCommandNotice("Failed to load the schematic skill. Check that the basebuild-project-schematic skill is installed.");
+            return;
+          }
+        }
+        // view — open the schematic tab (UI action).
+        if (rest === "view") {
+          onOpenSchematic?.();
+          setCommandNotice("Opening schematic tab…");
+          setCommandRecency(recordCommandUse("schematic"));
+          setInput("");
+          return;
+        }
+        // inspect — show health summary (diagnostic).
+        if (rest === "inspect") {
+          if (projectPath) {
+            try {
+              const report = await inspectProjectSchematic(projectPath);
+              if (!report.exists) {
+                setCommandNotice("No schematic found. Use /schematic to start the wizard.");
+              } else {
+                const filled = report.sections.filter((s) => s.state === "filled").length;
+                const total = report.sections.length;
+                setCommandNotice(`Schematic health: ${report.health} (${filled}/${total} sections filled).`);
+              }
+            } catch {
+              setCommandNotice("Failed to inspect schematic.");
+            }
+          } else {
+            setCommandNotice("Open a project to inspect its schematic.");
+          }
+          setCommandRecency(recordCommandUse("schematic"));
+          setInput("");
+          return;
+        }
+        // Unknown subcommand — show available options.
+        setCommandNotice(`Unknown /schematic subcommand: ${rest}. Use /schematic wizard, /schematic view, or /schematic inspect.`);
+        setInput("");
+        return;
+      }
+
       // Unknown command fallthrough: show notice + send-as-text action.
       setCommandNotice(`Unknown slash command: /${command}. Send as text or use /commands to see all available commands.`);
       return;
     }
     await sendMessage(text);
-  }, [input, nativeMode, sendMessage, catalog, addLog, interactions, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId]);
+  }, [input, nativeMode, sendMessage, catalog, addLog, interactions, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId, onOpenSchematic, projectPath, selectedModel]);
 
   const handleStopAgent = useCallback(async () => {
     if (sendTimerRef.current) {
@@ -1548,6 +1614,9 @@ export function ChatPanel({
       setGeneratingIdeas(false);
     }
   }, [nativeSessionId, generatingIdeas, schematicContent, providerId, modelId, effortLevel, activeSessionId, ideaState, addLog, selectedProvider]);
+  useEffect(() => {
+    generateIdeasRef.current = handleGenerateIdeas;
+  }, [handleGenerateIdeas]);
 
   const handleGenerateForCategory = useCallback(async (categoryId: string | undefined) => {
     if (!nativeSessionId || generatingIdeas) return;
@@ -2697,25 +2766,68 @@ export function ChatPanel({
             </button>
             {debugExpanded ? (
               <div className="chat-debug-panel-body">
+                {/* Session info row with copy button */}
+                <div className="chat-debug-session-info" title="Current chat session id — click to copy">
+                  <span className="chat-debug-session-label">session</span>
+                  <code className="chat-debug-session-id">{nativeSessionId ?? "none"}</code>
+                  <button
+                    type="button"
+                    className="btn-icon btn-icon-sm chat-debug-copy-btn"
+                    title="Copy session id"
+                    onClick={() => void navigator.clipboard.writeText(nativeSessionId ?? "")}
+                  >
+                    <Copy size={10} />
+                  </button>
+                </div>
                 {debugEvents.length === 0 ? (
                   <div className="chat-debug-empty text-muted text-sm">No events yet. Send a message to see raw event data.</div>
                 ) : (
                   <div className="chat-debug-event-list">
                     {debugEvents.slice(-100).map((e, i) => (
                       <div key={i} className="chat-debug-event">
-                        <span className="chat-debug-event-ts">{new Date(e.ts).toLocaleTimeString(undefined, { hour12: false })}</span>
-                        <span className="chat-debug-event-channel">{e.channel}</span>
+                        <div className="chat-debug-event-header">
+                          <span className="chat-debug-event-ts">{new Date(e.ts).toLocaleTimeString(undefined, { hour12: false })}</span>
+                          <span className="chat-debug-event-channel">{e.channel}</span>
+                          <button
+                            type="button"
+                            className="btn-icon btn-icon-sm chat-debug-copy-btn"
+                            title="Copy this event"
+                            onClick={() => void navigator.clipboard.writeText(
+                              typeof e.data === "string" ? e.data : JSON.stringify(e.data, null, 2),
+                            )}
+                          >
+                            <Copy size={9} />
+                          </button>
+                        </div>
                         <pre className="chat-debug-event-data">{typeof e.data === "string" ? e.data : JSON.stringify(e.data, null, 2)}</pre>
                       </div>
                     ))}
                   </div>
                 )}
-                <button
-                  type="button"
-                  className="btn btn-sm chat-debug-clear"
-                  title="Clear debug event log"
-                  onClick={() => setDebugEvents([])}
-                >Clear</button>
+                <div className="chat-debug-actions">
+                  <button
+                    type="button"
+                    className="btn btn-sm chat-debug-copy-all"
+                    title="Copy all debug events to clipboard"
+                    disabled={debugEvents.length === 0}
+                    onClick={() => {
+                      const text = debugEvents.map((e) =>
+                        `[${new Date(e.ts).toLocaleTimeString(undefined, { hour12: false })}] ${e.channel}\n${
+                          typeof e.data === "string" ? e.data : JSON.stringify(e.data, null, 2)
+                        }`,
+                      ).join("\n\n");
+                      void navigator.clipboard.writeText(text);
+                    }}
+                  >
+                    <Copy size={10} /> Copy All
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm chat-debug-clear"
+                    title="Clear debug event log"
+                    onClick={() => setDebugEvents([])}
+                  >Clear</button>
+                </div>
               </div>
             ) : null}
           </div>

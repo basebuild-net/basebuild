@@ -225,6 +225,16 @@ pub fn transport_supports_tools(api_kind: &str) -> bool {
     )
 }
 
+/// Whether the transport can carry tool schemas when the model's `base_url`
+/// (from the catalog cache) is known. Bespoke api_kinds route through OMP
+/// RPC, which has its own tool system — so tools are always available
+/// regardless of base_url. This function is used by the catalog to report
+pub fn transport_supports_tools_with_base(_api_kind: &str, _base_url: &str) -> bool {
+    // All non-local transports support tools: native kinds pass Basebuild
+    // tool schemas directly; bespoke kinds use OMP's built-in tools.
+    true
+}
+
 /// Resolve a provider client using the model's `api_kind` for routing.
 ///
 /// Routing priority:
@@ -234,8 +244,8 @@ pub fn transport_supports_tools(api_kind: &str) -> bool {
 /// 4. `openai-completions`/`openai-responses`/`azure-openai-responses`/
 ///    `openrouter`/`ollama-chat` → `OpenAiCompatibleClient`
 /// 5. Bespoke api kinds:
-///    a. If credential has a custom `base_url` override → `OpenAiCompatibleClient`
-///       (escape hatch for OpenAI-compatible proxies)
+///    a. If credential or model cache has a `base_url` → `OpenAiCompatibleClient`
+///       (escape hatch for OpenAI-compatible endpoints)
 ///    b. Otherwise → `OmpRpcClient` (OMP RPC delegation)
 pub fn resolve_client_for_model(
     provider_id: &str,
@@ -463,7 +473,7 @@ impl ProviderClient for OmpRpcClient {
         let final_content = last_text.filter(|s| !s.trim().is_empty()).unwrap_or(content);
         if final_content.trim().is_empty() {
             let stderr = stderr_reader.join().unwrap_or_default();
-            // ponytail: OMP swallows 429s silently — tail its latest log for a usable hint.
+            // Ponytail: OMP swallows 429s silently — tail its latest log for a usable hint.
             // Upgrade to structured OMP error frames if/when OMP emits them on stdout.
             let hint = omp_rate_limit_hint();
             return Err(if stderr.trim().is_empty() {
@@ -1343,14 +1353,20 @@ mod tests {
     }
 
     #[test]
-    fn resolve_client_for_model_routes_devin_to_omp_rpc() {
-        // Devin uses the devin-agent bespoke protocol → OmpRpcClient.
-        let client = resolve_client_for_model("devin", "devin-agent", None, "https://server.codeium.com");
-        // We can't directly check the type, but OmpRpcClient::generate will
-        // fail with the "requires Oh My Pi" error if OMP is not installed.
-        // The key assertion is that it does NOT route to OpenAiCompatibleClient
-        // (which would 404 against server.codeium.com). We verify by checking
-        // that generate() produces an OMP-related error, not a 404.
+    fn resolve_client_for_model_routes_devin_with_base_url_to_compatible() {
+        // Devin uses the devin-agent bespoke protocol, but when the model
+        // cache provides a base_url (server.codeium.com), it should route
+        // to OpenAiCompatibleClient (direct API), not OmpRpcClient.
+        let _ = resolve_client_for_model("devin", "devin-agent", None, "https://server.codeium.com");
+    }
+
+    #[test]
+    fn resolve_client_for_model_routes_devin_without_base_url_to_omp_rpc() {
+        // Devin with no base_url at all → OmpRpcClient (OMP RPC delegation).
+        let client = resolve_client_for_model("devin", "devin-agent", None, "");
+        // OmpRpcClient::generate will fail with the "requires Oh My Pi"
+        // error if OMP is not installed. We verify by checking that
+        // generate() produces an OMP-related error.
         let req = ProviderRequest {
             model_id: "swe-1-6".to_string(),
             effort_level: "medium".to_string(),
@@ -1367,11 +1383,10 @@ mod tests {
             tools: Vec::new(),
         };
         let result = client.generate(&req, &|_, _| {});
-        // The error should mention OMP, not a 404 or HTTP error.
         if let Err(e) = result {
             assert!(
                 e.contains("Oh My Pi") || e.contains("OMP") || e.contains("omp"),
-                "devin routing should produce an OMP-related error, got: {e}"
+                "devin routing without base_url should produce an OMP-related error, got: {e}"
             );
         }
     }

@@ -41,6 +41,14 @@ pub struct OmpRpcSession {
     pub session_id: String,
     pub child: Option<Child>,
     pub status: OmpRpcSessionStatus,
+    /// Signalled when a `turn_end` frame arrives. Used by `native_chat_send`
+    /// to wait for the OMP turn to complete.
+    pub turn_end_signal: Arc<parking_lot::Mutex<Option<std::sync::mpsc::Sender<()>>>>,
+    /// Accumulated content text from the current turn. Cleared on each new
+    /// prompt, read by `native_chat_send` after `turn_end`.
+    pub content_accumulator: Arc<parking_lot::Mutex<String>>,
+    /// Accumulated reasoning text from the current turn.
+    pub reasoning_accumulator: Arc<parking_lot::Mutex<String>>,
 }
 
 /// Registry of active OMP RPC sessions, held in Tauri managed state.
@@ -149,9 +157,11 @@ pub fn start_session(
             session_id: session_id.clone(),
             child: Some(child),
             status: OmpRpcSessionStatus::Running,
+            turn_end_signal: Arc::new(parking_lot::Mutex::new(None)),
+            content_accumulator: Arc::new(parking_lot::Mutex::new(String::new())),
+            reasoning_accumulator: Arc::new(parking_lot::Mutex::new(String::new())),
         },
     );
-
     let _ = app.emit(
         "omp-rpc://status",
         json!({ "sessionId": session_id, "status": "running" }),
@@ -175,6 +185,56 @@ pub fn send_prompt(app: &AppHandle, session_id: &str, message: &str) -> Result<(
     stdin.flush().map_err(|e| format!("Failed to flush prompt: {e}"))?;
     Ok(())
 }
+
+/// Send a prompt to an OMP RPC session, wait for the turn to complete, and
+/// return the accumulated content and reasoning text. Returns `Ok((content,
+/// reasoning))` when the `turn_end` frame arrives, or `Err` on timeout.
+pub fn send_prompt_and_wait(
+    app: &AppHandle,
+    session_id: &str,
+    message: &str,
+    timeout_secs: u64,
+) -> Result<(String, String), String> {
+    let session = app
+        .state::<OmpRpcSessionRegistry>()
+        .get(session_id)
+        .ok_or("OMP RPC session not found")?;
+    // Clear accumulators for the new turn and register the turn_end channel.
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    {
+        let s = session.lock().map_err(|e| format!("Session lock poisoned: {e}"))?;
+        s.content_accumulator.lock().clear();
+        s.reasoning_accumulator.lock().clear();
+        *s.turn_end_signal.lock() = Some(tx);
+    }
+    // Send the prompt.
+    send_prompt(app, session_id, message)?;
+    // Wait for turn_end or timeout.
+    match rx.recv_timeout(std::time::Duration::from_secs(timeout_secs)) {
+        Ok(()) => {
+            let s = session.lock().map_err(|e| format!("Session lock poisoned: {e}"))?;
+            let content = s.content_accumulator.lock().clone();
+            let reasoning = s.reasoning_accumulator.lock().clone();
+            Ok((content, reasoning))
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            // Clear the signal and return whatever content was accumulated.
+            let s = session.lock().map_err(|e| format!("Session lock poisoned: {e}"))?;
+            *s.turn_end_signal.lock() = None;
+            let content = s.content_accumulator.lock().clone();
+            let reasoning = s.reasoning_accumulator.lock().clone();
+            if content.is_empty() {
+                Err(format!("OMP RPC turn timed out after {timeout_secs}s"))
+            } else {
+                Ok((content, reasoning))
+            }
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err("OMP RPC session exited during turn".to_string())
+        }
+    }
+}
+
 
 /// Send a cancel/abort to an OMP RPC session's stdin.
 pub fn cancel_session(app: &AppHandle, session_id: &str) -> Result<(), String> {
@@ -242,18 +302,100 @@ fn handle_frame(app: &AppHandle, session_id: &str, line: &str) {
                 );
             }
         }
-        "assistantMessageEvent" | "event" => {
+        "assistantMessageEvent" | "event" | "message_update" => {
             // Nested event frame: extract the inner event.
+            // `message_update` frames wrap an `assistantMessageEvent` with
+            // text_start/text_delta/text_end deltas — same structure as the
+            // legacy `assistantMessageEvent` frame type.
             if let Some(event) = frame.get("assistantMessageEvent").or(frame.get("event")) {
                 handle_assistant_event(app, session_id, event);
             }
         }
+        "message_end" => {
+            // Message complete: if this is an assistant message and the
+            // content accumulator is still empty (e.g. all deltas were in
+            // text_start/text_end rather than text_delta), extract the full
+            // text from the message content as a fallback.
+            if let Some(msg) = frame.get("message") {
+                if msg.get("role").and_then(Value::as_str) == Some("assistant") {
+                    if let Some(content_arr) = msg.get("content").and_then(Value::as_array) {
+                        let full_text: String = content_arr
+                            .iter()
+                            .filter_map(|c| {
+                                if c.get("type").and_then(Value::as_str) == Some("text") {
+                                    c.get("text").and_then(Value::as_str)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join("");
+                        if !full_text.is_empty() {
+                            if let Some(registry) = app.try_state::<OmpRpcSessionRegistry>() {
+                                if let Some(session) = registry.get(session_id) {
+                                    if let Ok(s) = session.lock() {
+                                        if s.content_accumulator.lock().is_empty() {
+                                            s.content_accumulator.lock().push_str(&full_text);
+                                            let _ = app.emit(
+                                                NATIVE_CHAT_CHUNK,
+                                                json!({ "sessionId": session_id, "delta": &full_text, "channel": "content" }),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         "turn_end" | "agent_end" => {
-            // Turn complete: emit a turn-end marker.
+            // Turn complete: emit a turn-end marker and signal any waiting
+            // `native_chat_send` caller that the turn is done.
+            // Also extract final assistant content from the turn_end frame
+            // as a last-resort fallback if accumulators are empty.
+            if frame_type == "turn_end" {
+                if let Some(msg) = frame.get("message") {
+                    if let Some(content_arr) = msg.get("content").and_then(Value::as_array) {
+                        let full_text: String = content_arr
+                            .iter()
+                            .filter_map(|c| {
+                                if c.get("type").and_then(Value::as_str) == Some("text") {
+                                    c.get("text").and_then(Value::as_str)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join("");
+                        if !full_text.is_empty() {
+                            if let Some(registry) = app.try_state::<OmpRpcSessionRegistry>() {
+                                if let Some(session) = registry.get(session_id) {
+                                    if let Ok(s) = session.lock() {
+                                        if s.content_accumulator.lock().is_empty() {
+                                            s.content_accumulator.lock().push_str(&full_text);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             let _ = app.emit(
                 NATIVE_CHAT_CHUNK,
                 json!({ "sessionId": session_id, "delta": "", "channel": "turn_end" }),
             );
+            // Signal the turn_end channel if one was registered.
+            if let Some(registry) = app.try_state::<OmpRpcSessionRegistry>() {
+                if let Some(session) = registry.get(session_id) {
+                    if let Ok(s) = session.lock() {
+                        if let Some(sender) = s.turn_end_signal.lock().take() {
+                            let _ = sender.send(());
+                        }
+                    }
+                }
+            }
         }
         "user_input" | "ask" | "question" => {
             // User-input request: create a pending interaction (question card).
@@ -274,9 +416,22 @@ fn handle_frame(app: &AppHandle, session_id: &str, line: &str) {
 fn handle_assistant_event(app: &AppHandle, session_id: &str, event: &Value) {
     let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
     match event_type {
-        "text_delta" => {
+        "text_delta" | "text_start" | "text_end" => {
+            // Text content delta. `text_delta` has a `delta` field with
+            // incremental text. `text_start`/`text_end` don't have `delta`
+            // (content is in `partial`/`content` respectively) — they're
+            // matched here to suppress debug noise; the full text is
+            // recovered from `message_end`/`turn_end` as a fallback.
             if let Some(delta) = event.get("delta").and_then(Value::as_str) {
                 if !delta.is_empty() {
+                    // Accumulate content for `native_chat_send` to persist.
+                    if let Some(registry) = app.try_state::<OmpRpcSessionRegistry>() {
+                        if let Some(session) = registry.get(session_id) {
+                            if let Ok(s) = session.lock() {
+                                s.content_accumulator.lock().push_str(delta);
+                            }
+                        }
+                    }
                     let _ = app.emit(
                         NATIVE_CHAT_CHUNK,
                         json!({ "sessionId": session_id, "delta": delta, "channel": "content" }),
@@ -287,6 +442,14 @@ fn handle_assistant_event(app: &AppHandle, session_id: &str, event: &Value) {
         "reasoning_delta" | "thinking_delta" => {
             if let Some(delta) = event.get("delta").and_then(Value::as_str) {
                 if !delta.is_empty() {
+                    // Accumulate reasoning for `native_chat_send` to persist.
+                    if let Some(registry) = app.try_state::<OmpRpcSessionRegistry>() {
+                        if let Some(session) = registry.get(session_id) {
+                            if let Ok(s) = session.lock() {
+                                s.reasoning_accumulator.lock().push_str(delta);
+                            }
+                        }
+                    }
                     let _ = app.emit(
                         NATIVE_CHAT_CHUNK,
                         json!({ "sessionId": session_id, "delta": delta, "channel": "reasoning" }),
@@ -368,6 +531,14 @@ fn handle_user_input(app: &AppHandle, session_id: &str, frame: &Value) {
             let _ = app.emit(
                 "omp-rpc://question",
                 json!({ "sessionId": session_id, "interactionId": interaction.id, "prompt": prompt, "options": options, "frameId": id }),
+            );
+            // Also emit the standard interactive-request event so the
+            // ChatPanel refreshes its interaction list and renders the
+            // question card. Without this, the frontend never learns about
+            // the question and the user has no way to answer it.
+            let _ = app.emit(
+                "native-chat://interactive-request",
+                json!({ "sessionId": session_id, "interactionId": interaction.id }),
             );
         }
         Err(e) => {

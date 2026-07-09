@@ -468,7 +468,10 @@ impl ProviderModelCatalogService {
                         label: row.get(2)?,
                         supports_effort: row.get::<_, i64>(5)? != 0,
                         supports_streaming: !local_only,
-                        supports_tools: !local_only && crate::services::provider_client::transport_supports_tools(&api_kind),
+                        supports_tools: !local_only && {
+                            let base_url: String = row.get::<_, Option<String>>(13)?.unwrap_or_default();
+                            crate::services::provider_client::transport_supports_tools_with_base(&api_kind, &base_url)
+                        },
                         local_only,
                         context_window: row.get(3)?,
                         max_tokens: row.get(4)?,
@@ -824,9 +827,9 @@ fn bundled_from_catalog(provider_id: &str, cm: &omp_catalog::CatalogModel) -> Na
         id: cm.id.clone(),
         provider_id: provider_id.to_string(),
         label: cm.name.clone(),
+        supports_tools: crate::services::provider_client::transport_supports_tools_with_base(&cm.api_kind, &cm.base_url),
         supports_effort: supports_reasoning,
         supports_streaming: true,
-        supports_tools: crate::services::provider_client::transport_supports_tools(&cm.api_kind),
         local_only: false,
         context_window: cm.context_window,
         max_tokens: cm.max_tokens,
@@ -968,14 +971,15 @@ mod tests {
     }
 
     #[test]
-    fn bundled_bespoke_models_have_supports_tools_false() {
+    fn bundled_bespoke_models_with_base_url_have_supports_tools() {
         // Bespoke api_kinds (devin-agent, cursor-agent, etc.) route through
-        // OmpRpcClient which cannot carry structured tool schemas, so the
-        // catalog must report supports_tools=false for those models.
+        // OmpRpcClient when they have no base_url — but when the catalog
+        // provides a direct base_url (e.g. Devin's server.codeium.com),
+        // they route through OpenAiCompatibleClient which supports tools.
         let devin = bundled_models("devin");
         assert!(
-            devin.iter().all(|m| !m.supports_tools),
-            "all devin (devin-agent) models should have supports_tools=false"
+            devin.iter().all(|m| m.supports_tools),
+            "all devin (devin-agent) models with base_url should have supports_tools=true"
         );
     }
 

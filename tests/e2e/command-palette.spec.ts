@@ -162,7 +162,7 @@ test.describe("Command palette (chat-command-palette)", () => {
     await expect(palette.locator(".command-palette-source").first()).toContainText("Built-in");
   });
 
-  test("local-only badge is shown on built-in commands", async ({ page }) => {
+  test("category badge is shown on built-in commands", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
@@ -172,7 +172,9 @@ test.describe("Command palette (chat-command-palette)", () => {
 
     const palette = page.locator(".command-palette").first();
     await expect(palette).toBeVisible({ timeout: 3_000 });
-    await expect(palette.locator(".command-palette-badge.is-local").first()).toBeVisible();
+    // Commands now have category badges (is-in-chat or is-ui) instead of
+    // the old local/prompt badges.
+    await expect(palette.locator(".command-palette-badge.is-ui").first()).toBeVisible();
   });
 
   test("empty state shows when no commands match", async ({ page }) => {

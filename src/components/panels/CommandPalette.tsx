@@ -5,6 +5,7 @@ import {
   buildCommandHelper,
   tabComplete,
   sourceLabel,
+  categoryLabel,
   type ChatCommand,
   type RankedCommand,
 } from "../../lib/chatCommands";
@@ -95,15 +96,14 @@ export function CommandPalette({
             <span className="command-palette-source" data-source={cmd.source}>
               {sourceLabel(cmd.source)}
             </span>
-            {cmd.localOnly ? (
-              <span className="command-palette-badge is-local" title="Executes a local UI action — never sent to the provider">
-                Local
-              </span>
-            ) : (
-              <span className="command-palette-badge is-prompt" title="Expands into a prompt sent to the provider">
-                Prompt
-              </span>
-            )}
+            <span
+              className={`command-palette-badge is-${cmd.category}`}
+              title={cmd.category === "in-chat"
+                ? "In-Chat — does something in the conversation (injects a skill, generates output, etc.)"
+                : "UI — triggers a Basebuild UI action (opens a picker, clears chat, stops a request)"}
+            >
+              {categoryLabel(cmd.category)}
+            </span>
           </button>
         ))
       )}
