@@ -143,6 +143,8 @@ type E2eState = {
   gitChangeStaged: boolean;
   terminals: { id: number; shell: string; cwd: string | null; pid: number; rows: number; cols: number; startedAt: number; alive: boolean }[];
   notifications: { id: string; kind: string; entityId: string; entityKind: string; projectPath: string; title: string; detail?: string; read: boolean; createdAt: number }[];
+  credentials: Map<string, { providerId: string; apiKey: string; baseUrl: string | null; updatedAt: number }>;
+  blockedProviders: Set<string>;
   notificationSettings: { overrides: Record<string, string> };
 };
 
@@ -276,6 +278,11 @@ function state(): E2eState {
       gitChangeStaged: false,
       terminals: [],
       notifications: [],
+      // Seed umans as connected so disconnect tests have a provider to work with.
+      credentials: new Map([
+        ["umans", { providerId: "umans", apiKey: "test-key", baseUrl: null, updatedAt: 1_800_000_000 }],
+      ]),
+      blockedProviders: new Set(),
       notificationSettings: { overrides: {} },
     };
     if (globalState.__BASEBUILD_E2E_FIXTURE__ === "mvp-baseline") {
@@ -691,25 +698,42 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "agent_start":
       return 1 as T;
     case "native_provider_catalog":
-    case "native_provider_catalog_refresh":
+    case "native_provider_catalog_refresh": {
+      // Build provider list dynamically — check credentials/blocked state
+      // so disconnect/connect actually changes the UI.
+      const baseProviders = [
+        { id: "basebuild-local", label: "Basebuild Local", credentialOwner: "basebuild", localOnly: true, detail: "Local coordinator", authMethod: "local", apiKeyUrl: null, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "openai", label: "OpenAI", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.openai.com/api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "umans", label: "Umans", credentialOwner: "user", localOnly: false, detail: "Connected", authMethod: "api_key", apiKeyUrl: "https://app.umans.ai/billing?context=personal&tab=api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "provider_discovered", error: null },
+        { id: "anthropic", label: "Anthropic", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.anthropic.com/settings/keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "devin", label: "Devin.ai", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://app.devin.ai/settings/api-keys", modelCount: 48, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "google", label: "Google Gemini", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://aistudio.google.com/apikey", modelCount: 33, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "groq", label: "Groq", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.groq.com/keys", modelCount: 18, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "openrouter", label: "OpenRouter", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://openrouter.ai/keys", modelCount: 19, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "deepseek", label: "DeepSeek", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.deepseek.com/api_keys", modelCount: 2, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "mistral", label: "Mistral", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.mistral.ai/api-keys", modelCount: 29, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "xai", label: "xAI (Grok)", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.x.ai", modelCount: 29, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "together", label: "Together AI", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://api.together.ai/settings/api-keys", modelCount: 32, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "fireworks", label: "Fireworks AI", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://fireworks.ai/api-keys", modelCount: 22, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "cerebras", label: "Cerebras", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://cloud.cerebras.ai", modelCount: 7, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "custom", label: "Custom (OpenAI-compatible)", credentialOwner: "user", localOnly: false, detail: "Enter API key + base URL", authMethod: "api_key", apiKeyUrl: null, modelCount: 0, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+      ];
+      const providers = baseProviders.map((p) => {
+        if (p.localOnly) {
+          return { ...p, status: "ready", configured: true };
+        }
+        const isBlocked = s.blockedProviders.has(p.id);
+        const hasCred = s.credentials.has(p.id);
+        const configured = hasCred && !isBlocked;
+        return {
+          ...p,
+          status: configured ? "ready" : "setup_required",
+          configured,
+          detail: configured ? "Connected" : "Configure credentials",
+        };
+      });
       return {
-        providers: [
-          { id: "basebuild-local", label: "Basebuild Local", status: "ready", credentialOwner: "basebuild", configured: true, localOnly: true, detail: "Local coordinator", authMethod: "local", apiKeyUrl: null, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "openai", label: "OpenAI", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.openai.com/api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "umans", label: "Umans", status: "ready", credentialOwner: "user", configured: true, localOnly: false, detail: "Connected", authMethod: "api_key", apiKeyUrl: "https://app.umans.ai/billing?context=personal&tab=api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "provider_discovered", error: null },
-          { id: "anthropic", label: "Anthropic", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.anthropic.com/settings/keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "devin", label: "Devin.ai", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://app.devin.ai/settings/api-keys", modelCount: 48, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "google", label: "Google Gemini", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://aistudio.google.com/apikey", modelCount: 33, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "groq", label: "Groq", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.groq.com/keys", modelCount: 18, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "openrouter", label: "OpenRouter", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://openrouter.ai/keys", modelCount: 19, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "deepseek", label: "DeepSeek", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.deepseek.com/api_keys", modelCount: 2, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "mistral", label: "Mistral", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.mistral.ai/api-keys", modelCount: 29, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "xai", label: "xAI (Grok)", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.x.ai", modelCount: 29, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "together", label: "Together AI", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://api.together.ai/settings/api-keys", modelCount: 32, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "fireworks", label: "Fireworks AI", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://fireworks.ai/api-keys", modelCount: 22, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "cerebras", label: "Cerebras", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://cloud.cerebras.ai", modelCount: 7, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "custom", label: "Custom (OpenAI-compatible)", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Enter API key + base URL", authMethod: "api_key", apiKeyUrl: null, modelCount: 0, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-        ],
+        providers,
         models: [
           { id: "basebuild-local-coordinator", providerId: "basebuild-local", label: "Local Coordinator", supportsEffort: true, supportsStreaming: false, supportsTools: false, localOnly: true, contextWindow: null, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "bundled" },
           { id: "gpt-5.1", providerId: "openai", label: "GPT-5.1", supportsEffort: true, supportsStreaming: true, supportsTools: true, localOnly: false, contextWindow: 400000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: true, source: "bundled" },
@@ -727,6 +751,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         fetchedAt: 1_800_000_000,
         stale: false,
       } as T;
+    }
     case "native_chat_start": {
       const req = args.request as { projectPath: string; title?: string; providerId?: string; modelId?: string; effortLevel?: string };
       const id = `nchat-${s.nextNativeChatId++}`;
@@ -857,14 +882,23 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "save_workspace_restore_state":
       s.workspaceRestoreByProject.set((args.state as { projectPath: string }).projectPath, args.state);
       return args.state as T;
-    case "update_tab_chat_session":
+    case "native_save_provider_credential": {
+      const providerId = (args as { providerId?: string }).providerId ?? "unknown";
+      const apiKey = (args as { apiKey?: string }).apiKey ?? "test-key";
+      const baseUrl = (args as { baseUrl?: string | null }).baseUrl ?? null;
+      s.credentials.set(providerId, { providerId, apiKey, baseUrl, updatedAt: Math.floor(Date.now() / 1000) });
+      s.blockedProviders.delete(providerId);
+      return { providerId, label: "Connected", apiKey, baseUrl, updatedAt: Math.floor(Date.now() / 1000) } as T;
+    }
+    case "native_list_provider_credentials": {
+      // Only return non-blocked credentials.
+      return Array.from(s.credentials.values()).filter((c) => !s.blockedProviders.has(c.providerId)) as T;
+    }
+    case "native_delete_provider_credential": {
+      const providerId = (args as { providerId?: string }).providerId ?? "unknown";
+      s.blockedProviders.add(providerId);
       return undefined as T;
-    case "native_save_provider_credential":
-      return { providerId: "umans", label: "Umans", apiKey: "test-key", baseUrl: null, updatedAt: Math.floor(Date.now() / 1000) } as T;
-    case "native_list_provider_credentials":
-      return [] as T;
-    case "native_delete_provider_credential":
-      return undefined as T;
+    }
     case "list_categories":
       return s.categories.filter((category) => category.sessionId === args.sessionId) as T;
     case "create_category": {

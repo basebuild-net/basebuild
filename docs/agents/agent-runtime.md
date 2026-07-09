@@ -41,6 +41,11 @@ collection/upload remain disabled.
 Native chat exposes providers (Basebuild Local, OpenAI, Anthropic, Umans),
 models, effort levels, sync freshness, and source metadata through typed backend
 commands. Provider credentials are stored locally only and never uploaded.
+When both a Basebuild-saved credential and an OMP-imported credential exist for
+the same provider, the Basebuild-saved one takes precedence. OMP credentials
+serve as the fallback for providers not configured in Basebuild. Disconnecting a
+provider blocks both Basebuild and OMP credentials for that provider until a new
+key is saved (which unblocks it).
 `native_provider_catalog` returns the cache-first catalog; `native_provider_catalog_refresh`
 forces online sync for one provider or all providers. Direct provider/CLI model
 payloads are preferred, OpenAI-compatible providers use `/v1/models` when

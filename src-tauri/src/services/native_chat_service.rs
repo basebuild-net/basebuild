@@ -260,6 +260,12 @@ impl NativeChatService {
                label = excluded.label, api_key = excluded.api_key, base_url = excluded.base_url, updated_at = excluded.updated_at",
             params![&cred.provider_id, &cred.label, &cred.api_key, &cred.base_url, cred.updated_at],
         ).map_err(|e| format!("Failed to save provider credential: {e}"))?;
+        // Remove any block so OMP-imported credentials can flow again after reconnect.
+        conn.execute(
+            "DELETE FROM native_blocked_providers WHERE provider_id = ?1",
+            params![&cred.provider_id],
+        )
+        .map_err(|e| e.to_string())?;
         let _ = crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh_provider(&cred.provider_id, true);
         Ok(cred)
     }
@@ -280,19 +286,35 @@ impl NativeChatService {
         }).map_err(|e| e.to_string())?;
         let mut creds = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
 
+        // Load the set of providers the user has explicitly disconnected.
+        // This blocks OMP-imported credentials from re-appearing after disconnect.
+        let blocked: Vec<String> = conn
+            .prepare("SELECT provider_id FROM native_blocked_providers")
+            .map_err(|e| e.to_string())?
+            .query_map([], |row| row.get::<_, String>(0))
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default();
+
+        // Remove blocked Basebuild credentials.
+        creds.retain(|c| !blocked.contains(&c.provider_id));
+
         // Merge credentials from the OMP (Oh My Pi) key store so providers
-        // configured there are usable without re-entering a key here. OMP's
-        // store is the source of truth, so it replaces any same-provider
-        // Basebuild-saved credential.
+        // configured there are usable without re-entering a key here. When
+        // both exist, the Basebuild-saved credential takes precedence (the
+        // user explicitly entered it); OMP is the fallback for providers not
+        // configured in Basebuild. OMP credentials for blocked providers are
+        // skipped entirely.
         let mut omp_seen = Vec::new();
         for omp in Self::omp_credentials() {
+            if blocked.contains(&omp.provider_id) {
+                continue;
+            }
             if omp_seen.contains(&omp.provider_id) {
                 continue;
             }
             omp_seen.push(omp.provider_id.clone());
-            if let Some(existing) = creds.iter_mut().find(|c| c.provider_id == omp.provider_id) {
-                *existing = omp;
-            } else {
+            // Only add OMP credential if Basebuild doesn't have one already.
+            if !creds.iter().any(|c| c.provider_id == omp.provider_id) {
                 creds.push(omp);
             }
         }
@@ -370,6 +392,12 @@ impl NativeChatService {
         let conn = StorageService::connect()?;
         conn.execute("DELETE FROM native_provider_credentials WHERE provider_id = ?1", params![provider_id])
             .map_err(|e| e.to_string())?;
+        // Block the provider so OMP-imported credentials don't reappear.
+        conn.execute(
+            "INSERT OR IGNORE INTO native_blocked_providers (provider_id, blocked_at) VALUES (?1, ?2)",
+            params![provider_id, now_seconds()],
+        )
+        .map_err(|e| e.to_string())?;
         let _ = crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh_provider(provider_id, true);
         Ok(())
     }
@@ -1824,5 +1852,93 @@ mod tests {
             "medium",
         );
         assert!(err.is_err(), "nonexistent session should error");
+    }
+    #[test]
+    fn delete_credential_blocks_omp_credentials() {
+        // delete_credential should add the provider to native_blocked_providers
+        // so OMP-imported credentials don't reappear after disconnect.
+        // This test verifies the block is created; the full list_credentials
+        // behavior with OMP merge is tested via the e2e flow.
+        let _home = crate::test_util::test::isolated_home();
+        let conn = StorageService::connect().unwrap();
+
+        // Insert a credential for "umans".
+        conn.execute(
+            "INSERT INTO native_provider_credentials (provider_id, label, api_key, base_url, updated_at)
+             VALUES ('umans', 'test', 'sk-test', NULL, 100)",
+            [],
+        )
+        .unwrap();
+
+        // Delete it (should also block).
+        NativeChatService::delete_credential("umans").unwrap();
+
+        // The Basebuild credential should be gone.
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM native_provider_credentials WHERE provider_id = 'umans'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0, "Basebuild credential should be deleted");
+
+        // The block should exist.
+        let blocked: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM native_blocked_providers WHERE provider_id = 'umans'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(blocked, 1, "umans should be blocked after disconnect");
+
+        // list_credentials should not return umans even if OMP has it.
+        let creds = NativeChatService::list_credentials().unwrap();
+        assert!(
+            !creds.iter().any(|c| c.provider_id == "umans"),
+            "blocked provider should not appear in list_credentials"
+        );
+    }
+
+    #[test]
+    fn save_credential_unblocks_provider() {
+        let _home = crate::test_util::test::isolated_home();
+        let conn = StorageService::connect().unwrap();
+
+        // Block umans first (simulate a prior disconnect).
+        conn.execute(
+            "INSERT INTO native_blocked_providers (provider_id, blocked_at) VALUES ('umans', 100)",
+            [],
+        )
+        .unwrap();
+
+        // Save a new credential (should unblock).
+        NativeChatService::save_credential(crate::models::native_chat::NativeProviderCredentialInput {
+            provider_id: "umans".to_string(),
+            label: "test".to_string(),
+            api_key: "sk-new".to_string(),
+            base_url: None,
+        })
+        .unwrap();
+
+        // The block should be gone.
+        let blocked: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM native_blocked_providers WHERE provider_id = 'umans'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(blocked, 0, "umans should be unblocked after saving a new credential");
+
+        // The credential should be present (either the Basebuild one or the
+        // OMP-imported one — what matters is the provider is no longer blocked).
+        let creds = NativeChatService::list_credentials().unwrap();
+        assert!(
+            creds.iter().any(|c| c.provider_id == "umans"),
+            "umans credential should be visible after unblock (got {} creds)",
+            creds.len()
+        );
     }
 }

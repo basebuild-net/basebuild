@@ -11,6 +11,7 @@ import {
   AlertCircle,
   BarChart3,
   Brain,
+  Bug,
   FolderTree,
   Key,
   LayoutGrid,
@@ -23,6 +24,7 @@ import {
   Unplug,
   X,
 } from "lucide-react";
+
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "../../lib/app";
@@ -141,6 +143,13 @@ function formatMetric(value: number | null | undefined, suffix = "") {
   return `${Math.round(value * 10) / 10}${suffix}`;
 }
 
+function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}m${s.toString().padStart(2, "0")}s`;
+}
+
 function ThinkingBlock({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   return (
@@ -160,7 +169,7 @@ function ThinkingBlock({ text }: { text: string }) {
   );
 }
 
-function ToolEventCard({ event, onResolveApproval }: { event: NativeToolEvent; onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void }) {
+function ToolEventCard({ event, onResolveApproval, debugMode }: { event: NativeToolEvent; onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void; debugMode?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const isRunning = event.status === "running" || event.status === "pending";
   const isError = event.status === "error" || event.status === "denied";
@@ -176,13 +185,19 @@ function ToolEventCard({ event, onResolveApproval }: { event: NativeToolEvent; o
   const filePathMatch = event.summary.match(/(?:Edited|Wrote|Modified)\s+(.+?)(?::|\s)/);
   const filePath = filePathMatch?.[1] ?? null;
 
+  // Format timestamp for display.
+  const timeStr = event.createdAt
+    ? new Date(event.createdAt * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : null;
+
   return (
-    <div className={`tool-card tool-card-${statusClass}`} title={`${event.kind}: ${event.status}`}>
+    <div className={`tool-card tool-card-${statusClass}`} title={`${event.kind}: ${event.status}${timeStr ? ` at ${timeStr}` : ""}`}>
       <div className="tool-card-header" onClick={() => setExpanded(!expanded)} role="button" tabIndex={0}>
         <span className="tool-card-icon">{icon}</span>
         <span className="tool-card-name">{event.kind.replace(/_/g, " ")}</span>
         {filePath ? <code className="tool-card-filepath text-muted">{filePath}</code> : null}
         <span className={`tool-card-status tool-card-status-${statusClass}`}>{event.status}</span>
+        {timeStr ? <span className="tool-card-time text-muted">{timeStr}</span> : null}
         <span className="tool-card-expand">{expanded ? "▼" : "▶"}</span>
       </div>
       {expanded ? (
@@ -196,6 +211,12 @@ function ToolEventCard({ event, onResolveApproval }: { event: NativeToolEvent; o
           ) : (
             <pre className="tool-card-summary">{event.summary}</pre>
           )}
+          {debugMode ? (
+            <div className="tool-card-debug" title="Raw event data (debug mode)">
+              <span className="tool-card-debug-label">Debug:</span>
+              <pre className="tool-card-debug-data">{JSON.stringify(event, null, 2)}</pre>
+            </div>
+          ) : null}
         </div>
       ) : null}
       {!expanded && event.summary ? (
@@ -206,6 +227,11 @@ function ToolEventCard({ event, onResolveApproval }: { event: NativeToolEvent; o
           <button className="btn btn-sm btn-primary" title="Allow this tool call once" type="button" onClick={() => onResolveApproval("allow")}>Allow Once</button>
           <button className="btn btn-sm" title="Allow all calls to this tool for this session" type="button" onClick={() => onResolveApproval("allow_session")}>Allow Session</button>
           <button className="btn btn-sm" title="Deny this tool call" type="button" onClick={() => onResolveApproval("deny")}>Deny</button>
+        </div>
+      ) : null}
+      {isApproval && isRunning && !onResolveApproval ? (
+        <div className="tool-card-actions text-muted text-sm" title="Approval resolution is not available for this event">
+          <span>Approval pending — waiting for resolution</span>
         </div>
       ) : null}
     </div>
@@ -240,14 +266,19 @@ export function ChatPanel({
   const [modelNotice, setModelNotice] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [stuck, setStuck] = useState(false);
   const [agentId, setAgentId] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [debugMode, setDebugMode] = useState(() => localStorage.getItem("basebuild.debug-mode") === "true");
+  const [debugEvents, setDebugEvents] = useState<Array<{ ts: number; channel: string; data: unknown }>>([]);
+  const [debugExpanded, setDebugExpanded] = useState(false);
   const [setupRequired, setSetupRequired] = useState<NativeSetupRequired | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [reasoningText, setReasoningText] = useState("");
   const [streamPhase, setStreamPhase] = useState<"idle" | "thinking" | "streaming" | "tools">("idle");
+  const [elapsed, setElapsed] = useState(0);
+  const streamStartRef = useRef<number | null>(null);
   const streamBufRef = useRef("");
   const reasoningBufRef = useRef("");
   // Monotonic id for the in-flight native send. Bumped on stop or on a new
@@ -517,6 +548,32 @@ export function ChatPanel({
     };
   }, [nativeMode, nativeSessionId]);
 
+  // Debug mode: capture all native-chat events for inspection.
+  useEffect(() => {
+    if (!debugMode || !nativeSessionId) return;
+    const channels = [
+      "native-chat://chunk",
+      "native-chat://tool-event",
+      "native-chat://approval-request",
+      "native-chat://interactive-request",
+      "native-chat://error",
+      "native-chat://metrics",
+    ];
+    const unlisteners: Promise<() => void>[] = [];
+    for (const ch of channels) {
+      unlisteners.push(listen(ch, (event) => {
+        setDebugEvents((prev) => {
+          const next = [...prev, { ts: Date.now(), channel: ch, data: event.payload }];
+          // Cap at 500 entries to avoid unbounded memory.
+          return next.length > 500 ? next.slice(-500) : next;
+        });
+      }));
+    }
+    return () => {
+      for (const u of unlisteners) void u.then((fn) => fn());
+    };
+  }, [debugMode, nativeSessionId]);
+
   // Native mode: listen for live tool events (approval requests + tool cards)
   useEffect(() => {
     if (!nativeMode || !nativeSessionId) return;
@@ -560,18 +617,40 @@ export function ChatPanel({
       arguments: string;
     }>("native-chat://approval-request", (event) => {
       if (event.payload.sessionId !== nativeSessionId) return;
+      // Preserve the actual tool name and arguments so the card shows
+      // what the model is trying to do, not just "approval required".
+      const toolName = event.payload.toolName ?? "tool";
+      const args = event.payload.arguments ?? "";
       const cmd = event.payload.command ?? "";
-      const summary = cmd ? `${event.payload.toolName}: ${cmd}` : `${event.payload.toolName} approval required`;
-      setToolEvents((prev) => [...prev, {
-        id: event.payload.toolCallId,
-        sessionId: nativeSessionId,
-        messageId: null,
-        kind: "approval",
-        status: "pending",
-        summary,
-        sequence: prev.length + 1,
-        createdAt: Math.floor(Date.now() / 1000),
-      }]);
+      // Build a useful summary: tool name + key arguments (truncated).
+      let summary: string;
+      if (cmd) {
+        summary = `${toolName}: ${cmd}`;
+      } else if (args) {
+        const truncated = args.length > 200 ? args.slice(0, 200) + "…" : args;
+        summary = `${toolName} — ${truncated}`;
+      } else {
+        summary = `${toolName} approval required`;
+      }
+      setToolEvents((prev) => {
+        // Replace if already exists (e.g. from tool-event stream).
+        const existingIdx = prev.findIndex((e) => e.id === event.payload.toolCallId);
+        if (existingIdx >= 0) {
+          return prev.map((e) => e.id === event.payload.toolCallId
+            ? { ...e, kind: toolName, status: "pending", summary, sequence: e.sequence }
+            : e);
+        }
+        return [...prev, {
+          id: event.payload.toolCallId,
+          sessionId: nativeSessionId,
+          messageId: null,
+          kind: toolName,
+          status: "pending",
+          summary,
+          sequence: prev.length + 1,
+          createdAt: Math.floor(Date.now() / 1000),
+        }];
+      });
     });
     const unlistenInteraction = listen<{ sessionId: string; interactionId?: string }>(
       "native-chat://interactive-request",
@@ -731,6 +810,8 @@ export function ChatPanel({
         setStreamText("");
         setReasoningText("");
         setStreaming(true);
+        streamStartRef.current = Date.now();
+        setElapsed(0);
         setStreamPhase("thinking");
         // Claim this send. A stop or a newer send bumps activeSendRef so this
         // send's async resolution becomes a no-op instead of reviving the
@@ -784,6 +865,7 @@ export function ChatPanel({
             setStreamText("");
             setReasoningText("");
             setStreamPhase("idle");
+            streamStartRef.current = null;
             streamBufRef.current = "";
             reasoningBufRef.current = "";
             setLoading(false);
@@ -875,6 +957,17 @@ export function ChatPanel({
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [nativeMessages, legacyMessages, streamText, reasoningText, streamPhase]);
+
+  // Live elapsed timer — updates every second while streaming.
+  useEffect(() => {
+    if (!streaming || !streamStartRef.current) return;
+    const interval = setInterval(() => {
+      if (streamStartRef.current) {
+        setElapsed(Math.floor((Date.now() - streamStartRef.current) / 1000));
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [streaming]);
 
   // Clear stuck timer
   useEffect(() => {
@@ -1053,6 +1146,8 @@ export function ChatPanel({
     // as a user stop (gen + 1) and reloads persisted partial output.
     activeSendRef.current += 1;
     setStreaming(false);
+        streamStartRef.current = null;
+        setElapsed(0);
     setStreamText("");
     setReasoningText("");
     setStreamPhase("idle");
@@ -1393,29 +1488,31 @@ export function ChatPanel({
         />
       ) : null}
       {showAssignPlanPicker ? (
-        <div className="chat-picker" role="dialog" aria-label="Assign a ready plan">
-          <div className="chat-picker-header">
-            <span>Assign plan</span>
-            <button className="btn-icon btn-icon-sm" type="button" title="Close plan picker" onClick={() => setShowAssignPlanPicker(false)}>
-              <X size={11} />
-            </button>
-          </div>
-          <div className="chat-picker-list">
-            {readyPlans.length === 0 ? (
-              <div className="chat-picker-empty text-muted text-sm">No ready plans.</div>
-            ) : null}
-            {readyPlans.map((p) => (
-              <button
-                key={p.id}
-                className="chat-picker-item"
-                type="button"
-                title={`Assign ${p.referenceId}: ${p.title}`}
-                onClick={() => void handleAssignPlan(p.id)}
-              >
-                <span className="chat-picker-main">#{p.referenceId} {p.title}</span>
-                <span className="chat-picker-meta">{p.status}</span>
+        <div className="modal-overlay" onClick={() => setShowAssignPlanPicker(false)} title="Close plan picker">
+          <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Assign a ready plan">
+            <div className="modal-header">
+              <h2>Assign plan</h2>
+              <button className="btn-icon" type="button" title="Close plan picker" onClick={() => setShowAssignPlanPicker(false)}>
+                <X size={16} />
               </button>
-            ))}
+            </div>
+            <div className="modal-body stack">
+              {readyPlans.length === 0 ? (
+                <p className="text-muted text-sm">No ready plans.</p>
+              ) : null}
+              {readyPlans.map((p) => (
+                <button
+                  key={p.id}
+                  className="btn"
+                  type="button"
+                  title={`Assign ${p.referenceId}: ${p.title}`}
+                  onClick={() => void handleAssignPlan(p.id)}
+                >
+                  <span>#{p.referenceId} {p.title}</span>
+                  <span className="text-muted text-sm plan-status-inline">{p.status}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       ) : null}
@@ -1516,8 +1613,9 @@ export function ChatPanel({
                     <ToolEventCard
                       key={`tool-${ev.id}`}
                       event={ev.event}
+                      debugMode={debugMode}
                       onResolveApproval={ev.event.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined}
-                    />,
+                    />
                   );
                   continue;
                 }
@@ -1590,23 +1688,35 @@ export function ChatPanel({
               );
             })}
 
+        {/* Live thinking with elapsed timer */}
         {streaming && reasoningText ? (
           <div className="chat-message chat-message-assistant chat-message-reasoning" title="Live chain-of-thought from the model. Final answer follows.">
-            <span className="chat-message-role">Thinking…</span>
+            <span className="chat-message-role">
+              Thinking…
+              <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
+            </span>
             <pre className="chat-message-content chat-reasoning-live">{reasoningText}<span className="chat-cursor" /></pre>
           </div>
         ) : null}
 
+        {/* Streaming assistant text with elapsed timer */}
         {streaming && streamText ? (
           <div className="chat-message chat-message-assistant">
-            <span className="chat-message-role">Basebuild</span>
+            <span className="chat-message-role">
+              Basebuild
+              <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
+            </span>
             <pre className="chat-message-content">{streamText}<span className="chat-cursor" /></pre>
           </div>
         ) : null}
 
+        {/* Waiting for first token with elapsed timer */}
         {streaming && streamPhase === "thinking" && !streamText && !reasoningText ? (
-          <div className="chat-message chat-thinking-indicator" title="Waiting for the model to start responding">
-            <span className="chat-message-role">Basebuild</span>
+          <div className="chat-message chat-thinking-indicator" title={`Waiting for the model to start responding (${formatElapsed(elapsed)})`}>
+            <span className="chat-message-role">
+              Basebuild
+              <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
+            </span>
             <div className="chat-thinking-dots">
               <span className="chat-thinking-dot" />
               <span className="chat-thinking-dot" />
@@ -1615,12 +1725,35 @@ export function ChatPanel({
           </div>
         ) : null}
 
-        {streaming && streamPhase === "tools" ? (
-          <div className="chat-loading chat-loading-active" title="Executing tool calls — the model will continue after results arrive">
-            <span className="chat-loading-spinner" />
-            <span>Running tools…</span>
-          </div>
-        ) : null}
+        {/* Running tools with tool names, count, and elapsed timer */}
+        {streaming && streamPhase === "tools" ? (() => {
+          const runningTools = toolEvents.filter((e) => e.status === "running" || e.status === "pending");
+          const completedTools = toolEvents.filter((e) => e.status === "success" || e.status === "error" || e.status === "denied" || e.status === "approved");
+          const toolNames = runningTools.length > 0
+            ? runningTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")
+            : "tools";
+          return (
+            <div
+              className="chat-loading chat-loading-active chat-loading-tools"
+              title={`Executing: ${toolNames} (${runningTools.length} running, ${completedTools.length} done). Elapsed: ${formatElapsed(elapsed)}.`}
+            >
+              <span className="chat-loading-spinner" />
+              <span className="chat-loading-label">
+                {runningTools.length > 0
+                  ? `${toolNames}…`
+                  : "Running tools…"}
+              </span>
+              {runningTools.length > 0 || completedTools.length > 0 ? (
+                <span className="chat-loading-count" title={`${runningTools.length} running, ${completedTools.length} completed`}>
+                  {runningTools.length > 0 ? `${runningTools.length} running` : ""}
+                  {runningTools.length > 0 && completedTools.length > 0 ? " · " : ""}
+                  {completedTools.length > 0 ? `${completedTools.length} done` : ""}
+                </span>
+              ) : null}
+              <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
+            </div>
+          );
+        })() : null}
 
         {loading && !streaming ? (
           <div className="chat-loading">{nativeMode ? "Working…" : "Agent is typing…"}</div>
@@ -1764,55 +1897,55 @@ export function ChatPanel({
         </div>
       ) : null}
 
-      {/* Provider login panel: in-app API key entry + link to provider's key page */}
+      {/* Provider login modal: API key entry as a modal, not inline */}
       {nativeMode && showLogin && selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID ? (
-        <div className="chat-login-form">
-          <div className="chat-login-header">
-            <Key size={12} />
-            <span>Connect {selectedProvider.label}</span>
-            <button
-              className="btn-icon btn-icon-sm"
-              title="Close"
-              type="button"
-              onClick={() => {
-                setShowLogin(false);
-                cancelWebLogin();
-              }}
-            >
-              <X size={11} />
-            </button>
+        <div className="modal-overlay" onClick={() => { setShowLogin(false); cancelWebLogin(); }} title="Close login dialog">
+          <div className="modal" onClick={(e) => e.stopPropagation()} title={`Connect ${selectedProvider.label}`}>
+            <div className="modal-header">
+              <h2>Connect {selectedProvider.label}</h2>
+              <button
+                className="btn-icon"
+                title="Close"
+                type="button"
+                onClick={() => { setShowLogin(false); cancelWebLogin(); }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="modal-body stack">
+              <p className="text-sm text-muted">
+                Enter your {selectedProvider.label} API key below.
+                {selectedProvider.apiKeyUrl ? (
+                  <> Need a key? <button className="chat-link-btn" type="button" title={`Open ${selectedProvider.label} key page`} onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}>Get API key →</button></>
+                ) : null}
+              </p>
+              <input
+                className="input"
+                type="password"
+                placeholder="API key"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                title="Enter your API key for this provider"
+              />
+              <input
+                className="input"
+                placeholder="Base URL (optional)"
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                title="Custom API base URL (optional)"
+              />
+              <button
+                className="btn btn-primary"
+                type="button"
+                title="Save API key and connect"
+                disabled={!apiKey.trim() || savingCred}
+                onClick={() => void handleSaveCredential()}
+              >
+                {savingCred ? "Saving…" : "Save key & connect"}
+              </button>
+              {loginError ? <p className="text-danger text-sm">{loginError}</p> : null}
+            </div>
           </div>
-          <p className="chat-login-hint">
-            Enter your {selectedProvider.label} API key below.
-            {selectedProvider.apiKeyUrl ? (
-              <> Need a key? <button className="chat-link-btn" type="button" title={`Open ${selectedProvider.label} key page`} onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}>Get API key →</button></>
-            ) : null}
-          </p>
-          <input
-            className="input chat-login-input"
-            type="password"
-            placeholder="API key"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            title="Enter your API key for this provider"
-          />
-          <input
-            className="input chat-login-input"
-            placeholder="Base URL (optional)"
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-            title="Custom API base URL (optional)"
-          />
-          <button
-            className="btn btn-primary btn-sm"
-            type="button"
-            title="Save API key and connect"
-            disabled={!apiKey.trim() || savingCred}
-            onClick={() => void handleSaveCredential()}
-          >
-            {savingCred ? "Saving…" : "Save key & connect"}
-          </button>
-          {loginError ? <p className="text-danger text-sm">{loginError}</p> : null}
         </div>
       ) : null}
 
@@ -1857,102 +1990,108 @@ export function ChatPanel({
               onDisconnect={() => void handleDisconnect()}
             />
             {showPlanningMenu ? (
-              <div className="chat-picker" role="dialog" aria-label="Idea actions">
-                <div className="chat-picker-header">
-                  <span>Ideas</span>
-                  <button className="btn-icon btn-icon-sm" type="button" title="Close ideas menu" onClick={() => setShowPlanningMenu(false)}>
-                    <X size={11} />
-                  </button>
+              <div className="modal-overlay" onClick={() => setShowPlanningMenu(false)} title="Close ideas menu">
+                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Idea actions">
+                  <div className="modal-header">
+                    <h2>Ideas</h2>
+                    <button className="btn-icon" type="button" title="Close ideas menu" onClick={() => setShowPlanningMenu(false)}>
+                      <X size={16} />
+                    </button>
+                  </div>
+                  <div className="modal-body stack">
+                    {schematicReport && schematicReport.health !== "complete" && (
+                      <button
+                        className="btn"
+                        type="button"
+                        title={`Schematic ${schematicReport.health}: incomplete sections may lead to ungrounded generation — click to open the schematic`}
+                        onClick={() => {
+                          setShowPlanningMenu(false);
+                          onOpenSchematic?.();
+                        }}
+                      >
+                        <AlertCircle size={11} />
+                        <span>Schematic {schematicReport.health}</span>
+                        <span className="text-muted text-sm">Fix</span>
+                      </button>
+                    )}
+                    <button
+                      className="btn"
+                      type="button"
+                      title="Quick freeform idea generation in the chat"
+                      disabled={generatingIdeas || !nativeSessionId}
+                      onClick={() => {
+                        setShowPlanningMenu(false);
+                        void handleGenerateIdeas();
+                      }}
+                    >
+                      <Sparkles size={11} />
+                      <span>Quick ideas</span>
+                    </button>
+                    <button
+                      className="btn"
+                      type="button"
+                      title="Pick a category and generate ideas for it"
+                      onClick={() => {
+                        setShowPlanningMenu(false);
+                        setShowCategoryPicker(true);
+                      }}
+                    >
+                      <FolderTree size={11} />
+                      <span>By category…</span>
+                    </button>
+                    <button
+                      className="btn"
+                      type="button"
+                      title="Open the planning inspector"
+                      onClick={() => {
+                        setShowPlanningMenu(false);
+                        onOpenPlanningInspector?.();
+                      }}
+                    >
+                      <LayoutGrid size={11} />
+                      <span>Planning inspector</span>
+                    </button>
+                  </div>
                 </div>
-                {schematicReport && schematicReport.health !== "complete" && (
-                  <button
-                    className="chat-picker-item"
-                    type="button"
-                    title={`Schematic ${schematicReport.health}: incomplete sections may lead to ungrounded generation — click to open the schematic`}
-                    onClick={() => {
-                      setShowPlanningMenu(false);
-                      onOpenSchematic?.();
-                    }}
-                  >
-                    <AlertCircle size={11} className="chat-picker-item-icon" />
-                    <span className="chat-picker-main">Schematic {schematicReport.health}</span>
-                    <span className="chat-picker-meta">Fix</span>
-                  </button>
-                )}
-                <button
-                  className="chat-picker-item"
-                  type="button"
-                  title="Quick freeform idea generation in the chat"
-                  disabled={generatingIdeas || !nativeSessionId}
-                  onClick={() => {
-                    setShowPlanningMenu(false);
-                    void handleGenerateIdeas();
-                  }}
-                >
-                  <Sparkles size={11} className="chat-picker-item-icon" />
-                  <span className="chat-picker-main">Quick ideas</span>
-                </button>
-                <button
-                  className="chat-picker-item"
-                  type="button"
-                  title="Pick a category and generate ideas for it"
-                  onClick={() => {
-                    setShowPlanningMenu(false);
-                    setShowCategoryPicker(true);
-                  }}
-                >
-                  <FolderTree size={11} className="chat-picker-item-icon" />
-                  <span className="chat-picker-main">By category…</span>
-                </button>
-                <button
-                  className="chat-picker-item"
-                  type="button"
-                  title="Open the planning inspector (side panel)"
-                  onClick={() => {
-                    setShowPlanningMenu(false);
-                    onOpenPlanningInspector?.();
-                  }}
-                >
-                  <LayoutGrid size={11} className="chat-picker-item-icon" />
-                  <span className="chat-picker-main">Planning inspector</span>
-                </button>
               </div>
             ) : null}
             {showCategoryPicker ? (
-              <div className="chat-picker" role="dialog" aria-label="Pick a category">
-                <div className="chat-picker-header">
-                  <span>Pick a category</span>
-                  <button className="btn-icon btn-icon-sm" type="button" title="Close category picker" onClick={() => setShowCategoryPicker(false)}>
-                    <X size={11} />
-                  </button>
-                </div>
-                <div className="chat-picker-list">
-                  {ideaState.categories.length === 0 ? (
-                    <div className="chat-picker-empty text-muted text-sm">No categories yet.</div>
-                  ) : null}
-                  {ideaState.categories.map((cat) => (
-                    <button
-                      key={cat.id}
-                      className="chat-picker-item"
-                      type="button"
-                      title={`Generate ideas for ${cat.name}`}
-                      disabled={generatingIdeas}
-                      onClick={() => void handleGenerateForCategory(cat.id)}
-                    >
-                      <span className="chat-picker-item-label">{cat.name}</span>
-                      <span className="chat-picker-item-desc text-muted text-sm">{cat.description}</span>
+              <div className="modal-overlay" onClick={() => setShowCategoryPicker(false)} title="Close category picker">
+                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Pick a category">
+                  <div className="modal-header">
+                    <h2>Pick a category</h2>
+                    <button className="btn-icon" type="button" title="Close category picker" onClick={() => setShowCategoryPicker(false)}>
+                      <X size={16} />
                     </button>
-                  ))}
-                  <button
-                    className="chat-picker-item"
-                    type="button"
-                    title="Freeform generation (no category)"
-                    disabled={generatingIdeas}
-                    onClick={() => void handleGenerateForCategory(undefined)}
-                  >
-                    <span className="chat-picker-item-label">Freeform</span>
-                    <span className="chat-picker-item-desc text-muted text-sm">No specific category</span>
-                  </button>
+                  </div>
+                  <div className="modal-body stack">
+                    {ideaState.categories.length === 0 ? (
+                      <p className="text-muted text-sm">No categories yet.</p>
+                    ) : null}
+                    {ideaState.categories.map((cat) => (
+                      <button
+                        key={cat.id}
+                        className="btn"
+                        type="button"
+                        title={`Generate ideas for ${cat.name}`}
+                        disabled={generatingIdeas}
+                        onClick={() => void handleGenerateForCategory(cat.id)}
+                      >
+                        <span className="chat-picker-item-label">{cat.name}</span>
+                        <span className="text-muted text-sm">{cat.description}</span>
+                      </button>
+                    ))}
+                    <button
+                      className="btn"
+                      type="button"
+                      title="Freeform generation (no category)"
+                      disabled={generatingIdeas}
+                      onClick={() => void handleGenerateForCategory(undefined)}
+                    >
+                      <span>Freeform</span>
+                      <span className="text-muted text-sm">No specific category</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : null}
@@ -2197,6 +2336,55 @@ export function ChatPanel({
             </button>
           )}
         </div>
+        <div className="chat-input-controls">
+          <button
+            type="button"
+            className={`btn btn-sm chat-debug-toggle ${debugMode ? "chat-debug-toggle-on" : ""}`}
+            title={debugMode ? "Debug mode ON — showing raw event data in tool cards. Click to turn off." : "Debug mode OFF — click to show raw event data in tool cards"}
+            onClick={() => {
+              const next = !debugMode;
+              setDebugMode(next);
+              localStorage.setItem("basebuild.debug-mode", String(next));
+            }}
+          >
+            <Bug size={12} /> Debug
+          </button>
+        </div>
+        {debugMode ? (
+          <div className="chat-debug-panel" title="Raw event stream from the model and agent loop">
+            <button
+              type="button"
+              className="chat-debug-panel-toggle"
+              title={debugExpanded ? "Collapse debug event stream" : "Expand debug event stream"}
+              onClick={() => setDebugExpanded(!debugExpanded)}
+            >
+              {debugExpanded ? "▼" : "▶"} Debug Event Stream ({debugEvents.length})
+            </button>
+            {debugExpanded ? (
+              <div className="chat-debug-panel-body">
+                {debugEvents.length === 0 ? (
+                  <div className="chat-debug-empty text-muted text-sm">No events yet. Send a message to see raw event data.</div>
+                ) : (
+                  <div className="chat-debug-event-list">
+                    {debugEvents.slice(-100).map((e, i) => (
+                      <div key={i} className="chat-debug-event">
+                        <span className="chat-debug-event-ts">{new Date(e.ts).toLocaleTimeString(undefined, { hour12: false })}</span>
+                        <span className="chat-debug-event-channel">{e.channel}</span>
+                        <pre className="chat-debug-event-data">{typeof e.data === "string" ? e.data : JSON.stringify(e.data, null, 2)}</pre>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-sm chat-debug-clear"
+                  title="Clear debug event log"
+                  onClick={() => setDebugEvents([])}
+                >Clear</button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <ChatContextStrip
           projectPath={projectPath}
           workspaceId={nativeSessionId}

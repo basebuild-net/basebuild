@@ -366,6 +366,11 @@ impl StorageService {
                     updated_at INTEGER NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS native_blocked_providers (
+                    provider_id TEXT PRIMARY KEY NOT NULL,
+                    blocked_at INTEGER NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS native_model_defaults (
                     provider_id TEXT PRIMARY KEY NOT NULL,
                     model_id TEXT NOT NULL,
