@@ -1881,6 +1881,44 @@ mod tests {
         assert!(err.is_err(), "nonexistent session should error");
     }
     #[test]
+    fn clear_session_messages_deletes_messages_and_tool_events() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+        let session = NativeChatService::start_session(NativeChatStartRequest {
+            project_path: "/test/clear".to_string(),
+            title: Some("Clear Test".to_string()),
+            provider_id: Some(LOCAL_PROVIDER_ID.to_string()),
+            model_id: Some("basebuild-local-coordinator".to_string()),
+            effort_level: Some("medium".to_string()),
+        })
+        .unwrap();
+
+        // Insert two messages and a tool event.
+        NativeChatService::insert_message(&session.id, "user", "hello", None, Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium")).unwrap();
+        NativeChatService::insert_message(&session.id, "assistant", "hi there", None, Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium")).unwrap();
+        NativeChatService::insert_tool_event(&session.id, None, "test_tool", "ok", "ran", None);
+
+        // Verify they exist.
+        assert_eq!(NativeChatService::list_messages(&session.id).unwrap().len(), 2);
+        assert_eq!(NativeChatService::list_tool_events(&session.id).unwrap().len(), 1);
+
+        // Clear and verify deletion count.
+        let deleted = NativeChatService::clear_session_messages(&session.id).unwrap();
+        assert_eq!(deleted, 2, "should delete 2 messages");
+        assert_eq!(NativeChatService::list_messages(&session.id).unwrap().len(), 0);
+        assert_eq!(NativeChatService::list_tool_events(&session.id).unwrap().len(), 0);
+
+        // Session record itself should still exist (provider/model/effort preserved).
+        let reread = NativeChatService::get_session(&session.id).unwrap().unwrap();
+        assert_eq!(reread.provider_id, LOCAL_PROVIDER_ID);
+        assert_eq!(reread.model_id, "basebuild-local-coordinator");
+        assert_eq!(reread.effort_level, "medium");
+
+        // Clearing an already-empty session should return 0.
+        let deleted2 = NativeChatService::clear_session_messages(&session.id).unwrap();
+        assert_eq!(deleted2, 0);
+    }
+    #[test]
     fn delete_credential_blocks_omp_credentials() {
         // delete_credential should add the provider to native_blocked_providers
         // so OMP-imported credentials don't reappear after disconnect.
