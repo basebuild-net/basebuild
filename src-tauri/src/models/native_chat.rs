@@ -11,6 +11,7 @@ pub struct NativeChatSession {
     pub model_id: String,
     pub effort_level: String,
     pub status: String,
+    pub run_state: String,
     pub created_at: i64,
     pub updated_at: i64,
 }

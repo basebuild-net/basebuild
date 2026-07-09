@@ -1142,6 +1142,9 @@ a { color: inherit; text-decoration: none; }
 .tool-card-group-list { display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow-y: auto; padding: 4px; }
 .chat-loading { padding: 8px; color: var(--bb-muted); font-size: 11px; font-style: italic; }
 .chat-loading-active { display: flex; align-items: center; gap: 6px; font-style: normal; }
+.chat-loading-approval { border-left: 2px solid var(--bb-warning); padding-left: 6px; }
+.chat-loading-approval .chat-loading-spinner { animation-duration: 1.5s; }
+.chat-loading-approval .chat-loading-label { color: var(--bb-warning); }
 /* Tool event cards */
 .tool-card { border: 1px solid var(--bb-border); background: var(--bb-surface); border-radius: 0; font-size: 11px; padding: 0; margin: 2px 0; }
 .tool-card-running { border-left: 2px solid var(--bb-status-running, #38bdf8); }

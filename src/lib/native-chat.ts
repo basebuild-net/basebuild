@@ -9,6 +9,7 @@ export type NativeChatSession = {
   modelId: string;
   effortLevel: string;
   status: string;
+  runState: string;
   createdAt: number;
   updatedAt: number;
 };

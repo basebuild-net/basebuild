@@ -128,6 +128,20 @@ fn await_approval(
             },
         );
     }
+    // Emit a tool-event with status "pending" so the UI shows which tool
+    // is waiting for approval in the running-tools indicator.
+    let _ = app.emit(
+        "native-chat://tool-event",
+        json!({
+            "sessionId": session_id,
+            "toolCallId": call.id,
+            "toolName": call.name,
+            "status": "pending",
+            "summary": format!("{} — approval required", call.name),
+            "decision": "pending",
+            "ruleSource": "gateway",
+        }),
+    );
     let _ = app.emit(
         "native-chat://approval-request",
         json!({

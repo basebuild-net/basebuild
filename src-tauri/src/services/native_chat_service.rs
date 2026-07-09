@@ -423,6 +423,7 @@ impl NativeChatService {
             model_id,
             effort_level,
             status: "ready".to_string(),
+            run_state: "idle".to_string(),
             created_at: now,
             updated_at: now,
         };
@@ -495,6 +496,7 @@ impl NativeChatService {
             model_id,
             effort_level,
             status: "ready".to_string(),
+            run_state: "idle".to_string(),
             created_at: now,
             updated_at: now,
         };
@@ -572,7 +574,7 @@ impl NativeChatService {
     pub fn get_session(session_id: &str) -> DbResult<Option<NativeChatSession>> {
         let conn = StorageService::connect()?;
         conn.query_row(
-            "SELECT id, project_path, title, profile_id, provider_id, model_id, effort_level, status, created_at, updated_at
+            "SELECT id, project_path, title, profile_id, provider_id, model_id, effort_level, status, run_state, created_at, updated_at
              FROM native_chat_sessions WHERE id = ?1",
             params![session_id],
             map_session,
@@ -611,7 +613,7 @@ impl NativeChatService {
         let conn = StorageService::connect()?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, project_path, title, profile_id, provider_id, model_id, effort_level, status, created_at, updated_at
+                "SELECT id, project_path, title, profile_id, provider_id, model_id, effort_level, status, run_state, created_at, updated_at
                  FROM native_chat_sessions WHERE project_path = ?1 ORDER BY updated_at DESC",
             )
             .map_err(|e| e.to_string())?;
@@ -1505,8 +1507,9 @@ fn map_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<NativeChatSession> {
         model_id: row.get(5)?,
         effort_level: row.get(6)?,
         status: row.get(7)?,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        run_state: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "idle".to_string()),
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
     })
 }
 

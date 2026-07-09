@@ -36,6 +36,7 @@ type NativeChatSession = {
   modelId: string;
   effortLevel: string;
   status: string;
+  runState: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -189,6 +190,7 @@ function applyMvpFixture(s: E2eState): void {
       modelId: "umans-glm-5.2",
       effortLevel: "high",
       status: "ready",
+      runState: "idle",
       createdAt: 1_800_000_000,
       updatedAt: 1_800_000_000,
     },
@@ -772,6 +774,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         modelId: req.modelId ?? "basebuild-local-coordinator",
         effortLevel: req.effortLevel ?? "medium",
         status: "ready",
+        runState: "idle",
         createdAt: ts,
         updatedAt: ts,
       };

@@ -1747,26 +1747,37 @@ export function ChatPanel({
 
         {/* Running tools with tool names, count, and elapsed timer */}
         {streaming && streamPhase === "tools" ? (() => {
-          const runningTools = toolEvents.filter((e) => e.status === "running" || e.status === "pending");
+          const pendingTools = toolEvents.filter((e) => e.status === "pending");
+          const runningTools = toolEvents.filter((e) => e.status === "running");
           const completedTools = toolEvents.filter((e) => e.status === "success" || e.status === "error" || e.status === "denied" || e.status === "approved");
-          const toolNames = runningTools.length > 0
-            ? runningTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")
+          const activeTools = [...pendingTools, ...runningTools];
+          const toolNames = activeTools.length > 0
+            ? activeTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")
             : "tools";
+          const isWaitingApproval = pendingTools.length > 0;
           return (
             <div
-              className="chat-loading chat-loading-active chat-loading-tools"
-              title={`Executing: ${toolNames} (${runningTools.length} running, ${completedTools.length} done). Elapsed: ${formatElapsed(elapsed)}.`}
+              className={`chat-loading chat-loading-active chat-loading-tools${isWaitingApproval ? " chat-loading-approval" : ""}`}
+              title={
+                isWaitingApproval
+                  ? `Waiting for approval: ${pendingTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")}. Click the approval card to allow or deny. Elapsed: ${formatElapsed(elapsed)}.`
+                  : `Executing: ${toolNames} (${activeTools.length} running, ${completedTools.length} done). Elapsed: ${formatElapsed(elapsed)}.`
+              }
             >
               <span className="chat-loading-spinner" />
               <span className="chat-loading-label">
-                {runningTools.length > 0
-                  ? `${toolNames}…`
-                  : "Running tools…"}
+                {isWaitingApproval
+                  ? `Waiting for approval: ${pendingTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")}…`
+                  : activeTools.length > 0
+                    ? `${toolNames}…`
+                    : "Running tools…"}
               </span>
-              {runningTools.length > 0 || completedTools.length > 0 ? (
-                <span className="chat-loading-count" title={`${runningTools.length} running, ${completedTools.length} completed`}>
+              {activeTools.length > 0 || completedTools.length > 0 ? (
+                <span className="chat-loading-count" title={`${pendingTools.length} pending, ${runningTools.length} running, ${completedTools.length} completed`}>
+                  {pendingTools.length > 0 ? `${pendingTools.length} pending` : ""}
+                  {pendingTools.length > 0 && runningTools.length > 0 ? " · " : ""}
                   {runningTools.length > 0 ? `${runningTools.length} running` : ""}
-                  {runningTools.length > 0 && completedTools.length > 0 ? " · " : ""}
+                  {(pendingTools.length > 0 || runningTools.length > 0) && completedTools.length > 0 ? " · " : ""}
                   {completedTools.length > 0 ? `${completedTools.length} done` : ""}
                 </span>
               ) : null}
