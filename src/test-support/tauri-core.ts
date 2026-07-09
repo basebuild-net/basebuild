@@ -24,6 +24,7 @@ type SessionTab = {
   title: string;
   terminalId: number | null;
   filePath: string | null;
+  chatSessionId: string | null;
   createdAt: number;
 };
 type NativeChatSession = {
@@ -489,6 +490,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         title: args.title as string,
         terminalId: (args.terminalId as number | null) ?? null,
         filePath: (args.filePath as string | null) ?? null,
+        chatSessionId: (args.chatSessionId as string | null) ?? null,
         createdAt: Math.floor(Date.now() / 1000),
       };
       s.tabs.push(tab);
@@ -502,6 +504,11 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "update_tab_file_path": {
       const tab = s.tabs.find((item) => item.id === args.id);
       if (tab) tab.filePath = args.filePath as string | null;
+      return undefined as T;
+    }
+    case "update_tab_chat_session": {
+      const tab = s.tabs.find((item) => item.id === args.id);
+      if (tab) tab.chatSessionId = args.chatSessionId as string | null;
       return undefined as T;
     }
     case "has_project_schematic":

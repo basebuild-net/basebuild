@@ -78,6 +78,9 @@ test.describe("native chat workspace", () => {
     await expect(catalogModal.locator(".provider-status.is-connected").first()).toContainText("Connected");
     await catalogModal.locator(".provider-card", { hasText: "OpenAI" }).first().click();
 
+    // The catalog closes after selecting a provider so the composer controls update.
+    await page.getByTitle("Close provider and model catalog").click();
+
     // The composer shows a degraded setup state and a Connect affordance.
     await expect(page.locator(".chat-provider-trigger")).toContainText("OpenAI");
     await expect(page.locator(".chat-provider-trigger")).toHaveClass(/is-warn/);

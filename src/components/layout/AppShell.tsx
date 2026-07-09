@@ -12,7 +12,7 @@ import { ProjectSidebar, useProjectSidebar } from "./ProjectSidebar";
 import { ActivitySidebar } from "./ActivitySidebar";
 import { ChatEnvironmentPanel } from "./ChatEnvironmentPanel";
 const FileExplorerModal = lazy(() => import("./FileExplorerModal").then((m) => ({ default: m.FileExplorerModal })));
-const PlanningInspector = lazy(() => import("./PlanningInspector").then((m) => ({ default: m.PlanningInspector })));
+import { PlanningInspector } from "./PlanningInspector";
 import type { PlanningTab } from "./PlanningInspector";
 const EditPlanModal = lazy(() => import("./EditPlanModal").then((m) => ({ default: m.EditPlanModal })));
 const FocusPlanModal = lazy(() => import("./FocusPlanModal").then((m) => ({ default: m.FocusPlanModal })));
