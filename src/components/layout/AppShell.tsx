@@ -1,9 +1,18 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LayoutTemplate, Settings2, TerminalSquare, X } from "lucide-react";
+import { AlertTriangle, CheckCircle, Info, LayoutTemplate, Settings2, TerminalSquare, X, XCircle } from "lucide-react";
 import { deliverPrompt, type PromptMode } from "../../lib/promptDelivery";
 import { markStart, markEnd } from "../../lib/timing";
 import { generateCategoriesAction, generateIdeasAction, schematicWizardAction, type PlanningAction } from "../../lib/planningActions";
 import { DestinationPicker, type DestinationChoice } from "./DestinationPicker";
+
+export type ToastKind = "success" | "warning" | "error" | "info";
+
+const TOAST_ICONS: Record<ToastKind, { icon: typeof CheckCircle; className: string }> = {
+  success: { icon: CheckCircle, className: "toast-icon-success" },
+  warning: { icon: AlertTriangle, className: "toast-icon-warning" },
+  error: { icon: XCircle, className: "toast-icon-error" },
+  info: { icon: Info, className: "toast-icon-info" },
+};
 
 import { useSessionState } from "../../state/sessions";
 import { useZoom } from "../../state/useZoom";
@@ -117,7 +126,13 @@ export function AppShell({ updates }: AppShellProps) {
   // Plan assignment destination picker state — a ready plan + profile waiting
   // for the user to choose a chat session.
   const [pendingAssign, setPendingAssign] = useState<{ plan: Plan; profile: LaunchProfile } | null>(null);
-  const [appToast, setAppToast] = useState<{ title: string; detail?: string; kind: "success" | "error" } | null>(null);
+  const [appToast, setAppToast] = useState<{ title: string; detail?: string; kind: ToastKind } | null>(null);
+
+  // Toast helper — defined early so all handlers can use it.
+  const handleShowToast = useCallback((title: string, detail?: string, kind: ToastKind = "success") => {
+    setAppToast({ title, detail, kind });
+    window.setTimeout(() => setAppToast(null), 4000);
+  }, []);
   const [pendingDelivery, setPendingDelivery] = useState<{ text: string; mode: PromptMode } | null>(null);
   // Escape-to-close for inline modals that don't have their own hook.
   useEscapeKey(changesModalOpen, () => setChangesModalOpen(false));
@@ -445,22 +460,20 @@ export function AppShell({ updates }: AppShellProps) {
   }, [activeProjectPath, session.activeSessionId, session.activeSession?.title, terminalOutputBuffer, session.tabs]);
 
   const handleOpenFolder = useCallback(async () => {
-    // Synchronous guard: if the picker is already in flight, skip.
-    // The ref is set synchronously inside openFolder before any async
-    // work, so this catches rapid concurrent clicks (Promise.all).
     if (sidebar.isPickerInFlight()) return;
     try {
       const path = await sidebar.openFolder();
       if (path) {
         await setLastFocusedProject(path);
         setActiveProjectPath(path);
+        handleShowToast("Project opened", path.split(/[\\/]/).pop() ?? path, "success");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       addLog("error", "Failed to open project folder", message);
+      handleShowToast("Failed to open project", message, "error");
     }
-  }, [sidebar, addLog]);
-
+  }, [sidebar, addLog, handleShowToast]);
   const handleSelectProject = useCallback(
     async (path: string) => {
       // Only set the path after focus persistence succeeds — the
@@ -468,12 +481,13 @@ export function AppShell({ updates }: AppShellProps) {
       try {
         await setLastFocusedProject(path);
         setActiveProjectPath(path);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        addLog("error", `Failed to select project ${path}`, message);
+        handleShowToast("Project activated", path.split(/[\\/]/).pop() ?? path, "info");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        handleShowToast("Failed to activate project", msg, "error");
       }
     },
-    [addLog],
+    [sidebar, handleShowToast],
   );
 
   const handleRetryRestore = useCallback(() => {
@@ -486,31 +500,38 @@ export function AppShell({ updates }: AppShellProps) {
       if (path === activeProjectPath) {
         setActiveProjectPath(null);
       }
+      handleShowToast("Project removed", path.split(/[\\/]/).pop() ?? path, "info");
     },
-    [sidebar, activeProjectPath],
+    [sidebar, activeProjectPath, handleShowToast],
   );
 
   const handleCreateSession = useCallback(async () => {
     await session.createSession();
-  }, [session]);
-
+    handleShowToast("Chat created", "New chat session started.", "success");
+  }, [session, handleShowToast]);
   const handleCreateTerminalTab = useCallback(async () => {
     if (!session.activeSessionId) return;
-    const shell = DEFAULT_SHELL();
-    const term = await createTerminal(shell, activeProjectPath ?? undefined);
-    await session.createTab("terminal", `Terminal ${term.id}`, term.id);
-  }, [session, activeProjectPath]);
+    try {
+      const shell = DEFAULT_SHELL();
+      const term = await createTerminal(shell, activeProjectPath ?? undefined);
+      await session.createTab("terminal", `Terminal ${term.id}`, term.id);
+      handleShowToast("Terminal created", `${shell} shell ready.`, "success");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      handleShowToast("Failed to create terminal", msg, "error");
+    }
+  }, [session, activeProjectPath, handleShowToast]);
 
   /** Commit a checked panel insertion. Resolves a valid live anchor (or
    *  accepts the panel as the sole root for an empty grid), verifies the new
    *  panel appears exactly once, and logs an actionable error on failure.
    *  Returns true on success. A stale `activePanelId` / anchor never becomes
-   *  a silent no-op. Panel mutations are blocked while a project restore is
-   *  loading (project-keyed boundary). */
+   *  a silent no-op. */
   const commitInsert = useCallback(
     (panel: Panel, anchorId: string | null = null, side: DropSide = "right"): boolean => {
       if (projectRestoreLoading) {
         addLog("warn", "Panel creation blocked", "The project is still loading; please wait.");
+        handleShowToast("Project still loading", "Wait for the project to finish restoring.", "warning");
         return false;
       }
       const result = insertPanel(panelGridState, panel, { side, anchorId });
@@ -521,7 +542,7 @@ export function AppShell({ updates }: AppShellProps) {
       setPanelGridState(result.state);
       return true;
     },
-    [panelGridState, projectRestoreLoading, addLog],
+    [panelGridState, projectRestoreLoading, addLog, handleShowToast],
   );
 
   const handleTerminalOutput = useCallback((data: string) => {
@@ -605,14 +626,17 @@ export function AppShell({ updates }: AppShellProps) {
       addLog("debug", "Planning action routed", action.context ?? action.type);
       setPendingDelivery({ text: action.text, mode: action.mode });
       setDestinationPickerOpen(true);
-      // Demote the planning modal so the destination chat is visible.
       setPlansModalOpen(false);
+      handleShowToast("Generating categories", "Pick a destination chat to deliver the prompt.", "info");
     },
-    [addLog],
+    [addLog, handleShowToast],
   );
   const handleStartSchematicWizard = useCallback(
     async (section?: string) => {
-      if (!session.activeSessionId) return;
+      if (!session.activeSessionId) {
+        handleShowToast("No active session", "Open a project first to start the schematic wizard.", "warning");
+        return;
+      }
       let skillBody = "";
       try {
         const skill = await readSkill("basebuild-project-schematic");
@@ -624,10 +648,10 @@ export function AppShell({ updates }: AppShellProps) {
       addLog("debug", "Planning action routed", action.context ?? action.type);
       setPendingDelivery({ text: action.text, mode: action.mode });
       setDestinationPickerOpen(true);
-      // Demote the planning modal so the destination chat is visible.
       setPlansModalOpen(false);
+      handleShowToast("Schematic wizard started", section ? `Focusing: ${section}` : "Pick a destination chat to begin.", "info");
     },
-    [session, addLog],
+    [session, addLog, handleShowToast],
   );
 
   const handleOpenSchematic = useCallback(() => {
@@ -650,9 +674,16 @@ export function AppShell({ updates }: AppShellProps) {
       if (!editingPlan) return;
       void plans.updatePlan(editingPlan.id, draft);
       setEditingPlan(null);
+      handleShowToast("Plan saved", `${editingPlan.referenceId} ${editingPlan.title}`, "success");
     },
-    [editingPlan, plans],
+    [editingPlan, plans, handleShowToast],
   );
+
+  const handleOpenPlanInTerminal = useCallback((plan: Plan) => {
+    void handleCreateTerminalTab();
+    void navigator.clipboard.writeText(`#${plan.referenceId} ${plan.title}\n${plan.description}`);
+  }, [handleCreateTerminalTab]);
+  // handleShowToast is defined earlier (after appToast state) so all handlers can use it.
 
   const handleFocusPlan = useCallback((plan: Plan) => {
     setFocusingPlan(plan);
@@ -660,16 +691,8 @@ export function AppShell({ updates }: AppShellProps) {
 
   const handleCopyReference = useCallback((refId: string) => {
     void navigator.clipboard.writeText(`#${refId}`);
-  }, []);
-
-  const handleOpenPlanInTerminal = useCallback((plan: Plan) => {
-    void handleCreateTerminalTab();
-    void navigator.clipboard.writeText(`#${plan.referenceId} ${plan.title}\n${plan.description}`);
-  }, [handleCreateTerminalTab]);
-  const handleShowToast = useCallback((title: string, detail?: string, kind: "success" | "error" = "success") => {
-    setAppToast({ title, detail, kind });
-    window.setTimeout(() => setAppToast(null), 4000);
-  }, []);
+    handleShowToast("Reference copied", `#${refId} copied to clipboard.`, "info");
+  }, [handleShowToast]);
 
   const handleAssignPlan = useCallback((plan: Plan, profile: LaunchProfile) => {
     setPendingAssign({ plan, profile });
@@ -872,6 +895,7 @@ export function AppShell({ updates }: AppShellProps) {
             onOpenSchematic={handleOpenSchematic}
             onCloseChat={() => setPanelGridState((prev) => closePanel(prev, panel.id))}
             onCloseAndDeleteChat={() => setPanelGridState((prev) => deletePanelFromHistory(prev, panel.id))}
+            onShowToast={handleShowToast}
             onDuplicateChat={() => {
               const newPanel = handleCreatePanel(panel.id, "right");
               commitInsert(newPanel, panel.id, "right");
@@ -1336,24 +1360,28 @@ export function AppShell({ updates }: AppShellProps) {
         onSkip={() => firstRun.skip()}
       />
       <ToastStack />
-      {appToast ? (
-        <div className="toast-stack">
-          <div className={`toast ${appToast.kind === "error" ? "toast-error" : "toast-success"}`}>
-            <div className="toast-content">
-              <span className="toast-title">{appToast.title}</span>
-              {appToast.detail ? <span className="toast-detail">{appToast.detail}</span> : null}
+      {appToast ? (() => {
+        const { icon: ToastIcon, className: iconClassName } = TOAST_ICONS[appToast.kind];
+        return (
+          <div className="toast-stack">
+            <div className={`toast toast-${appToast.kind}`} role="status" aria-live="polite">
+              <ToastIcon size={13} className={`toast-icon ${iconClassName}`} />
+              <div className="toast-content">
+                <span className="toast-title">{appToast.title}</span>
+                {appToast.detail ? <span className="toast-detail">{appToast.detail}</span> : null}
+              </div>
+              <button
+                className="toast-dismiss btn-icon"
+                title="Dismiss"
+                type="button"
+                onClick={() => setAppToast(null)}
+              >
+                <X size={12} />
+              </button>
             </div>
-            <button
-              className="toast-dismiss btn-icon"
-              title="Dismiss"
-              type="button"
-              onClick={() => setAppToast(null)}
-            >
-              <X size={12} />
-            </button>
           </div>
-        </div>
-      ) : null}
+        );
+      })() : null}
       <DestinationPicker
         open={destinationPickerOpen}
         onClose={() => { setDestinationPickerOpen(false); setPendingDelivery(null); setPendingAssign(null); }}

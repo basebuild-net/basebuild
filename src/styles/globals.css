@@ -2746,6 +2746,13 @@ a { color: inherit; text-decoration: none; }
 .flow-runtime-blocked { padding: 4px 8px; border: 1px solid rgba(250, 204, 21, 0.35); background: color-mix(in srgb, var(--bb-warning) 6%, transparent); }
 .toast-success { border-color: rgba(74, 222, 128, 0.4); background: color-mix(in srgb, var(--bb-positive) 8%, var(--bb-surface-high)); }
 .toast-error { border-color: rgba(248, 113, 113, 0.4); background: color-mix(in srgb, var(--bb-negative) 8%, var(--bb-surface-high)); }
+.toast-warning { border-color: rgba(250, 204, 21, 0.4); background: color-mix(in srgb, var(--bb-warning) 8%, var(--bb-surface-high)); }
+.toast-info { border-color: rgba(129, 140, 248, 0.4); background: color-mix(in srgb, var(--bb-info) 8%, var(--bb-surface-high)); }
+.toast-icon { flex-shrink: 0; margin-top: 1px; }
+.toast-icon-success { color: var(--bb-positive); }
+.toast-icon-error { color: var(--bb-negative); }
+.toast-icon-warning { color: var(--bb-warning); }
+.toast-icon-info { color: var(--bb-info); }
 .text-warn { color: var(--bb-warning); }
 /* ─── Run board (dependency graph nodes) ─── */
 .run-board { border: 1px solid var(--bb-border); background: var(--bb-surface); display: flex; flex-direction: column; gap: 1px; overflow-x: auto; }

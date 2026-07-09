@@ -136,6 +136,8 @@ type ChatPanelProps = {
   onCloseAndDeleteChat?: () => void;
   /** Duplicate this chat panel beside the current one. */
   onDuplicateChat?: () => void;
+  /** Show a toast notification (success/warning/error/info). */
+  onShowToast?: (title: string, detail?: string, kind?: "success" | "warning" | "error" | "info") => void;
 };
 
 function formatMetric(value: number | null | undefined, suffix = "") {
@@ -251,6 +253,7 @@ export function ChatPanel({
   onCloseChat,
   onCloseAndDeleteChat,
   onDuplicateChat,
+  onShowToast,
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
@@ -722,12 +725,20 @@ export function ChatPanel({
   const handleResolveApproval = useCallback(async (toolCallId: string, decision: "allow" | "allow_session" | "deny") => {
     try {
       await resolveToolApproval(toolCallId, decision);
-      // Update the tool event status optimistically
       setToolEvents((prev) => prev.map((e) => e.id === toolCallId ? { ...e, status: decision === "deny" ? "denied" : "approved" } : e));
+      if (decision === "deny") {
+        onShowToast?.("Tool call denied", "The agent will be notified.", "warning");
+      } else if (decision === "allow_session") {
+        onShowToast?.("Tool allowed for session", "All calls to this tool are approved.", "info");
+      } else {
+        onShowToast?.("Tool allowed", "The tool call will proceed.", "success");
+      }
     } catch (e) {
-      addLog("error", "Failed to resolve approval", e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to resolve approval", msg);
+      onShowToast?.("Failed to resolve approval", msg, "error");
     }
-  }, [addLog]);
+  }, [addLog, onShowToast]);
 
   useEffect(() => {
     if (nativeMode) return;
@@ -1195,14 +1206,16 @@ export function ChatPanel({
       setApiKey("");
       setBaseUrl("");
       setError(null);
+      onShowToast?.("Provider connected", `${selectedProvider?.label ?? providerId} is now ready.`, "success");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog("error", "Failed to save provider credential", msg);
       setLoginError(msg);
+      onShowToast?.("Failed to connect", msg, "error");
     } finally {
       setSavingCred(false);
     }
-  }, [apiKey, baseUrl, providerId, selectedProvider, refreshCatalog, addLog]);
+  }, [apiKey, baseUrl, providerId, selectedProvider, refreshCatalog, addLog, onShowToast]);
 
   const stopLoginPoll = useCallback(() => {
     if (loginTimerRef.current) {
@@ -1258,16 +1271,18 @@ export function ChatPanel({
       setLoginError(msg);
     });
   }, [addLog]);
-
   const handleDisconnect = useCallback(async () => {
     if (!selectedProvider) return;
     try {
       await nativeDeleteProviderCredential(selectedProvider.id);
       await refreshCatalog();
+      onShowToast?.("Provider disconnected", `${selectedProvider.label} credential removed.`, "info");
     } catch (e) {
-      addLog("error", "Failed to disconnect provider", e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to disconnect provider", msg);
+      onShowToast?.("Failed to disconnect", msg, "error");
     }
-  }, [selectedProvider, refreshCatalog, addLog]);
+  }, [selectedProvider, refreshCatalog, addLog, onShowToast]);
 
   // Persist provider/model/effort to both the session record (so it survives
   // restart) and the project default (so new sessions inherit it). The session
@@ -1386,14 +1401,16 @@ export function ChatPanel({
     try {
       await gitBranchSwitch(projectPath, name);
       setBranch(name);
-      // Refresh worktree match.
       const workspaces = await listWorkspaces(projectPath).catch(() => []);
       const match = workspaces.find((w) => w.branch === name);
       setWorktreePath(match?.path ?? null);
+      onShowToast?.("Branch switched", `Now on ${name}`, "success");
     } catch (e) {
-      addLog("error", "Failed to switch branch", e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to switch branch", msg);
+      onShowToast?.("Failed to switch branch", msg, "error");
     }
-  }, [projectPath, branch, addLog]);
+  }, [projectPath, branch, addLog, onShowToast]);
 
   const handleCreateBranch = useCallback(async (name: string) => {
     if (!projectPath || !name) return;
@@ -1402,10 +1419,13 @@ export function ChatPanel({
       await gitBranchSwitch(projectPath, name);
       setBranch(name);
       setBranches(await gitBranchList(projectPath).catch(() => []));
+      onShowToast?.("Branch created", `Created and switched to ${name}`, "success");
     } catch (e) {
-      addLog("error", "Failed to create branch", e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to create branch", msg);
+      onShowToast?.("Failed to create branch", msg, "error");
     }
-  }, [projectPath, addLog]);
+  }, [projectPath, addLog, onShowToast]);
 
   const handleOpenAssignPlan = useCallback(async () => {
     if (!activeSessionId) return;
