@@ -328,6 +328,13 @@ export async function nativeChatCancel(sessionId: string): Promise<boolean> {
   return invoke<boolean>("native_chat_cancel", { sessionId });
 }
 
+/** Delete all persisted messages and tool events for a session.
+ * Preserves the session record and provider/model/effort selection.
+ * Returns the count of deleted messages. */
+export async function nativeChatClearMessages(sessionId: string): Promise<number> {
+  return invoke<number>("native_chat_clear_messages", { sessionId });
+}
+
 /** List tool events for a session (tool calls, approvals, metrics). */
 export async function nativeChatToolEvents(sessionId: string): Promise<NativeToolEvent[]> {
   return invoke<NativeToolEvent[]>("native_chat_tool_events", { sessionId });

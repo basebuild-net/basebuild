@@ -1,6 +1,6 @@
-# chat-slash-commands Specification
+# chat-slash-commands Specification (delta)
 
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Chat Slash Commands
 The chat composer SHALL treat recognized slash commands as local UI commands instead of provider prompts. Built-in chat commands SHALL include `/login [provider]`, `/model [query]`, `/provider [query]`, `/models refresh`, `/clear`, `/new`, `/commands`, `/help`, and `/stop`, while preserving existing planning, idea, OpenSpec, MCP, and skill commands. Commands that change local state SHALL show inline success/failure feedback in the chat UI and SHALL NOT expose credentials or provider tokens.

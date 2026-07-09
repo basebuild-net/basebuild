@@ -897,6 +897,7 @@ export function AppShell({ updates }: AppShellProps) {
               const newPanel = handleCreatePanel(panel.id, "right");
               commitInsert(newPanel, panel.id, "right");
             }}
+            onNewChat={() => handleCreateTypedPanel("chat")}
           />
         );
       }

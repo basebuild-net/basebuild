@@ -637,6 +637,25 @@ impl NativeChatService {
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
     }
 
+    /// Delete all persisted messages and tool events for a session.
+    /// Preserves the session record itself (provider/model/effort selection).
+    /// Returns the count of deleted messages.
+    pub fn clear_session_messages(session_id: &str) -> DbResult<usize> {
+        let conn = StorageService::connect()?;
+        let deleted = conn
+            .execute(
+                "DELETE FROM native_chat_messages WHERE session_id = ?1",
+                params![session_id],
+            )
+            .map_err(|e| format!("Failed to clear chat messages: {e}"))?;
+        conn.execute(
+            "DELETE FROM native_tool_events WHERE session_id = ?1",
+            params![session_id],
+        )
+        .map_err(|e| format!("Failed to clear tool events: {e}"))?;
+        Ok(deleted)
+    }
+
     pub fn send_message(
         app: &AppHandle,
         request: NativeChatSendRequest,

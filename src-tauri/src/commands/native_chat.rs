@@ -70,6 +70,14 @@ pub fn native_chat_messages(session_id: String) -> Result<Vec<NativeChatMessage>
     NativeChatService::list_messages(&session_id)
 }
 
+/// Delete all persisted messages and tool events for a chat session.
+/// Preserves the session record and its provider/model/effort selection.
+/// Returns the count of deleted messages.
+#[tauri::command]
+pub fn native_chat_clear_messages(session_id: String) -> Result<usize, String> {
+    NativeChatService::clear_session_messages(&session_id)
+}
+
 #[tauri::command]
 pub async fn native_chat_send(
     app: AppHandle,

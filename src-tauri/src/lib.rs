@@ -59,7 +59,7 @@ use commands::{
         omp_telemetry_refresh, omp_telemetry_snapshot, omp_telemetry_start, omp_telemetry_stop,
     },
     native_chat::{
-        native_chat_get, native_chat_list, native_chat_messages, native_chat_send,
+        native_chat_get, native_chat_list, native_chat_messages, native_chat_clear_messages, native_chat_send,
         native_chat_start, native_chat_cancel, native_chat_resolve_approval,
         native_chat_update_session_model,
         native_chat_tool_events, native_chat_model_default,
@@ -496,6 +496,7 @@ pub fn run() {
             native_chat_get,
             native_chat_list,
             native_chat_messages,
+            native_chat_clear_messages,
             native_chat_update_session_model,
             native_chat_send,
             native_request_metrics,

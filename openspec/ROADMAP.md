@@ -167,13 +167,12 @@ their turn comes — stale specs are worse than none.
 ## Status
 
 <!-- status:begin -->
-_Last refreshed: 2026-07-08 (`node scripts/openspec-status.mjs --write`)_
+_Last refreshed: 2026-07-09 (`node scripts/openspec-status.mjs --write`)_
 
 |Change|Progress|Status|Next command|
 |---|---|---|---|
 |`chat-first-shell`|17/31|in progress|`/apply chat-first-shell`|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
-|`openspec-chat-workbench`|65/71|in progress|`/apply openspec-chat-workbench`|
 |`plan-import`|11/13|in progress|`/apply plan-import`|
 |`provider-parity-workspace-fixes`|28/42|in progress|`/apply provider-parity-workspace-fixes`|
 |`chat-history-persistence`|0/21|not started|`/apply chat-history-persistence`|
@@ -188,6 +187,7 @@ _Last refreshed: 2026-07-08 (`node scripts/openspec-status.mjs --write`)_
 |`project-grid-workspace`|0/33|not started|`/apply project-grid-workspace`|
 |`schematic-enhance-ui`|0/14|not started|`/apply schematic-enhance-ui`|
 |`session-compaction`|0/13|not started|`/apply session-compaction`|
+|`openspec-chat-workbench`|71/71|complete — archive|`/archive openspec-chat-workbench`|
 <!-- status:end -->
 
 ## Archiving

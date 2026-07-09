@@ -4,6 +4,18 @@ import { useEscapeKey } from "../../lib/useEscapeKey";
 import { markStart, markEnd } from "../../lib/timing";
 import { ChatComposerRail } from "./ChatComposerRail";
 import { ChatContextStrip } from "./ChatContextStrip";
+import { CommandPalette } from "./CommandPalette";
+import {
+  BUILTIN_COMMANDS,
+  buildCommandHelper,
+  filterAndRank,
+  tabComplete,
+  formatCommandReference,
+  KEYBOARD_GUIDE,
+  readCommandRecency,
+  recordCommandUse,
+  sourceLabel,
+} from "../../lib/chatCommands";
 import { ChatHeader } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
 import { QuestionCard } from "./QuestionCard";
@@ -39,6 +51,7 @@ import type { PendingInteraction } from "../../lib/interactions";
 import { getApprovalMode, getRuntimeDefaults, setApprovalMode as setApprovalModeBackend, type ApprovalMode } from "../../lib/settings";
 import {
   nativeChatCancel,
+  nativeChatClearMessages,
   nativeChatGet,
   nativeChatMessages,
   nativeChatModelDefault,
@@ -136,6 +149,8 @@ type ChatPanelProps = {
   onCloseAndDeleteChat?: () => void;
   /** Duplicate this chat panel beside the current one. */
   onDuplicateChat?: () => void;
+  /** Start a fresh empty chat for the current project (keeps the previous chat). */
+  onNewChat?: () => void;
   /** Show a toast notification (success/warning/error/info). */
   onShowToast?: (title: string, detail?: string, kind?: "success" | "warning" | "error" | "info") => void;
 };
@@ -303,6 +318,7 @@ export function ChatPanel({
   onCloseChat,
   onCloseAndDeleteChat,
   onDuplicateChat,
+  onNewChat,
   onShowToast,
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
@@ -358,6 +374,10 @@ export function ChatPanel({
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelFilter, setModelFilter] = useState("");
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [commandRecency, setCommandRecency] = useState<Record<string, number>>(() => readCommandRecency());
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [paletteActiveIndex, setPaletteActiveIndex] = useState(0);
   useEscapeKey(showProviderPicker || showModelPicker, () => {
     setShowProviderPicker(false);
     setShowModelPicker(false);
@@ -1069,6 +1089,10 @@ export function ChatPanel({
       if (loginTimerRef.current) window.clearTimeout(loginTimerRef.current);
     };
   }, []);
+  // Ref to hold the latest handleStopNative so handleSend can call it
+  // without a TDZ issue (handleStopNative is defined after handleSend).
+  const stopNativeRef = useRef<() => Promise<void>>(async () => {});
+  const persistSelectionRef = useRef<(providerId: string, modelId: string, effort: string) => void>(() => {});
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
@@ -1110,6 +1134,7 @@ export function ChatPanel({
       const command = rawCommand.toLowerCase();
       const rest = parts.join(" ").trim();
       setCommandNotice(null);
+      setShowCommandPalette(false);
 
       // Builtin-action dispatch map: commands that execute UI actions
       // immediately rather than expanding into a prompt.
@@ -1126,10 +1151,74 @@ export function ChatPanel({
             setShowProviderPicker(true);
             setShowLogin(false);
           }
+          setCommandNotice(provider ? `Opening login for ${provider.label}…` : "Opening provider chooser…");
         },
         model: () => {
           setModelFilter(rest);
           setShowModelPicker(true);
+          setShowProviderPicker(false);
+          setCommandNotice(rest ? `Model picker filtered to "${rest}"` : "Model picker opened.");
+        },
+        provider: () => {
+          setModelFilter("");
+          setShowProviderPicker(true);
+          setShowModelPicker(false);
+          if (rest) {
+            const match = catalog?.providers.find(
+              (p) => p.id.toLowerCase().includes(rest.toLowerCase()) || p.label.toLowerCase().includes(rest.toLowerCase()),
+            );
+            if (match) {
+              setProviderId(match.id);
+              const providerModels = catalog?.models.filter((m) => m.providerId === match.id) ?? [];
+              const currentIsValid = providerModels.some((m) => m.id === modelId);
+              if (!currentIsValid && providerModels[0]) setModelId(providerModels[0].id);
+              persistSelectionRef.current(match.id, modelId, effortLevel);
+              setCommandNotice(`Switched to ${match.label}.`);
+            } else {
+              setCommandNotice(`No provider matching "${rest}". Use /provider to browse all providers.`);
+            }
+          } else {
+            setCommandNotice("Provider picker opened.");
+          }
+        },
+        clear: () => {
+          if (nativeMessages.length > 0 || toolEvents.length > 0) {
+            setShowClearConfirm(true);
+            setCommandNotice("Confirm clearing this chat.");
+          } else {
+            setNativeMessages([]);
+            setToolEvents([]);
+            setStreamText("");
+            setReasoningText("");
+            setStreamPhase("idle");
+            setCommandNotice("Chat is already empty.");
+          }
+        },
+        new: () => {
+          if (onNewChat) {
+            onNewChat();
+            setCommandNotice("Starting a new chat…");
+          } else {
+            setCommandNotice("New chat is not available in this context.");
+          }
+        },
+        stop: () => {
+          if (loading || streaming) {
+            void stopNativeRef.current();
+            setCommandNotice("Stopped the current request.");
+          } else {
+            setCommandNotice("Nothing is running.");
+          }
+        },
+        commands: () => {
+          const ref = formatCommandReference(BUILTIN_COMMANDS);
+          const lines = ref.map((r) => `/${r.name} — ${r.description} [${r.usage}] (${sourceLabel(r.source as never)})`);
+          setCommandNotice(`Available commands (${ref.length}): ${lines.join("  |  ")}`);
+        },
+        help: () => {
+          const ref = formatCommandReference(BUILTIN_COMMANDS);
+          const lines = ref.map((r) => `/${r.name} — ${r.description}`);
+          setCommandNotice(`${lines.join("  |  ")}  —  ${KEYBOARD_GUIDE.join(" ")}`);
         },
         mcp: () => {
           // MCP management is opened via Settings — show a notice.
@@ -1148,6 +1237,7 @@ export function ChatPanel({
 
       if (command in builtinActions) {
         await builtinActions[command]();
+        setCommandRecency(recordCommandUse(command));
         setInput("");
         return;
       }
@@ -1159,6 +1249,7 @@ export function ChatPanel({
           const refreshed = await nativeProviderCatalogRefresh({ force: true });
           setCatalog(refreshed);
           setCommandNotice("Model catalog refreshed.");
+          setCommandRecency(recordCommandUse("models refresh"));
           setInput("");
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -1179,6 +1270,7 @@ export function ChatPanel({
             const skillBody = await invoke<string>("read_skill", { name: skillName });
             const prompt = `${skillBody}\n\n${rest}`;
             await sendMessage(prompt);
+            setCommandRecency(recordCommandUse(command));
             setInput("");
             return;
           } catch {
@@ -1189,11 +1281,11 @@ export function ChatPanel({
       }
 
       // Unknown command fallthrough: show notice + send-as-text action.
-      setCommandNotice(`Unknown slash command: /${command}. Send as text or use /login, /model, /plan, /idea, /openspec.`);
+      setCommandNotice(`Unknown slash command: /${command}. Send as text or use /commands to see all available commands.`);
       return;
     }
     await sendMessage(text);
-  }, [input, nativeMode, sendMessage, catalog, addLog, interactions]);
+  }, [input, nativeMode, sendMessage, catalog, addLog, interactions, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId]);
 
   const handleStopAgent = useCallback(async () => {
     if (sendTimerRef.current) {
@@ -1245,6 +1337,38 @@ export function ChatPanel({
       await nativeChatCancel(nativeSessionId);
     } catch (e) {
       addLog("error", "Failed to stop chat run", e instanceof Error ? e.message : String(e));
+    }
+  }, [nativeSessionId, addLog]);
+  stopNativeRef.current = handleStopNative;
+
+  // Delete persisted messages and tool events for the current session.
+  // Preserves the session record and provider/model/effort selection.
+  const handleClearChat = useCallback(async () => {
+    setShowClearConfirm(false);
+    if (!nativeSessionId) {
+      setNativeMessages([]);
+      setToolEvents([]);
+      setStreamText("");
+      setReasoningText("");
+      setStreamPhase("idle");
+      setCommandNotice("Chat cleared.");
+      setCommandRecency(recordCommandUse("clear"));
+      return;
+    }
+    try {
+      const deleted = await nativeChatClearMessages(nativeSessionId);
+      setNativeMessages([]);
+      setToolEvents([]);
+      setStreamText("");
+      setReasoningText("");
+      setStreamPhase("idle");
+      setCommandNotice(`Cleared ${deleted} message${deleted === 1 ? "" : "s"}.`);
+      setCommandRecency(recordCommandUse("clear"));
+      addLog("debug", "Chat cleared", `sessionId=${nativeSessionId}; deleted=${deleted}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setCommandNotice(`Failed to clear chat: ${msg}`);
+      addLog("error", "Failed to clear chat messages", msg);
     }
   }, [nativeSessionId, addLog]);
 
@@ -1380,6 +1504,7 @@ export function ChatPanel({
     },
     [projectPath, nativeSessionId, addLog],
   );
+  persistSelectionRef.current = persistSelection;
 
   const handleGenerateIdeas = useCallback(async () => {
     if (!nativeSessionId || generatingIdeas) return;
@@ -2094,6 +2219,11 @@ export function ChatPanel({
                 setShowProviderPicker(false);
               }}
               onDisconnect={() => void handleDisconnect()}
+              onOpenCommands={() => {
+                addLog("debug", "Command palette opened via button", `sessionId=${activeSessionId ?? "none"}`);
+                setShowCommandPalette(true);
+                setInput("/");
+              }}
             />
             {showPlanningMenu ? (
               <div className="modal-overlay" onClick={() => setShowPlanningMenu(false)} title="Close ideas menu">
@@ -2381,6 +2511,52 @@ export function ChatPanel({
                 </button>
               </div>
             ) : null}
+            {showCommandPalette && nativeMode ? (
+              <CommandPalette
+                input={input}
+                open={showCommandPalette}
+                recency={commandRecency}
+                activeIndex={paletteActiveIndex}
+                onActiveIndexChange={setPaletteActiveIndex}
+                onPick={(text) => {
+                  setInput(text);
+                  setShowCommandPalette(false);
+                }}
+              />
+            ) : null}
+            {showClearConfirm ? (
+              <div className="modal-overlay" onClick={() => setShowClearConfirm(false)} title="Cancel clear chat">
+                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Confirm clear chat">
+                  <div className="modal-header">
+                    <h2>Clear chat?</h2>
+                    <button className="btn-icon" type="button" title="Cancel" onClick={() => setShowClearConfirm(false)}>
+                      <X size={16} />
+                    </button>
+                  </div>
+                  <div className="modal-body stack">
+                    <p className="text-sm">This will delete all messages and tool events in this chat. The chat session and its provider/model/effort selection are preserved. This cannot be undone.</p>
+                    <div className="row gap-sm">
+                      <button
+                        className="btn"
+                        type="button"
+                        title="Cancel and keep the chat as-is"
+                        onClick={() => setShowClearConfirm(false)}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        className="btn btn-primary"
+                        type="button"
+                        title="Delete all messages and tool events in this chat"
+                        onClick={() => void handleClearChat()}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </>
         ) : null}
         {(() => {
@@ -2406,12 +2582,55 @@ export function ChatPanel({
             }
             value={input}
             onChange={(e) => {
-              setInput(e.target.value);
+              const val = e.target.value;
+              setInput(val);
+              // Open palette when input starts with `/` (command position).
+              if (nativeMode && val.trimStart().startsWith("/")) {
+                setShowCommandPalette(true);
+              } else if (showCommandPalette) {
+                setShowCommandPalette(false);
+              }
+              setPaletteActiveIndex(0);
               const el = e.target;
               el.style.height = "auto";
               el.style.height = `${Math.min(el.scrollHeight, 360)}px`;
             }}
             onKeyDown={(e) => {
+              // Command palette keyboard navigation.
+              if (showCommandPalette && nativeMode) {
+                const query = input.trim().slice(1);
+                const ranked = filterAndRank(BUILTIN_COMMANDS, query, commandRecency);
+                if (e.key === "ArrowDown" && ranked.length > 0) {
+                  e.preventDefault();
+                  setPaletteActiveIndex((i) => (i + 1) % ranked.length);
+                  return;
+                }
+                if (e.key === "ArrowUp" && ranked.length > 0) {
+                  e.preventDefault();
+                  setPaletteActiveIndex((i) => (i - 1 + ranked.length) % ranked.length);
+                  return;
+                }
+                if (e.key === "Tab" && ranked.length > 0) {
+                  e.preventDefault();
+                  const cmd = ranked[paletteActiveIndex];
+                  if (cmd) {
+                    setInput(tabComplete(cmd));
+                    setShowCommandPalette(false);
+                  }
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setShowCommandPalette(false);
+                  return;
+                }
+                // Enter: if palette is open and there's a match, submit the command.
+                if (e.key === "Enter" && !e.shiftKey && ranked.length > 0) {
+                  e.preventDefault();
+                  void handleSend();
+                  return;
+                }
+              }
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 void handleSend();

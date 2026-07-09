@@ -1,4 +1,4 @@
-import { Key, RefreshCw, Unplug } from "lucide-react";
+import { Command, Key, RefreshCw, Unplug } from "lucide-react";
 import type { NativeProviderCatalog } from "../../lib/native-chat";
 
 /** Compact single-line composer rail (`chat-composer-controls`).
@@ -27,6 +27,8 @@ export type ChatComposerRailProps = {
   onRefresh: () => void;
   onConnect: () => void;
   onDisconnect: () => void;
+  /** Open the slash command palette (fills the composer, does not execute). */
+  onOpenCommands: () => void;
 };
 
 export function ChatComposerRail(props: ChatComposerRailProps) {
@@ -97,6 +99,14 @@ export function ChatComposerRail(props: ChatComposerRailProps) {
               <Unplug size={11} />
             </button>
           ) : null}
+          <button
+            className="chat-commands-btn"
+            type="button"
+            title="Open the command palette — browse and insert slash commands"
+            onClick={props.onOpenCommands}
+          >
+            <Command size={11} /> Commands
+          </button>
         </>
       ) : (
         <div className="chat-select-group">

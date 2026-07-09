@@ -1281,6 +1281,27 @@ a { color: inherit; text-decoration: none; }
 .chat-command-notice span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-command-notice-button { cursor: pointer; border: none; background: none; text-align: left; width: 100%; }
 .chat-command-notice-button:hover { background: color-mix(in srgb, var(--bb-warning) 10%, transparent); }
+/* ─── Command palette ─── */
+.command-palette { border-top: 1px solid var(--bb-border); background: var(--bb-surface); flex-shrink: 0; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; }
+.command-palette-empty { padding: 12px 8px; color: var(--bb-muted); font-size: 11px; text-align: center; }
+.command-palette-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-left: 2px solid transparent; background: transparent; color: var(--bb-text); text-align: left; cursor: pointer; font-family: var(--bb-font); }
+.command-palette-row:hover { background: var(--bb-surface-high); }
+.command-palette-row.is-active { border-left-color: var(--bb-cta); background: var(--bb-surface-high); }
+.command-palette-name { flex-shrink: 0; font-size: 11px; font-weight: 600; font-family: var(--bb-mono); min-width: 120px; }
+.command-palette-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--bb-muted); }
+.command-palette-source { flex-shrink: 0; font-size: 9px; font-family: var(--bb-mono); text-transform: uppercase; letter-spacing: 0.04em; color: var(--bb-muted); border: 1px solid var(--bb-border); padding: 0 4px; }
+.command-palette-badge { flex-shrink: 0; font-size: 8px; font-family: var(--bb-mono); text-transform: uppercase; letter-spacing: 0.04em; padding: 0 4px; border: 1px solid var(--bb-border); }
+.command-palette-badge.is-local { color: var(--bb-success, #38a169); border-color: var(--bb-success, #38a169); }
+.command-palette-badge.is-prompt { color: var(--bb-cta); border-color: var(--bb-cta); }
+.command-palette-helper { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border-top: 1px solid var(--bb-border); background: var(--bb-bg); font-size: 10px; flex-shrink: 0; }
+.command-palette-helper-usage { font-family: var(--bb-mono); font-weight: 600; color: var(--bb-text); }
+.command-palette-helper-args { color: var(--bb-warning); }
+.command-palette-helper-args.is-optional { color: var(--bb-muted); }
+.command-palette-helper-error { color: var(--bb-negative, #f87171); }
+.command-palette-helper-examples { color: var(--bb-muted); font-family: var(--bb-mono); }
+/* Commands button in the composer rail */
+.chat-commands-btn { flex-shrink: 0; display: flex; align-items: center; gap: 3px; font-size: 10px; padding: 2px 6px; color: var(--bb-muted); border: 1px solid var(--bb-border); background: var(--bb-bg); cursor: pointer; }
+.chat-commands-btn:hover { color: var(--bb-cta); border-color: var(--bb-cta); }
 .chat-message-time { margin-left: auto; font-size: 9px; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--bb-muted); font-family: var(--bb-mono); flex-shrink: 0; }
 .chat-ideas-trigger { flex-shrink: 0; }
 .chat-picker-item-icon { color: var(--bb-muted); flex-shrink: 0; }

@@ -99,14 +99,32 @@ API-key entry (`src-tauri/src/services/provider_login_service.rs`):
 
 ## Chat slash commands
 
-The composer intercepts recognized slash commands before provider send:
+The composer intercepts recognized slash commands before provider send. Typing
+`/` opens a command palette with a large, filterable list showing command names,
+descriptions, source badges, usage hints, and argument helpers. A visible
+`Commands` button in the composer rail opens the same palette without typing `/`.
+Keyboard: ArrowUp/ArrowDown navigates, Tab completes the selected command into
+the composer, Enter submits, Escape closes. Recent commands rank first.
 
-- `/login` opens the provider chooser; `/login <provider>` preselects a matching
-  provider and opens its connection UI.
-- `/model` opens the searchable model picker; `/model <filter>` pre-filters by
-  provider id, model id, or label.
-- `/models refresh` forces provider model-catalog sync and reports the result in
-  the composer.
+- `/login [provider]` opens the provider chooser; with a provider id/label,
+  preselects it and opens its connection UI.
+- `/model [query]` opens the searchable model picker; with a filter, pre-filters
+  by provider id, model id, or label.
+- `/provider [query]` opens the provider picker; with a filter, switches to the
+  matching provider with a compatible model fallback.
+- `/models refresh` forces provider model-catalog sync and reports the result
+  inline.
+- `/clear` clears the current chat transcript. Confirms before deleting persisted
+  messages; preserves the session and provider/model/effort selection.
+- `/new` starts a fresh empty chat for the current project without deleting the
+  previous chat.
+- `/commands` and `/help` show the complete command reference locally with names,
+  descriptions, usage, source labels, and a keyboard guide.
+- `/stop` cancels the current running chat request, or reports idle if nothing
+  is running.
+- `/plan`, `/idea`, `/openspec` execute planning pipeline UI actions.
+- `/mcp` shows a notice pointing to Settings for MCP server management.
+- `/skill:<name> [args]` injects a skill's content into the conversation.
 
 Unknown slash commands remain local and offer an explicit "send as text" escape.
 Slash commands are accelerators only; provider/model UI remains visible next to
