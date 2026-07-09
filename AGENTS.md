@@ -1,10 +1,27 @@
 # Basebuild Desktop — Agent Guide
 
 Basebuild is a local-first desktop control plane for AI coding agents — a Tauri
-(Rust) + React/TypeScript shell over OMP and terminal tools, with SQLite local
-state. **Read this file before any change.** It wins over other docs on
-conflict, and a PR that violates a Mandatory Invariant is rejected regardless of
-feature quality.
+(Rust) + React/TypeScript shell with SQLite local state. **Read this file
+before any change.** It wins over other docs on conflict, and a PR that
+violates a Mandatory Invariant is rejected regardless of feature quality.
+
+## Architecture posture
+
+Basebuild is **native-first**: the chat system is an in-house Rust agent loop
+(`agent_loop_service.rs`) that handles provider streaming, tool calling,
+approval gates, and ask_user interactions directly — no external CLI process
+required for the primary chat experience. All providers (OpenAI, Anthropic,
+Devin, GLM-5.2, etc.) route through this native loop.
+
+OhMyPi (OMP) is a **supported tool**, not the chat transport. OMP may be used
+as a terminal panel, a plan runner, and an optional chat profile for users who
+want OMP's own tool ecosystem — but it is never the default or required path
+for chat. The native agent loop is the default and preferred runtime.
+
+OpenSpec is the **primary planner**. Plan statuses, roadmap tracking, and
+change archives all flow through OpenSpec. Basebuild may develop its own
+planning system in the future, but OpenSpec is the canonical system today and
+any replacement would be a deliberate migration, not a silent substitution.
 
 ## Read before you work
 

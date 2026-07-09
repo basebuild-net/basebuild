@@ -1,8 +1,17 @@
 # Agent Runtime
 
-Basebuild wraps terminal-based coding tools. The primary agent is OhMyPi (OMP).
-The architecture supports future adapters (Basebuild CLI, other CLIs, IDEs)
-without changing the chat UI contract.
+Basebuild is **native-first**: the primary chat runtime is an in-house Rust
+agent loop (`agent_loop_service.rs`) that handles provider streaming, tool
+calling, approval gates, and ask_user interactions directly. All providers
+(OpenAI, Anthropic, Devin, GLM-5.2, etc.) route through this native loop — no
+external CLI process is required for chat.
+
+OhMyPi (OMP) is a **supported tool**, not the chat transport. OMP may be used
+as a terminal panel, a plan runner, and an optional chat profile for users who
+want OMP's own tool ecosystem. The OMP RPC bridge (`omp-rpc` profile) exists
+for users who explicitly choose it, but the native agent loop is the default
+and preferred runtime. The architecture supports future adapters (Basebuild
+CLI, other CLIs, IDEs) without changing the chat UI contract.
 
 ## Runtime profiles
 
@@ -664,13 +673,19 @@ when `BASEBUILD_HOME` is unset. A shared test-util constructor
 env var. The user's real `~/.basebuild/state.db` is never read or written
 during tests.
 
-## OMP RPC chat bridge
+## OMP RPC chat bridge (optional profile)
 
-The `omp-rpc` chat runtime profile runs a persistent `omp --mode rpc` child
-per session (`omp_rpc_session_service.rs`), exchanging line-delimited JSON
-frames over stdio. Unlike the one-shot `OmpCodexRpcClient` (which uses
-`--no-tools --no-session`), the session bridge enables session+tools and
-stays alive for the duration of the chat.
+The `omp-rpc` chat runtime profile is an **optional** path for users who
+explicitly want OMP's own tool ecosystem. It is not the default and not
+required for any provider. The native agent loop (`agent_loop_service.rs`)
+is the default and preferred runtime for all providers, including Devin and
+GLM-5.2.
+
+When the `omp-rpc` profile is explicitly selected, it runs a persistent
+`omp --mode rpc` child per session (`omp_rpc_session_service.rs`), exchanging
+line-delimited JSON frames over stdio. Unlike the one-shot `OmpCodexRpcClient`
+(which uses `--no-tools --no-session`), the session bridge enables
+session+tools and stays alive for the duration of the chat.
 
 ### Frame map
 
