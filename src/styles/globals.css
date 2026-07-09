@@ -1145,6 +1145,22 @@ a { color: inherit; text-decoration: none; }
 .chat-loading-approval { border-left: 2px solid var(--bb-warning); padding-left: 6px; }
 .chat-loading-approval .chat-loading-spinner { animation-duration: 1.5s; }
 .chat-loading-approval .chat-loading-label { color: var(--bb-warning); }
+.chat-permission-select { font-size: 10px; padding: 2px 4px; background: var(--bb-bg); color: var(--bb-text); border: 1px solid var(--bb-border); border-radius: 0; cursor: pointer; }
+.chat-permission-select:hover { border-color: var(--bb-border-strong); }
+.chat-permission-select:focus { outline: 1px solid var(--bb-cta); }
+.tool-card-approval { border: 1px solid var(--bb-warning); border-left: 3px solid var(--bb-warning); background: color-mix(in srgb, var(--bb-warning) 4%, var(--bb-surface)); }
+.tool-card-approval-actions { flex-wrap: wrap; gap: 4px; padding: 6px 8px; }
+.tool-card-allow-all { color: var(--bb-warning); border-color: var(--bb-warning); }
+.tool-card-allow-all:hover { background: color-mix(in srgb, var(--bb-warning) 8%, transparent); }
+.tool-card-approval-detail { margin-bottom: 4px; }
+.tool-card-approval-label { font-size: 9px; font-weight: 600; text-transform: uppercase; color: var(--bb-muted); }
+.tool-card-approval-args { font-family: var(--bb-mono); font-size: 10px; white-space: pre-wrap; word-break: break-word; margin: 2px 0 0; color: var(--bb-text); max-height: 150px; overflow-y: auto; }
+.tool-card-arg-value { font-family: var(--bb-mono); font-size: 10px; color: var(--bb-info); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-card-arg-detail { margin-bottom: 4px; display: flex; gap: 4px; align-items: baseline; }
+.tool-card-arg-label { font-size: 9px; font-weight: 600; text-transform: uppercase; color: var(--bb-muted); flex-shrink: 0; }
+.tool-card-arg-code { font-family: var(--bb-mono); font-size: 10px; color: var(--bb-info); word-break: break-all; }
+.tool-card-args-full { margin-bottom: 4px; }
+.tool-card-args-json { font-family: var(--bb-mono); font-size: 9px; white-space: pre-wrap; word-break: break-word; margin: 2px 0 0; color: var(--bb-muted); max-height: 120px; overflow-y: auto; }
 /* Tool event cards */
 .tool-card { border: 1px solid var(--bb-border); background: var(--bb-surface); border-radius: 0; font-size: 11px; padding: 0; margin: 2px 0; }
 .tool-card-running { border-left: 2px solid var(--bb-status-running, #38bdf8); }

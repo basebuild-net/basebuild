@@ -34,7 +34,8 @@ export type NativeToolEvent = {
   kind: string;
   status: string;
   summary: string;
-  /** Stable per-session monotonic order. */
+  /** Raw arguments JSON the model passed to the tool (file path, command, pattern, etc.). */
+  arguments: string | null;
   sequence: number;
   createdAt: number;
 };

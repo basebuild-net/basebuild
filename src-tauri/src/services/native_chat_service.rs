@@ -793,6 +793,7 @@ impl NativeChatService {
                     &te.tool_name,
                     &te.status,
                     &te.summary,
+                    te.arguments.as_deref(),
                 )?;
                 tool_events.push(event);
             }
@@ -926,6 +927,7 @@ impl NativeChatService {
             "request_metrics",
             "recorded",
             summary,
+            None,
         )?;
 
         Self::touch_session(&request.session_id)?;
@@ -1337,6 +1339,7 @@ impl NativeChatService {
         kind: &str,
         status: &str,
         summary: &str,
+        arguments: Option<&str>,
     ) -> DbResult<NativeToolEvent> {
         let conn = StorageService::connect()?;
         let next_seq: i64 = conn
@@ -1353,13 +1356,14 @@ impl NativeChatService {
             kind: kind.to_string(),
             status: status.to_string(),
             summary: summary.to_string(),
+            arguments: arguments.map(str::to_string),
             sequence: next_seq,
             created_at: now_seconds(),
         };
         conn.execute(
-            "INSERT INTO native_tool_events (id, session_id, message_id, kind, status, summary, sequence, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, (SELECT COALESCE(MAX(sequence), 0) + 1 FROM native_tool_events WHERE session_id = ?2), ?7)",
-            params![event.id, event.session_id, event.message_id, event.kind, event.status, event.summary, event.created_at],
+            "INSERT INTO native_tool_events (id, session_id, message_id, kind, status, summary, arguments, sequence, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, (SELECT COALESCE(MAX(sequence), 0) + 1 FROM native_tool_events WHERE session_id = ?2), ?8)",
+            params![event.id, event.session_id, event.message_id, event.kind, event.status, event.summary, event.arguments, event.created_at],
         )
         .map_err(|e| format!("Failed to save native tool event: {e}"))?;
         // Read back the assigned sequence so the returned event matches what was persisted.
@@ -1377,7 +1381,7 @@ impl NativeChatService {
         let conn = StorageService::connect()?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, session_id, message_id, kind, status, summary, sequence, created_at
+                "SELECT id, session_id, message_id, kind, status, summary, arguments, sequence, created_at
                  FROM native_tool_events WHERE session_id = ?1 ORDER BY sequence ASC, created_at ASC",
             )
             .map_err(|e| format!("Failed to prepare tool event query: {e}"))?;
@@ -1390,8 +1394,9 @@ impl NativeChatService {
                     kind: row.get(3)?,
                     status: row.get(4)?,
                     summary: row.get(5)?,
-                    sequence: row.get(6)?,
-                    created_at: row.get(7)?,
+                    arguments: row.get(6)?,
+                    sequence: row.get(7)?,
+                    created_at: row.get(8)?,
                 })
             })
             .map_err(|e| format!("Failed to query tool events: {e}"))?;

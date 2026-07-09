@@ -36,7 +36,7 @@ import { onPlanRunEvent, assignPlanToChat } from "../../lib/planRuns";
 import { listPlans } from "../../lib/plans";
 import { nativeInteractionListAll, nativeInteractionResolve } from "../../lib/interactions";
 import type { PendingInteraction } from "../../lib/interactions";
-import { getRuntimeDefaults } from "../../lib/settings";
+import { getApprovalMode, getRuntimeDefaults, setApprovalMode as setApprovalModeBackend, type ApprovalMode } from "../../lib/settings";
 import {
   nativeChatCancel,
   nativeChatGet,
@@ -171,48 +171,95 @@ function ThinkingBlock({ text }: { text: string }) {
   );
 }
 
-function ToolEventCard({ event, onResolveApproval, debugMode }: { event: NativeToolEvent; onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void; debugMode?: boolean }) {
+function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode }: { event: NativeToolEvent; onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void; debugMode?: boolean; onSetApprovalMode?: (mode: "safe" | "balanced" | "auto") => void; }) {
   const [expanded, setExpanded] = useState(false);
   const isRunning = event.status === "running" || event.status === "pending";
   const isError = event.status === "error" || event.status === "denied";
-  const isApproval = event.kind === "approval" || event.kind === "request_tool_approval" || event.status === "pending";
+  const isApproval = event.status === "pending";
   const isCommand = event.kind === "run_command" || event.kind === "command";
   const isEdit = event.kind === "edit_file" || event.kind === "write_file";
   const isMetrics = event.kind === "request_metrics";
   const icon = isApproval ? "🔐" : isCommand ? "▶" : isEdit ? "✎" : isMetrics ? "📊" : "🔧";
   const statusClass = isRunning ? "running" : isError ? "error" : event.status === "success" || event.status === "recorded" || event.status === "allow" ? "success" : "info";
+  const showExpanded = expanded || isApproval;
 
   const hasDiff = isEdit && /^\+|-/m.test(event.summary);
   const diffLines = hasDiff ? event.summary.split("\n") : [];
   const filePathMatch = event.summary.match(/(?:Edited|Wrote|Modified)\s+(.+?)(?::|\s)/);
   const filePath = filePathMatch?.[1] ?? null;
 
-  // Format timestamp for display.
   const timeStr = event.createdAt
     ? new Date(event.createdAt * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })
     : null;
 
+  // Parse arguments for structured display.
+  const parsedArgs = (() => {
+    if (!event.arguments) return null;
+    try {
+      return JSON.parse(event.arguments);
+    } catch {
+      return null;
+    }
+  })();
+
+  // Extract key fields from parsed args depending on tool kind.
+  const argDisplay = (() => {
+    if (!parsedArgs) return null;
+    if (isCommand) {
+      const cmd = typeof parsedArgs === "object" && parsedArgs !== null && "command" in parsedArgs
+        ? String(parsedArgs.command)
+        : null;
+      return cmd ? { label: "Command", value: cmd } : null;
+    }
+    if (isEdit) {
+      const path = typeof parsedArgs === "object" && parsedArgs !== null && "path" in parsedArgs
+        ? String(parsedArgs.path)
+        : null;
+      return path ? { label: "File", value: path } : null;
+    }
+    // Generic: look for common fields.
+    if (typeof parsedArgs === "object" && parsedArgs !== null) {
+      for (const key of ["path", "file", "filePath", "directory", "dir", "pattern", "query", "url", "command"]) {
+        if (key in parsedArgs) {
+          return { label: key.charAt(0).toUpperCase() + key.slice(1), value: String(parsedArgs[key]) };
+        }
+      }
+    }
+    return null;
+  })();
   return (
-    <div className={`tool-card tool-card-${statusClass}`} title={`${event.kind}: ${event.status}${timeStr ? ` at ${timeStr}` : ""}`}>
-      <div className="tool-card-header" onClick={() => setExpanded(!expanded)} role="button" tabIndex={0}>
+    <div className={`tool-card tool-card-${statusClass}${isApproval ? " tool-card-approval" : ""}`} title={`${event.kind}: ${event.status}${timeStr ? ` at ${timeStr}` : ""}`}>
+      <div className="tool-card-header" onClick={() => !isApproval && setExpanded(!expanded)} role={isApproval ? undefined : "button"} tabIndex={isApproval ? -1 : 0}>
         <span className="tool-card-icon">{icon}</span>
         <span className="tool-card-name">{event.kind.replace(/_/g, " ")}</span>
-        {filePath ? <code className="tool-card-filepath text-muted">{filePath}</code> : null}
+        {argDisplay ? <code className="tool-card-arg-value" title={`${argDisplay.label}: ${argDisplay.value}`}>{argDisplay.value}</code> : null}
         <span className={`tool-card-status tool-card-status-${statusClass}`}>{event.status}</span>
         {timeStr ? <span className="tool-card-time text-muted">{timeStr}</span> : null}
-        <span className="tool-card-expand">{expanded ? "▼" : "▶"}</span>
+        {!isApproval ? <span className="tool-card-expand">{expanded ? "▼" : "▶"}</span> : null}
       </div>
-      {expanded ? (
+      {showExpanded ? (
         <div className="tool-card-body">
+          {argDisplay ? (
+            <div className="tool-card-arg-detail" title={`${argDisplay.label} passed to this tool`}>
+              <span className="tool-card-arg-label">{argDisplay.label}:</span>
+              <code className="tool-card-arg-code">{argDisplay.value}</code>
+            </div>
+          ) : null}
+          {parsedArgs ? (
+            <div className="tool-card-args-full" title="Full arguments JSON">
+              <span className="tool-card-arg-label">Full args:</span>
+              <pre className="tool-card-args-json">{JSON.stringify(parsedArgs, null, 2)}</pre>
+            </div>
+          ) : null}
           {hasDiff ? (
             <pre className="tool-card-diff">
               {diffLines.map((line, i) => (
                 <span key={i} className={line.startsWith("+") ? "diff-add" : line.startsWith("-") ? "diff-del" : "diff-ctx"}>{line}{"\n"}</span>
               ))}
             </pre>
-          ) : (
+          ) : !isApproval ? (
             <pre className="tool-card-summary">{event.summary}</pre>
-          )}
+          ) : null}
           {debugMode ? (
             <div className="tool-card-debug" title="Raw event data (debug mode)">
               <span className="tool-card-debug-label">Debug:</span>
@@ -221,14 +268,17 @@ function ToolEventCard({ event, onResolveApproval, debugMode }: { event: NativeT
           ) : null}
         </div>
       ) : null}
-      {!expanded && event.summary ? (
+      {!showExpanded && event.summary ? (
         <div className="tool-card-summary-truncated text-muted text-sm">{event.summary.slice(0, 120)}{event.summary.length > 120 ? "…" : ""}</div>
       ) : null}
       {isApproval && isRunning && onResolveApproval ? (
-        <div className="tool-card-actions">
+        <div className="tool-card-actions tool-card-approval-actions">
           <button className="btn btn-sm btn-primary" title="Allow this tool call once" type="button" onClick={() => onResolveApproval("allow")}>Allow Once</button>
           <button className="btn btn-sm" title="Allow all calls to this tool for this session" type="button" onClick={() => onResolveApproval("allow_session")}>Allow Session</button>
           <button className="btn btn-sm" title="Deny this tool call" type="button" onClick={() => onResolveApproval("deny")}>Deny</button>
+          {onSetApprovalMode ? (
+            <button className="btn btn-sm tool-card-allow-all" title="Switch to Auto mode: allow all tool calls without asking. You can change this back in Settings." type="button" onClick={() => onSetApprovalMode("auto")}>Allow All (Auto)</button>
+          ) : null}
         </div>
       ) : null}
       {isApproval && isRunning && !onResolveApproval ? (
@@ -276,6 +326,7 @@ export function ChatPanel({
   const [debugEvents, setDebugEvents] = useState<Array<{ ts: number; channel: string; data: unknown }>>([]);
   const [debugExpanded, setDebugExpanded] = useState(false);
   const [setupRequired, setSetupRequired] = useState<NativeSetupRequired | null>(null);
+  const [approvalMode, setApprovalMode] = useState<ApprovalMode>("balanced");
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [reasoningText, setReasoningText] = useState("");
@@ -398,15 +449,16 @@ export function ChatPanel({
       try {
         markStart("provider-model-restore");
         addLog("debug", "Chat config loading", `projectPath=${projectPath}`);
-        const [defaults, cat, met, resolved, storedSession] = await Promise.all([
+        const [defaults, cat, met, resolved, storedSession, mode] = await Promise.all([
           getRuntimeDefaults(),
           nativeProviderCatalog(),
           nativeRequestMetricsSummary(),
           nativeChatModelDefault(projectPath),
           nativeSessionId ? nativeChatGet(nativeSessionId) : Promise.resolve(null),
+          getApprovalMode(projectPath).catch(() => "balanced" as ApprovalMode),
         ]);
-        if (cancelled) return;
         setProfileId(defaults.defaultChatProfileId ?? NATIVE_PROFILE_ID);
+        setApprovalMode(mode);
         setCatalog(cat);
         setMetrics(met);
         const effectiveProviderId = storedSession?.providerId ?? resolved.providerId;
@@ -586,6 +638,7 @@ export function ChatPanel({
       toolName: string;
       status: string;
       summary: string;
+      arguments?: string;
       decision?: string;
       ruleSource?: string;
     }>("native-chat://tool-event", (event) => {
@@ -595,10 +648,17 @@ export function ChatPanel({
         markEnd("first-activity-event");
       }
       const id = event.payload.toolCallId ?? `te-${Date.now()}-${Math.random()}`;
+      const args = event.payload.arguments ?? null;
       setToolEvents((prev) => {
         const existing = prev.find((e) => e.id === id);
         if (existing) {
-          return prev.map((e) => e.id === id ? { ...e, status: event.payload.status, summary: event.payload.summary, kind: event.payload.toolName } : e);
+          return prev.map((e) => e.id === id ? {
+            ...e,
+            status: event.payload.status,
+            summary: event.payload.summary,
+            kind: event.payload.toolName,
+            arguments: args ?? e.arguments,
+          } : e);
         }
         return [...prev, {
           id,
@@ -607,6 +667,7 @@ export function ChatPanel({
           kind: event.payload.toolName,
           status: event.payload.status,
           summary: event.payload.summary,
+          arguments: args,
           sequence: prev.length + 1,
           createdAt: Math.floor(Date.now() / 1000),
         }];
@@ -640,7 +701,7 @@ export function ChatPanel({
         const existingIdx = prev.findIndex((e) => e.id === event.payload.toolCallId);
         if (existingIdx >= 0) {
           return prev.map((e) => e.id === event.payload.toolCallId
-            ? { ...e, kind: toolName, status: "pending", summary, sequence: e.sequence }
+            ? { ...e, kind: toolName, status: "pending", summary, arguments: args || e.arguments, sequence: e.sequence }
             : e);
         }
         return [...prev, {
@@ -650,6 +711,7 @@ export function ChatPanel({
           kind: toolName,
           status: "pending",
           summary,
+          arguments: args || null,
           sequence: prev.length + 1,
           createdAt: Math.floor(Date.now() / 1000),
         }];
@@ -714,13 +776,26 @@ export function ChatPanel({
         // Load PR recommendation for the finished worktree run.
         if (branch) {
           void prRecommend(projectPath, branch)
-            .then((rec) => { setPrRec(rec); setShowPrCard(true); })
             .catch(() => { /* non-git or no remote — no recommendation */ });
         }
       }
     }).then((fn) => { unlisten = fn; });
     return () => { if (unlisten) unlisten(); };
   }, [nativeSessionId, projectPath, branch]);
+
+  // Handle approval mode changes from the UI (Allow All button, settings toggle).
+  const handleSetApprovalMode = useCallback(async (mode: ApprovalMode) => {
+    try {
+      await setApprovalModeBackend(projectPath, mode);
+      setApprovalMode(mode);
+      const label = mode === "auto" ? "Auto — all tools allowed" : mode === "safe" ? "Safe — always ask" : "Balanced — read-only auto, mutating asks";
+      onShowToast?.("Permission mode changed", label, "info");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to set approval mode", msg);
+      onShowToast?.("Failed to change permission mode", msg, "error");
+    }
+  }, [projectPath, addLog, onShowToast]);
   // Handle approval resolution from the UI
   const handleResolveApproval = useCallback(async (toolCallId: string, decision: "allow" | "allow_session" | "deny") => {
     try {
@@ -1613,7 +1688,6 @@ export function ChatPanel({
                   index: events.length,
                 });
               }
-
               // Sort by (createdAt, index) — stable chronological order.
               events.sort((a, b) => {
                 const ta = a.createdAt ?? 0;
@@ -1635,6 +1709,7 @@ export function ChatPanel({
                       event={ev.event}
                       debugMode={debugMode}
                       onResolveApproval={ev.event.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined}
+                      onSetApprovalMode={handleSetApprovalMode}
                     />
                   );
                   continue;
@@ -2368,6 +2443,16 @@ export function ChatPanel({
           )}
         </div>
         <div className="chat-input-controls">
+          <select
+            className="chat-permission-select"
+            title={`Permission mode: ${approvalMode === "auto" ? "Auto — all tools allowed without asking" : approvalMode === "safe" ? "Safe — always ask before any tool" : "Balanced — read-only tools auto-allowed, mutating tools ask"}. Change to control how the agent handles tool calls.`}
+            value={approvalMode}
+            onChange={(e) => void handleSetApprovalMode(e.target.value as ApprovalMode)}
+          >
+            <option value="balanced" title="Read-only tools auto-allowed; writes and commands prompt">Balanced</option>
+            <option value="safe" title="Every tool call prompts the user">Always Ask</option>
+            <option value="auto" title="No prompts; everything auto-allowed within workspace">Run Everything</option>
+          </select>
           <button
             type="button"
             className={`btn btn-sm chat-debug-toggle ${debugMode ? "chat-debug-toggle-on" : ""}`}

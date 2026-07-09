@@ -41,6 +41,8 @@ pub struct NativeToolEvent {
     pub kind: String,
     pub status: String,
     pub summary: String,
+    /// The raw arguments JSON the model passed to the tool (file path, command, pattern, etc.).
+    pub arguments: Option<String>,
     /// Stable per-session monotonic order. Survives timestamp ties.
     pub sequence: i64,
     pub created_at: i64,
