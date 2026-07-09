@@ -36,6 +36,8 @@ export type NativeToolEvent = {
   summary: string;
   /** Raw arguments JSON the model passed to the tool (file path, command, pattern, etc.). */
   arguments: string | null;
+  /** Unified line diff for edit_file/write_file results. */
+  diff: string | null;
   sequence: number;
   createdAt: number;
 };

@@ -43,6 +43,9 @@ pub struct NativeToolEvent {
     pub summary: String,
     /// The raw arguments JSON the model passed to the tool (file path, command, pattern, etc.).
     pub arguments: Option<String>,
+    /// Unified line diff for `edit_file`/`write_file` results.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff: Option<String>,
     /// Stable per-session monotonic order. Survives timestamp ties.
     pub sequence: i64,
     pub created_at: i64,

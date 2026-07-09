@@ -929,6 +929,17 @@ impl StorageService {
                 [],
             );
         }
+        // Migration (chat-experience-completion): add diff column to
+        // native_tool_events for unified line diffs on file tools.
+        let has_tool_diff = connection
+            .prepare("SELECT diff FROM native_tool_events LIMIT 0")
+            .is_ok();
+        if !has_tool_diff {
+            let _ = connection.execute(
+                "ALTER TABLE native_tool_events ADD COLUMN diff TEXT",
+                [],
+            );
+        }
 
         // Migration (planning-system-qol): add title_locked to sessions so
         // auto-titling never overwrites a user-set title. Default 0 (unset).

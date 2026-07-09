@@ -56,17 +56,21 @@ pub struct ToolResult {
     /// Full output before truncation, when the caller wants to persist it.
     /// `None` when content was not truncated.
     pub full_content: Option<String>,
+    /// Unified line diff for `edit_file`/`write_file` results, capped at
+    /// 400 lines with head/tail elision. `None` for non-file tools or
+    /// when content is unchanged.
+    pub diff: Option<String>,
 }
 
 impl ToolResult {
     pub fn success(content: String) -> Self {
-        Self { content, status: "succeeded".to_string(), full_content: None }
+        Self { content, status: "succeeded".to_string(), full_content: None, diff: None }
     }
     pub fn failure(content: String) -> Self {
-        Self { content, status: "failed".to_string(), full_content: None }
+        Self { content, status: "failed".to_string(), full_content: None, diff: None }
     }
     pub fn denied(content: String) -> Self {
-        Self { content, status: "denied".to_string(), full_content: None }
+        Self { content, status: "denied".to_string(), full_content: None, diff: None }
     }
 }
 
@@ -340,6 +344,7 @@ fn truncate_output(content: String) -> ToolResult {
         content: truncated,
         status: "succeeded".to_string(),
         full_content: Some(content),
+        diff: None,
     }
 }
 
@@ -392,6 +397,7 @@ fn read_file(workspace_root: &Path, args: &Value) -> ToolResult {
             content: out,
             status: "succeeded".to_string(),
             full_content: Some(content),
+            diff: None,
         };
     }
     // Return line-numbered content.
@@ -401,6 +407,78 @@ fn read_file(workspace_root: &Path, args: &Value) -> ToolResult {
     }
     ToolResult::success(out)
 }
+/// Maximum diff output lines before head+tail elision.
+const MAX_DIFF_LINES: usize = 400;
+
+/// Compute a unified line diff between `before` and `after` using a
+/// simple LCS algorithm. Output is capped at `MAX_DIFF_LINES` lines with
+/// head/tail elision. Returns `None` when content is unchanged.
+fn compute_diff(before: &str, after: &str) -> Option<String> {
+    let before_lines: Vec<&str> = before.lines().collect();
+    let after_lines: Vec<&str> = after.lines().collect();
+
+    // Short-circuit: identical content.
+    if before == after {
+        return None;
+    }
+
+    let n = before_lines.len();
+    let m = after_lines.len();
+
+    // LCS table (rows = before, cols = after). For large inputs this is
+    // O(n*m) memory; cap at 2000 lines each to avoid pathological cases.
+    if n > 2000 || m > 2000 {
+        // Fallback: just show all-after as additions and all-before as deletions.
+        return Some(format!(
+            "Diff too large ({} → {} lines); showing summary only.\n{} lines removed, {} lines added.",
+            n, m, n, m
+        ));
+    }
+
+    let mut lcs = vec![vec![0u32; m + 1]; n + 1];
+    for i in 1..=n {
+        for j in 1..=m {
+            if before_lines[i - 1] == after_lines[j - 1] {
+                lcs[i][j] = lcs[i - 1][j - 1] + 1;
+            } else {
+                lcs[i][j] = lcs[i - 1][j].max(lcs[i][j - 1]);
+            }
+        }
+    }
+
+    // Backtrack to produce the unified diff.
+    let mut diff_lines: Vec<String> = Vec::new();
+    let mut i = n;
+    let mut j = m;
+    while i > 0 || j > 0 {
+        if i > 0 && j > 0 && before_lines[i - 1] == after_lines[j - 1] {
+            diff_lines.push(format!(" {}", before_lines[i - 1]));
+            i -= 1;
+            j -= 1;
+        } else if j > 0 && (i == 0 || lcs[i][j - 1] >= lcs[i - 1][j]) {
+            diff_lines.push(format!("+{}", after_lines[j - 1]));
+            j -= 1;
+        } else if i > 0 {
+            diff_lines.push(format!("-{}", before_lines[i - 1]));
+            i -= 1;
+        }
+    }
+    diff_lines.reverse();
+
+    // Cap at MAX_DIFF_LINES with head/tail elision.
+    if diff_lines.len() <= MAX_DIFF_LINES {
+        Some(diff_lines.join("\n"))
+    } else {
+        let head = MAX_DIFF_LINES / 2;
+        let tail = MAX_DIFF_LINES - head;
+        let omitted = diff_lines.len() - MAX_DIFF_LINES;
+        let mut out: Vec<String> = diff_lines[..head].to_vec();
+        out.push(format!("... ({} lines omitted) ...", omitted));
+        out.extend(diff_lines[diff_lines.len() - tail..].iter().cloned());
+        Some(out.join("\n"))
+    }
+}
+
 
 fn write_file(workspace_root: &Path, args: &Value) -> ToolResult {
     let path = match args.get("path").and_then(Value::as_str) {
@@ -415,6 +493,8 @@ fn write_file(workspace_root: &Path, args: &Value) -> ToolResult {
         Ok(p) => p,
         Err(e) => return ToolResult::denied(e),
     };
+    // Read existing content for diff (empty if new file).
+    let before = std::fs::read_to_string(&resolved).unwrap_or_default();
     // Create parent directories if needed.
     if let Some(parent) = resolved.parent() {
         if !parent.exists() {
@@ -424,7 +504,10 @@ fn write_file(workspace_root: &Path, args: &Value) -> ToolResult {
         }
     }
     match std::fs::write(&resolved, content) {
-        Ok(_) => ToolResult::success(format!("Wrote {} bytes to {}", content.len(), path)),
+        Ok(_) => {
+            let diff = compute_diff(&before, content);
+            ToolResult { content: format!("Wrote {} bytes to {}", content.len(), path), status: "succeeded".to_string(), full_content: None, diff }
+        }
         Err(e) => ToolResult::failure(format!("Failed to write file '{path}': {e}")),
     }
 }
@@ -459,8 +542,9 @@ fn edit_file(workspace_root: &Path, args: &Value) -> ToolResult {
         ));
     }
     let new_content = content.replacen(old_text, new_text, expected);
+    let diff = compute_diff(&content, &new_content);
     match std::fs::write(&resolved, &new_content) {
-        Ok(_) => ToolResult::success(format!("Replaced {} occurrence(s) in {}", expected, path)),
+        Ok(_) => ToolResult { content: format!("Replaced {} occurrence(s) in {}", expected, path), status: "succeeded".to_string(), full_content: None, diff },
         Err(e) => ToolResult::failure(format!("Failed to write file '{path}': {e}")),
     }
 }
@@ -1020,5 +1104,110 @@ mod tests {
         assert!(result.content.contains("[truncated"));
         assert!(result.full_content.is_some());
         assert!(result.content.starts_with('A'));
+    }
+
+    #[test]
+    fn compute_diff_identical_returns_none() {
+        let text = "line one\nline two\nline three";
+        assert!(compute_diff(text, text).is_none());
+    }
+
+    #[test]
+    fn compute_diff_added_lines() {
+        let before = "line one\nline three";
+        let after = "line one\nline two\nline three";
+        let diff = compute_diff(before, after).expect("should produce a diff");
+        assert!(diff.contains("+line two"));
+        assert!(!diff.contains("-line"));
+    }
+
+    #[test]
+    fn compute_diff_removed_lines() {
+        let before = "line one\nline two\nline three";
+        let after = "line one\nline three";
+        let diff = compute_diff(before, after).expect("should produce a diff");
+        assert!(diff.contains("-line two"));
+        assert!(!diff.contains("+line"));
+    }
+
+    #[test]
+    fn compute_diff_modified_line() {
+        let before = "old text\nline two";
+        let after = "new text\nline two";
+        let diff = compute_diff(before, after).expect("should produce a diff");
+        assert!(diff.contains("-old text"));
+        assert!(diff.contains("+new text"));
+        assert!(diff.contains(" line two"));
+    }
+
+    #[test]
+    fn compute_diff_elides_over_cap() {
+        let before: String = (0..500).map(|i| format!("line {i}\n")).collect();
+        let after: String = (0..500).map(|i| format!("changed {i}\n")).collect();
+        let diff = compute_diff(&before, &after).expect("should produce a diff");
+        assert!(diff.contains("lines omitted"));
+    }
+
+    #[test]
+    fn compute_diff_empty_before() {
+        let after = "new file content\nline two";
+        let diff = compute_diff("", after).expect("should produce a diff");
+        assert!(diff.contains("+new file content"));
+        assert!(diff.contains("+line two"));
+    }
+
+    #[test]
+    fn write_file_includes_diff() {
+        let dir = workspace();
+        let root = dir.path();
+        // Write initial content.
+        let args1 = json!({ "path": "test.txt", "content": "original\n" });
+        let result1 = write_file(root, &args1);
+        assert_eq!(result1.status, "succeeded");
+        // Diff from empty to "original" should be Some.
+        assert!(result1.diff.is_some());
+        // Overwrite with new content.
+        let args2 = json!({ "path": "test.txt", "content": "modified\n" });
+        let result2 = write_file(root, &args2);
+        assert_eq!(result2.status, "succeeded");
+        let diff = result2.diff.as_ref().expect("diff should be present");
+        assert!(diff.contains("-original"));
+        assert!(diff.contains("+modified"));
+    }
+
+    #[test]
+    fn edit_file_includes_diff() {
+        let dir = workspace();
+        let root = dir.path();
+        // Create a file first.
+        std::fs::write(root.join("edit.txt"), "line one\nold line\nline three\n").unwrap();
+        let args = json!({
+            "path": "edit.txt",
+            "old_text": "old line",
+            "new_text": "new line"
+        });
+        let result = edit_file(root, &args);
+        assert_eq!(result.status, "succeeded");
+        let diff = result.diff.as_ref().expect("diff should be present");
+        assert!(diff.contains("-old line"));
+        assert!(diff.contains("+new line"));
+        assert!(diff.contains(" line one"));
+        assert!(diff.contains(" line three"));
+    }
+
+    #[test]
+    fn edit_file_unchanged_returns_none_diff() {
+        let dir = workspace();
+        let root = dir.path();
+        std::fs::write(root.join("same.txt"), "content\n").unwrap();
+        // Replace with identical text — diff should be None.
+        let args = json!({
+            "path": "same.txt",
+            "old_text": "content",
+            "new_text": "content"
+        });
+        let result = edit_file(root, &args);
+        assert_eq!(result.status, "succeeded");
+        assert!(result.diff.is_none());
     }
 }

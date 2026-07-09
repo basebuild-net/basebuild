@@ -175,6 +175,7 @@ _Last refreshed: 2026-07-09 (`node scripts/openspec-status.mjs --write`)_
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
 |`plan-import`|11/13|in progress|`/apply plan-import`|
 |`provider-parity-workspace-fixes`|28/42|in progress|`/apply provider-parity-workspace-fixes`|
+|`chat-experience-completion`|0/53|not started|`/apply chat-experience-completion`|
 |`chat-history-persistence`|0/21|not started|`/apply chat-history-persistence`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|
@@ -184,6 +185,7 @@ _Last refreshed: 2026-07-09 (`node scripts/openspec-status.mjs --write`)_
 |`omp-terminal-usage-sync`|0/33|not started|`/apply omp-terminal-usage-sync`|
 |`plan-status-rename`|0/12|not started|`/apply plan-status-rename`|
 |`planning-file-ingestion`|0/13|not started|`/apply planning-file-ingestion`|
+|`pr26-security-fixes`|0/17|not started|`/apply pr26-security-fixes`|
 |`project-grid-workspace`|0/33|not started|`/apply project-grid-workspace`|
 |`schematic-enhance-ui`|0/14|not started|`/apply schematic-enhance-ui`|
 |`session-compaction`|0/13|not started|`/apply session-compaction`|

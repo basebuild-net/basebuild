@@ -806,6 +806,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         ? "Let me write a concise commit message.\n\n1. `launch-sbox.sh` - changes\n2. `patch_engine.sh` - changes\n\n---\n\nRework patch system to target sbox-public"
         : req.content.includes("quick-reply-test")
         ? "Here are your options:\nA. Commit the changes\nB. Create a pull request\nC. Abort and revert\n"
+        : req.content.includes("markdown-test")
+        ? "Here is a **markdown** response with `inline code`.\n\n## Heading\n\n- Item one\n- Item two\n- Item three\n\n> A blockquote with wisdom.\n\n| Col A | Col B |\n|-------|-------|\n| 1 | 2 |\n| 3 | 4 |\n\n```ts\nconst x: string = \"hello\";\nconsole.log(x);\n```\n\n<script>alert(1)</script>\n\n[Example](https://example.com)"
         : `Native harness echo: ${req.content}`;
       const assistantMessage: NativeChatMessage = {
         id: `nmsg-${s.nextNativeMessageId++}`,

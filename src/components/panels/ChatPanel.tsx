@@ -19,12 +19,14 @@ import {
 import { ChatHeader } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
 import { QuestionCard } from "./QuestionCard";
+import { MarkdownView } from "./MarkdownView";
 import {
   AlertCircle,
   BarChart3,
   Brain,
   Bug,
   Copy,
+  Edit2,
   FolderTree,
   Key,
   LayoutGrid,
@@ -182,7 +184,7 @@ function ThinkingBlock({ text }: { text: string }) {
         {expanded ? "▼" : "▶"} Thinking…
       </button>
       {expanded ? (
-        <pre className="chat-thinking-content">{text}</pre>
+        <MarkdownView text={text} className="chat-thinking-content" />
       ) : null}
     </div>
   );
@@ -389,6 +391,7 @@ export function ChatPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   // Expose the native session id on the DOM for e2e tests (data-native-session-id).
   const panelRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
   // Ref indirection so the loadOrCreate effect doesn't re-run when the
   // inline onChatSessionCreated callback changes identity (it's a new
   // function on every render). Without this, calling onChatSessionCreated
@@ -1353,6 +1356,31 @@ export function ChatPanel({
     await sendMessage(text);
   }, [input, nativeMode, sendMessage, catalog, addLog, interactions, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId, onOpenSchematic, projectPath, selectedModel]);
 
+  // Message action rail handlers.
+  const handleCopyMessage = useCallback(async (content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      onShowToast?.("Copied to clipboard", "Message source copied.", "success");
+    } catch {
+      onShowToast?.("Copy failed", "Clipboard unavailable.", "error");
+    }
+  }, [onShowToast]);
+
+  const handleRetryMessage = useCallback(async () => {
+    // Find the last user message content.
+    const lastUser = [...nativeMessages].reverse().find((m) => m.role === "user");
+    if (!lastUser) return;
+    await sendMessage(lastUser.content);
+  }, [nativeMessages, sendMessage]);
+
+  const handleEditAndResend = useCallback(() => {
+    // Prefill the composer with the last user message and focus it.
+    const lastUser = [...nativeMessages].reverse().find((m) => m.role === "user");
+    if (!lastUser) return;
+    setInput(lastUser.content);
+    chatInputRef.current?.focus();
+  }, [nativeMessages]);
+
   const handleStopAgent = useCallback(async () => {
     if (sendTimerRef.current) {
       window.clearTimeout(sendTimerRef.current);
@@ -1889,6 +1917,14 @@ export function ChatPanel({
                 if (ta !== tb) return ta - tb;
                 return a.index - b.index;
               });
+              // Compute last user/assistant message IDs for action rail.
+              let lastUserId: string | null = null;
+              let lastAssistantId: string | null = null;
+              for (const ev of events) {
+                if (ev.kind === "user") lastUserId = ev.id;
+                if (ev.kind === "assistant") lastAssistantId = ev.id;
+              }
+
 
               // Render the flat chronological list — no grouping.
               // Each tool event renders as its own row. Reasoning renders
@@ -1939,7 +1975,41 @@ export function ChatPanel({
                       {isOfflineTurn ? <span className="chat-offline-tag" title="No external model was contacted">Offline</span> : null}
                       {timeStr ? <span className="chat-message-time" title={fullDate ?? ""}>{timeStr}</span> : null}
                     </span>
-                    <pre className="chat-message-content">{ev.content}</pre>
+                    {ev.kind === "assistant"
+                      ? <MarkdownView text={ev.content} className="chat-message-content" />
+                      : <pre className="chat-message-content">{ev.content}</pre>}
+                    {ev.kind === "user" || ev.kind === "assistant" ? (
+                      <div className="chat-message-actions">
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-icon-sm chat-message-action-copy"
+                          title="Copy message source text to clipboard"
+                          onClick={() => void handleCopyMessage(ev.content)}
+                        >
+                          <Copy size={11} />
+                        </button>
+                        {ev.kind === "assistant" && ev.id === lastAssistantId && !streaming ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-icon-sm chat-message-action-retry"
+                            title="Retry — re-send the last user message as a new turn"
+                            onClick={() => void handleRetryMessage()}
+                          >
+                            <RefreshCw size={11} />
+                          </button>
+                        ) : null}
+                        {ev.kind === "user" && ev.id === lastUserId && !streaming ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-icon-sm chat-message-action-edit"
+                            title="Edit and resend — load this message into the composer"
+                            onClick={() => handleEditAndResend()}
+                          >
+                            <Edit2 size={11} />
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>,
                 );
               }
@@ -1995,7 +2065,7 @@ export function ChatPanel({
               Basebuild
               <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
             </span>
-            <pre className="chat-message-content">{streamText}<span className="chat-cursor" /></pre>
+            <div className="chat-message-content"><MarkdownView text={streamText} /><span className="chat-cursor" /></div>
           </div>
         ) : null}
 
@@ -2643,6 +2713,7 @@ export function ChatPanel({
         })()}
         <div className="chat-input-row">
           <textarea
+            ref={chatInputRef}
             className="input chat-input"
             placeholder={
               nativeMode

@@ -248,6 +248,8 @@ pub struct ToolEventRecord {
     pub duration_ms: i64,
     pub decision: String,
     pub rule_source: Option<String>,
+    /// Unified line diff for file tools, if any.
+    pub diff: Option<String>,
 }
 
 /// Run an agentic loop for a session. This is the entry point for both
@@ -580,6 +582,7 @@ fn process_tool_calls(
                     content: "Cancelled".to_string(),
                     status: "cancelled".to_string(),
                     full_content: None,
+                    diff: None,
                 }
             } else if let Some(def) = def {
                 execute_with_gateway(
@@ -596,6 +599,7 @@ fn process_tool_calls(
                     content: format!("Unknown tool: {}", call.name),
                     status: "failed".to_string(),
                     full_content: None,
+                    diff: None,
                 }
             };
             results.lock().push((idx, result));
@@ -620,6 +624,7 @@ fn process_tool_calls(
                 content: "Cancelled".to_string(),
                 status: "cancelled".to_string(),
                 full_content: None,
+                diff: None,
             };
             results.push((calls[*idx].clone(), result));
             break;
@@ -632,6 +637,7 @@ fn process_tool_calls(
                 content: format!("Unknown tool: {}", call.name),
                 status: "failed".to_string(),
                 full_content: None,
+                diff: None,
             }
         };
         record_tool_event(app, session_id, call, &result, tool_events);
@@ -870,6 +876,7 @@ fn execute_with_gateway(
                 content: format!("Denied: {}", decision.reason),
                 status: "denied".to_string(),
                 full_content: None,
+                diff: None,
             }
         }
         PermissionDecision::Ask => {
@@ -878,6 +885,7 @@ fn execute_with_gateway(
                 content: "Approval required but not handled.".to_string(),
                 status: "denied".to_string(),
                 full_content: None,
+                diff: None,
             }
         }
     }
@@ -899,6 +907,7 @@ fn record_tool_event(
         duration_ms: 0,
         decision: "approved".to_string(),
         rule_source: None,
+        diff: result.diff.clone(),
     });
 }
 

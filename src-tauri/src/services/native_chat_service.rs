@@ -813,6 +813,7 @@ impl NativeChatService {
                     &te.status,
                     &te.summary,
                     te.arguments.as_deref(),
+                    te.diff.as_deref(),
                 )?;
                 tool_events.push(event);
             }
@@ -985,6 +986,7 @@ impl NativeChatService {
                 "recorded",
                 summary,
                 None,
+                None,
             )?;
 
             Self::touch_session(&request.session_id)?;
@@ -1094,6 +1096,7 @@ impl NativeChatService {
             "request_metrics",
             "recorded",
             summary,
+            None,
             None,
         )?;
 
@@ -1507,6 +1510,7 @@ impl NativeChatService {
         status: &str,
         summary: &str,
         arguments: Option<&str>,
+        diff: Option<&str>,
     ) -> DbResult<NativeToolEvent> {
         let conn = StorageService::connect()?;
         let next_seq: i64 = conn
@@ -1524,13 +1528,14 @@ impl NativeChatService {
             status: status.to_string(),
             summary: summary.to_string(),
             arguments: arguments.map(str::to_string),
+            diff: diff.map(str::to_string),
             sequence: next_seq,
             created_at: now_seconds(),
         };
         conn.execute(
-            "INSERT INTO native_tool_events (id, session_id, message_id, kind, status, summary, arguments, sequence, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, (SELECT COALESCE(MAX(sequence), 0) + 1 FROM native_tool_events WHERE session_id = ?2), ?8)",
-            params![event.id, event.session_id, event.message_id, event.kind, event.status, event.summary, event.arguments, event.created_at],
+            "INSERT INTO native_tool_events (id, session_id, message_id, kind, status, summary, arguments, diff, sequence, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, (SELECT COALESCE(MAX(sequence), 0) + 1 FROM native_tool_events WHERE session_id = ?2), ?9)",
+            params![event.id, event.session_id, event.message_id, event.kind, event.status, event.summary, event.arguments, event.diff, event.created_at],
         )
         .map_err(|e| format!("Failed to save native tool event: {e}"))?;
         // Read back the assigned sequence so the returned event matches what was persisted.
@@ -1548,7 +1553,7 @@ impl NativeChatService {
         let conn = StorageService::connect()?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, session_id, message_id, kind, status, summary, arguments, sequence, created_at
+                "SELECT id, session_id, message_id, kind, status, summary, arguments, diff, sequence, created_at
                  FROM native_tool_events WHERE session_id = ?1 ORDER BY sequence ASC, created_at ASC",
             )
             .map_err(|e| format!("Failed to prepare tool event query: {e}"))?;
@@ -1562,8 +1567,9 @@ impl NativeChatService {
                     status: row.get(4)?,
                     summary: row.get(5)?,
                     arguments: row.get(6)?,
-                    sequence: row.get(7)?,
-                    created_at: row.get(8)?,
+                    diff: row.get(7)?,
+                    sequence: row.get(8)?,
+                    created_at: row.get(9)?,
                 })
             })
             .map_err(|e| format!("Failed to query tool events: {e}"))?;
@@ -2044,7 +2050,7 @@ mod tests {
         // Insert two messages and a tool event.
         NativeChatService::insert_message(&session.id, "user", "hello", None, Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium")).unwrap();
         NativeChatService::insert_message(&session.id, "assistant", "hi there", None, Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium")).unwrap();
-        NativeChatService::insert_tool_event(&session.id, None, "test_tool", "ok", "ran", None);
+        NativeChatService::insert_tool_event(&session.id, None, "test_tool", "ok", "ran", None, None);
 
         // Verify they exist.
         assert_eq!(NativeChatService::list_messages(&session.id).unwrap().len(), 2);
