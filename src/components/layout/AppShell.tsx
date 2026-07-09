@@ -787,9 +787,6 @@ export function AppShell({ updates }: AppShellProps) {
         void (async () => {
           try {
             const tab = await session.createTab("chat", `Chat ${chatCount}`);
-            // The chatSessionId is linked later by ChatPanel via
-            // onChatSessionCreated. Keep `creating: true` until then so
-            // orphan detection doesn't flag the in-flight tab.
             if (!tab) {
               addLog("warn", "Chat tab creation returned no tab", panelId);
             } else {
@@ -798,10 +795,12 @@ export function AppShell({ updates }: AppShellProps) {
                 pendingNewPanelPrompts.current.set(tab.id, pendingPrompt);
               }
             }
+            handleShowToast("Chat created", `Chat ${chatCount} ready.`, "success");
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             addLog("error", "Chat tab creation failed", message);
             setPanelGridState((prev) => removePanelFromGrid(prev, panelId));
+            handleShowToast("Failed to create chat", message, "error");
           } finally {
             releaseGuard();
           }
@@ -833,29 +832,27 @@ export function AppShell({ updates }: AppShellProps) {
               }),
             }));
             addLog("debug", `${baseTitle} created`, `panel=${panelId} term=${term.id}`);
+            handleShowToast(`${baseTitle} created`, `${shell} shell ready.`, "success");
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             addLog("error", `${baseTitle} creation failed`, message);
-            // Roll back the reservation; no terminal record was bound.
             setPanelGridState((prev) => removePanelFromGrid(prev, panelId));
+            handleShowToast(`Failed to create ${baseTitle}`, message, "error");
           } finally {
             releaseGuard();
           }
         })();
         return;
       }
-
       // schematic — no backing resource, insert directly.
       const panel: Panel = { id: panelId, type: "schematic", title: "Schematic", chatSessionId: null, terminalId: null, filePath: null };
       commitInsert(panel, panelGridState.activePanelId, "right");
       addLog("debug", "Schematic panel created", panelId);
       releaseGuard();
     },
-    [session, activeProjectPath, projectRestoreLoading, panelGridState, commitInsert, addLog],
+    [session, activeProjectPath, projectRestoreLoading, panelGridState, commitInsert, addLog, handleShowToast],
   );
   handleCreateTypedPanelRef.current = handleCreateTypedPanel;
-
-  /** Render a panel's content by type. */
   const renderPanel = useCallback(
     (panel: Panel, _isActive: boolean) => {
       if (panel.type === "chat") {
