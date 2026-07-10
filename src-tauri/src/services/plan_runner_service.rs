@@ -552,88 +552,56 @@ impl PlanRunnerService {
             .map(|p| p.reference_id.clone())
             .unwrap_or_else(|| run.plan_id.clone());
         let commit_msg = format!("Auto-commit: plan {plan_ref} completed (run {run_id})");
+        let mk = |commit_sha: Option<String>, pr_url: Option<String>, merge_ready: bool, error: Option<String>| {
+            FinishOutcome {
+                run_id: run_id.to_string(),
+                policy: policy.to_string(),
+                commit_sha,
+                pr_url,
+                merge_ready,
+                error,
+            }
+        };
         let outcome = match policy {
             "auto_commit" => {
                 match crate::services::git_service::GitService::commit_all(&work_dir, &commit_msg) {
-                    Ok(sha) if !sha.is_empty() => FinishOutcome {
-                        run_id: run_id.to_string(),
-                        policy: policy.to_string(),
-                        commit_sha: Some(sha),
-                        pr_url: None,
-                        merge_ready: false,
-                        error: None,
-                    },
-                    Ok(_) => FinishOutcome {
-                        run_id: run_id.to_string(),
-                        policy: policy.to_string(),
-                        commit_sha: None,
-                        pr_url: None,
-                        merge_ready: false,
-                        error: Some("Nothing to commit — working tree clean.".to_string()),
-                    },
-                    Err(e) => FinishOutcome {
-                        run_id: run_id.to_string(),
-                        policy: policy.to_string(),
-                        commit_sha: None,
-                        pr_url: None,
-                        merge_ready: false,
-                        error: Some(format!("git commit failed: {e}")),
-                    },
+                    Ok(sha) if !sha.is_empty() => mk(Some(sha), None, false, None),
+                    Ok(_) => mk(None, None, false, Some("Nothing to commit — working tree clean.".to_string())),
+                    Err(e) => mk(None, None, false, Some(format!("git commit failed: {e}"))),
                 }
             }
             "auto_commit_pr" => {
-                let commit_result = crate::services::git_service::GitService::commit_all(&work_dir, &commit_msg);
-                match commit_result {
+                match crate::services::git_service::GitService::commit_all(&work_dir, &commit_msg) {
+                    Ok(sha) if sha.is_empty() => mk(None, None, false, Some("Nothing to commit — working tree clean.".to_string())),
                     Ok(sha) => {
-                        let branch = crate::services::git_service::GitService::current_branch(&work_dir)
-                            .unwrap_or_else(|| "main".to_string());
-                        let pr_result = crate::services::pull_request_service::PullRequestService::create_pr(
-                            project_path,
-                            &branch,
-                            &format!("Plan {plan_ref}"),
-                            &format!("Automated PR for plan {plan_ref} (run {run_id})"),
-                        );
-                        match pr_result {
-                            Ok(pr) if pr.success => FinishOutcome {
-                                run_id: run_id.to_string(),
-                                policy: policy.to_string(),
-                                commit_sha: Some(sha),
-                                pr_url: pr.url,
-                                merge_ready: false,
-                                error: None,
-                            },
-                            Ok(pr) => FinishOutcome {
-                                run_id: run_id.to_string(),
-                                policy: policy.to_string(),
-                                commit_sha: Some(sha),
-                                pr_url: None,
-                                merge_ready: false,
-                                error: Some(format!("PR creation failed: {}", pr.error.unwrap_or_default())),
-                            },
-                            Err(e) => FinishOutcome {
-                                run_id: run_id.to_string(),
-                                policy: policy.to_string(),
-                                commit_sha: Some(sha),
-                                pr_url: None,
-                                merge_ready: false,
-                                error: Some(format!("PR creation error: {e}")),
-                            },
+                        let branch = crate::services::git_service::GitService::current_branch(&work_dir);
+                        match branch {
+                            None => mk(Some(sha), None, false, Some("Cannot determine current branch — detached HEAD?".to_string())),
+                            Some(b) => {
+                                let pr_result = crate::services::pull_request_service::PullRequestService::create_pr(
+                                    project_path,
+                                    &b,
+                                    &format!("Plan {plan_ref}"),
+                                    &format!("Automated PR for plan {plan_ref} (run {run_id})"),
+                                );
+                                match pr_result {
+                                    Ok(pr) if pr.success => mk(Some(sha), pr.url, false, None),
+                                    Ok(pr) => mk(Some(sha), None, false, Some(format!("PR creation failed: {}", pr.error.unwrap_or_default()))),
+                                    Err(e) => mk(Some(sha), None, false, Some(format!("PR creation error: {e}"))),
+                                }
+                            }
                         }
                     }
-                    Err(e) => FinishOutcome {
-                        run_id: run_id.to_string(),
-                        policy: policy.to_string(),
-                        commit_sha: None,
-                        pr_url: None,
-                        merge_ready: false,
-                        error: Some(format!("git commit failed: {e}")),
-                    },
+                    Err(e) => mk(None, None, false, Some(format!("git commit failed: {e}"))),
                 }
             }
             "queue_merge_review" => {
                 // Commit, then add to merge-review queue with merge-ready flag.
-                let sha = crate::services::git_service::GitService::commit_all(&work_dir, &commit_msg)
-                    .unwrap_or_default();
+                let (sha, commit_err) = match crate::services::git_service::GitService::commit_all(&work_dir, &commit_msg) {
+                    Ok(s) if !s.is_empty() => (Some(s), None),
+                    Ok(_) => (None, Some("Nothing to commit — working tree clean.".to_string())),
+                    Err(e) => (None, Some(format!("git commit failed: {e}"))),
+                };
                 let _ = crate::services::plan_dependency_service::PlanDependencyService::add_to_merge_queue(
                     run_id,
                     &run.plan_id,
@@ -641,23 +609,9 @@ impl PlanRunnerService {
                     false,
                     &[],
                 );
-                FinishOutcome {
-                    run_id: run_id.to_string(),
-                    policy: policy.to_string(),
-                    commit_sha: if sha.is_empty() { None } else { Some(sha) },
-                    pr_url: None,
-                    merge_ready: true,
-                    error: None,
-                }
+                mk(sha, None, true, commit_err)
             }
-            _ => FinishOutcome {
-                run_id: run_id.to_string(),
-                policy: policy.to_string(),
-                commit_sha: None,
-                pr_url: None,
-                merge_ready: false,
-                error: Some(format!("Unknown finish policy: {policy}")),
-            },
+            _ => mk(None, None, false, Some(format!("Unknown finish policy: {policy}"))),
         };
         // Emit a planning event with the outcome.
         let detail = if let Some(ref err) = outcome.error {

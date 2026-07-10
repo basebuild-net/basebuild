@@ -19,6 +19,7 @@ import type { Plan, PlanStatus } from "../../lib/plans";
 import { PLAN_STATUSES, PLAN_STATUS_LABEL, isTerminalStatus } from "../../lib/plans";
 import type {
   EngineKind,
+  FinishPolicy,
   LaunchProfile,
   SchedulingMode,
   ValidationResult,
@@ -47,7 +48,7 @@ type ProfileForm = {
   workerCount: number;
   workspacePolicy: WorkspacePolicy;
   schedulingMode: SchedulingMode;
-  finishPolicy?: string;
+  finishPolicy: FinishPolicy;
 };
 
 type PlanPanelProps = {
@@ -100,6 +101,7 @@ export function PlanPanel({
     workerCount: 1,
     workspacePolicy: "isolated_worktrees",
     schedulingMode: "safe",
+    finishPolicy: "hold",
   });
 
   useEffect(() => {
@@ -116,7 +118,7 @@ export function PlanPanel({
         workerCount: profile.workerCount ?? 1,
         workspacePolicy: (profile.workspacePolicy as WorkspacePolicy) ?? "isolated_worktrees",
         schedulingMode: (profile.schedulingMode as SchedulingMode) ?? "safe",
-        finishPolicy: profile.finishPolicy,
+        finishPolicy: (profile.finishPolicy as FinishPolicy) ?? "hold",
       });
     }).catch(() => {});
     return () => { cancelled = true; };
