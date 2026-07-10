@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
   Eye,
   EyeOff,
+  FolderOpen,
   FolderPlus,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  TerminalSquare,
   X,
 } from "lucide-react";
 
@@ -20,9 +27,6 @@ import {
 } from "../../lib/projects";
 import { listSessions, type Session } from "../../lib/sessions";
 import { useLogs } from "../../state/log";
-import { RepoIcon } from "./RepoIcon";
-import { getRepoIdentity, type RepoIdentity } from "../../lib/repoIdentity";
-import { ProjectRow } from "./ProjectRow";
 
 type ProjectSidebarProps = {
   activeProjectPath: string | null;
@@ -41,6 +45,15 @@ type ProjectSidebarProps = {
   onToggleCollapse: () => void;
 };
 
+function formatTime(ts: number): string {
+  const date = new Date(ts * 1000);
+  const now = Date.now();
+  const diff = now - ts * 1000;
+  if (diff < 60000) return "just now";
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+  return date.toLocaleDateString();
+}
 export function ProjectSidebar({
   activeProjectPath,
   activeSessionId,
@@ -59,35 +72,11 @@ export function ProjectSidebar({
 }: ProjectSidebarProps) {
   const [hiddenPaths, setHiddenPaths] = useState<Set<string>>(new Set());
   const [menuPath, setMenuPath] = useState<string | null>(null);
-  const [repoIdentities, setRepoIdentities] = useState<Map<string, RepoIdentity>>(new Map());
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
   const [editingSession, setEditingSession] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [sessionMenu, setSessionMenu] = useState<string | null>(null);
   const visibleProjects = projects.filter((p) => !hiddenPaths.has(p.path));
-
-  // Fetch repo identity (host, name, branch) for all visible projects.
-  useEffect(() => {
-    let cancelled = false;
-    void Promise.all(
-      visibleProjects.map(async (p) => {
-        try {
- const identity = await getRepoIdentity(p.path);
- return [p.path, identity] as [string, RepoIdentity | null];
-        } catch {
- return [p.path, null] as [string, RepoIdentity | null];
-        }
-      }),
-    ).then((entries) => {
-      if (cancelled) return;
-      const map = new Map<string, RepoIdentity>();
-      for (const [path, identity] of entries) {
-        if (identity) map.set(path, identity);
-      }
-      setRepoIdentities(map);
-    });
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects.length]);
 
   async function handleReveal(path: string) {
     try {
@@ -125,33 +114,172 @@ export function ProjectSidebar({
         {visibleProjects.length === 0 ? (
           <p className="text-muted text-sm pad sidebar-empty">No projects yet.</p>
         ) : (
-          visibleProjects.map((project) => (
-            <ProjectRow
-              key={project.path}
-              project={project}
-              isActive={project.path === activeProjectPath}
-              sessions={sessionsByProject.get(project.path) ?? []}
-              activeSessionId={activeSessionId}
-              identity={repoIdentities.get(project.path)}
-              menuPath={menuPath}
-              hiddenPaths={hiddenPaths}
-              editingSession={editingSession}
-              editValue={editValue}
-              sessionMenu={sessionMenu}
-              onSelectProject={onSelectProject}
-              onCreateSession={onCreateSession}
-              onSelectSession={onSelectSession}
-              onRenameSession={onRenameSession}
-              onDeleteSession={onDeleteSession}
-              onSetMenuPath={setMenuPath}
-              onToggleHide={toggleHide}
-              onRemove={handleRemove}
-              onReveal={handleReveal}
-              onSetEditingSession={setEditingSession}
-              onSetEditValue={setEditValue}
-              onSetSessionMenu={setSessionMenu}
-            />
-          ))
+          visibleProjects.map((project) => {
+            const isActive = project.path === activeProjectPath;
+            const projectSessions = sessionsByProject.get(project.path) ?? [];
+            const isCollapsed = collapsedProjects.has(project.path);
+            return (
+              <div key={project.path} className="sidebar-project-group">
+                <div className={`sidebar-item${isActive ? " is-active" : ""}`} onContextMenu={(e) => { e.preventDefault(); setMenuPath(menuPath === project.path ? null : project.path); }}>
+                  {/* Collapse chevron */}
+                  <button
+                    className="sidebar-chevron-btn"
+                    title={isCollapsed ? "Expand" : "Collapse"}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCollapsedProjects((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(project.path)) next.delete(project.path);
+                        else next.add(project.path);
+                        return next;
+                      });
+                    }}
+                  >
+                    <ChevronDown size={12} className={`sidebar-chevron${isCollapsed ? " is-collapsed" : ""}`} />
+                  </button>
+                  <button
+                    className="sidebar-item-main"
+                    type="button"
+                    title={project.path}
+                    onClick={() => onSelectProject(project.path)}
+                  >
+                    <FolderOpen size={14} className="sidebar-item-icon" />
+                    <span className="sidebar-item-label">{project.name}</span>
+                    {projectSessions.length > 0 ? (
+                      <span className="sidebar-session-count">{projectSessions.length}</span>
+                    ) : null}
+                  </button>
+                  {isActive ? (
+                    <button
+                      className="btn-icon btn-icon-sm sidebar-item-more"
+                      title="New session"
+                      aria-label="New session"
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onCreateSession(); }}
+                    >
+                      <Plus size={14} />
+                    </button>
+                  ) : null}
+                  <button
+                    className="btn-icon btn-icon-sm sidebar-item-more"
+                    title="More options"
+                    aria-label="More options"
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMenuPath(menuPath === project.path ? null : project.path);
+                    }}
+                  >
+                    <MoreHorizontal size={14} />
+                  </button>
+                  {menuPath === project.path ? (
+                    <div className="context-menu" onMouseLeave={() => setMenuPath(null)}>
+                      <button className="menu-item" type="button" title="Open project in file explorer" onClick={() => handleReveal(project.path)}>
+                        <ExternalLink size={13} /> Open in explorer
+                      </button>
+                      <button className="menu-item" type="button" title={hiddenPaths.has(project.path) ? "Show project in list" : "Hide project from list"} onClick={() => toggleHide(project.path)}>
+                        {hiddenPaths.has(project.path) ? <Eye size={13} /> : <EyeOff size={13} />}
+                        {hiddenPaths.has(project.path) ? "Show in list" : "Hide from list"}
+                      </button>
+                      <button className="menu-item menu-item-danger" type="button" title="Remove project from list" onClick={() => handleRemove(project.path)}>
+                        <X size={13} /> Remove
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* Sessions under project (collapsible) */}
+                {!isCollapsed && projectSessions.length > 0 ? (
+                  <div className="sidebar-sessions">
+                    {projectSessions.map((s) => (
+                      <div
+                        key={s.id}
+                        className={`sidebar-session${s.id === activeSessionId ? " is-active" : ""}`}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setSessionMenu(sessionMenu === s.id ? null : s.id);
+                        }}
+                      >
+                        {editingSession === s.id ? (
+                          <input
+                            className="sidebar-session-edit"
+                            type="text"
+                            value={editValue}
+                            autoFocus
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onBlur={() => {
+                              if (editValue.trim()) onRenameSession(s.id, editValue.trim());
+                              setEditingSession(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                if (editValue.trim()) onRenameSession(s.id, editValue.trim());
+                                setEditingSession(null);
+                              } else if (e.key === "Escape") {
+                                setEditingSession(null);
+                              }
+                            }}
+                          />
+                        ) : (
+                          <button
+                            className="sidebar-session-main"
+                            type="button"
+                            title={s.title}
+                            onClick={() => onSelectSession(s.id)}
+                            onDoubleClick={() => {
+                              setEditingSession(s.id);
+                              setEditValue(s.title);
+                            }}
+                          >
+                            <TerminalSquare size={12} className="sidebar-session-icon" />
+                            <span className="sidebar-session-title">{s.title}</span>
+                            <span className="sidebar-session-time">{formatTime(s.updatedAt)}</span>
+                          </button>
+                        )}
+                        {editingSession !== s.id ? (
+                          <button
+                            className="btn-icon btn-icon-sm sidebar-session-edit-btn"
+                            title="Rename"
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingSession(s.id);
+                              setEditValue(s.title);
+                            }}
+                          >
+                            <Pencil size={10} />
+                          </button>
+                        ) : null}
+                        {sessionMenu === s.id ? (
+                          <div className="context-menu" onMouseLeave={() => setSessionMenu(null)}>
+                            <button className="menu-item" type="button" title="Rename session" onClick={() => {
+                              setEditingSession(s.id);
+                              setEditValue(s.title);
+                              setSessionMenu(null);
+                            }}>
+                              <Pencil size={13} /> Rename
+                            </button>
+                            {onDeleteSession ? (
+                              <button className="menu-item menu-item-danger" type="button" title="Delete session" onClick={() => {
+                                if (confirm(`Delete session "${s.title}"? This cannot be undone.`)) {
+                                  onDeleteSession(s.id);
+                                }
+                                setSessionMenu(null);
+                              }}>
+                                <X size={13} /> Delete
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })
         )}
         {hiddenPaths.size > 0 ? (
           <button className="sidebar-show-hidden" type="button" title="Show hidden projects" onClick={() => setHiddenPaths(new Set())}>

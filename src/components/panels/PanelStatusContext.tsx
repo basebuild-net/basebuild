@@ -7,6 +7,7 @@ export type PanelStatus =
   | "streaming"
   | "thinking"
   | "running"
+  | "asking"
   | "error"
   | "succeeded";
 

@@ -38,6 +38,7 @@ const statusDotClass: Record<PanelStatus, string> = {
   streaming: "panel-status-streaming",
   thinking: "panel-status-thinking",
   running: "panel-status-running",
+  asking: "panel-status-asking",
   error: "panel-status-error",
   succeeded: "panel-status-succeeded",
 };

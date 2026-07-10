@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { usePromptDelivery } from "../../lib/promptDelivery";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { markStart, markEnd } from "../../lib/timing";
+import { usePanelStatusPublisher, type PanelStatus } from "./PanelStatusContext";
 import { ChatComposerRail } from "./ChatComposerRail";
 import { ChatContextStrip } from "./ChatContextStrip";
 import { CommandPalette } from "./CommandPalette";
@@ -134,6 +135,8 @@ type ChatPanelProps = {
   projectPath: string;
   chatSessionId?: string | null;
   onChatSessionCreated?: (id: string) => void;
+  /** Panel grid id — used to publish live status to the activity sidebar. */
+  panelId?: string | null;
   /** Project session id — used to persist generated ideas and seed plans. */
   activeSessionId?: string | null;
   /** Project schematic content, sent to the provider for idea generation. */
@@ -348,6 +351,7 @@ export function ChatPanel({
   projectPath,
   chatSessionId,
   onChatSessionCreated,
+  panelId,
   activeSessionId,
   schematicContent,
   onCreatePlanFromIdea,
@@ -391,6 +395,23 @@ export function ChatPanel({
   const streamStartRef = useRef<number | null>(null);
   const streamBufRef = useRef("");
   const reasoningBufRef = useRef("");
+  // Publish live panel status to the activity sidebar (project status dot).
+  const publishPanelStatus = usePanelStatusPublisher(panelId ?? "");
+  const lastPublishedStatusRef = useRef<PanelStatus | null>(null);
+  useEffect(() => {
+    if (!panelId) return;
+    const hasPendingAsk = interactions.some((i) => i.status === "pending");
+    const status: PanelStatus = hasPendingAsk
+      ? "asking"
+      : streaming
+        ? (streamPhase === "tools" ? "running" : streamPhase === "thinking" ? "thinking" : "streaming")
+        : loading
+          ? "running"
+          : "idle";
+    if (lastPublishedStatusRef.current === status) return;
+    lastPublishedStatusRef.current = status;
+    publishPanelStatus(status);
+  }, [panelId, interactions, streaming, streamPhase, loading, publishPanelStatus]);
   // Monotonic id for the in-flight native send. Bumped on stop or on a new
   // send so a superseded send's async resolution can't revive the spinner
   // or duplicate messages.

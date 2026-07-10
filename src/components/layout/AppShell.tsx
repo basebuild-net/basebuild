@@ -920,6 +920,7 @@ export function AppShell({ updates }: AppShellProps) {
         );
         return (
           <ChatPanel
+            panelId={panel.id}
             projectPath={activeProjectPath ?? ""}
             chatSessionId={panel.chatSessionId ?? tab?.chatSessionId ?? null}
             onChatSessionCreated={(chatSessionId) => {
