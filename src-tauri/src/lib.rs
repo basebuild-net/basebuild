@@ -41,7 +41,7 @@ use commands::{
     git::{
         git_add, git_branch_create, git_branch_list, git_branch_switch, git_commit, git_diff,
         git_discard, git_fetch, git_log, git_pull, git_push, git_reset, git_stage_all, git_status,
-        git_current_branch, git_default_branch,
+        git_current_branch, git_default_branch, git_remote_url,
         git_unstage_all,
     },
     ideas::{
@@ -462,6 +462,7 @@ pub fn run() {
             git_log,
             git_current_branch,
             git_default_branch,
+            git_remote_url,
             list_config_packs,
             create_user_config_pack,
             list_requirements,

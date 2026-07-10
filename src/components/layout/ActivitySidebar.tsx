@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -18,6 +18,9 @@ import { flattenPanels } from "../../lib/panelGrid";
 import { usePanelStatus, type PanelStatus } from "../panels/PanelStatusContext";
 import { AccountButton } from "./AccountButton";
 import { UpdateButton } from "./UpdateButton";
+import { RepoIcon } from "./RepoIcon";
+import { getRepoIdentity, type RepoIdentity } from "../../lib/repoIdentity";
+import { getProjectAgentStatus, type AgentStatus } from "../../lib/agentStatus";
 import type { AccountState } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
 import type { Panel, PanelType, SplitNode } from "../../lib/panelGrid";
@@ -80,6 +83,30 @@ export function ActivitySidebar({
   collapsed,
   onToggleCollapse,
 }: ActivitySidebarProps) {
+  const [repoIdentities, setRepoIdentities] = useState<Map<string, RepoIdentity>>(new Map());
+
+  // Fetch repo identity (host, name, branch) for all projects.
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(
+      projects.map(async (p) => {
+        try {
+          const identity = await getRepoIdentity(p.path);
+          return [p.path, identity] as [string, RepoIdentity | null];
+        } catch {
+          return [p.path, null] as [string, RepoIdentity | null];
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      const map = new Map<string, RepoIdentity>();
+      for (const [path, identity] of entries) {
+        if (identity) map.set(path, identity);
+      }
+      setRepoIdentities(map);
+    });
+    return () => { cancelled = true; };
+  }, [projects]);
   const { statuses } = usePanelStatus();
   const panels = useMemo(() => flattenPanels(root), [root]);
 
@@ -124,6 +151,11 @@ export function ActivitySidebar({
     );
   }
 
+  const activeIdentity = activeProjectPath ? repoIdentities.get(activeProjectPath) : undefined;
+  const activeName = activeIdentity?.name ?? projects.find((p) => p.path === activeProjectPath)?.name ?? activeProjectPath?.split(/[\\/]/).pop() ?? "Project";
+  const activeBranch = activeIdentity?.branch ?? null;
+  const activeHost = activeIdentity?.host ?? "folder";
+  const activeAgentStatus = getProjectAgentStatus(panels.map((p) => statuses[p.id]?.status ?? "idle"));
   return (
     <aside className="project-chat-sidebar" aria-label="Activity sidebar">
       <div className="sidebar-top-actions">
@@ -143,12 +175,14 @@ export function ActivitySidebar({
 
       <div className="activity-sidebar">
         <div className="activity-sidebar-list">
-          {/* Active project as parent header */}
           {activeProjectPath ? (
             <div className="activity-sidebar-project">
+              <RepoIcon host={activeHost} size={14} />
               <span className="activity-sidebar-project-name" title={activeProjectPath}>
-                {projects.find((p) => p.path === activeProjectPath)?.name ?? activeProjectPath.split(/[\\/]/).pop() ?? "Project"}
+                {activeName}
               </span>
+              {activeBranch ? <span className="activity-sidebar-project-branch" title={`Branch: ${activeBranch}`}>{activeBranch}</span> : null}
+              <span className={`agent-status-dot agent-status-${activeAgentStatus}`} title={`Agent: ${activeAgentStatus}`} aria-label={`Agent status: ${activeAgentStatus}`} />
             </div>
           ) : null}
           {/* Panels (chats) nested under the project */}
@@ -178,17 +212,25 @@ export function ActivitySidebar({
           {/* Other projects below the panel list */}
           {projects.filter((p) => p.path !== activeProjectPath).length > 0 ? (
             <div className="activity-sidebar-other-projects">
-              {projects.filter((p) => p.path !== activeProjectPath).map((project) => (
-                <div
-                  key={project.path}
-                  className="activity-sidebar-project-row"
-                  title={project.path}
-                  onClick={() => onSelectProject(project.path)}
-                >
-                  <FolderPlus size={11} className="activity-sidebar-row-icon" />
-                  <span className="activity-sidebar-row-title">{project.name}</span>
-                </div>
-              ))}
+              {projects.filter((p) => p.path !== activeProjectPath).map((project) => {
+                const identity = repoIdentities.get(project.path);
+                const name = identity?.name ?? project.name;
+                const branch = identity?.branch ?? null;
+                const host = identity?.host ?? "folder";
+                return (
+                  <div
+                    key={project.path}
+                    className="activity-sidebar-project-row"
+                    title={project.path}
+                    onClick={() => onSelectProject(project.path)}
+                  >
+                    <RepoIcon host={host} size={11} />
+                    <span className="activity-sidebar-row-title">{name}</span>
+                    {branch ? <span className="activity-sidebar-project-branch" title={`Branch: ${branch}`}>{branch}</span> : null}
+                    <span className="agent-status-dot agent-status-idle" title="Agent: idle" aria-label="Agent status: idle" />
+                  </div>
+                );
+              })}
             </div>
           ) : null}
         </div>

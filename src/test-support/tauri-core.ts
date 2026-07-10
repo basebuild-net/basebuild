@@ -1255,6 +1255,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return "main" as T;
     case "git_default_branch":
       return "main" as T;
+    case "git_remote_url":
+      return `https://github.com/basebuild-net/${(args.path as string)?.split(/[\\/]/).pop() ?? "repo"}.git` as T;
     case "git_branch_create":
       return undefined as T;
     case "git_branch_switch":

@@ -327,6 +327,13 @@ a { color: inherit; text-decoration: none; }
 .sidebar-item:hover .sidebar-item-icon { color: var(--bb-text); }
 
 .sidebar-item-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.sidebar-repo-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; }
+.sidebar-repo-branch { font-size: 10px; color: var(--bb-muted); font-family: var(--bb-mono); flex-shrink: 0; }
+.sidebar-item.is-inactive { opacity: 0.6; }
+.sidebar-item.is-inactive:hover { opacity: 1; }
+.repo-icon-svg { flex-shrink: 0; color: var(--bb-muted); transition: color 0.08s; }
+.sidebar-item.is-active .repo-icon-svg { color: var(--bb-cta); }
+.sidebar-item:hover .repo-icon-svg { color: var(--bb-text); }
 .sidebar-item-more { opacity: 0; transition: opacity 0.08s; }
 .sidebar-item:hover .sidebar-item-more,
 .sidebar-item:hover .sidebar-session-edit-btn { opacity: 1; }
@@ -1553,6 +1560,9 @@ a { color: inherit; text-decoration: none; }
 /* ─── Project restore boundary ─── */
 .project-restore-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 32px; color: var(--bb-muted); font-size: 12px; flex: 1; }
 .project-restore-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--bb-border); border-top-color: var(--bb-cta); border-radius: 0; }
+.project-switching-overlay { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 48px; color: var(--bb-muted); font-size: 13px; flex: 1; }
+.project-switching-spinner { display: inline-block; width: 24px; height: 24px; border: 2px solid var(--bb-border); border-top-color: var(--bb-cta); border-radius: 0; }
+.project-switching-label { font-weight: 500; }
 .project-restore-error { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 32px; text-align: center; flex: 1; }
 .project-restore-error h3 { margin: 0; font-size: 14px; color: var(--bb-danger, #e5484d); }
 .project-restore-error p { margin: 0; color: var(--bb-muted); font-size: 12px; max-width: 400px; word-break: break-word; }
@@ -2349,6 +2359,9 @@ a { color: inherit; text-decoration: none; }
 .splash-progress-message { text-align: center; line-height: 1.4; }
 .splash-skip-check { margin-top: 8px; }
 .splash-error-copy { display: flex; justify-content: center; }
+.splash-spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid var(--bb-border); border-top-color: var(--bb-cta); border-radius: 0; }
+.workspace-splash { transition: opacity 0.2s ease-out; }
+.workspace-splash-fading { opacity: 0; }
 
 /* ─── OMP Telemetry HUD ─── */
 .omp-terminal-tab { display: flex; flex-direction: column; height: 100%; }
@@ -2690,6 +2703,19 @@ a { color: inherit; text-decoration: none; }
 .activity-sidebar-other-projects { margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--bb-border); display: flex; flex-direction: column; gap: 2px; }
 .activity-sidebar-project-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; font-size: 11px; color: var(--bb-muted); cursor: pointer; }
 .activity-sidebar-project-row:hover { background: var(--bb-surface); color: var(--bb-text); }
+.activity-sidebar-project { display: flex; align-items: center; gap: 6px; }
+.activity-sidebar-project .repo-icon-svg { color: var(--bb-muted); flex-shrink: 0; }
+.activity-sidebar-project-branch { font-size: 9px; color: var(--bb-muted); font-family: var(--bb-mono); flex-shrink: 0; }
+.activity-sidebar-project-row .repo-icon-svg { color: var(--bb-muted); flex-shrink: 0; }
+.activity-sidebar-project-row:hover .repo-icon-svg { color: var(--bb-text); }
+/* ─── Agent status indicators ─── */
+.agent-status-dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 0; }
+.agent-status-running { background: var(--bb-status-running, #38bdf8); animation: agent-pulse 1.2s ease-in-out infinite; }
+.agent-status-questioning { background: var(--bb-warning, #f5a623); animation: agent-bounce 0.6s ease-in-out infinite; }
+.agent-status-standby { background: var(--bb-status-running, #38bdf8); opacity: 0.6; }
+.agent-status-idle { background: transparent; border: 1px solid var(--bb-muted); }
+@keyframes agent-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+@keyframes agent-bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
 
 /* History drawer */
 .history-drawer { position: absolute; bottom: 0; left: 0; right: 0; max-height: 300px; background: var(--bb-surface-high); border-top: 1px solid var(--bb-border-strong); box-shadow: 0 -2px 8px rgba(0,0,0,0.2); z-index: 300; overflow-y: auto; }

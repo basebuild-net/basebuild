@@ -4,6 +4,8 @@ import { deliverPrompt, type PromptMode } from "../../lib/promptDelivery";
 import { markStart, markEnd } from "../../lib/timing";
 import { generateCategoriesAction, generateFromFinishedPlansAction, generateIdeasAction, schematicWizardAction, type PlanningAction } from "../../lib/planningActions";
 import { DestinationPicker, type DestinationChoice } from "./DestinationPicker";
+import { WorkspaceSplash, type RestorePhase } from "./WorkspaceSplash";
+import { ProjectSwitchingOverlay } from "./ProjectSwitchingOverlay";
 
 export type ToastKind = "success" | "warning" | "error" | "info";
 
@@ -163,6 +165,8 @@ export function AppShell({ updates }: AppShellProps) {
   const [workspaceRestore, setWorkspaceRestore] = useState<WorkspaceRestoreState | null>(null);
   const titlePendingRef = useRef(false);
   const focusRestoreStartedRef = useRef(false);
+  const [restorePhase, setRestorePhase] = useState<RestorePhase>("starting");
+  const initialRestoreDoneRef = useRef(false);
   const sidebar = useProjectSidebar(activeProjectPath);
   const activeProject = sidebar.projects.find((p) => p.path === activeProjectPath);
   const session = useSessionState(activeProjectPath, activeProject?.lastActiveSessionId);
@@ -253,6 +257,43 @@ export function AppShell({ updates }: AppShellProps) {
         if (fallback) setActiveProjectPath(fallback);
       });
   }, [activeProjectPath, sidebar.projects, addLog]);
+
+  // Workspace restore splash: tracks the initial restore pipeline phases.
+  // Only runs once on startup — project switches use the switching overlay.
+  useEffect(() => {
+    if (initialRestoreDoneRef.current) return;
+    if (restorePhase === "starting") {
+      setRestorePhase("detecting");
+    }
+    // No projects after detection → dismiss splash to show empty state.
+    if (restorePhase === "detecting" && sidebar.projects.length === 0 && !sidebar.pickerInFlight) {
+      // Give the project list one tick to load before concluding empty.
+      const timer = window.setTimeout(() => {
+        if (sidebar.projects.length === 0 && !initialRestoreDoneRef.current) {
+          setRestorePhase("ready");
+          initialRestoreDoneRef.current = true;
+        }
+      }, 500);
+      return () => window.clearTimeout(timer);
+    }
+  }, [restorePhase, sidebar.projects, sidebar.pickerInFlight]);
+
+  // Transition to "restoring" when the first project is activated.
+  useEffect(() => {
+    if (initialRestoreDoneRef.current) return;
+    if (activeProjectPath && restorePhase === "detecting") {
+      setRestorePhase("restoring");
+    }
+  }, [activeProjectPath, restorePhase]);
+
+  // Transition to "ready" when the initial restore completes.
+  useEffect(() => {
+    if (initialRestoreDoneRef.current) return;
+    if (restorePhase === "restoring" && activeProjectPath && !projectRestoreLoading) {
+      setRestorePhase("ready");
+      initialRestoreDoneRef.current = true;
+    }
+  }, [restorePhase, activeProjectPath, projectRestoreLoading]);
 
   useEffect(() => {
     if (!activeProjectPath) {
@@ -1112,6 +1153,7 @@ export function AppShell({ updates }: AppShellProps) {
 
   return (
     <div className="app-container app-container-chat-first">
+      {restorePhase !== "ready" ? <WorkspaceSplash phase={restorePhase} /> : null}
       <div className="window-taskbar" role="banner">
         <span className="window-taskbar-title" title="Basebuild">Basebuild</span>
         <div className="window-taskbar-right">
@@ -1204,10 +1246,7 @@ export function AppShell({ updates }: AppShellProps) {
               </div>
             ) : null}
             {activeProjectPath && !projectRestoreError && projectRestoreLoading ? (
-              <div className="project-restore-loading" role="status" aria-live="polite">
-                <span className="is-spinning project-restore-spinner" aria-hidden="true" />
-                <span>Loading project…</span>
-              </div>
+              <ProjectSwitchingOverlay projectName={activeProjectPath.split(/[\\/]/).pop() ?? activeProjectPath} />
             ) : null}
             {activeProjectPath && !projectRestoreError && !projectRestoreLoading ? (
               <PanelStatusProvider>

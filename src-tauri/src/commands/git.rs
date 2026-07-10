@@ -126,3 +126,10 @@ pub async fn git_default_branch(path: String) -> Result<Option<String>, String> 
         .await
         .map_err(|e| format!("Git default_branch task panicked: {e}"))
 }
+
+#[tauri::command]
+pub async fn git_remote_url(path: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || GitService::remote_url(path))
+        .await
+        .map_err(|e| format!("Git remote_url task panicked: {e}"))
+}

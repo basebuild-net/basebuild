@@ -177,6 +177,14 @@ impl GitService {
         if name.is_empty() || name == "HEAD" { None } else { Some(name.to_string()) }
     }
 
+    /// Origin remote URL (e.g. `https://github.com/org/repo.git` or
+    /// `git@github.com:org/repo.git`), or `None` for a non-repo or no remote.
+    pub fn remote_url(path: impl AsRef<Path>) -> Option<String> {
+        let out = run_git(path.as_ref(), &["remote", "get-url", "origin"]).ok()?;
+        let url = out.trim();
+        if url.is_empty() { None } else { Some(url.to_string()) }
+    }
+
     /// Detect the repository's default branch (`origin/HEAD` → `main` →
     /// `master` → current). Used by the worktree service + PR service.
     pub fn default_branch(path: impl AsRef<Path>) -> Option<String> {
