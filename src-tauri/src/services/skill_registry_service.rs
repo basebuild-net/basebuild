@@ -85,6 +85,9 @@ impl SkillRegistryService {
 
     /// Read a resolved skill's content by name (user version wins if present).
     pub fn read_content(skill_name: &str) -> Option<String> {
+        if !crate::commands::skills::is_valid_skill_name(skill_name) {
+            return None;
+        }
         // Check user first (wins on collision).
         if let Ok(user_dir) = Self::user_skill_dir() {
             let user_file = user_dir.join(skill_name).join("SKILL.md");
