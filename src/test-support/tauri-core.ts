@@ -159,6 +159,18 @@ type LaunchProfile = {
   updatedAt: number;
 };
 
+type MergeReviewEntry = {
+  id: string;
+  runId: string;
+  planId: string;
+  sessionId: string;
+  status: "pending" | "approved" | "rejected" | "merged";
+  collisionReviewRequired: boolean;
+  overlappingPlans: string[];
+  reviewedAt: number | null;
+  createdAt: number;
+};
+
 type E2eState = {
   projectPath: string;
   sessions: Session[];
@@ -185,6 +197,7 @@ type E2eState = {
   nextPlanningEventSeq?: number;
   taskProgressByChange?: Map<string, [number, number]>;
   launchProfile?: LaunchProfile;
+  mergeQueue: MergeReviewEntry[];
   planQueue: { id: string; sessionId: string; planId: string; sortOrder: number; createdAt: number }[];
   planRuns: { id: string; planId: string; sessionId: string; chatSessionId?: string; status: string; runnerKind: string; error?: string; stepsOutput: unknown[]; startedAt?: number; finishedAt?: number; createdAt: number }[];
   planDependencies?: Map<string, { prerequisites: string[]; affectedPaths: string[]; schedulingMode: string; workspacePolicy: string }>;
@@ -328,6 +341,7 @@ function state(): E2eState {
       activeRoundBySession: new Map(),
       nextRoundId: 1,
       planQueue: [],
+      mergeQueue: [],
       planRuns: [],
       workspaceRestoreByProject: new Map(),
       recentProjects: [],
@@ -815,9 +829,22 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return undefined as T;
     case "plan_file_claims_list":
       return [] as T;
-    case "plan_coordination_event_publish": {
-      const req = args.request as { sessionId: string; runId: string; planId: string; kind: string; payload?: string };
-      return { id: `evt-${Date.now()}`, ...req, payload: req.payload ?? "{}", createdAt: Date.now() } as T;
+    case "plan_merge_queue_list":
+      return s.mergeQueue.filter((e) => e.sessionId === args.sessionId) as T;
+    case "plan_merge_queue_review": {
+      const entryId = args.entryId as string;
+      const decision = args.decision as string;
+      const entry = s.mergeQueue.find((e) => e.id === entryId);
+      if (entry) {
+        entry.status = decision as MergeReviewEntry["status"];
+        entry.reviewedAt = Date.now();
+      }
+      return (entry ?? { id: entryId, runId: "", planId: "", sessionId: "", status: decision as MergeReviewEntry["status"], collisionReviewRequired: false, overlappingPlans: [], reviewedAt: Date.now(), createdAt: 0 }) as T;
+    }
+    case "__e2e_seed_merge_queue": {
+      const entries = args.entries as MergeReviewEntry[];
+      s.mergeQueue = entries;
+      return undefined as T;
     }
     case "plan_coordination_events":
       return [] as T;
@@ -828,10 +855,6 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "plan_get_launch_profile":
       return (s.launchProfile ?? null) as T;
-    case "plan_merge_queue_list":
-      return [] as T;
-    case "plan_merge_queue_review":
-      return { id: args.entryId as string, runId: "", planId: "", sessionId: "", status: args.decision as string, collisionReviewRequired: false, overlappingPlans: [], reviewedAt: Date.now(), createdAt: 0 } as T;
     case "plan_assign_with_profile": {
       const req = args.request as { planId: string; chatSessionId: string };
       const plan = s.plans.find((p) => p.id === req.planId);

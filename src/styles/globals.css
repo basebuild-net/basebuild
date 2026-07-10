@@ -2123,6 +2123,25 @@ a { color: inherit; text-decoration: none; }
 .inspector-category-name { flex: 1; font-size: 13px; font-weight: 600; color: var(--bb-text); }
 .inspector-category-ideas { display: flex; flex-direction: column; gap: 4px; }
 .chat-idea-status-rejected { opacity: 0.6; }
+/* ─── Merge review session ─── */
+.merge-queue { display: flex; flex-direction: column; gap: 4px; }
+.merge-queue-batch-actions { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--bb-border); }
+.merge-queue-select-all { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--bb-muted); }
+.merge-queue-entry { display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid var(--bb-border); background: var(--bb-surface); border-radius: 0; }
+.merge-queue-entry-current { border-color: var(--bb-cta); background: var(--bb-surface-high); }
+.merge-queue-entry-main { display: flex; align-items: center; gap: 6px; }
+.merge-queue-entry-title { flex: 1; font-size: 11px; font-weight: 600; color: var(--bb-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.merge-queue-entry-status { font-size: 10px; color: var(--bb-muted); text-transform: uppercase; }
+.merge-queue-entry-session-result { font-size: 10px; color: var(--bb-cta); text-transform: uppercase; }
+.merge-queue-entry-actions { display: flex; gap: 4px; }
+.merge-session-active { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px; border: 1px solid var(--bb-cta); background: var(--bb-surface-high); border-radius: 0; }
+.merge-session-label { font-size: 11px; font-weight: 600; color: var(--bb-text); }
+.merge-session-actions { display: flex; gap: 4px; }
+.merge-session-summary { display: flex; flex-direction: column; gap: 2px; padding: 6px; border: 1px solid var(--bb-border); background: var(--bb-bg); border-radius: 0; }
+.merge-session-summary-title { font-size: 11px; font-weight: 700; color: var(--bb-text); text-transform: uppercase; }
+.merge-session-summary-row { font-size: 10px; color: var(--bb-muted); }
+.merge-session-conflict { color: var(--bb-danger, #e5484d); }
+.merge-queue-reviewed { padding: 4px 0; border-top: 1px solid var(--bb-border); }
 .side-section-action:hover {
   color: var(--bb-cta-hover);
   background: color-mix(in srgb, var(--bb-cta) 12%, transparent);

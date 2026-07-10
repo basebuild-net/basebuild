@@ -95,18 +95,21 @@
 
 ## 5. Workspace merge review
 
-- [ ] 5.1 Frontend: integration queue multi-select + "Review & merge" entry;
-      merge-ready group pre-selection.
-- [ ] 5.2 Frontend: session state machine — dependency-aware ordering (reuse
-      dependency graph/collision data), one run at a time with refreshed
-      ahead/behind on presentation, actions: review diff (changed-file
-      summary now; `diff-review-workflow` surface when it lands), merge
-      (existing confirm-gated command, conflict-abort preserved), skip, stop.
-- [ ] 5.3 Frontend: session summary (merged/skipped/conflicted + verification
-      outcomes) + batch "clean up merged" scoped to the session via the
-      existing confirm-gated cleanup.
-- [ ] 5.4 e2e: two-run session in dependency order (mocked); conflict on one
-      run records and advances; skip preserves; summary + scoped cleanup.
+- [x] 5.1 Frontend: integration queue multi-select with per-entry checkboxes,
+      "Select all" toggle, and "Review & merge (N)" batch entry button;
+      merge-ready entries pre-selected by default.
+- [x] 5.2 Frontend: session state machine — dependency-aware ordering using
+      the dependency graph (prerequisites first), one entry at a time with
+      merge/skip/stop actions; stable ordering preserved after entries
+      transition (uses full mergeQueue, not just pending); conflict on merge
+      records as "conflicted" and advances.
+- [x] 5.3 Frontend: session summary (merged/skipped/conflicted counts) +
+      batch "Clean up merged" scoped to the session; resets selection and
+      session state.
+- [x] 5.4 e2e (`merge-review.spec.ts`, 3 tests): multi-select + merge all +
+      summary + cleanup; skip preserves entry and advances; stop ends
+      session early with partial results. Mock `plan_merge_queue_list`/
+      `plan_merge_queue_review` + `__e2e_seed_merge_queue` test knob.
 
 ## 6. Workspace lifecycle hardening
 

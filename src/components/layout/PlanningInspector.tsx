@@ -165,6 +165,13 @@ export function PlanningInspector({
   const [mergeQueue, setMergeQueue] = useState<MergeReviewEntry[]>([]);
   const [runBoardLoading, setRunBoardLoading] = useState(false);
   const [mergeQueueLoading, setMergeQueueLoading] = useState(false);
+  const [mergeSelected, setMergeSelected] = useState<Set<string>>(new Set());
+  const [mergeSession, setMergeSession] = useState<{
+    active: boolean;
+    currentEntryId: string | null;
+    total: number;
+    results: { entryId: string; action: "merged" | "skipped" | "conflicted"; detail?: string }[];
+  }>({ active: false, currentEntryId: null, total: 0, results: [] });
   const ideaState = useIdeaState(sessionId);
   const schematic = useProjectSchematic(projectPath);
   const { addLog } = useLogs();
@@ -561,6 +568,96 @@ export function PlanningInspector({
         </div>
       );
     }
+    const pendingEntries = mergeQueue.filter((e) => e.status === "pending");
+    const reviewedEntries = mergeQueue.filter((e) => e.status !== "pending");
+    // Dependency-aware ordering: use the dependency graph to sort entries by
+    // their plan's prerequisites (prerequisites come first).
+    const ordered = [...pendingEntries].sort((a, b) => {
+      const aDeps = dependencyGraph?.nodes.find((n) => n.planId === a.planId)?.prerequisites ?? [];
+      const bDeps = dependencyGraph?.nodes.find((n) => n.planId === b.planId)?.prerequisites ?? [];
+      if (aDeps.includes(b.planId)) return 1; // a depends on b → b first
+      if (bDeps.includes(a.planId)) return -1; // b depends on a → a first
+      return 0;
+    });
+    const allSelected = pendingEntries.length > 0 && pendingEntries.every((e) => mergeSelected.has(e.id));
+    const handleToggleSelect = (entryId: string) => {
+      setMergeSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(entryId)) next.delete(entryId);
+        else next.add(entryId);
+        return next;
+      });
+    };
+    const handleToggleAll = () => {
+      if (allSelected) {
+        setMergeSelected(new Set());
+      } else {
+        setMergeSelected(new Set(pendingEntries.map((e) => e.id)));
+      }
+    };
+    const handleStartSession = () => {
+      const selected = ordered.filter((e) => mergeSelected.has(e.id));
+      if (selected.length === 0) return;
+      setMergeSession({ active: true, currentEntryId: selected[0].id, total: selected.length, results: [] });
+    };
+    const handleSessionAction = async (action: "merged" | "skipped" | "stop") => {
+      if (!mergeSession.currentEntryId) return;
+      const entryId = mergeSession.currentEntryId;
+      if (action === "stop") {
+        setMergeSession((prev) => ({ ...prev, active: false, currentEntryId: null }));
+        return;
+      }
+      if (action === "merged") {
+        try {
+          await reviewMergeEntry(entryId, "merged");
+          setMergeQueue((prev) => prev.map((e) => (e.id === entryId ? { ...e, status: "merged", reviewedAt: Date.now() } : e)));
+        } catch (e) {
+          setMergeSession((prev) => ({
+            ...prev,
+            results: [...prev.results, { entryId, action: "conflicted", detail: e instanceof Error ? e.message : String(e) }],
+          }));
+          advanceSession();
+          return;
+        }
+      }
+      setMergeSession((prev) => ({
+        ...prev,
+        results: [...prev.results, { entryId, action }],
+      }));
+      advanceSession();
+    };
+    const advanceSession = () => {
+      // Use the full mergeQueue (not just pending) to maintain stable ordering
+      // after entries are merged/skipped. Filter by selection and sort by
+      // dependency order.
+      const selectedOrdered = mergeQueue
+        .filter((e) => mergeSelected.has(e.id))
+        .sort((a, b) => {
+          const aDeps = dependencyGraph?.nodes.find((n) => n.planId === a.planId)?.prerequisites ?? [];
+          const bDeps = dependencyGraph?.nodes.find((n) => n.planId === b.planId)?.prerequisites ?? [];
+          if (aDeps.includes(b.planId)) return 1;
+          if (bDeps.includes(a.planId)) return -1;
+          return 0;
+        });
+      const currentIdx = selectedOrdered.findIndex((e) => e.id === mergeSession.currentEntryId);
+      const next = selectedOrdered[currentIdx + 1];
+      if (next) {
+        setMergeSession((prev) => ({ ...prev, currentEntryId: next.id }));
+      } else {
+        setMergeSession((prev) => ({ ...prev, active: false, currentEntryId: null }));
+      }
+    };
+    const handleCleanupMerged = () => {
+      const merged = mergeSession.results.filter((r) => r.action === "merged");
+      setMergeQueue((prev) => prev.filter((e) => !merged.some((r) => r.entryId === e.id)));
+      setMergeSession({ active: false, currentEntryId: null, total: 0, results: [] });
+      setMergeSelected(new Set());
+    };
+    // Session summary when inactive but has results.
+    const showSummary = !mergeSession.active && mergeSession.results.length > 0;
+    const mergedCount = mergeSession.results.filter((r) => r.action === "merged").length;
+    const skippedCount = mergeSession.results.filter((r) => r.action === "skipped").length;
+    const conflictedCount = mergeSession.results.filter((r) => r.action === "conflicted").length;
     return (
       <div className="merge-queue">
         <div className="run-board-header">
@@ -569,9 +666,52 @@ export function PlanningInspector({
             {mergeQueue.length} entry(ies)
           </span>
         </div>
-        {mergeQueue.map((entry) => {
+        {mergeSession.active ? (
+          <div className="merge-session-active" title="Review session in progress">
+            <span className="merge-session-label">
+              {mergeSession.results.length + 1}/{mergeSession.total}
+            </span>
+            <div className="merge-session-actions">
+              <button className="btn btn-sm btn-primary" type="button" title="Merge this entry" onClick={() => void handleSessionAction("merged")}>Merge</button>
+              <button className="btn btn-sm" type="button" title="Skip this entry" onClick={() => void handleSessionAction("skipped")}>Skip</button>
+              <button className="btn btn-sm" type="button" title="Stop the review session" onClick={() => void handleSessionAction("stop")}>Stop</button>
+            </div>
+          </div>
+        ) : null}
+        {showSummary ? (
+          <div className="merge-session-summary" title="Session summary">
+            <span className="merge-session-summary-title">Session summary</span>
+            <span className="merge-session-summary-row">Merged: {mergedCount}</span>
+            <span className="merge-session-summary-row">Skipped: {skippedCount}</span>
+            {conflictedCount > 0 ? <span className="merge-session-summary-row merge-session-conflict">Conflicted: {conflictedCount}</span> : null}
+            {mergedCount > 0 ? (
+              <button className="btn btn-sm" type="button" title="Clean up merged entries from the queue" onClick={handleCleanupMerged}>Clean up merged</button>
+            ) : null}
+          </div>
+        ) : null}
+        {!mergeSession.active ? (
+          <div className="merge-queue-batch-actions">
+            <label className="merge-queue-select-all" title="Select all pending entries">
+              <input type="checkbox" checked={allSelected} onChange={handleToggleAll} title="Select all" />
+              <span>Select all</span>
+            </label>
+            <button
+              className="btn btn-sm btn-primary"
+              type="button"
+              title="Start a guided review session for selected entries"
+              disabled={mergeSelected.size === 0}
+              onClick={handleStartSession}
+            >
+              Review &amp; merge ({mergeSelected.size})
+            </button>
+          </div>
+        ) : null}
+        {ordered.map((entry) => {
           const plan = plans.find((p) => p.id === entry.planId);
           const title = plan?.title ?? `Plan ${entry.planId.slice(0, 8)}`;
+          const isSelected = mergeSelected.has(entry.id);
+          const isCurrent = mergeSession.currentEntryId === entry.id;
+          const sessionResult = mergeSession.results.find((r) => r.entryId === entry.id);
           const tooltip = [
             `Plan: ${title}`,
             `Status: ${entry.status}`,
@@ -579,44 +719,44 @@ export function PlanningInspector({
             `Overlapping plans: ${entry.overlappingPlans.join(", ") || "none"}`,
             `Created: ${new Date(entry.createdAt).toLocaleString()}`,
             entry.reviewedAt ? `Reviewed: ${new Date(entry.reviewedAt).toLocaleString()}` : null,
+            sessionResult ? `Session: ${sessionResult.action}` : null,
           ]
             .filter((line): line is string => Boolean(line))
             .join("\n");
           return (
-            <div key={entry.id} className="merge-queue-entry" title={tooltip}>
+            <div key={entry.id} className={`merge-queue-entry${isCurrent ? " merge-queue-entry-current" : ""}`} title={tooltip}>
               <div className="merge-queue-entry-main">
+                {!mergeSession.active && entry.status === "pending" ? (
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => handleToggleSelect(entry.id)}
+                    title={`Select ${title}`}
+                  />
+                ) : null}
                 <span className="merge-queue-entry-title" title={title}>{title}</span>
                 <span className="merge-queue-entry-status" title={`Status: ${entry.status}`}>{entry.status}</span>
+                {sessionResult ? (
+                  <span className="merge-queue-entry-session-result" title={`Session result: ${sessionResult.action}`}>
+                    {sessionResult.action}
+                  </span>
+                ) : null}
               </div>
-              <div className="merge-queue-entry-actions">
-                <button
-                  className="btn btn-sm"
-                  type="button"
-                  title={`Approve merge entry ${entry.id.slice(0, 8)}`}
-                  onClick={() => void handleReviewMergeEntry(entry.id, "approved")}
-                >
-                  Approve
-                </button>
-                <button
-                  className="btn btn-sm"
-                  type="button"
-                  title={`Reject merge entry ${entry.id.slice(0, 8)}`}
-                  onClick={() => void handleReviewMergeEntry(entry.id, "rejected")}
-                >
-                  Reject
-                </button>
-                <button
-                  className="btn btn-sm btn-primary"
-                  type="button"
-                  title={`Merge entry ${entry.id.slice(0, 8)}`}
-                  onClick={() => void handleReviewMergeEntry(entry.id, "merged")}
-                >
-                  Merge
-                </button>
-              </div>
+              {!mergeSession.active ? (
+                <div className="merge-queue-entry-actions">
+                  <button className="btn btn-sm" type="button" title={`Approve merge entry ${entry.id.slice(0, 8)}`} onClick={() => void handleReviewMergeEntry(entry.id, "approved")}>Approve</button>
+                  <button className="btn btn-sm" type="button" title={`Reject merge entry ${entry.id.slice(0, 8)}`} onClick={() => void handleReviewMergeEntry(entry.id, "rejected")}>Reject</button>
+                  <button className="btn btn-sm btn-primary" type="button" title={`Merge entry ${entry.id.slice(0, 8)}`} onClick={() => void handleReviewMergeEntry(entry.id, "merged")}>Merge</button>
+                </div>
+              ) : null}
             </div>
           );
         })}
+        {reviewedEntries.length > 0 ? (
+          <div className="merge-queue-reviewed" title="Reviewed entries">
+            <span className="text-muted text-sm">{reviewedEntries.length} reviewed</span>
+          </div>
+        ) : null}
       </div>
     );
   }
