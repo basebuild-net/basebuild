@@ -39,6 +39,17 @@ _None. Completed OpenSpec changes are archived into canonical specs._
    status, confirmed + idempotent (new cap `plan-import`). 11/13 tasks done.
    Dep `basebuild-planning-skill` merged (PR #20); pairs with
    `planning-file-ingestion`.
+4. `chat-experience-completion` — comprehensive polished agentic chat UI,
+   reliable native chat, schematic system, idea generation, and OpenSpec
+   artifact quality gate. 50/50 tasks done across 9 phases: markdown
+   renderer, message action rail, tool card depth (diff + provenance),
+   provider reliability (update-key, transport-unavailable state),
+   schematic wizard native round trip, idea grounding metadata,
+   artifact quality gate (validate_artifacts), verification, and docs.
+   Supersedes `openspec-chat-workbench` 7.1/7.2 markdown claims with
+   real in-house implementation. Pairs with `pr26-security-fixes`
+   (provider resolver) and `connector-permission-gateway` (approval
+   substrate).
 ### Next (priority order)
 
 Ordered by owner priority. Gated items show their blocking dependency; the
@@ -167,15 +178,15 @@ their turn comes — stale specs are worse than none.
 ## Status
 
 <!-- status:begin -->
-_Last refreshed: 2026-07-09 (`node scripts/openspec-status.mjs --write`)_
+_Last refreshed: 2026-07-10 (`node scripts/openspec-status.mjs --write`)_
 
 |Change|Progress|Status|Next command|
 |---|---|---|---|
+|`chat-experience-completion`|49/53|in progress|`/apply chat-experience-completion`|
 |`chat-first-shell`|17/31|in progress|`/apply chat-first-shell`|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
 |`plan-import`|11/13|in progress|`/apply plan-import`|
 |`provider-parity-workspace-fixes`|28/42|in progress|`/apply provider-parity-workspace-fixes`|
-|`chat-experience-completion`|0/53|not started|`/apply chat-experience-completion`|
 |`chat-history-persistence`|0/21|not started|`/apply chat-history-persistence`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|

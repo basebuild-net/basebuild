@@ -178,19 +178,19 @@
 
 ## 8. Verification
 
-- [ ] 8.1 `npx tsc --noEmit` passes.
-- [ ] 8.2 `npm run build` passes.
-- [ ] 8.3 `cd src-tauri && cargo check` passes.
-- [ ] 8.4 `cd src-tauri && cargo test` — new tests from 3.2, 4.6, 5.1,
+- [x] 8.1 `npx tsc --noEmit` passes.
+- [x] 8.2 `npm run build` passes.
+- [x] 8.3 `cd src-tauri && cargo check` passes.
+- [x] 8.4 `cd src-tauri && cargo test` — new tests from 3.2, 4.6, 5.1,
       5.2, 6.5, 7.6 pass; existing native_chat/plan/pipeline suites
       stay green.
-- [ ] 8.5 Targeted e2e: chat-markdown, message-actions, tool-card-depth,
+- [x] 8.5 Targeted e2e: chat-markdown, message-actions, tool-card-depth,
       provider-credential-lifecycle, schematic-wizard-native, plus
       existing native-chat / streaming-indicators / interactive-elements
       / command-palette specs pass.
-- [ ] 8.6 `npm run check:ui-invariants` passes (tooltips, 0px radius,
+- [x] 8.6 `npm run check:ui-invariants` passes (tooltips, 0px radius,
       one stylesheet) for all new controls.
-- [ ] 8.7 UI smoke with screenshots: markdown-rich assistant reply
+- [x] 8.7 UI smoke with screenshots: markdown-rich assistant reply
       (fences/tables/lists), expanded edit tool card with diff +
       provenance, message action rail, update-key flow,
       transport-unavailable picker state, wizard question → written
@@ -198,15 +198,15 @@
 
 ## 9. Docs & Roadmap
 
-- [ ] 9.1 `docs/agents/agent-runtime.md`: markdown rendering contract
+- [x] 9.1 `docs/agents/agent-runtime.md`: markdown rendering contract
       (React-elements-only, link policy), message affordances, tool
       card diff/provenance, provider availability states, native
       wizard round trip, grounding metadata, artifact quality gate.
-- [ ] 9.2 `docs/agents/design-system.md` + `DESIGN.md`: `.md-*` and
+- [x] 9.2 `docs/agents/design-system.md` + `DESIGN.md`: `.md-*` and
       action-rail classes, diff line classes, provider state chips.
-- [ ] 9.3 `docs/agents/testing.md`: new e2e specs and the mocked
+- [x] 9.3 `docs/agents/testing.md`: new e2e specs and the mocked
       scripted-tool-call pattern for wizard tests.
-- [ ] 9.4 Refresh `openspec/ROADMAP.md` via
+- [x] 9.4 Refresh `openspec/ROADMAP.md` via
       `node scripts/openspec-status.mjs --write` + narrative entry
       placing this change relative to `pr26-security-fixes` and
       `openspec-chat-workbench` (whose 7.1/7.2 markdown claims are

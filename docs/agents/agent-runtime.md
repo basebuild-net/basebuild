@@ -786,3 +786,114 @@ chips. Detection:
 - Also detects "reply with X/Y" phrasing.
 - Strips code fences before scanning.
 - Renders chips after the message list; clicking a chip sends the option text.
+
+## Markdown rendering contract
+
+Assistant message bodies, thinking-block bodies, and command notices are
+rendered through an in-house markdown renderer (`MarkdownView.tsx`) that
+produces **React elements only** — never `dangerouslySetInnerHTML`, never
+HTML strings. Raw HTML in the markdown source is rendered as literal text.
+
+- Block tokenizer: fence, heading, list, blockquote, table, paragraph.
+- Inline tokenizer: code, bold, italic, link.
+- Links render as label + host text with the full URL in `title=`; no
+  navigation is attempted.
+- Fenced code blocks show a language label header and a copy button
+  (`navigator.clipboard` with toast feedback).
+- A minimal in-house syntax highlight pass covers comments, strings,
+  numbers, and small keyword sets for ts/js/rust/py/json/bash/css/html.
+  Unknown languages render unhighlighted. No external dependency.
+- Completed messages are memoized by content hash; only the streaming
+  message re-parses per frame.
+- User messages remain plain pre-wrapped text (no markdown rendering).
+
+## Message action rail
+
+Each persisted message has a per-message action rail:
+- **Copy** on all messages (clipboard write of raw source text with toast).
+- **Retry** on the latest assistant message (re-issues last user message;
+  prior assistant reply preserved; timeline marker links original and retried).
+- **Edit-and-resend** on the latest user message (prefills composer, sends
+  appends a new turn).
+Buttons are tab-reachable with `title=` tooltips.
+
+## Tool card depth
+
+Tool call results render as expandable cards (`ToolEventCard`) with:
+- Per-kind icons and duration display.
+- Expanded key/value argument table with nested JSON pretty-printed.
+- **Unified diff** for `write_file` and `edit_file` (LCS line-diff, cap 400
+  lines with head/tail elision; unchanged → explicit "no changes").
+- **Approval provenance** line: "Approved by user" / "Denied by user" /
+  "Allowed by rule `<pattern>`" / "Auto (mode)".
+- Expansion state persists across streaming re-renders (keyed by tool call
+  id via a module-level `Map<string, boolean>`).
+
+## Provider availability states
+
+The provider picker renders three states:
+- **Ready** (green): configured with a usable transport.
+- **Setup required** (grey): no credential stored.
+- **Transport unavailable** (warning): configured but all models have
+  bespoke `api_kind` and no `base_url` — can only use OMP RPC, not the
+  native agent loop transport.
+
+Per-provider error chips with Retry buttons appear when `provider.error`
+is set; retry triggers `native_provider_catalog_refresh({ providerId, force: true })`.
+
+"Update key" is available beside Disconnect for configured providers in
+both the settings panel and the chat provider picker.
+
+## Native schematic wizard round trip
+
+The schematic wizard uses the native agent loop's `ask_user` interaction
+mechanism:
+- `execute_ask_user` parks the turn on an mpsc channel waiting for resolution.
+- `resolve_interaction` delivers answers through the channel; `cancel_interaction`
+  delivers a cancelled resolution.
+- Pending interactions are stored in a global `Mutex<HashMap<String, mpsc::Sender>>`.
+
+When the agent writes to `.basebuild/project-schematic.md` via `write_file`,
+a post-turn mtime check in the native send path detects the change and
+emits a `SchematicUpdated` planning event so the schematic tab refreshes.
+
+## Idea grounding metadata
+
+Idea and category generation prompts include a mandatory **decision digest**:
+- Recent picked/rejected ideas (last 10).
+- Plans finished since the schematic's mtime.
+- When the digest is empty, an explicit "no decisions since schematic
+  update" line is injected (not silently omitted).
+
+`NativeGenerateIdeasResult` carries `GroundingMetadata`:
+- `schematicSections`: headings parsed from the schematic file.
+- `finishedPlans`: reference IDs of plans finished since schematic update.
+- `finishedPlanCount`, `pickedCount`, `rejectedCount`.
+- `digestEmpty`: whether the digest had no recent decisions.
+
+The Planning Inspector's Ideas tab renders a batch header with grounding
+provenance ("Grounded in: <sections> · N finished plans") and a
+"Generate from finished plans" action that produces a digest-weighted
+prompt variant (disabled when no finished plans since schematic update).
+
+## OpenSpec artifact quality gate
+
+`validate_artifacts(change_dir)` in `openspec_service.rs` checks:
+- `proposal.md` is non-empty with `## Why` and `## What-Changes` sections.
+- At least one spec directory with `spec.md` containing a requirement
+  heading and a scenario heading.
+- `tasks.md` has at least one task checkbox; pre-checked tasks produce
+  a warning (expected 0 for a new change).
+
+Errors block plan status advancement; warnings are advisory. The gate
+is wired into:
+- `pipeline_service::stage_generate_openspec` after `write_artifacts_atomic`:
+  failure keeps the plan in `draft`, records the pipeline run as failed,
+  and preserves artifacts on disk.
+- `PlanDependencyService::validate_readiness`: artifact errors flow into
+  readiness errors, warnings into readiness warnings.
+
+The task progress parser (`parse_task_progress`) counts nested/indented
+checkboxes and mixed markers (`-` and `*`) with arbitrary indentation
+depth. A single parser feeds plan cards, the context strip, and
+`plan_runner_service::evaluate_checklist_completion`.

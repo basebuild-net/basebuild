@@ -285,3 +285,42 @@ Rendering contract:
 
 Every UI change requires a screenshot. See
 [`testing.md`](./testing.md#visual-verification).
+
+## Markdown rendering classes
+
+- `.md-code-block`: fenced code block container (0px radius, mono font).
+- `.md-code-copy`: copy button in code block header.
+- `.md-inline-code`: inline code styling.
+- `.md-table`: markdown table rendering.
+- `.md-list`, `.md-blockquote`, `.md-heading-*`: heading scale inside chat.
+
+## Message action rail classes
+
+- `.message-action-rail`: per-message action button container.
+- `.message-action-btn`: individual action button (Copy, Retry, Edit).
+
+## Tool card classes
+
+- `.tool-card`: expandable tool call result container.
+- `.tool-card-header`: clickable header (kind icon + summary).
+- `.tool-card-diff`: unified diff display.
+- `.diff-add`, `.diff-del`: added/removed diff line classes.
+- `.tool-card-provenance`: approval provenance line ("Allowed by rule", etc.).
+- `.tool-card-arg-value`: argument value display in expanded card.
+
+## Provider state chips
+
+- `.provider-status.is-ready`: configured with usable transport (green).
+- `.provider-status.is-warning`: transport unavailable (amber).
+- `.provider-status.is-setup-required`: no credential (grey).
+- `.provider-card-error`: per-provider error chip container.
+- `.provider-card-error-text`: error message text.
+- `.provider-card-retry-btn`: retry button in error chip.
+
+## Idea grounding classes
+
+- `.idea-batch-header`: grounding provenance header in Ideas tab.
+- `.idea-batch-header-label`: "Grounded in:" label.
+- `.idea-batch-header-sections`: schematic section names.
+- `.idea-batch-header-counts`: finished plan / picked / rejected counts.
+- `.idea-batch-header-empty`: "no decisions since schematic update" notice.
