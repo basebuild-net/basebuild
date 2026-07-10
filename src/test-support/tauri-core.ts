@@ -8,6 +8,7 @@ import {
   MVP_FIXTURE_SESSIONS,
   MVP_FIXTURE_TABS,
 } from "./fixture-data";
+import { __emit } from "./tauri-event";
 
 type Session = {
   id: string;
@@ -400,10 +401,30 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return undefined as T;
     }
     case "agent_stop":
-    case "native_chat_cancel":
       return undefined as T;
+    case "native_chat_cancel":
+      return true as T;
     case "native_chat_tool_events":
-      return s.nativeToolEvents.filter((e) => e.sessionId === (args.sessionId as string)) as T;
+      return s.nativeToolEvents
+        .filter((e) => e.sessionId === (args.sessionId as string))
+        .slice()
+        .sort((a, b) => a.sequence - b.sequence) as T;
+    case "native_chat_clear_messages": {
+      const sessionId = args.sessionId as string;
+      const removed = s.nativeChatMessages.filter((m) => m.sessionId === sessionId).length;
+      s.nativeChatMessages = s.nativeChatMessages.filter((m) => m.sessionId !== sessionId);
+      s.nativeToolEvents = s.nativeToolEvents.filter((e) => e.sessionId !== sessionId);
+      return removed as T;
+    }
+    case "native_chat_update_session_model": {
+      const sessionId = args.sessionId as string;
+      const session = s.nativeChatSessions.find((c) => c.id === sessionId);
+      if (!session) throw new Error(`native_chat_update_session_model: unknown session ${sessionId}`);
+      session.providerId = args.providerId as string;
+      session.modelId = args.modelId as string;
+      session.effortLevel = args.effortLevel as string;
+      return { ...session } as T;
+    }
     case "native_interaction_list_all":
     case "native_interaction_list_pending": {
       const w = globalThis as unknown as { __basebuildMockInteraction?: unknown };
@@ -819,7 +840,30 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         effortLevel: req.effortLevel ?? "medium",
         createdAt: ts,
       };
-      const assistantContent = req.content.includes("Write one concise git commit message")
+      // Streaming trigger: emit phase + delta chunk events with real delays
+      // before resolving, so e2e can assert the thinking indicator and
+      // incremental markdown rendering (contract: native-chat://chunk with
+      // { sessionId, delta, channel? } — channel "status" carries phases).
+      const isStreamTest = req.content.includes("stream-test");
+      const streamedContent = "Streaming **bold** and `code` arrived incrementally.";
+      if (isStreamTest) {
+        const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+        const chunk = (delta: string, channel?: string) =>
+          __emit("native-chat://chunk", { sessionId: req.sessionId, delta, ...(channel ? { channel } : {}) });
+        chunk("thinking", "status");
+        await sleep(400);
+        chunk("Considering the request…", "reasoning");
+        await sleep(150);
+        chunk("Streaming **bold**");
+        await sleep(250);
+        chunk(" and `code`");
+        await sleep(250);
+        chunk(" arrived incrementally.");
+        await sleep(150);
+      }
+      const assistantContent = isStreamTest
+        ? streamedContent
+        : req.content.includes("Write one concise git commit message")
         ? "Let me write a concise commit message.\n\n1. `launch-sbox.sh` - changes\n2. `patch_engine.sh` - changes\n\n---\n\nRework patch system to target sbox-public"
         : req.content.includes("quick-reply-test")
         ? "Here are your options:\nA. Commit the changes\nB. Create a pull request\nC. Abort and revert\n"
@@ -827,6 +871,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         ? "Here is a **markdown** response with `inline code`.\n\n## Heading\n\n- Item one\n- Item two\n- Item three\n\n> A blockquote with wisdom.\n\n| Col A | Col B |\n|-------|-------|\n| 1 | 2 |\n| 3 | 4 |\n\n```ts\nconst x: string = \"hello\";\nconsole.log(x);\n```\n\n<script>alert(1)</script>\n\n[Example](https://example.com)"
         : req.content.includes("tool-card-test")
         ? "I'll write a file and run a command for you."
+        : req.content.includes("schematic-wizard-deny-test")
+        ? "I tried to write the schematic but the write was denied."
         : req.content.includes("schematic-wizard-test")
         ? "I'll ask you some questions and then write the schematic."
         : `Native harness echo: ${req.content}`;
@@ -867,6 +913,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       s.nativeRequestMetrics.push(metric);
       const isToolCardTest = req.content.includes("tool-card-test");
       const isSchematicWizardTest = req.content.includes("schematic-wizard-test");
+      const isSchematicDenyTest = req.content.includes("schematic-wizard-deny-test");
       const toolEvents: NativeToolEvent[] = isToolCardTest
         ? [
             {
@@ -929,8 +976,25 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
               createdAt: ts,
             },
           ]
+        : isSchematicDenyTest
+        ? [
+            {
+              id: `ntool-schematic-denied-${ts}`,
+              sessionId: req.sessionId,
+              messageId: assistantMessage.id,
+              kind: "write_file",
+              status: "denied",
+              summary: "Write to .basebuild/project-schematic.md denied by user",
+              arguments: JSON.stringify({ path: ".basebuild/project-schematic.md", content: "# Project Schematic\n" }),
+              diff: null,
+              decision: "denied",
+              ruleSource: null,
+              sequence: 1,
+              createdAt: ts,
+            },
+          ]
         : [];
-      if (isToolCardTest || isSchematicWizardTest) {
+      if (isToolCardTest || isSchematicWizardTest || isSchematicDenyTest) {
         for (const te of toolEvents) s.nativeToolEvents.push(te);
       }
       return {
@@ -984,12 +1048,16 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       s.workspaceRestoreByProject.set((args.state as { projectPath: string }).projectPath, args.state);
       return args.state as T;
     case "native_save_provider_credential": {
-      const providerId = (args as { providerId?: string }).providerId ?? "unknown";
-      const apiKey = (args as { apiKey?: string }).apiKey ?? "test-key";
-      const baseUrl = (args as { baseUrl?: string | null }).baseUrl ?? null;
-      s.credentials.set(providerId, { providerId, apiKey, baseUrl, updatedAt: Math.floor(Date.now() / 1000) });
-      s.blockedProviders.delete(providerId);
-      return { providerId, label: "Connected", apiKey, baseUrl, updatedAt: Math.floor(Date.now() / 1000) } as T;
+      // Real wrapper sends an `{ input }` envelope — mirror the Rust contract.
+      const req = args.input as { providerId: string; label: string; apiKey: string; baseUrl?: string | null };
+      // Deterministic failure hook for e2e: a rejected key must keep the draft.
+      if (req.apiKey === "invalid-key") {
+        throw new Error("Invalid API key rejected by provider");
+      }
+      const baseUrl = req.baseUrl ?? null;
+      s.credentials.set(req.providerId, { providerId: req.providerId, apiKey: req.apiKey, baseUrl, updatedAt: Math.floor(Date.now() / 1000) });
+      s.blockedProviders.delete(req.providerId);
+      return { providerId: req.providerId, label: req.label, apiKey: req.apiKey, baseUrl, updatedAt: Math.floor(Date.now() / 1000) } as T;
     }
     case "native_list_provider_credentials": {
       // Only return non-blocked credentials.

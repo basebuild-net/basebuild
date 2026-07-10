@@ -72,28 +72,30 @@ test.describe("Schematic wizard: native agent writes schematic via tool call", (
     await expect(writeCard.locator(".tool-card-arg-value")).toContainText("project-schematic.md");
   });
 
-  test("schematic wizard denial path: tool card shows denied status when approval is rejected", async ({ page }) => {
+  test("schematic wizard denial path: tool card shows denied status and provenance", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    // Send the schematic wizard message.
+    // Send the denial trigger — the mock returns a write_file tool event
+    // with status "denied" and decision "denied".
     const input = page.getByTitle(/Chat input/).first();
     await input.waitFor({ state: "visible", timeout: 10000 });
-    await input.fill("schematic-wizard-test");
+    await input.fill("schematic-wizard-deny-test");
     await page.getByTitle("Send message").click();
     await page.waitForSelector(".chat-message-assistant", { timeout: 10000 });
     await page.waitForSelector(".tool-card", { timeout: 5000 });
 
-    // The tool card should be visible (mock returns approved status).
-    // For denial path, we verify the card renders with the expected status.
-    const writeCard = page.locator(".tool-card").filter({ hasText: "write file" }).first();
-    await expect(writeCard).toBeVisible();
-    // The card should show success status (mock simulates approved write).
-    await expect(writeCard.locator(".tool-card-header")).toContainText(/success|approved/i);
+    // The denied card renders in the error state with a denied status badge.
+    const deniedCard = page.locator(".tool-card").filter({ hasText: "write file" }).first();
+    await expect(deniedCard).toBeVisible();
+    await expect(deniedCard).toHaveClass(/tool-card-error/);
+    await expect(deniedCard.locator(".tool-card-status")).toContainText(/denied/i);
 
-    // Verify the card is not in a denied state for this approved flow.
-    // (The denial path is covered by the approval gate tests in the approval suite.)
-    const deniedBadge = writeCard.locator(".tool-card-status").filter({ hasText: /denied/i });
-    await expect(deniedBadge).toHaveCount(0);
+    // Expanding shows the denial provenance (user decision, no rule).
+    await deniedCard.locator(".tool-card-header").click();
+    await expect(deniedCard.locator(".tool-card-provenance")).toContainText("Denied by user");
+
+    // A denied write must not render a diff — nothing was written.
+    await expect(deniedCard.locator(".tool-card-diff")).toHaveCount(0);
   });
 });

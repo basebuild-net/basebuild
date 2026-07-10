@@ -218,7 +218,7 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
 
   // Prefer the structured diff field from the backend; fall back to
   // parsing the summary for legacy events that predate the diff column.
-  const hasDiff = isEdit && (event.diff != null || /^\+|-/m.test(event.summary));
+  const hasDiff = isEdit && (event.diff != null || /^[+-]/m.test(event.summary));
   const diffText = event.diff ?? (hasDiff ? event.summary : "");
   const diffLines = diffText.split("\n").filter((l) => l.length > 0);
 

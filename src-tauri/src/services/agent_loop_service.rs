@@ -22,7 +22,7 @@ use crate::services::provider_client::{
     ToolSchema,
 };
 use crate::services::settings_service::SettingsService;
-use crate::services::tool_runtime_service::{registry, ToolDef, ToolKind, ToolResult};
+use crate::services::tool_runtime_service::{redact_tool_arguments, registry, ToolDef, ToolKind, ToolResult};
 
 /// Maximum loop iterations before stopping.
 const MAX_ITERATIONS: usize = 25;
@@ -585,6 +585,7 @@ fn process_tool_calls(
                     diff: None,
                     decision: None,
                     rule_source: None,
+                    sensitive: false,
                 }
             } else if let Some(def) = def {
                 execute_with_gateway(
@@ -604,6 +605,7 @@ fn process_tool_calls(
                     diff: None,
                     decision: None,
                     rule_source: None,
+                    sensitive: false,
                 }
             };
             results.lock().push((idx, result));
@@ -631,6 +633,7 @@ fn process_tool_calls(
                 diff: None,
                 decision: None,
                 rule_source: None,
+                sensitive: false,
             };
             results.push((calls[*idx].clone(), result));
             break;
@@ -646,6 +649,7 @@ fn process_tool_calls(
                 diff: None,
                 decision: None,
                 rule_source: None,
+                sensitive: false,
             }
         };
         record_tool_event(app, session_id, call, &result, tool_events);
@@ -844,7 +848,7 @@ fn execute_with_gateway(
         PermissionDecision::Ask => "pending",
     };
 
-    let mut result = match decision.decision {
+    let result = match decision.decision {
         PermissionDecision::Allow => {
             let start = Instant::now();
             let mut result = (def.execute)(workspace, &args);
@@ -852,6 +856,11 @@ fn execute_with_gateway(
             result.decision = Some(decision_str.to_string());
             result.rule_source = decision.rule_source.clone();
             let summary = &result.content[..result.content.len().min(200)];
+            let arguments = if result.sensitive {
+                redact_tool_arguments(&call.arguments)
+            } else {
+                call.arguments.clone()
+            };
             let _ = app.emit(
                 "native-chat://tool-event",
                 json!({
@@ -860,7 +869,7 @@ fn execute_with_gateway(
                     "toolName": call.name,
                     "status": result.status,
                     "summary": summary,
-                    "arguments": call.arguments,
+                    "arguments": arguments,
                     "durationMs": duration_ms,
                     "decision": decision_str,
                     "ruleSource": decision.rule_source,
@@ -890,10 +899,10 @@ fn execute_with_gateway(
                 diff: None,
                 decision: Some("denied".to_string()),
                 rule_source: decision.rule_source.clone(),
+                sensitive: false,
             }
         }
         PermissionDecision::Ask => {
-            // Should not reach here (requires_prompt handled above).
             ToolResult {
                 content: "Approval required but not handled.".to_string(),
                 status: "denied".to_string(),
@@ -901,6 +910,7 @@ fn execute_with_gateway(
                 diff: None,
                 decision: None,
                 rule_source: None,
+                sensitive: false,
             }
         }
     };
@@ -919,7 +929,11 @@ fn record_tool_event(
         tool_name: call.name.clone(),
         status: result.status.clone(),
         summary: result.content[..result.content.len().min(200)].to_string(),
-        arguments: Some(call.arguments.clone()),
+        arguments: Some(if result.sensitive {
+            redact_tool_arguments(&call.arguments)
+        } else {
+            call.arguments.clone()
+        }),
         duration_ms: 0,
         decision: result.decision.clone().unwrap_or_else(|| "approved".to_string()),
         rule_source: result.rule_source.clone(),

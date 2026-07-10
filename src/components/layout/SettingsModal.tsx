@@ -1342,6 +1342,13 @@ function ModelProvidersPanel() {
       setBusyId(providerId);
       setError(null);
       try {
+        await nativeSaveProviderCredential({
+          providerId,
+          label,
+          apiKey: key,
+          baseUrl: (baseUrlDrafts[providerId] ?? "").trim() || null,
+        });
+        // Clear drafts only after a successful save so a failure keeps input.
         setKeyDrafts((prev) => ({ ...prev, [providerId]: "" }));
         setUpdateKeyId(null);
         await refresh();
@@ -1351,7 +1358,7 @@ function ModelProvidersPanel() {
         setBusyId(null);
       }
     },
-    [keyDrafts, refresh],
+    [keyDrafts, baseUrlDrafts, refresh],
   );
 
   const disconnect = useCallback(

@@ -229,6 +229,75 @@ test.describe("Provider update-key flow", () => {
   });
 });
 
+async function openSettingsProviders(page: Page) {
+  const accountBtn = page.locator('button[title*="MVPUser"], button[title*="Sign in"]').first();
+  await expect(accountBtn).toBeVisible({ timeout: 10_000 });
+  await accountBtn.click({ timeout: 10_000 });
+  const settingsItem = page.locator('button[title="Open settings"]').first();
+  await expect(settingsItem).toBeVisible({ timeout: 5_000 });
+  await settingsItem.click({ timeout: 5_000 });
+  await expect(page.locator(".modal-overlay .settings-modal")).toBeVisible({ timeout: 15_000 });
+  const accountTab = page.locator(".settings-tab", { hasText: "Account" }).first();
+  await accountTab.click();
+  await expect(page.locator("h3", { hasText: "Model Providers" })).toBeVisible({ timeout: 5_000 });
+}
+
+test.describe("Settings credential save", () => {
+  test("pasting an API key and saving connects the provider", async ({ page }) => {
+    await openFixtureProject(page);
+    await openSettingsProviders(page);
+
+    // Anthropic starts unconfigured: has the paste-key input, no Disconnect.
+    const row = page.locator(".requirement-row").filter({ hasText: "Anthropic" }).first();
+    await expect(row).toBeVisible();
+    await expect(row.locator("button", { hasText: "Disconnect" })).toHaveCount(0);
+
+    // Save a key — the credential must persist and the row must flip to connected.
+    await row.locator('input[placeholder="or paste API key"]').fill("sk-ant-e2e-test");
+    await row.locator("button", { hasText: "Save" }).click();
+
+    await expect(row.getByText("connected")).toBeVisible({ timeout: 5_000 });
+    await expect(row.locator("button", { hasText: "Disconnect" })).toBeVisible();
+    await expect(row.locator("button", { hasText: "Update key" })).toBeVisible();
+  });
+
+  test("update key on a connected provider keeps it connected", async ({ page }) => {
+    await openFixtureProject(page);
+    await openSettingsProviders(page);
+
+    // Umans is seeded connected. Open the update form and rotate the key.
+    const row = page.locator(".requirement-row").filter({ hasText: "Umans" }).first();
+    await expect(row.locator("button", { hasText: "Update key" })).toBeVisible();
+    await row.locator("button", { hasText: "Update key" }).click();
+
+    const keyInput = row.locator('input[placeholder="New API key"]');
+    await expect(keyInput).toBeVisible();
+    await keyInput.fill("umans-rotated-key");
+    await row.locator("button", { hasText: "Save" }).click();
+
+    // Rotation succeeds: form closes, provider stays connected.
+    await expect(row.locator('input[placeholder="New API key"]')).toHaveCount(0, { timeout: 5_000 });
+    await expect(row.getByText("connected")).toBeVisible();
+    await expect(row.locator("button", { hasText: "Disconnect" })).toBeVisible();
+  });
+
+  test("failed save keeps the draft and shows an error", async ({ page }) => {
+    await openFixtureProject(page);
+    await openSettingsProviders(page);
+
+    // "invalid-key" is the mock's deterministic rejection trigger.
+    const row = page.locator(".requirement-row").filter({ hasText: "Anthropic" }).first();
+    const keyInput = row.locator('input[placeholder="or paste API key"]');
+    await keyInput.fill("invalid-key");
+    await row.locator("button", { hasText: "Save" }).click();
+
+    // Error surfaces, draft is preserved, provider stays unconfigured.
+    await expect(page.locator(".settings-modal .text-danger", { hasText: "Invalid API key" })).toBeVisible({ timeout: 5_000 });
+    await expect(keyInput).toHaveValue("invalid-key");
+    await expect(row.locator("button", { hasText: "Disconnect" })).toHaveCount(0);
+  });
+});
+
 test.describe("Transport unavailable state", () => {
   test("bespoke provider without base URL shows transport warning", async ({ page }) => {
     await openFixtureProject(page);

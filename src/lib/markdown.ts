@@ -204,6 +204,15 @@ function tryParseTable(lines: string[], start: number): TableParseResult | null 
 }
 
 // ─── Inline tokenizer ──────────────────────────────────────────────────────
+// Sticky (cursor-anchored) regexes for inline parsing. Compiled once.
+const RE_INLINE_CODE = /(`+)([\s\S]*?[^`])\1(?!`)/y;
+const RE_BOLD = /\*\*([^*]+?)\*\*(?!\*)/y;
+const RE_BOLD_UNDERSCORE = /__([^_]+?)__(?!_)/y;
+const RE_ITALIC = /\*([^*]+?)\*(?!\*)/y;
+const RE_ITALIC_UNDERSCORE = /_([^_]+?)_(?!_)/y;
+const RE_LINK = /\[([^\]]+)\]\(([^)\s]+)\)/y;
+const RE_HTML_TAG = /<\/?[a-zA-Z][^>]*>/y;
+
 
 export function parseInline(text: string): MdInline[] {
   if (!text) return [];
@@ -219,10 +228,9 @@ export function parseInline(text: string): MdInline[] {
   };
 
   while (pos < text.length) {
-    const remaining = text.slice(pos);
-
     // Inline code: `code` or ``code with ` inside``.
-    const codeMatch = remaining.match(/^(`+)([\s\S]*?[^`])\1(?!`)/);
+    RE_INLINE_CODE.lastIndex = pos;
+    const codeMatch = RE_INLINE_CODE.exec(text);
     if (codeMatch) {
       flush();
       nodes.push({ kind: "code", text: codeMatch[2] });
@@ -231,14 +239,16 @@ export function parseInline(text: string): MdInline[] {
     }
 
     // Bold: **text** or __text__.
-    const boldMatch = remaining.match(/^\*\*([^*]+?)\*\*(?!\*)/);
+    RE_BOLD.lastIndex = pos;
+    const boldMatch = RE_BOLD.exec(text);
     if (boldMatch) {
       flush();
       nodes.push({ kind: "bold", children: parseInline(boldMatch[1]) });
       pos += boldMatch[0].length;
       continue;
     }
-    const boldUnderscoreMatch = remaining.match(/^__([^_]+?)__(?!_)/);
+    RE_BOLD_UNDERSCORE.lastIndex = pos;
+    const boldUnderscoreMatch = RE_BOLD_UNDERSCORE.exec(text);
     if (boldUnderscoreMatch) {
       flush();
       nodes.push({ kind: "bold", children: parseInline(boldUnderscoreMatch[1]) });
@@ -246,15 +256,17 @@ export function parseInline(text: string): MdInline[] {
       continue;
     }
 
-    // Italic: *text* or _text_.
-    const italicMatch = remaining.match(/^\*([^*]+?)\*(?!\*)/);
+    // Italic: *text* or _text__.
+    RE_ITALIC.lastIndex = pos;
+    const italicMatch = RE_ITALIC.exec(text);
     if (italicMatch) {
       flush();
       nodes.push({ kind: "italic", children: parseInline(italicMatch[1]) });
       pos += italicMatch[0].length;
       continue;
     }
-    const italicUnderscoreMatch = remaining.match(/^_([^_]+?)_(?!_)/);
+    RE_ITALIC_UNDERSCORE.lastIndex = pos;
+    const italicUnderscoreMatch = RE_ITALIC_UNDERSCORE.exec(text);
     if (italicUnderscoreMatch) {
       flush();
       nodes.push({ kind: "italic", children: parseInline(italicUnderscoreMatch[1]) });
@@ -262,11 +274,15 @@ export function parseInline(text: string): MdInline[] {
       continue;
     }
 
-    // Link: [label](url) — url must be http/https or relative, no javascript:.
-    const linkMatch = remaining.match(/^\[([^\]]+)\]\(([^)\s]+)\)/);
+    // Link: [label](url) — allow https?:// or genuinely relative URLs.
+    // A relative URL must not contain a scheme-like colon before its first
+    // path/query/fragment separator, so javascript:, data:, vbscript:,
+    // file:, mailto:, etc. fall through to literal text.
+    RE_LINK.lastIndex = pos;
+    const linkMatch = RE_LINK.exec(text);
     if (linkMatch) {
       const url = linkMatch[2];
-      if (/^https?:\/\//i.test(url) || /^[^/]/.test(url)) {
+      if (isAllowedLinkUrl(url)) {
         flush();
         nodes.push({ kind: "link", label: linkMatch[1], url });
         pos += linkMatch[0].length;
@@ -275,7 +291,8 @@ export function parseInline(text: string): MdInline[] {
     }
 
     // Raw HTML tag → render as literal text (security: never interpret).
-    const htmlMatch = remaining.match(/^<\/?[a-zA-Z][^>]*>/);
+    RE_HTML_TAG.lastIndex = pos;
+    const htmlMatch = RE_HTML_TAG.exec(text);
     if (htmlMatch) {
       buffer += htmlMatch[0];
       pos += htmlMatch[0].length;
@@ -289,6 +306,13 @@ export function parseInline(text: string): MdInline[] {
 
   flush();
   return nodes;
+}
+
+function isAllowedLinkUrl(url: string): boolean {
+  if (/^https?:\/\//i.test(url)) return true;
+  const firstSpecial = url.search(/[/?#]/);
+  const prefix = firstSpecial === -1 ? url : url.slice(0, firstSpecial);
+  return !prefix.includes(":");
 }
 
 // ─── Minimal syntax highlight (in-house, no dependency) ────────────────────
@@ -324,6 +348,14 @@ const LANG_ALIASES: Record<string, string> = {
   mdx: "md",
 };
 
+// Sticky (cursor-anchored) regexes for syntax highlighting. Compiled once.
+const RE_HL_LINE_COMMENT_PY = /#[^\n]*/y;
+const RE_HL_LINE_COMMENT_SLASH = /\/\/[^\n]*/y;
+const RE_HL_BLOCK_COMMENT = /\/\*[\s\S]*?\*\//y;
+const RE_HL_STRING = /(["'`])(?:\\.|(?!\1)[^\n])*\1?/y;
+const RE_HL_NUMBER = /\b\d+(?:\.\d+)?\b/y;
+const RE_HL_WORD = /([A-Za-z_][A-Za-z0-9_]*)/y;
+
 export function highlightCode(content: string, lang: string): HighlightToken[] {
   const normalizedLang = LANG_ALIASES[lang.toLowerCase()] ?? lang.toLowerCase();
   const keywords = KEYWORDS[normalizedLang];
@@ -335,24 +367,25 @@ export function highlightCode(content: string, lang: string): HighlightToken[] {
   let pos = 0;
 
   while (pos < content.length) {
-    const remaining = content.slice(pos);
-
-    // Line comment: // ... (ts/js/rust/css) or # ... (py/bash)
+    // Line comment: // ... (ts/js/rust/css) or # ... (py/bash).
     if (normalizedLang === "py" || normalizedLang === "bash") {
-      const commentMatch = remaining.match(/^#.*$/m);
+      RE_HL_LINE_COMMENT_PY.lastIndex = pos;
+      const commentMatch = RE_HL_LINE_COMMENT_PY.exec(content);
       if (commentMatch) {
         tokens.push({ text: commentMatch[0], cls: "md-hl-comment" });
         pos += commentMatch[0].length;
         continue;
       }
     } else if (normalizedLang === "ts" || normalizedLang === "js" || normalizedLang === "rust" || normalizedLang === "css") {
-      const commentMatch = remaining.match(/^\/\/.*$/m);
+      RE_HL_LINE_COMMENT_SLASH.lastIndex = pos;
+      const commentMatch = RE_HL_LINE_COMMENT_SLASH.exec(content);
       if (commentMatch) {
         tokens.push({ text: commentMatch[0], cls: "md-hl-comment" });
         pos += commentMatch[0].length;
         continue;
       }
-      const blockCommentMatch = remaining.match(/^\/\*[\s\S]*?\*\//);
+      RE_HL_BLOCK_COMMENT.lastIndex = pos;
+      const blockCommentMatch = RE_HL_BLOCK_COMMENT.exec(content);
       if (blockCommentMatch) {
         tokens.push({ text: blockCommentMatch[0], cls: "md-hl-comment" });
         pos += blockCommentMatch[0].length;
@@ -361,7 +394,8 @@ export function highlightCode(content: string, lang: string): HighlightToken[] {
     }
 
     // String: "..." or '...' or `...` (template literal).
-    const stringMatch = remaining.match(/^(["'`])(?:\\.|(?!\1)[^\n])*\1?/);
+    RE_HL_STRING.lastIndex = pos;
+    const stringMatch = RE_HL_STRING.exec(content);
     if (stringMatch) {
       tokens.push({ text: stringMatch[0], cls: "md-hl-string" });
       pos += stringMatch[0].length;
@@ -369,7 +403,8 @@ export function highlightCode(content: string, lang: string): HighlightToken[] {
     }
 
     // Number.
-    const numberMatch = remaining.match(/^\b\d+(?:\.\d+)?\b/);
+    RE_HL_NUMBER.lastIndex = pos;
+    const numberMatch = RE_HL_NUMBER.exec(content);
     if (numberMatch) {
       tokens.push({ text: numberMatch[0], cls: "md-hl-number" });
       pos += numberMatch[0].length;
@@ -377,7 +412,8 @@ export function highlightCode(content: string, lang: string): HighlightToken[] {
     }
 
     // Keyword (word boundary).
-    const wordMatch = remaining.match(/^([A-Za-z_][A-Za-z0-9_]*)/);
+    RE_HL_WORD.lastIndex = pos;
+    const wordMatch = RE_HL_WORD.exec(content);
     if (wordMatch) {
       const word = wordMatch[1];
       if (keywords.has(word)) {
