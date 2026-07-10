@@ -1280,6 +1280,7 @@ function ModelProvidersPanel() {
   const [error, setError] = useState<string | null>(null);
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
   const [baseUrlDrafts, setBaseUrlDrafts] = useState<Record<string, string>>({});
+  const [updateKeyId, setUpdateKeyId] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
   const refresh = useCallback(async () => {
     try {
@@ -1341,8 +1342,8 @@ function ModelProvidersPanel() {
       setBusyId(providerId);
       setError(null);
       try {
-        await nativeSaveProviderCredential({ providerId, label, apiKey: key, baseUrl: baseUrlDrafts[providerId]?.trim() || null });
         setKeyDrafts((prev) => ({ ...prev, [providerId]: "" }));
+        setUpdateKeyId(null);
         await refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -1401,15 +1402,69 @@ function ModelProvidersPanel() {
               </a>
             ) : null}
             {p.configured ? (
-              <button
-                className="btn btn-sm mt-6"
-                type="button"
-                title={`Disconnect ${p.label}`}
-                disabled={busyId === p.id}
-                onClick={() => void disconnect(p.id)}
-              >
-                <Unplug size={12} /> Disconnect
-              </button>
+              <div className="stack-sm mt-6">
+                <div className="row gap-sm">
+                  <button
+                    className="btn btn-sm"
+                    type="button"
+                    title={`Disconnect ${p.label}`}
+                    disabled={busyId === p.id}
+                    onClick={() => void disconnect(p.id)}
+                  >
+                    <Unplug size={12} /> Disconnect
+                  </button>
+                  <button
+                    className="btn btn-sm"
+                    type="button"
+                    title={`Update the API key for ${p.label}. The stored secret is never displayed.`}
+                    disabled={busyId === p.id}
+                    onClick={() => setUpdateKeyId(updateKeyId === p.id ? null : p.id)}
+                  >
+                    <Key size={12} /> Update key
+                  </button>
+                </div>
+                {updateKeyId === p.id ? (
+                  <div className="stack-sm">
+                    <div className="row gap-sm">
+                      <input
+                        className="input"
+                        type="password"
+                        placeholder="New API key"
+                        value={keyDrafts[p.id] ?? ""}
+                        onChange={(e) => setKeyDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                        title={`Enter a new API key for ${p.label}. The existing key is not shown.`}
+                      />
+                      <button
+                        className="btn btn-sm"
+                        type="button"
+                        title="Save the new API key"
+                        disabled={!(keyDrafts[p.id] ?? "").trim()}
+                        onClick={() => void saveKey(p.id, p.label)}
+                      >
+                        <Key size={12} /> Save
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        type="button"
+                        title="Cancel key update"
+                        onClick={() => { setUpdateKeyId(null); setKeyDrafts((prev) => ({ ...prev, [p.id]: "" })); }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    {p.id === "custom" ? (
+                      <input
+                        className="input"
+                        type="text"
+                        placeholder="Base URL (e.g. https://api.example.com/v1)"
+                        value={baseUrlDrafts[p.id] ?? ""}
+                        onChange={(e) => setBaseUrlDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                        title="Base URL for the custom OpenAI-compatible endpoint"
+                      />
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             ) : busyId === p.id ? (
               <div className="row gap-sm mt-6">
                 <span className="text-muted text-sm">Waiting for browser…</span>

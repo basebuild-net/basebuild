@@ -1818,6 +1818,11 @@ a { color: inherit; text-decoration: none; }
 .provider-status-dot { width: 7px; height: 7px; background: var(--bb-muted); }
 .provider-status.is-connected { color: var(--bb-success, #38a169); }
 .provider-status.is-connected .provider-status-dot { background: var(--bb-success, #38a169); }
+.provider-status.is-warning { color: var(--bb-warning, #d97706); }
+.provider-status.is-warning .provider-status-dot { background: var(--bb-warning, #d97706); }
+.provider-card-error { display: flex; align-items: center; gap: 6px; padding: 4px 8px; margin-top: 4px; }
+.provider-card-error-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-card-retry-btn { flex-shrink: 0; font-size: 10px; padding: 2px 6px; }
 .provider-model-search { flex-shrink: 0; margin-bottom: 8px; font-size: 11px; }
 .provider-model-list { min-height: 0; display: flex; flex-direction: column; gap: 3px; overflow-y: auto; }
 .provider-model-row { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; padding: 7px 8px; border: 1px solid transparent; background: transparent; color: var(--bb-text); text-align: left; cursor: pointer; }

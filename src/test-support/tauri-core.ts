@@ -140,6 +140,7 @@ type E2eState = {
   nextNativeChatId: number;
   nextNativeMessageId: number;
   nextNativeMetricId: number;
+  nativeChatSessions: NativeChatSession[];
   nativeToolEvents: NativeToolEvent[];
   nativeChatMessages: NativeChatMessage[];
   nativeRequestMetrics: NativeRequestMetric[];

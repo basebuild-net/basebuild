@@ -74,29 +74,29 @@
 
 ## 4. Provider Reliability
 
-- [ ] 4.1 `SettingsModal.tsx` (`ModelProvidersPanel`): add Update key
+- [x] 4.1 `SettingsModal.tsx` (`ModelProvidersPanel`): add Update key
       button beside Disconnect when `p.configured`; opens the existing
       password key input + Save (upsert via
       `nativeSaveProviderCredential`); never displays stored secret.
-- [ ] 4.2 Chat provider picker (`ChatPanel.tsx:2440-2510`): rename
+- [x] 4.2 Chat provider picker (`ChatPanel.tsx:2440-2510`): rename
       configured-state "Reconnect" to "Update key" with update-mode
       modal title/copy; keep Disconnect.
-- [ ] 4.3 Backend: compute `transport_unavailable` status in
+- [x] 4.3 Backend: compute `transport_unavailable` status in
       `provider_model_catalog_service.rs` for models whose `api_kind`
       has no native transport and no custom base URL (consumes
       `pr26-security-fixes` resolver change); expose on
       `NativeProvider.status` / model capability flags; mirror type in
       `src/lib/native-chat.ts`.
-- [ ] 4.4 Picker/composer render `transport_unavailable` with
+- [x] 4.4 Picker/composer render `transport_unavailable` with
       explanation tooltip + custom-base-URL affordance; selecting such
       a model never starts a request (draft preserved).
-- [ ] 4.5 Per-provider error chip in picker when `provider.error` set;
+- [x] 4.5 Per-provider error chip in picker when `provider.error` set;
       tooltip carries error text; retry triggers targeted
       `native_provider_catalog_refresh(providerId)`.
-- [ ] 4.6 Rust tests: catalog marks bespoke-kind-no-base-url providers
+- [x] 4.6 Rust tests: catalog marks bespoke-kind-no-base-url providers
       `transport_unavailable`; custom base URL flips them to ready;
       save_credential upsert path unchanged (existing tests still pass).
-- [ ] 4.7 e2e: extend `tests/e2e/provider-credential-lifecycle.spec.ts` —
+- [x] 4.7 e2e: extend `tests/e2e/provider-credential-lifecycle.spec.ts` —
       update-key flow on a configured provider; transport-unavailable
       state renders for a fixture bespoke provider.
 

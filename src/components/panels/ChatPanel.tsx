@@ -2577,9 +2577,12 @@ export function ChatPanel({
                             >
                               <span className="provider-card-topline">
                                 <span className="provider-card-name">{provider.label}</span>
-                                <span className={`provider-status is-${provider.configured ? "connected" : "available"}`}>
+                                <span
+                                  className={`provider-status is-${provider.status === "transport_unavailable" ? "warning" : provider.configured ? "connected" : "available"}`}
+                                  title={provider.status === "transport_unavailable" ? "This provider uses a bespoke API that requires a custom base URL for native chat. Set a base URL to enable the native agent loop." : undefined}
+                                >
                                   <span className="provider-status-dot" />
-                                  {provider.configured ? "Connected" : "Available"}
+                                  {provider.status === "transport_unavailable" ? "No transport" : provider.configured ? "Connected" : "Available"}
                                 </span>
                               </span>
                               <span className="provider-card-meta">{provider.modelCount} models</span>
@@ -2608,7 +2611,7 @@ export function ChatPanel({
                                 <button
                                   className="btn btn-sm provider-card-action-btn"
                                   type="button"
-                                  title={provider.configured ? `Reconnect ${provider.label} — enter a new API key` : `Connect ${provider.label} — enter an API key`}
+                                  title={provider.configured ? `Update key for ${provider.label} — enter a new API key` : `Connect ${provider.label} — enter an API key`}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setProviderId(provider.id);
@@ -2620,8 +2623,29 @@ export function ChatPanel({
                                     setShowLogin(true);
                                   }}
                                 >
-                                  <Key size={11} /> {provider.configured ? "Reconnect" : "Connect"}
+                                  <Key size={11} /> {provider.configured ? "Update key" : "Connect"}
                                 </button>
+                            {provider.error ? (
+                              <div className="provider-card-error text-danger text-sm" title={provider.error}>
+                                <span className="provider-card-error-text">{provider.error}</span>
+                                <button
+                                  className="btn btn-sm provider-card-retry-btn"
+                                  type="button"
+                                  title={`Retry fetching models from ${provider.label}`}
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    try {
+                                      await nativeProviderCatalogRefresh({ providerId: provider.id, force: true });
+                                      await refreshCatalog();
+                                    } catch (err) {
+                                      addLog("error", "Failed to refresh provider", err instanceof Error ? err.message : String(err));
+                                    }
+                                  }}
+                                >
+                                  Retry
+                                </button>
+                              </div>
+                            ) : null}
                               </div>
                             ) : null}
                           </div>
