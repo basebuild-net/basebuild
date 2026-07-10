@@ -2,12 +2,12 @@
 
 ## 1. Live baseline audit
 
-- [ ] 1.1 Run the dev app and walk the full golden path on a real project
+- [x] 1.1 Run the dev app and walk the full golden path on a real project
       (schematic → round-equivalent generation → promote → launch → run →
       finish → queue → merge → prune), recording per-stage findings
       (working / broken / missing) in `openspec/changes/idea-to-merge-autopilot/audit.md`.
       Surface evidence only — `mvp.md` checkboxes remain human-owned.
-- [ ] 1.2 Reconcile findings against this change's specs: adjust task scope
+- [x] 1.2 Reconcile findings against this change's specs: adjust task scope
       below where the audit shows a stage is already broken upstream (file
       follow-up fixes rather than building on broken ground).
 
