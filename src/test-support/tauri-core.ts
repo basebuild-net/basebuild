@@ -733,6 +733,23 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       const profile = s.launchProfile;
       const policy = profile?.finishPolicy ?? "hold";
       if (policy === "hold") return { kind: "hold" } as T;
+      // For queue_merge_review, seed the merge queue with the run.
+      if (policy === "queue_merge_review") {
+        const run = s.planRuns.find((r) => r.id === args.runId);
+        if (run) {
+          s.mergeQueue.push({
+            id: `mq-${Date.now()}`, runId: run.id, planId: run.planId, sessionId: run.sessionId,
+            status: "pending", collisionReviewRequired: false, overlappingPlans: [],
+            reviewedAt: null, createdAt: Date.now(),
+          });
+          __emit("planning://event", {
+            kind: "integration_action", entityId: run.id, projectPath: s.projectPath,
+            sessionId: run.sessionId, title: "Queued for merge review",
+            seq: (s.nextPlanningEventSeq ?? 0) + 1, ts: Math.floor(Date.now() / 1000),
+          });
+          s.nextPlanningEventSeq = (s.nextPlanningEventSeq ?? 0) + 1;
+        }
+      }
       return {
         kind: "applied",
         outcome: {

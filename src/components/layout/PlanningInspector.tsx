@@ -244,7 +244,7 @@ export function PlanningInspector({
         setMergeQueue([]);
       })
       .finally(() => setMergeQueueLoading(false));
-  }, [sessionId, addLog]);
+  }, [sessionId, addLog, plans]);
   // Load saved launch profile for this project.
   useEffect(() => {
     if (!projectPath) {
@@ -706,7 +706,7 @@ export function PlanningInspector({
             </button>
           </div>
         ) : null}
-        {ordered.map((entry) => {
+        {[...ordered, ...reviewedEntries].map((entry) => {
           const plan = plans.find((p) => p.id === entry.planId);
           const title = plan?.title ?? `Plan ${entry.planId.slice(0, 8)}`;
           const isSelected = mergeSelected.has(entry.id);
@@ -752,11 +752,6 @@ export function PlanningInspector({
             </div>
           );
         })}
-        {reviewedEntries.length > 0 ? (
-          <div className="merge-queue-reviewed" title="Reviewed entries">
-            <span className="text-muted text-sm">{reviewedEntries.length} reviewed</span>
-          </div>
-        ) : null}
       </div>
     );
   }
