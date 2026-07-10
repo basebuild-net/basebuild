@@ -87,7 +87,7 @@ use commands::{
     plan_runs::{
         plan_assign_to_chat, plan_run_cancel, plan_run_check_completion, plan_run_complete,
         plan_run_enqueue, plan_run_get, plan_run_list, plan_run_list_queue, plan_run_mark_complete,
-        plan_run_pause, plan_run_remove, plan_run_reorder, plan_run_start, plan_run_start_omp,
+        plan_run_apply_finish_policy, plan_run_pause, plan_run_remove, plan_run_reorder, plan_run_start, plan_run_start_omp,
     },
     plan_dependency::{
         plan_assign_with_profile, plan_coordination_event_publish, plan_coordination_events,
@@ -382,6 +382,7 @@ pub fn run() {
             plan_run_complete,
             plan_run_mark_complete,
             plan_run_check_completion,
+            plan_run_apply_finish_policy,
             plan_run_list,
             plan_run_get,
             plan_set_dependencies,

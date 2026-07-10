@@ -140,7 +140,14 @@ pub struct LaunchProfile {
     /// `"safe"` or `"yolo"`.
     #[serde(default = "default_scheduling_mode")]
     pub scheduling_mode: String,
+    /// `"hold"`, `"auto_commit"`, `"auto_commit_pr"`, or `"queue_merge_review"`.
+    #[serde(default = "default_finish_policy")]
+    pub finish_policy: String,
     pub updated_at: i64,
+}
+
+fn default_finish_policy() -> String {
+    "hold".to_string()
 }
 
 fn default_engine() -> String {

@@ -67,23 +67,31 @@
 
 ## 4. Post-finish policy
 
-- [ ] 4.1 Backend: extend the launch-profile storage row + service with
-      `finish_policy` (`hold` default; absent = hold); expose via existing
-      get/save commands; Rust tests for round-trip + default.
-- [ ] 4.2 Backend: apply policy in the plan run service finish transition —
-      `auto_commit` (worktree-scoped commit, generated plan-referencing
-      message), `auto_commit_pr` (commit + existing push/PR path),
-      `queue_merge_review` (commit + merge-ready flag); non-git/primary
-      checkout hard-fallback to hold; notification + log per action; failure
-      surfaces without retry. Rust tests per policy branch incl. fallback.
-- [ ] 4.3 Frontend: policy selector in the launch/profile configuration
-      surface with the one-time `auto_commit_pr` remote acknowledgment;
-      effective policy shown in launch confirmations.
-- [ ] 4.4 Frontend: completion card policy-awareness — reflect automated
-      outcomes (commit sha, PR link, merge-ready flag) and policy-failure
-      notes; `hold` renders exactly as today.
-- [ ] 4.5 e2e: launch confirmation shows policy; mocked finish under each
-      policy shows the correct card outcome; non-git fallback note renders.
+- [x] 4.1 Backend: added `finish_policy` column to `plan_launch_profiles`
+      (migration, default 'hold'); `LaunchProfile` struct field with
+      `#[serde(default)]`; updated `set_launch_profile` INSERT + SELECT;
+      2 Rust tests (round-trip with auto_commit, hold default).
+- [x] 4.2 Backend: `apply_finish_policy` in `PlanRunnerService` —
+      `auto_commit` (GitService::commit_all), `auto_commit_pr` (commit +
+      PullRequestService::create_pr), `queue_merge_review` (commit +
+      add_to_merge_queue); non-git hard-fallback to hold with notification;
+      `FinishOutcome`/`FinishResult` types; wired into `complete_run` after
+      plan transitions to Finished; `plan_run_apply_finish_policy` Tauri
+      command; `GitService::commit_all` helper.
+- [x] 4.3 Frontend: `FinishPolicy` type + `finishPolicy` on `LaunchProfile`
+      TS type; policy selector (`<select>`) in launch profile form with 4
+      options; `normalizeFinishPolicy` guard; effective policy shown in
+      launch confirmation summary (`FINISH_POLICY_LABELS`); `PlanPanel`
+      `ProfileForm` updated with `finishPolicy` for assign-with-profile.
+- [x] 4.4 Frontend: `CompletionCard` `finishOutcome` prop renders commit
+      SHA, PR link, merge-ready flag, and policy errors; `PlanningInspector`
+      fetches outcomes via `applyFinishPolicy` for succeeded runs; `hold`
+      renders exactly as today (no outcome section).
+- [x] 4.5 e2e (`finish-policy.spec.ts`, 5 tests): launch confirmation shows
+      policy; auto_commit shows commit SHA; auto_commit_pr shows PR link;
+      hold shows no outcome; queue_merge_review shows merge-ready flag.
+      Mock `plan_run_complete` updates run status, `plan_run_apply_finish_policy`
+      returns policy-appropriate outcomes.
 
 ## 5. Workspace merge review
 

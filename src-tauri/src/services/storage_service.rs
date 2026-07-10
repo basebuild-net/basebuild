@@ -817,6 +817,17 @@ impl StorageService {
             let _ = connection
                 .execute("ALTER TABLE ideas ADD COLUMN batch_id TEXT", []);
         }
+        // Migration (idea-to-merge-autopilot): add finish_policy to
+        // plan_launch_profiles. Default 'hold' (absent = hold).
+        let has_finish_policy = connection
+            .prepare("SELECT finish_policy FROM plan_launch_profiles LIMIT 0")
+            .is_ok();
+        if !has_finish_policy {
+            let _ = connection.execute(
+                "ALTER TABLE plan_launch_profiles ADD COLUMN finish_policy TEXT NOT NULL DEFAULT 'hold'",
+                [],
+            );
+        }
 
         // Migration (plan-pipeline-harness): rename plan statuses
         // waiting → ready and in_progress → running. Idempotent: re-running

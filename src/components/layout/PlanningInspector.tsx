@@ -3,7 +3,7 @@ import { FolderTree, LayoutGrid, Plus, RefreshCw, Sparkles, Trash2, X } from "lu
 import type { Plan, PlanStatus } from "../../lib/plans";
 import { isTerminalStatus } from "../../lib/plans";
 import { batchPromoteIdeas } from "../../lib/plans";
-import { enqueuePlan, listPlanRuns, markPlanRunComplete, startQueue } from "../../lib/planRuns";
+import { enqueuePlan, listPlanRuns, markPlanRunComplete, startQueue, applyFinishPolicy } from "../../lib/planRuns";
 import { useOpenSpecRuntime } from "../../state/useOpenSpecRuntime";
 import { PlanPanel } from "./PlanPanel";
 import { PlanningCommandCenter } from "./PlanningCommandCenter";
@@ -12,7 +12,7 @@ import { ChangesPanel } from "../panels/ChangesPanel";
 import { CompletionCard } from "../panels/CompletionCard";
 import { IdeaRoundsSection } from "./IdeaRoundsSection";
 import { MissionControlBoard } from "./MissionControlBoard";
-import type { PlanRun } from "../../lib/planRuns";
+import type { PlanRun, FinishOutcome } from "../../lib/planRuns";
 import { useIdeaState } from "../../state/ideas";
 import type { IdeaCategory, IdeaStatus } from "../../lib/ideas";
 import { useProjectSchematic } from "../../state/schematic";
@@ -32,9 +32,21 @@ import {
   type EngineKind,
   type WorkspacePolicy,
   type SchedulingMode,
+  type FinishPolicy,
 } from "../../lib/planDependencies";
 
 export type PlanningTab = "plans" | "ideas" | "categories" | "flow" | "runs" | "changes";
+
+const FINISH_POLICIES: readonly FinishPolicy[] = ["hold", "auto_commit", "auto_commit_pr", "queue_merge_review"];
+function normalizeFinishPolicy(value: string | undefined): FinishPolicy {
+  return FINISH_POLICIES.find((p) => p === value) ?? "hold";
+}
+const FINISH_POLICY_LABELS: Record<FinishPolicy, string> = {
+  hold: "Hold for review",
+  auto_commit: "Auto-commit",
+  auto_commit_pr: "Auto-commit + PR",
+  queue_merge_review: "Queue merge review",
+};
 
 type PlanningInspectorProps = {
   sessionId: string | null;
@@ -112,6 +124,7 @@ export function PlanningInspector({
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [planRuns, setPlanRuns] = useState<PlanRun[]>([]);
   const [completionDismissed, setCompletionDismissed] = useState<Set<string>>(new Set());
+  const [finishOutcomes, setFinishOutcomes] = useState<Map<string, FinishOutcome>>(new Map());
   const [grounding, setGrounding] = useState<GroundingMetadata | null>(getLastGrounding());
   useEffect(() => {
     return subscribeGrounding(setGrounding);
@@ -125,11 +138,13 @@ export function PlanningInspector({
     workspacePolicy: WorkspacePolicy;
     schedulingMode: SchedulingMode;
     engine: EngineKind;
+    finishPolicy: FinishPolicy;
   }>({
     workerCount: 2,
     workspacePolicy: "isolated_worktrees",
     schedulingMode: "safe",
     engine: "openspec",
+    finishPolicy: "hold",
   });
   const [launchConfirmOpen, setLaunchConfirmOpen] = useState(false);
   const [launchSummary, setLaunchSummary] = useState<{
@@ -143,6 +158,7 @@ export function PlanningInspector({
     collisions: number;
     policy: WorkspacePolicy;
     schedulingMode: SchedulingMode;
+    finishPolicy: FinishPolicy;
   } | null>(null);
   const [launchSaving, setLaunchSaving] = useState(false);
   const [dependencyGraph, setDependencyGraph] = useState<DependencyGraph | null>(null);
@@ -170,6 +186,28 @@ export function PlanningInspector({
       .then(setPlanRuns)
       .catch(() => setPlanRuns([]));
   }, [sessionId, plans]);
+  // Fetch finish-policy outcomes for succeeded runs (for completion cards).
+  useEffect(() => {
+    const succeeded = planRuns.filter((r) => r.status === "succeeded");
+    if (succeeded.length === 0) return;
+    const missing = succeeded.filter((r) => !finishOutcomes.has(r.id));
+    if (missing.length === 0) return;
+    void (async () => {
+      const newOutcomes = new Map(finishOutcomes);
+      for (const run of missing) {
+        try {
+          const result = await applyFinishPolicy(run.id);
+          if (result.kind === "applied") {
+            newOutcomes.set(run.id, result.outcome);
+          }
+        } catch {
+          // ignore — outcome not available
+        }
+      }
+      setFinishOutcomes(newOutcomes);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planRuns]);
   // Load dependency graph for the run board.
   useEffect(() => {
     if (!sessionId) {
@@ -215,6 +253,7 @@ export function PlanningInspector({
             workspacePolicy: profile.workspacePolicy === "sequential_primary" ? "sequential_primary" : "isolated_worktrees",
             schedulingMode: profile.schedulingMode === "yolo" ? "yolo" : "safe",
             engine: profile.engine === "native" ? "native" : "openspec",
+            finishPolicy: normalizeFinishPolicy(profile.finishPolicy),
           });
         }
       })
@@ -291,6 +330,7 @@ export function PlanningInspector({
         workerCount: launchForm.workerCount,
         workspacePolicy: launchForm.workspacePolicy,
         schedulingMode: launchForm.schedulingMode,
+        finishPolicy: launchForm.finishPolicy,
         updatedAt: Date.now(),
       };
       await saveLaunchProfile(profile);
@@ -331,6 +371,7 @@ export function PlanningInspector({
       collisions,
       policy: launchForm.workspacePolicy,
       schedulingMode: launchForm.schedulingMode,
+      finishPolicy: launchForm.finishPolicy,
     });
     setLaunchConfirmOpen(true);
   }, [plans, sessionId, launchForm, addLog]);
@@ -1097,6 +1138,19 @@ export function PlanningInspector({
                   <option value="native">Native</option>
                 </select>
               </label>
+              <label className="launch-profile-field" title="What happens when a plan run finishes — hold for manual review, auto-commit to the worktree, commit + push a PR, or queue for merge review">
+                <span>On finish</span>
+                <select
+                  value={launchForm.finishPolicy}
+                  onChange={(e) => setLaunchForm((prev) => ({ ...prev, finishPolicy: e.target.value as FinishPolicy }))}
+                  title="Finish policy"
+                >
+                  <option value="hold">Hold for review</option>
+                  <option value="auto_commit">Auto-commit</option>
+                  <option value="auto_commit_pr">Auto-commit + PR</option>
+                  <option value="queue_merge_review">Queue merge review</option>
+                </select>
+              </label>
             </div>
             <div className="launch-profile-confirm-actions">
               <button
@@ -1157,6 +1211,7 @@ export function PlanningInspector({
                     <li><span className="label">Collisions</span><span className="value">{launchSummary.collisions}</span></li>
                     <li><span className="label">Policy</span><span className="value">{launchSummary.policy}</span></li>
                     <li><span className="label">Scheduling</span><span className="value">{launchSummary.schedulingMode}</span></li>
+                    <li><span className="label">On finish</span><span className="value">{FINISH_POLICY_LABELS[launchSummary.finishPolicy]}</span></li>
                   </ul>
                   <div className="launch-profile-confirm-actions">
                     <button
@@ -1229,6 +1284,7 @@ export function PlanningInspector({
                   key={run.id}
                   run={run}
                   projectPath={projectPath ?? ""}
+                  finishOutcome={finishOutcomes.get(run.id) ?? null}
                   onMarkComplete={async (runId) => {
                     await markPlanRunComplete(runId);
                     setPlanRuns((prev) => prev.map((r) => (r.id === runId ? { ...r, status: "succeeded" } : r)));

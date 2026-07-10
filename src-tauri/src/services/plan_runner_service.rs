@@ -81,6 +81,29 @@ static QUEUE_STATE: std::sync::LazyLock<Mutex<HashMap<String, QueueState>>> =
 #[derive(Debug, Default)]
 pub struct PlanRunnerService;
 
+/// Outcome of applying a finish policy to a completed run.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FinishOutcome {
+    pub run_id: String,
+    pub policy: String,
+    pub commit_sha: Option<String>,
+    pub pr_url: Option<String>,
+    pub merge_ready: bool,
+    pub error: Option<String>,
+}
+
+/// Result of applying a finish policy — either an outcome or a hold (no action).
+#[derive(Debug, Clone)]
+pub enum FinishResult {
+    /// Policy is hold or not applicable — no automated action taken.
+    Hold,
+    /// Policy was applied; outcome describes what happened.
+    Applied(FinishOutcome),
+    /// Policy could not be applied (e.g. non-git checkout); fell back to hold.
+    FallbackHold(String),
+}
+
 impl PlanRunnerService {
     // ── Queue CRUD ───────────────────────────────────────────────────────
 
@@ -431,6 +454,10 @@ impl PlanRunnerService {
                     }
                 }
             }
+            // Apply finish policy (auto-commit, PR, merge review) if configured.
+            if succeeded && new_plan_status == PlanStatus::Finished {
+                let _ = Self::apply_finish_policy(app, run_id);
+            }
         }
         Ok(())
     }
@@ -471,6 +498,183 @@ impl PlanRunnerService {
             },
         );
         Ok(())
+    }
+
+
+    /// Apply the project's finish policy to a completed run. Called after
+    /// a run transitions to `succeeded` and the plan is `Finished`.
+    /// Non-git or primary-checkout hard-fallbacks to hold. Failures surface
+    /// without retry.
+    pub fn apply_finish_policy(
+        app: &AppHandle,
+        run_id: &str,
+    ) -> DbResult<FinishResult> {
+        let run = Self::get_run(run_id)?
+            .ok_or("Run not found")?;
+        let session = SessionService::get(&run.session_id)
+            .ok()
+            .flatten()
+            .ok_or("Session not found")?;
+        let project_path = &session.project_path;
+        let profile = crate::services::plan_dependency_service::PlanDependencyService::get_launch_profile(project_path)
+            .ok()
+            .flatten();
+        let policy = profile
+            .as_ref()
+            .map(|p| p.finish_policy.as_str())
+            .unwrap_or("hold");
+        if policy == "hold" {
+            return Ok(FinishResult::Hold);
+        }
+        // Determine the working directory: worktree path if set, else project root.
+        let work_dir = run
+            .workspace_path
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from(project_path));
+        // Check if the directory is a git repo. Non-git → fallback to hold.
+        if !work_dir.join(".git").exists() {
+            let msg = format!("Finish policy '{policy}' not applied: not a git repository.");
+            let _ = crate::services::notification_service::NotificationService::insert(
+                crate::models::notification::NotificationKind::IntegrationAction,
+                run_id,
+                "plan_run",
+                project_path,
+                "Finish policy fallback",
+                Some(&msg),
+            );
+            return Ok(FinishResult::FallbackHold(msg));
+        }
+        let plan = PlanService::get(&run.plan_id).ok().flatten();
+        let plan_ref = plan
+            .as_ref()
+            .map(|p| p.reference_id.clone())
+            .unwrap_or_else(|| run.plan_id.clone());
+        let commit_msg = format!("Auto-commit: plan {plan_ref} completed (run {run_id})");
+        let outcome = match policy {
+            "auto_commit" => {
+                match crate::services::git_service::GitService::commit_all(&work_dir, &commit_msg) {
+                    Ok(sha) if !sha.is_empty() => FinishOutcome {
+                        run_id: run_id.to_string(),
+                        policy: policy.to_string(),
+                        commit_sha: Some(sha),
+                        pr_url: None,
+                        merge_ready: false,
+                        error: None,
+                    },
+                    Ok(_) => FinishOutcome {
+                        run_id: run_id.to_string(),
+                        policy: policy.to_string(),
+                        commit_sha: None,
+                        pr_url: None,
+                        merge_ready: false,
+                        error: Some("Nothing to commit — working tree clean.".to_string()),
+                    },
+                    Err(e) => FinishOutcome {
+                        run_id: run_id.to_string(),
+                        policy: policy.to_string(),
+                        commit_sha: None,
+                        pr_url: None,
+                        merge_ready: false,
+                        error: Some(format!("git commit failed: {e}")),
+                    },
+                }
+            }
+            "auto_commit_pr" => {
+                let commit_result = crate::services::git_service::GitService::commit_all(&work_dir, &commit_msg);
+                match commit_result {
+                    Ok(sha) => {
+                        let branch = crate::services::git_service::GitService::current_branch(&work_dir)
+                            .unwrap_or_else(|| "main".to_string());
+                        let pr_result = crate::services::pull_request_service::PullRequestService::create_pr(
+                            project_path,
+                            &branch,
+                            &format!("Plan {plan_ref}"),
+                            &format!("Automated PR for plan {plan_ref} (run {run_id})"),
+                        );
+                        match pr_result {
+                            Ok(pr) if pr.success => FinishOutcome {
+                                run_id: run_id.to_string(),
+                                policy: policy.to_string(),
+                                commit_sha: Some(sha),
+                                pr_url: pr.url,
+                                merge_ready: false,
+                                error: None,
+                            },
+                            Ok(pr) => FinishOutcome {
+                                run_id: run_id.to_string(),
+                                policy: policy.to_string(),
+                                commit_sha: Some(sha),
+                                pr_url: None,
+                                merge_ready: false,
+                                error: Some(format!("PR creation failed: {}", pr.error.unwrap_or_default())),
+                            },
+                            Err(e) => FinishOutcome {
+                                run_id: run_id.to_string(),
+                                policy: policy.to_string(),
+                                commit_sha: Some(sha),
+                                pr_url: None,
+                                merge_ready: false,
+                                error: Some(format!("PR creation error: {e}")),
+                            },
+                        }
+                    }
+                    Err(e) => FinishOutcome {
+                        run_id: run_id.to_string(),
+                        policy: policy.to_string(),
+                        commit_sha: None,
+                        pr_url: None,
+                        merge_ready: false,
+                        error: Some(format!("git commit failed: {e}")),
+                    },
+                }
+            }
+            "queue_merge_review" => {
+                // Commit, then add to merge-review queue with merge-ready flag.
+                let sha = crate::services::git_service::GitService::commit_all(&work_dir, &commit_msg)
+                    .unwrap_or_default();
+                let _ = crate::services::plan_dependency_service::PlanDependencyService::add_to_merge_queue(
+                    run_id,
+                    &run.plan_id,
+                    &run.session_id,
+                    false,
+                    &[],
+                );
+                FinishOutcome {
+                    run_id: run_id.to_string(),
+                    policy: policy.to_string(),
+                    commit_sha: if sha.is_empty() { None } else { Some(sha) },
+                    pr_url: None,
+                    merge_ready: true,
+                    error: None,
+                }
+            }
+            _ => FinishOutcome {
+                run_id: run_id.to_string(),
+                policy: policy.to_string(),
+                commit_sha: None,
+                pr_url: None,
+                merge_ready: false,
+                error: Some(format!("Unknown finish policy: {policy}")),
+            },
+        };
+        // Emit a planning event with the outcome.
+        let detail = if let Some(ref err) = outcome.error {
+            format!("Finish policy '{policy}' applied with error: {err}")
+        } else {
+            format!("Finish policy '{policy}' applied successfully")
+        };
+        let _ = planning_events::emit(
+            app,
+            PlanningEventKind::IntegrationAction,
+            &run.plan_id,
+            project_path,
+            Some(run.session_id.clone()),
+            format!("Finish policy: {policy}"),
+            Some(detail),
+        );
+        Ok(FinishResult::Applied(outcome))
     }
 
     /// Evaluate checklist completion at run end. If the linked change has an

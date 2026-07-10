@@ -163,3 +163,25 @@ export function onPlanRunEvent(
 export async function markPlanRunComplete(runId: string): Promise<void> {
   await invoke<void>("plan_run_mark_complete", { runId });
 }
+
+export type FinishOutcome = {
+  runId: string;
+  policy: string;
+  commitSha: string | null;
+  prUrl: string | null;
+  mergeReady: boolean;
+  error: string | null;
+};
+
+export type FinishResult =
+  | { kind: "hold" }
+  | { kind: "fallback_hold"; message: string }
+  | { kind: "applied"; outcome: FinishOutcome };
+
+export async function applyFinishPolicy(runId: string): Promise<FinishResult> {
+  const raw = await invoke<Record<string, unknown>>("plan_run_apply_finish_policy", { runId });
+  if (raw.kind === "hold") return { kind: "hold" };
+  if (raw.kind === "fallback_hold") return { kind: "fallback_hold", message: String(raw.message ?? "") };
+  if (raw.kind === "applied") return { kind: "applied", outcome: raw.outcome as FinishOutcome };
+  return { kind: "hold" };
+}

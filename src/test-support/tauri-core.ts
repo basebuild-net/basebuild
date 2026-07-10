@@ -145,6 +145,20 @@ type Plan = {
   finishedAt: number | null;
 };
 
+type LaunchProfile = {
+  projectPath: string;
+  engine: string;
+  providerId: string;
+  modelId: string;
+  effortLevel?: string;
+  skillId?: string;
+  workerCount: number;
+  workspacePolicy: string;
+  schedulingMode: string;
+  finishPolicy: string;
+  updatedAt: number;
+};
+
 type E2eState = {
   projectPath: string;
   sessions: Session[];
@@ -170,6 +184,7 @@ type E2eState = {
   nextRoundId: number;
   nextPlanningEventSeq?: number;
   taskProgressByChange?: Map<string, [number, number]>;
+  launchProfile?: LaunchProfile;
   planQueue: { id: string; sessionId: string; planId: string; sortOrder: number; createdAt: number }[];
   planRuns: { id: string; planId: string; sessionId: string; chatSessionId?: string; status: string; runnerKind: string; error?: string; stepsOutput: unknown[]; startedAt?: number; finishedAt?: number; createdAt: number }[];
   planDependencies?: Map<string, { prerequisites: string[]; affectedPaths: string[]; schedulingMode: string; workspacePolicy: string }>;
@@ -689,10 +704,33 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return undefined as T;
     case "plan_run_cancel":
       return undefined as T;
-    case "plan_run_complete":
+    case "plan_run_complete": {
+      const runId = args.runId as string;
+      const run = s.planRuns.find((r) => r.id === runId);
+      if (run) {
+        run.status = args.succeeded ? "succeeded" : "failed";
+        run.finishedAt = Math.floor(Date.now() / 1000);
+      }
       return undefined as T;
+    }
     case "plan_run_mark_complete":
       return undefined as T;
+    case "plan_run_apply_finish_policy": {
+      const profile = s.launchProfile;
+      const policy = profile?.finishPolicy ?? "hold";
+      if (policy === "hold") return { kind: "hold" } as T;
+      return {
+        kind: "applied",
+        outcome: {
+          runId: args.runId as string,
+          policy,
+          commitSha: policy !== "hold" ? "abc123def456" : null,
+          prUrl: policy === "auto_commit_pr" ? "https://example.com/pr/1" : null,
+          mergeReady: policy === "queue_merge_review",
+          error: null,
+        },
+      } as T;
+    }
     case "plan_run_check_completion":
       return [0, 0] as T;
     case "plan_run_list":
@@ -783,10 +821,13 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "plan_coordination_events":
       return [] as T;
-    case "plan_set_launch_profile":
+    case "plan_set_launch_profile": {
+      const profile = args.profile as LaunchProfile;
+      s.launchProfile = profile;
       return undefined as T;
+    }
     case "plan_get_launch_profile":
-      return null as T;
+      return (s.launchProfile ?? null) as T;
     case "plan_merge_queue_list":
       return [] as T;
     case "plan_merge_queue_review":

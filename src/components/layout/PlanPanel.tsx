@@ -47,6 +47,7 @@ type ProfileForm = {
   workerCount: number;
   workspacePolicy: WorkspacePolicy;
   schedulingMode: SchedulingMode;
+  finishPolicy?: string;
 };
 
 type PlanPanelProps = {
@@ -115,6 +116,7 @@ export function PlanPanel({
         workerCount: profile.workerCount ?? 1,
         workspacePolicy: (profile.workspacePolicy as WorkspacePolicy) ?? "isolated_worktrees",
         schedulingMode: (profile.schedulingMode as SchedulingMode) ?? "safe",
+        finishPolicy: profile.finishPolicy,
       });
     }).catch(() => {});
     return () => { cancelled = true; };
@@ -327,6 +329,7 @@ function PlanCard({
     workerCount: defaults.workerCount,
     workspacePolicy: defaults.workspacePolicy,
     schedulingMode: defaults.schedulingMode,
+    finishPolicy: defaults.finishPolicy ?? "hold",
     updatedAt: Date.now(),
   }), [projectPath, defaults]);
 
@@ -553,6 +556,7 @@ function PlanPromotionForm({
         workerCount: form.workerCount,
         workspacePolicy: form.workspacePolicy,
         schedulingMode: form.schedulingMode,
+        finishPolicy: form.finishPolicy ?? "hold",
         updatedAt: Date.now(),
       });
       await onSetStatus(plan.id, "ready");
