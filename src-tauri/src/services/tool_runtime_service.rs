@@ -1219,4 +1219,55 @@ mod tests {
         assert_eq!(result.status, "succeeded");
         assert!(result.diff.is_none());
     }
+
+    #[test]
+    fn write_file_to_schematic_path_succeeds() {
+        let dir = workspace();
+        let root = dir.path();
+        // The agent writes the project schematic to .basebuild/project-schematic.md.
+        let schematic_content = "# Project Schematic\n\n## Goals\n- Build the thing\n";
+        let args = json!({
+            "path": ".basebuild/project-schematic.md",
+            "content": schematic_content,
+        });
+        let result = write_file(root, &args);
+        assert_eq!(result.status, "succeeded");
+        // Verify the file was written at the correct path.
+        let written = std::fs::read_to_string(root.join(".basebuild/project-schematic.md")).unwrap();
+        assert_eq!(written, schematic_content);
+        // Diff should be present (new file).
+        assert!(result.diff.is_some());
+    }
+
+    #[test]
+    fn write_file_to_schematic_path_is_workspace_scoped() {
+        let dir = workspace();
+        let root = dir.path();
+        // Writing to .basebuild/project-schematic.md should stay within the workspace.
+        let args = json!({
+            "path": ".basebuild/project-schematic.md",
+            "content": "schematic content\n",
+        });
+        let result = write_file(root, &args);
+        assert_eq!(result.status, "succeeded");
+        // Verify the file is inside the workspace root.
+ let written_path = root.join(".basebuild").join("project-schematic.md");
+        assert!(written_path.exists(), "schematic file should exist within workspace");
+        // Verify parent directory was created.
+        assert!(root.join(".basebuild").exists(), ".basebuild directory should be created");
+    }
+
+    #[test]
+    fn write_file_to_schematic_path_rejects_traversal() {
+        let dir = workspace();
+        let root = dir.path();
+        // Path traversal attempt targeting outside the workspace.
+        let args = json!({
+            "path": ".basebuild/../../etc/schematic.md",
+            "content": "malicious\n",
+        });
+        let result = write_file(root, &args);
+        // Should be denied (workspace-scoped path rejection).
+        assert_eq!(result.status, "denied");
+    }
 }

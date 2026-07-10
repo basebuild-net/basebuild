@@ -775,6 +775,14 @@ impl NativeChatService {
             && !uses_omp_rpc
             && Self::model_supports_tools(&provider_id, &model_id);
 
+        // Capture schematic mtime before the turn to detect agent-driven writes.
+        let schematic_path = std::path::Path::new(&session.project_path)
+            .join(".basebuild/project-schematic.md");
+        let schematic_mtime_before = std::fs::metadata(&schematic_path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs());
         if supports_tools {
             // Run the agentic loop: stream → tool calls → approval → execute → repeat.
             let run_result = crate::services::agent_loop_service::run_agent_turn(
@@ -818,6 +826,26 @@ impl NativeChatService {
                     te.rule_source.as_deref(),
                 )?;
                 tool_events.push(event);
+            }
+            // Post-turn: if the agent wrote to the schematic file via write_file,
+            // emit a SchematicUpdated event so the schematic tab refreshes.
+            let schematic_mtime_after = std::fs::metadata(&schematic_path)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs());
+            if let (Some(before), Some(after)) = (schematic_mtime_before, schematic_mtime_after) {
+                if after > before {
+                    let _ = crate::services::planning_events::emit(
+                        &app,
+                        crate::models::planning_event::PlanningEventKind::SchematicUpdated,
+                        &session.project_path,
+                        &session.project_path,
+                        Some(request.session_id.clone()),
+                        "Schematic updated by agent",
+                        Some("The agent wrote to the project schematic during this turn.".to_string()),
+                    );
+                }
             }
 
             let metric = NativeRequestMetric {

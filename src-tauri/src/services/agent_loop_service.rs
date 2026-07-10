@@ -1036,4 +1036,54 @@ mod tests {
         token.cancel();
         assert!(token.is_cancelled());
     }
+
+    #[test]
+    fn resolve_interaction_delivers_answers_to_parked_channel() {
+        // Simulate the ask_user flow: register a pending interaction with a
+        // channel, then resolve it from the UI side. The answers should
+        // arrive on the channel.
+        let interaction_id = format!("test-int-{}", std::process::id());
+        let (tx, rx) = std::sync::mpsc::channel::<InteractionResolution>();
+        {
+            let mut pending = PENDING_INTERACTIONS.lock();
+            pending.insert(interaction_id.clone(), tx);
+        }
+        let answers = vec![crate::models::interaction::QuestionAnswer {
+            question_id: "q1".to_string(),
+            selected: vec![],
+            text: Some("yes".to_string()),
+        }];
+        let result = resolve_interaction(&interaction_id, answers.clone());
+        assert!(result.is_ok(), "resolve_interaction should succeed");
+        // The parked channel should receive the resolution.
+        let resolution = rx.recv_timeout(std::time::Duration::from_secs(1)).expect("should receive resolution");
+        assert!(!resolution.cancelled, "should not be cancelled");
+        assert_eq!(resolution.answers.len(), 1);
+        assert_eq!(resolution.answers[0].question_id, "q1");
+        assert_eq!(resolution.answers[0].text.as_deref(), Some("yes"));
+        // The pending entry should be removed.
+        let pending = PENDING_INTERACTIONS.lock();
+        assert!(!pending.contains_key(&interaction_id), "pending entry should be removed");
+    }
+
+    #[test]
+    fn resolve_interaction_returns_error_for_unknown_id() {
+        let result = resolve_interaction("nonexistent-id", vec![]);
+        assert!(result.is_err(), "should error for unknown interaction id");
+    }
+
+    #[test]
+    fn cancel_interaction_delivers_cancelled_resolution() {
+        let interaction_id = format!("test-cancel-{}", std::process::id());
+        let (tx, rx) = std::sync::mpsc::channel::<InteractionResolution>();
+        {
+            let mut pending = PENDING_INTERACTIONS.lock();
+            pending.insert(interaction_id.clone(), tx);
+        }
+        let result = cancel_interaction(&interaction_id);
+        assert!(result.is_ok(), "cancel_interaction should succeed");
+        let resolution = rx.recv_timeout(std::time::Duration::from_secs(1)).expect("should receive resolution");
+        assert!(resolution.cancelled, "should be cancelled");
+        assert!(resolution.answers.is_empty(), "cancelled resolution should have no answers");
+    }
 }

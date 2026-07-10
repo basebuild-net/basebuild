@@ -102,24 +102,24 @@
 
 ## 5. Schematic Wizard — Native Round Trip
 
-- [ ] 5.1 Rust seam test (`agent_loop_service.rs`): ask_user →
+- [x] 5.1 Rust seam test (`agent_loop_service.rs`): ask_user →
       resolve_interaction returns answers JSON to the parked turn
       (loop-level, using the interaction service test harness).
-- [ ] 5.2 Rust test (`tool_runtime_service.rs`): `write_file` to
+- [x] 5.2 Rust test (`tool_runtime_service.rs`): `write_file` to
       `.basebuild/project-schematic.md` inside a temp workspace
       succeeds and is workspace-scoped (traversal already covered —
       assert the schematic path specifically).
-- [ ] 5.3 Verify `SchematicUpdated` emission covers agent-driven file
+- [x] 5.3 Verify `SchematicUpdated` emission covers agent-driven file
       writes: if the agent writes via `write_file` (not
       `set_project_schematic`), ensure the schematic tab still
       refreshes — add an mtime watch or post-turn inspect hook in the
       native send path; test the chosen mechanism.
-- [ ] 5.4 e2e `tests/e2e/schematic-wizard-native.spec.ts` (mocked
+- [x] 5.4 e2e `tests/e2e/schematic-wizard-native.spec.ts` (mocked
       provider scripted tool calls): start wizard from schematic tab →
       question card renders → answer → `write_file` fixture → schematic
       tab shows new content + recomputed health; cancel path leaves the
       prior schematic intact.
-- [ ] 5.5 Wizard denial path: approval denial of the schematic write
+- [x] 5.5 Wizard denial path: approval denial of the schematic write
       leaves file untouched and the turn ends gracefully (e2e assertion
       in 5.4 spec).
 

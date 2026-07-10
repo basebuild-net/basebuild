@@ -827,6 +827,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         ? "Here is a **markdown** response with `inline code`.\n\n## Heading\n\n- Item one\n- Item two\n- Item three\n\n> A blockquote with wisdom.\n\n| Col A | Col B |\n|-------|-------|\n| 1 | 2 |\n| 3 | 4 |\n\n```ts\nconst x: string = \"hello\";\nconsole.log(x);\n```\n\n<script>alert(1)</script>\n\n[Example](https://example.com)"
         : req.content.includes("tool-card-test")
         ? "I'll write a file and run a command for you."
+        : req.content.includes("schematic-wizard-test")
+        ? "I'll ask you some questions and then write the schematic."
         : `Native harness echo: ${req.content}`;
       const assistantMessage: NativeChatMessage = {
         id: `nmsg-${s.nextNativeMessageId++}`,
@@ -864,6 +866,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       };
       s.nativeRequestMetrics.push(metric);
       const isToolCardTest = req.content.includes("tool-card-test");
+      const isSchematicWizardTest = req.content.includes("schematic-wizard-test");
       const toolEvents: NativeToolEvent[] = isToolCardTest
         ? [
             {
@@ -909,8 +912,25 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
               createdAt: ts,
             },
           ]
+        : isSchematicWizardTest
+        ? [
+            {
+              id: `ntool-schematic-write-${ts}`,
+              sessionId: req.sessionId,
+              messageId: assistantMessage.id,
+              kind: "write_file",
+              status: "success",
+              summary: "Wrote 128 bytes to .basebuild/project-schematic.md",
+              arguments: JSON.stringify({ path: ".basebuild/project-schematic.md", content: "# Project Schematic\n\n## Goals\n- Build the thing\n" }),
+              diff: "+# Project Schematic\n+\n+## Goals\n+- Build the thing\n",
+              decision: "approved",
+              ruleSource: "write_file:.basebuild/**",
+              sequence: 1,
+              createdAt: ts,
+            },
+          ]
         : [];
-      if (isToolCardTest) {
+      if (isToolCardTest || isSchematicWizardTest) {
         for (const te of toolEvents) s.nativeToolEvents.push(te);
       }
       return {
