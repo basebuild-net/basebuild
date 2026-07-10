@@ -1365,6 +1365,7 @@ export function AppShell({ updates }: AppShellProps) {
                   onSuggestForCategory={handleSuggestForCategory}
                   onGenerateCategories={handleGenerateCategories}
                   onStartIdeaRound={() => { void handleStartIdeaRound(); }}
+                  chatPanels={flattenPanels(panelGridState.root).map((p) => ({ panelId: p.id, chatSessionId: p.chatSessionId ?? null }))}
                   onAssignPlan={handleAssignPlan}
                   onShowToast={handleShowToast}
                 />

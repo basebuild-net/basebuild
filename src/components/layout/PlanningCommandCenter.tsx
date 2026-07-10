@@ -27,6 +27,8 @@ type PlanningCommandCenterProps = {
   onReview: () => void;
   onMerge: () => void;
   onArchiveSync: () => void;
+  /** Drill into a stage (e.g. running → mission control). */
+  onStageClick?: (stage: StageId) => void;
 };
 
 function stageStatus(count: number, active: boolean, blocked: boolean): StageStatus {
@@ -105,6 +107,7 @@ export function PlanningCommandCenter(props: PlanningCommandCenterProps) {
             type="button"
             className={`planning-stage-card is-${stage.status}`}
             title={`${stage.label}: ${stage.count}. ${stage.actionLabel}`}
+            onClick={() => props.onStageClick?.(stage.id)}
           >
             <span className="planning-stage-count">{stage.count}</span>
             <span className="planning-stage-label">{stage.label}</span>

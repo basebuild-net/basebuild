@@ -139,6 +139,7 @@ type Plan = {
   tags: string[];
   aiEnhanced: boolean;
   context: null;
+  changeName?: string | null;
   createdAt: number;
   updatedAt: number;
   finishedAt: number | null;
@@ -168,6 +169,7 @@ type E2eState = {
   activeRoundBySession: Map<string, string>;
   nextRoundId: number;
   nextPlanningEventSeq?: number;
+  taskProgressByChange?: Map<string, [number, number]>;
   planQueue: { id: string; sessionId: string; planId: string; sortOrder: number; createdAt: number }[];
   planRuns: { id: string; planId: string; sessionId: string; chatSessionId?: string; status: string; runnerKind: string; error?: string; stepsOutput: unknown[]; startedAt?: number; finishedAt?: number; createdAt: number }[];
   planDependencies?: Map<string, { prerequisites: string[]; affectedPaths: string[]; schedulingMode: string; workspacePolicy: string }>;
@@ -358,6 +360,7 @@ function makePlan(sessionId: string, input: Partial<Plan> & { title: string; des
     tags: input.tags ?? [],
     aiEnhanced: false,
     context: null,
+    changeName: input.changeName ?? null,
     createdAt: ts,
     updatedAt: ts,
     finishedAt: null,
@@ -648,7 +651,9 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "plan_assign_to_chat": {
       const planId = typeof args.planId === "string" ? args.planId : "";
       const chatSessionId = typeof args.chatSessionId === "string" ? args.chatSessionId : "";
-      const run = { id: `run-${Date.now()}`, planId, sessionId: typeof args.sessionId === "string" ? args.sessionId : "", chatSessionId, workspacePath: undefined, status: "running", runnerKind: "native", error: undefined, stepsOutput: [], createdAt: Date.now() };
+      const plan = s.plans.find((p) => p.id === planId);
+      const nowSecs = Math.floor(Date.now() / 1000);
+      const run = { id: `run-${Date.now()}`, planId, sessionId: typeof args.sessionId === "string" && args.sessionId ? args.sessionId : (plan?.sessionId ?? ""), chatSessionId, workspacePath: `worktrees/bb-${planId}`, status: "running", runnerKind: "native", error: undefined, stepsOutput: [], startedAt: nowSecs, finishedAt: undefined, createdAt: Date.now() };
       s.planRuns.push(run);
       return run as T;
     }
@@ -668,6 +673,18 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return undefined as T;
     case "openspec_refresh_task_progress":
       return false as T;
+    case "openspec_task_progress": {
+      // Tests drive progress via the __e2e_set_task_progress command
+      // (change name → [completed, total]); default 0/0.
+      const knobs = (s.taskProgressByChange ??= new Map<string, [number, number]>());
+      const progress = knobs.get(args.changeName as string) ?? [0, 0];
+      return progress as T;
+    }
+    case "__e2e_set_task_progress": {
+      const knobs = (s.taskProgressByChange ??= new Map<string, [number, number]>());
+      knobs.set(args.changeName as string, [args.completed as number, args.total as number]);
+      return undefined as T;
+    }
     case "plan_run_pause":
       return undefined as T;
     case "plan_run_cancel":
@@ -1436,6 +1453,9 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
 
 // E2E hook: let Playwright tests drive mocked commands directly (e.g. seed
 // ideas during a round). Mirrors the `__emit` hook in tauri-event.ts.
+// Named cast: window carries test-only hooks the DOM lib cannot express.
+type TestHookWindow = Window & { __basebuildInvoke?: typeof invoke };
 if (typeof window !== "undefined") {
-  (window as unknown as { __basebuildInvoke?: typeof invoke }).__basebuildInvoke = invoke;
+  const hookWindow: TestHookWindow = window;
+  hookWindow.__basebuildInvoke = invoke;
 }

@@ -11,6 +11,7 @@ import { IntegrationQueue } from "../panels/IntegrationQueue";
 import { ChangesPanel } from "../panels/ChangesPanel";
 import { CompletionCard } from "../panels/CompletionCard";
 import { IdeaRoundsSection } from "./IdeaRoundsSection";
+import { MissionControlBoard } from "./MissionControlBoard";
 import type { PlanRun } from "../../lib/planRuns";
 import { useIdeaState } from "../../state/ideas";
 import type { IdeaCategory, IdeaStatus } from "../../lib/ideas";
@@ -33,7 +34,7 @@ import {
   type SchedulingMode,
 } from "../../lib/planDependencies";
 
-export type PlanningTab = "plans" | "ideas" | "categories" | "flow" | "changes";
+export type PlanningTab = "plans" | "ideas" | "categories" | "flow" | "runs" | "changes";
 
 type PlanningInspectorProps = {
   sessionId: string | null;
@@ -55,6 +56,8 @@ type PlanningInspectorProps = {
   onGenerateFromFinishedPlans?: () => void;
   onStartIdeaRound?: () => void;
   onGenerateCategories?: () => void;
+  /** Open grid panels (panel id ↔ chat session id) for mission control. */
+  chatPanels?: { panelId: string; chatSessionId: string | null }[];
   activeChatSessionId?: string | null;
   showHeader?: boolean;
   hostContext?: "dock" | "modal";
@@ -90,6 +93,7 @@ export function PlanningInspector({
   onGenerateFromFinishedPlans,
   onStartIdeaRound,
   onGenerateCategories,
+  chatPanels,
   activeChatSessionId,
   showHeader = true,
   hostContext = "dock",
@@ -651,6 +655,14 @@ export function PlanningInspector({
             Flow
           </button>
           <button
+            className={`inspector-tab${tab === "runs" ? " is-active" : ""}`}
+            type="button"
+            title="Mission control — live run cards with progress and estimates"
+            onClick={() => setTab("runs")}
+          >
+            Runs
+          </button>
+          <button
             className={`inspector-tab${tab === "changes" ? " is-active" : ""}`}
             type="button"
             title="OpenSpec change catalog — browse and toggle tasks"
@@ -1024,6 +1036,12 @@ export function PlanningInspector({
             onReview={() => { /* Future: focus review queue */ }}
             onMerge={() => { /* Future: open merge queue */ }}
             onArchiveSync={() => { setTab("changes"); }}
+            onStageClick={(stage) => {
+              if (stage === "queued" || stage === "running" || stage === "blocked" || stage === "review") setTab("runs");
+              else if (stage === "ideas") setTab("ideas");
+              else if (stage === "finished") setTab("changes");
+              else setTab("plans");
+            }}
           />
           {/* Launch profile */}
           <div className="launch-profile-form" title="Configure how ready plans are launched">
@@ -1235,6 +1253,16 @@ export function PlanningInspector({
           {/* Merge-review queue */}
           <MergeQueue />
         </div>
+      ) : null}
+
+      {tab === "runs" ? (
+        <MissionControlBoard
+          sessionId={sessionId}
+          projectPath={projectPath}
+          plans={plans}
+          chatPanels={chatPanels}
+          onOpenChatSession={onOpenChatSession}
+        />
       ) : null}
 
       {tab === "changes" ? (

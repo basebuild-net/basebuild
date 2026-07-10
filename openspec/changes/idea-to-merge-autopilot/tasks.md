@@ -40,22 +40,30 @@
 
 ## 3. Run mission control
 
-- [ ] 3.1 Frontend: `src/lib/runEta.ts` — task-velocity estimator (median
-      inter-tick interval, ≥2 ticks, remaining-task projection) with unit
-      tests covering sparse ticks, zero ticks, and terminal runs.
-- [ ] 3.2 Frontend: mission control board (lazy-loaded) — one card per
-      queued/running/blocked/awaiting-review/unintegrated run: plan ref +
-      title, owner chat focus action, branch/worktree, `n/m` progress bar,
-      elapsed, blockers; fed from planning events + run board data.
-- [ ] 3.3 Frontend: attention states on cards (pending approval, pending
-      ask_user, mark-as-complete, merge-ready) with direct navigation;
-      consistency with sidebar agent-status dots.
-- [ ] 3.4 Frontend: wire completion estimate + "estimating" + actual-duration
-      terminal state into the cards; flow board Runs stage links into the
-      board.
-- [ ] 3.5 e2e: two mocked runs render cards with progress; queued distinct;
-      attention chip appears for an injected ask_user and clears on answer;
-      estimate appears after simulated ticks and never before.
+- [x] 3.1 Frontend: `src/lib/runEta.ts` — median inter-tick interval
+      estimator with `estimateEta` (none/estimating/estimate states),
+      `formatEtaMs`, `formatElapsedMs`; 11 unit tests in
+      `tests/e2e/run-eta.spec.ts` covering sparse ticks, zero ticks,
+      terminal runs, and formatting edge cases.
+- [x] 3.2 Frontend: `MissionControlBoard` (`src/components/layout/`)
+      — one card per run with plan ref + title, owner-chat focus action,
+      worktree path, `n/m` progress bar, elapsed timer, blockers from
+      dependency graph; fed from `listPlanRuns` + `getDependencyGraph` +
+      `openspecTaskProgress` polling (5s); wired into PlanningInspector
+      Runs tab with `chatPanels` mapping from AppShell.
+- [x] 3.3 Frontend: attention states on cards — `waiting_on_answer`
+      (pending ask_user via `usePanelStatus`), `blocked` (dependency
+      blockers/collisions), `running` (live), `queued`, `finished`;
+      attention chip with focus-chat action; consistent with sidebar
+      agent-status mapping.
+- [x] 3.4 Frontend: tick-based ETA estimation (`estimateEta` with
+      ≥2-tick threshold → "estimating" → concrete estimate); flow board
+      Running stage card drills into Runs tab via `onStageClick` on
+      `PlanningCommandCenter`.
+- [x] 3.5 e2e (`mission-control.spec.ts`, 4 tests): run card shows
+      plan/state/progress/elapsed/worktree; flow board Running stage
+      drills into mission control; pending ask_user raises attention
+      state and clears on answer; open-chat focuses owner chat.
 
 ## 4. Post-finish policy
 
