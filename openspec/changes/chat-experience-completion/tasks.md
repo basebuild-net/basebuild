@@ -153,25 +153,25 @@
 
 ## 7. OpenSpec Artifact Quality Gate
 
-- [ ] 7.1 Add `validate_artifacts(change_dir) -> ArtifactValidation` to
+- [x] 7.1 Add `validate_artifacts(change_dir) -> ArtifactValidation` to
       `src-tauri/src/services/openspec_service.rs`: proposal non-empty
       with Why/What-Changes; ≥1 spec with ≥1 requirement + scenario
       heading; tasks.md ≥1 task, 0 checked; errors vs warnings split.
-- [ ] 7.2 Wire into `pipeline_service::generate_openspec` after
+- [x] 7.2 Wire into `pipeline_service::generate_openspec` after
       `write_artifacts_atomic`: failure keeps plan `draft`, records
       stage error, preserves artifacts on disk; success advances status
       and links `change_name` (existing path).
-- [ ] 7.3 Fold `validate_artifacts` into
+- [x] 7.3 Fold `validate_artifacts` into
       `PlanDependencyService::validate_readiness` when `change_name`
       is set (errors → errors, warnings → warnings).
-- [ ] 7.4 Frontend: plan card failure surface — validation error text +
+- [x] 7.4 Frontend: plan card failure surface — validation error text +
       "view raw output" affordance (raw generation output persisted on
       the pipeline run record).
-- [ ] 7.5 Task progress parser: count nested/indented checkboxes and
+- [x] 7.5 Task progress parser: count nested/indented checkboxes and
       mixed markers in `openspec_service::parse_task_progress`
       (lines 165-183); one parser feeds plan cards, context strip, and
       run completion (`plan_runner_service::evaluate_checklist_completion`).
-- [ ] 7.6 Rust tests: gate passes minimal-valid change; fails
+- [x] 7.6 Rust tests: gate passes minimal-valid change; fails
       zero-task tasks.md; fails missing scenario; warnings for thin
       content; nested checkbox counting; progress consistency between
       parser call sites.

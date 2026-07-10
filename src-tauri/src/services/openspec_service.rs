@@ -148,17 +148,29 @@ pub fn write_artifacts_atomic(
 }
 
 /// Parse the completed/total checkbox counts from a `tasks.md` string.
-/// Recognizes both `- [x]` and `- [ ]` checkbox syntax.
+/// Recognizes `- [x]`, `- [ ]`, `* [x]`, `* [ ]`, and indented variants
+/// (nested checkboxes). Also handles `- [X]` (uppercase). Mixed markers
+/// and arbitrary indentation depth are supported.
 pub fn parse_task_progress(tasks_content: &str) -> (u32, u32) {
     let mut completed = 0u32;
     let mut total = 0u32;
     for line in tasks_content.lines() {
         let trimmed = line.trim_start();
-        if trimmed.starts_with("- [x]") || trimmed.starts_with("- [X]") {
-            completed += 1;
-            total += 1;
-        } else if trimmed.starts_with("- [ ]") {
-            total += 1;
+        // Match both `-` and `*` bullet markers with checkbox syntax.
+        let checkbox = if trimmed.starts_with("- [") {
+            Some(&trimmed[3..])
+        } else if trimmed.starts_with("* [") {
+            Some(&trimmed[3..])
+        } else {
+            None
+        };
+        if let Some(rest) = checkbox {
+            if rest.starts_with('x') || rest.starts_with('X') {
+                completed += 1;
+                total += 1;
+            } else if rest.starts_with(' ') {
+                total += 1;
+            }
         }
     }
     (completed, total)
@@ -698,6 +710,116 @@ pub fn archive_change(project_path: &str, change_name: &str) -> DbResult<()> {
     Ok(())
 }
 
+/// Result of validating OpenSpec change artifacts on disk.
+/// Errors block plan status advancement; warnings are advisory.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactValidation {
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
+    pub valid: bool,
+}
+
+/// Validate that a change directory has the required artifact structure:
+/// - `proposal.md` non-empty with Why/What-Changes sections
+/// - ≥1 spec file with ≥1 requirement + scenario heading
+/// - `tasks.md` with ≥1 task, 0 checked
+/// Errors block plan advancement; warnings flag thin content.
+pub fn validate_artifacts(change_dir: &std::path::Path) -> ArtifactValidation {
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+
+    // --- proposal.md ---
+    let proposal_path = change_dir.join("proposal.md");
+    let proposal = match std::fs::read_to_string(&proposal_path) {
+        Ok(content) => content,
+        Err(_) => {
+            errors.push("proposal.md is missing".to_string());
+            String::new()
+        }
+    };
+    if proposal.trim().is_empty() && !errors.iter().any(|e| e.contains("proposal.md is missing")) {
+        errors.push("proposal.md is empty".to_string());
+    }
+    if !proposal.is_empty() {
+        let lower = proposal.to_lowercase();
+        if !lower.contains("## why") && !lower.contains("# why") {
+            errors.push("proposal.md missing '## Why' section".to_string());
+        }
+        if !lower.contains("## what-changes") && !lower.contains("## what changes") && !lower.contains("# what-changes") {
+            errors.push("proposal.md missing '## What-Changes' section".to_string());
+        }
+        // Warning for thin proposal (< 100 chars of content).
+        if proposal.trim().len() < 100 {
+            warnings.push("proposal.md is very short (< 100 chars)".to_string());
+        }
+    }
+
+    // --- specs/ ---
+    let specs_dir = change_dir.join("specs");
+    let mut spec_count = 0;
+    let mut found_requirement = false;
+    let mut found_scenario = false;
+    if specs_dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&specs_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                if entry.path().is_dir() {
+                    // Each spec is a directory with spec.md inside.
+                    let spec_md = entry.path().join("spec.md");
+                    if spec_md.exists() {
+                        spec_count += 1;
+                        if let Ok(spec_content) = std::fs::read_to_string(&spec_md) {
+                            let lower = spec_content.to_lowercase();
+                            if lower.contains("### requirement") || lower.contains("## requirement") {
+                                found_requirement = true;
+                            }
+                            if lower.contains("### scenario") || lower.contains("## scenario") || lower.contains("#### scenario") {
+                                found_scenario = true;
+                            }
+                            // Warning for thin spec (< 50 chars).
+                            if spec_content.trim().len() < 50 {
+                                warnings.push(format!("spec '{}' is very thin", entry.file_name().to_string_lossy()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if spec_count == 0 {
+        errors.push("no spec directories with spec.md found".to_string());
+    } else {
+        if !found_requirement {
+            errors.push("no spec contains a requirement heading".to_string());
+        }
+        if !found_scenario {
+            errors.push("no spec contains a scenario heading".to_string());
+        }
+    }
+
+    // --- tasks.md ---
+    let tasks_path = change_dir.join("tasks.md");
+    let tasks_content = match std::fs::read_to_string(&tasks_path) {
+        Ok(content) => content,
+        Err(_) => {
+            errors.push("tasks.md is missing".to_string());
+            String::new()
+        }
+    };
+    if !tasks_content.is_empty() {
+        let (completed, total) = parse_task_progress(&tasks_content);
+        if total == 0 {
+            errors.push("tasks.md has no task checkboxes".to_string());
+        }
+        if completed > 0 {
+            warnings.push(format!("tasks.md has {completed} pre-checked task(s); expected 0 for a new change"));
+        }
+    }
+
+    let valid = errors.is_empty();
+    ArtifactValidation { errors, warnings, valid }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -948,5 +1070,105 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.contains("Cannot unlink"), "Expected active-plan rejection, got: {err}");
+    }
+
+    fn make_valid_change_dir(dir: &std::path::Path) {
+        std::fs::create_dir_all(dir.join("specs/test-cap")).unwrap();
+        std::fs::write(dir.join("proposal.md"), "# Proposal\n\n## Why\nThis is a sufficiently long proposal that explains the rationale for the change in detail.\n\n## What-Changes\n- Added feature X\n- Modified feature Y\n").unwrap();
+        std::fs::write(dir.join("specs/test-cap/spec.md"), "# Test Capability\n\n### Requirement: Must do the thing\n\nThe system must do the thing.\n\n### Scenario: User does the thing\n\n- Given a user\n- When they do the thing\n- Then it works\n").unwrap();
+        std::fs::write(dir.join("tasks.md"), "# Tasks\n\n- [ ] 1.1 First task\n- [ ] 1.2 Second task\n").unwrap();
+    }
+
+    #[test]
+    fn validate_artifacts_passes_minimal_valid_change() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        make_valid_change_dir(tmp.path());
+        let result = validate_artifacts(tmp.path());
+        assert!(result.valid, "Expected valid, errors: {:?}", result.errors);
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn validate_artifacts_fails_zero_task_tasks_md() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        make_valid_change_dir(tmp.path());
+        // Overwrite tasks.md with no checkboxes.
+        std::fs::write(tmp.path().join("tasks.md"), "# Tasks\n\nNo tasks here.\n").unwrap();
+        let result = validate_artifacts(tmp.path());
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.contains("no task checkboxes")));
+    }
+
+    #[test]
+    fn validate_artifacts_fails_missing_scenario() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        make_valid_change_dir(tmp.path());
+        // Overwrite spec.md with a requirement but no scenario.
+        std::fs::write(tmp.path().join("specs/test-cap/spec.md"), "# Test\n\n### Requirement: Must do\n\nDo the thing.\n").unwrap();
+        let result = validate_artifacts(tmp.path());
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.contains("scenario")));
+    }
+
+    #[test]
+    fn validate_artifacts_fails_missing_proposal() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        make_valid_change_dir(tmp.path());
+        // Remove proposal.md.
+        std::fs::remove_file(tmp.path().join("proposal.md")).unwrap();
+        let result = validate_artifacts(tmp.path());
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.contains("proposal.md is missing")));
+    }
+
+    #[test]
+    fn validate_artifacts_warns_on_thin_content() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        make_valid_change_dir(tmp.path());
+        // Make proposal very short.
+        std::fs::write(tmp.path().join("proposal.md"), "# Proposal\n\n## Why\nShort.\n\n## What-Changes\n- X\n").unwrap();
+        let result = validate_artifacts(tmp.path());
+        assert!(result.valid, "Thin content should warn, not error");
+        assert!(result.warnings.iter().any(|w| w.contains("very short")));
+    }
+
+    #[test]
+    fn validate_artifacts_warns_on_pre_checked_tasks() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        make_valid_change_dir(tmp.path());
+        // Write tasks.md with a pre-checked task.
+        std::fs::write(tmp.path().join("tasks.md"), "# Tasks\n\n- [x] 1.1 Already done\n- [ ] 1.2 Second task\n").unwrap();
+        let result = validate_artifacts(tmp.path());
+        assert!(result.valid, "Pre-checked tasks should warn, not error");
+        assert!(result.warnings.iter().any(|w| w.contains("pre-checked")));
+    }
+
+    #[test]
+    fn parse_task_progress_counts_nested_checkboxes() {
+        let tasks = r#"# Tasks
+
+## Phase 1
+
+- [x] 1.1 Top-level task
+  - [ ] 1.1a Nested subtask
+  - [x] 1.1b Nested done
+- [ ] 1.2 Another task
+
+## Phase 2
+
+* [x] 2.1 Star marker
+* [ ] 2.2 Star todo
+"#;
+        let (completed, total) = parse_task_progress(tasks);
+        assert_eq!(completed, 3, "Should count 3 completed (1.1, 1.1b, 2.1)");
+        assert_eq!(total, 6, "Should count 6 total checkboxes");
+    }
+
+    #[test]
+    fn parse_task_progress_mixed_markers() {
+        let tasks = "- [x] dash done\n* [ ] star todo\n- [X] uppercase done\n* [x] star done";
+        let (completed, total) = parse_task_progress(tasks);
+        assert_eq!(completed, 3);
+        assert_eq!(total, 4);
     }
 }

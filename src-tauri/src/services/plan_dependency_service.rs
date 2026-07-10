@@ -468,29 +468,29 @@ impl PlanDependencyService {
             if let Err(e) = validate_change_name(change_name) {
                 errors.push(e);
             } else {
-            let session = crate::services::session_service::SessionService::get(&plan.session_id)
-                .ok()
-                .flatten();
-            if let Some(s) = session {
-                let change_dir = std::path::Path::new(&s.project_path)
-                    .join("openspec/changes")
-                    .join(change_name);
-                if !change_dir.exists() {
-                    warnings.push(format!(
-                        "Change directory '{}' not found — artifacts may not be generated yet.",
-                        change_name
-                    ));
-                } else {
-                    // Check for tasks.md.
-                    let tasks_path = change_dir.join("tasks.md");
-                    if !tasks_path.exists() {
+                let session = crate::services::session_service::SessionService::get(&plan.session_id)
+                    .ok()
+                    .flatten();
+                if let Some(s) = session {
+                    let change_dir = std::path::Path::new(&s.project_path)
+                        .join("openspec/changes")
+                        .join(change_name);
+                    if !change_dir.exists() {
                         warnings.push(format!(
-                            "tasks.md not found in change '{}' — validation incomplete.",
+                            "Change directory '{}' not found — artifacts may not be generated yet.",
                             change_name
                         ));
+                    } else {
+                        // Fold in artifact validation: errors → errors, warnings → warnings.
+                        let validation = crate::services::openspec_service::validate_artifacts(&change_dir);
+                        for err in validation.errors {
+                            errors.push(format!("Artifact: {}", err));
+                        }
+                        for warn in validation.warnings {
+                            warnings.push(format!("Artifact: {}", warn));
+                        }
                     }
                 }
-            }
             }
         }
 

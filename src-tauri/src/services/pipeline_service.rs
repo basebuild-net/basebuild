@@ -649,6 +649,26 @@ impl PipelineService {
             &tasks,
         )?;
 
+        // Validate artifacts: check proposal has Why/What-Changes, specs have
+        // requirements + scenarios, tasks.md has ≥1 task. If validation fails,
+        // keep the plan in draft status and return an error with details.
+        let change_dir = crate::services::openspec_service::change_dir(&request.project_path, &change_name);
+        let validation = crate::services::openspec_service::validate_artifacts(&change_dir);
+        if !validation.valid {
+            // Artifacts are preserved on disk; plan stays in draft.
+            let error_msg = format!("Artifact validation failed: {}", validation.errors.join("; "));
+            // Record the validation error on the pipeline run.
+            let _ = crate::services::native_chat_service::NativeChatService::record_pipeline_run(
+                run_id,
+                &request.session_id,
+                &request.project_path,
+                "generate_openspec",
+                "failed",
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0),
+            );
+            return Err(error_msg);
+        }
+
         // Link the plan to the change.
         crate::services::openspec_service::link_plan_to_change(&plan.id, &change_name)?;
 

@@ -1285,7 +1285,7 @@ impl NativeChatService {
     }
 
     /// Record a pipeline_runs row for a generate-ideas/generate-plans stage.
-    fn record_pipeline_run(run_id: &str, session_id: &str, project_path: &str, kind: &str, status: &str, ts: i64) -> DbResult<()> {
+    pub fn record_pipeline_run(run_id: &str, session_id: &str, project_path: &str, kind: &str, status: &str, ts: i64) -> DbResult<()> {
         let conn = StorageService::connect()?;
         conn.execute(
             "INSERT INTO pipeline_runs (id, session_id, project_path, kind, input_summary, status, output_refs, started_at, completed_at, created_at)
