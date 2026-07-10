@@ -404,6 +404,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return undefined as T;
     case "native_chat_cancel":
       return true as T;
+    case "native_chat_resolve_approval":
+      return true as T;
     case "native_chat_tool_events":
       return s.nativeToolEvents
         .filter((e) => e.sessionId === (args.sessionId as string))

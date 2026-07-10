@@ -63,4 +63,36 @@ test.describe("chat streaming phases", () => {
 
     await expect(page.locator(".chat-messages")).not.toContainText("leaked text");
   });
+
+  test("Stop during a streaming turn unlocks the composer", async ({ page }) => {
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+
+    await page.locator(".chat-provider-trigger").click();
+    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.getByTitle("Close provider and model catalog").click();
+
+    await page.getByTitle(/Chat input/).first().fill("stream-test");
+    await page.getByTitle("Send message").click();
+
+    // While the turn is in flight, the send button becomes Stop.
+    const stopBtn = page.locator(".chat-stop-btn");
+    await expect(stopBtn).toBeVisible({ timeout: 3_000 });
+    await stopBtn.click();
+
+    // Stop frees the composer immediately: input enabled, Stop replaced by
+    // Send, and no streaming indicators remain.
+    await expect(page.getByTitle(/Chat input/).first()).toBeEnabled({ timeout: 5_000 });
+    await expect(stopBtn).toHaveCount(0, { timeout: 5_000 });
+    await expect(page.locator(".chat-thinking-indicator")).toHaveCount(0);
+
+    // The project status dot settles out of running.
+    await expect(
+      page.locator(".activity-sidebar-project .agent-status-dot").first(),
+    ).not.toHaveClass(/agent-status-running/, { timeout: 5_000 });
+
+    // The composer accepts a new message after stop.
+    await page.getByTitle(/Chat input/).first().fill("follow-up");
+    await expect(page.getByTitle("Send message")).toBeEnabled();
+  });
 });

@@ -34,7 +34,12 @@ test.describe("MVP atomic project activation", () => {
   test("rapid A→B→C settles only C", async ({ page }) => {
     const logs = collectLogs(page);
     const start = Date.now();
-    await openMvpFixtureProject(page, { restoreDelayMs: 250 });
+    // 1500ms restore delay: wide enough that three sequential real clicks
+    // (each with actionability waits and re-render storms between them)
+    // always land before the first restore resolves, so A and B go stale
+    // deterministically. The generation guard is the contract under test,
+    // not the click cadence.
+    await openMvpFixtureProject(page, { restoreDelayMs: 1500 });
     await waitForAppReady(page);
 
     const projectA = fixtureProject(0);
@@ -61,10 +66,15 @@ test.describe("MVP atomic project activation", () => {
     await attachLogs(logs, "activation-rapid-abc-logs.txt");
     await attachTiming("activation-rapid-abc", settleMs);
 
-    const staleLogs = logs.filter((line) =>
-      line.includes("Restore skipped (stale)"),
-    );
-    expect(staleLogs.length).toBeGreaterThanOrEqual(2);
+    // Superseded restores log "Restore skipped (stale)" only when their
+    // delayed promise resolves (click + restoreDelayMs), which is after C's
+    // header renders. Poll instead of snapshotting the log buffer.
+    await expect
+      .poll(
+        () => logs.filter((line) => line.includes("Restore skipped (stale)")).length,
+        { timeout: 5_000 },
+      )
+      .toBeGreaterThanOrEqual(2);
 
     // The active project is charlie (already verified on line 54-56).
     // Verify the chat panel is visible and the project name is correct.

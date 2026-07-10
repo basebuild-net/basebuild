@@ -1153,6 +1153,7 @@ export function AppShell({ updates }: AppShellProps) {
   );
 
   return (
+    <PanelStatusProvider>
     <div className="app-container app-container-chat-first">
       {restorePhase !== "ready" ? <WorkspaceSplash phase={restorePhase} /> : null}
       <div className="window-taskbar" role="banner">
@@ -1250,7 +1251,7 @@ export function AppShell({ updates }: AppShellProps) {
               <ProjectSwitchingOverlay projectName={activeProjectPath.split(/[\\/]/).pop() ?? activeProjectPath} />
             ) : null}
             {activeProjectPath && !projectRestoreError && !projectRestoreLoading ? (
-              <PanelStatusProvider>
+              <>
                 <PanelGrid
                   state={panelGridState}
                   onStateChange={handlePanelGridChange}
@@ -1269,7 +1270,7 @@ export function AppShell({ updates }: AppShellProps) {
                     />
                   </Suspense>
                 ) : null}
-              </PanelStatusProvider>
+              </>
             ) : null}
           </div>
         </section>
@@ -1494,5 +1495,6 @@ export function AppShell({ updates }: AppShellProps) {
         ) : null}
       </div>
     </div>
+    </PanelStatusProvider>
   );
 }
