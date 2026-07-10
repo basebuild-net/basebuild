@@ -49,26 +49,26 @@
 
 ## 3. Tool Card Depth
 
-- [ ] 3.1 Backend diff: add a minimal LCS line-diff helper in
+- [x] 3.1 Backend diff: add a minimal LCS line-diff helper in
       `src-tauri/src/services/tool_runtime_service.rs`; `edit_file` /
       `write_file` results carry a unified `diff` field (cap 400 lines,
       head/tail elision marker, unchanged → explicit "no changes");
       extend the tool event payload accordingly
       (`models/native_chat.rs` NativeToolEvent additive field).
-- [ ] 3.2 Rust tests: diff added/removed counts, elision over cap,
+- [x] 3.2 Rust tests: diff added/removed counts, elision over cap,
       unchanged short-circuit, multi-hunk output.
-- [ ] 3.3 Frontend `ToolEventCard` (`ChatPanel.tsx:165-310`): per-kind
+- [x] 3.3 Frontend `ToolEventCard` (`ChatPanel.tsx:165-310`): per-kind
       icons, duration display, expanded key/value argument table with
       nested JSON pretty-printed, result via `MarkdownView` or code
       block, diff rendering with add/remove line classes
       (`globals.css`).
-- [ ] 3.4 Approval provenance line on gated tool cards from existing
+- [x] 3.4 Approval provenance line on gated tool cards from existing
       `decision`/`ruleSource` fields: "Approved by user" / "Denied by
       user" / "Allowed by rule `<pattern>`" / "Auto (mode)" — text +
       icon, tooltip carries rule source.
-- [ ] 3.5 Expansion state persistence: expanded cards stay expanded
+- [x] 3.5 Expansion state persistence: expanded cards stay expanded
       while the turn streams (key by tool call id, not index).
-- [ ] 3.6 e2e: extend `tests/e2e/streaming-indicators.spec.ts` or add
+- [x] 3.6 e2e: extend `tests/e2e/streaming-indicators.spec.ts` or add
       `tool-card-depth.spec.ts` — expanded card shows argument table +
       diff lines + provenance text for a fixture edit tool event.
 

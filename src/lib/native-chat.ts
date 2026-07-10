@@ -38,6 +38,10 @@ export type NativeToolEvent = {
   arguments: string | null;
   /** Unified line diff for edit_file/write_file results. */
   diff: string | null;
+  /** How the approval decision was made: "approved", "denied", "auto", "rule". */
+  decision: string | null;
+  /** The rule pattern that matched, if any. */
+  ruleSource: string | null;
   sequence: number;
   createdAt: number;
 };

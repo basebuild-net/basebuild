@@ -940,6 +940,26 @@ impl StorageService {
                 [],
             );
         }
+        // Migration (chat-experience-completion): add decision + rule_source
+        // columns to native_tool_events for approval provenance display.
+        let has_tool_decision = connection
+            .prepare("SELECT decision FROM native_tool_events LIMIT 0")
+            .is_ok();
+        if !has_tool_decision {
+            let _ = connection.execute(
+                "ALTER TABLE native_tool_events ADD COLUMN decision TEXT",
+                [],
+            );
+        }
+        let has_tool_rule_source = connection
+            .prepare("SELECT rule_source FROM native_tool_events LIMIT 0")
+            .is_ok();
+        if !has_tool_rule_source {
+            let _ = connection.execute(
+                "ALTER TABLE native_tool_events ADD COLUMN rule_source TEXT",
+                [],
+            );
+        }
 
         // Migration (planning-system-qol): add title_locked to sessions so
         // auto-titling never overwrites a user-set title. Default 0 (unset).

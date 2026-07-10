@@ -46,6 +46,12 @@ pub struct NativeToolEvent {
     /// Unified line diff for `edit_file`/`write_file` results.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diff: Option<String>,
+    /// How the execution decision was made: "approved", "denied", "auto", "rule".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision: Option<String>,
+    /// The rule pattern that matched, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_source: Option<String>,
     /// Stable per-session monotonic order. Survives timestamp ties.
     pub sequence: i64,
     pub created_at: i64,

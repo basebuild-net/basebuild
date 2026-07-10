@@ -1233,6 +1233,7 @@ a { color: inherit; text-decoration: none; }
 .diff-add { color: var(--bb-status-success, #10b981); background: rgba(16, 185, 129, 0.08); }
 .diff-del { color: var(--bb-status-error, #ef4444); background: rgba(239, 68, 68, 0.08); }
 .diff-ctx { color: var(--bb-muted); }
+.tool-card-provenance { padding: 2px 0 0; font-style: italic; color: var(--bb-muted); }
 .tool-card-actions { display: flex; gap: 4px; padding: 4px 8px; border-top: 1px solid var(--bb-border); }
 .tool-card-debug { margin-top: 6px; padding: 4px; border: 1px dashed var(--bb-border); background: var(--bb-bg); }
 .tool-card-debug-label { font-size: 9px; font-weight: 600; text-transform: uppercase; color: var(--bb-muted); }

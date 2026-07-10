@@ -190,8 +190,21 @@ function ThinkingBlock({ text }: { text: string }) {
   );
 }
 
+// Module-level expansion state for tool cards. Keyed by tool event id,
+// survives re-renders during streaming so a card the user expanded stays
+// expanded as the event updates from pending → running → success.
+const toolCardExpanded = new Map<string, boolean>();
+
 function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode }: { event: NativeToolEvent; onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void; debugMode?: boolean; onSetApprovalMode?: (mode: "safe" | "balanced" | "auto") => void; }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(() => toolCardExpanded.get(event.id) ?? false);
+  const toggleExpanded = useCallback(() => {
+    setExpanded((prev) => {
+      const next = !prev;
+      toolCardExpanded.set(event.id, next);
+      return next;
+    });
+  }, [event.id]);
+
   const isRunning = event.status === "running" || event.status === "pending";
   const isError = event.status === "error" || event.status === "denied";
   const isApproval = event.status === "pending";
@@ -202,10 +215,11 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
   const statusClass = isRunning ? "running" : isError ? "error" : event.status === "success" || event.status === "recorded" || event.status === "allow" ? "success" : "info";
   const showExpanded = expanded || isApproval || event.status === "running";
 
-  const hasDiff = isEdit && /^\+|-/m.test(event.summary);
-  const diffLines = hasDiff ? event.summary.split("\n") : [];
-  const filePathMatch = event.summary.match(/(?:Edited|Wrote|Modified)\s+(.+?)(?::|\s)/);
-  const filePath = filePathMatch?.[1] ?? null;
+  // Prefer the structured diff field from the backend; fall back to
+  // parsing the summary for legacy events that predate the diff column.
+  const hasDiff = isEdit && (event.diff != null || /^\+|-/m.test(event.summary));
+  const diffText = event.diff ?? (hasDiff ? event.summary : "");
+  const diffLines = diffText.split("\n").filter((l) => l.length > 0);
 
   const timeStr = event.createdAt
     ? new Date(event.createdAt * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })
@@ -246,9 +260,25 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
     }
     return null;
   })();
+
+  // Approval provenance: how was this tool call decided?
+  const provenance = (() => {
+    if (!event.decision) return null;
+    const dec = event.decision;
+    if (dec === "approved") {
+      return event.ruleSource ? `Allowed by rule: ${event.ruleSource}` : "Allowed by user";
+    }
+    if (dec === "denied") {
+      return event.ruleSource ? `Denied by rule: ${event.ruleSource}` : "Denied by user";
+    }
+    if (dec === "auto") return "Auto-approved (session mode)";
+    if (dec === "pending") return "Approval pending";
+    return dec;
+  })();
+
   return (
-    <div className={`tool-card tool-card-${statusClass}${isApproval ? " tool-card-approval" : ""}`} title={`${event.kind}: ${event.status}${timeStr ? ` at ${timeStr}` : ""}`}>
-      <div className="tool-card-header" onClick={() => !isApproval && setExpanded(!expanded)} role={isApproval ? undefined : "button"} tabIndex={isApproval ? -1 : 0}>
+    <div className={`tool-card tool-card-${statusClass}${isApproval ? " tool-card-approval" : ""}`} title={`${event.kind}: ${event.status}${timeStr ? ` at ${timeStr}` : ""}${provenance ? ` — ${provenance}` : ""}`}>
+      <div className="tool-card-header" onClick={() => { if (!isApproval) toggleExpanded(); }} role={isApproval ? undefined : "button"} tabIndex={isApproval ? -1 : 0}>
         <span className="tool-card-icon">{icon}</span>
         <span className="tool-card-name">{event.kind.replace(/_/g, " ")}</span>
         {argDisplay ? <code className="tool-card-arg-value" title={`${argDisplay.label}: ${argDisplay.value}`}>{argDisplay.value}</code> : null}
@@ -271,13 +301,18 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
             </div>
           ) : null}
           {hasDiff ? (
-            <pre className="tool-card-diff">
+            <pre className="tool-card-diff" title="Unified line diff (added/removed lines)">
               {diffLines.map((line, i) => (
                 <span key={i} className={line.startsWith("+") ? "diff-add" : line.startsWith("-") ? "diff-del" : "diff-ctx"}>{line}{"\n"}</span>
               ))}
             </pre>
           ) : !isApproval ? (
             <pre className="tool-card-summary">{event.summary}</pre>
+          ) : null}
+          {provenance ? (
+            <div className="tool-card-provenance text-muted text-sm" title={`Decision: ${event.decision}${event.ruleSource ? ` — rule: ${event.ruleSource}` : ""}`}>
+              {provenance}
+            </div>
           ) : null}
           {debugMode ? (
             <div className="tool-card-debug" title="Raw event data (debug mode)">
@@ -666,6 +701,7 @@ export function ChatPanel({
       status: string;
       summary: string;
       arguments?: string;
+      diff?: string;
       decision?: string;
       ruleSource?: string;
     }>("native-chat://tool-event", (event) => {
@@ -676,6 +712,9 @@ export function ChatPanel({
       }
       const id = event.payload.toolCallId ?? `te-${Date.now()}-${Math.random()}`;
       const args = event.payload.arguments ?? null;
+      const diff = event.payload.diff ?? null;
+      const decision = event.payload.decision ?? null;
+      const ruleSource = event.payload.ruleSource ?? null;
       setToolEvents((prev) => {
         const existing = prev.find((e) => e.id === id);
         if (existing) {
@@ -685,6 +724,9 @@ export function ChatPanel({
             summary: event.payload.summary,
             kind: event.payload.toolName,
             arguments: args ?? e.arguments,
+            diff: diff ?? e.diff,
+            decision: decision ?? e.decision,
+            ruleSource: ruleSource ?? e.ruleSource,
           } : e);
         }
         return [...prev, {
@@ -695,6 +737,9 @@ export function ChatPanel({
           status: event.payload.status,
           summary: event.payload.summary,
           arguments: args,
+          diff,
+          decision,
+          ruleSource,
           sequence: prev.length + 1,
           createdAt: Math.floor(Date.now() / 1000),
         }];
@@ -739,6 +784,9 @@ export function ChatPanel({
           status: "pending",
           summary,
           arguments: args || null,
+          diff: null,
+          decision: null,
+          ruleSource: null,
           sequence: prev.length + 1,
           createdAt: Math.floor(Date.now() / 1000),
         }];

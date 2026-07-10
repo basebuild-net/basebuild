@@ -76,6 +76,21 @@ type NativeRequestMetric = {
   createdAt: number;
 };
 
+type NativeToolEvent = {
+  id: string;
+  sessionId: string;
+  messageId: string | null;
+  kind: string;
+  status: string;
+  summary: string;
+  arguments: string | null;
+  diff: string | null;
+  decision: string | null;
+  ruleSource: string | null;
+  sequence: number;
+  createdAt: number;
+};
+
 type Idea = {
   id: string;
   sessionId: string;
@@ -125,7 +140,7 @@ type E2eState = {
   nextNativeChatId: number;
   nextNativeMessageId: number;
   nextNativeMetricId: number;
-  nativeChatSessions: NativeChatSession[];
+  nativeToolEvents: NativeToolEvent[];
   nativeChatMessages: NativeChatMessage[];
   nativeRequestMetrics: NativeRequestMetric[];
   categories: Category[];
@@ -266,6 +281,7 @@ function state(): E2eState {
       nativeChatSessions: [],
       nativeChatMessages: [],
       nativeRequestMetrics: [],
+      nativeToolEvents: [],
       categories: [],
       ideas: [],
       nextCategoryId: 1,
@@ -386,7 +402,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "native_chat_cancel":
       return undefined as T;
     case "native_chat_tool_events":
-      return [] as T;
+      return s.nativeToolEvents.filter((e) => e.sessionId === (args.sessionId as string)) as T;
     case "native_interaction_list_all":
     case "native_interaction_list_pending": {
       const w = globalThis as unknown as { __basebuildMockInteraction?: unknown };
@@ -808,6 +824,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         ? "Here are your options:\nA. Commit the changes\nB. Create a pull request\nC. Abort and revert\n"
         : req.content.includes("markdown-test")
         ? "Here is a **markdown** response with `inline code`.\n\n## Heading\n\n- Item one\n- Item two\n- Item three\n\n> A blockquote with wisdom.\n\n| Col A | Col B |\n|-------|-------|\n| 1 | 2 |\n| 3 | 4 |\n\n```ts\nconst x: string = \"hello\";\nconsole.log(x);\n```\n\n<script>alert(1)</script>\n\n[Example](https://example.com)"
+        : req.content.includes("tool-card-test")
+        ? "I'll write a file and run a command for you."
         : `Native harness echo: ${req.content}`;
       const assistantMessage: NativeChatMessage = {
         id: `nmsg-${s.nextNativeMessageId++}`,
@@ -844,11 +862,61 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         createdAt: ts,
       };
       s.nativeRequestMetrics.push(metric);
+      const isToolCardTest = req.content.includes("tool-card-test");
+      const toolEvents: NativeToolEvent[] = isToolCardTest
+        ? [
+            {
+              id: `ntool-write-${ts}`,
+              sessionId: req.sessionId,
+              messageId: assistantMessage.id,
+              kind: "write_file",
+              status: "success",
+              summary: "Wrote 42 bytes to src/hello.ts",
+              arguments: JSON.stringify({ path: "src/hello.ts", content: "console.log('hello');\n" }),
+              diff: "+console.log('hello');\n",
+              decision: "approved",
+              ruleSource: null,
+              sequence: 1,
+              createdAt: ts,
+            },
+            {
+              id: `ntool-edit-${ts}`,
+              sessionId: req.sessionId,
+              messageId: assistantMessage.id,
+              kind: "edit_file",
+              status: "success",
+              summary: "Replaced 1 occurrence(s) in src/hello.ts",
+              arguments: JSON.stringify({ path: "src/hello.ts", old_text: "hello", new_text: "world" }),
+              diff: "-console.log('hello');\n+console.log('world');\n",
+              decision: "approved",
+              ruleSource: "edit_file:src/**",
+              sequence: 2,
+              createdAt: ts,
+            },
+            {
+              id: `ntool-cmd-${ts}`,
+              sessionId: req.sessionId,
+              messageId: assistantMessage.id,
+              kind: "run_command",
+              status: "success",
+              summary: "exit 0:\nhello world",
+              arguments: JSON.stringify({ command: "node src/hello.ts" }),
+              diff: null,
+              decision: "approved",
+              ruleSource: null,
+              sequence: 3,
+              createdAt: ts,
+            },
+          ]
+        : [];
+      if (isToolCardTest) {
+        for (const te of toolEvents) s.nativeToolEvents.push(te);
+      }
       return {
         userMessage,
         assistantMessage,
         metrics: metric,
-        toolEvents: [],
+        toolEvents,
         setupRequired: null,
         offline: (req.providerId ?? "basebuild-local") === "basebuild-local",
       } as T;

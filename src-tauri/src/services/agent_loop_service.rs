@@ -583,6 +583,8 @@ fn process_tool_calls(
                     status: "cancelled".to_string(),
                     full_content: None,
                     diff: None,
+                    decision: None,
+                    rule_source: None,
                 }
             } else if let Some(def) = def {
                 execute_with_gateway(
@@ -600,6 +602,8 @@ fn process_tool_calls(
                     status: "failed".to_string(),
                     full_content: None,
                     diff: None,
+                    decision: None,
+                    rule_source: None,
                 }
             };
             results.lock().push((idx, result));
@@ -625,6 +629,8 @@ fn process_tool_calls(
                 status: "cancelled".to_string(),
                 full_content: None,
                 diff: None,
+                decision: None,
+                rule_source: None,
             };
             results.push((calls[*idx].clone(), result));
             break;
@@ -638,6 +644,8 @@ fn process_tool_calls(
                 status: "failed".to_string(),
                 full_content: None,
                 diff: None,
+                decision: None,
+                rule_source: None,
             }
         };
         record_tool_event(app, session_id, call, &result, tool_events);
@@ -836,11 +844,13 @@ fn execute_with_gateway(
         PermissionDecision::Ask => "pending",
     };
 
-    match decision.decision {
+    let mut result = match decision.decision {
         PermissionDecision::Allow => {
             let start = Instant::now();
-            let result = (def.execute)(workspace, &args);
+            let mut result = (def.execute)(workspace, &args);
             let duration_ms = start.elapsed().as_millis() as i64;
+            result.decision = Some(decision_str.to_string());
+            result.rule_source = decision.rule_source.clone();
             let summary = &result.content[..result.content.len().min(200)];
             let _ = app.emit(
                 "native-chat://tool-event",
@@ -854,6 +864,7 @@ fn execute_with_gateway(
                     "durationMs": duration_ms,
                     "decision": decision_str,
                     "ruleSource": decision.rule_source,
+                    "diff": result.diff,
                 }),
             );
             result
@@ -877,6 +888,8 @@ fn execute_with_gateway(
                 status: "denied".to_string(),
                 full_content: None,
                 diff: None,
+                decision: Some("denied".to_string()),
+                rule_source: decision.rule_source.clone(),
             }
         }
         PermissionDecision::Ask => {
@@ -886,9 +899,12 @@ fn execute_with_gateway(
                 status: "denied".to_string(),
                 full_content: None,
                 diff: None,
+                decision: None,
+                rule_source: None,
             }
         }
-    }
+    };
+    result
 }
 
 /// Record a tool event in the tool_events list (caller persists to DB).
@@ -905,8 +921,8 @@ fn record_tool_event(
         summary: result.content[..result.content.len().min(200)].to_string(),
         arguments: Some(call.arguments.clone()),
         duration_ms: 0,
-        decision: "approved".to_string(),
-        rule_source: None,
+        decision: result.decision.clone().unwrap_or_else(|| "approved".to_string()),
+        rule_source: result.rule_source.clone(),
         diff: result.diff.clone(),
     });
 }

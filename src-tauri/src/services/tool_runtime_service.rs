@@ -60,17 +60,22 @@ pub struct ToolResult {
     /// 400 lines with head/tail elision. `None` for non-file tools or
     /// when content is unchanged.
     pub diff: Option<String>,
+    /// How the approval decision was made: "approved", "denied", "auto",
+    /// "rule". `None` for non-gateway calls (propose_ideas, ask_user).
+    pub decision: Option<String>,
+    /// The rule pattern that matched, if any.
+    pub rule_source: Option<String>,
 }
 
 impl ToolResult {
     pub fn success(content: String) -> Self {
-        Self { content, status: "succeeded".to_string(), full_content: None, diff: None }
+        Self { content, status: "succeeded".to_string(), full_content: None, diff: None, decision: None, rule_source: None }
     }
     pub fn failure(content: String) -> Self {
-        Self { content, status: "failed".to_string(), full_content: None, diff: None }
+        Self { content, status: "failed".to_string(), full_content: None, diff: None, decision: None, rule_source: None }
     }
     pub fn denied(content: String) -> Self {
-        Self { content, status: "denied".to_string(), full_content: None, diff: None }
+        Self { content, status: "denied".to_string(), full_content: None, diff: None, decision: None, rule_source: None }
     }
 }
 
@@ -345,6 +350,8 @@ fn truncate_output(content: String) -> ToolResult {
         status: "succeeded".to_string(),
         full_content: Some(content),
         diff: None,
+        decision: None,
+        rule_source: None,
     }
 }
 
@@ -398,6 +405,8 @@ fn read_file(workspace_root: &Path, args: &Value) -> ToolResult {
             status: "succeeded".to_string(),
             full_content: Some(content),
             diff: None,
+            decision: None,
+            rule_source: None,
         };
     }
     // Return line-numbered content.
@@ -506,7 +515,7 @@ fn write_file(workspace_root: &Path, args: &Value) -> ToolResult {
     match std::fs::write(&resolved, content) {
         Ok(_) => {
             let diff = compute_diff(&before, content);
-            ToolResult { content: format!("Wrote {} bytes to {}", content.len(), path), status: "succeeded".to_string(), full_content: None, diff }
+            ToolResult { content: format!("Wrote {} bytes to {}", content.len(), path), status: "succeeded".to_string(), full_content: None, diff, decision: None, rule_source: None }
         }
         Err(e) => ToolResult::failure(format!("Failed to write file '{path}': {e}")),
     }
@@ -544,7 +553,7 @@ fn edit_file(workspace_root: &Path, args: &Value) -> ToolResult {
     let new_content = content.replacen(old_text, new_text, expected);
     let diff = compute_diff(&content, &new_content);
     match std::fs::write(&resolved, &new_content) {
-        Ok(_) => ToolResult { content: format!("Replaced {} occurrence(s) in {}", expected, path), status: "succeeded".to_string(), full_content: None, diff },
+        Ok(_) => ToolResult { content: format!("Replaced {} occurrence(s) in {}", expected, path), status: "succeeded".to_string(), full_content: None, diff, decision: None, rule_source: None },
         Err(e) => ToolResult::failure(format!("Failed to write file '{path}': {e}")),
     }
 }
