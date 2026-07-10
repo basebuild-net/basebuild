@@ -146,4 +146,112 @@ test.describe("Workspace merge review", () => {
     await expect(queue.locator(".merge-session-summary")).toBeVisible({ timeout: 5_000 });
     await expect(queue.locator(".merge-session-summary-row", { hasText: "Merged: 1" })).toBeVisible();
   });
+
+  test("merge conflict records conflicted and advances; cleanup keeps the conflicted entry", async ({ page }) => {
+    await openMvpFixtureProject(page);
+    await waitForAppReady(page);
+
+    await seedMergeQueue(page, [
+      { id: "mq-conf-1", planId: "", title: "Conflict plan A" },
+      { id: "mq-conf-2", planId: "", title: "Conflict plan B" },
+    ]);
+    // First entry's merge fails (simulated merge conflict).
+    await page.evaluate(async () => {
+      const w = window as InvokeWindow;
+      await w.__basebuildInvoke?.("__e2e_fail_merge_review", { entryIds: ["mq-conf-1"] });
+    });
+
+    const modal = await openFlowTab(page);
+    const queue = modal.locator(".merge-queue");
+    await expect(queue.locator(".merge-queue-entry")).toHaveCount(2, { timeout: 10_000 });
+
+    await queue.locator("input[title='Select all']").check();
+    await queue.locator("button", { hasText: "Review & merge (2)" }).click();
+    await expect(queue.locator(".merge-session-active")).toBeVisible({ timeout: 5_000 });
+
+    // Merge first → conflict recorded, session advances instead of aborting.
+    await queue.locator(".merge-session-actions button", { hasText: "Merge" }).click();
+    await expect(queue.locator(".merge-session-label")).toContainText("2/2", { timeout: 5_000 });
+
+    // Merge second → session ends with a mixed summary.
+    await queue.locator(".merge-session-actions button", { hasText: "Merge" }).click();
+    await expect(queue.locator(".merge-session-summary")).toBeVisible({ timeout: 5_000 });
+    await expect(queue.locator(".merge-session-summary-row", { hasText: "Merged: 1" })).toBeVisible();
+    await expect(queue.locator(".merge-session-conflict", { hasText: "Conflicted: 1" })).toBeVisible();
+
+    // Cleanup removes only the merged entry; the conflicted one stays pending.
+    await queue.locator("button", { hasText: "Clean up merged" }).click();
+    await expect(queue.locator(".merge-queue-entry")).toHaveCount(1, { timeout: 5_000 });
+    await expect(queue.locator(".merge-queue-entry-title")).toHaveText("Conflict plan A");
+    await expect(queue.locator(".merge-queue-entry-status")).toHaveText("pending");
+  });
+
+  test("Review & merge is disabled with zero selection", async ({ page }) => {
+    await openMvpFixtureProject(page);
+    await waitForAppReady(page);
+
+    await seedMergeQueue(page, [
+      { id: "mq-none-1", planId: "", title: "Unselected plan" },
+    ]);
+
+    const modal = await openFlowTab(page);
+    const queue = modal.locator(".merge-queue");
+    await expect(queue.locator(".merge-queue-entry")).toHaveCount(1, { timeout: 10_000 });
+
+    // Nothing is selected until the user acts; the group action stays disabled.
+    await expect(queue.locator(".merge-queue-entry input[type=checkbox]")).not.toBeChecked();
+    await expect(queue.locator("button", { hasText: "Review & merge (0)" })).toBeDisabled();
+  });
+
+  test("session presents prerequisite entries before dependents", async ({ page }) => {
+    await openMvpFixtureProject(page);
+    await waitForAppReady(page);
+
+    // Seed the DEPENDENT first so raw queue order is child, parent — the
+    // session must reorder to put the prerequisite first.
+    await page.evaluate(async () => {
+      const w = window as InvokeWindow;
+      const parent = (await w.__basebuildInvoke?.("create_plan", {
+        input: { sessionId: "session-1", title: "Dep parent", description: "merge test" },
+      })) as { id: string };
+      const child = (await w.__basebuildInvoke?.("create_plan", {
+        input: { sessionId: "session-1", title: "Dep child", description: "merge test" },
+      })) as { id: string };
+      await w.__basebuildInvoke?.("plan_set_dependencies", {
+        request: { planId: child.id, prerequisites: [parent.id] },
+      });
+      const mkEntry = (id: string, planId: string) => ({
+        id, runId: `run-${id}`, planId, sessionId: "session-1",
+        status: "pending" as const, collisionReviewRequired: false,
+        overlappingPlans: [] as string[], reviewedAt: null, createdAt: Date.now(),
+      });
+      await w.__basebuildInvoke?.("__e2e_seed_merge_queue", {
+        entries: [mkEntry("mq-dep-child", child.id), mkEntry("mq-dep-parent", parent.id)],
+      });
+      w.__emit?.("planning://event", {
+        kind: "integration_action",
+        entityId: "mq-dep-child",
+        projectPath: "C:\\basebuild-e2e\\project",
+        sessionId: "session-1",
+        title: "Merge queue seeded",
+        seq: Date.now(),
+        ts: Math.floor(Date.now() / 1000),
+      });
+    });
+    await page.waitForTimeout(500);
+
+    const modal = await openFlowTab(page);
+    const queue = modal.locator(".merge-queue");
+    await expect(queue.locator(".merge-queue-entry")).toHaveCount(2, { timeout: 10_000 });
+
+    // Rendered order is dependency-aware: prerequisite first.
+    await expect(queue.locator(".merge-queue-entry-title").first()).toHaveText("Dep parent");
+
+    await queue.locator("input[title='Select all']").check();
+    await queue.locator("button", { hasText: "Review & merge (2)" }).click();
+    await expect(queue.locator(".merge-session-active")).toBeVisible({ timeout: 5_000 });
+
+    // The session starts on the prerequisite despite the dependent being seeded first.
+    await expect(queue.locator(".merge-queue-entry-current .merge-queue-entry-title")).toHaveText("Dep parent");
+  });
 });

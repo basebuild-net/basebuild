@@ -34,9 +34,12 @@
       first; the spec scenario was corrected to match the plan lifecycle.)
 - [x] 2.5 Frontend: round history rows (timestamp, status, live outcome
       counts) with expand-to-review filtered by batch id.
-- [x] 2.6 e2e (`idea-rounds.spec.ts`, 4 tests): soft gate + proceed, gate
+- [x] 2.6 e2e (`idea-rounds.spec.ts`, 7 tests): soft gate + proceed, gate
       cancel creates nothing, captures tagged + review + deploy creates
-      plans, destination-picker cancel abandons the round.
+      plans, destination-picker cancel abandons the round, End round
+      finishes in place (later captures untagged), deploy isolates
+      per-idea failures (`__e2e_fail_promote_ideas` knob), zero-capture
+      round shows the empty review state.
 
 ## 3. Run mission control
 
@@ -60,10 +63,11 @@
       ≥2-tick threshold → "estimating" → concrete estimate); flow board
       Running stage card drills into Runs tab via `onStageClick` on
       `PlanningCommandCenter`.
-- [x] 3.5 e2e (`mission-control.spec.ts`, 4 tests): run card shows
+- [x] 3.5 e2e (`mission-control.spec.ts`, 5 tests): run card shows
       plan/state/progress/elapsed/worktree; flow board Running stage
       drills into mission control; pending ask_user raises attention
-      state and clears on answer; open-chat focuses owner chat.
+      state and clears on answer; open-chat focuses owner chat; unmet
+      prerequisite raises the blocked state with the block reason.
 
 ## 4. Post-finish policy
 
@@ -87,17 +91,21 @@
       SHA, PR link, merge-ready flag, and policy errors; `PlanningInspector`
       fetches outcomes via `applyFinishPolicy` for succeeded runs; `hold`
       renders exactly as today (no outcome section).
-- [x] 4.5 e2e (`finish-policy.spec.ts`, 5 tests): launch confirmation shows
+- [x] 4.5 e2e (`finish-policy.spec.ts`, 6 tests): launch confirmation shows
       policy; auto_commit shows commit SHA; auto_commit_pr shows PR link;
-      hold shows no outcome; queue_merge_review shows merge-ready flag.
-      Mock `plan_run_complete` updates run status, `plan_run_apply_finish_policy`
-      returns policy-appropriate outcomes.
+      hold shows no outcome; queue_merge_review shows merge-ready flag;
+      policy error renders as the sole outcome row
+      (`__e2e_set_finish_policy_error` knob). Mock `plan_run_complete`
+      updates run status, `plan_run_apply_finish_policy` returns
+      policy-appropriate outcomes.
 
 ## 5. Workspace merge review
 
 - [x] 5.1 Frontend: integration queue multi-select with per-entry checkboxes,
       "Select all" toggle, and "Review & merge (N)" batch entry button;
-      merge-ready entries pre-selected by default.
+      the merge-ready group is selectable in one action via Select all
+      (spec scenario "Merge-ready group selection") — no default
+      pre-selection; the session button stays disabled at zero selection.
 - [x] 5.2 Frontend: session state machine — dependency-aware ordering using
       the dependency graph (prerequisites first), one entry at a time with
       merge/skip/stop actions; stable ordering preserved after entries
@@ -106,10 +114,13 @@
 - [x] 5.3 Frontend: session summary (merged/skipped/conflicted counts) +
       batch "Clean up merged" scoped to the session; resets selection and
       session state.
-- [x] 5.4 e2e (`merge-review.spec.ts`, 3 tests): multi-select + merge all +
+- [x] 5.4 e2e (`merge-review.spec.ts`, 6 tests): multi-select + merge all +
       summary + cleanup; skip preserves entry and advances; stop ends
-      session early with partial results. Mock `plan_merge_queue_list`/
-      `plan_merge_queue_review` + `__e2e_seed_merge_queue` test knob.
+      session early with partial results; merge conflict records
+      "conflicted", advances, and survives cleanup; zero selection keeps
+      the session button disabled; prerequisite entries reviewed before
+      dependents. Mock `plan_merge_queue_list`/`plan_merge_queue_review` +
+      `__e2e_seed_merge_queue`/`__e2e_fail_merge_review` test knobs.
 
 ## 6. Workspace lifecycle hardening
 
@@ -132,10 +143,11 @@
 - [x] 7.2 `cargo check` clean (0 errors, 22 pre-existing warnings);
       `cargo test --lib` 354 passed / 0 failed (32s).
 - [x] 7.3 Full e2e suite: 373 passed / 4 skipped / 0 stable failures.
-      New specs: idea-rounds (4), run-eta (11), mission-control (4),
-      finish-policy (5), merge-review (3), workspace-hardening (3) = 30
-      new tests. Pre-existing flakes in chat-grid/workspace-splash are
-      unrelated (pass in isolation).
+      New specs: idea-rounds (7), run-eta (11), mission-control (5),
+      finish-policy (6), merge-review (6), workspace-hardening (3) = 38
+      new tests (8 edge-case tests added post-verification; the 4 touched
+      specs re-ran 24/24 green). Pre-existing flakes in
+      chat-grid/workspace-splash are unrelated (pass in isolation).
 - [x] 7.4 `npx openspec validate idea-to-merge-autopilot --strict` → valid.
 - [x] 7.5 Docs: tasks.md updated with completion evidence for all 30
       tasks across 7 phases. Spec deltas unchanged from creation.

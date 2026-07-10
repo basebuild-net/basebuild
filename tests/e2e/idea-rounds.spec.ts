@@ -25,6 +25,25 @@ async function seedIdea(page: Page, title: string) {
   }, { title });
 }
 
+/** Start a round directly through the mocked backend (bypasses the gate UI). */
+async function startRoundDirect(page: Page) {
+  await page.evaluate(async () => {
+    const w = window as unknown as {
+      __basebuildInvoke?: (cmd: string, args: Record<string, unknown>) => Promise<unknown>;
+    };
+    await w.__basebuildInvoke?.("start_idea_round", { sessionId: "session-1" });
+  });
+}
+
+/** Open the Plans & Ideas modal on the Ideas tab. */
+async function openIdeasTab(page: Page) {
+  await page.getByTitle("Plans & Ideas").first().click();
+  const modal = page.locator(".modal-overlay").filter({ hasText: "Plans & Ideas" });
+  await expect(modal).toBeVisible({ timeout: 5_000 });
+  await modal.locator(".inspector-tab", { hasText: "Ideas" }).click();
+  return modal;
+}
+
 test.describe("Idea rounds", () => {
   test("soft gate warns without a schematic; proceed starts the round and destination picker", async ({ page }) => {
     await openMvpFixtureProject(page);
@@ -131,5 +150,84 @@ test.describe("Idea rounds", () => {
     const roundRow = modal.locator(".idea-round-row").first();
     await expect(roundRow).toBeVisible({ timeout: 5_000 });
     await expect(roundRow.locator(".idea-round-status")).toHaveText("succeeded");
+  });
+
+  test("End round finishes a running round in place", async ({ page }) => {
+    await openMvpFixtureProject(page);
+    await waitForAppReady(page);
+
+    await startRoundDirect(page);
+    await seedIdea(page, "Mid-round capture");
+
+    const modal = await openIdeasTab(page);
+    const roundRow = modal.locator(".idea-round-row").first();
+    await expect(roundRow).toBeVisible({ timeout: 5_000 });
+    await expect(roundRow.locator(".idea-round-status")).toHaveText("running");
+
+    const endButton = roundRow.getByTitle("End this round — new captures stop being tagged with it");
+    await expect(endButton).toBeVisible();
+    await endButton.click();
+
+    // The round transitions in place; the End action disappears.
+    await expect(roundRow.locator(".idea-round-status")).toHaveText("succeeded", { timeout: 5_000 });
+    await expect(endButton).not.toBeVisible();
+
+    // Captures after the round ended are no longer tagged with it.
+    await seedIdea(page, "Post-round capture");
+    await expect(roundRow).toContainText("1 captured", { timeout: 5_000 });
+  });
+
+  test("deploy isolates per-idea failures and still creates the rest", async ({ page }) => {
+    await openMvpFixtureProject(page);
+    await waitForAppReady(page);
+
+    await startRoundDirect(page);
+    await seedIdea(page, "Deploy survivor");
+    await seedIdea(page, "Deploy casualty");
+    // The second idea fails promotion; the first must still land as a plan.
+    await page.evaluate(async () => {
+      const w = window as unknown as {
+        __basebuildInvoke?: (cmd: string, args: Record<string, unknown>) => Promise<unknown>;
+      };
+      const ideas = (await w.__basebuildInvoke?.("list_ideas", { sessionId: "session-1" })) as { id: string; title: string }[];
+      const casualty = ideas.find((i) => i.title === "Deploy casualty");
+      await w.__basebuildInvoke?.("__e2e_fail_promote_ideas", { ideaIds: [casualty?.id ?? ""] });
+    });
+
+    const modal = await openIdeasTab(page);
+    const roundRow = modal.locator(".idea-round-row").first();
+    await expect(roundRow).toBeVisible({ timeout: 5_000 });
+    await roundRow.click();
+
+    const review = modal.locator(".idea-round-review");
+    await expect(review.locator(".idea-round-idea")).toHaveCount(2);
+    for (const box of await review.locator("input[type=checkbox]").all()) {
+      await box.check();
+    }
+    await review.getByTitle(/Deploy 2 idea/).click();
+    await modal.locator(".idea-round-confirm").getByTitle("Create the plans").click();
+
+    // Partial failure is reported, not swallowed; navigation still happens.
+    await expect(page.locator(".toast-title", { hasText: "1 plan(s) created, 1 failed" })).toBeVisible({ timeout: 5_000 });
+    await expect(modal.locator(".inspector-tab.is-active", { hasText: "Plans" })).toBeVisible({ timeout: 5_000 });
+    await expect(modal.locator(".plan-card, .plan-row").filter({ hasText: "Deploy survivor" })).toBeVisible({ timeout: 5_000 });
+    await expect(modal.locator(".plan-card, .plan-row").filter({ hasText: "Deploy casualty" })).toHaveCount(0);
+  });
+
+  test("a round with zero captures shows the empty review state", async ({ page }) => {
+    await openMvpFixtureProject(page);
+    await waitForAppReady(page);
+
+    await startRoundDirect(page);
+
+    const modal = await openIdeasTab(page);
+    const roundRow = modal.locator(".idea-round-row").first();
+    await expect(roundRow).toBeVisible({ timeout: 5_000 });
+    await expect(roundRow).toContainText("0 captured");
+    await roundRow.click();
+
+    const review = modal.locator(".idea-round-review");
+    await expect(review).toBeVisible({ timeout: 5_000 });
+    await expect(review).toContainText("No ideas captured in this round yet.");
   });
 });

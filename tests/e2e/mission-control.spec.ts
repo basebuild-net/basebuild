@@ -122,4 +122,41 @@ test.describe("Mission control", () => {
     await expect(modal).not.toBeVisible({ timeout: 5_000 });
     await expect(page.locator(".chat-panel").first()).toBeVisible();
   });
+
+  test("unmet prerequisite raises the blocked state on the run card", async ({ page }) => {
+    await openMvpFixtureProject(page);
+    await waitForAppReady(page);
+    const chatSessionId = await getNativeSessionId(page);
+
+    // Plan B runs while its prerequisite plan A is unfinished → blocked.
+    await page.evaluate(async ({ chatSessionId }) => {
+      const w = window as InvokeWindow;
+      const prereq = (await w.__basebuildInvoke?.("create_plan", {
+        input: { sessionId: "session-1", title: "Prerequisite plan", description: "seeded" },
+      })) as { id: string };
+      const blocked = (await w.__basebuildInvoke?.("create_plan", {
+        input: { sessionId: "session-1", title: "Blocked plan", description: "seeded" },
+      })) as { id: string };
+      await w.__basebuildInvoke?.("plan_set_dependencies", {
+        request: { planId: blocked.id, prerequisites: [prereq.id] },
+      });
+      await w.__basebuildInvoke?.("plan_assign_to_chat", { planId: blocked.id, chatSessionId });
+      w.__emit?.("planning://event", {
+        kind: "run_started",
+        entityId: blocked.id,
+        projectPath: "C:\\basebuild-e2e\\project",
+        sessionId: "session-1",
+        title: "Blocked plan",
+        seq: Date.now(),
+        ts: Math.floor(Date.now() / 1000),
+      });
+    }, { chatSessionId });
+    await page.waitForTimeout(500);
+
+    const modal = await openRunsTab(page);
+    const card = modal.locator(".mission-card").filter({ hasText: "Blocked plan" });
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    await expect(card.locator(".mission-card-state")).toHaveText("Blocked");
+    await expect(card.locator(".mission-card-blockers")).toContainText("Waiting on prerequisites");
+  });
 });

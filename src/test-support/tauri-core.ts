@@ -201,6 +201,12 @@ type E2eState = {
   planQueue: { id: string; sessionId: string; planId: string; sortOrder: number; createdAt: number }[];
   planRuns: { id: string; planId: string; sessionId: string; chatSessionId?: string; status: string; runnerKind: string; error?: string; stepsOutput: unknown[]; startedAt?: number; finishedAt?: number; createdAt: number }[];
   planDependencies?: Map<string, { prerequisites: string[]; affectedPaths: string[]; schedulingMode: string; workspacePolicy: string }>;
+  /** e2e knob: entry ids whose "merged" review throws (simulated merge conflict). */
+  mergeReviewFailIds?: Set<string>;
+  /** e2e knob: forces plan_run_apply_finish_policy to return this outcome error. */
+  finishPolicyError?: string;
+  /** e2e knob: idea ids that fail during batch_promote_ideas (per-idea isolation). */
+  promoteFailIds?: Set<string>;
   workspaceRestoreByProject: Map<string, unknown>;
   recentProjects: { path: string; name: string; lastOpenedAt: number; lastActiveSessionId: string | null }[];
   pickProjectCalls: number;
@@ -630,6 +636,10 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
           errors.push({ ideaId, error: "Idea not found" });
           continue;
         }
+        if (s.promoteFailIds?.has(ideaId)) {
+          errors.push({ ideaId, error: "promotion failed (e2e)" });
+          continue;
+        }
         const plan = makePlan(sessionId, { title: idea.title, description: idea.description });
         s.plans.push(plan);
         idea.status = "picked";
@@ -733,6 +743,19 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       const profile = s.launchProfile;
       const policy = profile?.finishPolicy ?? "hold";
       if (policy === "hold") return { kind: "hold" } as T;
+      if (s.finishPolicyError) {
+        return {
+          kind: "applied",
+          outcome: {
+            runId: args.runId as string,
+            policy,
+            commitSha: null,
+            prUrl: null,
+            mergeReady: false,
+            error: s.finishPolicyError,
+          },
+        } as T;
+      }
       // For queue_merge_review, seed the merge queue with the run.
       if (policy === "queue_merge_review") {
         const run = s.planRuns.find((r) => r.id === args.runId);
@@ -851,6 +874,9 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "plan_merge_queue_review": {
       const entryId = args.entryId as string;
       const decision = args.decision as string;
+      if (decision === "merged" && s.mergeReviewFailIds?.has(entryId)) {
+        throw new Error(`merge conflict in ${entryId}: overlapping hunks in src/app.ts`);
+      }
       const entry = s.mergeQueue.find((e) => e.id === entryId);
       if (entry) {
         entry.status = decision as MergeReviewEntry["status"];
@@ -858,6 +884,15 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       }
       return (entry ?? { id: entryId, runId: "", planId: "", sessionId: "", status: decision as MergeReviewEntry["status"], collisionReviewRequired: false, overlappingPlans: [], reviewedAt: Date.now(), createdAt: 0 }) as T;
     }
+    case "__e2e_fail_merge_review":
+      s.mergeReviewFailIds = new Set(args.entryIds as string[]);
+      return undefined as T;
+    case "__e2e_set_finish_policy_error":
+      s.finishPolicyError = args.error as string;
+      return undefined as T;
+    case "__e2e_fail_promote_ideas":
+      s.promoteFailIds = new Set(args.ideaIds as string[]);
+      return undefined as T;
     case "__e2e_seed_merge_queue": {
       const entries = args.entries as MergeReviewEntry[];
       s.mergeQueue = entries;

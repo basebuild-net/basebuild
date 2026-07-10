@@ -143,4 +143,32 @@ test.describe("Finish policy", () => {
     await expect(card.locator(".completion-card-outcome")).toBeVisible({ timeout: 10_000 });
     await expect(card.locator(".completion-card-outcome-row", { hasText: "Queued for merge review" })).toBeVisible();
   });
+
+  test("policy error surfaces in the completion card", async ({ page }) => {
+    await openMvpFixtureProject(page);
+    await waitForAppReady(page);
+    const chatSessionId = await getNativeSessionId(page);
+
+    await saveLaunchProfile(page, "auto_commit");
+    // Force the policy application to fail (e.g. clean working tree).
+    await page.evaluate(async () => {
+      const w = window as InvokeWindow;
+      await w.__basebuildInvoke?.("__e2e_set_finish_policy_error", {
+        error: "Nothing to commit — working tree clean.",
+      });
+    });
+    await seedSucceededRun(page, chatSessionId);
+
+    const modal = await openPlansModal(page);
+    await modal.locator(".inspector-tab", { hasText: "Flow" }).click();
+    const card = modal.locator(".completion-card").first();
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    const outcome = card.locator(".completion-card-outcome");
+    await expect(outcome).toBeVisible({ timeout: 10_000 });
+    await expect(outcome.locator(".completion-card-outcome-error")).toContainText(
+      "Policy error: Nothing to commit",
+    );
+    // No commit/PR/merge-ready rows — the error is the only outcome.
+    await expect(outcome.locator(".completion-card-outcome-row")).toHaveCount(1);
+  });
 });
