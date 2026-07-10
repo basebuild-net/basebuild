@@ -48,6 +48,7 @@ use commands::{
         create_category, create_idea, delete_category, delete_idea, ensure_default_categories,
         list_categories, list_ideas, promote_ideas, reject_idea, update_idea_status,
     },
+    idea_rounds::{finish_idea_round, list_idea_rounds, start_idea_round},
     omp::{
         omp_config_list, omp_debug_context, omp_stats, omp_status, omp_stream_command, omp_usage,
     },
@@ -486,6 +487,9 @@ pub fn run() {
             promote_ideas,
             reject_idea,
             ensure_default_categories,
+            start_idea_round,
+            finish_idea_round,
+            list_idea_rounds,
             agent_start,
             agent_send,
             agent_capabilities,

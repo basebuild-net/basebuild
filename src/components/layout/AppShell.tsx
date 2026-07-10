@@ -6,6 +6,8 @@ import { generateCategoriesAction, generateFromFinishedPlansAction, generateIdea
 import { DestinationPicker, type DestinationChoice } from "./DestinationPicker";
 import { WorkspaceSplash, type RestorePhase } from "./WorkspaceSplash";
 import { ProjectSwitchingOverlay } from "./ProjectSwitchingOverlay";
+import { IdeaRoundGate } from "./IdeaRoundGate";
+import { startIdeaRound, finishIdeaRound } from "../../lib/ideaRounds";
 
 export type ToastKind = "success" | "warning" | "error" | "info";
 
@@ -137,6 +139,12 @@ export function AppShell({ updates }: AppShellProps) {
     window.setTimeout(() => setAppToast(null), 4000);
   }, []);
   const [pendingDelivery, setPendingDelivery] = useState<{ text: string; mode: PromptMode } | null>(null);
+  // Idea round awaiting destination delivery — abandoned (finished) if the
+  // user cancels the destination picker before the prompt is delivered.
+  // A ref, not state: the picker fires onSelect and onClose synchronously in
+  // one click, and the close handler must observe the cleared value.
+  const pendingRoundRef = useRef<string | null>(null);
+  const [roundGateOpen, setRoundGateOpen] = useState(false);
   // Escape-to-close for inline modals that don't have their own hook.
   useEscapeKey(changesModalOpen, () => setChangesModalOpen(false));
   useEscapeKey(plansModalOpen, () => setPlansModalOpen(false));
@@ -706,6 +714,37 @@ export function AppShell({ updates }: AppShellProps) {
     setPlansModalOpen(false);
     handleShowToast("Generating from finished plans", `${grounding.finishedPlanCount} finished plan${grounding.finishedPlanCount > 1 ? "s" : ""} since last schematic update.`, "info");
   }, [addLog, handleShowToast]);
+
+  // One-click zero-input idea round: soft-gate on schematic health, start the
+  // round (captures during the turn get tagged), then deliver the generation
+  // prompt through the destination picker.
+  const handleStartIdeaRound = useCallback(async (proceedDespiteGate = false) => {
+    if (!session.activeSessionId) {
+      handleShowToast("No active session", "Open a project first to run an idea round.", "warning");
+      return;
+    }
+    const health = schematic.report?.health ?? (schematic.exists ? "partial" : "missing");
+    if (health !== "complete" && !proceedDespiteGate) {
+      setRoundGateOpen(true);
+      return;
+    }
+    setRoundGateOpen(false);
+    let roundId: string | null = null;
+    try {
+      roundId = await startIdeaRound(session.activeSessionId);
+      addLog("info", "Idea round started", `round=${roundId} gate=${health}${proceedDespiteGate ? " (proceeded despite gate)" : ""}`);
+    } catch (e) {
+      addLog("error", "Failed to start idea round", e instanceof Error ? e.message : String(e));
+      handleShowToast("Round failed to start", "Could not start the idea round. See logs.", "error");
+      return;
+    }
+    pendingRoundRef.current = roundId;
+    const action = generateIdeasAction();
+    setPendingDelivery({ text: action.text, mode: action.mode });
+    setDestinationPickerOpen(true);
+    setPlansModalOpen(false);
+    handleShowToast("Idea round started", "Pick a destination chat — captured ideas are collected into this round.", "info");
+  }, [session.activeSessionId, schematic.report, schematic.exists, addLog, handleShowToast]);
 
   const handleOpenSchematic = useCallback(() => {
     addLog("debug", "Project schematic opened", activeProjectPath ?? "no project");
@@ -1325,6 +1364,7 @@ export function AppShell({ updates }: AppShellProps) {
                   onOpenChatSession={(id) => { setPlansModalOpen(false); handleOpenChatSession(id); }}
                   onSuggestForCategory={handleSuggestForCategory}
                   onGenerateCategories={handleGenerateCategories}
+                  onStartIdeaRound={() => { void handleStartIdeaRound(); }}
                   onAssignPlan={handleAssignPlan}
                   onShowToast={handleShowToast}
                 />
@@ -1436,7 +1476,17 @@ export function AppShell({ updates }: AppShellProps) {
       })() : null}
       <DestinationPicker
         open={destinationPickerOpen}
-        onClose={() => { setDestinationPickerOpen(false); setPendingDelivery(null); setPendingAssign(null); }}
+        onClose={() => {
+          setDestinationPickerOpen(false);
+          setPendingDelivery(null);
+          setPendingAssign(null);
+          // Cancelling the picker abandons a round that never got its prompt.
+          if (pendingRoundRef.current && session.activeSessionId) {
+            addLog("debug", "Idea round abandoned", `round=${pendingRoundRef.current}`);
+            void finishIdeaRound(session.activeSessionId).catch(() => {});
+            pendingRoundRef.current = null;
+          }
+        }}
         panels={flattenPanels(panelGridState.root)}
         title={pendingAssign ? "Assign plan to chat" : "Send to…"}
         onSelect={(choice: DestinationChoice) => {
@@ -1484,7 +1534,17 @@ export function AppShell({ updates }: AppShellProps) {
             handleCreateTypedPanel("chat", { text: pendingDelivery.text, mode: pendingDelivery.mode });
           }
           setPendingDelivery(null);
+          // Prompt delivered — the round stays active so the turn's captures
+          // are tagged; it finishes on review open or next round start.
+          pendingRoundRef.current = null;
         }}
+      />
+      <IdeaRoundGate
+        open={roundGateOpen}
+        health={schematic.exists ? "partial" : "missing"}
+        onOpenWizard={() => { setRoundGateOpen(false); void handleStartSchematicWizard(); }}
+        onProceed={() => { void handleStartIdeaRound(true); }}
+        onCancel={() => setRoundGateOpen(false)}
       />
       <div className="zoom-indicator" title={`Zoom: ${zoom}%. Ctrl+/- to adjust, Ctrl+0 to reset.`}>
         <button className="zoom-indicator-btn" type="button" title="Zoom out (Ctrl+-)" onClick={zoomOut}>−</button>

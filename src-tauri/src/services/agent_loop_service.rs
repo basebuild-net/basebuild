@@ -672,6 +672,9 @@ fn execute_propose_ideas(session_id: &str, call: &ToolCallRequest) -> ToolResult
         .get("categoryId")
         .and_then(Value::as_str)
         .map(|s| s.to_string());
+    // Captures during an active generation round are tagged with the round id
+    // so the round review and history can group them.
+    let batch_id = crate::services::idea_round_service::IdeaRoundService::active_round(session_id);
     let mut captured = 0usize;
     let mut rejected = 0usize;
     for idea in ideas {
@@ -708,6 +711,7 @@ fn execute_propose_ideas(session_id: &str, call: &ToolCallRequest) -> ToolResult
             category_id.as_deref(),
             &grounding,
             anchor.as_deref(),
+            batch_id.as_deref(),
         );
         if result.is_ok() {
             captured += 1;

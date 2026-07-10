@@ -1269,7 +1269,7 @@ impl NativeChatService {
         let response = client.generate(&req, &emit)?;
         let ideas = Self::parse_ideas(&response.content);
         let cat_id_ref = category_id.as_deref();
-        let _ = Self::parse_and_capture_ideas(&response.content, &request.session_id, cat_id_ref);
+        let _ = Self::parse_and_capture_ideas(&response.content, &request.session_id, cat_id_ref, Some(&run_id));
         // Mark the pipeline run as succeeded.
         let stage_kind = if category_id.is_some() { "generate_ideas_category" } else { "generate_ideas" };
         let _ = Self::record_pipeline_run(&run_id, &request.session_id, &session.project_path, stage_kind, "succeeded", now_seconds());
@@ -1300,7 +1300,7 @@ impl NativeChatService {
     /// Parse idea-shaped JSON from a model response and capture each as a
     /// concept idea in the ideas catalog. Fallback for models that emit ideas
     /// as prose/JSON instead of calling the propose_ideas tool.
-    fn parse_and_capture_ideas(content: &str, session_id: &str, category_id: Option<&str>) {
+    fn parse_and_capture_ideas(content: &str, session_id: &str, category_id: Option<&str>, batch_id: Option<&str>) {
         let text = content.trim();
         let (start, end) = match (text.find('['), text.rfind(']')) {
             (Some(s), Some(e)) if e > s => (s, e),
@@ -1328,6 +1328,7 @@ impl NativeChatService {
                 category_id,
                 "",
                 None,
+                batch_id,
             );
         }
     }

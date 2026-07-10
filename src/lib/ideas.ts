@@ -19,6 +19,7 @@ export type Idea = {
   status: IdeaStatus;
   grounding: string;
   anchor: string | null;
+  batchId: string | null;
   createdAt: number;
   updatedAt: number;
 };

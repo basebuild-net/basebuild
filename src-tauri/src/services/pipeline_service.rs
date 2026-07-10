@@ -379,6 +379,7 @@ impl PipelineService {
                 category_id.as_deref(),
                 "",
                 None,
+                Some(run_id),
             )?;
             idea_ids.push(created.id);
         }

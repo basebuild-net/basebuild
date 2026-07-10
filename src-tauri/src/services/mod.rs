@@ -9,6 +9,7 @@ pub mod interaction_service;
 pub mod config_pack_service;
 pub mod connector_service;
 pub mod integration_service;
+pub mod idea_round_service;
 pub mod git_service;
 pub mod file_service;
 pub mod omp_telemetry_service;

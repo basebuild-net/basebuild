@@ -13,23 +13,30 @@
 
 ## 2. Idea rounds
 
-- [ ] 2.1 Backend: confirm generation batch id persists on ideas end-to-end
-      (capture tool → row → reload); add round-scoped list query
-      (`ideas by batch id`) + Tauri command if not already expressible.
-- [ ] 2.2 Frontend: "Generate ideas" one-click entry on the planning surface
-      and command strip — assembles the zero-input round via the existing
-      grounded generation path; schematic soft gate honored.
-- [ ] 2.3 Frontend: round review surface — round's ideas with grounding,
-      anchor/outside-focus flag, category; multi-select; per-idea
-      reject/keep actions.
-- [ ] 2.4 Frontend: Deploy selected — chain batch promote + batch-launch
-      destination mapping behind one confirmation enumerating plans, chats,
-      worktrees/branches, provider/model; per-item failure isolation.
-- [ ] 2.5 Frontend: round history list (timestamp, outcome counts) + reopen
-      filtered by batch id.
-- [ ] 2.6 e2e: round runs zero-input and tags ideas; deploy creates plans and
-      dispatches runs (mocked); decline creates nothing; partial failure
-      reported per idea.
+- [x] 2.1 Backend: batch id did NOT exist (design assumption corrected) —
+      added `ideas.batch_id` migration + model field + `create_idea`
+      plumbing across all four capture paths; rounds persist as
+      `pipeline_runs` (`kind='idea_round'`) via new `idea_round_service`
+      (LazyLock active-round registry) + `start/finish/list_idea_rounds`
+      commands. Fixed pre-existing Idea wire-format bug (snake_case vs
+      camelCase TS type). Rust tests: lifecycle, replacement, tagging.
+- [x] 2.2 Frontend: "Generate ideas" round entry wired on the flow-board
+      command center (replacing the dead nav-only stub) and the Ideas tab
+      empty state; `IdeaRoundGate` implements the soft gate (warn + open
+      wizard + proceed anyway — replacing the silent redirect).
+- [x] 2.3 Frontend: `IdeaRoundsSection` — round review with grounding,
+      outside-focus flag, status, multi-select, End round for running
+      rounds.
+- [x] 2.4 Frontend: Deploy selected — batch promote behind one enumerated
+      confirmation with per-idea failure isolation; lands on the Plans
+      stage. (Scope note: launch-into-chats stays owned by the existing
+      ready-stage batch launch — plans must pass the OpenSpec → ready gate
+      first; the spec scenario was corrected to match the plan lifecycle.)
+- [x] 2.5 Frontend: round history rows (timestamp, status, live outcome
+      counts) with expand-to-review filtered by batch id.
+- [x] 2.6 e2e (`idea-rounds.spec.ts`, 4 tests): soft gate + proceed, gate
+      cancel creates nothing, captures tagged + review + deploy creates
+      plans, destination-picker cancel abandons the round.
 
 ## 3. Run mission control
 

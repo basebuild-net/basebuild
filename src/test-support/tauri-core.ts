@@ -99,8 +99,23 @@ type Idea = {
   title: string;
   description: string;
   status: string;
+  grounding?: string;
+  anchor?: string | null;
+  batchId?: string | null;
   createdAt: number;
   updatedAt: number;
+};
+
+type IdeaRound = {
+  id: string;
+  sessionId: string;
+  status: string;
+  createdAt: number;
+  completedAt: number | null;
+  conceptCount: number;
+  pickedCount: number;
+  rejectedCount: number;
+  archivedCount: number;
 };
 
 type Category = {
@@ -149,6 +164,10 @@ type E2eState = {
   ideas: Idea[];
   nextCategoryId: number;
   nextIdeaId: number;
+  ideaRounds: { id: string; sessionId: string; status: string; createdAt: number; completedAt: number | null }[];
+  activeRoundBySession: Map<string, string>;
+  nextRoundId: number;
+  nextPlanningEventSeq?: number;
   planQueue: { id: string; sessionId: string; planId: string; sortOrder: number; createdAt: number }[];
   planRuns: { id: string; planId: string; sessionId: string; chatSessionId?: string; status: string; runnerKind: string; error?: string; stepsOutput: unknown[]; startedAt?: number; finishedAt?: number; createdAt: number }[];
   planDependencies?: Map<string, { prerequisites: string[]; affectedPaths: string[]; schedulingMode: string; workspacePolicy: string }>;
@@ -288,6 +307,9 @@ function state(): E2eState {
       ideas: [],
       nextCategoryId: 1,
       nextIdeaId: 1,
+      ideaRounds: [],
+      activeRoundBySession: new Map(),
+      nextRoundId: 1,
       planQueue: [],
       planRuns: [],
       workspaceRestoreByProject: new Map(),
@@ -564,6 +586,34 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       const plan = makePlan(input.sessionId, input);
       s.plans.push(plan);
       return plan as T;
+    }
+    case "batch_promote_ideas": {
+      const sessionId = args.sessionId as string;
+      const ideaIds = args.ideaIds as string[];
+      const created: Plan[] = [];
+      const errors: { ideaId: string; error: string }[] = [];
+      for (const ideaId of ideaIds) {
+        const idea = s.ideas.find((i) => i.id === ideaId);
+        if (!idea) {
+          errors.push({ ideaId, error: "Idea not found" });
+          continue;
+        }
+        const plan = makePlan(sessionId, { title: idea.title, description: idea.description });
+        s.plans.push(plan);
+        idea.status = "picked";
+        created.push(plan);
+        s.nextPlanningEventSeq = (s.nextPlanningEventSeq ?? 0) + 1;
+        __emit("planning://event", {
+          kind: "plan_created",
+          entityId: plan.id,
+          projectPath: s.projectPath,
+          sessionId,
+          title: plan.title,
+          seq: s.nextPlanningEventSeq,
+          ts: Math.floor(Date.now() / 1000),
+        });
+      }
+      return { created, errors } as T;
     }
     case "update_plan":
     case "set_plan_status":
@@ -1091,11 +1141,59 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         title: args.title as string,
         description: args.description as string,
         status: "concept",
+        grounding: (args.grounding as string | undefined) ?? "",
+        anchor: (args.anchor as string | null | undefined) ?? null,
+        batchId: s.activeRoundBySession.get(args.sessionId as string) ?? null,
         createdAt: ts,
         updatedAt: ts,
       };
       s.ideas.push(idea);
       return idea as T;
+    }
+    case "start_idea_round": {
+      const sessionId = args.sessionId as string;
+      const ts = Math.floor(Date.now() / 1000);
+      const prev = s.activeRoundBySession.get(sessionId);
+      if (prev) {
+        const prevRound = s.ideaRounds.find((r) => r.id === prev);
+        if (prevRound) { prevRound.status = "succeeded"; prevRound.completedAt = ts; }
+      }
+      const id = `round-${s.nextRoundId++}`;
+      s.ideaRounds.push({ id, sessionId, status: "running", createdAt: ts, completedAt: null });
+      s.activeRoundBySession.set(sessionId, id);
+      return id as T;
+    }
+    case "finish_idea_round": {
+      const sessionId = args.sessionId as string;
+      const active = s.activeRoundBySession.get(sessionId) ?? null;
+      if (active) {
+        s.activeRoundBySession.delete(sessionId);
+        const round = s.ideaRounds.find((r) => r.id === active);
+        if (round) { round.status = "succeeded"; round.completedAt = Math.floor(Date.now() / 1000); }
+      }
+      return active as T;
+    }
+    case "list_idea_rounds": {
+      const sessionId = args.sessionId as string;
+      const rounds: IdeaRound[] = s.ideaRounds
+        .filter((r) => r.sessionId === sessionId)
+        .map((r) => {
+          const roundIdeas = s.ideas.filter((i) => i.batchId === r.id);
+          const count = (status: string) => roundIdeas.filter((i) => i.status === status).length;
+          return {
+            id: r.id,
+            sessionId: r.sessionId,
+            status: r.status,
+            createdAt: r.createdAt,
+            completedAt: r.completedAt,
+            conceptCount: count("concept"),
+            pickedCount: count("picked"),
+            rejectedCount: count("rejected"),
+            archivedCount: count("archived"),
+          };
+        })
+        .sort((a, b) => b.createdAt - a.createdAt);
+      return rounds as T;
     }
     case "update_idea_status": {
       const idea = s.ideas.find((item) => item.id === args.id);
@@ -1334,4 +1432,10 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     default:
       throw new Error(`Unhandled E2E Tauri command: ${command}`);
   }
+}
+
+// E2E hook: let Playwright tests drive mocked commands directly (e.g. seed
+// ideas during a round). Mirrors the `__emit` hook in tauri-event.ts.
+if (typeof window !== "undefined") {
+  (window as unknown as { __basebuildInvoke?: typeof invoke }).__basebuildInvoke = invoke;
 }

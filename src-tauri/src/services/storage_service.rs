@@ -808,6 +808,15 @@ impl StorageService {
             let _ = connection
                 .execute("ALTER TABLE ideas ADD COLUMN anchor TEXT", []);
         }
+        // Migration (idea-to-merge-autopilot): add batch_id to ideas. Nullable:
+        // manual creations and captures outside a generation round carry none.
+        let has_batch_id = connection
+            .prepare("SELECT batch_id FROM ideas LIMIT 0")
+            .is_ok();
+        if !has_batch_id {
+            let _ = connection
+                .execute("ALTER TABLE ideas ADD COLUMN batch_id TEXT", []);
+        }
 
         // Migration (plan-pipeline-harness): rename plan statuses
         // waiting → ready and in_progress → running. Idempotent: re-running

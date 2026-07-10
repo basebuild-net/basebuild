@@ -10,6 +10,7 @@ import { PlanningCommandCenter } from "./PlanningCommandCenter";
 import { IntegrationQueue } from "../panels/IntegrationQueue";
 import { ChangesPanel } from "../panels/ChangesPanel";
 import { CompletionCard } from "../panels/CompletionCard";
+import { IdeaRoundsSection } from "./IdeaRoundsSection";
 import type { PlanRun } from "../../lib/planRuns";
 import { useIdeaState } from "../../state/ideas";
 import type { IdeaCategory, IdeaStatus } from "../../lib/ideas";
@@ -52,12 +53,13 @@ type PlanningInspectorProps = {
   onPromoteIdea?: (title: string, description: string, chatSessionId: string | null) => Promise<void> | void;
   onSuggestForCategory?: (category: IdeaCategory | null) => void;
   onGenerateFromFinishedPlans?: () => void;
+  onStartIdeaRound?: () => void;
   onGenerateCategories?: () => void;
   activeChatSessionId?: string | null;
   showHeader?: boolean;
   hostContext?: "dock" | "modal";
   onAssignPlan?: (plan: Plan, profile: LaunchProfile) => void;
-  onShowToast?: (title: string, detail?: string, kind?: "success" | "error") => void;
+  onShowToast?: (title: string, detail?: string, kind?: "success" | "warning" | "error" | "info") => void;
   initialTab?: PlanningTab;
 };
 
@@ -86,6 +88,7 @@ export function PlanningInspector({
   onPromoteIdea,
   onSuggestForCategory,
   onGenerateFromFinishedPlans,
+  onStartIdeaRound,
   onGenerateCategories,
   activeChatSessionId,
   showHeader = true,
@@ -779,9 +782,40 @@ export function PlanningInspector({
             </div>
           ) : null}
           {batchResult ? <p className="text-sm text-muted">{batchResult}</p> : null}
+          <IdeaRoundsSection
+            sessionId={sessionId}
+            ideas={ideaState.ideas}
+            onStartRound={() => onStartIdeaRound?.()}
+            onDeployed={(createdCount, failed) => {
+              void ideaState.refresh();
+              setTab("plans");
+              if (failed.length > 0) {
+                onShowToast?.(
+                  `${createdCount} plan(s) created, ${failed.length} failed`,
+                  failed.map((f) => `${f.ideaId}: ${f.error}`).join("; "),
+                  "warning",
+                );
+              } else {
+                onShowToast?.(`${createdCount} plan(s) created`, "Run them through OpenSpec to reach ready, then launch into chats.", "success");
+              }
+            }}
+            onShowToast={onShowToast}
+          />
           <div className="inspector-ideas-list">
             {filteredIdeas.length === 0 ? (
-              <p className="text-muted text-sm">No ideas {statusFilter === "all" ? "yet" : `in ${statusFilter}`}.</p>
+              <div className="inspector-ideas-empty">
+                <p className="text-muted text-sm">No ideas {statusFilter === "all" ? "yet" : `in ${statusFilter}`}.</p>
+                {onStartIdeaRound && statusFilter === "all" ? (
+                  <button
+                    className="btn btn-sm btn-primary"
+                    type="button"
+                    title="Generate ideas — one-click round grounded in the schematic, decision history, and preferences"
+                    onClick={() => onStartIdeaRound()}
+                  >
+                    <Sparkles size={11} /> Generate ideas
+                  </button>
+                ) : null}
+              </div>
             ) : null}
             {filteredIdeas.map((idea) => (
               <div key={idea.id} className={`chat-idea-card chat-idea-status-${idea.status}`}>
@@ -981,7 +1015,10 @@ export function PlanningInspector({
             blocked={planRuns.filter((r) => r.status === "failed").length}
             review={planRuns.filter((r) => r.status === "awaiting_review").length}
             finished={plans.filter((p) => p.status === "finished").length}
-            onGenerateIdeas={() => { setTab("ideas"); }}
+            onGenerateIdeas={() => {
+              if (onStartIdeaRound) onStartIdeaRound();
+              else setTab("ideas");
+            }}
             onRunThroughOpenSpec={() => { setTab("plans"); }}
             onAddWorker={() => { /* Future: create a new chat panel */ }}
             onReview={() => { /* Future: focus review queue */ }}

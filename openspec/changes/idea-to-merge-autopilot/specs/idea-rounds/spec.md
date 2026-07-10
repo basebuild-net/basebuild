@@ -30,23 +30,26 @@ rounds exactly as to other generation.
   attributable to that round
 
 ### Requirement: Round review and bulk deploy
-When a round's generation turn completes, the system SHALL present a round
-review listing the round's captured ideas with grounding summary, anchor (or
-the `outside current focus` flag), and category. The review SHALL support
-multi-selection and a **Deploy selected** action that chains the existing
-batch promotion path (idea → `picked`, plan created) and the existing
-batch-launch destination mapping (`plan-chat-assignment`) behind ONE
-confirmation enumerating the full outcome: plans to create, chat destinations,
-worktrees/branches, and provider/model per run. Declining SHALL create
-nothing. Per-idea failures SHALL be reported without aborting the remainder.
-Reject and keep-as-concept actions SHALL remain available per idea.
+The system SHALL present a round review listing the round's captured ideas
+with grounding summary, anchor (or the `outside current focus` flag), and
+status. The review SHALL support multi-selection and a **Deploy selected**
+action that runs the existing batch promotion path (idea → `picked`, one
+plan created per idea) behind ONE confirmation enumerating the plans to be
+created and stating the next step. Deploy SHALL respect the plan lifecycle:
+created plans start in `draft` and reach chats through the existing
+OpenSpec → `ready` → batch-launch path (`plan-chat-assignment`) — deploy
+SHALL NOT bypass artifact generation or dispatch runs directly. After a
+successful deploy the Plans stage SHALL be focused with the created plans
+visible. Declining SHALL create nothing. Per-idea failures SHALL be
+reported without aborting the remainder. Reject and keep-as-concept actions
+SHALL remain available per idea.
 
-#### Scenario: Deploy three ideas into three chats
-- **WHEN** the user selects three round ideas, clicks Deploy selected, keeps
-  the default new-panel mapping, and confirms the enumerated summary
-- **THEN** three plans are created, three chats receive one assigned plan each
-  on their own branch/worktree subject to concurrency caps, and the ideas move
-  to `picked`
+#### Scenario: Deploy three ideas into plans
+- **WHEN** the user selects three round ideas, clicks Deploy selected, and
+  confirms the enumerated summary
+- **THEN** three plans are created through the promotion path, the ideas move
+  to `picked`, and the Plans stage is focused showing the three new draft
+  plans ready for the OpenSpec artifact step
 
 #### Scenario: Decline creates nothing
 - **WHEN** the user dismisses the deploy confirmation
