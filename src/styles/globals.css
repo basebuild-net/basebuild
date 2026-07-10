@@ -2034,6 +2034,15 @@ a { color: inherit; text-decoration: none; }
 .inspector-filter-chip:hover { color: var(--bb-text); border-color: var(--bb-text-muted, var(--bb-muted)); }
 .inspector-filter-chip.is-active { color: var(--bb-text); border-color: var(--bb-cta); }
 .inspector-ideas-list { display: flex; flex-direction: column; gap: 4px; max-height: 400px; overflow-y: auto; }
+.idea-batch-header {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;
+  padding: 4px 8px; border-left: 2px solid var(--bb-cta);
+  background: var(--bb-surface); font-size: 11px; color: var(--bb-text);
+}
+.idea-batch-header-label { font-weight: 600; color: var(--bb-muted); }
+.idea-batch-header-sections { color: var(--bb-text); }
+.idea-batch-header-counts { color: var(--bb-muted); }
+.idea-batch-header-empty { font-style: italic; }
 .inspector-categories { padding: 4px; gap: 6px; }
 .inspector-category-add { gap: 4px; padding: 4px; border-bottom: 1px solid var(--bb-border); }
 .inspector-category-list { display: flex; flex-direction: column; gap: 4px; }

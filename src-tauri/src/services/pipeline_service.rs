@@ -248,7 +248,7 @@ impl PipelineService {
         );
         let focus_and_digest = match &digest {
             Some(d) => format!("{focus}\n\n{d}"),
-            None => focus.clone(),
+            None => format!("{focus}\n\n## Recent decisions\n(No decisions since last schematic update — generate freely from the schematic.)"),
         };
         let preferences = Self::load_preferences(&request.project_path);
         let focus_full = match &preferences {
@@ -323,7 +323,7 @@ impl PipelineService {
         );
         let focus_and_digest = match &digest {
             Some(d) => format!("{focus}\n\n{d}"),
-            None => focus.clone(),
+            None => format!("{focus}\n\n## Recent decisions\n(No decisions since last schematic update — generate freely from the schematic.)"),
         };
         let preferences = Self::load_preferences(&request.project_path);
         let focus_full = match &preferences {

@@ -1194,6 +1194,7 @@ impl NativeChatService {
                     message: "Connect a model provider to generate ideas from this chat."
                         .to_string(),
                 }),
+                grounding: None,
             });
         }
 
@@ -1272,9 +1273,14 @@ impl NativeChatService {
         // Mark the pipeline run as succeeded.
         let stage_kind = if category_id.is_some() { "generate_ideas_category" } else { "generate_ideas" };
         let _ = Self::record_pipeline_run(&run_id, &request.session_id, &session.project_path, stage_kind, "succeeded", now_seconds());
+        let grounding = crate::services::planning_prompt_service::PlanningPromptService::grounding_metadata(
+            &request.session_id,
+            &session.project_path,
+        );
         Ok(NativeGenerateIdeasResult {
             ideas,
             setup_required: None,
+            grounding: Some(grounding),
         })
     }
 

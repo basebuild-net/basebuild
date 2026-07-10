@@ -1043,6 +1043,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         return {
           ideas: [],
           setupRequired: { providerId, providerLabel: providerId === "openai" ? "OpenAI" : "Basebuild Local", message: "Connect a model provider to generate ideas from this chat." },
+          grounding: null,
         } as T;
       }
       return {
@@ -1051,6 +1052,14 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
           { title: "Cache provider catalog", description: "Avoid refetching on every mount." },
         ],
         setupRequired: null,
+        grounding: {
+          schematicSections: ["Project Schematic", "Goals", "Vision"],
+          finishedPlans: ["BB-0001", "BB-0002"],
+          finishedPlanCount: 2,
+          pickedCount: 1,
+          rejectedCount: 0,
+          digestEmpty: false,
+        },
       } as T;
     }
     case "native_provider_login_start":

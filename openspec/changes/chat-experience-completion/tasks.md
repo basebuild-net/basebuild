@@ -125,30 +125,30 @@
 
 ## 6. Idea Grounding
 
-- [ ] 6.1 Backend: make the decision digest mandatory in
+- [x] 6.1 Backend: make the decision digest mandatory in
       `generate_ideas` / `generate_categories` prompt assembly
       (`native_chat_service.rs:1116-1238`,
       `pipeline_service.rs:148-218,301-448`); empty digest → explicit
       "no decisions since schematic update" prompt line.
-- [ ] 6.2 Backend: return grounding metadata
+- [x] 6.2 Backend: return grounding metadata
       (`schematic_sections`, `finished_plans` refs + count,
       `picked_count`, `rejected_count`) on
       `NativeGenerateIdeasResult` and the pipeline stage output
       (additive serde fields; mirror in `src/lib/native-chat.ts` /
       `src/lib/planPipeline.ts` types).
-- [ ] 6.3 Frontend: idea batch header renders grounding provenance
+- [x] 6.3 Frontend: idea batch header renders grounding provenance
       ("Grounded in: <sections> · N finished plans"), plan refs in
       tooltip; anchored vs outside-focus counts in the batch summary;
       unanchored idea cards show the outside-current-focus flag
       (`IdeasPanel.tsx`, `PlanningInspector.tsx`).
-- [ ] 6.4 New action "Generate from finished plans"
+- [x] 6.4 New action "Generate from finished plans"
       (`planningActions.ts` + PlanningInspector button): digest-weighted
       prompt variant; disabled with tooltip when no finished plans since
       schematic update.
-- [ ] 6.5 Rust tests: digest included when finished plans exist; empty
+- [x] 6.5 Rust tests: digest included when finished plans exist; empty
       digest explicit; metadata counts correct; digest-weighted variant
       includes plan refs.
-- [ ] 6.6 e2e: idea batch header shows grounding text for fixture data;
+- [x] 6.6 e2e: idea batch header shows grounding text for fixture data;
       generate-from-finished-plans disabled state renders tooltip.
 
 ## 7. OpenSpec Artifact Quality Gate

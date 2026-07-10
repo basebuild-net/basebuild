@@ -11,7 +11,8 @@ export type PlanningActionType =
   | "schematic-section"
   | "generate-categories"
   | "generate-ideas"
-  | "generate-ideas-for-category";
+  | "generate-ideas-for-category"
+  | "generate-from-finished-plans";
 
 export type PlanningAction = {
   type: PlanningActionType;
@@ -79,5 +80,26 @@ export function generateIdeasAction(categoryName?: string, categoryDescription?:
     text,
     mode: "send",
     context: categoryName ? `ideas for category: ${categoryName}` : "ideas for project",
+  };
+}
+
+/**
+ * Build a planning action for generating ideas weighted by finished plans
+ * since the last schematic update. The prompt variant emphasizes building
+ * on recently completed work.
+ */
+export function generateFromFinishedPlansAction(
+  finishedPlanRefs: string[],
+  finishedPlanCount: number,
+): PlanningAction {
+  const refs = finishedPlanRefs.length > 0
+    ? `Recent finished plans: ${finishedPlanRefs.join(", ")}`
+    : "";
+  const text = `Generate ideas that build on recently finished work. ${refs}\n\nWeight idea proposals toward follow-ups, next steps, and natural extensions of the ${finishedPlanCount} finished plan${finishedPlanCount > 1 ? "s" : ""} above. Each idea must cite which finished plan it extends and how.`.trim();
+  return {
+    type: "generate-from-finished-plans",
+    text,
+    mode: "send",
+    context: `generate from finished plans (${finishedPlanCount})`,
   };
 }

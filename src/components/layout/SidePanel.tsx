@@ -43,6 +43,7 @@ type SidePanelProps = {
   onOpenChatSession: (chatSessionId: string) => void;
   onSuggestForCategory?: (category: IdeaCategory | null) => void;
   onGenerateCategories?: () => void;
+  onGenerateFromFinishedPlans?: () => void;
   activeChatSessionId?: string | null;
 };
 
@@ -128,6 +129,7 @@ export function SidePanel({
   planCallbacks,
   onOpenChatSession,
   onSuggestForCategory,
+  onGenerateFromFinishedPlans,
   onGenerateCategories,
   activeChatSessionId,
 }: SidePanelProps) {
@@ -279,6 +281,7 @@ export function SidePanel({
                     onSetPlanStatus={plans.setPlanStatus}
                     onDeletePlan={plans.deletePlan}
                     onOpenChatSession={onOpenChatSession}
+                    onGenerateFromFinishedPlans={onGenerateFromFinishedPlans}
                     onSuggestForCategory={onSuggestForCategory}
                     onGenerateCategories={onGenerateCategories}
                     showHeader={false}

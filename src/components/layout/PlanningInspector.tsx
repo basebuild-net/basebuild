@@ -15,6 +15,8 @@ import { useIdeaState } from "../../state/ideas";
 import type { IdeaCategory, IdeaStatus } from "../../lib/ideas";
 import { useProjectSchematic } from "../../state/schematic";
 import { useLogs } from "../../state/log";
+import { subscribeGrounding, getLastGrounding } from "../../state/grounding";
+import type { GroundingMetadata } from "../../lib/native-chat";
 import {
   getLaunchProfile,
   setLaunchProfile as saveLaunchProfile,
@@ -49,6 +51,7 @@ type PlanningInspectorProps = {
   onOpenChatSession: (chatSessionId: string) => void;
   onPromoteIdea?: (title: string, description: string, chatSessionId: string | null) => Promise<void> | void;
   onSuggestForCategory?: (category: IdeaCategory | null) => void;
+  onGenerateFromFinishedPlans?: () => void;
   onGenerateCategories?: () => void;
   activeChatSessionId?: string | null;
   showHeader?: boolean;
@@ -82,6 +85,7 @@ export function PlanningInspector({
   onOpenChatSession,
   onPromoteIdea,
   onSuggestForCategory,
+  onGenerateFromFinishedPlans,
   onGenerateCategories,
   activeChatSessionId,
   showHeader = true,
@@ -101,6 +105,10 @@ export function PlanningInspector({
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [planRuns, setPlanRuns] = useState<PlanRun[]>([]);
   const [completionDismissed, setCompletionDismissed] = useState<Set<string>>(new Set());
+  const [grounding, setGrounding] = useState<GroundingMetadata | null>(getLastGrounding());
+  useEffect(() => {
+    return subscribeGrounding(setGrounding);
+  }, []);
   useEffect(() => {
     setTab(initialTab);
   }, [initialTab]);
@@ -695,6 +703,52 @@ export function PlanningInspector({
               </button>
             ))}
           </div>
+          {grounding ? (
+            <div
+              className="idea-batch-header"
+              title={
+                grounding.finishedPlans.length > 0
+                  ? `Finished plans: ${grounding.finishedPlans.join(", ")}`
+                  : "No finished plans since last schematic update"
+              }
+            >
+              <span className="idea-batch-header-label">Grounded in:</span>
+              {grounding.schematicSections.length > 0 ? (
+                <span className="idea-batch-header-sections">
+                  {grounding.schematicSections.join(" · ")}
+                </span>
+              ) : (
+                <span className="idea-batch-header-sections text-muted">no schematic sections</span>
+              )}
+              <span className="idea-batch-header-counts">
+                {grounding.finishedPlanCount > 0
+                  ? ` · ${grounding.finishedPlanCount} finished plan${grounding.finishedPlanCount > 1 ? "s" : ""}`
+                  : " · no finished plans"}
+                {grounding.pickedCount > 0 ? ` · ${grounding.pickedCount} picked` : ""}
+                {grounding.rejectedCount > 0 ? ` · ${grounding.rejectedCount} rejected` : ""}
+              </span>
+              {grounding.digestEmpty ? (
+                <span className="idea-batch-header-empty text-muted">
+                  {" "}— no decisions since schematic update
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+          {onGenerateFromFinishedPlans ? (
+            <button
+              className="btn btn-sm"
+              type="button"
+              disabled={!grounding || grounding.finishedPlanCount === 0}
+              title={
+                grounding && grounding.finishedPlanCount > 0
+                  ? `Generate ideas weighted by ${grounding.finishedPlanCount} finished plan${grounding.finishedPlanCount > 1 ? "s" : ""} since last schematic update`
+                  : "No finished plans since last schematic update — generate ideas freely instead"
+              }
+              onClick={() => onGenerateFromFinishedPlans()}
+            >
+              <Sparkles size={11} /> Generate from finished plans
+            </button>
+          ) : null}
           {selectedIdeaIds.size > 0 ? (
             <div className="inspector-batch-bar" title="Batch actions for selected concept ideas">
               <span className="text-sm">{selectedIdeaIds.size} selected</span>

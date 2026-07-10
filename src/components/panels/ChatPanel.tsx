@@ -80,6 +80,7 @@ import {
 } from "../../lib/native-chat";
 import { resolveToolApproval } from "../../lib/native-chat";
 import { useIdeaState } from "../../state/ideas";
+import { setLastGrounding } from "../../state/grounding";
 import type { Idea } from "../../lib/ideas";
 import { inspectProjectSchematic, type SchematicReport } from "../../lib/schematic";
 import { schematicWizardAction } from "../../lib/planningActions";
@@ -405,6 +406,7 @@ export function ChatPanel({
   const loginTimerRef = useRef<number | null>(null);
   // Idea generation.
   const [generatingIdeas, setGeneratingIdeas] = useState(false);
+  // Grounding metadata is written to the shared store (src/state/grounding.ts).
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
   const [showPlanningMenu, setShowPlanningMenu] = useState(false);
@@ -1666,6 +1668,7 @@ export function ChatPanel({
         // local coordinator, show the setup bar prompting to pick a provider.
         setShowLogin(!!selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID);
       }
+      setLastGrounding(result.grounding ?? null);
       // The unified backend captures ideas via the propose_ideas tool during
       // the chat turn. Some code paths (and tests) still return ideas
       // directly in the result — create them locally if the backend didn't.
@@ -1711,6 +1714,7 @@ export function ChatPanel({
       if (result.setupRequired) {
         setSetupRequired(result.setupRequired);
         setShowLogin(!!selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID);
+        setLastGrounding(result.grounding ?? null);
         return;
       }
       await ideaState.refresh();

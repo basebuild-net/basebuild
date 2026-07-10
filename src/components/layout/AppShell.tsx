@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { AlertTriangle, CheckCircle, Info, LayoutTemplate, Settings2, TerminalSquare, X, XCircle } from "lucide-react";
 import { deliverPrompt, type PromptMode } from "../../lib/promptDelivery";
 import { markStart, markEnd } from "../../lib/timing";
-import { generateCategoriesAction, generateIdeasAction, schematicWizardAction, type PlanningAction } from "../../lib/planningActions";
+import { generateCategoriesAction, generateFromFinishedPlansAction, generateIdeasAction, schematicWizardAction, type PlanningAction } from "../../lib/planningActions";
 import { DestinationPicker, type DestinationChoice } from "./DestinationPicker";
 
 export type ToastKind = "success" | "warning" | "error" | "info";
@@ -37,6 +37,7 @@ import { generateSessionTitle, readSkill } from "../../lib/skills";
 import { getWorkspaceRestoreState, saveWorkspaceRestoreState, type WorkspaceRestoreState } from "../../lib/workspace";
 import { FirstRunModal } from "./FirstRunModal";
 import { useFirstRun } from "../../state/first-run";
+import { getLastGrounding } from "../../state/grounding";
 import { createTerminal } from "../../lib/terminal";
 const TerminalPanel = lazy(() => import("../panels/TerminalPanel").then((m) => ({ default: m.TerminalPanel })));
 const FileViewer = lazy(() => import("../panels/FileViewer").then((m) => ({ default: m.FileViewer })));
@@ -654,6 +655,17 @@ export function AppShell({ updates }: AppShellProps) {
     [session, addLog, handleShowToast],
   );
 
+  const handleGenerateFromFinishedPlans = useCallback(() => {
+    const grounding = getLastGrounding();
+    if (!grounding || grounding.finishedPlanCount === 0) return;
+    const action = generateFromFinishedPlansAction(grounding.finishedPlans, grounding.finishedPlanCount);
+    addLog("debug", "Planning action routed", action.context ?? action.type);
+    setPendingDelivery({ text: action.text, mode: action.mode });
+    setDestinationPickerOpen(true);
+    setPlansModalOpen(false);
+    handleShowToast("Generating from finished plans", `${grounding.finishedPlanCount} finished plan${grounding.finishedPlanCount > 1 ? "s" : ""} since last schematic update.`, "info");
+  }, [addLog, handleShowToast]);
+
   const handleOpenSchematic = useCallback(() => {
     addLog("debug", "Project schematic opened", activeProjectPath ?? "no project");
     setSchematicModalOpen(true);
@@ -1260,6 +1272,7 @@ export function AppShell({ updates }: AppShellProps) {
                   plans={plans.plans}
                   loading={plans.loading}
                   collapsed={false}
+                  onGenerateFromFinishedPlans={handleGenerateFromFinishedPlans}
                   onToggleCollapse={() => {}}
                   hostContext="modal"
                   onEditPlan={(p) => { setPlansModalOpen(false); handleEditPlan(p); }}

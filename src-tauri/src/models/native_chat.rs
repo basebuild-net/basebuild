@@ -234,9 +234,37 @@ pub struct NativeGeneratedIdea {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Grounding metadata for idea/category generation. Describes what
+/// decision context was injected into the generation prompt.
+pub struct GroundingMetadata {
+    /// Schematic section headings that grounded the generation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub schematic_sections: Vec<String>,
+    /// Reference IDs of finished plans included in the digest.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub finished_plans: Vec<String>,
+    /// Count of finished plans since last schematic update.
+    #[serde(default)]
+    pub finished_plan_count: usize,
+    /// Count of picked ideas in the digest.
+    #[serde(default)]
+    pub picked_count: usize,
+    /// Count of rejected ideas in the digest.
+    #[serde(default)]
+    pub rejected_count: usize,
+    /// Whether the digest was empty (no recent decisions).
+    #[serde(default)]
+    pub digest_empty: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NativeGenerateIdeasResult {
     pub ideas: Vec<NativeGeneratedIdea>,
     pub setup_required: Option<NativeSetupRequired>,
+    /// Grounding metadata describing what decision context was injected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grounding: Option<GroundingMetadata>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

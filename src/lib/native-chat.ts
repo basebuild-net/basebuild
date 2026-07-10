@@ -158,9 +158,19 @@ export type NativeGeneratedIdea = {
   description: string;
 };
 
+export type GroundingMetadata = {
+  schematicSections: string[];
+  finishedPlans: string[];
+  finishedPlanCount: number;
+  pickedCount: number;
+  rejectedCount: number;
+  digestEmpty: boolean;
+};
+
 export type NativeGenerateIdeasResult = {
   ideas: NativeGeneratedIdea[];
   setupRequired: NativeSetupRequired | null;
+  grounding: GroundingMetadata | null;
 };
 
 export type ProviderLoginStart = {
