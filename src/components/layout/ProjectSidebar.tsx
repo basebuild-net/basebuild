@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronLeft,
@@ -175,14 +175,14 @@ export function ProjectSidebar({
                   </button>
                   {menuPath === project.path ? (
                     <div className="context-menu" onMouseLeave={() => setMenuPath(null)}>
-                      <button className="menu-item" type="button" onClick={() => handleReveal(project.path)}>
+                      <button className="menu-item" type="button" title="Open project in file explorer" onClick={() => handleReveal(project.path)}>
                         <ExternalLink size={13} /> Open in explorer
                       </button>
-                      <button className="menu-item" type="button" onClick={() => toggleHide(project.path)}>
+                      <button className="menu-item" type="button" title={hiddenPaths.has(project.path) ? "Show project in list" : "Hide project from list"} onClick={() => toggleHide(project.path)}>
                         {hiddenPaths.has(project.path) ? <Eye size={13} /> : <EyeOff size={13} />}
                         {hiddenPaths.has(project.path) ? "Show in list" : "Hide from list"}
                       </button>
-                      <button className="menu-item menu-item-danger" type="button" onClick={() => handleRemove(project.path)}>
+                      <button className="menu-item menu-item-danger" type="button" title="Remove project from list" onClick={() => handleRemove(project.path)}>
                         <X size={13} /> Remove
                       </button>
                     </div>
@@ -254,7 +254,7 @@ export function ProjectSidebar({
                         ) : null}
                         {sessionMenu === s.id ? (
                           <div className="context-menu" onMouseLeave={() => setSessionMenu(null)}>
-                            <button className="menu-item" type="button" onClick={() => {
+                            <button className="menu-item" type="button" title="Rename session" onClick={() => {
                               setEditingSession(s.id);
                               setEditValue(s.title);
                               setSessionMenu(null);
@@ -262,7 +262,7 @@ export function ProjectSidebar({
                               <Pencil size={13} /> Rename
                             </button>
                             {onDeleteSession ? (
-                              <button className="menu-item menu-item-danger" type="button" onClick={() => {
+                              <button className="menu-item menu-item-danger" type="button" title="Delete session" onClick={() => {
                                 if (confirm(`Delete session "${s.title}"? This cannot be undone.`)) {
                                   onDeleteSession(s.id);
                                 }
@@ -282,7 +282,7 @@ export function ProjectSidebar({
           })
         )}
         {hiddenPaths.size > 0 ? (
-          <button className="sidebar-show-hidden" type="button" onClick={() => setHiddenPaths(new Set())}>
+          <button className="sidebar-show-hidden" type="button" title="Show hidden projects" onClick={() => setHiddenPaths(new Set())}>
             <Eye size={13} /> Show {hiddenPaths.size} hidden
           </button>
         ) : null}
@@ -313,6 +313,8 @@ export function useProjectSidebar(activeProjectPath: string | null) {
   const [projects, setProjects] = useState<RecentProject[]>([]);
   const [projectDetection, setProjectDetection] = useState<ProjectDetection | null>(null);
   const [sessionsByProject, setSessionsByProject] = useState<Map<string, Session[]>>(new Map());
+  const [pickerInFlight, setPickerInFlight] = useState(false);
+  const pickerPromiseRef = useRef<Promise<string | null> | null>(null);
   const { addLog } = useLogs();
 
   async function refreshProjects() {
@@ -354,24 +356,41 @@ export function useProjectSidebar(activeProjectPath: string | null) {
   }
 
   async function openFolder() {
-    addLog("info", "Opening folder picker...");
-    try {
-      const path = await pickProjectDirectory();
-      if (!path) {
-        addLog("info", "No folder selected");
-        return null;
-      }
-      addLog("info", `Folder selected: ${path}`);
-      await rememberRecentProject(path);
-      await refreshProjects();
-      // Detection runs once via the `activeProjectPath` effect below; do not
-      // call `selectProject` here — that would duplicate the diagnostic event.
-      return path;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      addLog("error", "Folder picker failed", message);
-      throw err;
+    // Single-flight: if a picker is already open, return the same promise so
+    // repeated clicks coalesce into one dialog. Tauri's native picker is
+    // modal but rapid clicks can still queue duplicate invocations.
+    if (pickerPromiseRef.current) {
+      addLog("debug", "Folder picker already open — reusing in-flight promise");
+      return pickerPromiseRef.current;
     }
+    setPickerInFlight(true);
+    const promise = (async () => {
+      addLog("info", "Opening folder picker...");
+      try {
+        const path = await pickProjectDirectory();
+        if (!path) {
+          addLog("info", "No folder selected");
+          return null;
+        }
+        addLog("info", `Folder selected: ${path}`);
+        await rememberRecentProject(path);
+        await refreshProjects();
+        // Detection runs once via the `activeProjectPath` effect below; do not
+        // call `selectProject` here — that would duplicate the diagnostic event.
+        return path;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        addLog("error", "Folder picker failed", message);
+        throw err;
+      } finally {
+        setPickerInFlight(false);
+      }
+    })();
+    pickerPromiseRef.current = promise;
+    promise.finally(() => {
+      pickerPromiseRef.current = null;
+    });
+    return promise;
   }
 
   async function removeProject(path: string) {
@@ -391,5 +410,5 @@ export function useProjectSidebar(activeProjectPath: string | null) {
     }
   }, [activeProjectPath]);
 
-  return { projects, projectDetection, sessionsByProject, refreshProjects, refreshSessions, selectProject, removeProject, openFolder };
+  return { projects, projectDetection, sessionsByProject, refreshProjects, refreshSessions, selectProject, removeProject, openFolder, pickerInFlight, isPickerInFlight: () => pickerPromiseRef.current !== null };
 }

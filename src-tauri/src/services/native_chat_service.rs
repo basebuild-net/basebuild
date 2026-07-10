@@ -260,6 +260,12 @@ impl NativeChatService {
                label = excluded.label, api_key = excluded.api_key, base_url = excluded.base_url, updated_at = excluded.updated_at",
             params![&cred.provider_id, &cred.label, &cred.api_key, &cred.base_url, cred.updated_at],
         ).map_err(|e| format!("Failed to save provider credential: {e}"))?;
+        // Remove any block so OMP-imported credentials can flow again after reconnect.
+        conn.execute(
+            "DELETE FROM native_blocked_providers WHERE provider_id = ?1",
+            params![&cred.provider_id],
+        )
+        .map_err(|e| e.to_string())?;
         let _ = crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh_provider(&cred.provider_id, true);
         Ok(cred)
     }
@@ -280,19 +286,35 @@ impl NativeChatService {
         }).map_err(|e| e.to_string())?;
         let mut creds = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
 
+        // Load the set of providers the user has explicitly disconnected.
+        // This blocks OMP-imported credentials from re-appearing after disconnect.
+        let blocked: Vec<String> = conn
+            .prepare("SELECT provider_id FROM native_blocked_providers")
+            .map_err(|e| e.to_string())?
+            .query_map([], |row| row.get::<_, String>(0))
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default();
+
+        // Remove blocked Basebuild credentials.
+        creds.retain(|c| !blocked.contains(&c.provider_id));
+
         // Merge credentials from the OMP (Oh My Pi) key store so providers
-        // configured there are usable without re-entering a key here. OMP's
-        // store is the source of truth, so it replaces any same-provider
-        // Basebuild-saved credential.
+        // configured there are usable without re-entering a key here. When
+        // both exist, the Basebuild-saved credential takes precedence (the
+        // user explicitly entered it); OMP is the fallback for providers not
+        // configured in Basebuild. OMP credentials for blocked providers are
+        // skipped entirely.
         let mut omp_seen = Vec::new();
         for omp in Self::omp_credentials() {
+            if blocked.contains(&omp.provider_id) {
+                continue;
+            }
             if omp_seen.contains(&omp.provider_id) {
                 continue;
             }
             omp_seen.push(omp.provider_id.clone());
-            if let Some(existing) = creds.iter_mut().find(|c| c.provider_id == omp.provider_id) {
-                *existing = omp;
-            } else {
+            // Only add OMP credential if Basebuild doesn't have one already.
+            if !creds.iter().any(|c| c.provider_id == omp.provider_id) {
                 creds.push(omp);
             }
         }
@@ -370,6 +392,12 @@ impl NativeChatService {
         let conn = StorageService::connect()?;
         conn.execute("DELETE FROM native_provider_credentials WHERE provider_id = ?1", params![provider_id])
             .map_err(|e| e.to_string())?;
+        // Block the provider so OMP-imported credentials don't reappear.
+        conn.execute(
+            "INSERT OR IGNORE INTO native_blocked_providers (provider_id, blocked_at) VALUES (?1, ?2)",
+            params![provider_id, now_seconds()],
+        )
+        .map_err(|e| e.to_string())?;
         let _ = crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh_provider(provider_id, true);
         Ok(())
     }
@@ -395,6 +423,7 @@ impl NativeChatService {
             model_id,
             effort_level,
             status: "ready".to_string(),
+            run_state: "idle".to_string(),
             created_at: now,
             updated_at: now,
         };
@@ -467,6 +496,7 @@ impl NativeChatService {
             model_id,
             effort_level,
             status: "ready".to_string(),
+            run_state: "idle".to_string(),
             created_at: now,
             updated_at: now,
         };
@@ -523,7 +553,11 @@ impl NativeChatService {
         if let Some(change_name) = &plan.change_name {
             let change_path = format!("{project_path}/openspec/changes/{change_name}");
             parts.push(format!(
-                "**OpenSpec change:** `{change_path}` — read the proposal, specs, design, and tasks.md there for the full plan. Work through tasks.md checkboxes in order."
+                "You are applying the OpenSpec change at {change_path}/.\n\
+                 Read proposal.md, design.md if present, specs/**/spec.md, and tasks.md.\n\
+                 Work tasks.md top-to-bottom. Mark each checkbox immediately after completing it.\n\
+                 Do not create a second implementation plan. Update docs/DESIGN/mvp only where tasks.md says so.\n\
+                 Run the relevant verification commands before reporting completion."
             ));
         }
         // Append project schematic if it exists.
@@ -540,7 +574,7 @@ impl NativeChatService {
     pub fn get_session(session_id: &str) -> DbResult<Option<NativeChatSession>> {
         let conn = StorageService::connect()?;
         conn.query_row(
-            "SELECT id, project_path, title, profile_id, provider_id, model_id, effort_level, status, created_at, updated_at
+            "SELECT id, project_path, title, profile_id, provider_id, model_id, effort_level, status, run_state, created_at, updated_at
              FROM native_chat_sessions WHERE id = ?1",
             params![session_id],
             map_session,
@@ -549,11 +583,37 @@ impl NativeChatService {
         .map_err(|e| e.to_string())
     }
 
+    /// Persist the provider/model/effort selection on an existing session.
+    /// Called when the user changes the selection in the composer so the
+    /// choice survives restart. Validates the provider/model pair first.
+    pub fn update_session_model(
+        session_id: &str,
+        provider_id: &str,
+        model_id: &str,
+        effort_level: &str,
+    ) -> DbResult<NativeChatSession> {
+        Self::validate_provider_model(provider_id, model_id, true)?;
+        let conn = StorageService::connect()?;
+        let now = now_seconds();
+        conn.execute(
+            "UPDATE native_chat_sessions
+             SET provider_id = ?2, model_id = ?3, effort_level = ?4, updated_at = ?5
+             WHERE id = ?1",
+            params![session_id, provider_id, model_id, effort_level, now],
+        )
+        .map_err(|e| e.to_string())?;
+        if conn.changes() == 0 {
+            return Err("Session not found.".to_string());
+        }
+        Self::get_session(session_id)?
+            .ok_or_else(|| "Session not found after update.".to_string())
+    }
+
     pub fn list_sessions(project_path: &str) -> DbResult<Vec<NativeChatSession>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, project_path, title, profile_id, provider_id, model_id, effort_level, status, created_at, updated_at
+                "SELECT id, project_path, title, profile_id, provider_id, model_id, effort_level, status, run_state, created_at, updated_at
                  FROM native_chat_sessions WHERE project_path = ?1 ORDER BY updated_at DESC",
             )
             .map_err(|e| e.to_string())?;
@@ -575,6 +635,25 @@ impl NativeChatService {
             .query_map(params![session_id], map_message)
             .map_err(|e| e.to_string())?;
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    /// Delete all persisted messages and tool events for a session.
+    /// Preserves the session record itself (provider/model/effort selection).
+    /// Returns the count of deleted messages.
+    pub fn clear_session_messages(session_id: &str) -> DbResult<usize> {
+        let conn = StorageService::connect()?;
+        let deleted = conn
+            .execute(
+                "DELETE FROM native_chat_messages WHERE session_id = ?1",
+                params![session_id],
+            )
+            .map_err(|e| format!("Failed to clear chat messages: {e}"))?;
+        conn.execute(
+            "DELETE FROM native_tool_events WHERE session_id = ?1",
+            params![session_id],
+        )
+        .map_err(|e| format!("Failed to clear tool events: {e}"))?;
+        Ok(deleted)
     }
 
     pub fn send_message(
@@ -696,6 +775,14 @@ impl NativeChatService {
             && !uses_omp_rpc
             && Self::model_supports_tools(&provider_id, &model_id);
 
+        // Capture schematic mtime before the turn to detect agent-driven writes.
+        let schematic_path = std::path::Path::new(&session.project_path)
+            .join(".basebuild/project-schematic.md");
+        let schematic_mtime_before = std::fs::metadata(&schematic_path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs());
         if supports_tools {
             // Run the agentic loop: stream → tool calls → approval → execute → repeat.
             let run_result = crate::services::agent_loop_service::run_agent_turn(
@@ -733,8 +820,32 @@ impl NativeChatService {
                     &te.tool_name,
                     &te.status,
                     &te.summary,
+                    te.arguments.as_deref(),
+                    te.diff.as_deref(),
+                    Some(&te.decision),
+                    te.rule_source.as_deref(),
                 )?;
                 tool_events.push(event);
+            }
+            // Post-turn: if the agent wrote to the schematic file via write_file,
+            // emit a SchematicUpdated event so the schematic tab refreshes.
+            let schematic_mtime_after = std::fs::metadata(&schematic_path)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs());
+            if let (Some(before), Some(after)) = (schematic_mtime_before, schematic_mtime_after) {
+                if after > before {
+                    let _ = crate::services::planning_events::emit(
+                        &app,
+                        crate::models::planning_event::PlanningEventKind::SchematicUpdated,
+                        &session.project_path,
+                        &session.project_path,
+                        Some(request.session_id.clone()),
+                        "Schematic updated by agent",
+                        Some("The agent wrote to the project schematic during this turn.".to_string()),
+                    );
+                }
             }
 
             let metric = NativeRequestMetric {
@@ -771,6 +882,157 @@ impl NativeChatService {
             });
         }
 
+        // OMP-RPC-bridged providers: route through the persistent OMP RPC
+        // session, which lets OMP use its own built-in tools (read_file,
+        // ask_user, etc.) without Basebuild passing tool schemas. The one-shot
+        // OmpRpcClient passes --no-tools and can't do multi-turn tool loops.
+        if uses_omp_rpc {
+            use crate::services::omp_rpc_session_service::{
+                start_session as omp_start_session,
+                send_prompt_and_wait as omp_send_prompt_and_wait,
+            };
+            use tauri::Manager;
+
+            // Start (or reuse) the persistent OMP RPC session.
+            let registry = app.state::<crate::services::omp_rpc_session_service::OmpRpcSessionRegistry>();
+            let needs_start = registry.get(&request.session_id).is_none();
+            if needs_start {
+                omp_start_session(
+                    app.clone(),
+                    request.session_id.clone(),
+                    &provider_id,
+                    &resolved_model_id,
+                )?;
+            }
+
+            // Emit a "thinking" status so the UI shows activity.
+            let _ = app.emit(
+                NATIVE_CHAT_CHUNK,
+                serde_json::json!({ "sessionId": &request.session_id, "delta": "thinking", "channel": "status" }),
+            );
+
+            // Send the prompt and wait for the turn to complete (5 min timeout).
+            let turn_result = omp_send_prompt_and_wait(
+                &app,
+                &request.session_id,
+                content,
+                300,
+            );
+
+            let completed_at = now_millis();
+            let duration_ms = completed_at.saturating_sub(started_at).max(1);
+
+            let (turn_content, turn_reasoning) = match turn_result {
+                Ok((c, r)) => (c, if r.is_empty() { None } else { Some(r) }),
+                Err(e) => {
+                    // Persist the error as an assistant message so the user
+                    // sees it in the transcript.
+                    let assistant_message = Self::insert_message(
+                        &request.session_id,
+                        "assistant",
+                        &format!("Error: {e}"),
+                        None,
+                        Some(&provider_id),
+                        Some(&model_id),
+                        Some(&effort_level),
+                    )?;
+                    let metric = NativeRequestMetric {
+                        id: gen_id("nreq"),
+                        session_id: request.session_id.clone(),
+                        provider_id: provider_id.clone(),
+                        model_id: model_id.clone(),
+                        effort_level: effort_level.clone(),
+                        started_at,
+                        completed_at: Some(completed_at),
+                        duration_ms: Some(duration_ms),
+                        ttft_ms: None,
+                        ttlt_ms: Some(duration_ms),
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        cache_read_tokens: 0,
+                        cache_write_tokens: 0,
+                        tokens_per_second: None,
+                        cost_total: Some(0.0),
+                        outcome: "error".to_string(),
+                        error_class: Some("omp_rpc_error".to_string()),
+                        created_at: now_seconds(),
+                    };
+                    let _ = Self::insert_metric(&metric);
+                    Self::touch_session(&request.session_id)?;
+                    return Ok(NativeChatSendResult {
+                        user_message,
+                        assistant_message: Some(assistant_message),
+                        metrics: Some(metric),
+                        tool_events: Vec::new(),
+                        setup_required: None,
+                        offline: false,
+                    });
+                }
+            };
+
+            let assistant_message = Self::insert_message(
+                &request.session_id,
+                "assistant",
+                &turn_content,
+                turn_reasoning.as_deref(),
+                Some(&provider_id),
+                Some(&model_id),
+                Some(&effort_level),
+            )?;
+
+            let output_tokens = estimate_tokens(&turn_content);
+            let input_tokens = estimate_tokens(content);
+            let tokens_per_second =
+                Some((output_tokens as f64) / ((duration_ms as f64) / 1000.0).max(0.001));
+
+            let metric = NativeRequestMetric {
+                id: gen_id("nreq"),
+                session_id: request.session_id.clone(),
+                provider_id: provider_id.clone(),
+                model_id: model_id.clone(),
+                effort_level: effort_level.clone(),
+                started_at,
+                completed_at: Some(completed_at),
+                duration_ms: Some(duration_ms),
+                ttft_ms: None,
+                ttlt_ms: Some(duration_ms),
+                input_tokens,
+                output_tokens,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                tokens_per_second,
+                cost_total: Some(0.0),
+                outcome: "success".to_string(),
+                error_class: None,
+                created_at: now_seconds(),
+            };
+            Self::insert_metric(&metric)?;
+
+            let summary = "OMP RPC turn: streamed via persistent OMP session with OMP built-in tools.";
+            let event = Self::insert_tool_event(
+                &request.session_id,
+                Some(&assistant_message.id),
+                "request_metrics",
+                "recorded",
+                summary,
+                None,
+                None,
+                None,
+                None,
+            )?;
+
+            Self::touch_session(&request.session_id)?;
+
+            return Ok(NativeChatSendResult {
+                user_message,
+                assistant_message: Some(assistant_message),
+                metrics: Some(metric),
+                tool_events: vec![event],
+                setup_required: None,
+                offline: false,
+            });
+        }
+
         let client = resolve_client_for_model(&provider_id, &api_kind, req.base_url.as_deref(), &model_base_url);
         let session_id_for_emit = request.session_id.clone();
         let app_for_emit = app.clone();
@@ -780,6 +1042,9 @@ impl NativeChatService {
                 serde_json::json!({ "sessionId": session_id_for_emit, "delta": delta, "channel": channel }),
             );
         };
+
+        // Signal the UI that the model is thinking before the first token.
+        emit("thinking", "status");
 
         let response = match client.generate(&req, &emit) {
             Ok(r) => r,
@@ -863,6 +1128,10 @@ impl NativeChatService {
             "request_metrics",
             "recorded",
             summary,
+            None,
+            None,
+            None,
+            None,
         )?;
 
         Self::touch_session(&request.session_id)?;
@@ -925,6 +1194,7 @@ impl NativeChatService {
                     message: "Connect a model provider to generate ideas from this chat."
                         .to_string(),
                 }),
+                grounding: None,
             });
         }
 
@@ -1003,14 +1273,19 @@ impl NativeChatService {
         // Mark the pipeline run as succeeded.
         let stage_kind = if category_id.is_some() { "generate_ideas_category" } else { "generate_ideas" };
         let _ = Self::record_pipeline_run(&run_id, &request.session_id, &session.project_path, stage_kind, "succeeded", now_seconds());
+        let grounding = crate::services::planning_prompt_service::PlanningPromptService::grounding_metadata(
+            &request.session_id,
+            &session.project_path,
+        );
         Ok(NativeGenerateIdeasResult {
             ideas,
             setup_required: None,
+            grounding: Some(grounding),
         })
     }
 
     /// Record a pipeline_runs row for a generate-ideas/generate-plans stage.
-    fn record_pipeline_run(run_id: &str, session_id: &str, project_path: &str, kind: &str, status: &str, ts: i64) -> DbResult<()> {
+    pub fn record_pipeline_run(run_id: &str, session_id: &str, project_path: &str, kind: &str, status: &str, ts: i64) -> DbResult<()> {
         let conn = StorageService::connect()?;
         conn.execute(
             "INSERT INTO pipeline_runs (id, session_id, project_path, kind, input_summary, status, output_refs, started_at, completed_at, created_at)
@@ -1274,7 +1549,19 @@ impl NativeChatService {
         kind: &str,
         status: &str,
         summary: &str,
+        arguments: Option<&str>,
+        diff: Option<&str>,
+        decision: Option<&str>,
+        rule_source: Option<&str>,
     ) -> DbResult<NativeToolEvent> {
+        let conn = StorageService::connect()?;
+        let next_seq: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM native_tool_events WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(1);
         let event = NativeToolEvent {
             id: gen_id("ntool"),
             session_id: session_id.to_string(),
@@ -1282,24 +1569,36 @@ impl NativeChatService {
             kind: kind.to_string(),
             status: status.to_string(),
             summary: summary.to_string(),
+            arguments: arguments.map(str::to_string),
+            diff: diff.map(str::to_string),
+            decision: decision.map(str::to_string),
+            rule_source: rule_source.map(str::to_string),
+            sequence: next_seq,
             created_at: now_seconds(),
         };
-        let conn = StorageService::connect()?;
         conn.execute(
-            "INSERT INTO native_tool_events (id, session_id, message_id, kind, status, summary, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![event.id, event.session_id, event.message_id, event.kind, event.status, event.summary, event.created_at],
+            "INSERT INTO native_tool_events (id, session_id, message_id, kind, status, summary, arguments, diff, decision, rule_source, sequence, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, (SELECT COALESCE(MAX(sequence), 0) + 1 FROM native_tool_events WHERE session_id = ?2), ?11)",
+            params![event.id, event.session_id, event.message_id, event.kind, event.status, event.summary, event.arguments, event.diff, event.decision, event.rule_source, event.created_at],
         )
         .map_err(|e| format!("Failed to save native tool event: {e}"))?;
-        Ok(event)
+        // Read back the assigned sequence so the returned event matches what was persisted.
+        let persisted_seq: i64 = conn
+            .query_row(
+                "SELECT sequence FROM native_tool_events WHERE id = ?1",
+                params![event.id],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Failed to read back tool event sequence: {e}"))?;
+        Ok(NativeToolEvent { sequence: persisted_seq, ..event })
     }
 
     pub fn list_tool_events(session_id: &str) -> DbResult<Vec<NativeToolEvent>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, session_id, message_id, kind, status, summary, created_at
-                 FROM native_tool_events WHERE session_id = ?1 ORDER BY created_at ASC",
+                "SELECT id, session_id, message_id, kind, status, summary, arguments, diff, decision, rule_source, sequence, created_at
+                 FROM native_tool_events WHERE session_id = ?1 ORDER BY sequence ASC, created_at ASC",
             )
             .map_err(|e| format!("Failed to prepare tool event query: {e}"))?;
         let rows = stmt
@@ -1311,7 +1610,12 @@ impl NativeChatService {
                     kind: row.get(3)?,
                     status: row.get(4)?,
                     summary: row.get(5)?,
-                    created_at: row.get(6)?,
+                    arguments: row.get(6)?,
+                    diff: row.get(7)?,
+                    decision: row.get(8)?,
+                    rule_source: row.get(9)?,
+                    sequence: row.get(10)?,
+                    created_at: row.get(11)?,
                 })
             })
             .map_err(|e| format!("Failed to query tool events: {e}"))?;
@@ -1427,8 +1731,9 @@ fn map_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<NativeChatSession> {
         model_id: row.get(5)?,
         effort_level: row.get(6)?,
         status: row.get(7)?,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        run_state: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "idle".to_string()),
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
     })
 }
 
@@ -1728,5 +2033,177 @@ mod tests {
         let resolved = resolved.expect("configured model should resolve");
         assert_ne!(resolved.effort_level, "medium");
         assert!(model.supported_efforts.contains(&resolved.effort_level));
+    }
+
+    #[test]
+    fn update_session_model_persists_and_rejects_invalid() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+        let session = NativeChatService::start_session(NativeChatStartRequest {
+            project_path: "/test/update-session".to_string(),
+            title: Some("Test".to_string()),
+            provider_id: Some(LOCAL_PROVIDER_ID.to_string()),
+            model_id: Some("basebuild-local-coordinator".to_string()),
+            effort_level: Some("medium".to_string()),
+        })
+        .unwrap();
+
+        // Update to a (valid) local model with a different effort.
+        let updated = NativeChatService::update_session_model(
+            &session.id,
+            LOCAL_PROVIDER_ID,
+            "basebuild-local-coordinator",
+            "high",
+        )
+        .unwrap();
+        assert_eq!(updated.effort_level, "high");
+
+        // Re-read to confirm persistence.
+        let reread = NativeChatService::get_session(&session.id).unwrap().unwrap();
+        assert_eq!(reread.effort_level, "high");
+
+        // Invalid provider/model pair should be rejected.
+        let err = NativeChatService::update_session_model(
+            &session.id,
+            "nonexistent-provider",
+            "nonexistent-model",
+            "medium",
+        );
+        assert!(err.is_err(), "invalid provider/model should be rejected");
+
+        // Nonexistent session should error.
+        let err = NativeChatService::update_session_model(
+            "no-such-session",
+            LOCAL_PROVIDER_ID,
+            "basebuild-local-coordinator",
+            "medium",
+        );
+        assert!(err.is_err(), "nonexistent session should error");
+    }
+    #[test]
+    fn clear_session_messages_deletes_messages_and_tool_events() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+        let session = NativeChatService::start_session(NativeChatStartRequest {
+            project_path: "/test/clear".to_string(),
+            title: Some("Clear Test".to_string()),
+            provider_id: Some(LOCAL_PROVIDER_ID.to_string()),
+            model_id: Some("basebuild-local-coordinator".to_string()),
+            effort_level: Some("medium".to_string()),
+        })
+        .unwrap();
+
+        // Insert two messages and a tool event.
+        NativeChatService::insert_message(&session.id, "user", "hello", None, Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium")).unwrap();
+        NativeChatService::insert_message(&session.id, "assistant", "hi there", None, Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium")).unwrap();
+        NativeChatService::insert_tool_event(&session.id, None, "test_tool", "ok", "ran", None, None, None, None);
+
+        // Verify they exist.
+        assert_eq!(NativeChatService::list_messages(&session.id).unwrap().len(), 2);
+        assert_eq!(NativeChatService::list_tool_events(&session.id).unwrap().len(), 1);
+
+        // Clear and verify deletion count.
+        let deleted = NativeChatService::clear_session_messages(&session.id).unwrap();
+        assert_eq!(deleted, 2, "should delete 2 messages");
+        assert_eq!(NativeChatService::list_messages(&session.id).unwrap().len(), 0);
+        assert_eq!(NativeChatService::list_tool_events(&session.id).unwrap().len(), 0);
+
+        // Session record itself should still exist (provider/model/effort preserved).
+        let reread = NativeChatService::get_session(&session.id).unwrap().unwrap();
+        assert_eq!(reread.provider_id, LOCAL_PROVIDER_ID);
+        assert_eq!(reread.model_id, "basebuild-local-coordinator");
+        assert_eq!(reread.effort_level, "medium");
+
+        // Clearing an already-empty session should return 0.
+        let deleted2 = NativeChatService::clear_session_messages(&session.id).unwrap();
+        assert_eq!(deleted2, 0);
+    }
+    #[test]
+    fn delete_credential_blocks_omp_credentials() {
+        // delete_credential should add the provider to native_blocked_providers
+        // so OMP-imported credentials don't reappear after disconnect.
+        // This test verifies the block is created; the full list_credentials
+        // behavior with OMP merge is tested via the e2e flow.
+        let _home = crate::test_util::test::isolated_home();
+        let conn = StorageService::connect().unwrap();
+
+        // Insert a credential for "umans".
+        conn.execute(
+            "INSERT INTO native_provider_credentials (provider_id, label, api_key, base_url, updated_at)
+             VALUES ('umans', 'test', 'sk-test', NULL, 100)",
+            [],
+        )
+        .unwrap();
+
+        // Delete it (should also block).
+        NativeChatService::delete_credential("umans").unwrap();
+
+        // The Basebuild credential should be gone.
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM native_provider_credentials WHERE provider_id = 'umans'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0, "Basebuild credential should be deleted");
+
+        // The block should exist.
+        let blocked: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM native_blocked_providers WHERE provider_id = 'umans'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(blocked, 1, "umans should be blocked after disconnect");
+
+        // list_credentials should not return umans even if OMP has it.
+        let creds = NativeChatService::list_credentials().unwrap();
+        assert!(
+            !creds.iter().any(|c| c.provider_id == "umans"),
+            "blocked provider should not appear in list_credentials"
+        );
+    }
+
+    #[test]
+    fn save_credential_unblocks_provider() {
+        let _home = crate::test_util::test::isolated_home();
+        let conn = StorageService::connect().unwrap();
+
+        // Block umans first (simulate a prior disconnect).
+        conn.execute(
+            "INSERT INTO native_blocked_providers (provider_id, blocked_at) VALUES ('umans', 100)",
+            [],
+        )
+        .unwrap();
+
+        // Save a new credential (should unblock).
+        NativeChatService::save_credential(crate::models::native_chat::NativeProviderCredentialInput {
+            provider_id: "umans".to_string(),
+            label: "test".to_string(),
+            api_key: "sk-new".to_string(),
+            base_url: None,
+        })
+        .unwrap();
+
+        // The block should be gone.
+        let blocked: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM native_blocked_providers WHERE provider_id = 'umans'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(blocked, 0, "umans should be unblocked after saving a new credential");
+
+        // The credential should be present (either the Basebuild one or the
+        // OMP-imported one — what matters is the provider is no longer blocked).
+        let creds = NativeChatService::list_credentials().unwrap();
+        assert!(
+            creds.iter().any(|c| c.provider_id == "umans"),
+            "umans credential should be visible after unblock (got {} creds)",
+            creds.len()
+        );
     }
 }

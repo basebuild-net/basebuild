@@ -1,33 +1,50 @@
 # Desktop Shell
 
-Basebuild's app shell is a three-column grid:
+Basebuild's app shell is a two-region, chat-first grid organized into four
+ownership levels:
 
-1. **Left sidebar** (220px → 36px collapsed) — projects and sessions.
-2. **Center workspace** — session header, workspace tabs, and the active tab
-   view (terminal, file viewer, chat, or project schematic). The schematic
-   tab renders structured section cards by default (Purpose, Vision, Blueprint,
-   End goals, Current priorities, core rules) with per-section fill states and
-   a health badge; a raw markdown toggle is available. The "Generate plans"
-   modal was removed (schematic-grounded-planning) — generation runs through
-   the chat planning menu.
-3. **Right side panel** (260px → 36px collapsed) — stacked accordion sections
-   for Plans, Files, and Source. The Plans section is a Planning Inspector
-   with five tabs: Plans, Ideas, Categories, Flow, and Changes. The Plans tab
-   exposes an **Import** action (`plan_import_detect` / `plan_import_apply`): it scans
-   `openspec/changes/` for change folders not already linked to a `.basebuild`
-   plan, lists them as candidates (title from `proposal.md`, status derived
-   from `tasks.md` progress), and on explicit confirm writes
-   `.basebuild/plans/<slug>/plan.md` records (`engine: openspec`, `external:`
-   pointer, no duplicated task list). Detection never writes; re-import skips
-   already-linked sources; malformed sources are reported and skipped. The
-   **Flow** tab shows a board with per-stage counts (schematic, ideas, plans,
-   running, finished) and completion cards for runs in `awaiting_review` or
-   `succeeded` status. The **Changes** tab shows the OpenSpec change catalog
-   (see `docs/agents/openspec.md`).
+1. **Global navigation** — Projects, Chats, Settings, and Updates in the
+   left sidebar. Plans/Ideas/Files/Source/Flow are not persistent left-nav
+   items; they live in chat controls, context strip/header actions, or
+   project modals.
+2. **Project command strip** — stage-driven actions (Schematic, Ideas, Plans,
+   Running, Done).
+3. **Active chat** — transcript/activity timeline, composer, and per-chat
+   context strip showing workspace id, branch, worktree, plan, progress,
+   model, context-window usage, and run state.
+4. **Project modals** — Schematic, Planning, Changes, Files, and Settings.
 
+A control belongs to one level only. A stage button opens its exact destination;
+it never creates a surrogate chat or defaults to a sibling tab.
 
-The global taskbar sits above the shell. Its right side contains the update
-indicator, account control, settings, and window controls. The update indicator
+The left sidebar (220px → 36px collapsed) shows projects and sessions. The center
+workspace contains the command strip, chat context, workspace tabs, transcript,
+and composer. Project-owned surfaces open as modals; there is no persistent right
+side panel.
+
+The **Planning** modal has five tabs: Plans, Ideas, Categories, Flow, and
+Changes. The **Plans** tab exposes an **Import** action
+(`plan_import_detect` / `plan_import_apply`): it scans `openspec/changes/`
+for change folders not already linked to a `.basebuild` plan, lists them as
+candidates (title from `proposal.md`, status derived from `tasks.md` progress),
+and on explicit confirm writes `.basebuild/plans/<slug>/plan.md` records
+(`engine: openspec`, `external:` pointer, no duplicated task list). Detection
+never writes; re-import skips already-linked sources; malformed sources are
+reported and skipped. Plans otherwise originate from the promotion of one or
+more structured ideas into an AI generation run; the UI has no blank-create
+affordance.
+
+The **Flow** tab shows a board with per-stage counts (schematic, ideas, plans,
+running, finished) and completion cards for runs in `awaiting_review` or
+`succeeded` status. It also shows a **launch profile form** (worker count,
+provider cap, workspace policy, scheduling mode) and a **run board** with
+dependency graph nodes showing plan, priority, prerequisites, owner chat,
+branch/worktree, affected-path claims, progress, blockers, and merge
+readiness. A **merge-review queue** lists finished workers awaiting review
+with approve/reject/merge actions. The **Changes** tab shows the OpenSpec
+change catalog (see `docs/agents/openspec.md`).
+
+Account and update controls live at the bottom of the left sidebar. The update indicator
 checks on startup and every 5 minutes; when an update is available it becomes a
 blue one-click download/install button next to the account avatar. When the
 update channel is broken (missing `latest.json`, malformed manifest, missing
@@ -277,9 +294,33 @@ confirmation. PR state is shown with a link to the PR URL when available.
 
 The `CommandStrip` sits in the session header, showing per-stage counts
 (schematic, ideas, plans, running, finished) with status colors and an
-activity pulse on active runs. Clicking a stage opens the Planning Inspector.
+activity pulse on active runs. Schematic opens the dedicated Project Schematic
+modal; Ideas and Plans open the Planning modal on their exact tabs; Running and
+Finished open Flow. Stage clicks never default to a sibling tab.
 The strip collapses to a compact badge; collapse state persists in workspace
 restore.
+
+## Modal ownership and loading states
+
+Project-owned configuration and catalog surfaces live as modals, not workspace
+panels. The five project modals are:
+
+- **Schematic** — project-level schematic wizard progress and questions.
+  No schematic workspace chat is created.
+- **Planning** — plans, ideas, categories, flow, and changes tabs.
+- **Changes** — OpenSpec change catalog (see `docs/agents/openspec.md`).
+- **Files** — project file explorer.
+- **Settings** — app and project configuration.
+
+Each modal body uses visible skeleton, loading, error, and empty states. The
+shared `ModalLoading` component provides the non-null fallback for Suspense
+boundaries on user-opened surfaces; `null` fallbacks are not allowed.
+
+Project switching immediately replaces project content with a stable loading
+surface. A project-keyed loading boundary disables panel mutation until the
+selected project's restore resolves and guards late restore responses from a
+previous project. Errors include a retry control and are debug-logged with
+action and project/session identifiers.
 
 ## Destination picker
 

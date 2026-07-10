@@ -1,37 +1,53 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LayoutTemplate, Settings2, TerminalSquare, X } from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, CheckCircle, Info, LayoutTemplate, Settings2, TerminalSquare, X, XCircle } from "lucide-react";
 import { deliverPrompt, type PromptMode } from "../../lib/promptDelivery";
+import { markStart, markEnd } from "../../lib/timing";
+import { generateCategoriesAction, generateFromFinishedPlansAction, generateIdeasAction, schematicWizardAction, type PlanningAction } from "../../lib/planningActions";
 import { DestinationPicker, type DestinationChoice } from "./DestinationPicker";
+import { WorkspaceSplash, type RestorePhase } from "./WorkspaceSplash";
+import { ProjectSwitchingOverlay } from "./ProjectSwitchingOverlay";
+
+export type ToastKind = "success" | "warning" | "error" | "info";
+
+const TOAST_ICONS: Record<ToastKind, { icon: typeof CheckCircle; className: string }> = {
+  success: { icon: CheckCircle, className: "toast-icon-success" },
+  warning: { icon: AlertTriangle, className: "toast-icon-warning" },
+  error: { icon: XCircle, className: "toast-icon-error" },
+  info: { icon: Info, className: "toast-icon-info" },
+};
 
 import { useSessionState } from "../../state/sessions";
+import { useZoom } from "../../state/useZoom";
 import { usePlans } from "../../state/plans";
 import { ProjectSidebar, useProjectSidebar } from "./ProjectSidebar";
 import { ActivitySidebar } from "./ActivitySidebar";
 import { ChatEnvironmentPanel } from "./ChatEnvironmentPanel";
-import { FileExplorerModal } from "./FileExplorerModal";
+const FileExplorerModal = lazy(() => import("./FileExplorerModal").then((m) => ({ default: m.FileExplorerModal })));
 import { PlanningInspector } from "./PlanningInspector";
-import { CommandStrip } from "./CommandStrip";
+import type { PlanningTab } from "./PlanningInspector";
+const EditPlanModal = lazy(() => import("./EditPlanModal").then((m) => ({ default: m.EditPlanModal })));
+const FocusPlanModal = lazy(() => import("./FocusPlanModal").then((m) => ({ default: m.FocusPlanModal })));
+const SourcePanel = lazy(() => import("../panels/SourcePanel").then((m) => ({ default: m.SourcePanel })));
+const SettingsModal = lazy(() => import("./SettingsModal").then((m) => ({ default: m.SettingsModal })));
+const ProjectDescriptionModal = lazy(() => import("./ProjectDescriptionModal").then((m) => ({ default: m.ProjectDescriptionModal })));
+import { CommandStrip, type StageKey } from "./CommandStrip";
 import { ToastStack } from "./ToastStack";
-import { SourcePanel } from "../panels/SourcePanel";
-import { EditPlanModal } from "./EditPlanModal";
-import { FocusPlanModal } from "./FocusPlanModal";
-import { ProjectDescriptionModal } from "./ProjectDescriptionModal";
 import { useProjectSchematic } from "../../state/schematic";
-import { revealInExplorer } from "../../lib/projects";
+import { getLastFocusedProject, revealInExplorer, setLastFocusedProject } from "../../lib/projects";
 import { onPlanRunEvent } from "../../lib/planRuns";
 import { generateSessionTitle, readSkill } from "../../lib/skills";
 import { getWorkspaceRestoreState, saveWorkspaceRestoreState, type WorkspaceRestoreState } from "../../lib/workspace";
-import { SettingsModal } from "./SettingsModal";
 import { FirstRunModal } from "./FirstRunModal";
 import { useFirstRun } from "../../state/first-run";
+import { getLastGrounding } from "../../state/grounding";
 import { createTerminal } from "../../lib/terminal";
-import { TerminalPanel } from "../panels/TerminalPanel";
-import { FileViewer } from "../panels/FileViewer";
+const TerminalPanel = lazy(() => import("../panels/TerminalPanel").then((m) => ({ default: m.TerminalPanel })));
+const FileViewer = lazy(() => import("../panels/FileViewer").then((m) => ({ default: m.FileViewer })));
 import { ProjectSchematicTab } from "../panels/ProjectSchematicTab";
 import { ChatPanel } from "../panels/ChatPanel";
 import { PanelGrid } from "../panels/PanelGrid";
 import { PanelStatusProvider } from "../panels/PanelStatusContext";
-import { HistoryDrawer } from "../panels/HistoryDrawer";
+const HistoryDrawer = lazy(() => import("../panels/HistoryDrawer").then((m) => ({ default: m.HistoryDrawer })));
 import {
   closePanel,
   deletePanelFromHistory,
@@ -57,18 +73,21 @@ import {
 import { parseTabGridStates, serializeTabGridStates } from "../../lib/workspace";
 import { ompStatus } from "../../lib/omp";
 import { stabilityRendererHeartbeat } from "../../lib/stability";
-import { OmpTerminalTab } from "../panels/OmpTerminalTab";
+const OmpTerminalTab = lazy(() => import("../panels/OmpTerminalTab").then((m) => ({ default: m.OmpTerminalTab })));
 import { StatusBar } from "./StatusBar";
+import { ModalLoading } from "./ModalLoading";
+import { useEscapeKey } from "../../lib/useEscapeKey";
 import { WindowControls } from "./WindowControls";
-import { LogPanel } from "./LogPanel";
+const LogPanel = lazy(() => import("./LogPanel").then((m) => ({ default: m.LogPanel })));
 import { CrashReportNotice } from "./CrashReportNotice";
-import { DebugPanel } from "../panels/DebugPanel";
+const DebugPanel = lazy(() => import("../panels/DebugPanel").then((m) => ({ default: m.DebugPanel })));
 import { useLogs } from "../../state/log";
 import { useAccount } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
 import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
 import type { IdeaCategory } from "../../lib/ideas";
 import type { SessionTab, TabKind } from "../../lib/sessions";
+import { assignPlanWithProfile, type LaunchProfile } from "../../lib/planDependencies";
 export type ToolId = "terminal";
 
 
@@ -83,12 +102,15 @@ type AppShellProps = {
 
 export function AppShell({ updates }: AppShellProps) {
   const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null);
+  const { zoom, zoomIn, zoomOut, zoomReset } = useZoom();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [gridView, setGridView] = useState(false);
   const [fileModalOpen, setFileModalOpen] = useState(false);
   const [plansFoldSignal, setPlansFoldSignal] = useState(0);
   const [changesModalOpen, setChangesModalOpen] = useState(false);
   const [plansModalOpen, setPlansModalOpen] = useState(false);
+  const [plansModalTab, setPlansModalTab] = useState<PlanningTab>("plans");
+  const [schematicModalOpen, setSchematicModalOpen] = useState(false);
   const [commandStripCollapsed, setCommandStripCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logPanelOpen, setLogPanelOpen] = useState(false);
@@ -104,7 +126,22 @@ export function AppShell({ updates }: AppShellProps) {
   // Destination picker state — when open, the pending prompt is held here
   // until the user picks a destination (or cancels).
   const [destinationPickerOpen, setDestinationPickerOpen] = useState(false);
+  // Plan assignment destination picker state — a ready plan + profile waiting
+  // for the user to choose a chat session.
+  const [pendingAssign, setPendingAssign] = useState<{ plan: Plan; profile: LaunchProfile } | null>(null);
+  const [appToast, setAppToast] = useState<{ title: string; detail?: string; kind: ToastKind } | null>(null);
+
+  // Toast helper — defined early so all handlers can use it.
+  const handleShowToast = useCallback((title: string, detail?: string, kind: ToastKind = "success") => {
+    setAppToast({ title, detail, kind });
+    window.setTimeout(() => setAppToast(null), 4000);
+  }, []);
   const [pendingDelivery, setPendingDelivery] = useState<{ text: string; mode: PromptMode } | null>(null);
+  // Escape-to-close for inline modals that don't have their own hook.
+  useEscapeKey(changesModalOpen, () => setChangesModalOpen(false));
+  useEscapeKey(plansModalOpen, () => setPlansModalOpen(false));
+  useEscapeKey(schematicModalOpen, () => setSchematicModalOpen(false));
+  useEscapeKey(debugPanelOpen, () => setDebugPanelOpen(false));
   const [focusedChatId, setFocusedChatId] = useState<string | null>(null);
   const [panelGridState, setPanelGridState] = useState<PanelGridState>(emptyGrid());
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
@@ -116,6 +153,8 @@ export function AppShell({ updates }: AppShellProps) {
   // selected project's restore resolves. A generation token guards late
   // restore responses from a prior project so they cannot hydrate the grid.
   const [projectRestoreLoading, setProjectRestoreLoading] = useState(false);
+  const [projectRestoreError, setProjectRestoreError] = useState<string | null>(null);
+  const [restoreRetryToken, setRestoreRetryToken] = useState(0);
   const restoreGenerationRef = useRef(0);
   // Per-type in-flight guard serializing rapid repeated creation clicks so
   // one click creates exactly one panel + one backing resource.
@@ -125,6 +164,9 @@ export function AppShell({ updates }: AppShellProps) {
   const handleCreateTypedPanelRef = useRef<(type: "chat" | "terminal" | "omp" | "schematic", pendingPrompt?: { text: string; mode: PromptMode }) => void>(() => {});
   const [workspaceRestore, setWorkspaceRestore] = useState<WorkspaceRestoreState | null>(null);
   const titlePendingRef = useRef(false);
+  const focusRestoreStartedRef = useRef(false);
+  const [restorePhase, setRestorePhase] = useState<RestorePhase>("starting");
+  const initialRestoreDoneRef = useRef(false);
   const sidebar = useProjectSidebar(activeProjectPath);
   const activeProject = sidebar.projects.find((p) => p.path === activeProjectPath);
   const session = useSessionState(activeProjectPath, activeProject?.lastActiveSessionId);
@@ -151,24 +193,36 @@ export function AppShell({ updates }: AppShellProps) {
     // Launch does not mint sessions: if sessions exist, select the most
     // recent (created_at DESC from the backend). Only create a session when
     // the project has zero sessions (first open) — never on restart.
-    if (!activeProjectPath || session.activeSessionId) return;
+    // Gated by projectRestoreLoading so restore completes before session
+    // hydration mutates UI state.
+    if (!activeProjectPath || session.activeSessionId || projectRestoreLoading) return;
     if (session.sessions.length > 0) {
       void session.selectSession(session.sessions[0].id);
     } else if (!session.activeSession) {
       void session.createSession();
     }
-  }, [activeProjectPath, session.sessions.length, session.activeSessionId, session.activeSession, session]);
+  }, [activeProjectPath, session.sessions.length, session.activeSessionId, session.activeSession, session, projectRestoreLoading]);
 
-  // Auto-create a chat tab when a session is active but has no tabs
+  // Auto-create a chat tab when a session is active but has no tabs.
+  // Gated on restore completion to avoid racing with tab loading:
+  // without this, the effect fires after restore sets loading=false
+  // but before refreshTabs loads the fixture tabs, creating a spurious
+  // orphan tab.
   useEffect(() => {
-    if (!activeProjectPath || !session.activeSessionId) return;
+    if (!activeProjectPath || !session.activeSessionId || projectRestoreLoading) return;
+    if (restoredProjectRef.current !== activeProjectPath) return;
     if (session.tabs.length > 0) return;
+    // If the restore state has a lastSessionId, the session should already
+    // have tabs — don't auto-create a spurious tab that races with the
+    // tab loader and becomes a false orphan.
+    if (workspaceRestore?.lastSessionId) return;
     if (session.activeSession?.title === "New Session") return;
     void session.createTab("chat", "Chat 1");
-  }, [activeProjectPath, session.activeSessionId, session.tabs.length, session.activeSession?.title, session]);
+  }, [activeProjectPath, session.activeSessionId, session.tabs.length, session.activeSession?.title, session, projectRestoreLoading, workspaceRestore]);
   // Auto-create a chat panel when the panel grid is empty and a session is active.
   useEffect(() => {
-    if (!activeProjectPath || !session.activeSessionId) return;
+    if (!activeProjectPath || !session.activeSessionId || projectRestoreLoading) return;
+    if (restoredProjectRef.current !== activeProjectPath) return;
     if (panelGridState.root) return; // grid already has panels
     if (session.activeSession?.title === "New Session") return;
     const newPanel: Panel = {
@@ -180,28 +234,85 @@ export function AppShell({ updates }: AppShellProps) {
       filePath: null,
     };
     setPanelGridState(singlePanelGrid(newPanel));
-  }, [activeProjectPath, session.activeSessionId, panelGridState.root, session.activeSession?.title]);
+  }, [activeProjectPath, session.activeSessionId, panelGridState.root, session.activeSession?.title, projectRestoreLoading]);
 
-  // Auto-select the most recent project when none is active. Setting the
-  // path is enough: the `useProjectSidebar` effect runs detection once.
+
+  // Auto-select the explicitly focused project on startup. Recent ordering is
+  // only a fallback; focusing a project is persisted separately from list order.
   useEffect(() => {
-    if (activeProjectPath || sidebar.projects.length === 0) return;
-    setActiveProjectPath(sidebar.projects[0].path);
-  }, [activeProjectPath, sidebar]);
+    if (activeProjectPath || sidebar.projects.length === 0 || focusRestoreStartedRef.current) return;
+    focusRestoreStartedRef.current = true;
+    void getLastFocusedProject()
+      .then((project) => {
+        const fallback = sidebar.projects[0]?.path ?? null;
+        const focusedPath = project && sidebar.projects.some((item) => item.path === project.path)
+          ? project.path
+          : fallback;
+        if (focusedPath) setActiveProjectPath(focusedPath);
+      })
+      .catch((caught) => {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        addLog("warn", "Failed to restore last focused project", message);
+        const fallback = sidebar.projects[0]?.path;
+        if (fallback) setActiveProjectPath(fallback);
+      });
+  }, [activeProjectPath, sidebar.projects, addLog]);
+
+  // Workspace restore splash: tracks the initial restore pipeline phases.
+  // Only runs once on startup — project switches use the switching overlay.
+  useEffect(() => {
+    if (initialRestoreDoneRef.current) return;
+    if (restorePhase === "starting") {
+      setRestorePhase("detecting");
+    }
+    // No projects after detection → dismiss splash to show empty state.
+    if (restorePhase === "detecting" && sidebar.projects.length === 0 && !sidebar.pickerInFlight) {
+      // Give the project list one tick to load before concluding empty.
+      const timer = window.setTimeout(() => {
+        if (sidebar.projects.length === 0 && !initialRestoreDoneRef.current) {
+          setRestorePhase("ready");
+          initialRestoreDoneRef.current = true;
+        }
+      }, 500);
+      return () => window.clearTimeout(timer);
+    }
+  }, [restorePhase, sidebar.projects, sidebar.pickerInFlight]);
+
+  // Transition to "restoring" when the first project is activated.
+  useEffect(() => {
+    if (initialRestoreDoneRef.current) return;
+    if (activeProjectPath && restorePhase === "detecting") {
+      setRestorePhase("restoring");
+    }
+  }, [activeProjectPath, restorePhase]);
+
+  // Transition to "ready" when the initial restore completes.
+  useEffect(() => {
+    if (initialRestoreDoneRef.current) return;
+    if (restorePhase === "restoring" && activeProjectPath && !projectRestoreLoading) {
+      setRestorePhase("ready");
+      initialRestoreDoneRef.current = true;
+    }
+  }, [restorePhase, activeProjectPath, projectRestoreLoading]);
 
   useEffect(() => {
     if (!activeProjectPath) {
       addLog("debug", "Project deselected", "clearing workspace restore");
       setWorkspaceRestore(null);
+      setPanelGridState(emptyGrid());
       restoredProjectRef.current = null;
       loggedOrphanIdsRef.current.clear();
       return;
     }
     // Project-keyed loading boundary: disable panel mutations until this
     // project's restore resolves. The generation token ensures a late
-    // response from a prior project cannot hydrate the current grid.
+    // response from a prior project cannot hydrate the current grid. Setting
+    // loading true synchronously here prevents the session/tab/panel effects
+    // from mutating UI state before restore completes.
     const generation = ++restoreGenerationRef.current;
-    loggedOrphanIdsRef.current.clear();
+    markStart("project-activation");
+    setProjectRestoreLoading(true);
+    setProjectRestoreError(null);
     addLog("debug", "Project selected", `${activeProjectPath} (gen=${generation})`);
     let cancelled = false;
     void getWorkspaceRestoreState(activeProjectPath).then((state) => {
@@ -213,17 +324,20 @@ export function AppShell({ updates }: AppShellProps) {
       setSidebarCollapsed(state.sidebarCollapsed);
       restoredProjectRef.current = activeProjectPath;
       setProjectRestoreLoading(false);
+      setProjectRestoreError(null);
       addLog("debug", "Workspace restored", `${activeProjectPath} panels=${flattenPanels(state.panelGrid ? parsePanelGridWithDiagnostics(state.panelGrid).state.root : null).length}`);
+      markEnd("project-activation");
     }).catch((caught) => {
       if (cancelled || generation !== restoreGenerationRef.current) return;
       const message = caught instanceof Error ? caught.message : String(caught);
       addLog("warn", "Failed to restore workspace state", message);
       setProjectRestoreLoading(false);
+      setProjectRestoreError(message);
     });
     return () => {
       cancelled = true;
     };
-  }, [activeProjectPath, addLog]);
+  }, [activeProjectPath, addLog, restoreRetryToken]);
   // Plan-run event listener: when a run starts with a chat session, surface
   // it as a new panel in the panel grid (per `panel-grid`).
   useEffect(() => {
@@ -280,6 +394,10 @@ export function AppShell({ updates }: AppShellProps) {
   // project switch is expected (different project, different tabs).
   const loggedOrphanIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
+    // Don't run orphan detection while a project restore is in flight —
+    // the panel grid is stale (from the previous project) and would
+    // produce false orphan warnings for the new project's tabs.
+    if (projectRestoreLoading) return;
     const orphans = detectOrphanedTabs(panelGridState, session.tabs);
     const newOrphans = orphans.filter((o) => !loggedOrphanIdsRef.current.has(o.tabId));
     if (newOrphans.length === 0) return;
@@ -290,7 +408,7 @@ export function AppShell({ updates }: AppShellProps) {
     }, {});
     const breakdown = Object.entries(byKind).map(([k, n]) => `${n} ${k}`).join(", ");
     addLog("warn", "Orphaned session tabs recovered", `${newOrphans.length} tab(s) have no reachable panel (${breakdown}). Recover from history or delete explicitly.`);
-  }, [panelGridState, session.tabs, addLog]);
+  }, [panelGridState, session.tabs, projectRestoreLoading, addLog]);
 
 
   useEffect(() => {
@@ -384,30 +502,39 @@ export function AppShell({ updates }: AppShellProps) {
   }, [activeProjectPath, session.activeSessionId, session.activeSession?.title, terminalOutputBuffer, session.tabs]);
 
   const handleOpenFolder = useCallback(async () => {
+    if (sidebar.isPickerInFlight()) return;
     try {
       const path = await sidebar.openFolder();
       if (path) {
+        await setLastFocusedProject(path);
         setActiveProjectPath(path);
+        handleShowToast("Project opened", path.split(/[\\/]/).pop() ?? path, "success");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       addLog("error", "Failed to open project folder", message);
+      handleShowToast("Failed to open project", message, "error");
     }
-  }, [sidebar, addLog]);
-
+  }, [sidebar, addLog, handleShowToast]);
   const handleSelectProject = useCallback(
     async (path: string) => {
-      // Only set the path — the `useProjectSidebar` effect runs detection
-      // once. Calling `selectProject` here too would duplicate diagnostics.
+      // Only set the path after focus persistence succeeds — the
+      // `useProjectSidebar` effect runs detection once.
       try {
+        await setLastFocusedProject(path);
         setActiveProjectPath(path);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        addLog("error", `Failed to select project ${path}`, message);
+        handleShowToast("Project activated", path.split(/[\\/]/).pop() ?? path, "info");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        handleShowToast("Failed to activate project", msg, "error");
       }
     },
-    [addLog],
+    [sidebar, handleShowToast],
   );
+
+  const handleRetryRestore = useCallback(() => {
+    setRestoreRetryToken((token) => token + 1);
+  }, []);
 
   const handleRemoveProject = useCallback(
     async (path: string) => {
@@ -415,31 +542,38 @@ export function AppShell({ updates }: AppShellProps) {
       if (path === activeProjectPath) {
         setActiveProjectPath(null);
       }
+      handleShowToast("Project removed", path.split(/[\\/]/).pop() ?? path, "info");
     },
-    [sidebar, activeProjectPath],
+    [sidebar, activeProjectPath, handleShowToast],
   );
 
   const handleCreateSession = useCallback(async () => {
     await session.createSession();
-  }, [session]);
-
+    handleShowToast("Chat created", "New chat session started.", "success");
+  }, [session, handleShowToast]);
   const handleCreateTerminalTab = useCallback(async () => {
     if (!session.activeSessionId) return;
-    const shell = DEFAULT_SHELL();
-    const term = await createTerminal(shell, activeProjectPath ?? undefined);
-    await session.createTab("terminal", `Terminal ${term.id}`, term.id);
-  }, [session, activeProjectPath]);
+    try {
+      const shell = DEFAULT_SHELL();
+      const term = await createTerminal(shell, activeProjectPath ?? undefined);
+      await session.createTab("terminal", `Terminal ${term.id}`, term.id);
+      handleShowToast("Terminal created", `${shell} shell ready.`, "success");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      handleShowToast("Failed to create terminal", msg, "error");
+    }
+  }, [session, activeProjectPath, handleShowToast]);
 
   /** Commit a checked panel insertion. Resolves a valid live anchor (or
    *  accepts the panel as the sole root for an empty grid), verifies the new
    *  panel appears exactly once, and logs an actionable error on failure.
    *  Returns true on success. A stale `activePanelId` / anchor never becomes
-   *  a silent no-op. Panel mutations are blocked while a project restore is
-   *  loading (project-keyed boundary). */
+   *  a silent no-op. */
   const commitInsert = useCallback(
     (panel: Panel, anchorId: string | null = null, side: DropSide = "right"): boolean => {
       if (projectRestoreLoading) {
         addLog("warn", "Panel creation blocked", "The project is still loading; please wait.");
+        handleShowToast("Project still loading", "Wait for the project to finish restoring.", "warning");
         return false;
       }
       const result = insertPanel(panelGridState, panel, { side, anchorId });
@@ -450,23 +584,13 @@ export function AppShell({ updates }: AppShellProps) {
       setPanelGridState(result.state);
       return true;
     },
-    [panelGridState, projectRestoreLoading, addLog],
+    [panelGridState, projectRestoreLoading, addLog, handleShowToast],
   );
 
   const handleTerminalOutput = useCallback((data: string) => {
     setTerminalOutputBuffer((prev) => (prev + data).slice(-2500));
   }, []);
 
-  const handleCreatePlan = useCallback(() => {
-    if (!session.activeSessionId) return;
-    void plans.createPlan({
-      title: "New Plan",
-      description: "Describe this plan…",
-      status: "draft",
-      priority: 50,
-      tags: [],
-    });
-  }, [plans, session.activeSessionId]);
 
   const handleCreatePlanFromIdea = useCallback(
     async (title: string, description: string, chatSessionId: string | null) => {
@@ -474,16 +598,24 @@ export function AppShell({ updates }: AppShellProps) {
       await plans.createPlan({
         title,
         description,
-        status: "draft",
+        status: "openspec",
         priority: 50,
         tags: chatSessionId ? [`chat:${chatSessionId}`] : [],
       });
     },
     [plans, session.activeSessionId],
   );
-  const handleOpenPlanningInspector = useCallback(() => {
+  const openPlanningModal = useCallback((tab: PlanningTab) => {
+    addLog("debug", "Planning modal opened", `tab=${tab}`);
+    markStart("modal-first-paint");
+    setPlansModalTab(tab);
     setPlansModalOpen(true);
-  }, []);
+    // Measure first paint after React commits the modal.
+    requestAnimationFrame(() => markEnd("modal-first-paint"));
+  }, [addLog]);
+  const handleOpenPlanningInspector = useCallback(() => {
+    openPlanningModal("plans");
+  }, [openPlanningModal]);
 
   const handleCloseChat = useCallback((chatId: string) => {
     // The grid's onCloseChat handles the visual removal; the session is retained.
@@ -519,19 +651,34 @@ export function AppShell({ updates }: AppShellProps) {
     },
     [session],
   );
-
   const handleSuggestForCategory = useCallback(
     (category: IdeaCategory | null) => {
-      const prompt = category
-        ? `Generate new ideas for the "${category.name}" category. ${category.description ?? ""}`.trim()
-        : "Generate ideas for this project.";
-      void openOrFocusChat(prompt);
+      const action = generateIdeasAction(category?.name, category?.description ?? undefined);
+      addLog("debug", "Planning action routed", action.context ?? action.type);
+      setPendingDelivery({ text: action.text, mode: action.mode });
+      setDestinationPickerOpen(true);
+      // Demote the planning modal so the destination chat is visible.
+      setPlansModalOpen(false);
     },
-    [openOrFocusChat],
+    [addLog],
+  );
+  const handleGenerateCategories = useCallback(
+    () => {
+      const action = generateCategoriesAction();
+      addLog("debug", "Planning action routed", action.context ?? action.type);
+      setPendingDelivery({ text: action.text, mode: action.mode });
+      setDestinationPickerOpen(true);
+      setPlansModalOpen(false);
+      handleShowToast("Generating categories", "Pick a destination chat to deliver the prompt.", "info");
+    },
+    [addLog, handleShowToast],
   );
   const handleStartSchematicWizard = useCallback(
     async (section?: string) => {
-      if (!session.activeSessionId) return;
+      if (!session.activeSessionId) {
+        handleShowToast("No active session", "Open a project first to start the schematic wizard.", "warning");
+        return;
+      }
       let skillBody = "";
       try {
         const skill = await readSkill("basebuild-project-schematic");
@@ -539,48 +686,31 @@ export function AppShell({ updates }: AppShellProps) {
       } catch {
         skillBody = "";
       }
-      const target = section
-        ? `Focus on the "${section}" section only. Read what the repository already says about it, prefill what you can, then ask the user one focused question to confirm or fill the gap. Do not rewrite other sections.`
-        : `Start in Create mode (or Update mode if a schematic already exists). Begin with the Blueprint questions — archetype, team size, stage — since they scope every later answer. Then work through the remaining sections in template order.`;
-      const prompt = `${skillBody}
-
----
-
-You are now running the Project Schematic skill for this project. ${target}
-
-Rules:
-- Read the repository first (manifests, README, AGENTS.md, directory structure, recent git history) and prefill observable facts for confirmation instead of asking the user to recite them.
-- Use the \`ask_user\` tool for every question — it presents clickable option cards instead of prose. One question at a time; wait for the user's answer before moving on.
-- Let the user finish whenever they want — they can say "done" to stop, or keep going to add more context.
-- Never fabricate facts. If something is not observable, ask.
-- Do not write the schematic file until the user explicitly approves. When ready, use \`ask_user\` with a confirm question to get approval, then write to .basebuild/project-schematic.md.
-- Keep it concise — readable in under three minutes.`;
-      // Open the destination picker — the user chooses which chat gets
-      // the wizard prompt. The delivery happens in the picker's onSelect.
-      setPendingDelivery({ text: prompt, mode: "send" });
+      const action = schematicWizardAction(skillBody, section);
+      addLog("debug", "Planning action routed", action.context ?? action.type);
+      setPendingDelivery({ text: action.text, mode: action.mode });
       setDestinationPickerOpen(true);
+      setPlansModalOpen(false);
+      handleShowToast("Schematic wizard started", section ? `Focusing: ${section}` : "Pick a destination chat to begin.", "info");
     },
-    [session],
+    [session, addLog, handleShowToast],
   );
 
+  const handleGenerateFromFinishedPlans = useCallback(() => {
+    const grounding = getLastGrounding();
+    if (!grounding || grounding.finishedPlanCount === 0) return;
+    const action = generateFromFinishedPlansAction(grounding.finishedPlans, grounding.finishedPlanCount);
+    addLog("debug", "Planning action routed", action.context ?? action.type);
+    setPendingDelivery({ text: action.text, mode: action.mode });
+    setDestinationPickerOpen(true);
+    setPlansModalOpen(false);
+    handleShowToast("Generating from finished plans", `${grounding.finishedPlanCount} finished plan${grounding.finishedPlanCount > 1 ? "s" : ""} since last schematic update.`, "info");
+  }, [addLog, handleShowToast]);
+
   const handleOpenSchematic = useCallback(() => {
-    // Focus or create a schematic panel in the grid (not a legacy empty tab).
-    const allPanels = flattenPanels(panelGridState.root);
-    const existing = allPanels.find((p) => p.type === "schematic");
-    if (existing) {
-      setPanelGridState((prev) => ({ ...prev, activePanelId: existing.id }));
-      return;
-    }
-    const newPanel: Panel = {
-      id: newPanelId(),
-      type: "schematic",
-      title: "Schematic",
-      chatSessionId: null,
-      terminalId: null,
-      filePath: null,
-    };
-    commitInsert(newPanel, panelGridState.activePanelId, "right");
-  }, [panelGridState, commitInsert]);
+    addLog("debug", "Project schematic opened", activeProjectPath ?? "no project");
+    setSchematicModalOpen(true);
+  }, [activeProjectPath, addLog]);
 
    const handleOpenSchematicFile = useCallback(async () => {
     if (!activeProjectPath) return;
@@ -597,9 +727,16 @@ Rules:
       if (!editingPlan) return;
       void plans.updatePlan(editingPlan.id, draft);
       setEditingPlan(null);
+      handleShowToast("Plan saved", `${editingPlan.referenceId} ${editingPlan.title}`, "success");
     },
-    [editingPlan, plans],
+    [editingPlan, plans, handleShowToast],
   );
+
+  const handleOpenPlanInTerminal = useCallback((plan: Plan) => {
+    void handleCreateTerminalTab();
+    void navigator.clipboard.writeText(`#${plan.referenceId} ${plan.title}\n${plan.description}`);
+  }, [handleCreateTerminalTab]);
+  // handleShowToast is defined earlier (after appToast state) so all handlers can use it.
 
   const handleFocusPlan = useCallback((plan: Plan) => {
     setFocusingPlan(plan);
@@ -607,12 +744,13 @@ Rules:
 
   const handleCopyReference = useCallback((refId: string) => {
     void navigator.clipboard.writeText(`#${refId}`);
-  }, []);
+    handleShowToast("Reference copied", `#${refId} copied to clipboard.`, "info");
+  }, [handleShowToast]);
 
-  const handleOpenPlanInTerminal = useCallback((plan: Plan) => {
-    void handleCreateTerminalTab();
-    void navigator.clipboard.writeText(`#${plan.referenceId} ${plan.title}\n${plan.description}`);
-  }, [handleCreateTerminalTab]);
+  const handleAssignPlan = useCallback((plan: Plan, profile: LaunchProfile) => {
+    setPendingAssign({ plan, profile });
+    setDestinationPickerOpen(true);
+  }, []);
 
 
   const activeTab = session.tabs.find((t) => t.id === session.activeTabId) ?? null;
@@ -702,9 +840,6 @@ Rules:
         void (async () => {
           try {
             const tab = await session.createTab("chat", `Chat ${chatCount}`);
-            // The chatSessionId is linked later by ChatPanel via
-            // onChatSessionCreated. Keep `creating: true` until then so
-            // orphan detection doesn't flag the in-flight tab.
             if (!tab) {
               addLog("warn", "Chat tab creation returned no tab", panelId);
             } else {
@@ -713,10 +848,12 @@ Rules:
                 pendingNewPanelPrompts.current.set(tab.id, pendingPrompt);
               }
             }
+            handleShowToast("Chat created", `Chat ${chatCount} ready.`, "success");
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             addLog("error", "Chat tab creation failed", message);
             setPanelGridState((prev) => removePanelFromGrid(prev, panelId));
+            handleShowToast("Failed to create chat", message, "error");
           } finally {
             releaseGuard();
           }
@@ -748,29 +885,27 @@ Rules:
               }),
             }));
             addLog("debug", `${baseTitle} created`, `panel=${panelId} term=${term.id}`);
+            handleShowToast(`${baseTitle} created`, `${shell} shell ready.`, "success");
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             addLog("error", `${baseTitle} creation failed`, message);
-            // Roll back the reservation; no terminal record was bound.
             setPanelGridState((prev) => removePanelFromGrid(prev, panelId));
+            handleShowToast(`Failed to create ${baseTitle}`, message, "error");
           } finally {
             releaseGuard();
           }
         })();
         return;
       }
-
       // schematic — no backing resource, insert directly.
       const panel: Panel = { id: panelId, type: "schematic", title: "Schematic", chatSessionId: null, terminalId: null, filePath: null };
       commitInsert(panel, panelGridState.activePanelId, "right");
       addLog("debug", "Schematic panel created", panelId);
       releaseGuard();
     },
-    [session, activeProjectPath, projectRestoreLoading, panelGridState, commitInsert, addLog],
+    [session, activeProjectPath, projectRestoreLoading, panelGridState, commitInsert, addLog, handleShowToast],
   );
   handleCreateTypedPanelRef.current = handleCreateTypedPanel;
-
-  /** Render a panel's content by type. */
   const renderPanel = useCallback(
     (panel: Panel, _isActive: boolean) => {
       if (panel.type === "chat") {
@@ -785,6 +920,7 @@ Rules:
         );
         return (
           <ChatPanel
+            panelId={panel.id}
             projectPath={activeProjectPath ?? ""}
             chatSessionId={panel.chatSessionId ?? tab?.chatSessionId ?? null}
             onChatSessionCreated={(chatSessionId) => {
@@ -810,10 +946,12 @@ Rules:
             onOpenSchematic={handleOpenSchematic}
             onCloseChat={() => setPanelGridState((prev) => closePanel(prev, panel.id))}
             onCloseAndDeleteChat={() => setPanelGridState((prev) => deletePanelFromHistory(prev, panel.id))}
+            onShowToast={handleShowToast}
             onDuplicateChat={() => {
               const newPanel = handleCreatePanel(panel.id, "right");
               commitInsert(newPanel, panel.id, "right");
             }}
+            onNewChat={() => handleCreateTypedPanel("chat")}
           />
         );
       }
@@ -822,7 +960,7 @@ Rules:
           // Try to find a terminal tab by title match (legacy panels).
           const tab = session.tabs.find((t) => t.kind === "terminal" && (t.id === panel.id || t.title === panel.title));
           if (tab?.terminalId) {
-            return <TerminalPanel terminalId={tab.terminalId} onOutput={handleTerminalOutput} />;
+            return <Suspense fallback={<ModalLoading />}><TerminalPanel terminalId={tab.terminalId} onOutput={handleTerminalOutput} /></Suspense>;
           }
           return (
             <div className="empty-state">
@@ -853,28 +991,30 @@ Rules:
           );
         }
         return (
-          <TerminalPanel
-            terminalId={panel.terminalId}
-            onOutput={handleTerminalOutput}
-            onReconnect={() => {
-              void (async () => {
-                const shell = DEFAULT_SHELL();
-                const term = await createTerminal(shell, activeProjectPath ?? undefined);
-                setPanelGridState((prev) => ({
-                  ...prev,
-                  root: updatePanelInTree(prev.root, panel.id, {
-                    terminalId: term.id,
-                    title: `Terminal ${term.id}`,
-                  }),
-                }));
-              })();
-            }}
-          />
+          <Suspense fallback={<ModalLoading />}>
+            <TerminalPanel
+              terminalId={panel.terminalId}
+              onOutput={handleTerminalOutput}
+              onReconnect={() => {
+                void (async () => {
+                  const shell = DEFAULT_SHELL();
+                  const term = await createTerminal(shell, activeProjectPath ?? undefined);
+                  setPanelGridState((prev) => ({
+                    ...prev,
+                    root: updatePanelInTree(prev.root, panel.id, {
+                      terminalId: term.id,
+                      title: `Terminal ${term.id}`,
+                    }),
+                  }));
+                })();
+              }}
+            />
+          </Suspense>
         );
       }
       if (panel.type === "file") {
         if (!panel.filePath) return null;
-        return <FileViewer path={panel.filePath} />;
+        return <Suspense fallback={<ModalLoading />}><FileViewer path={panel.filePath} /></Suspense>;
       }
       if (panel.type === "schematic") {
         return (
@@ -900,10 +1040,10 @@ Rules:
           })();
         };
         if (panel.terminalId) {
-          return <OmpTerminalTab terminalId={panel.terminalId} onOutput={handleTerminalOutput} onReconnect={reconnectOmp} />;
+          return <Suspense fallback={<ModalLoading />}><OmpTerminalTab terminalId={panel.terminalId} onOutput={handleTerminalOutput} onReconnect={reconnectOmp} /></Suspense>;
         }
         const tab = session.tabs.find((t) => t.kind === "omp" && (t.id === panel.id || t.title === panel.title));
-        return <OmpTerminalTab terminalId={tab?.terminalId ?? null} onOutput={handleTerminalOutput} onReconnect={reconnectOmp} />;
+        return <Suspense fallback={<ModalLoading />}><OmpTerminalTab terminalId={tab?.terminalId ?? null} onOutput={handleTerminalOutput} onReconnect={reconnectOmp} /></Suspense>;
       }
       return null;
     },
@@ -1013,7 +1153,9 @@ Rules:
   );
 
   return (
+    <PanelStatusProvider>
     <div className="app-container app-container-chat-first">
+      {restorePhase !== "ready" ? <WorkspaceSplash phase={restorePhase} /> : null}
       <div className="window-taskbar" role="banner">
         <span className="window-taskbar-title" title="Basebuild">Basebuild</span>
         <div className="window-taskbar-right">
@@ -1034,11 +1176,12 @@ Rules:
           updates={updates}
           onSelectProject={handleSelectProject}
           onOpenFolder={handleOpenFolder}
+          pickerInFlight={sidebar.pickerInFlight}
           onFocusPanel={(panelId) => setPanelGridState((prev) => ({ ...prev, activePanelId: panelId }))}
           onCreateChat={() => handleCreateTypedPanel("chat")}
           onCreateTerminal={() => handleCreateTypedPanel("terminal")}
           onOpenHistory={() => setHistoryDrawerOpen(true)}
-          onOpenPlans={() => setPlansModalOpen(true)}
+          onOpenPlans={() => openPlanningModal("plans")}
           onOpenSettings={() => setSettingsOpen(true)}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
@@ -1046,13 +1189,11 @@ Rules:
         <section className="workspace-panel workspace-panel-chat-first">
           {activeProjectPath && session.activeSessionId ? (
             <div className="session-header">
-              <h1 className="session-title">{activeProjectPath.split(/[\\/]/).pop() ?? activeProjectPath}</h1>
               <ChatEnvironmentPanel
                 projectPath={activeProjectPath}
                 sessionId={session.activeSessionId}
                 plans={plans}
                 planCallbacks={{
-                  onCreatePlan: handleCreatePlan,
                   onEditPlan: handleEditPlan,
                   onFocusPlan: handleFocusPlan,
                   onCopyReference: handleCopyReference,
@@ -1060,21 +1201,31 @@ Rules:
                 }}
                 onOpenChatSession={handleOpenChatSession}
                 onSuggestForCategory={handleSuggestForCategory}
-                activeChatSessionId={session.activeSessionId}
+                onGenerateCategories={handleGenerateCategories}
                 onOpenFiles={() => setFileModalOpen(true)}
                 onOpenChanges={() => setChangesModalOpen(true)}
-                onOpenPlans={() => setPlansModalOpen(true)}
+                onOpenPlans={() => openPlanningModal("plans")}
                 onCreatePanel={handleCreateTypedPanel}
               />
               <CommandStrip
                 plans={plans.plans}
                 ideaCount={0}
                 schematicHealth={schematic.report ? (schematic.report.health === "complete" ? "complete" : "incomplete") : "none"}
-                onOpenPlans={() => setPlansModalOpen(true)}
+                onOpenStage={(stage: StageKey) => {
+                  addLog("debug", "Planning stage opened", stage);
+                  if (stage === "schematic") {
+                    handleOpenSchematic();
+                  } else if (stage === "ideas") {
+                    openPlanningModal("ideas");
+                  } else if (stage === "plans") {
+                    openPlanningModal("plans");
+                  } else {
+                    openPlanningModal("flow");
+                  }
+                }}
                 collapsed={commandStripCollapsed}
                 onToggleCollapse={() => setCommandStripCollapsed((v) => !v)}
               />
-              <span className="status-pill session-path-pill" title={activeProjectPath}>{activeProjectPath}</span>
             </div>
           ) : null}
           <div className="workspace-scroll workspace-scroll-chat-first">
@@ -1083,11 +1234,24 @@ Rules:
                 <TerminalSquare size={32} className="text-muted" />
                 <h3>No project open</h3>
                 <p>Open a folder to start managing terminals, files, source control, and plans.</p>
-                <button className="btn btn-primary" type="button" onClick={handleOpenFolder}>Open project</button>
+                <button className="btn btn-primary" type="button" title={sidebar.pickerInFlight ? "Opening folder picker…" : "Open a project folder"} onClick={handleOpenFolder} disabled={sidebar.pickerInFlight}>Open project</button>
               </div>
             ) : null}
-            {activeProjectPath ? (
-              <PanelStatusProvider>
+            {activeProjectPath && projectRestoreError ? (
+              <div className="project-restore-error" role="alert">
+                <h3>Project restore failed</h3>
+                <p>{projectRestoreError}</p>
+                <div className="empty-state-actions">
+                  <button className="btn btn-primary" type="button" title="Retry project restore" onClick={handleRetryRestore}>Retry</button>
+                  <button className="btn" type="button" title="Switch to another project" onClick={() => setActiveProjectPath(null)}>Switch project</button>
+                </div>
+              </div>
+            ) : null}
+            {activeProjectPath && !projectRestoreError && projectRestoreLoading ? (
+              <ProjectSwitchingOverlay projectName={activeProjectPath.split(/[\\/]/).pop() ?? activeProjectPath} />
+            ) : null}
+            {activeProjectPath && !projectRestoreError && !projectRestoreLoading ? (
+              <>
                 <PanelGrid
                   state={panelGridState}
                   onStateChange={handlePanelGridChange}
@@ -1097,24 +1261,28 @@ Rules:
                   viewportHeight={typeof window !== "undefined" ? window.innerHeight - 120 : 700}
                 />
                 {historyDrawerOpen ? (
-                  <HistoryDrawer
-                    closedPanels={panelGridState.closedPanels}
-                    onReopen={handlePanelReopen}
-                    onDelete={handlePanelDelete}
-                    onClose={() => setHistoryDrawerOpen(false)}
-                  />
+                  <Suspense fallback={<ModalLoading />}>
+                    <HistoryDrawer
+                      closedPanels={panelGridState.closedPanels}
+                      onReopen={handlePanelReopen}
+                      onDelete={handlePanelDelete}
+                      onClose={() => setHistoryDrawerOpen(false)}
+                    />
+                  </Suspense>
                 ) : null}
-              </PanelStatusProvider>
+              </>
             ) : null}
           </div>
         </section>
       </main>
-      <FileExplorerModal
-        projectPath={activeProjectPath}
-        open={fileModalOpen}
-        onClose={() => setFileModalOpen(false)}
-        onOpenFile={handleOpenFileInTab}
-      />
+      <Suspense fallback={<ModalLoading />}>
+        <FileExplorerModal
+          projectPath={activeProjectPath}
+          open={fileModalOpen}
+          onClose={() => setFileModalOpen(false)}
+          onOpenFile={handleOpenFileInTab}
+        />
+      </Suspense>
       {changesModalOpen && activeProjectPath ? (
         <div className="modal-overlay" role="dialog" aria-label="Changes" onClick={() => setChangesModalOpen(false)}>
           <div className="modal modal-changes" onClick={(e) => e.stopPropagation()}>
@@ -1123,7 +1291,7 @@ Rules:
               <button className="btn-icon" type="button" title="Close (Esc)" onClick={() => setChangesModalOpen(false)}><X size={14} /></button>
             </div>
             <div className="modal-body">
-              <SourcePanel projectPath={activeProjectPath} />
+              <Suspense fallback={<ModalLoading />}><SourcePanel projectPath={activeProjectPath} /></Suspense>
             </div>
           </div>
         </div>
@@ -1136,25 +1304,47 @@ Rules:
               <button className="btn-icon" type="button" title="Close (Esc)" onClick={() => setPlansModalOpen(false)}><X size={14} /></button>
             </div>
             <div className="modal-body">
-              <PlanningInspector
-                sessionId={session.activeSessionId}
+              <Suspense fallback={<ModalLoading />}>
+                <PlanningInspector
+                  showHeader={false}
+                  initialTab={plansModalTab}
+                  sessionId={session.activeSessionId}
+                  projectPath={activeProjectPath}
+                  plans={plans.plans}
+                  loading={plans.loading}
+                  collapsed={false}
+                  onGenerateFromFinishedPlans={handleGenerateFromFinishedPlans}
+                  onToggleCollapse={() => {}}
+                  hostContext="modal"
+                  onEditPlan={(p) => { setPlansModalOpen(false); handleEditPlan(p); }}
+                  onFocusPlan={handleFocusPlan}
+                  onCopyReference={handleCopyReference}
+                  onOpenInTerminal={handleOpenPlanInTerminal}
+                  onSetPlanStatus={plans.setPlanStatus}
+                  onDeletePlan={plans.deletePlan}
+                  onOpenChatSession={(id) => { setPlansModalOpen(false); handleOpenChatSession(id); }}
+                  onSuggestForCategory={handleSuggestForCategory}
+                  onGenerateCategories={handleGenerateCategories}
+                  onAssignPlan={handleAssignPlan}
+                  onShowToast={handleShowToast}
+                />
+              </Suspense>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {schematicModalOpen && activeProjectPath ? (
+        <div className="modal-overlay" role="dialog" aria-label="Project Schematic" onClick={() => setSchematicModalOpen(false)}>
+          <div className="modal modal-schematic" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Project Schematic</h2>
+              <button className="btn-icon" type="button" title="Close project schematic" onClick={() => setSchematicModalOpen(false)}><X size={14} /></button>
+            </div>
+            <div className="modal-body">
+              <ProjectSchematicTab
                 projectPath={activeProjectPath}
-                plans={plans.plans}
-                loading={plans.loading}
-                collapsed={false}
-                onToggleCollapse={() => {}}
-                hostContext="modal"
-                onCreatePlan={() => { setPlansModalOpen(false); handleCreatePlan(); }}
-                onEditPlan={(p) => { setPlansModalOpen(false); handleEditPlan(p); }}
-                onFocusPlan={handleFocusPlan}
-                onCopyReference={handleCopyReference}
-                onOpenInTerminal={handleOpenPlanInTerminal}
-                onSetPlanStatus={plans.setPlanStatus}
-                onDeletePlan={plans.deletePlan}
-                onOpenChatSession={(id) => { setPlansModalOpen(false); handleOpenChatSession(id); }}
-                onSuggestForCategory={handleSuggestForCategory}
-                activeChatSessionId={session.activeSessionId}
-                showHeader={false}
+                onStartWizard={handleStartSchematicWizard}
+                onOpenRaw={() => setDescriptionOpen(true)}
               />
             </div>
           </div>
@@ -1162,7 +1352,7 @@ Rules:
       ) : null}
       <StatusBar onClick={() => setLogPanelOpen(true)} />
       <CrashReportNotice onViewReports={() => setDebugPanelOpen(true)} />
-      <LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} />
+      <Suspense fallback={<ModalLoading />}><LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} /></Suspense>
       {debugPanelOpen ? (
         <div className="debug-panel-overlay" role="dialog" aria-label="Debug Panel">
           <div className="debug-panel-modal">
@@ -1179,47 +1369,102 @@ Rules:
               </button>
             </div>
             <div className="debug-panel-body">
-              <DebugPanel />
+              <Suspense fallback={<ModalLoading />}><DebugPanel /></Suspense>
             </div>
           </div>
         </div>
       ) : null}
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} account={account} updates={updates} />
-      <EditPlanModal
-        plan={editingPlan}
-        open={!!editingPlan}
-        onClose={() => setEditingPlan(null)}
-        onSave={handleSavePlan}
-      />
-      <FocusPlanModal
-        plan={focusingPlan}
-        open={!!focusingPlan}
-        projectPath={activeProjectPath ?? ""}
-        onClose={() => setFocusingPlan(null)}
-        onSetStatus={plans.setPlanStatus}
-        onCopyReference={handleCopyReference}
-        onOpenInTerminal={handleOpenPlanInTerminal}
-        onSetContext={(id, ctx: PlanFocusContext) => void plans.setPlanContext(id, ctx)}
-      />
-      <ProjectDescriptionModal
-        open={descriptionOpen}
-        onClose={() => setDescriptionOpen(false)}
-        existingContent={schematic.content}
-        onSave={schematic.write}
-        onOpenFile={handleOpenSchematicFile}
-      />
+      <Suspense fallback={<ModalLoading />}>
+        <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} account={account} updates={updates} />
+      </Suspense>
+      <Suspense fallback={<ModalLoading />}>
+        <EditPlanModal
+          plan={editingPlan}
+          open={!!editingPlan}
+          onClose={() => setEditingPlan(null)}
+          onSave={handleSavePlan}
+        />
+      </Suspense>
+      <Suspense fallback={<ModalLoading />}>
+        <FocusPlanModal
+          plan={focusingPlan}
+          open={!!focusingPlan}
+          projectPath={activeProjectPath ?? ""}
+          onClose={() => setFocusingPlan(null)}
+          onSetStatus={plans.setPlanStatus}
+          onCopyReference={handleCopyReference}
+          onOpenInTerminal={handleOpenPlanInTerminal}
+          onSetContext={(id, ctx: PlanFocusContext) => void plans.setPlanContext(id, ctx)}
+        />
+      </Suspense>
+      <Suspense fallback={<ModalLoading />}>
+        <ProjectDescriptionModal
+          open={descriptionOpen}
+          onClose={() => setDescriptionOpen(false)}
+          existingContent={schematic.content}
+          onSave={schematic.write}
+          onOpenFile={handleOpenSchematicFile}
+        />
+      </Suspense>
       <FirstRunModal
         open={!firstRun.completed && !firstRun.loading}
         onComplete={() => firstRun.complete()}
         onSkip={() => firstRun.skip()}
       />
       <ToastStack />
+      {appToast ? (() => {
+        const { icon: ToastIcon, className: iconClassName } = TOAST_ICONS[appToast.kind];
+        return (
+          <div className="toast-stack">
+            <div className={`toast toast-${appToast.kind}`} role="status" aria-live="polite">
+              <ToastIcon size={13} className={`toast-icon ${iconClassName}`} />
+              <div className="toast-content">
+                <span className="toast-title">{appToast.title}</span>
+                {appToast.detail ? <span className="toast-detail">{appToast.detail}</span> : null}
+              </div>
+              <button
+                className="toast-dismiss btn-icon"
+                title="Dismiss"
+                type="button"
+                onClick={() => setAppToast(null)}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          </div>
+        );
+      })() : null}
       <DestinationPicker
         open={destinationPickerOpen}
-        onClose={() => { setDestinationPickerOpen(false); setPendingDelivery(null); }}
+        onClose={() => { setDestinationPickerOpen(false); setPendingDelivery(null); setPendingAssign(null); }}
         panels={flattenPanels(panelGridState.root)}
-        title="Send wizard to…"
+        title={pendingAssign ? "Assign plan to chat" : "Send to…"}
         onSelect={(choice: DestinationChoice) => {
+          if (pendingAssign) {
+            if (choice.kind !== "existing" || !choice.chatSessionId) {
+              addLog("warn", "Assign plan", "Select an existing chat to assign a plan");
+              setAppToast({ title: "Select an existing chat", detail: "New chats cannot be assigned directly.", kind: "error" });
+              return;
+            }
+            void (async () => {
+              try {
+                await assignPlanWithProfile({
+                  planId: pendingAssign.plan.id,
+                  chatSessionId: choice.chatSessionId,
+                  profile: pendingAssign.profile,
+                });
+                handleShowToast("Plan assigned to chat", `${pendingAssign.plan.referenceId} ${pendingAssign.plan.title}`, "success");
+                setPanelGridState((prev) => ({ ...prev, activePanelId: choice.panelId }));
+              } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                handleShowToast("Failed to assign plan", msg, "error");
+              } finally {
+                setPendingAssign(null);
+                setDestinationPickerOpen(false);
+              }
+            })();
+            return;
+          }
           if (!pendingDelivery) {
             addLog("debug", "DestinationPicker onSelect", "no pending delivery — skipping");
             return;
@@ -1241,6 +1486,15 @@ Rules:
           setPendingDelivery(null);
         }}
       />
+      <div className="zoom-indicator" title={`Zoom: ${zoom}%. Ctrl+/- to adjust, Ctrl+0 to reset.`}>
+        <button className="zoom-indicator-btn" type="button" title="Zoom out (Ctrl+-)" onClick={zoomOut}>−</button>
+        <span>{zoom}%</span>
+        <button className="zoom-indicator-btn" type="button" title="Zoom in (Ctrl++)" onClick={zoomIn}>+</button>
+        {zoom !== 100 ? (
+          <button className="zoom-indicator-btn zoom-indicator-reset" type="button" title="Reset zoom (Ctrl+0)" onClick={zoomReset}>reset</button>
+        ) : null}
+      </div>
     </div>
+    </PanelStatusProvider>
   );
 }

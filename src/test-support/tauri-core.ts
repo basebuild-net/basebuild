@@ -1,3 +1,15 @@
+import {
+  MVP_BASELINE_TIMINGS,
+  MVP_FIXTURE_CATEGORIES,
+  MVP_FIXTURE_IDEAS,
+  MVP_FIXTURE_PLANS,
+  MVP_FIXTURE_PROJECTS,
+  MVP_FIXTURE_SCHEMATIC,
+  MVP_FIXTURE_SESSIONS,
+  MVP_FIXTURE_TABS,
+} from "./fixture-data";
+import { __emit } from "./tauri-event";
+
 type Session = {
   id: string;
   projectPath: string;
@@ -13,6 +25,7 @@ type SessionTab = {
   title: string;
   terminalId: number | null;
   filePath: string | null;
+  chatSessionId: string | null;
   createdAt: number;
 };
 type NativeChatSession = {
@@ -24,6 +37,7 @@ type NativeChatSession = {
   modelId: string;
   effortLevel: string;
   status: string;
+  runState: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -63,6 +77,21 @@ type NativeRequestMetric = {
   createdAt: number;
 };
 
+type NativeToolEvent = {
+  id: string;
+  sessionId: string;
+  messageId: string | null;
+  kind: string;
+  status: string;
+  summary: string;
+  arguments: string | null;
+  diff: string | null;
+  decision: string | null;
+  ruleSource: string | null;
+  sequence: number;
+  createdAt: number;
+};
+
 type Idea = {
   id: string;
   sessionId: string;
@@ -73,6 +102,15 @@ type Idea = {
   createdAt: number;
   updatedAt: number;
 };
+
+type Category = {
+  id: string;
+  sessionId: string;
+  name: string;
+  description: string;
+  createdAt: number;
+};
+
 
 type Plan = {
   id: string;
@@ -104,24 +142,129 @@ type E2eState = {
   nextNativeMessageId: number;
   nextNativeMetricId: number;
   nativeChatSessions: NativeChatSession[];
+  nativeToolEvents: NativeToolEvent[];
   nativeChatMessages: NativeChatMessage[];
   nativeRequestMetrics: NativeRequestMetric[];
+  categories: Category[];
   ideas: Idea[];
+  nextCategoryId: number;
   nextIdeaId: number;
   planQueue: { id: string; sessionId: string; planId: string; sortOrder: number; createdAt: number }[];
   planRuns: { id: string; planId: string; sessionId: string; chatSessionId?: string; status: string; runnerKind: string; error?: string; stepsOutput: unknown[]; startedAt?: number; finishedAt?: number; createdAt: number }[];
+  planDependencies?: Map<string, { prerequisites: string[]; affectedPaths: string[]; schedulingMode: string; workspacePolicy: string }>;
   workspaceRestoreByProject: Map<string, unknown>;
+  recentProjects: { path: string; name: string; lastOpenedAt: number; lastActiveSessionId: string | null }[];
+  pickProjectCalls: number;
+  fixtureName: string | null;
   auth: { accessToken: string; expiresAt: string; scopes: string[]; user: { id: string; username: string; email: string; image: string | null; isAdmin: boolean; isEditor: boolean } | null } | null;
   updateInstallCount: number;
   autoSyncEnabled?: boolean;
   gitChangeStaged: boolean;
   terminals: { id: number; shell: string; cwd: string | null; pid: number; rows: number; cols: number; startedAt: number; alive: boolean }[];
   notifications: { id: string; kind: string; entityId: string; entityKind: string; projectPath: string; title: string; detail?: string; read: boolean; createdAt: number }[];
+  credentials: Map<string, { providerId: string; apiKey: string; baseUrl: string | null; updatedAt: number }>;
+  blockedProviders: Set<string>;
   notificationSettings: { overrides: Record<string, string> };
 };
 
-const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState };
+const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState; __BASEBUILD_E2E_FIXTURE__?: string; __BASEBUILD_E2E_PICK_PROJECT_PATH__?: string; __BASEBUILD_E2E_PICKER_DELAY_MS__?: number; __BASEBUILD_E2E_RESTORE_DELAY_MS__?: number };
 
+
+function panelGridFor(panelId: string, chatSessionId: string | null = null): string {
+  return JSON.stringify({
+    root: {
+      kind: "leaf",
+      panel: {
+        id: panelId,
+        type: "chat",
+        title: "Chat",
+        chatSessionId,
+        terminalId: null,
+        filePath: null,
+      },
+    },
+    activePanelId: panelId,
+    closedPanels: [],
+  });
+}
+
+function applyMvpFixture(s: E2eState): void {
+  s.fixtureName = "mvp-baseline";
+  s.projectPath = MVP_FIXTURE_PROJECTS[2]?.path ?? s.projectPath;
+  s.recentProjects = MVP_FIXTURE_PROJECTS.map((project) => ({ ...project }));
+  s.sessions = MVP_FIXTURE_SESSIONS.map((session) => ({ ...session }));
+  s.tabs = MVP_FIXTURE_TABS.map((tab) => ({ ...tab }));
+  s.categories = MVP_FIXTURE_CATEGORIES.map((category) => ({ ...category }));
+  s.ideas = MVP_FIXTURE_IDEAS.map((idea) => ({ ...idea }));
+  s.plans = MVP_FIXTURE_PLANS.map((plan) => ({ ...plan }));
+  s.nativeChatSessions = [
+    {
+      id: "mvp-native-charlie",
+      projectPath: "C:\\basebuild-e2e\\charlie",
+      title: "Charlie MVP chat",
+      profileId: "basebuild-native",
+      providerId: "umans",
+      modelId: "umans-glm-5.2",
+      effortLevel: "high",
+      status: "ready",
+      runState: "idle",
+      createdAt: 1_800_000_000,
+      updatedAt: 1_800_000_000,
+    },
+  ];
+  s.nativeChatMessages = [
+    {
+      id: "mvp-msg-user",
+      sessionId: "mvp-native-charlie",
+      role: "user",
+      content: "Start MVP baseline",
+      sortOrder: 0,
+      providerId: "umans",
+      modelId: "umans-glm-5.2",
+      effortLevel: "high",
+      createdAt: 1_800_000_000,
+    },
+  ];
+  s.workspaceRestoreByProject.set("C:\\basebuild-e2e\\alpha", {
+    projectPath: "C:\\basebuild-e2e\\alpha",
+    lastSessionId: "mvp-session-alpha",
+    lastTabId: "mvp-tab-alpha-chat",
+    sideSection: "plans",
+    sidebarCollapsed: false,
+    sideCollapsed: false,
+    sideWidth: 260,
+    panelGrid: panelGridFor("mvp-panel-alpha"),
+    updatedAt: 1_800_000_000,
+  });
+  s.workspaceRestoreByProject.set("C:\\basebuild-e2e\\bravo", {
+    projectPath: "C:\\basebuild-e2e\\bravo",
+    lastSessionId: "mvp-session-bravo",
+    lastTabId: "mvp-tab-bravo-chat",
+    sideSection: "plans",
+    sidebarCollapsed: false,
+    sideCollapsed: false,
+    sideWidth: 260,
+    panelGrid: panelGridFor("mvp-panel-bravo"),
+    updatedAt: 1_800_000_000,
+  });
+  s.workspaceRestoreByProject.set("C:\\basebuild-e2e\\charlie", {
+    projectPath: "C:\\basebuild-e2e\\charlie",
+    lastSessionId: "mvp-session-charlie",
+    lastTabId: "mvp-tab-charlie-schematic",
+    sideSection: "plans",
+    sidebarCollapsed: false,
+    sideCollapsed: false,
+    sideWidth: 260,
+    panelGrid: panelGridFor("mvp-panel-charlie", "mvp-native-charlie"),
+    updatedAt: 1_800_000_000,
+  });
+  s.auth = {
+    accessToken: "mvp-test-token",
+    expiresAt: "2026-12-31T00:00:00Z",
+    scopes: ["profile:read"],
+    user: { id: "mvp-user", username: "MVPUser", email: "mvp@example.test", image: null, isAdmin: false, isEditor: false },
+  };
+}
 
 function state(): E2eState {
   if (!globalState.__BASEBUILD_E2E_STATE__) {
@@ -140,18 +283,32 @@ function state(): E2eState {
       nativeChatSessions: [],
       nativeChatMessages: [],
       nativeRequestMetrics: [],
+      nativeToolEvents: [],
+      categories: [],
       ideas: [],
+      nextCategoryId: 1,
       nextIdeaId: 1,
       planQueue: [],
       planRuns: [],
       workspaceRestoreByProject: new Map(),
+      recentProjects: [],
+      pickProjectCalls: 0,
+      fixtureName: null,
       auth: null,
       updateInstallCount: 0,
       gitChangeStaged: false,
       terminals: [],
       notifications: [],
+      // Seed umans as connected so disconnect tests have a provider to work with.
+      credentials: new Map([
+        ["umans", { providerId: "umans", apiKey: "test-key", baseUrl: null, updatedAt: 1_800_000_000 }],
+      ]),
+      blockedProviders: new Set(),
       notificationSettings: { overrides: {} },
     };
+    if (globalState.__BASEBUILD_E2E_FIXTURE__ === "mvp-baseline") {
+      applyMvpFixture(globalState.__BASEBUILD_E2E_STATE__);
+    }
   }
   return globalState.__BASEBUILD_E2E_STATE__!;
 }
@@ -190,13 +347,49 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
 
   switch (command) {
     case "list_recent_projects":
-      return [] as T;
-    case "pick_project_directory":
-      return s.projectPath as T;
-    case "remember_recent_project":
-      return { path: args.path as string, name: "project", lastOpenedAt: Math.floor(Date.now() / 1000), lastActiveSessionId: null } as T;
+      return s.recentProjects.slice(0, Number(args.limit ?? 10)) as T;
+    case "pick_project_directory": {
+      s.pickProjectCalls += 1;
+      const delayMs = globalState.__BASEBUILD_E2E_PICKER_DELAY_MS__ ?? 0;
+      if (delayMs > 0) {
+        const { promise, resolve } = Promise.withResolvers<void>();
+        setTimeout(resolve, delayMs);
+        await promise;
+      }
+      return (globalState.__BASEBUILD_E2E_PICK_PROJECT_PATH__ ?? s.projectPath) as T;
+    }
+    case "remember_recent_project": {
+      const path = args.path as string;
+      s.projectPath = path;
+      const name = path.split("\\").pop() || "project";
+      const existing = s.recentProjects.find((project) => project.path === path);
+      const project = { path, name, lastOpenedAt: Math.floor(Date.now() / 1000), lastActiveSessionId: existing?.lastActiveSessionId ?? null };
+      s.recentProjects = [project, ...s.recentProjects.filter((item) => item.path !== path)];
+      return project as T;
+    }
+    case "get_last_focused_project": {
+      const focusedPath = typeof localStorage !== "undefined" ? localStorage.getItem("basebuild:last-focused-project") : null;
+      const path = focusedPath ?? (s.fixtureName === "mvp-baseline" ? s.projectPath : s.recentProjects[0]?.path) ?? null;
+      return (path ? s.recentProjects.find((project) => project.path === path) ?? null : null) as T;
+    }
+    case "set_last_focused_project": {
+      const path = args.path as string;
+      if (typeof localStorage !== "undefined") localStorage.setItem("basebuild:last-focused-project", path);
+      s.projectPath = path;
+      const existing = s.recentProjects.find((project) => project.path === path);
+      const name = path.split("\\").pop() || "project";
+      const project = { path, name, lastOpenedAt: Math.floor(Date.now() / 1000), lastActiveSessionId: existing?.lastActiveSessionId ?? null };
+      s.recentProjects = [project, ...s.recentProjects.filter((item) => item.path !== path)];
+      return project as T;
+    }
     case "remove_recent_project":
-    case "set_last_active_session":
+      s.recentProjects = s.recentProjects.filter((project) => project.path !== args.path);
+      return undefined as T;
+    case "set_last_active_session": {
+      const project = s.recentProjects.find((item) => item.path === args.projectPath);
+      if (project) project.lastActiveSessionId = args.sessionId as string;
+      return undefined as T;
+    }
     case "reveal_in_explorer":
     case "set_project_schematic":
     case "delete_tab":
@@ -208,10 +401,32 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return undefined as T;
     }
     case "agent_stop":
-    case "native_chat_cancel":
       return undefined as T;
+    case "native_chat_cancel":
+      return true as T;
+    case "native_chat_resolve_approval":
+      return true as T;
     case "native_chat_tool_events":
-      return [] as T;
+      return s.nativeToolEvents
+        .filter((e) => e.sessionId === (args.sessionId as string))
+        .slice()
+        .sort((a, b) => a.sequence - b.sequence) as T;
+    case "native_chat_clear_messages": {
+      const sessionId = args.sessionId as string;
+      const removed = s.nativeChatMessages.filter((m) => m.sessionId === sessionId).length;
+      s.nativeChatMessages = s.nativeChatMessages.filter((m) => m.sessionId !== sessionId);
+      s.nativeToolEvents = s.nativeToolEvents.filter((e) => e.sessionId !== sessionId);
+      return removed as T;
+    }
+    case "native_chat_update_session_model": {
+      const sessionId = args.sessionId as string;
+      const session = s.nativeChatSessions.find((c) => c.id === sessionId);
+      if (!session) throw new Error(`native_chat_update_session_model: unknown session ${sessionId}`);
+      session.providerId = args.providerId as string;
+      session.modelId = args.modelId as string;
+      session.effortLevel = args.effortLevel as string;
+      return { ...session } as T;
+    }
     case "native_interaction_list_all":
     case "native_interaction_list_pending": {
       const w = globalThis as unknown as { __basebuildMockInteraction?: unknown };
@@ -317,6 +532,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         title: args.title as string,
         terminalId: (args.terminalId as number | null) ?? null,
         filePath: (args.filePath as string | null) ?? null,
+        chatSessionId: (args.chatSessionId as string | null) ?? null,
         createdAt: Math.floor(Date.now() / 1000),
       };
       s.tabs.push(tab);
@@ -332,10 +548,15 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       if (tab) tab.filePath = args.filePath as string | null;
       return undefined as T;
     }
+    case "update_tab_chat_session": {
+      const tab = s.tabs.find((item) => item.id === args.id);
+      if (tab) tab.chatSessionId = args.chatSessionId as string | null;
+      return undefined as T;
+    }
     case "has_project_schematic":
       return true as T;
     case "get_project_schematic":
-      return { content: "# Project Schematic: E2E Fixture\n\n## Purpose\nExercise plan context generation." } as T;
+      return { content: s.fixtureName === "mvp-baseline" ? MVP_FIXTURE_SCHEMATIC : "# Project Schematic: E2E Fixture\n\n## Purpose\nExercise plan context generation." } as T;
     case "list_plans":
       return s.plans.filter((plan) => plan.sessionId === args.sessionId) as T;
     case "create_plan": {
@@ -417,6 +638,101 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       s.planRuns.push(run);
       return run as T;
     }
+    case "plan_set_dependencies": {
+      const req = args.request as { planId: string; prerequisites?: string[]; affectedPaths?: string[]; priority?: number; schedulingMode?: string; workspacePolicy?: string };
+      const plan = s.plans.find((p) => p.id === req.planId);
+      if (!plan) throw new Error(`Plan not found: ${req.planId}`);
+      if (req.priority !== undefined) plan.priority = req.priority;
+      if (!s.planDependencies) s.planDependencies = new Map();
+      const existing = s.planDependencies.get(req.planId) ?? { prerequisites: [], affectedPaths: [], schedulingMode: "safe", workspacePolicy: "isolated_worktrees" };
+      s.planDependencies.set(req.planId, {
+        prerequisites: req.prerequisites ?? existing.prerequisites,
+        affectedPaths: req.affectedPaths ?? existing.affectedPaths,
+        schedulingMode: req.schedulingMode ?? existing.schedulingMode,
+        workspacePolicy: req.workspacePolicy ?? existing.workspacePolicy,
+      });
+      return plan as T;
+    }
+    case "plan_get_dependencies": {
+      const planId = args.planId as string;
+      const deps = s.planDependencies?.get(planId);
+      const plan = s.plans.find((p) => p.id === planId);
+      return (deps ? { planId, ...deps, priority: plan?.priority ?? 50 } : { planId, prerequisites: [], affectedPaths: [], priority: plan?.priority ?? 50, schedulingMode: "safe", workspacePolicy: "isolated_worktrees" }) as T;
+    }
+    case "plan_dependency_graph": {
+      const sessionId = args.sessionId as string;
+      const sessionPlans = s.plans.filter((p) => p.sessionId === sessionId);
+      const nodes = sessionPlans.map((p) => {
+        const deps = s.planDependencies?.get(p.id);
+        const prerequisites = deps?.prerequisites ?? [];
+        const affectedPaths = deps?.affectedPaths ?? [];
+        const schedulingMode = deps?.schedulingMode ?? "safe";
+        const collisions: string[] = [];
+        for (const other of sessionPlans) {
+          if (other.id === p.id) continue;
+          const otherDeps = s.planDependencies?.get(other.id);
+          const otherPaths = otherDeps?.affectedPaths ?? [];
+          if (affectedPaths.some((ap) => otherPaths.includes(ap))) collisions.push(other.id);
+        }
+        const unmet = prerequisites.filter((pid) => {
+          const prereq = s.plans.find((pp) => pp.id === pid);
+          return !prereq || prereq.status !== "finished";
+        });
+        const runningCollisions = collisions.filter((cid) => {
+          const cp = s.plans.find((pp) => pp.id === cid);
+          return cp?.status === "running";
+        });
+        const readiness = p.status === "finished" ? "finished" : p.status === "cancelled" ? "cancelled" : p.status === "running" ? "running" : unmet.length > 0 ? "blocked" : (schedulingMode !== "yolo" && runningCollisions.length > 0) ? "blocked" : "ready";
+        const blockReason = readiness === "blocked" ? (unmet.length > 0 ? `Waiting on prerequisites: ${unmet.join(", ")}` : `File collision with running plan(s): ${runningCollisions.join(", ")}`) : undefined;
+        return { planId: p.id, referenceId: p.referenceId, title: p.title, status: p.status, priority: p.priority, prerequisites, affectedPaths, readiness, blockReason, collisions, dispatchable: readiness === "ready", yoloConfirmed: schedulingMode === "yolo" };
+      });
+      nodes.sort((a, b) => b.priority - a.priority);
+      return { sessionId, nodes, cycles: [] } as T;
+    }
+    case "plan_validate_readiness": {
+      const planId = args.planId as string;
+      const plan = s.plans.find((p) => p.id === planId);
+      if (!plan) return { planId, valid: false, errors: ["Plan not found"], warnings: [] } as T;
+      const errors: string[] = [];
+      const warnings: string[] = [];
+      if (plan.status !== "ready" && plan.status !== "openspec") errors.push(`Plan status is ${plan.status} — must be ready or openspec to dispatch.`);
+      const deps = s.planDependencies?.get(planId);
+      if (deps) {
+        for (const pid of deps.prerequisites) {
+          const prereq = s.plans.find((p) => p.id === pid);
+          if (!prereq) errors.push(`Prerequisite plan ${pid} not found.`);
+          else if (prereq.status !== "finished") errors.push(`Prerequisite '${prereq.title}' is not finished.`);
+        }
+      }
+      return { planId, valid: errors.length === 0, errors, warnings } as T;
+    }
+    case "plan_file_claims_set":
+      return undefined as T;
+    case "plan_file_claims_list":
+      return [] as T;
+    case "plan_coordination_event_publish": {
+      const req = args.request as { sessionId: string; runId: string; planId: string; kind: string; payload?: string };
+      return { id: `evt-${Date.now()}`, ...req, payload: req.payload ?? "{}", createdAt: Date.now() } as T;
+    }
+    case "plan_coordination_events":
+      return [] as T;
+    case "plan_set_launch_profile":
+      return undefined as T;
+    case "plan_get_launch_profile":
+      return null as T;
+    case "plan_merge_queue_list":
+      return [] as T;
+    case "plan_merge_queue_review":
+      return { id: args.entryId as string, runId: "", planId: "", sessionId: "", status: args.decision as string, collisionReviewRequired: false, overlappingPlans: [], reviewedAt: Date.now(), createdAt: 0 } as T;
+    case "plan_assign_with_profile": {
+      const req = args.request as { planId: string; chatSessionId: string };
+      const plan = s.plans.find((p) => p.id === req.planId);
+      if (!plan) throw new Error(`Plan not found: ${req.planId}`);
+      plan.status = "running";
+      const run = { id: `run-${Date.now()}`, planId: req.planId, sessionId: plan.sessionId, chatSessionId: req.chatSessionId, workspacePath: undefined, status: "running", runnerKind: "native", error: undefined, stepsOutput: [], startedAt: Date.now(), finishedAt: undefined, createdAt: Date.now() };
+      s.planRuns.push(run);
+      return run as T;
+    }
     case "list_files":
       return [] as T;
     case "read_file":
@@ -431,25 +747,42 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "agent_start":
       return 1 as T;
     case "native_provider_catalog":
-    case "native_provider_catalog_refresh":
+    case "native_provider_catalog_refresh": {
+      // Build provider list dynamically — check credentials/blocked state
+      // so disconnect/connect actually changes the UI.
+      const baseProviders = [
+        { id: "basebuild-local", label: "Basebuild Local", credentialOwner: "basebuild", localOnly: true, detail: "Local coordinator", authMethod: "local", apiKeyUrl: null, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "openai", label: "OpenAI", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.openai.com/api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "umans", label: "Umans", credentialOwner: "user", localOnly: false, detail: "Connected", authMethod: "api_key", apiKeyUrl: "https://app.umans.ai/billing?context=personal&tab=api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "provider_discovered", error: null },
+        { id: "anthropic", label: "Anthropic", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.anthropic.com/settings/keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "devin", label: "Devin.ai", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://app.devin.ai/settings/api-keys", modelCount: 48, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "google", label: "Google Gemini", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://aistudio.google.com/apikey", modelCount: 33, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "groq", label: "Groq", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.groq.com/keys", modelCount: 18, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "openrouter", label: "OpenRouter", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://openrouter.ai/keys", modelCount: 19, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "deepseek", label: "DeepSeek", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.deepseek.com/api_keys", modelCount: 2, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "mistral", label: "Mistral", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.mistral.ai/api-keys", modelCount: 29, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "xai", label: "xAI (Grok)", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.x.ai", modelCount: 29, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "together", label: "Together AI", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://api.together.ai/settings/api-keys", modelCount: 32, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "fireworks", label: "Fireworks AI", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://fireworks.ai/api-keys", modelCount: 22, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "cerebras", label: "Cerebras", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://cloud.cerebras.ai", modelCount: 7, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "custom", label: "Custom (OpenAI-compatible)", credentialOwner: "user", localOnly: false, detail: "Enter API key + base URL", authMethod: "api_key", apiKeyUrl: null, modelCount: 0, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+      ];
+      const providers = baseProviders.map((p) => {
+        if (p.localOnly) {
+          return { ...p, status: "ready", configured: true };
+        }
+        const isBlocked = s.blockedProviders.has(p.id);
+        const hasCred = s.credentials.has(p.id);
+        const configured = hasCred && !isBlocked;
+        return {
+          ...p,
+          status: configured ? "ready" : "setup_required",
+          configured,
+          detail: configured ? "Connected" : "Configure credentials",
+        };
+      });
       return {
-        providers: [
-          { id: "basebuild-local", label: "Basebuild Local", status: "ready", credentialOwner: "basebuild", configured: true, localOnly: true, detail: "Local coordinator", authMethod: "local", apiKeyUrl: null, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "openai", label: "OpenAI", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.openai.com/api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "umans", label: "Umans", status: "ready", credentialOwner: "user", configured: true, localOnly: false, detail: "Connected", authMethod: "api_key", apiKeyUrl: "https://app.umans.ai/billing?context=personal&tab=api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "provider_discovered", error: null },
-          { id: "anthropic", label: "Anthropic", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.anthropic.com/settings/keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "devin", label: "Devin.ai", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://app.devin.ai/settings/api-keys", modelCount: 48, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "google", label: "Google Gemini", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://aistudio.google.com/apikey", modelCount: 33, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "groq", label: "Groq", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.groq.com/keys", modelCount: 18, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "openrouter", label: "OpenRouter", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://openrouter.ai/keys", modelCount: 19, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "deepseek", label: "DeepSeek", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.deepseek.com/api_keys", modelCount: 2, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "mistral", label: "Mistral", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.mistral.ai/api-keys", modelCount: 29, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "xai", label: "xAI (Grok)", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.x.ai", modelCount: 29, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "together", label: "Together AI", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://api.together.ai/settings/api-keys", modelCount: 32, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "fireworks", label: "Fireworks AI", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://fireworks.ai/api-keys", modelCount: 22, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "cerebras", label: "Cerebras", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://cloud.cerebras.ai", modelCount: 7, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-          { id: "custom", label: "Custom (OpenAI-compatible)", status: "setup_required", credentialOwner: "user", configured: false, localOnly: false, detail: "Enter API key + base URL", authMethod: "api_key", apiKeyUrl: null, modelCount: 0, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-        ],
+        providers,
         models: [
           { id: "basebuild-local-coordinator", providerId: "basebuild-local", label: "Local Coordinator", supportsEffort: true, supportsStreaming: false, supportsTools: false, localOnly: true, contextWindow: null, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "bundled" },
           { id: "gpt-5.1", providerId: "openai", label: "GPT-5.1", supportsEffort: true, supportsStreaming: true, supportsTools: true, localOnly: false, contextWindow: 400000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: true, source: "bundled" },
@@ -467,6 +800,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         fetchedAt: 1_800_000_000,
         stale: false,
       } as T;
+    }
     case "native_chat_start": {
       const req = args.request as { projectPath: string; title?: string; providerId?: string; modelId?: string; effortLevel?: string };
       const id = `nchat-${s.nextNativeChatId++}`;
@@ -480,6 +814,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         modelId: req.modelId ?? "basebuild-local-coordinator",
         effortLevel: req.effortLevel ?? "medium",
         status: "ready",
+        runState: "idle",
         createdAt: ts,
         updatedAt: ts,
       };
@@ -507,10 +842,41 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         effortLevel: req.effortLevel ?? "medium",
         createdAt: ts,
       };
-      const assistantContent = req.content.includes("Write one concise git commit message")
+      // Streaming trigger: emit phase + delta chunk events with real delays
+      // before resolving, so e2e can assert the thinking indicator and
+      // incremental markdown rendering (contract: native-chat://chunk with
+      // { sessionId, delta, channel? } — channel "status" carries phases).
+      const isStreamTest = req.content.includes("stream-test");
+      const streamedContent = "Streaming **bold** and `code` arrived incrementally.";
+      if (isStreamTest) {
+        const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+        const chunk = (delta: string, channel?: string) =>
+          __emit("native-chat://chunk", { sessionId: req.sessionId, delta, ...(channel ? { channel } : {}) });
+        chunk("thinking", "status");
+        await sleep(400);
+        chunk("Considering the request…", "reasoning");
+        await sleep(150);
+        chunk("Streaming **bold**");
+        await sleep(250);
+        chunk(" and `code`");
+        await sleep(250);
+        chunk(" arrived incrementally.");
+        await sleep(150);
+      }
+      const assistantContent = isStreamTest
+        ? streamedContent
+        : req.content.includes("Write one concise git commit message")
         ? "Let me write a concise commit message.\n\n1. `launch-sbox.sh` - changes\n2. `patch_engine.sh` - changes\n\n---\n\nRework patch system to target sbox-public"
         : req.content.includes("quick-reply-test")
         ? "Here are your options:\nA. Commit the changes\nB. Create a pull request\nC. Abort and revert\n"
+        : req.content.includes("markdown-test")
+        ? "Here is a **markdown** response with `inline code`.\n\n## Heading\n\n- Item one\n- Item two\n- Item three\n\n> A blockquote with wisdom.\n\n| Col A | Col B |\n|-------|-------|\n| 1 | 2 |\n| 3 | 4 |\n\n```ts\nconst x: string = \"hello\";\nconsole.log(x);\n```\n\n<script>alert(1)</script>\n\n[Example](https://example.com)"
+        : req.content.includes("tool-card-test")
+        ? "I'll write a file and run a command for you."
+        : req.content.includes("schematic-wizard-deny-test")
+        ? "I tried to write the schematic but the write was denied."
+        : req.content.includes("schematic-wizard-test")
+        ? "I'll ask you some questions and then write the schematic."
         : `Native harness echo: ${req.content}`;
       const assistantMessage: NativeChatMessage = {
         id: `nmsg-${s.nextNativeMessageId++}`,
@@ -547,11 +913,97 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         createdAt: ts,
       };
       s.nativeRequestMetrics.push(metric);
+      const isToolCardTest = req.content.includes("tool-card-test");
+      const isSchematicWizardTest = req.content.includes("schematic-wizard-test");
+      const isSchematicDenyTest = req.content.includes("schematic-wizard-deny-test");
+      const toolEvents: NativeToolEvent[] = isToolCardTest
+        ? [
+            {
+              id: `ntool-write-${ts}`,
+              sessionId: req.sessionId,
+              messageId: assistantMessage.id,
+              kind: "write_file",
+              status: "success",
+              summary: "Wrote 42 bytes to src/hello.ts",
+              arguments: JSON.stringify({ path: "src/hello.ts", content: "console.log('hello');\n" }),
+              diff: "+console.log('hello');\n",
+              decision: "approved",
+              ruleSource: null,
+              sequence: 1,
+              createdAt: ts,
+            },
+            {
+              id: `ntool-edit-${ts}`,
+              sessionId: req.sessionId,
+              messageId: assistantMessage.id,
+              kind: "edit_file",
+              status: "success",
+              summary: "Replaced 1 occurrence(s) in src/hello.ts",
+              arguments: JSON.stringify({ path: "src/hello.ts", old_text: "hello", new_text: "world" }),
+              diff: "-console.log('hello');\n+console.log('world');\n",
+              decision: "approved",
+              ruleSource: "edit_file:src/**",
+              sequence: 2,
+              createdAt: ts,
+            },
+            {
+              id: `ntool-cmd-${ts}`,
+              sessionId: req.sessionId,
+              messageId: assistantMessage.id,
+              kind: "run_command",
+              status: "success",
+              summary: "exit 0:\nhello world",
+              arguments: JSON.stringify({ command: "node src/hello.ts" }),
+              diff: null,
+              decision: "approved",
+              ruleSource: null,
+              sequence: 3,
+              createdAt: ts,
+            },
+          ]
+        : isSchematicWizardTest
+        ? [
+            {
+              id: `ntool-schematic-write-${ts}`,
+              sessionId: req.sessionId,
+              messageId: assistantMessage.id,
+              kind: "write_file",
+              status: "success",
+              summary: "Wrote 128 bytes to .basebuild/project-schematic.md",
+              arguments: JSON.stringify({ path: ".basebuild/project-schematic.md", content: "# Project Schematic\n\n## Goals\n- Build the thing\n" }),
+              diff: "+# Project Schematic\n+\n+## Goals\n+- Build the thing\n",
+              decision: "approved",
+              ruleSource: "write_file:.basebuild/**",
+              sequence: 1,
+              createdAt: ts,
+            },
+          ]
+        : isSchematicDenyTest
+        ? [
+            {
+              id: `ntool-schematic-denied-${ts}`,
+              sessionId: req.sessionId,
+              messageId: assistantMessage.id,
+              kind: "write_file",
+              status: "denied",
+              summary: "Write to .basebuild/project-schematic.md denied by user",
+              arguments: JSON.stringify({ path: ".basebuild/project-schematic.md", content: "# Project Schematic\n" }),
+              diff: null,
+              decision: "denied",
+              ruleSource: null,
+              sequence: 1,
+              createdAt: ts,
+            },
+          ]
+        : [];
+      if (isToolCardTest || isSchematicWizardTest || isSchematicDenyTest) {
+        for (const te of toolEvents) s.nativeToolEvents.push(te);
+      }
       return {
         userMessage,
         assistantMessage,
         metrics: metric,
-        toolEvents: [],
+        toolEvents,
         setupRequired: null,
         offline: (req.providerId ?? "basebuild-local") === "basebuild-local",
       } as T;
@@ -576,6 +1028,12 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "get_workspace_restore_state": {
       const projectPath = args.projectPath as string;
+      const restoreDelayMs = globalState.__BASEBUILD_E2E_RESTORE_DELAY_MS__ ?? 0;
+      if (restoreDelayMs > 0) {
+        const { promise, resolve } = Promise.withResolvers<void>();
+        setTimeout(resolve, restoreDelayMs);
+        await promise;
+      }
       return (s.workspaceRestoreByProject.get(projectPath) ?? {
         projectPath,
         lastSessionId: null,
@@ -591,19 +1049,36 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "save_workspace_restore_state":
       s.workspaceRestoreByProject.set((args.state as { projectPath: string }).projectPath, args.state);
       return args.state as T;
-    case "update_tab_chat_session":
+    case "native_save_provider_credential": {
+      // Real wrapper sends an `{ input }` envelope — mirror the Rust contract.
+      const req = args.input as { providerId: string; label: string; apiKey: string; baseUrl?: string | null };
+      // Deterministic failure hook for e2e: a rejected key must keep the draft.
+      if (req.apiKey === "invalid-key") {
+        throw new Error("Invalid API key rejected by provider");
+      }
+      const baseUrl = req.baseUrl ?? null;
+      s.credentials.set(req.providerId, { providerId: req.providerId, apiKey: req.apiKey, baseUrl, updatedAt: Math.floor(Date.now() / 1000) });
+      s.blockedProviders.delete(req.providerId);
+      return { providerId: req.providerId, label: req.label, apiKey: req.apiKey, baseUrl, updatedAt: Math.floor(Date.now() / 1000) } as T;
+    }
+    case "native_list_provider_credentials": {
+      // Only return non-blocked credentials.
+      return Array.from(s.credentials.values()).filter((c) => !s.blockedProviders.has(c.providerId)) as T;
+    }
+    case "native_delete_provider_credential": {
+      const providerId = (args as { providerId?: string }).providerId ?? "unknown";
+      s.blockedProviders.add(providerId);
       return undefined as T;
-    case "native_save_provider_credential":
-      return { providerId: "umans", label: "Umans", apiKey: "test-key", baseUrl: null, updatedAt: Math.floor(Date.now() / 1000) } as T;
-    case "native_list_provider_credentials":
-      return [] as T;
-    case "native_delete_provider_credential":
-      return undefined as T;
+    }
     case "list_categories":
-      return [] as T;
-    case "create_category":
-      return { id: `cat-${Date.now()}`, sessionId: args.sessionId as string, name: args.name as string, description: args.description as string, createdAt: Math.floor(Date.now() / 1000) } as T;
+      return s.categories.filter((category) => category.sessionId === args.sessionId) as T;
+    case "create_category": {
+      const category: Category = { id: `cat-${s.nextCategoryId++}`, sessionId: args.sessionId as string, name: args.name as string, description: args.description as string, createdAt: Math.floor(Date.now() / 1000) };
+      s.categories.push(category);
+      return category as T;
+    }
     case "delete_category":
+      s.categories = s.categories.filter((category) => category.id !== args.id);
       return undefined as T;
     case "list_ideas":
       return s.ideas.filter((idea) => idea.sessionId === args.sessionId) as T;
@@ -638,6 +1113,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         return {
           ideas: [],
           setupRequired: { providerId, providerLabel: providerId === "openai" ? "OpenAI" : "Basebuild Local", message: "Connect a model provider to generate ideas from this chat." },
+          grounding: null,
         } as T;
       }
       return {
@@ -646,6 +1122,14 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
           { title: "Cache provider catalog", description: "Avoid refetching on every mount." },
         ],
         setupRequired: null,
+        grounding: {
+          schematicSections: ["Project Schematic", "Goals", "Vision"],
+          finishedPlans: ["BB-0001", "BB-0002"],
+          finishedPlanCount: 2,
+          pickedCount: 1,
+          rejectedCount: 0,
+          digestEmpty: false,
+        },
       } as T;
     }
     case "native_provider_login_start":
@@ -773,6 +1257,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return "main" as T;
     case "git_default_branch":
       return "main" as T;
+    case "git_remote_url":
+      return `https://github.com/basebuild-net/${(args.path as string)?.split(/[\\/]/).pop() ?? "repo"}.git` as T;
     case "git_branch_create":
       return undefined as T;
     case "git_branch_switch":

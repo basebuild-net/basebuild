@@ -91,7 +91,7 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
     <div className="stack">
       {/* Toolbar */}
       <div className="row-between">
-        <h3 className="text-sm" style={{ margin: 0, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--bb-muted)" }}>
+        <h3 className="text-sm ideas-header-label">
           Ideas & Plans ({ideas.length})
         </h3>
         <div className="row gap-sm">
@@ -116,7 +116,7 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
 
       {/* Categories */}
       {categories.length > 0 ? (
-        <div className="row gap-sm" style={{ flexWrap: "wrap" }}>
+        <div className="row gap-sm flex-wrap">
           {categories.map((cat) => (
             <span className="idea-category-chip" key={cat.id} title={cat.description}>
               {cat.name}
@@ -136,10 +136,10 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
             onKeyDown={(e) => { if (e.key === "Enter") void handleCreateCategory(); }}
             autoFocus
           />
-          <button className="btn btn-primary" onClick={() => void handleCreateCategory()} type="button">Add</button>
+          <button className="btn btn-primary" title="Add category" onClick={() => void handleCreateCategory()} type="button">Add</button>
         </div>
       ) : (
-        <button className="btn btn-ghost text-sm" onClick={() => setShowCategoryInput(true)} type="button">
+        <button className="btn btn-ghost text-sm" title="Create new category" onClick={() => setShowCategoryInput(true)} type="button">
           <Plus size={12} /> New category
         </button>
       )}
@@ -153,7 +153,7 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
           onChange={(e) => setNewIdeaTitle(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") void handleCreateIdea(); }}
         />
-        <button className="btn btn-primary" disabled={!newIdeaTitle.trim()} onClick={() => void handleCreateIdea()} type="button">
+        <button className="btn btn-primary" title="Add idea" disabled={!newIdeaTitle.trim()} onClick={() => void handleCreateIdea()} type="button">
           <Plus size={12} /> Add
         </button>
       </div>
@@ -172,12 +172,11 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
                     onClick={() => toggleSelect(idea.id)}
                     type="button"
                   >
-                    <Check size={12} style={{ opacity: selectedIds.has(idea.id) ? 1 : 0.3 }} />
+                    <Check size={12} className={selectedIds.has(idea.id) ? "check-icon-selected" : "check-icon-unselected"} />
                   </button>
                   <span className="idea-card-title">{idea.title}</span>
                   <select
-                    className="input"
-                    style={{ width: "auto", fontSize: "10px", padding: "2px 4px" }}
+                    className="input select-auto-compact"
                     value={idea.status}
                     onChange={(e) => void updateIdeaStatus(idea.id, e.target.value as IdeaStatus)}
                   >

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useEscapeKey } from "../../lib/useEscapeKey";
 import { X } from "lucide-react";
 import type { NewPlan, Plan, PlanStatus } from "../../lib/plans";
 import { PLAN_STATUS_LABEL } from "../../lib/plans";
@@ -16,6 +17,7 @@ export function EditPlanModal({ plan, open, onClose, onSave }: EditPlanModalProp
   const [goal, setGoal] = useState("");
   const [status, setStatus] = useState<PlanStatus>("draft");
   const [priority, setPriority] = useState(50);
+  useEscapeKey(open, onClose);
   const [tags, setTags] = useState("");
 
   useEffect(() => {
@@ -98,7 +100,7 @@ export function EditPlanModal({ plan, open, onClose, onSave }: EditPlanModalProp
           <div className="row">
             <label className="stack-sm flex-1">
               <span className="text-sm text-muted">Status</span>
-              <select className="input" value={status} onChange={(e) => setStatus(e.target.value as PlanStatus)}>
+              <select className="input" title="Plan status" value={status} onChange={(e) => setStatus(e.target.value as PlanStatus)}>
                 <option value="draft">{PLAN_STATUS_LABEL.draft}</option>
                 <option value="openspec">{PLAN_STATUS_LABEL.openspec}</option>
                 <option value="ready">{PLAN_STATUS_LABEL.ready}</option>
@@ -129,10 +131,10 @@ export function EditPlanModal({ plan, open, onClose, onSave }: EditPlanModalProp
             />
           </label>
           <div className="modal-actions">
-            <button className="btn" type="button" onClick={onClose}>
+            <button className="btn" type="button" title="Cancel" onClick={onClose}>
               Cancel
             </button>
-            <button className="btn btn-primary" type="submit">
+            <button className="btn btn-primary" type="submit" title="Save plan">
               Save plan
             </button>
           </div>

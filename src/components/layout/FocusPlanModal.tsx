@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useEscapeKey } from "../../lib/useEscapeKey";
 import { CheckCircle, Clock, Copy, TerminalSquare, X } from "lucide-react";
 import type { Plan, PlanFocusContext, PlanStatus } from "../../lib/plans";
 import { PLAN_STATUS_LABEL } from "../../lib/plans";
@@ -27,6 +28,7 @@ export function FocusPlanModal({
   const [notes, setNotes] = useState("");
   const [files, setFiles] = useState("");
   const [terminalTail, setTerminalTail] = useState("");
+  useEscapeKey(open, onClose);
   const [taskProgress, setTaskProgress] = useState<{ completed: number; total: number } | null>(null);
 
   useEffect(() => {

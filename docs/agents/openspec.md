@@ -3,6 +3,16 @@
 Basebuild uses [OpenSpec](https://github.com/Fission-AI/OpenSpec) for planned
 changes. Changes live in `openspec/changes/<change-name>/`.
 
+## OpenSpec runtime management
+
+OpenSpec is a first-class planning engine. Its runtime health is managed from
+**Settings → OpenSpec**, which detects the `openspec` executable, reports
+version/path/schema, validates project readiness (`openspec/` directory), and
+provides install/update affordances (stubs until a distribution source is
+configured). Plans that use `engine: openspec` are gated: if the runtime is
+`missing` or `error`, the PlanPanel and PlanningInspector show a setup-required
+card linking to Settings → OpenSpec and block promotion/launch.
+
 ## Starting a change
 
 Use the `/propose` skill:

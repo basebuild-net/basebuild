@@ -39,7 +39,7 @@ export function OmpPanel({ state }: OmpPanelProps) {
         <div className="omp-status-row">
           <h3>OMP status</h3>
           {state.status?.installed ? (
-            <button className="btn btn-ghost" disabled={state.busy} onClick={() => void quickstart()} type="button">
+            <button className="btn btn-ghost" title="Run OMP quickstart" disabled={state.busy} onClick={() => void quickstart()} type="button">
               <Zap size={14} /> Quickstart
             </button>
           ) : null}
@@ -54,7 +54,7 @@ export function OmpPanel({ state }: OmpPanelProps) {
           </div>
         ) : (
           <div className="omp-info">
-            <span className="pill" style={{ borderColor: "rgba(239,68,68,.35)", color: "var(--danger)" }}>Not installed</span>
+            <span className="pill pill-danger">Not installed</span>
             {state.status.message ? <span className="text-sm text-muted">{state.status.message}</span> : null}
           </div>
         )}
@@ -86,12 +86,12 @@ export function OmpPanel({ state }: OmpPanelProps) {
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") void runPrompt(); }}
             />
-            <button className="btn btn-primary" disabled={state.busy} onClick={() => void runPrompt()} type="button">
+            <button className="btn btn-primary" title="Run OMP prompt" disabled={state.busy} onClick={() => void runPrompt()} type="button">
               <Play size={14} /> Run
             </button>
           </div>
           {output.length > 0 ? (
-            <div className="omp-output-box" style={{ marginTop: 8 }}>
+            <div className="omp-output-box mt-8">
               {output.map((line, i) => <pre key={i}>{line}</pre>)}
             </div>
           ) : null}

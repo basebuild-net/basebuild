@@ -15,12 +15,9 @@ import type { GitBranch as GitBranchInfo } from "../../lib/git";
 
 /** Per-chat column header (`chat-header-context`).
  *
- * Ported from the reference IDE's chat header structure, adapted to
- * basebuild's `globals.css`-only stack (0px radius, no Radix, no CSS modules).
- * Renders above the conversation, never scrolls out of view. Every interactive
- * element has a `title=` tooltip (Invariant 3).
- *
- * Reference: dream IDE (MIT). Attribution: docs/agents/design-system.md. */
+ * Renders above the conversation, never scrolls out of view. Every
+ * interactive element has a `title=` tooltip.
+ */
 
 type PlanBadge = {
   referenceId: string;
@@ -58,6 +55,10 @@ type ChatHeaderProps = {
   /** Shown when a worktree run has finished; null otherwise. */
   prRecommendation: { branch: string; ahead: number; behind: number; changedFiles: number } | null;
   onCreatePullRequest: () => void;
+  /** Project path for the context badge. */
+  projectPath: string;
+  /** Chat session / run identifier. */
+  sessionId?: string | null;
   onDragStart?: (e: React.MouseEvent) => void;
   onDragEnd?: () => void;
   onDragOver?: (e: React.DragEvent) => void;
@@ -118,7 +119,7 @@ export function ChatHeader(props: ChatHeaderProps) {
     props.onCreateBranch(name);
   }
 
-  const modeLabel = props.agentMode === "build" ? "build" : "plan";
+  const modeLabel = props.agentMode === "build" ? "Build mode" : "Plan mode";
   const modeTitle = props.agentMode === "build"
     ? "Build mode — edits allowed (approval gateway). Click to switch to plan mode."
     : "Plan mode — read-only posture. Click to switch to build mode.";
@@ -155,12 +156,14 @@ export function ChatHeader(props: ChatHeaderProps) {
             <span className="chat-column-title-text">{props.title}</span>
           </button>
         )}
-        <span className="chat-column-model-chip" title={`Model: ${props.modelChip} (${props.modelId})`}>
-          {props.modelChip}
-        </span>
-        <span className="chat-column-effort-chip" title={`Effort: ${props.effortChip}`}>
-          {props.effortChip}
-        </span>
+        {props.modelChip ? (
+          <span
+            className="chat-column-model-chip"
+            title={`Model: ${props.modelChip}`}
+          >
+            {truncate(props.modelChip, 16)}
+          </span>
+        ) : null}
         <button
           className={`chat-column-mode-pill${props.agentMode === "build" ? " is-build" : " is-plan"}`}
           type="button"

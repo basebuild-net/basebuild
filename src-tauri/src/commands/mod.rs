@@ -18,6 +18,7 @@ pub mod notifications;
 pub mod plans;
 pub mod plan_import;
 pub mod plan_runs;
+pub mod plan_dependency;
 pub mod pipeline;
 pub mod planning_prompts;
 pub mod native_chat;

@@ -109,3 +109,7 @@ export async function gitCurrentBranch(path: string): Promise<string | null> {
 export async function gitDefaultBranch(path: string): Promise<string | null> {
   return invoke<string | null>("git_default_branch", { path });
 }
+
+export async function gitRemoteUrl(path: string): Promise<string | null> {
+  return invoke<string | null>("git_remote_url", { path });
+}

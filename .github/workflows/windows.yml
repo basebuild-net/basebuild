@@ -36,6 +36,9 @@ jobs:
 
       - name: Type check
         run: npx tsc --noEmit
+
+      - name: UI invariant checks
+        run: npm run check:ui-invariants
   check-rust:
     runs-on: ubuntu-latest
     steps:

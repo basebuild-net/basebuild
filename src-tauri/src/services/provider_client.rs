@@ -127,6 +127,7 @@ pub fn resolve_client(provider_id: &str, base_url: Option<&str>) -> Box<dyn Prov
             omp_provider_id: "openai-codex".to_string(),
         }),
         "anthropic" => Box::new(AnthropicClient {
+            provider_id: "anthropic".to_string(),
             base_url: base_url
                 .map(str::to_string)
                 .unwrap_or_else(|| "https://api.anthropic.com/v1".to_string()),
@@ -207,6 +208,33 @@ pub fn resolve_client(provider_id: &str, base_url: Option<&str>) -> Box<dyn Prov
     }
 }
 
+/// Whether the transport for `api_kind` can carry Basebuild tool schemas.
+/// Native kinds route to `AnthropicClient`/`OpenAiCompatibleClient` and pass
+/// tools; bespoke kinds route to `OmpRpcClient` which composes a text prompt
+/// and cannot carry structured tool definitions. An empty `api_kind` is the
+/// legacy default (`openai-completions`) and is tool-capable.
+pub fn transport_supports_tools(api_kind: &str) -> bool {
+    matches!(
+        api_kind,
+        "" | "openai-completions"
+            | "openai-responses"
+            | "azure-openai-responses"
+            | "anthropic-messages"
+            | "openrouter"
+            | "ollama-chat"
+    )
+}
+
+/// Whether the transport can carry tool schemas when the model's `base_url`
+/// (from the catalog cache) is known. Bespoke api_kinds route through OMP
+/// RPC, which has its own tool system — so tools are always available
+/// regardless of base_url. This function is used by the catalog to report
+pub fn transport_supports_tools_with_base(_api_kind: &str, _base_url: &str) -> bool {
+    // All non-local transports support tools: native kinds pass Basebuild
+    // tool schemas directly; bespoke kinds use OMP's built-in tools.
+    true
+}
+
 /// Resolve a provider client using the model's `api_kind` for routing.
 ///
 /// Routing priority:
@@ -216,8 +244,8 @@ pub fn resolve_client(provider_id: &str, base_url: Option<&str>) -> Box<dyn Prov
 /// 4. `openai-completions`/`openai-responses`/`azure-openai-responses`/
 ///    `openrouter`/`ollama-chat` → `OpenAiCompatibleClient`
 /// 5. Bespoke api kinds:
-///    a. If credential has a custom `base_url` override → `OpenAiCompatibleClient`
-///       (escape hatch for OpenAI-compatible proxies)
+///    a. If credential or model cache has a `base_url` → `OpenAiCompatibleClient`
+///       (escape hatch for OpenAI-compatible endpoints)
 ///    b. Otherwise → `OmpRpcClient` (OMP RPC delegation)
 pub fn resolve_client_for_model(
     provider_id: &str,
@@ -237,6 +265,7 @@ pub fn resolve_client_for_model(
     }
     match api_kind {
         "anthropic-messages" => Box::new(AnthropicClient {
+            provider_id: provider_id.to_string(),
             base_url: base_url
                 .map(str::to_string)
                 .filter(|s| !s.is_empty())
@@ -444,7 +473,7 @@ impl ProviderClient for OmpRpcClient {
         let final_content = last_text.filter(|s| !s.trim().is_empty()).unwrap_or(content);
         if final_content.trim().is_empty() {
             let stderr = stderr_reader.join().unwrap_or_default();
-            // ponytail: OMP swallows 429s silently — tail its latest log for a usable hint.
+            // Ponytail: OMP swallows 429s silently — tail its latest log for a usable hint.
             // Upgrade to structured OMP error frames if/when OMP emits them on stdout.
             let hint = omp_rate_limit_hint();
             return Err(if stderr.trim().is_empty() {
@@ -1097,6 +1126,7 @@ impl AnthropicStreamState {
 }
 
 pub struct AnthropicClient {
+    pub provider_id: String,
     pub base_url: String,
 }
 
@@ -1176,7 +1206,12 @@ impl ProviderClient for AnthropicClient {
             body["tools"] = json!(tools);
         }
 
-        let url = format!("{}/messages", self.base_url.trim_end_matches('/'));
+        // Normalize: the Anthropic Messages API lives at /v1/messages, but
+        // the vendored OMP catalog has inconsistent baseUrl values — some
+        // include `/v1`, most don't. Without this, requests hit
+        // https://api.anthropic.com/messages → 404.
+        let normalized_base = self.base_url.trim_end_matches('/').trim_end_matches("/v1");
+        let url = format!("{normalized_base}/v1/messages");
         let start = Instant::now();
         let is_jwt = api_key.starts_with("eyJ");
         let resp = http_client()?
@@ -1194,9 +1229,9 @@ impl ProviderClient for AnthropicClient {
         if !status.is_success() {
             let text = resp.text().unwrap_or_default();
             return Err(ProviderError::HttpError {
-                provider: "anthropic".to_string(),
+                provider: self.provider_id.clone(),
                 status: status.as_u16(),
-                message: provider_http_error(status.as_u16(), "anthropic", &text),
+                message: provider_http_error(status.as_u16(), &self.provider_id, &text),
             }.into());
         }
         let mut state = AnthropicStreamState::default();
@@ -1318,14 +1353,20 @@ mod tests {
     }
 
     #[test]
-    fn resolve_client_for_model_routes_devin_to_omp_rpc() {
-        // Devin uses the devin-agent bespoke protocol → OmpRpcClient.
-        let client = resolve_client_for_model("devin", "devin-agent", None, "https://server.codeium.com");
-        // We can't directly check the type, but OmpRpcClient::generate will
-        // fail with the "requires Oh My Pi" error if OMP is not installed.
-        // The key assertion is that it does NOT route to OpenAiCompatibleClient
-        // (which would 404 against server.codeium.com). We verify by checking
-        // that generate() produces an OMP-related error, not a 404.
+    fn resolve_client_for_model_routes_devin_with_base_url_to_compatible() {
+        // Devin uses the devin-agent bespoke protocol, but when the model
+        // cache provides a base_url (server.codeium.com), it should route
+        // to OpenAiCompatibleClient (direct API), not OmpRpcClient.
+        let _ = resolve_client_for_model("devin", "devin-agent", None, "https://server.codeium.com");
+    }
+
+    #[test]
+    fn resolve_client_for_model_routes_devin_without_base_url_to_omp_rpc() {
+        // Devin with no base_url at all → OmpRpcClient (OMP RPC delegation).
+        let client = resolve_client_for_model("devin", "devin-agent", None, "");
+        // OmpRpcClient::generate will fail with the "requires Oh My Pi"
+        // error if OMP is not installed. We verify by checking that
+        // generate() produces an OMP-related error.
         let req = ProviderRequest {
             model_id: "swe-1-6".to_string(),
             effort_level: "medium".to_string(),
@@ -1342,11 +1383,10 @@ mod tests {
             tools: Vec::new(),
         };
         let result = client.generate(&req, &|_, _| {});
-        // The error should mention OMP, not a 404 or HTTP error.
         if let Err(e) = result {
             assert!(
                 e.contains("Oh My Pi") || e.contains("OMP") || e.contains("omp"),
-                "devin routing should produce an OMP-related error, got: {e}"
+                "devin routing without base_url should produce an OMP-related error, got: {e}"
             );
         }
     }
@@ -1375,6 +1415,31 @@ mod tests {
     fn resolve_client_for_model_bespoke_with_custom_base_url_uses_compatible() {
         // Escape hatch: bespoke provider with custom base_url → OpenAiCompatibleClient.
         let _ = resolve_client_for_model("devin", "devin-agent", Some("https://my-proxy/v1"), "https://server.codeium.com");
+    }
+
+    #[test]
+    fn transport_supports_tools_native_kinds() {
+        // Native kinds that route to AnthropicClient/OpenAiCompatibleClient.
+        assert!(transport_supports_tools(""));
+        assert!(transport_supports_tools("openai-completions"));
+        assert!(transport_supports_tools("openai-responses"));
+        assert!(transport_supports_tools("azure-openai-responses"));
+        assert!(transport_supports_tools("anthropic-messages"));
+        assert!(transport_supports_tools("openrouter"));
+        assert!(transport_supports_tools("ollama-chat"));
+    }
+
+    #[test]
+    fn transport_supports_tools_bespoke_kinds_are_false() {
+        // Bespoke kinds route to OmpRpcClient which cannot carry tool schemas.
+        assert!(!transport_supports_tools("devin-agent"));
+        assert!(!transport_supports_tools("cursor-agent"));
+        assert!(!transport_supports_tools("openai-codex-responses"));
+        assert!(!transport_supports_tools("google-generative-ai"));
+        assert!(!transport_supports_tools("google-vertex"));
+        assert!(!transport_supports_tools("google-gemini-cli"));
+        assert!(!transport_supports_tools("bedrock-converse-stream"));
+        assert!(!transport_supports_tools("gitlab-duo-agent"));
     }
 
     #[test]

@@ -51,6 +51,16 @@ pub fn native_chat_get(session_id: String) -> Result<Option<NativeChatSession>, 
 }
 
 #[tauri::command]
+pub fn native_chat_update_session_model(
+    session_id: String,
+    provider_id: String,
+    model_id: String,
+    effort_level: String,
+) -> Result<NativeChatSession, String> {
+    NativeChatService::update_session_model(&session_id, &provider_id, &model_id, &effort_level)
+}
+
+#[tauri::command]
 pub fn native_chat_list(project_path: String) -> Result<Vec<NativeChatSession>, String> {
     NativeChatService::list_sessions(&project_path)
 }
@@ -58,6 +68,14 @@ pub fn native_chat_list(project_path: String) -> Result<Vec<NativeChatSession>, 
 #[tauri::command]
 pub fn native_chat_messages(session_id: String) -> Result<Vec<NativeChatMessage>, String> {
     NativeChatService::list_messages(&session_id)
+}
+
+/// Delete all persisted messages and tool events for a chat session.
+/// Preserves the session record and its provider/model/effort selection.
+/// Returns the count of deleted messages.
+#[tauri::command]
+pub fn native_chat_clear_messages(session_id: String) -> Result<usize, String> {
+    NativeChatService::clear_session_messages(&session_id)
 }
 
 #[tauri::command]

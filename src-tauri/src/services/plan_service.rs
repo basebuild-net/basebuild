@@ -235,7 +235,7 @@ impl PlanService {
                 title: idea.title.clone(),
                 description: idea.description.clone(),
                 goal: Some(idea.description.clone()),
-                status: crate::models::plan::PlanStatus::Ready,
+                status: crate::models::plan::PlanStatus::Draft,
                 priority: Some(50),
                 tags: vec![],
                 idea_id: Some(idea.id.clone()),

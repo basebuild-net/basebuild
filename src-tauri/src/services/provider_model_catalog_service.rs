@@ -106,6 +106,14 @@ impl ProviderModelCatalogService {
                 let provider_models: Vec<&NativeModel> = models.iter().filter(|m| m.provider_id == spec.id).collect();
                 let provider_cached: Vec<&CachedModel> = cached.iter().filter(|m| m.model.provider_id == spec.id).collect();
                 let configured = spec.local_only || is_configured(&spec.id, &credentials);
+                // Compute transport_unavailable: a configured non-local provider
+                // whose models all use bespoke api_kinds (not native HTTP) and
+                // none have a custom base_url. These can only use OMP RPC, not
+                // the native agent loop transport.
+                let all_bespoke = !spec.local_only && !provider_models.is_empty()
+                    && provider_models.iter().all(|m| is_bespoke_api_kind(&m.api_kind));
+                let has_base_url = provider_models.iter().any(|m| !m.base_url.is_empty());
+                let transport_unavailable = all_bespoke && !has_base_url && configured;
                 let last_synced_at = provider_cached.iter().map(|m| m.synced_at).max();
                 let error = provider_cached.iter().find_map(|m| m.error.clone());
                 let source = provider_models
@@ -116,7 +124,13 @@ impl ProviderModelCatalogService {
                 NativeProvider {
                     id: spec.id.to_string(),
                     label: spec.label.to_string(),
-                    status: if configured { "ready" } else { "setup_required" }.to_string(),
+                    status: if !configured {
+                        "setup_required".to_string()
+                    } else if transport_unavailable {
+                        "transport_unavailable".to_string()
+                    } else {
+                        "ready".to_string()
+                    },
                     credential_owner: spec.credential_owner.to_string(),
                     configured,
                     local_only: spec.local_only,
@@ -460,6 +474,7 @@ impl ProviderModelCatalogService {
                 let supported_raw: String = row.get(6)?;
                 let supported_efforts = serde_json::from_str::<Vec<String>>(&supported_raw).unwrap_or_default();
                 let local_only = provider_id == LOCAL_PROVIDER_ID;
+                let api_kind = row.get::<_, Option<String>>(12)?.unwrap_or_default();
                 Ok(CachedModel {
                     model: NativeModel {
                         id: model_id,
@@ -467,7 +482,10 @@ impl ProviderModelCatalogService {
                         label: row.get(2)?,
                         supports_effort: row.get::<_, i64>(5)? != 0,
                         supports_streaming: !local_only,
-                        supports_tools: !local_only,
+                        supports_tools: !local_only && {
+                            let base_url: String = row.get::<_, Option<String>>(13)?.unwrap_or_default();
+                            crate::services::provider_client::transport_supports_tools_with_base(&api_kind, &base_url)
+                        },
                         local_only,
                         context_window: row.get(3)?,
                         max_tokens: row.get(4)?,
@@ -476,7 +494,7 @@ impl ProviderModelCatalogService {
                         supports_images: row.get::<_, i64>(7)? != 0,
                         source: row.get(8)?,
                         model_api_id: row.get::<_, Option<String>>(11)?,
-                        api_kind: row.get::<_, Option<String>>(12)?.unwrap_or_default(),
+                        api_kind,
                         base_url: row.get::<_, Option<String>>(13)?.unwrap_or_default(),
                         cost_input: row.get::<_, Option<f64>>(14)?,
                         cost_output: row.get::<_, Option<f64>>(15)?,
@@ -823,9 +841,9 @@ fn bundled_from_catalog(provider_id: &str, cm: &omp_catalog::CatalogModel) -> Na
         id: cm.id.clone(),
         provider_id: provider_id.to_string(),
         label: cm.name.clone(),
+        supports_tools: crate::services::provider_client::transport_supports_tools_with_base(&cm.api_kind, &cm.base_url),
         supports_effort: supports_reasoning,
         supports_streaming: true,
-        supports_tools: true,
         local_only: false,
         context_window: cm.context_window,
         max_tokens: cm.max_tokens,
@@ -967,6 +985,19 @@ mod tests {
     }
 
     #[test]
+    fn bundled_bespoke_models_with_base_url_have_supports_tools() {
+        // Bespoke api_kinds (devin-agent, cursor-agent, etc.) route through
+        // OmpRpcClient when they have no base_url — but when the catalog
+        // provides a direct base_url (e.g. Devin's server.codeium.com),
+        // they route through OpenAiCompatibleClient which supports tools.
+        let devin = bundled_models("devin");
+        assert!(
+            devin.iter().all(|m| m.supports_tools),
+            "all devin (devin-agent) models with base_url should have supports_tools=true"
+        );
+    }
+
+    #[test]
     fn bundled_models_have_catalog_version_stamp() {
         // Bundled models should carry the current catalog version for
         // stamp-mismatch detection. This is tested via replace_provider_cache
@@ -1013,5 +1044,93 @@ mod tests {
             models.iter().all(|m| m.source == "bundled"),
             "all bundled devin models should have source=bundled"
         );
+    }
+
+    #[test]
+    fn transport_unavailable_for_bespoke_no_base_url() {
+        // Devin models all have api_kind=devin-agent (bespoke) and come with
+        // a base_url from the catalog, so they should NOT be transport_unavailable.
+        let devin = bundled_models("devin");
+        assert!(!devin.is_empty(), "devin should have bundled models");
+        let all_bespoke = devin.iter().all(|m| is_bespoke_api_kind(&m.api_kind));
+        let has_base_url = devin.iter().any(|m| !m.base_url.is_empty());
+        assert!(all_bespoke, "devin should be all bespoke");
+        assert!(has_base_url, "devin models should have base_url from catalog");
+        assert!(!(all_bespoke && !has_base_url), "devin with base_url should not be transport_unavailable");
+    }
+
+    #[test]
+    fn transport_unavailable_logic_bespoke_without_base_url() {
+        // Simulate a bespoke model with no base_url → transport_unavailable.
+        let models = vec![
+            NativeModel {
+                id: "test-bespoke".to_string(),
+                provider_id: "test-provider".to_string(),
+                label: "Test Bespoke".to_string(),
+                supports_tools: false,
+                supports_effort: false,
+                supports_streaming: true,
+                local_only: false,
+                context_window: None,
+                max_tokens: None,
+                supports_reasoning: false,
+                supported_efforts: vec![],
+                supports_images: false,
+                source: "bundled".to_string(),
+                model_api_id: None,
+                api_kind: "devin-agent".to_string(),
+                base_url: String::new(),
+                cost_input: None,
+                cost_output: None,
+            },
+        ];
+        let all_bespoke = models.iter().all(|m| is_bespoke_api_kind(&m.api_kind));
+        let has_base_url = models.iter().any(|m| !m.base_url.is_empty());
+        assert!(all_bespoke, "bespoke model should be detected as bespoke");
+        assert!(!has_base_url, "model without base_url should have no base_url");
+        assert!(all_bespoke && !has_base_url, "bespoke without base_url should be transport_unavailable");
+    }
+
+    #[test]
+    fn transport_unavailable_flips_when_base_url_added() {
+        // Same bespoke model but with a base_url → transport available.
+        let models = vec![
+            NativeModel {
+                id: "test-bespoke-base".to_string(),
+                provider_id: "test-provider".to_string(),
+                label: "Test Bespoke With Base".to_string(),
+                supports_tools: true,
+                supports_effort: false,
+                supports_streaming: true,
+                local_only: false,
+                context_window: None,
+                max_tokens: None,
+                supports_reasoning: false,
+                supported_efforts: vec![],
+                supports_images: false,
+                source: "bundled".to_string(),
+                model_api_id: None,
+                api_kind: "devin-agent".to_string(),
+                base_url: "https://custom.api.com/v1".to_string(),
+                cost_input: None,
+                cost_output: None,
+            },
+        ];
+        let all_bespoke = models.iter().all(|m| is_bespoke_api_kind(&m.api_kind));
+        let has_base_url = models.iter().any(|m| !m.base_url.is_empty());
+        assert!(all_bespoke, "still bespoke api_kind");
+        assert!(has_base_url, "now has base_url");
+        assert!(!(all_bespoke && !has_base_url), "bespoke with base_url should NOT be transport_unavailable");
+    }
+
+    #[test]
+    fn native_provider_not_transport_unavailable() {
+        // Native api_kinds are not bespoke → never transport_unavailable.
+        assert!(!is_bespoke_api_kind("openai-completions"), "openai-completions is not bespoke");
+        assert!(!is_bespoke_api_kind("anthropic-messages"), "anthropic-messages is not bespoke");
+        assert!(is_bespoke_api_kind(""), "empty api_kind is bespoke (not in native list)");
+        // Bespoke kinds.
+        assert!(is_bespoke_api_kind("devin-agent"), "devin-agent is bespoke");
+        assert!(is_bespoke_api_kind("cursor-agent"), "cursor-agent is bespoke");
     }
 }

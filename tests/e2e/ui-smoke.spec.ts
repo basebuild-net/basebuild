@@ -1,14 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openMvpFixtureProject, waitForAppReady } from "./helpers";
 
 async function openFixtureProject(page: Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem("basebuild:first-run-complete", "true");
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Open project" }).click();
-  await expect(
-    page.locator(".status-pill", { hasText: "C:\\basebuild-e2e\\project" }),
-  ).toBeVisible();
+  await openMvpFixtureProject(page);
+  await waitForAppReady(page);
 }
 
 async function ensureChatPanel(page: Page) {
@@ -56,22 +51,29 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
-    // The model chip shows the default model.
-    await expect(page.locator(".chat-column-model-chip").first()).toContainText("Local Coordinator");
+    // Establish a deterministic starting model; session restore may otherwise
+    // legitimately retain the model chosen by a previous test.
+    await page.locator(".chat-model-trigger").first().click();
+    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.getByTitle("Close provider and model catalog").click();
+
+    // The composer shows the model. The header may also show a model chip.
+    await expect(page.locator(".chat-model-trigger").first()).toContainText("Local Coordinator");
 
     // Open the model picker and select a different model.
     await page.evaluate(() => {
       const btn = document.querySelector<HTMLButtonElement>(".chat-model-trigger");
       btn?.click();
     });
-    await expect(page.locator(".chat-picker[aria-label='Choose model']")).toBeVisible();
+    await expect(page.locator(".provider-catalog-overlay[aria-label='Provider and model catalog']")).toBeVisible();
 
     // Select "Umans GLM 5.2" (a different provider/model).
-    const umansItem = page.locator(".chat-picker-item", { hasText: "Umans GLM 5.2" }).first();
+    await page.locator(".provider-card", { hasText: "Umans" }).click();
+    const umansItem = page.locator(".provider-model-row", { hasText: "Umans GLM 5.2" }).first();
     if (await umansItem.count() > 0) {
       await umansItem.click();
-      // The model chip updates to the new model.
-      await expect(page.locator(".chat-column-model-chip").first()).toContainText("Umans GLM 5.2");
+      // The composer model control updates to the new model.
+      await expect(page.locator(".chat-model-trigger").first()).toContainText("Umans GLM 5.2");
     }
 
     expect(pageErrors).toEqual([]);
@@ -115,22 +117,21 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
-    // The agent-mode pill shows "plan" by default.
+    // The agent-mode pill shows "Plan mode" by default.
     const modePill = page.locator(".chat-column-mode-pill").first();
-    await expect(modePill).toContainText("plan");
+    await expect(modePill).toContainText("Plan");
 
     // Click to toggle to build mode.
     await modePill.click({ force: true });
-    await expect(modePill).toContainText("build");
+    await expect(modePill).toContainText("Build");
 
     // Click again to toggle back to plan mode.
     await modePill.click({ force: true });
-    await expect(modePill).toContainText("plan");
-
+    await expect(modePill).toContainText("Plan");
     expect(pageErrors).toEqual([]);
-  });
+   });
 
-  test("effort chip displays the current effort level", async ({ page }) => {
+  test("effort selector displays the current effort level", async ({ page }) => {
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
@@ -138,12 +139,83 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
-    // The effort chip shows the default "medium".
-    await expect(page.locator(".chat-column-effort-chip").first()).toContainText("medium");
+    // The effort selector is in the composer rail as a <select>.
+    const effortSelect = page.locator(".chat-effort-select").first();
+    await expect(effortSelect).toBeVisible({ timeout: 5_000 });
 
-    // The effort chip has a tooltip.
-    await expect(page.locator(".chat-column-effort-chip").first()).toHaveAttribute("title");
+    // The effort selector has a tooltip.
+    await expect(effortSelect).toHaveAttribute("title");
 
+    expect(pageErrors).toEqual([]);
+   });
+
+});
+
+test.describe("Provider/model catalog: connected-first ordering and modal layout", () => {
+  test("provider catalog modal shows connected providers first with green state", async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+    await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
+
+    // Open the provider catalog modal via the composer trigger.
+    const providerTrigger = page.locator(".chat-provider-trigger").first();
+    await expect(providerTrigger).toBeVisible({ timeout: 5_000 });
+    await providerTrigger.click({ force: true });
+
+    // The modal overlay should be visible.
+    await expect(page.locator(".provider-catalog-overlay")).toBeVisible({ timeout: 5_000 });
+
+    // Connected providers (green) should appear before available (grey).
+    const connected = page.locator(".provider-status.is-connected");
+    const available = page.locator(".provider-status.is-available");
+    const connectedCount = await connected.count();
+    const availableCount = await available.count();
+
+    // The fixture has at least one configured provider (basebuild-local).
+    expect(connectedCount).toBeGreaterThan(0);
+
+    // If there are both connected and available, verify ordering.
+    if (connectedCount > 0 && availableCount > 0) {
+      const firstConnectedBox = await connected.first().boundingBox();
+      const firstAvailableBox = await available.first().boundingBox();
+      if (firstConnectedBox && firstAvailableBox) {
+        expect(firstConnectedBox.y).toBeLessThanOrEqual(firstAvailableBox.y);
+      }
+    }
+
+    // Escape closes the modal.
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".provider-catalog-overlay")).toHaveCount(0);
+
+    expect(pageErrors).toEqual([]);
+  });
+
+  test("provider catalog modal has capability badges on models", async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+    await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
+
+    // Open the provider catalog modal.
+    await page.locator(".chat-provider-trigger").first().click({ force: true });
+    await expect(page.locator(".provider-catalog-overlay")).toBeVisible({ timeout: 5_000 });
+
+    // Model rows should have capability badges (Tools, Reasoning, or effort).
+    const modelBadges = page.locator(".provider-model-badges .provider-capability");
+    const badgeCount = await modelBadges.count();
+    expect(badgeCount).toBeGreaterThan(0);
+
+    // At least one badge should mention "Tools" or "Reasoning".
+    const badgeTexts = await modelBadges.allTextContents();
+    const hasCapabilityBadge = badgeTexts.some((t) => t.includes("Tools") || t.includes("Reasoning"));
+    expect(hasCapabilityBadge).toBe(true);
+
+    await page.keyboard.press("Escape");
     expect(pageErrors).toEqual([]);
   });
 });

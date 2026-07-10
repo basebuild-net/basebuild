@@ -1,20 +1,43 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { usePromptDelivery } from "../../lib/promptDelivery";
+import { useEscapeKey } from "../../lib/useEscapeKey";
+import { markStart, markEnd } from "../../lib/timing";
+import { usePanelStatusPublisher, type PanelStatus } from "./PanelStatusContext";
 import { ChatComposerRail } from "./ChatComposerRail";
+import { ChatContextStrip } from "./ChatContextStrip";
+import { CommandPalette } from "./CommandPalette";
+import {
+  BUILTIN_COMMANDS,
+  buildCommandHelper,
+  filterAndRank,
+  tabComplete,
+  formatCommandReference,
+  KEYBOARD_GUIDE,
+  readCommandRecency,
+  recordCommandUse,
+  sourceLabel,
+} from "../../lib/chatCommands";
 import { ChatHeader } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
 import { QuestionCard } from "./QuestionCard";
+import { MarkdownView } from "./MarkdownView";
 import {
   AlertCircle,
   BarChart3,
   Brain,
+  Bug,
+  Copy,
+  Edit2,
   FolderTree,
   Key,
   LayoutGrid,
   Lightbulb,
+  Loader2,
   RefreshCw,
   Send,
   Sparkles,
+  Square,
+  Unplug,
   X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -28,12 +51,16 @@ import { onPlanRunEvent, assignPlanToChat } from "../../lib/planRuns";
 import { listPlans } from "../../lib/plans";
 import { nativeInteractionListAll, nativeInteractionResolve } from "../../lib/interactions";
 import type { PendingInteraction } from "../../lib/interactions";
-import { getRuntimeDefaults } from "../../lib/settings";
+import { getApprovalMode, getRuntimeDefaults, setApprovalMode as setApprovalModeBackend, type ApprovalMode } from "../../lib/settings";
 import {
+  nativeChatCancel,
+  nativeChatClearMessages,
+  nativeChatGet,
   nativeChatMessages,
   nativeChatModelDefault,
   nativeChatSend,
   nativeChatSetProjectModelDefault,
+  nativeChatUpdateSessionModel,
   nativeChatStart,
   nativeChatToolEvents,
   nativeDeleteProviderCredential,
@@ -54,8 +81,11 @@ import {
 } from "../../lib/native-chat";
 import { resolveToolApproval } from "../../lib/native-chat";
 import { useIdeaState } from "../../state/ideas";
+import { setLastGrounding } from "../../state/grounding";
 import type { Idea } from "../../lib/ideas";
 import { inspectProjectSchematic, type SchematicReport } from "../../lib/schematic";
+import { schematicWizardAction } from "../../lib/planningActions";
+import { readSkill } from "../../lib/skills";
 import type { AgentMode } from "../../lib/sessions";
 import { useLogs } from "../../state/log";
 
@@ -105,6 +135,8 @@ type ChatPanelProps = {
   projectPath: string;
   chatSessionId?: string | null;
   onChatSessionCreated?: (id: string) => void;
+  /** Panel grid id — used to publish live status to the activity sidebar. */
+  panelId?: string | null;
   /** Project session id — used to persist generated ideas and seed plans. */
   activeSessionId?: string | null;
   /** Project schematic content, sent to the provider for idea generation. */
@@ -125,6 +157,10 @@ type ChatPanelProps = {
   onCloseAndDeleteChat?: () => void;
   /** Duplicate this chat panel beside the current one. */
   onDuplicateChat?: () => void;
+  /** Start a fresh empty chat for the current project (keeps the previous chat). */
+  onNewChat?: () => void;
+  /** Show a toast notification (success/warning/error/info). */
+  onShowToast?: (title: string, detail?: string, kind?: "success" | "warning" | "error" | "info") => void;
 };
 
 function formatMetric(value: number | null | undefined, suffix = "") {
@@ -132,93 +168,180 @@ function formatMetric(value: number | null | undefined, suffix = "") {
   return `${Math.round(value * 10) / 10}${suffix}`;
 }
 
-function ToolEventGroup({ events }: { events: NativeToolEvent[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const runningCount = events.filter((e) => e.status === "running" || e.status === "pending").length;
-  const latest = events[events.length - 1];
-  const statusLabel = runningCount > 0 ? "running" : latest.status;
-  return (
-    <div className="tool-card tool-card-group" title={`${events.length} tool calls in this group`}>
-      <div className="tool-card-header" onClick={() => setExpanded(!expanded)} role="button" tabIndex={0}>
-        <span className="tool-card-icon">🔧</span>
-        <span className="tool-card-name">{events.length} tool calls</span>
-        <span className={`tool-card-status tool-card-status-${runningCount > 0 ? "running" : "success"}`}>{statusLabel}</span>
-        <span className="tool-card-summary-truncated text-muted text-sm">latest: {latest.kind.replace(/_/g, " ")} — {latest.summary.slice(0, 80)}{latest.summary.length > 80 ? "…" : ""}</span>
-        <span className="tool-card-expand">{expanded ? "▼" : "▶"}</span>
-      </div>
-      {expanded ? (
-        <div className="tool-card-body tool-card-group-list">
-          {events.map((ev) => <ToolEventCard key={ev.id} event={ev} />)}
-        </div>
-      ) : null}
-    </div>
-  );
+function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}m${s.toString().padStart(2, "0")}s`;
 }
 
-function ReasoningFold({ reasoning }: { reasoning: string }) {
+function ThinkingBlock({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className="chat-reasoning-fold" title="Model thinking — click to expand">
+    <div className="chat-thinking-block" title="Model thinking — click to expand">
       <button
-        className="chat-reasoning-toggle"
+        className="chat-thinking-toggle"
         type="button"
         onClick={() => setExpanded(!expanded)}
       >
+        <Brain size={11} />
         {expanded ? "▼" : "▶"} Thinking…
       </button>
       {expanded ? (
-        <pre className="chat-reasoning-content">{reasoning}</pre>
+        <MarkdownView text={text} className="chat-thinking-content" />
       ) : null}
     </div>
   );
 }
 
-function ToolEventCard({ event, onResolveApproval }: { event: NativeToolEvent; onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void }) {
-  const [expanded, setExpanded] = useState(false);
+// Module-level expansion state for tool cards. Keyed by tool event id,
+// survives re-renders during streaming so a card the user expanded stays
+// expanded as the event updates from pending → running → success.
+const toolCardExpanded = new Map<string, boolean>();
+
+function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode }: { event: NativeToolEvent; onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void; debugMode?: boolean; onSetApprovalMode?: (mode: "safe" | "balanced" | "auto") => void; }) {
+  const [expanded, setExpanded] = useState(() => toolCardExpanded.get(event.id) ?? false);
+  const toggleExpanded = useCallback(() => {
+    setExpanded((prev) => {
+      const next = !prev;
+      toolCardExpanded.set(event.id, next);
+      return next;
+    });
+  }, [event.id]);
+
   const isRunning = event.status === "running" || event.status === "pending";
   const isError = event.status === "error" || event.status === "denied";
-  const isApproval = event.kind === "approval" || event.kind === "request_tool_approval" || event.status === "pending";
+  const isApproval = event.status === "pending";
   const isCommand = event.kind === "run_command" || event.kind === "command";
   const isEdit = event.kind === "edit_file" || event.kind === "write_file";
   const isMetrics = event.kind === "request_metrics";
   const icon = isApproval ? "🔐" : isCommand ? "▶" : isEdit ? "✎" : isMetrics ? "📊" : "🔧";
   const statusClass = isRunning ? "running" : isError ? "error" : event.status === "success" || event.status === "recorded" || event.status === "allow" ? "success" : "info";
+  const showExpanded = expanded || isApproval || event.status === "running";
 
-  const hasDiff = isEdit && /^\+|-/m.test(event.summary);
-  const diffLines = hasDiff ? event.summary.split("\n") : [];
-  const filePathMatch = event.summary.match(/(?:Edited|Wrote|Modified)\s+(.+?)(?::|\s)/);
-  const filePath = filePathMatch?.[1] ?? null;
+  // Prefer the structured diff field from the backend; fall back to
+  // parsing the summary for legacy events that predate the diff column.
+  const hasDiff = isEdit && (event.diff != null || /^[+-]/m.test(event.summary));
+  const diffText = event.diff ?? (hasDiff ? event.summary : "");
+  const diffLines = diffText.split("\n").filter((l) => l.length > 0);
+
+  const timeStr = event.createdAt
+    ? new Date(event.createdAt * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : null;
+
+  // Parse arguments for structured display.
+  const parsedArgs = (() => {
+    if (!event.arguments) return null;
+    try {
+      return JSON.parse(event.arguments);
+    } catch {
+      return null;
+    }
+  })();
+
+  // Extract key fields from parsed args depending on tool kind.
+  const argDisplay = (() => {
+    if (!parsedArgs) return null;
+    if (isCommand) {
+      const cmd = typeof parsedArgs === "object" && parsedArgs !== null && "command" in parsedArgs
+        ? String(parsedArgs.command)
+        : null;
+      return cmd ? { label: "Command", value: cmd } : null;
+    }
+    if (isEdit) {
+      const path = typeof parsedArgs === "object" && parsedArgs !== null && "path" in parsedArgs
+        ? String(parsedArgs.path)
+        : null;
+      return path ? { label: "File", value: path } : null;
+    }
+    // Generic: look for common fields.
+    if (typeof parsedArgs === "object" && parsedArgs !== null) {
+      for (const key of ["path", "file", "filePath", "directory", "dir", "pattern", "query", "url", "command"]) {
+        if (key in parsedArgs) {
+          return { label: key.charAt(0).toUpperCase() + key.slice(1), value: String(parsedArgs[key]) };
+        }
+      }
+    }
+    return null;
+  })();
+
+  // Approval provenance: how was this tool call decided?
+  const provenance = (() => {
+    if (!event.decision) return null;
+    const dec = event.decision;
+    if (dec === "approved") {
+      return event.ruleSource ? `Allowed by rule: ${event.ruleSource}` : "Allowed by user";
+    }
+    if (dec === "denied") {
+      return event.ruleSource ? `Denied by rule: ${event.ruleSource}` : "Denied by user";
+    }
+    if (dec === "auto") return "Auto-approved (session mode)";
+    if (dec === "pending") return "Approval pending";
+    return dec;
+  })();
 
   return (
-    <div className={`tool-card tool-card-${statusClass}`} title={`${event.kind}: ${event.status}`}>
-      <div className="tool-card-header" onClick={() => setExpanded(!expanded)} role="button" tabIndex={0}>
+    <div className={`tool-card tool-card-${statusClass}${isApproval ? " tool-card-approval" : ""}`} title={`${event.kind}: ${event.status}${timeStr ? ` at ${timeStr}` : ""}${provenance ? ` — ${provenance}` : ""}`}>
+      <div className="tool-card-header" onClick={() => { if (!isApproval) toggleExpanded(); }} role={isApproval ? undefined : "button"} tabIndex={isApproval ? -1 : 0}>
         <span className="tool-card-icon">{icon}</span>
         <span className="tool-card-name">{event.kind.replace(/_/g, " ")}</span>
-        {filePath ? <code className="tool-card-filepath text-muted">{filePath}</code> : null}
+        {argDisplay ? <code className="tool-card-arg-value" title={`${argDisplay.label}: ${argDisplay.value}`}>{argDisplay.value}</code> : null}
         <span className={`tool-card-status tool-card-status-${statusClass}`}>{event.status}</span>
-        <span className="tool-card-expand">{expanded ? "▼" : "▶"}</span>
+        {timeStr ? <span className="tool-card-time text-muted">{timeStr}</span> : null}
+        {!isApproval ? <span className="tool-card-expand">{expanded ? "▼" : "▶"}</span> : null}
       </div>
-      {expanded ? (
+      {showExpanded ? (
         <div className="tool-card-body">
+          {argDisplay ? (
+            <div className="tool-card-arg-detail" title={`${argDisplay.label} passed to this tool`}>
+              <span className="tool-card-arg-label">{argDisplay.label}:</span>
+              <code className="tool-card-arg-code">{argDisplay.value}</code>
+            </div>
+          ) : null}
+          {parsedArgs ? (
+            <div className="tool-card-args-full" title="Full arguments JSON">
+              <span className="tool-card-arg-label">Full args:</span>
+              <pre className="tool-card-args-json">{JSON.stringify(parsedArgs, null, 2)}</pre>
+            </div>
+          ) : null}
           {hasDiff ? (
-            <pre className="tool-card-diff">
+            <pre className="tool-card-diff" title="Unified line diff (added/removed lines)">
               {diffLines.map((line, i) => (
                 <span key={i} className={line.startsWith("+") ? "diff-add" : line.startsWith("-") ? "diff-del" : "diff-ctx"}>{line}{"\n"}</span>
               ))}
             </pre>
-          ) : (
+          ) : !isApproval ? (
             <pre className="tool-card-summary">{event.summary}</pre>
-          )}
+          ) : null}
+          {provenance ? (
+            <div className="tool-card-provenance text-muted text-sm" title={`Decision: ${event.decision}${event.ruleSource ? ` — rule: ${event.ruleSource}` : ""}`}>
+              {provenance}
+            </div>
+          ) : null}
+          {debugMode ? (
+            <div className="tool-card-debug" title="Raw event data (debug mode)">
+              <span className="tool-card-debug-label">Debug:</span>
+              <pre className="tool-card-debug-data">{JSON.stringify(event, null, 2)}</pre>
+            </div>
+          ) : null}
         </div>
       ) : null}
-      {!expanded && event.summary ? (
+      {!showExpanded && event.summary ? (
         <div className="tool-card-summary-truncated text-muted text-sm">{event.summary.slice(0, 120)}{event.summary.length > 120 ? "…" : ""}</div>
       ) : null}
       {isApproval && isRunning && onResolveApproval ? (
-        <div className="tool-card-actions">
+        <div className="tool-card-actions tool-card-approval-actions">
           <button className="btn btn-sm btn-primary" title="Allow this tool call once" type="button" onClick={() => onResolveApproval("allow")}>Allow Once</button>
           <button className="btn btn-sm" title="Allow all calls to this tool for this session" type="button" onClick={() => onResolveApproval("allow_session")}>Allow Session</button>
           <button className="btn btn-sm" title="Deny this tool call" type="button" onClick={() => onResolveApproval("deny")}>Deny</button>
+          {onSetApprovalMode ? (
+            <button className="btn btn-sm tool-card-allow-all" title="Switch to Auto mode: allow all tool calls without asking. You can change this back in Settings." type="button" onClick={() => onSetApprovalMode("auto")}>Allow All (Auto)</button>
+          ) : null}
+        </div>
+      ) : null}
+      {isApproval && isRunning && !onResolveApproval ? (
+        <div className="tool-card-actions text-muted text-sm" title="Approval resolution is not available for this event">
+          <span>Approval pending — waiting for resolution</span>
         </div>
       ) : null}
     </div>
@@ -228,6 +351,7 @@ export function ChatPanel({
   projectPath,
   chatSessionId,
   onChatSessionCreated,
+  panelId,
   activeSessionId,
   schematicContent,
   onCreatePlanFromIdea,
@@ -238,6 +362,8 @@ export function ChatPanel({
   onCloseChat,
   onCloseAndDeleteChat,
   onDuplicateChat,
+  onNewChat,
+  onShowToast,
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
@@ -253,15 +379,44 @@ export function ChatPanel({
   const [modelNotice, setModelNotice] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [stuck, setStuck] = useState(false);
   const [agentId, setAgentId] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [debugMode, setDebugMode] = useState(() => localStorage.getItem("basebuild.debug-mode") === "true");
+  const [debugEvents, setDebugEvents] = useState<Array<{ ts: number; channel: string; data: unknown }>>([]);
+  const [debugExpanded, setDebugExpanded] = useState(false);
   const [setupRequired, setSetupRequired] = useState<NativeSetupRequired | null>(null);
+  const [approvalMode, setApprovalMode] = useState<ApprovalMode>("balanced");
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [reasoningText, setReasoningText] = useState("");
+  const [streamPhase, setStreamPhase] = useState<"idle" | "thinking" | "streaming" | "tools">("idle");
+  const [elapsed, setElapsed] = useState(0);
+  const streamStartRef = useRef<number | null>(null);
   const streamBufRef = useRef("");
   const reasoningBufRef = useRef("");
+  // Publish live panel status to the activity sidebar (project status dot).
+  const publishPanelStatus = usePanelStatusPublisher(panelId ?? "");
+  const lastPublishedStatusRef = useRef<PanelStatus | null>(null);
+  useEffect(() => {
+    if (!panelId) return;
+    const hasPendingAsk = interactions.some((i) => i.status === "pending");
+    const status: PanelStatus = hasPendingAsk
+      ? "asking"
+      : streaming
+        ? (streamPhase === "tools" ? "running" : streamPhase === "thinking" ? "thinking" : "streaming")
+        : loading
+          ? "running"
+          : "idle";
+    if (lastPublishedStatusRef.current === status) return;
+    lastPublishedStatusRef.current = status;
+    publishPanelStatus(status);
+  }, [panelId, interactions, streaming, streamPhase, loading, publishPanelStatus]);
+  // Monotonic id for the in-flight native send. Bumped on stop or on a new
+  // send so a superseded send's async resolution can't revive the spinner
+  // or duplicate messages.
+  const activeSendRef = useRef(0);
+  const firstActivityRef = useRef(true);
   // Provider connection UI.
   const [showLogin, setShowLogin] = useState(false);
   const [apiKey, setApiKey] = useState("");
@@ -272,6 +427,7 @@ export function ChatPanel({
   const loginTimerRef = useRef<number | null>(null);
   // Idea generation.
   const [generatingIdeas, setGeneratingIdeas] = useState(false);
+  // Grounding metadata is written to the shared store (src/state/grounding.ts).
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
   const [showPlanningMenu, setShowPlanningMenu] = useState(false);
@@ -280,11 +436,20 @@ export function ChatPanel({
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelFilter, setModelFilter] = useState("");
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [commandRecency, setCommandRecency] = useState<Record<string, number>>(() => readCommandRecency());
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [paletteActiveIndex, setPaletteActiveIndex] = useState(0);
+  useEscapeKey(showProviderPicker || showModelPicker, () => {
+    setShowProviderPicker(false);
+    setShowModelPicker(false);
+  });
   const sendTimerRef = useRef<number | null>(null);
   const assistantBufferRef = useRef("");
   const scrollRef = useRef<HTMLDivElement>(null);
   // Expose the native session id on the DOM for e2e tests (data-native-session-id).
   const panelRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
   // Ref indirection so the loadOrCreate effect doesn't re-run when the
   // inline onChatSessionCreated callback changes identity (it's a new
   // function on every render). Without this, calling onChatSessionCreated
@@ -301,6 +466,8 @@ export function ChatPanel({
   }, [nativeSessionId]);
   // Chat header state: branch, worktree, plan badge, agent mode, PR recommendation.
   const [branch, setBranch] = useState<string | null>(null);
+  const branchRef = useRef<string | null>(null);
+  branchRef.current = branch;
   const [branches, setBranches] = useState<GitBranch[]>([]);
   const [worktreePath, setWorktreePath] = useState<string | null>(null);
   const [assignedPlanId, setAssignedPlanId] = useState<string | null>(null);
@@ -324,7 +491,11 @@ export function ChatPanel({
   const filteredModels = useMemo(() => {
     const models = catalog?.models.filter((m) => m.providerId === providerId) ?? [];
     const needle = modelFilter.trim().toLowerCase();
-    const ranked = models.slice().sort((a, b) => a.label.localeCompare(b.label));
+    const ranked = models.slice().sort((a, b) =>
+      Number(b.supportsTools) - Number(a.supportsTools) ||
+      Number(b.supportsReasoning) - Number(a.supportsReasoning) ||
+      a.label.localeCompare(b.label),
+    );
     if (!needle) return ranked;
     return ranked.filter((model) => {
       const provider = catalog?.providers.find((p) => p.id === model.providerId);
@@ -338,7 +509,17 @@ export function ChatPanel({
   }, [catalog, modelFilter, providerId]);
   const nativeMode = profileId === NATIVE_PROFILE_ID;
   const selectedProvider = catalog?.providers.find((p) => p.id === providerId) ?? null;
-  const selectedModel = catalog?.models.find((m) => m.id === modelId) ?? null;
+  const selectedModel = catalog?.models.find((m) => m.id === modelId && m.providerId === providerId) ?? null;
+  const orderedProviders = useMemo(() => {
+    if (!catalog) return [];
+    return catalog.providers.slice().sort((a, b) =>
+      Number(b.configured) - Number(a.configured) ||
+      Number(b.id === providerId) - Number(a.id === providerId) ||
+      a.label.localeCompare(b.label),
+    );
+  }, [catalog, providerId]);
+  const connectedProviders = orderedProviders.filter((provider) => provider.configured);
+  const availableProviders = orderedProviders.filter((provider) => !provider.configured);
   const availableModels = useMemo(
     () => catalog?.models.filter((m) => m.providerId === providerId) ?? [],
     [catalog, providerId],
@@ -351,22 +532,29 @@ export function ChatPanel({
     let cancelled = false;
     async function load() {
       try {
+        markStart("provider-model-restore");
         addLog("debug", "Chat config loading", `projectPath=${projectPath}`);
-        const [defaults, cat, met, resolved] = await Promise.all([
+        const [defaults, cat, met, resolved, storedSession, mode] = await Promise.all([
           getRuntimeDefaults(),
           nativeProviderCatalog(),
           nativeRequestMetricsSummary(),
           nativeChatModelDefault(projectPath),
+          nativeSessionId ? nativeChatGet(nativeSessionId) : Promise.resolve(null),
+          getApprovalMode(projectPath).catch(() => "balanced" as ApprovalMode),
         ]);
-        if (cancelled) return;
         setProfileId(defaults.defaultChatProfileId ?? NATIVE_PROFILE_ID);
+        setApprovalMode(mode);
         setCatalog(cat);
         setMetrics(met);
-        setProviderId(resolved.providerId);
-        setModelId(resolved.modelId);
-        setEffortLevel(resolved.effortLevel);
-        setModelNotice(resolved.notice);
-        addLog("debug", "Chat config loaded", `provider=${resolved.providerId} model=${resolved.modelId} models=${cat.models.length}`);
+        const effectiveProviderId = storedSession?.providerId ?? resolved.providerId;
+        const effectiveModelId = storedSession?.modelId ?? resolved.modelId;
+        const effectiveEffortLevel = storedSession?.effortLevel ?? resolved.effortLevel;
+        setProviderId(effectiveProviderId);
+        setModelId(effectiveModelId);
+        setEffortLevel(effectiveEffortLevel);
+        setModelNotice(storedSession ? null : resolved.notice);
+        addLog("debug", "Chat config loaded", `source=${storedSession ? "session" : resolved.source} provider=${effectiveProviderId} model=${effectiveModelId} models=${cat.models.length}`);
+        markEnd("provider-model-restore");
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to load chat config", msg);
@@ -377,7 +565,7 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [addLog, projectPath]);
+  }, [addLog, projectPath, nativeSessionId]);
 
   // Fix model when provider changes
   useEffect(() => {
@@ -428,8 +616,8 @@ export function ChatPanel({
             timer = window.setTimeout(() => reject(new Error("Chat session creation timed out after 15s")), 15_000);
           }),
         ]);
-        if (cancelled) return;
-        setNativeSessionId(session.id);
+        markStart("first-activity-event");
+        firstActivityRef.current = true;
         setToolEvents([]);
         setInteractions([]);
         setError(null);
@@ -461,20 +649,70 @@ export function ChatPanel({
       "native-chat://chunk",
       (event) => {
         if (event.payload.sessionId !== nativeSessionId) return;
-        const channel = event.payload.channel;
+        const channel = event.payload.channel ?? "content";
+        // Status channel: the backend signals phase transitions so the UI
+        // can show a thinking indicator before the first token and clear
+        // streaming text between agent-loop iterations.
+        if (channel === "status") {
+          const phase = event.payload.delta;
+          if (phase === "thinking" || phase === "next") {
+            // Starting a new provider stream — clear previous iteration's
+            // text so each iteration gets a fresh streaming block.
+            streamBufRef.current = "";
+            reasoningBufRef.current = "";
+            setStreamText("");
+            setReasoningText("");
+            setStreamPhase("thinking");
+          } else if (phase === "tools") {
+            setStreamPhase("tools");
+          }
+          return;
+        }
+        // Tool-call argument fragments are raw JSON — don't pollute the
+        // content stream. They render as tool cards via the tool-event
+        // channel instead.
+        if (channel === "tool_call") return;
         if (channel === "reasoning") {
           reasoningBufRef.current += event.payload.delta;
           setReasoningText(reasoningBufRef.current);
+          setStreamPhase((prev) => prev === "thinking" ? "streaming" : prev);
           return;
         }
         streamBufRef.current += event.payload.delta;
         setStreamText(streamBufRef.current);
+        setStreamPhase("streaming");
       },
     );
     return () => {
       void unlisten.then((fn) => fn());
     };
   }, [nativeMode, nativeSessionId]);
+
+  // Debug mode: capture all native-chat events for inspection.
+  useEffect(() => {
+    if (!debugMode || !nativeSessionId) return;
+    const channels = [
+      "native-chat://chunk",
+      "native-chat://tool-event",
+      "native-chat://approval-request",
+      "native-chat://interactive-request",
+      "native-chat://error",
+      "native-chat://metrics",
+    ];
+    const unlisteners: Promise<() => void>[] = [];
+    for (const ch of channels) {
+      unlisteners.push(listen(ch, (event) => {
+        setDebugEvents((prev) => {
+          const next = [...prev, { ts: Date.now(), channel: ch, data: event.payload }];
+          // Cap at 500 entries to avoid unbounded memory.
+          return next.length > 500 ? next.slice(-500) : next;
+        });
+      }));
+    }
+    return () => {
+      for (const u of unlisteners) void u.then((fn) => fn());
+    };
+  }, [debugMode, nativeSessionId]);
 
   // Native mode: listen for live tool events (approval requests + tool cards)
   useEffect(() => {
@@ -485,15 +723,34 @@ export function ChatPanel({
       toolName: string;
       status: string;
       summary: string;
+      arguments?: string;
+      diff?: string;
       decision?: string;
       ruleSource?: string;
     }>("native-chat://tool-event", (event) => {
       if (event.payload.sessionId !== nativeSessionId) return;
+      if (firstActivityRef.current) {
+        firstActivityRef.current = false;
+        markEnd("first-activity-event");
+      }
       const id = event.payload.toolCallId ?? `te-${Date.now()}-${Math.random()}`;
+      const args = event.payload.arguments ?? null;
+      const diff = event.payload.diff ?? null;
+      const decision = event.payload.decision ?? null;
+      const ruleSource = event.payload.ruleSource ?? null;
       setToolEvents((prev) => {
         const existing = prev.find((e) => e.id === id);
         if (existing) {
-          return prev.map((e) => e.id === id ? { ...e, status: event.payload.status, summary: event.payload.summary, kind: event.payload.toolName } : e);
+          return prev.map((e) => e.id === id ? {
+            ...e,
+            status: event.payload.status,
+            summary: event.payload.summary,
+            kind: event.payload.toolName,
+            arguments: args ?? e.arguments,
+            diff: diff ?? e.diff,
+            decision: decision ?? e.decision,
+            ruleSource: ruleSource ?? e.ruleSource,
+          } : e);
         }
         return [...prev, {
           id,
@@ -502,6 +759,11 @@ export function ChatPanel({
           kind: event.payload.toolName,
           status: event.payload.status,
           summary: event.payload.summary,
+          arguments: args,
+          diff,
+          decision,
+          ruleSource,
+          sequence: prev.length + 1,
           createdAt: Math.floor(Date.now() / 1000),
         }];
       });
@@ -514,17 +776,44 @@ export function ChatPanel({
       arguments: string;
     }>("native-chat://approval-request", (event) => {
       if (event.payload.sessionId !== nativeSessionId) return;
+      // Preserve the actual tool name and arguments so the card shows
+      // what the model is trying to do, not just "approval required".
+      const toolName = event.payload.toolName ?? "tool";
+      const args = event.payload.arguments ?? "";
       const cmd = event.payload.command ?? "";
-      const summary = cmd ? `${event.payload.toolName}: ${cmd}` : `${event.payload.toolName} approval required`;
-      setToolEvents((prev) => [...prev, {
-        id: event.payload.toolCallId,
-        sessionId: nativeSessionId,
-        messageId: null,
-        kind: "approval",
-        status: "pending",
-        summary,
-        createdAt: Math.floor(Date.now() / 1000),
-      }]);
+      // Build a useful summary: tool name + key arguments (truncated).
+      let summary: string;
+      if (cmd) {
+        summary = `${toolName}: ${cmd}`;
+      } else if (args) {
+        const truncated = args.length > 200 ? args.slice(0, 200) + "…" : args;
+        summary = `${toolName} — ${truncated}`;
+      } else {
+        summary = `${toolName} approval required`;
+      }
+      setToolEvents((prev) => {
+        // Replace if already exists (e.g. from tool-event stream).
+        const existingIdx = prev.findIndex((e) => e.id === event.payload.toolCallId);
+        if (existingIdx >= 0) {
+          return prev.map((e) => e.id === event.payload.toolCallId
+            ? { ...e, kind: toolName, status: "pending", summary, arguments: args || e.arguments, sequence: e.sequence }
+            : e);
+        }
+        return [...prev, {
+          id: event.payload.toolCallId,
+          sessionId: nativeSessionId,
+          messageId: null,
+          kind: toolName,
+          status: "pending",
+          summary,
+          arguments: args || null,
+          diff: null,
+          decision: null,
+          ruleSource: null,
+          sequence: prev.length + 1,
+          createdAt: Math.floor(Date.now() / 1000),
+        }];
+      });
     });
     const unlistenInteraction = listen<{ sessionId: string; interactionId?: string }>(
       "native-chat://interactive-request",
@@ -583,25 +872,53 @@ export function ChatPanel({
       }
       if (event.status === "succeeded") {
         // Load PR recommendation for the finished worktree run.
-        if (branch) {
-          void prRecommend(projectPath, branch)
-            .then((rec) => { setPrRec(rec); setShowPrCard(true); })
+        // Use branchRef so the listener doesn't need to re-register
+        // when branch changes (avoids missing events during re-registration).
+        const br = branchRef.current;
+        if (br) {
+          void prRecommend(projectPath, br)
+            .then((rec) => {
+              setPrRec(rec);
+              setShowPrCard(true);
+            })
             .catch(() => { /* non-git or no remote — no recommendation */ });
         }
       }
     }).then((fn) => { unlisten = fn; });
     return () => { if (unlisten) unlisten(); };
-  }, [nativeSessionId, projectPath, branch]);
+  }, [nativeSessionId, projectPath]);
+
+  // Handle approval mode changes from the UI (Allow All button, settings toggle).
+  const handleSetApprovalMode = useCallback(async (mode: ApprovalMode) => {
+    try {
+      await setApprovalModeBackend(projectPath, mode);
+      setApprovalMode(mode);
+      const label = mode === "auto" ? "Auto — all tools allowed" : mode === "safe" ? "Safe — always ask" : "Balanced — read-only auto, mutating asks";
+      onShowToast?.("Permission mode changed", label, "info");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to set approval mode", msg);
+      onShowToast?.("Failed to change permission mode", msg, "error");
+    }
+  }, [projectPath, addLog, onShowToast]);
   // Handle approval resolution from the UI
   const handleResolveApproval = useCallback(async (toolCallId: string, decision: "allow" | "allow_session" | "deny") => {
     try {
       await resolveToolApproval(toolCallId, decision);
-      // Update the tool event status optimistically
       setToolEvents((prev) => prev.map((e) => e.id === toolCallId ? { ...e, status: decision === "deny" ? "denied" : "approved" } : e));
+      if (decision === "deny") {
+        onShowToast?.("Tool call denied", "The agent will be notified.", "warning");
+      } else if (decision === "allow_session") {
+        onShowToast?.("Tool allowed for session", "All calls to this tool are approved.", "info");
+      } else {
+        onShowToast?.("Tool allowed", "The tool call will proceed.", "success");
+      }
     } catch (e) {
-      addLog("error", "Failed to resolve approval", e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to resolve approval", msg);
+      onShowToast?.("Failed to resolve approval", msg, "error");
     }
-  }, [addLog]);
+  }, [addLog, onShowToast]);
 
   useEffect(() => {
     if (nativeMode) return;
@@ -684,6 +1001,13 @@ export function ChatPanel({
         setStreamText("");
         setReasoningText("");
         setStreaming(true);
+        streamStartRef.current = Date.now();
+        setElapsed(0);
+        setStreamPhase("thinking");
+        // Claim this send. A stop or a newer send bumps activeSendRef so this
+        // send's async resolution becomes a no-op instead of reviving the
+        // spinner or duplicating the streamed reply.
+        const gen = ++activeSendRef.current;
         const tempUserId = `temp-${Date.now()}`;
         const tempUser: NativeChatMessage = {
           id: tempUserId,
@@ -699,6 +1023,7 @@ export function ChatPanel({
         setNativeMessages((prev) => [...prev, tempUser]);
         try {
           const result = await nativeChatSend({ sessionId: nativeSessionId, content: text, providerId, modelId, effortLevel });
+          if (activeSendRef.current !== gen) return;
           setNativeMessages((prev) => {
             const base = prev.filter((m) => m.id !== tempUserId);
             const next = [...base, result.userMessage];
@@ -715,6 +1040,7 @@ export function ChatPanel({
           }
           setMetrics(await nativeRequestMetricsSummary());
         } catch (e) {
+          if (activeSendRef.current !== gen) return;
           const msg = e instanceof Error ? e.message : String(e);
           addLog("error", "Failed to send native message", msg);
           try {
@@ -724,12 +1050,32 @@ export function ChatPanel({
             /* ignore */
           }
         } finally {
-          setStreaming(false);
-          setStreamText("");
-          setReasoningText("");
-          streamBufRef.current = "";
-          reasoningBufRef.current = "";
-          setLoading(false);
+          if (activeSendRef.current === gen) {
+            // Normal completion — this send still owns the composer.
+            setStreaming(false);
+            setStreamText("");
+            setReasoningText("");
+            setStreamPhase("idle");
+            streamStartRef.current = null;
+            streamBufRef.current = "";
+            reasoningBufRef.current = "";
+            setLoading(false);
+          } else if (activeSendRef.current === gen + 1 && nativeSessionId) {
+            // Stopped by the user, no newer send yet — reflect whatever the
+            // backend persisted (partial reply + tool events) without touching
+            // the spinner state (handleStopNative already reset it).
+            try {
+              const msgs = await nativeChatMessages(nativeSessionId);
+              const events = await nativeChatToolEvents(nativeSessionId);
+              if (activeSendRef.current === gen + 1) {
+                setNativeMessages(msgs);
+                setToolEvents(events);
+              }
+            } catch {
+              /* best-effort */
+            }
+          }
+          // else: superseded by a newer send — leave its state untouched.
         }
         return;
       }
@@ -771,7 +1117,6 @@ export function ChatPanel({
   const { delivery, consume } = usePromptDelivery(nativeSessionId);
   useEffect(() => {
     if (!delivery || !nativeSessionId) return;
-    const isWizardPrompt = delivery.text.includes("basebuild-project-schematic");
     if (delivery.mode === "insert") {
       setInput(delivery.text);
       consume();
@@ -779,24 +1124,24 @@ export function ChatPanel({
     }
     // send mode — wait for catalog so the resolved provider/model is used.
     if (!catalog || loading) return;
-    const modelSupportsTools = selectedModel?.supportsTools ?? false;
-    if (isWizardPrompt && !modelSupportsTools) {
-      setInput(delivery.text);
-      setCommandNotice(
-        selectedModel
-          ? `${selectedModel.label} does not support tool calling — the wizard needs a model that can read/write files. Pick a tool-capable model (e.g. Claude, GPT-4, umans-glm) and try again.`
-          : "The schematic wizard needs a model that supports tool calling. Pick a tool-capable model and try again.",
-      );
-      consume();
-      return;
-    }
     void sendMessage(delivery.text.trim()).then(() => consume());
-  }, [delivery, consume, nativeSessionId, catalog, loading, selectedModel, sendMessage]);
+  }, [delivery, consume, nativeSessionId, catalog, loading, sendMessage]);
 
   // Auto-scroll
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [nativeMessages, legacyMessages, streamText, reasoningText]);
+  }, [nativeMessages, legacyMessages, streamText, reasoningText, streamPhase]);
+
+  // Live elapsed timer — updates every second while streaming.
+  useEffect(() => {
+    if (!streaming || !streamStartRef.current) return;
+    const interval = setInterval(() => {
+      if (streamStartRef.current) {
+        setElapsed(Math.floor((Date.now() - streamStartRef.current) / 1000));
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [streaming]);
 
   // Clear stuck timer
   useEffect(() => {
@@ -812,6 +1157,13 @@ export function ChatPanel({
       if (loginTimerRef.current) window.clearTimeout(loginTimerRef.current);
     };
   }, []);
+  // Ref to hold the latest handleStopNative so handleSend can call it
+  // without a TDZ issue (handleStopNative is defined after handleSend).
+  const stopNativeRef = useRef<() => Promise<void>>(async () => {});
+  const persistSelectionRef = useRef<(providerId: string, modelId: string, effort: string) => void>(() => {});
+  // Ref to handleGenerateIdeas so /idea generate can call it without a TDZ
+  // issue (handleGenerateIdeas is defined after handleSend).
+  const generateIdeasRef = useRef<(() => Promise<void>) | null>(null);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
@@ -853,6 +1205,7 @@ export function ChatPanel({
       const command = rawCommand.toLowerCase();
       const rest = parts.join(" ").trim();
       setCommandNotice(null);
+      setShowCommandPalette(false);
 
       // Builtin-action dispatch map: commands that execute UI actions
       // immediately rather than expanding into a prompt.
@@ -869,10 +1222,81 @@ export function ChatPanel({
             setShowProviderPicker(true);
             setShowLogin(false);
           }
+          setCommandNotice(provider ? `Opening login for ${provider.label}…` : "Opening provider chooser…");
         },
         model: () => {
           setModelFilter(rest);
           setShowModelPicker(true);
+          setShowProviderPicker(false);
+          setCommandNotice(rest ? `Model picker filtered to "${rest}"` : "Model picker opened.");
+        },
+        provider: () => {
+          setModelFilter("");
+          setShowProviderPicker(true);
+          setShowModelPicker(false);
+          if (rest) {
+            const match = catalog?.providers.find(
+              (p) => p.id.toLowerCase().includes(rest.toLowerCase()) || p.label.toLowerCase().includes(rest.toLowerCase()),
+            );
+            if (match) {
+              setProviderId(match.id);
+              const providerModels = catalog?.models.filter((m) => m.providerId === match.id) ?? [];
+              const currentIsValid = providerModels.some((m) => m.id === modelId);
+              if (!currentIsValid && providerModels[0]) setModelId(providerModels[0].id);
+              persistSelectionRef.current(match.id, modelId, effortLevel);
+              setCommandNotice(`Switched to ${match.label}.`);
+            } else {
+              setCommandNotice(`No provider matching "${rest}". Use /provider to browse all providers.`);
+            }
+          } else {
+            setCommandNotice("Provider picker opened.");
+          }
+        },
+        clear: () => {
+          if (nativeMessages.length > 0 || toolEvents.length > 0) {
+            setShowClearConfirm(true);
+            setCommandNotice("Confirm clearing this chat.");
+          } else {
+            setNativeMessages([]);
+            setToolEvents([]);
+            setStreamText("");
+            setReasoningText("");
+            setStreamPhase("idle");
+            setCommandNotice("Chat is already empty.");
+          }
+        },
+        new: () => {
+          if (onNewChat) {
+            onNewChat();
+            setCommandNotice("Starting a new chat…");
+          } else {
+            setCommandNotice("New chat is not available in this context.");
+          }
+        },
+        stop: () => {
+          if (loading || streaming) {
+            void stopNativeRef.current();
+            setCommandNotice("Stopped the current request.");
+          } else {
+            setCommandNotice("Nothing is running.");
+          }
+        },
+        commands: () => {
+          const ref = formatCommandReference(BUILTIN_COMMANDS);
+          const inChat = ref.filter((r) => r.category === "in-chat");
+          const ui = ref.filter((r) => r.category === "ui");
+          const fmt = (r: typeof ref[number]) => `/${r.name} — ${r.description} [${r.usage}]`;
+          setCommandNotice(
+            `In-Chat (${inChat.length}): ${inChat.map(fmt).join("  |  ")}  ||  UI (${ui.length}): ${ui.map(fmt).join("  |  ")}`,
+          );
+        },
+        help: () => {
+          const ref = formatCommandReference(BUILTIN_COMMANDS);
+          const inChat = ref.filter((r) => r.category === "in-chat");
+          const ui = ref.filter((r) => r.category === "ui");
+          setCommandNotice(
+            `In-Chat: ${inChat.map((r) => `/${r.name}`).join(", ")}  |  UI: ${ui.map((r) => `/${r.name}`).join(", ")}  —  ${KEYBOARD_GUIDE.join(" ")}`,
+          );
         },
         mcp: () => {
           // MCP management is opened via Settings — show a notice.
@@ -882,15 +1306,24 @@ export function ChatPanel({
           setCommandNotice(rest ? `Plan: ${rest}` : "Plan commands: list, run <ref>, status");
         },
         idea: () => {
-          setCommandNotice(rest ? `Idea: ${rest}` : "Idea commands: generate, promote");
+          if (rest === "generate") {
+            void generateIdeasRef.current?.();
+            setCommandNotice("Generating ideas…");
+          } else if (rest === "promote") {
+            setCommandNotice("Pick an idea in the Ideas panel to promote it to a plan.");
+          } else {
+            setCommandNotice("Idea commands: generate, promote");
+          }
         },
-        openspec: () => {
-          setCommandNotice(rest ? `OpenSpec: ${rest}` : "OpenSpec commands: generate <ref>, progress <ref>");
-        },
+        // schematic removed from builtinActions — all subcommands are
+        // handled after the builtinActions dispatch because wizard/create/
+        // update inject a skill into the chat (expandsToPrompt), and
+        // view/inspect are handled there too for cohesion.
       };
 
       if (command in builtinActions) {
         await builtinActions[command]();
+        setCommandRecency(recordCommandUse(command));
         setInput("");
         return;
       }
@@ -902,6 +1335,7 @@ export function ChatPanel({
           const refreshed = await nativeProviderCatalogRefresh({ force: true });
           setCatalog(refreshed);
           setCommandNotice("Model catalog refreshed.");
+          setCommandRecency(recordCommandUse("models refresh"));
           setInput("");
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -913,15 +1347,15 @@ export function ChatPanel({
         return;
       }
 
-      // /skill:<name> — inject skill content.
+      // /skill:<name> — inject skill content into the chat.
       if (command.startsWith("skill:")) {
         const skillName = command.slice(6);
         if (skillName) {
-          // Skill injection: fetch skill body and send as context.
           try {
-            const skillBody = await invoke<string>("read_skill", { name: skillName });
-            const prompt = `${skillBody}\n\n${rest}`;
+            const skill = await readSkill(skillName);
+            const prompt = `${skill.content}\n\n${rest}`;
             await sendMessage(prompt);
+            setCommandRecency(recordCommandUse(command));
             setInput("");
             return;
           } catch {
@@ -931,12 +1365,92 @@ export function ChatPanel({
         }
       }
 
+      // /schematic — in-chat skill injection (wizard) or UI action (view/inspect).
+      if (command === "schematic") {
+        // wizard / create / update / bare — inject the project-schematic
+        // skill into the chat so the agent runs the guided interview inline.
+        if (rest === "" || rest === "wizard" || rest === "create" || rest === "update") {
+          addLog("debug", "Schematic wizard started", `subcommand=${rest || "wizard"} model=${selectedModel?.label ?? modelId}`);
+          try {
+            const skill = await readSkill("basebuild-project-schematic");
+            const action = schematicWizardAction(skill.content, undefined);
+            await sendMessage(action.text);
+            setCommandRecency(recordCommandUse("schematic"));
+            setInput("");
+            return;
+          } catch {
+            addLog("error", "Schematic wizard failed", "Failed to load basebuild-project-schematic skill");
+            setCommandNotice("Failed to load the schematic skill. Check that the basebuild-project-schematic skill is installed.");
+            return;
+          }
+        }
+        // view — open the schematic tab (UI action).
+        if (rest === "view") {
+          onOpenSchematic?.();
+          setCommandNotice("Opening schematic tab…");
+          setCommandRecency(recordCommandUse("schematic"));
+          setInput("");
+          return;
+        }
+        // inspect — show health summary (diagnostic).
+        if (rest === "inspect") {
+          if (projectPath) {
+            try {
+              const report = await inspectProjectSchematic(projectPath);
+              if (!report.exists) {
+                setCommandNotice("No schematic found. Use /schematic to start the wizard.");
+              } else {
+                const filled = report.sections.filter((s) => s.state === "filled").length;
+                const total = report.sections.length;
+                setCommandNotice(`Schematic health: ${report.health} (${filled}/${total} sections filled).`);
+              }
+            } catch {
+              setCommandNotice("Failed to inspect schematic.");
+            }
+          } else {
+            setCommandNotice("Open a project to inspect its schematic.");
+          }
+          setCommandRecency(recordCommandUse("schematic"));
+          setInput("");
+          return;
+        }
+        // Unknown subcommand — show available options.
+        setCommandNotice(`Unknown /schematic subcommand: ${rest}. Use /schematic wizard, /schematic view, or /schematic inspect.`);
+        setInput("");
+        return;
+      }
+
       // Unknown command fallthrough: show notice + send-as-text action.
-      setCommandNotice(`Unknown slash command: /${command}. Send as text or use /login, /model, /plan, /idea, /openspec.`);
+      setCommandNotice(`Unknown slash command: /${command}. Send as text or use /commands to see all available commands.`);
       return;
     }
     await sendMessage(text);
-  }, [input, nativeMode, sendMessage, catalog, addLog, interactions]);
+  }, [input, nativeMode, sendMessage, catalog, addLog, interactions, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId, onOpenSchematic, projectPath, selectedModel]);
+
+  // Message action rail handlers.
+  const handleCopyMessage = useCallback(async (content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      onShowToast?.("Copied to clipboard", "Message source copied.", "success");
+    } catch {
+      onShowToast?.("Copy failed", "Clipboard unavailable.", "error");
+    }
+  }, [onShowToast]);
+
+  const handleRetryMessage = useCallback(async () => {
+    // Find the last user message content.
+    const lastUser = [...nativeMessages].reverse().find((m) => m.role === "user");
+    if (!lastUser) return;
+    await sendMessage(lastUser.content);
+  }, [nativeMessages, sendMessage]);
+
+  const handleEditAndResend = useCallback(() => {
+    // Prefill the composer with the last user message and focus it.
+    const lastUser = [...nativeMessages].reverse().find((m) => m.role === "user");
+    if (!lastUser) return;
+    setInput(lastUser.content);
+    chatInputRef.current?.focus();
+  }, [nativeMessages]);
 
   const handleStopAgent = useCallback(async () => {
     if (sendTimerRef.current) {
@@ -966,6 +1480,62 @@ export function ChatPanel({
       })();
     }, 500);
   }, [agentId, projectPath, profileId]);
+  // Forcefully stop the in-flight native chat turn: cancel the backend run,
+  // invalidate the in-flight send so its resolution can't revive the spinner,
+  // and immediately free the composer so the user can send again.
+  const handleStopNative = useCallback(async () => {
+    if (!nativeSessionId) return;
+    // Bump the generation first so the in-flight send()'s finally treats this
+    // as a user stop (gen + 1) and reloads persisted partial output.
+    activeSendRef.current += 1;
+    setStreaming(false);
+        streamStartRef.current = null;
+        setElapsed(0);
+    setStreamText("");
+    setReasoningText("");
+    setStreamPhase("idle");
+    streamBufRef.current = "";
+    reasoningBufRef.current = "";
+    setStuck(false);
+    setLoading(false);
+    try {
+      await nativeChatCancel(nativeSessionId);
+    } catch (e) {
+      addLog("error", "Failed to stop chat run", e instanceof Error ? e.message : String(e));
+    }
+  }, [nativeSessionId, addLog]);
+  stopNativeRef.current = handleStopNative;
+
+  // Delete persisted messages and tool events for the current session.
+  // Preserves the session record and provider/model/effort selection.
+  const handleClearChat = useCallback(async () => {
+    setShowClearConfirm(false);
+    if (!nativeSessionId) {
+      setNativeMessages([]);
+      setToolEvents([]);
+      setStreamText("");
+      setReasoningText("");
+      setStreamPhase("idle");
+      setCommandNotice("Chat cleared.");
+      setCommandRecency(recordCommandUse("clear"));
+      return;
+    }
+    try {
+      const deleted = await nativeChatClearMessages(nativeSessionId);
+      setNativeMessages([]);
+      setToolEvents([]);
+      setStreamText("");
+      setReasoningText("");
+      setStreamPhase("idle");
+      setCommandNotice(`Cleared ${deleted} message${deleted === 1 ? "" : "s"}.`);
+      setCommandRecency(recordCommandUse("clear"));
+      addLog("debug", "Chat cleared", `sessionId=${nativeSessionId}; deleted=${deleted}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setCommandNotice(`Failed to clear chat: ${msg}`);
+      addLog("error", "Failed to clear chat messages", msg);
+    }
+  }, [nativeSessionId, addLog]);
 
   const refreshCatalog = useCallback(async (force = false, targetProviderId?: string) => {
     setCatalogRefreshing(true);
@@ -1000,14 +1570,16 @@ export function ChatPanel({
       setApiKey("");
       setBaseUrl("");
       setError(null);
+      onShowToast?.("Provider connected", `${selectedProvider?.label ?? providerId} is now ready.`, "success");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog("error", "Failed to save provider credential", msg);
       setLoginError(msg);
+      onShowToast?.("Failed to connect", msg, "error");
     } finally {
       setSavingCred(false);
     }
-  }, [apiKey, baseUrl, providerId, selectedProvider, refreshCatalog, addLog]);
+  }, [apiKey, baseUrl, providerId, selectedProvider, refreshCatalog, addLog, onShowToast]);
 
   const stopLoginPoll = useCallback(() => {
     if (loginTimerRef.current) {
@@ -1063,16 +1635,41 @@ export function ChatPanel({
       setLoginError(msg);
     });
   }, [addLog]);
-
   const handleDisconnect = useCallback(async () => {
     if (!selectedProvider) return;
     try {
       await nativeDeleteProviderCredential(selectedProvider.id);
       await refreshCatalog();
+      onShowToast?.("Provider disconnected", `${selectedProvider.label} credential removed.`, "info");
     } catch (e) {
-      addLog("error", "Failed to disconnect provider", e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to disconnect provider", msg);
+      onShowToast?.("Failed to disconnect", msg, "error");
     }
-  }, [selectedProvider, refreshCatalog, addLog]);
+  }, [selectedProvider, refreshCatalog, addLog, onShowToast]);
+
+  // Persist provider/model/effort to both the session record (so it survives
+  // restart) and the project default (so new sessions inherit it). The session
+  // update is best-effort — if it fails (e.g. session not yet created), the
+  // project default still captures the selection.
+  const persistSelection = useCallback(
+    (nextProviderId: string, nextModelId: string, nextEffort: string) => {
+      const next: ChatModelDefault = { providerId: nextProviderId, modelId: nextModelId, effortLevel: nextEffort };
+      void nativeChatSetProjectModelDefault(projectPath, next);
+      if (nativeSessionId) {
+        void nativeChatUpdateSessionModel({
+          sessionId: nativeSessionId,
+          providerId: nextProviderId,
+          modelId: nextModelId,
+          effortLevel: nextEffort,
+        }).catch((e) => {
+          addLog("warn", "Failed to persist session model selection", e instanceof Error ? e.message : String(e));
+        });
+      }
+    },
+    [projectPath, nativeSessionId, addLog],
+  );
+  persistSelectionRef.current = persistSelection;
 
   const handleGenerateIdeas = useCallback(async () => {
     if (!nativeSessionId || generatingIdeas) return;
@@ -1092,6 +1689,7 @@ export function ChatPanel({
         // local coordinator, show the setup bar prompting to pick a provider.
         setShowLogin(!!selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID);
       }
+      setLastGrounding(result.grounding ?? null);
       // The unified backend captures ideas via the propose_ideas tool during
       // the chat turn. Some code paths (and tests) still return ideas
       // directly in the result — create them locally if the backend didn't.
@@ -1116,6 +1714,9 @@ export function ChatPanel({
       setGeneratingIdeas(false);
     }
   }, [nativeSessionId, generatingIdeas, schematicContent, providerId, modelId, effortLevel, activeSessionId, ideaState, addLog, selectedProvider]);
+  useEffect(() => {
+    generateIdeasRef.current = handleGenerateIdeas;
+  }, [handleGenerateIdeas]);
 
   const handleGenerateForCategory = useCallback(async (categoryId: string | undefined) => {
     if (!nativeSessionId || generatingIdeas) return;
@@ -1134,6 +1735,7 @@ export function ChatPanel({
       if (result.setupRequired) {
         setSetupRequired(result.setupRequired);
         setShowLogin(!!selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID);
+        setLastGrounding(result.grounding ?? null);
         return;
       }
       await ideaState.refresh();
@@ -1169,14 +1771,16 @@ export function ChatPanel({
     try {
       await gitBranchSwitch(projectPath, name);
       setBranch(name);
-      // Refresh worktree match.
       const workspaces = await listWorkspaces(projectPath).catch(() => []);
       const match = workspaces.find((w) => w.branch === name);
       setWorktreePath(match?.path ?? null);
+      onShowToast?.("Branch switched", `Now on ${name}`, "success");
     } catch (e) {
-      addLog("error", "Failed to switch branch", e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to switch branch", msg);
+      onShowToast?.("Failed to switch branch", msg, "error");
     }
-  }, [projectPath, branch, addLog]);
+  }, [projectPath, branch, addLog, onShowToast]);
 
   const handleCreateBranch = useCallback(async (name: string) => {
     if (!projectPath || !name) return;
@@ -1185,10 +1789,13 @@ export function ChatPanel({
       await gitBranchSwitch(projectPath, name);
       setBranch(name);
       setBranches(await gitBranchList(projectPath).catch(() => []));
+      onShowToast?.("Branch created", `Created and switched to ${name}`, "success");
     } catch (e) {
-      addLog("error", "Failed to create branch", e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to create branch", msg);
+      onShowToast?.("Failed to create branch", msg, "error");
     }
-  }, [projectPath, addLog]);
+  }, [projectPath, addLog, onShowToast]);
 
   const handleOpenAssignPlan = useCallback(async () => {
     if (!activeSessionId) return;
@@ -1260,6 +1867,8 @@ export function ChatPanel({
         onCloseAndDelete={() => onCloseAndDeleteChat?.()}
         prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
         onCreatePullRequest={handleCreatePullRequest}
+        projectPath={projectPath}
+        sessionId={nativeSessionId}
       />
       {showPrCard && prRec ? (
         <PrRecommendationCard
@@ -1269,29 +1878,31 @@ export function ChatPanel({
         />
       ) : null}
       {showAssignPlanPicker ? (
-        <div className="chat-picker" role="dialog" aria-label="Assign a ready plan">
-          <div className="chat-picker-header">
-            <span>Assign plan</span>
-            <button className="btn-icon btn-icon-sm" type="button" title="Close plan picker" onClick={() => setShowAssignPlanPicker(false)}>
-              <X size={11} />
-            </button>
-          </div>
-          <div className="chat-picker-list">
-            {readyPlans.length === 0 ? (
-              <div className="chat-picker-empty text-muted text-sm">No ready plans.</div>
-            ) : null}
-            {readyPlans.map((p) => (
-              <button
-                key={p.id}
-                className="chat-picker-item"
-                type="button"
-                title={`Assign ${p.referenceId}: ${p.title}`}
-                onClick={() => void handleAssignPlan(p.id)}
-              >
-                <span className="chat-picker-main">#{p.referenceId} {p.title}</span>
-                <span className="chat-picker-meta">{p.status}</span>
+        <div className="modal-overlay" onClick={() => setShowAssignPlanPicker(false)} title="Close plan picker">
+          <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Assign a ready plan">
+            <div className="modal-header">
+              <h2>Assign plan</h2>
+              <button className="btn-icon" type="button" title="Close plan picker" onClick={() => setShowAssignPlanPicker(false)}>
+                <X size={16} />
               </button>
-            ))}
+            </div>
+            <div className="modal-body stack">
+              {readyPlans.length === 0 ? (
+                <p className="text-muted text-sm">No ready plans.</p>
+              ) : null}
+              {readyPlans.map((p) => (
+                <button
+                  key={p.id}
+                  className="btn"
+                  type="button"
+                  title={`Assign ${p.referenceId}: ${p.title}`}
+                  onClick={() => void handleAssignPlan(p.id)}
+                >
+                  <span>#{p.referenceId} {p.title}</span>
+                  <span className="text-muted text-sm plan-status-inline">{p.status}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       ) : null}
@@ -1309,37 +1920,14 @@ export function ChatPanel({
         ) : null}
         {nativeMode
           ? (() => {
-              // Chronological stream: merge messages + tool events + reasoning
-              // into a single sorted list of ChatEvent, ordered by
-              // (createdAt, sortOrder). Each event renders at its
-              // chronological position — not grouped by message.
+              // Flat chronological timeline: merge messages + tool events +
+              // reasoning into a single sorted list, rendered in order.
+              // No grouping — each tool call is its own row. Thinking blocks
+              // render as separate rows, split around tool calls/questions.
               type ChatEvent =
                 | { kind: "user" | "assistant" | "system"; id: string; content: string; reasoning: string | null; createdAt: number | null; providerId: string | null; index: number }
                 | { kind: "tool"; id: string; event: NativeToolEvent; createdAt: number | null; index: number }
                 | { kind: "interaction"; id: string; interaction: PendingInteraction; createdAt: number | null; index: number };
-
-              type Grouped = { type: "single" | "group"; events: NativeToolEvent[] };
-
-              const groupEvents = (events: NativeToolEvent[]) => {
-                const groups: Grouped[] = [];
-                for (const ev of events) {
-                  const isApproval = ev.kind === "approval" || ev.status === "pending";
-                  if (isApproval) {
-                    groups.push({ type: "single", events: [ev] });
-                  } else {
-                    const last = groups[groups.length - 1];
-                    if (last && last.type === "group") last.events.push(ev);
-                    else groups.push({ type: "group", events: [ev] });
-                  }
-                }
-                return groups.map((g, i) => {
-                  if (g.type === "single" || g.events.length === 1) {
-                    const ev = g.events[0];
-                    return <ToolEventCard key={ev.id} event={ev} onResolveApproval={ev.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined} />;
-                  }
-                  return <ToolEventGroup key={`group-${i}`} events={g.events} />;
-                });
-              };
 
               // Build the merged event list.
               const events: ChatEvent[] = [];
@@ -1395,7 +1983,6 @@ export function ChatPanel({
                   index: events.length,
                 });
               }
-
               // Sort by (createdAt, index) — stable chronological order.
               events.sort((a, b) => {
                 const ta = a.createdAt ?? 0;
@@ -1403,27 +1990,34 @@ export function ChatPanel({
                 if (ta !== tb) return ta - tb;
                 return a.index - b.index;
               });
+              // Compute last user/assistant message IDs for action rail.
+              let lastUserId: string | null = null;
+              let lastAssistantId: string | null = null;
+              for (const ev of events) {
+                if (ev.kind === "user") lastUserId = ev.id;
+                if (ev.kind === "assistant") lastAssistantId = ev.id;
+              }
 
-              // Render the flat chronological list.
-              // Group adjacent tool events for compact display.
+
+              // Render the flat chronological list — no grouping.
+              // Each tool event renders as its own row. Reasoning renders
+              // as a separate block before the message content.
               const rendered: React.ReactNode[] = [];
-              let toolBatch: NativeToolEvent[] = [];
-              const flushToolBatch = (batchKey: string) => {
-                if (toolBatch.length > 0) {
-                  rendered.push(
-                    <div key={`tools-${batchKey}`} className="chat-tool-events">{groupEvents(toolBatch)}</div>,
-                  );
-                  toolBatch = [];
-                }
-              };
-
               for (const ev of events) {
                 if (ev.kind === "tool") {
-                  toolBatch.push(ev.event);
+                  // Each tool call is its own row — no grouping.
+                  rendered.push(
+                    <ToolEventCard
+                      key={`tool-${ev.id}`}
+                      event={ev.event}
+                      debugMode={debugMode}
+                      onResolveApproval={ev.event.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined}
+                      onSetApprovalMode={handleSetApprovalMode}
+                    />
+                  );
                   continue;
                 }
                 if (ev.kind === "interaction") {
-                  flushToolBatch(`pre-intr-${ev.id}`);
                   rendered.push(
                     <QuestionCard
                       key={`intr-${ev.id}`}
@@ -1434,12 +2028,19 @@ export function ChatPanel({
                   );
                   continue;
                 }
-                // Flush any pending tool events before the next message.
+                // Render reasoning as a separate thinking block row before
+                // the message content, so thinking splits around tool calls.
                 const isOfflineTurn = ev.kind === "assistant" && ev.providerId === LOCAL_PROVIDER_ID;
                 const timeStr = ev.createdAt != null
                   ? new Date(ev.createdAt * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
                   : null;
                 const fullDate = ev.createdAt != null ? new Date(ev.createdAt * 1000).toLocaleString() : null;
+                // Thinking block as its own row (split around interruptions).
+                if (ev.reasoning && ev.reasoning.trim()) {
+                  rendered.push(
+                    <ThinkingBlock key={`thinking-${ev.id}`} text={ev.reasoning} />,
+                  );
+                }
                 rendered.push(
                   <div key={ev.id} className={`chat-message chat-message-${ev.kind}`}>
                     <span className="chat-message-role">
@@ -1447,13 +2048,63 @@ export function ChatPanel({
                       {isOfflineTurn ? <span className="chat-offline-tag" title="No external model was contacted">Offline</span> : null}
                       {timeStr ? <span className="chat-message-time" title={fullDate ?? ""}>{timeStr}</span> : null}
                     </span>
-                    {ev.reasoning ? <ReasoningFold reasoning={ev.reasoning} /> : null}
-                    <pre className="chat-message-content">{ev.content}</pre>
+                    {ev.kind === "assistant"
+                      ? <MarkdownView text={ev.content} className="chat-message-content" />
+                      : <pre className="chat-message-content">{ev.content}</pre>}
+                    {ev.kind === "user" || ev.kind === "assistant" ? (
+                      <div className="chat-message-actions">
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-icon-sm chat-message-action-copy"
+                          title="Copy message source text to clipboard"
+                          onClick={() => void handleCopyMessage(ev.content)}
+                        >
+                          <Copy size={11} />
+                        </button>
+                        {ev.kind === "assistant" && ev.id === lastAssistantId && !streaming ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-icon-sm chat-message-action-retry"
+                            title="Retry — re-send the last user message as a new turn"
+                            onClick={() => void handleRetryMessage()}
+                          >
+                            <RefreshCw size={11} />
+                          </button>
+                        ) : null}
+                        {ev.kind === "user" && ev.id === lastUserId && !streaming ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-icon-sm chat-message-action-edit"
+                            title="Edit and resend — load this message into the composer"
+                            onClick={() => handleEditAndResend()}
+                          >
+                            <Edit2 size={11} />
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>,
                 );
               }
-              // Flush any remaining tool events at the end.
-              flushToolBatch("live");
+
+              // Loading row for streaming/thinking state.
+              if (streaming) {
+                rendered.push(
+                  <div key="loading-streaming" className="chat-loading-row" title="Assistant is responding">
+                    <Loader2 size={12} className="is-spinning" />
+                    <span className="text-sm text-muted">Thinking…</span>
+                  </div>,
+                );
+              }
+              // Loading row for queued state.
+              if (loading && !streaming) {
+                rendered.push(
+                  <div key="loading-queued" className="chat-loading-row" title="Request in progress">
+                    <Loader2 size={12} className="is-spinning" />
+                    <span className="text-sm text-muted">Working…</span>
+                  </div>,
+                );
+              }
 
               return rendered;
             })()
@@ -1469,21 +2120,85 @@ export function ChatPanel({
               );
             })}
 
+        {/* Live thinking with elapsed timer */}
         {streaming && reasoningText ? (
           <div className="chat-message chat-message-assistant chat-message-reasoning" title="Live chain-of-thought from the model. Final answer follows.">
-            <span className="chat-message-role">Thinking…</span>
-            <pre className="chat-message-content">{reasoningText}</pre>
+            <span className="chat-message-role">
+              Thinking…
+              <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
+            </span>
+            <pre className="chat-message-content chat-reasoning-live">{reasoningText}<span className="chat-cursor" /></pre>
           </div>
         ) : null}
 
+        {/* Streaming assistant text with elapsed timer */}
         {streaming && streamText ? (
           <div className="chat-message chat-message-assistant">
-            <span className="chat-message-role">Basebuild</span>
-            <pre className="chat-message-content">{streamText}</pre>
+            <span className="chat-message-role">
+              Basebuild
+              <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
+            </span>
+            <div className="chat-message-content"><MarkdownView text={streamText} /><span className="chat-cursor" /></div>
           </div>
         ) : null}
 
-        {loading && (!streaming || (!streamText && !reasoningText)) ? (
+        {/* Waiting for first token with elapsed timer */}
+        {streaming && streamPhase === "thinking" && !streamText && !reasoningText ? (
+          <div className="chat-message chat-thinking-indicator" title={`Waiting for the model to start responding (${formatElapsed(elapsed)})`}>
+            <span className="chat-message-role">
+              Basebuild
+              <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
+            </span>
+            <div className="chat-thinking-dots">
+              <span className="chat-thinking-dot" />
+              <span className="chat-thinking-dot" />
+              <span className="chat-thinking-dot" />
+            </div>
+          </div>
+        ) : null}
+
+        {/* Running tools with tool names, count, and elapsed timer */}
+        {streaming && streamPhase === "tools" ? (() => {
+          const pendingTools = toolEvents.filter((e) => e.status === "pending");
+          const runningTools = toolEvents.filter((e) => e.status === "running");
+          const completedTools = toolEvents.filter((e) => e.status === "success" || e.status === "error" || e.status === "denied" || e.status === "approved");
+          const activeTools = [...pendingTools, ...runningTools];
+          const toolNames = activeTools.length > 0
+            ? activeTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")
+            : "tools";
+          const isWaitingApproval = pendingTools.length > 0;
+          return (
+            <div
+              className={`chat-loading chat-loading-active chat-loading-tools${isWaitingApproval ? " chat-loading-approval" : ""}`}
+              title={
+                isWaitingApproval
+                  ? `Waiting for approval: ${pendingTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")}. Click the approval card to allow or deny. Elapsed: ${formatElapsed(elapsed)}.`
+                  : `Executing: ${toolNames} (${activeTools.length} running, ${completedTools.length} done). Elapsed: ${formatElapsed(elapsed)}.`
+              }
+            >
+              <span className="chat-loading-spinner" />
+              <span className="chat-loading-label">
+                {isWaitingApproval
+                  ? `Waiting for approval: ${pendingTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")}…`
+                  : activeTools.length > 0
+                    ? `${toolNames}…`
+                    : "Running tools…"}
+              </span>
+              {activeTools.length > 0 || completedTools.length > 0 ? (
+                <span className="chat-loading-count" title={`${pendingTools.length} pending, ${runningTools.length} running, ${completedTools.length} completed`}>
+                  {pendingTools.length > 0 ? `${pendingTools.length} pending` : ""}
+                  {pendingTools.length > 0 && runningTools.length > 0 ? " · " : ""}
+                  {runningTools.length > 0 ? `${runningTools.length} running` : ""}
+                  {(pendingTools.length > 0 || runningTools.length > 0) && completedTools.length > 0 ? " · " : ""}
+                  {completedTools.length > 0 ? `${completedTools.length} done` : ""}
+                </span>
+              ) : null}
+              <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
+            </div>
+          );
+        })() : null}
+
+        {loading && !streaming ? (
           <div className="chat-loading">{nativeMode ? "Working…" : "Agent is typing…"}</div>
         ) : null}
         {stuck ? (
@@ -1625,55 +2340,55 @@ export function ChatPanel({
         </div>
       ) : null}
 
-      {/* Provider login panel: in-app API key entry + link to provider's key page */}
+      {/* Provider login modal: API key entry as a modal, not inline */}
       {nativeMode && showLogin && selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID ? (
-        <div className="chat-login-form">
-          <div className="chat-login-header">
-            <Key size={12} />
-            <span>Connect {selectedProvider.label}</span>
-            <button
-              className="btn-icon btn-icon-sm"
-              title="Close"
-              type="button"
-              onClick={() => {
-                setShowLogin(false);
-                cancelWebLogin();
-              }}
-            >
-              <X size={11} />
-            </button>
+        <div className="modal-overlay" onClick={() => { setShowLogin(false); cancelWebLogin(); }} title="Close login dialog">
+          <div className="modal" onClick={(e) => e.stopPropagation()} title={`Connect ${selectedProvider.label}`}>
+            <div className="modal-header">
+              <h2>Connect {selectedProvider.label}</h2>
+              <button
+                className="btn-icon"
+                title="Close"
+                type="button"
+                onClick={() => { setShowLogin(false); cancelWebLogin(); }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="modal-body stack" onClick={(e) => e.stopPropagation()} title={`Connect ${selectedProvider.label}`}>
+              <p className="text-sm text-muted">
+                Enter your {selectedProvider.label} API key below.
+                {selectedProvider.apiKeyUrl ? (
+                  <> Need a key? <button className="chat-link-btn" type="button" title={`Open ${selectedProvider.label} key page`} onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}>Get API key →</button></>
+                ) : null}
+              </p>
+              <input
+                className="input"
+                type="password"
+                placeholder="API key"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                title="Enter your API key for this provider"
+              />
+              <input
+                className="input"
+                placeholder="Base URL (optional)"
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                title="Custom API base URL (optional)"
+              />
+              <button
+                className="btn btn-primary"
+                type="button"
+                title="Save API key and connect"
+                disabled={!apiKey.trim() || savingCred}
+                onClick={() => void handleSaveCredential()}
+              >
+                {savingCred ? "Saving…" : "Save key & connect"}
+              </button>
+              {loginError ? <p className="text-danger text-sm">{loginError}</p> : null}
+            </div>
           </div>
-          <p className="chat-login-hint">
-            Enter your {selectedProvider.label} API key below.
-            {selectedProvider.apiKeyUrl ? (
-              <> Need a key? <button className="chat-link-btn" type="button" title={`Open ${selectedProvider.label} key page`} onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}>Get API key →</button></>
-            ) : null}
-          </p>
-          <input
-            className="input chat-login-input"
-            type="password"
-            placeholder="API key"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            title="Enter your API key for this provider"
-          />
-          <input
-            className="input chat-login-input"
-            placeholder="Base URL (optional)"
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-            title="Custom API base URL (optional)"
-          />
-          <button
-            className="btn btn-primary btn-sm"
-            type="button"
-            title="Save API key and connect"
-            disabled={!apiKey.trim() || savingCred}
-            onClick={() => void handleSaveCredential()}
-          >
-            {savingCred ? "Saving…" : "Save key & connect"}
-          </button>
-          {loginError ? <p className="text-danger text-sm">{loginError}</p> : null}
         </div>
       ) : null}
 
@@ -1689,28 +2404,25 @@ export function ChatPanel({
               modelId={modelId}
               modelName={modelName}
               effortLevel={effortLevel}
+              supportedEfforts={selectedModel?.supportedEfforts ?? []}
               catalogRefreshing={catalogRefreshing}
               lastSyncedAt={selectedProvider?.lastSyncedAt ?? null}
               localProviderId={LOCAL_PROVIDER_ID}
               onPickProvider={() => {
-                setShowProviderPicker((value) => !value);
+                addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}`);
+                setShowProviderPicker(true);
                 setShowModelPicker(false);
                 setShowPlanningMenu(false);
               }}
               onPickModel={() => {
-                setShowModelPicker((value) => !value);
+                addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
+                setShowModelPicker(true);
                 setShowProviderPicker(false);
                 setShowPlanningMenu(false);
               }}
-              onToggleIdeas={() => {
-                setShowPlanningMenu((value) => !value);
-                setShowProviderPicker(false);
-                setShowModelPicker(false);
-              }}
               onChangeEffort={(effort) => {
                 setEffortLevel(effort);
-                const next: ChatModelDefault = { providerId, modelId, effortLevel: effort };
-                void nativeChatSetProjectModelDefault(projectPath, next);
+                persistSelection(providerId, modelId, effort);
               }}
               onRefresh={() => void refreshCatalog(true, selectedProvider?.id)}
               onConnect={() => {
@@ -1719,194 +2431,306 @@ export function ChatPanel({
                 setShowProviderPicker(false);
               }}
               onDisconnect={() => void handleDisconnect()}
+              onOpenCommands={() => {
+                addLog("debug", "Command palette opened via button", `sessionId=${activeSessionId ?? "none"}`);
+                setShowCommandPalette(true);
+                setInput("/");
+              }}
             />
             {showPlanningMenu ? (
-              <div className="chat-picker" role="dialog" aria-label="Idea actions">
-                <div className="chat-picker-header">
-                  <span>Ideas</span>
-                  <button className="btn-icon btn-icon-sm" type="button" title="Close ideas menu" onClick={() => setShowPlanningMenu(false)}>
-                    <X size={11} />
-                  </button>
+              <div className="modal-overlay" onClick={() => setShowPlanningMenu(false)} title="Close ideas menu">
+                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Idea actions">
+                  <div className="modal-header">
+                    <h2>Ideas</h2>
+                    <button className="btn-icon" type="button" title="Close ideas menu" onClick={() => setShowPlanningMenu(false)}>
+                      <X size={16} />
+                    </button>
+                  </div>
+                  <div className="modal-body stack">
+                    {schematicReport && schematicReport.health !== "complete" && (
+                      <button
+                        className="btn"
+                        type="button"
+                        title={`Schematic ${schematicReport.health}: incomplete sections may lead to ungrounded generation — click to open the schematic`}
+                        onClick={() => {
+                          setShowPlanningMenu(false);
+                          onOpenSchematic?.();
+                        }}
+                      >
+                        <AlertCircle size={11} />
+                        <span>Schematic {schematicReport.health}</span>
+                        <span className="text-muted text-sm">Fix</span>
+                      </button>
+                    )}
+                    <button
+                      className="btn"
+                      type="button"
+                      title="Quick freeform idea generation in the chat"
+                      disabled={generatingIdeas || !nativeSessionId}
+                      onClick={() => {
+                        setShowPlanningMenu(false);
+                        void handleGenerateIdeas();
+                      }}
+                    >
+                      <Sparkles size={11} />
+                      <span>Quick ideas</span>
+                    </button>
+                    <button
+                      className="btn"
+                      type="button"
+                      title="Pick a category and generate ideas for it"
+                      onClick={() => {
+                        setShowPlanningMenu(false);
+                        setShowCategoryPicker(true);
+                      }}
+                    >
+                      <FolderTree size={11} />
+                      <span>By category…</span>
+                    </button>
+                    <button
+                      className="btn"
+                      type="button"
+                      title="Open the planning inspector"
+                      onClick={() => {
+                        setShowPlanningMenu(false);
+                        onOpenPlanningInspector?.();
+                      }}
+                    >
+                      <LayoutGrid size={11} />
+                      <span>Planning inspector</span>
+                    </button>
+                  </div>
                 </div>
-                {schematicReport && schematicReport.health !== "complete" && (
-                  <button
-                    className="chat-picker-item"
-                    type="button"
-                    title={`Schematic ${schematicReport.health}: incomplete sections may lead to ungrounded generation — click to open the schematic`}
-                    onClick={() => {
-                      setShowPlanningMenu(false);
-                      onOpenSchematic?.();
-                    }}
-                  >
-                    <AlertCircle size={11} className="chat-picker-item-icon" />
-                    <span className="chat-picker-main">Schematic {schematicReport.health}</span>
-                    <span className="chat-picker-meta">Fix</span>
-                  </button>
-                )}
-                <button
-                  className="chat-picker-item"
-                  type="button"
-                  title="Quick freeform idea generation in the chat"
-                  disabled={generatingIdeas || !nativeSessionId}
-                  onClick={() => {
-                    setShowPlanningMenu(false);
-                    void handleGenerateIdeas();
-                  }}
-                >
-                  <Sparkles size={11} className="chat-picker-item-icon" />
-                  <span className="chat-picker-main">Quick ideas</span>
-                </button>
-                <button
-                  className="chat-picker-item"
-                  type="button"
-                  title="Pick a category and generate ideas for it"
-                  onClick={() => {
-                    setShowPlanningMenu(false);
-                    setShowCategoryPicker(true);
-                  }}
-                >
-                  <FolderTree size={11} className="chat-picker-item-icon" />
-                  <span className="chat-picker-main">By category…</span>
-                </button>
-                <button
-                  className="chat-picker-item"
-                  type="button"
-                  title="Open the planning inspector (side panel)"
-                  onClick={() => {
-                    setShowPlanningMenu(false);
-                    onOpenPlanningInspector?.();
-                  }}
-                >
-                  <LayoutGrid size={11} className="chat-picker-item-icon" />
-                  <span className="chat-picker-main">Planning inspector</span>
-                </button>
               </div>
             ) : null}
             {showCategoryPicker ? (
-              <div className="chat-picker" role="dialog" aria-label="Pick a category">
-                <div className="chat-picker-header">
-                  <span>Pick a category</span>
-                  <button className="btn-icon btn-icon-sm" type="button" title="Close category picker" onClick={() => setShowCategoryPicker(false)}>
-                    <X size={11} />
-                  </button>
-                </div>
-                <div className="chat-picker-list">
-                  {ideaState.categories.length === 0 ? (
-                    <div className="chat-picker-empty text-muted text-sm">No categories yet.</div>
-                  ) : null}
-                  {ideaState.categories.map((cat) => (
-                    <button
-                      key={cat.id}
-                      className="chat-picker-item"
-                      type="button"
-                      title={`Generate ideas for ${cat.name}`}
-                      disabled={generatingIdeas}
-                      onClick={() => void handleGenerateForCategory(cat.id)}
-                    >
-                      <span className="chat-picker-item-label">{cat.name}</span>
-                      <span className="chat-picker-item-desc text-muted text-sm">{cat.description}</span>
+              <div className="modal-overlay" onClick={() => setShowCategoryPicker(false)} title="Close category picker">
+                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Pick a category">
+                  <div className="modal-header">
+                    <h2>Pick a category</h2>
+                    <button className="btn-icon" type="button" title="Close category picker" onClick={() => setShowCategoryPicker(false)}>
+                      <X size={16} />
                     </button>
-                  ))}
-                  <button
-                    className="chat-picker-item"
-                    type="button"
-                    title="Freeform generation (no category)"
-                    disabled={generatingIdeas}
-                    onClick={() => void handleGenerateForCategory(undefined)}
-                  >
-                    <span className="chat-picker-item-label">Freeform</span>
-                    <span className="chat-picker-item-desc text-muted text-sm">No specific category</span>
-                  </button>
+                  </div>
+                  <div className="modal-body stack">
+                    {ideaState.categories.length === 0 ? (
+                      <p className="text-muted text-sm">No categories yet.</p>
+                    ) : null}
+                    {ideaState.categories.map((cat) => (
+                      <button
+                        key={cat.id}
+                        className="btn"
+                        type="button"
+                        title={`Generate ideas for ${cat.name}`}
+                        disabled={generatingIdeas}
+                        onClick={() => void handleGenerateForCategory(cat.id)}
+                      >
+                        <span className="chat-picker-item-label">{cat.name}</span>
+                        <span className="text-muted text-sm">{cat.description}</span>
+                      </button>
+                    ))}
+                    <button
+                      className="btn"
+                      type="button"
+                      title="Freeform generation (no category)"
+                      disabled={generatingIdeas}
+                      onClick={() => void handleGenerateForCategory(undefined)}
+                    >
+                      <span>Freeform</span>
+                      <span className="text-muted text-sm">No specific category</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : null}
-            {showProviderPicker && catalog ? (
-              <div className="chat-picker" role="dialog" aria-label="Choose provider">
-                <div className="chat-picker-header">
-                  <span>Choose provider</span>
-                  <button className="btn-icon btn-icon-sm" type="button" title="Close provider picker" onClick={() => setShowProviderPicker(false)}>
-                    <X size={11} />
-                  </button>
-                </div>
-                <div className="chat-picker-list">
-                  {catalog.providers.map((provider) => (
+            {(showProviderPicker || showModelPicker) && catalog ? (
+              <div
+                className="modal-overlay provider-catalog-overlay"
+                role="dialog"
+                aria-label="Provider and model catalog"
+                onClick={() => {
+                  addLog("debug", "Provider catalog modal closed", "overlay");
+                  setShowProviderPicker(false);
+                  setShowModelPicker(false);
+                }}
+              >
+                <div className="modal provider-catalog-modal" onClick={(event) => event.stopPropagation()}>
+                  <div className="modal-header">
+                    <div className="provider-catalog-title">
+                      <h2>Provider &amp; model</h2>
+                      <span>{connectedProviders.length} connected · {catalog.providers.length} providers · {catalog.models.length} models</span>
+                    </div>
                     <button
-                      key={provider.id}
-                      className={`chat-picker-item${provider.id === providerId ? " is-active" : ""}`}
+                      className="btn-icon"
                       type="button"
-                      title={`${provider.label}: ${provider.configured ? "connected" : "not connected"}`}
+                      title="Close provider and model catalog"
                       onClick={() => {
-                        setProviderId(provider.id);
-                        // Auto-select first model from this provider if current model doesn't match
-                        const providerModels = catalog?.models.filter((m) => m.providerId === provider.id) ?? [];
-                        const firstModel = providerModels[0];
-                        if (firstModel && (modelId !== firstModel.id || providerId !== provider.id)) {
-                          setModelId(firstModel.id);
-                          const next: ChatModelDefault = {
-                            providerId: provider.id,
-                            modelId: firstModel.id,
-                            effortLevel,
-                          };
-                          void nativeChatSetProjectModelDefault(projectPath, next);
-                        }
+                        addLog("debug", "Provider catalog modal closed", "button");
                         setShowProviderPicker(false);
-                        setShowLogin(!provider.configured && provider.id !== LOCAL_PROVIDER_ID);
-                        setSetupRequired(null);
+                        setShowModelPicker(false);
                       }}
                     >
-                      <span className="chat-picker-main">{provider.label}</span>
-                      <span className="chat-picker-meta">{provider.configured ? `${provider.modelCount} models` : "connect"}</span>
+                      <X size={14} />
                     </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            {showModelPicker && catalog ? (
-              <div className="chat-picker" role="dialog" aria-label="Choose model">
-                <div className="chat-picker-header">
-                  <span>Choose model · {selectedProvider?.label ?? providerId}</span>
-                  <button className="btn-icon btn-icon-sm" type="button" title="Close model picker" onClick={() => setShowModelPicker(false)}>
-                    <X size={11} />
-                  </button>
-                </div>
-                <input
-                  className="input chat-picker-search"
-                  value={modelFilter}
-                  placeholder="Filter models"
-                  title="Filter models by provider, id, or label"
-                  onChange={(e) => setModelFilter(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") setShowModelPicker(false);
-                  }}
-                />
-                <div className="chat-picker-list">
-                  {filteredModels.map((model) => {
-                    const provider = catalog.providers.find((p) => p.id === model.providerId);
-                    return (
-                      <button
-                        key={`${model.providerId}:${model.id}`}
-                        className={`chat-picker-item${model.id === modelId && model.providerId === providerId ? " is-active" : ""}`}
-                        type="button"
-                        title={`${provider?.label ?? model.providerId} / ${model.id}. Source: ${model.source}`}
-                        onClick={() => {
-                          setProviderId(model.providerId);
-                          setModelId(model.id);
-                          setShowModelPicker(false);
-                          setSetupRequired(null);
-                          setModelNotice(null);
-                          const next: ChatModelDefault = {
-                            providerId: model.providerId,
-                            modelId: model.id,
-                            effortLevel,
-                          };
-                          void nativeChatSetProjectModelDefault(projectPath, next);
+                  </div>
+                  <div className="provider-catalog-body">
+                    <section className="provider-catalog-providers" aria-label="Providers">
+                      <div className="provider-catalog-section-heading">
+                        <span>Providers</span>
+                        <span className="text-muted">Select one to browse its models</span>
+                      </div>
+                      <div className="provider-card-grid">
+                        {orderedProviders.map((provider) => (
+                          <div
+                            key={provider.id}
+                            className={`provider-card is-${provider.configured ? "connected" : "available"}${provider.id === providerId ? " is-active" : ""}`}
+                            title={`${provider.label}: ${provider.configured ? "connected" : "not connected"}; ${provider.modelCount} models`}
+                          >
+                            <button
+                              className="provider-card-select"
+                              type="button"
+                              title={`${provider.label}: ${provider.configured ? "connected" : "not connected"}; ${provider.modelCount} models. Click to browse models.`}
+                              onClick={() => {
+                                addLog("debug", "Provider selected", `provider=${provider.id}; connected=${provider.configured}`);
+                                setProviderId(provider.id);
+                                const providerModels = catalog.models.filter((model) => model.providerId === provider.id);
+                                const currentIsValid = providerModels.some((model) => model.id === modelId);
+                                if (!currentIsValid && providerModels[0]) setModelId(providerModels[0].id);
+                                setSetupRequired(null);
+                                setModelFilter("");
+                              }}
+                            >
+                              <span className="provider-card-topline">
+                                <span className="provider-card-name">{provider.label}</span>
+                                <span
+                                  className={`provider-status is-${provider.status === "transport_unavailable" ? "warning" : provider.configured ? "connected" : "available"}`}
+                                  title={provider.status === "transport_unavailable" ? "This provider uses a bespoke API that requires a custom base URL for native chat. Set a base URL to enable the native agent loop." : undefined}
+                                >
+                                  <span className="provider-status-dot" />
+                                  {provider.status === "transport_unavailable" ? "No transport" : provider.configured ? "Connected" : "Available"}
+                                </span>
+                              </span>
+                              <span className="provider-card-meta">{provider.modelCount} models</span>
+                            </button>
+                            {provider.id !== LOCAL_PROVIDER_ID ? (
+                              <div className="provider-card-actions">
+                                {provider.configured ? (
+                                  <button
+                                    className="btn btn-sm provider-card-action-btn"
+                                    type="button"
+                                    title={`Disconnect ${provider.label} — removes the stored API key`}
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      try {
+                                        await nativeDeleteProviderCredential(provider.id);
+                                        await refreshCatalog();
+                                        addLog("debug", "Provider disconnected", `provider=${provider.id}`);
+                                      } catch (err) {
+                                        addLog("error", "Failed to disconnect provider", err instanceof Error ? err.message : String(err));
+                                      }
+                                    }}
+                                  >
+                                    <Unplug size={11} /> Disconnect
+                                  </button>
+                                ) : null}
+                                <button
+                                  className="btn btn-sm provider-card-action-btn"
+                                  type="button"
+                                  title={provider.configured ? `Update key for ${provider.label} — enter a new API key` : `Connect ${provider.label} — enter an API key`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setProviderId(provider.id);
+                                    const providerModels = catalog.models.filter((model) => model.providerId === provider.id);
+                                    const currentIsValid = providerModels.some((model) => model.id === modelId);
+                                    if (!currentIsValid && providerModels[0]) setModelId(providerModels[0].id);
+                                    setShowProviderPicker(false);
+                                    setShowModelPicker(false);
+                                    setShowLogin(true);
+                                  }}
+                                >
+                                  <Key size={11} /> {provider.configured ? "Update key" : "Connect"}
+                                </button>
+                            {provider.error ? (
+                              <div className="provider-card-error text-danger text-sm" title={provider.error}>
+                                <span className="provider-card-error-text">{provider.error}</span>
+                                <button
+                                  className="btn btn-sm provider-card-retry-btn"
+                                  type="button"
+                                  title={`Retry fetching models from ${provider.label}`}
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    try {
+                                      await nativeProviderCatalogRefresh({ providerId: provider.id, force: true });
+                                      await refreshCatalog();
+                                    } catch (err) {
+                                      addLog("error", "Failed to refresh provider", err instanceof Error ? err.message : String(err));
+                                    }
+                                  }}
+                                >
+                                  Retry
+                                </button>
+                              </div>
+                            ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                    <section className="provider-catalog-models" aria-label="Models">
+                      <div className="provider-catalog-section-heading">
+                        <span>{selectedProvider?.label ?? providerId} models</span>
+                        <span className={`provider-status is-${selectedProvider?.configured ? "connected" : "available"}`}>
+                          <span className="provider-status-dot" />
+                          {selectedProvider?.configured ? "Connected" : "Not connected"}
+                        </span>
+                      </div>
+                      <input
+                        className="input provider-model-search"
+                        value={modelFilter}
+                        placeholder="Search this provider's models"
+                        title="Filter models for the selected provider by id or label"
+                        onChange={(event) => setModelFilter(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            setShowProviderPicker(false);
+                            setShowModelPicker(false);
+                          }
                         }}
-                      >
-                        <span className="chat-picker-main">{model.label}</span>
-                        <span className="chat-picker-meta">{model.supportedEfforts.length ? model.supportedEfforts.join("/") : "standard"} · {model.source}</span>
-                      </button>
-                    );
-                  })}
+                      />
+                      <div className="provider-model-list">
+                        {filteredModels.map((model) => (
+                          <button
+                            key={`${model.providerId}:${model.id}`}
+                            className={`provider-model-row${model.id === modelId && model.providerId === providerId ? " is-active" : ""}`}
+                            type="button"
+                            title={`${selectedProvider?.label ?? model.providerId} / ${model.id}. Source: ${model.source}`}
+                            onClick={() => {
+                              addLog("debug", "Model selected", `provider=${model.providerId}; model=${model.id}`);
+                              setProviderId(model.providerId);
+                              setModelId(model.id);
+                              setShowProviderPicker(false);
+                              setShowModelPicker(false);
+                              setSetupRequired(null);
+                              setModelNotice(null);
+                              persistSelection(model.providerId, model.id, effortLevel);
+                            }}
+                          >
+                            <span className="provider-model-main">
+                              <span>{model.label}</span>
+                              <span className="provider-model-id">{model.id}</span>
+                            </span>
+                            <span className="provider-model-badges">
+                              {model.supportsTools ? <span className="provider-capability is-positive">Tools</span> : null}
+                              {model.supportsReasoning ? <span className="provider-capability">Reasoning</span> : null}
+                              <span className="provider-capability">{model.supportedEfforts.length ? model.supportedEfforts.join("/") : "Standard"}</span>
+                            </span>
+                          </button>
+                        ))}
+                        {filteredModels.length === 0 ? <p className="text-muted text-sm provider-model-empty">No matching models.</p> : null}
+                      </div>
+                    </section>
+                  </div>
                 </div>
               </div>
             ) : null}
@@ -1921,6 +2745,52 @@ export function ChatPanel({
                 <button className="btn-icon btn-icon-sm" type="button" title="Dismiss command notice" onClick={() => setCommandNotice(null)}>
                   <X size={11} />
                 </button>
+              </div>
+            ) : null}
+            {showCommandPalette && nativeMode ? (
+              <CommandPalette
+                input={input}
+                open={showCommandPalette}
+                recency={commandRecency}
+                activeIndex={paletteActiveIndex}
+                onActiveIndexChange={setPaletteActiveIndex}
+                onPick={(text) => {
+                  setInput(text);
+                  setShowCommandPalette(false);
+                }}
+              />
+            ) : null}
+            {showClearConfirm ? (
+              <div className="modal-overlay" onClick={() => setShowClearConfirm(false)} title="Cancel clear chat">
+                <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Confirm clear chat">
+                  <div className="modal-header">
+                    <h2>Clear chat?</h2>
+                    <button className="btn-icon" type="button" title="Cancel" onClick={() => setShowClearConfirm(false)}>
+                      <X size={16} />
+                    </button>
+                  </div>
+                  <div className="modal-body stack">
+                    <p className="text-sm">This will delete all messages and tool events in this chat. The chat session and its provider/model/effort selection are preserved. This cannot be undone.</p>
+                    <div className="row gap-sm">
+                      <button
+                        className="btn"
+                        type="button"
+                        title="Cancel and keep the chat as-is"
+                        onClick={() => setShowClearConfirm(false)}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        className="btn btn-primary"
+                        type="button"
+                        title="Delete all messages and tool events in this chat"
+                        onClick={() => void handleClearChat()}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             ) : null}
           </>
@@ -1940,6 +2810,7 @@ export function ChatPanel({
         })()}
         <div className="chat-input-row">
           <textarea
+            ref={chatInputRef}
             className="input chat-input"
             placeholder={
               nativeMode
@@ -1948,12 +2819,55 @@ export function ChatPanel({
             }
             value={input}
             onChange={(e) => {
-              setInput(e.target.value);
+              const val = e.target.value;
+              setInput(val);
+              // Open palette when input starts with `/` (command position).
+              if (nativeMode && val.trimStart().startsWith("/")) {
+                setShowCommandPalette(true);
+              } else if (showCommandPalette) {
+                setShowCommandPalette(false);
+              }
+              setPaletteActiveIndex(0);
               const el = e.target;
               el.style.height = "auto";
               el.style.height = `${Math.min(el.scrollHeight, 360)}px`;
             }}
             onKeyDown={(e) => {
+              // Command palette keyboard navigation.
+              if (showCommandPalette && nativeMode) {
+                const query = input.trim().slice(1);
+                const ranked = filterAndRank(BUILTIN_COMMANDS, query, commandRecency);
+                if (e.key === "ArrowDown" && ranked.length > 0) {
+                  e.preventDefault();
+                  setPaletteActiveIndex((i) => (i + 1) % ranked.length);
+                  return;
+                }
+                if (e.key === "ArrowUp" && ranked.length > 0) {
+                  e.preventDefault();
+                  setPaletteActiveIndex((i) => (i - 1 + ranked.length) % ranked.length);
+                  return;
+                }
+                if (e.key === "Tab" && ranked.length > 0) {
+                  e.preventDefault();
+                  const cmd = ranked[paletteActiveIndex];
+                  if (cmd) {
+                    setInput(tabComplete(cmd));
+                    setShowCommandPalette(false);
+                  }
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setShowCommandPalette(false);
+                  return;
+                }
+                // Enter: if palette is open and there's a match, submit the command.
+                if (e.key === "Enter" && !e.shiftKey && ranked.length > 0) {
+                  e.preventDefault();
+                  void handleSend();
+                  return;
+                }
+              }
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 void handleSend();
@@ -1963,16 +2877,139 @@ export function ChatPanel({
             disabled={inputDisabled}
             title={nativeMode ? "Chat input — type a message and press Enter to send" : "Chat input — start the agent to enable sending"}
           />
-          <button
-            className="btn btn-primary chat-send-btn"
-            type="button"
-            title="Send message"
-            disabled={sendDisabled}
-            onClick={() => void handleSend()}
+          {nativeMode && loading ? (
+            <button
+              className="btn chat-send-btn chat-stop-btn"
+              type="button"
+              title="Stop the agent and unlock the composer"
+              onClick={() => void handleStopNative()}
+            >
+              <Square size={13} />
+            </button>
+          ) : (
+            <button
+              className="btn btn-primary chat-send-btn"
+              type="button"
+              title="Send message"
+              disabled={sendDisabled}
+              onClick={() => void handleSend()}
+            >
+              <Send size={14} />
+            </button>
+          )}
+        </div>
+        <div className="chat-input-controls">
+          <select
+            className="chat-permission-select"
+            title={`Permission mode: ${approvalMode === "auto" ? "Auto — all tools allowed without asking" : approvalMode === "safe" ? "Safe — always ask before any tool" : "Balanced — read-only tools auto-allowed, mutating tools ask"}. Change to control how the agent handles tool calls.`}
+            value={approvalMode}
+            onChange={(e) => void handleSetApprovalMode(e.target.value as ApprovalMode)}
           >
-            <Send size={14} />
+            <option value="balanced" title="Read-only tools auto-allowed; writes and commands prompt">Balanced</option>
+            <option value="safe" title="Every tool call prompts the user">Always Ask</option>
+            <option value="auto" title="No prompts; everything auto-allowed within workspace">Run Everything</option>
+          </select>
+          <button
+            type="button"
+            className={`btn btn-sm chat-debug-toggle ${debugMode ? "chat-debug-toggle-on" : ""}`}
+            title={debugMode ? "Debug mode ON — showing raw event data in tool cards. Click to turn off." : "Debug mode OFF — click to show raw event data in tool cards"}
+            onClick={() => {
+              const next = !debugMode;
+              setDebugMode(next);
+              localStorage.setItem("basebuild.debug-mode", String(next));
+            }}
+          >
+            <Bug size={12} /> Debug
           </button>
         </div>
+        {debugMode ? (
+          <div className="chat-debug-panel" title="Raw event stream from the model and agent loop">
+            <button
+              type="button"
+              className="chat-debug-panel-toggle"
+              title={debugExpanded ? "Collapse debug event stream" : "Expand debug event stream"}
+              onClick={() => setDebugExpanded(!debugExpanded)}
+            >
+              {debugExpanded ? "▼" : "▶"} Debug Event Stream ({debugEvents.length})
+            </button>
+            {debugExpanded ? (
+              <div className="chat-debug-panel-body">
+                {/* Session info row with copy button */}
+                <div className="chat-debug-session-info" title="Current chat session id — click to copy">
+                  <span className="chat-debug-session-label">session</span>
+                  <code className="chat-debug-session-id">{nativeSessionId ?? "none"}</code>
+                  <button
+                    type="button"
+                    className="btn-icon btn-icon-sm chat-debug-copy-btn"
+                    title="Copy session id"
+                    onClick={() => void navigator.clipboard.writeText(nativeSessionId ?? "")}
+                  >
+                    <Copy size={10} />
+                  </button>
+                </div>
+                {debugEvents.length === 0 ? (
+                  <div className="chat-debug-empty text-muted text-sm">No events yet. Send a message to see raw event data.</div>
+                ) : (
+                  <div className="chat-debug-event-list">
+                    {debugEvents.slice(-100).map((e, i) => (
+                      <div key={i} className="chat-debug-event">
+                        <div className="chat-debug-event-header">
+                          <span className="chat-debug-event-ts">{new Date(e.ts).toLocaleTimeString(undefined, { hour12: false })}</span>
+                          <span className="chat-debug-event-channel">{e.channel}</span>
+                          <button
+                            type="button"
+                            className="btn-icon btn-icon-sm chat-debug-copy-btn"
+                            title="Copy this event"
+                            onClick={() => void navigator.clipboard.writeText(
+                              typeof e.data === "string" ? e.data : JSON.stringify(e.data, null, 2),
+                            )}
+                          >
+                            <Copy size={9} />
+                          </button>
+                        </div>
+                        <pre className="chat-debug-event-data">{typeof e.data === "string" ? e.data : JSON.stringify(e.data, null, 2)}</pre>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="chat-debug-actions">
+                  <button
+                    type="button"
+                    className="btn btn-sm chat-debug-copy-all"
+                    title="Copy all debug events to clipboard"
+                    disabled={debugEvents.length === 0}
+                    onClick={() => {
+                      const text = debugEvents.map((e) =>
+                        `[${new Date(e.ts).toLocaleTimeString(undefined, { hour12: false })}] ${e.channel}\n${
+                          typeof e.data === "string" ? e.data : JSON.stringify(e.data, null, 2)
+                        }`,
+                      ).join("\n\n");
+                      void navigator.clipboard.writeText(text);
+                    }}
+                  >
+                    <Copy size={10} /> Copy All
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm chat-debug-clear"
+                    title="Clear debug event log"
+                    onClick={() => setDebugEvents([])}
+                  >Clear</button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        <ChatContextStrip
+          projectPath={projectPath}
+          workspaceId={nativeSessionId}
+          branch={branch}
+          worktreePath={worktreePath}
+          plan={planBadge ? { referenceId: planBadge.referenceId, title: planBadge.title, status: planBadge.status } : null}
+          runState={streaming ? "running" : loading ? "queued" : "idle"}
+          modelLabel={modelName}
+          contextUsage={{ used: null, limit: null }}
+        />
       </div>
     </div>
   );

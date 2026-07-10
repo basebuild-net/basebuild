@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openMvpFixtureProject, waitForAppReady } from "./helpers";
 
 async function openFixtureProject(page: Page) {
   await page.addInitScript(() => {
@@ -7,7 +8,7 @@ async function openFixtureProject(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Open project" }).click();
   await expect(
-    page.locator(".status-pill", { hasText: "C:\\basebuild-e2e\\project" }),
+    page.locator(".activity-sidebar-project-name", { hasText: "project" }),
   ).toBeVisible();
 }
 
@@ -133,5 +134,109 @@ test.describe("Interactive elements: ask_user question card", () => {
 
     // The QuestionCard should also render with a text input.
     await expect(page.locator(".question-card-input")).toBeVisible();
+  });
+});
+
+test.describe("Planning model regression: tool → question → capture → complete", () => {
+  test("planning model reads files, asks a question, captures structured output, and completes", async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+
+    await openMvpFixtureProject(page);
+    await waitForAppReady(page);
+    await page.waitForTimeout(1500);
+
+    // Ensure a chat panel exists.
+    const panel = page.locator(".panel-grid-leaf").first();
+    if ((await panel.count()) === 0) {
+      await page.getByTitle("New chat").first().click();
+      await page.waitForTimeout(500);
+    }
+
+    await expect(page.locator(".chat-panel")).toBeVisible({ timeout: 10_000 });
+    const sessionId = await page.locator(".chat-panel").first().getAttribute("data-native-session-id") ?? "";
+
+    // Step 1: inject a tool event simulating "read file" (context gathering).
+    await page.evaluate(({ sessionId }) => {
+      const w = window as unknown as {
+        __emit?: (event: string, payload: unknown) => void;
+      };
+      w.__emit?.("native-chat://tool-event", {
+        sessionId,
+        toolCallId: "tool-read-1",
+        toolName: "read_file",
+        status: "success",
+        summary: "Read src/main.rs (120 lines)",
+      });
+    }, { sessionId });
+
+    // The tool event should render as a tool-card with success status.
+    await expect(page.locator(".tool-card").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".tool-card-status-success").first()).toBeVisible();
+    await expect(page.locator(".tool-card-name", { hasText: "read file" })).toBeVisible();
+
+    // Step 2: inject an ask_user question (interactive request).
+    await page.evaluate(({ sessionId, interaction }) => {
+      const w = window as unknown as {
+        __basebuildMockInteraction?: unknown;
+        __emit?: (event: string, payload: unknown) => void;
+      };
+      w.__basebuildMockInteraction = { ...interaction, sessionId };
+      w.__emit?.("native-chat://interactive-request", { sessionId, interactionId: interaction.id });
+    }, { sessionId, interaction: {
+      id: "plan-intr-1",
+      questions: [
+        {
+          id: "q1",
+          prompt: "Which framework should the plan target?",
+          kind: "options",
+          options: [
+            { label: "React", description: "SPA" },
+            { label: "Next.js", description: "SSR" },
+          ],
+          recommended: 0,
+          allowFreeText: false,
+        },
+      ],
+      status: "pending",
+      createdAt: Math.floor(Date.now() / 1000),
+    } });
+
+    // The question card should render inline (blocking the run).
+    await expect(page.locator(".question-card-pending")).toBeVisible({ timeout: 5_000 });
+
+    // Step 3: answer the question (captures structured output).
+    await page.locator(".question-card-option", { hasText: "Next.js" }).click();
+    await page.locator(".question-card-actions button", { hasText: "Submit" }).click();
+
+    // The answer is captured.
+    await expect(page.locator(".question-card-success")).toBeVisible({ timeout: 5_000 });
+
+    // Step 4: inject a completion tool event.
+    await page.evaluate(({ sessionId }) => {
+      const w = window as unknown as {
+        __emit?: (event: string, payload: unknown) => void;
+      };
+      w.__emit?.("native-chat://tool-event", {
+        sessionId,
+        toolCallId: "tool-write-1",
+        toolName: "write_file",
+        status: "success",
+        summary: "+Wrote plan.md (45 lines)",
+      });
+    }, { sessionId });
+
+    // The completion tool event should render. Tool events may be grouped
+    // into a ToolEventGroup, so count both individual cards and groups.
+    const toolElements = page.locator(".tool-card, .tool-card-group");
+    const elemCount = await toolElements.count();
+    expect(elemCount).toBeGreaterThanOrEqual(1);
+
+    // No unexplained pauses — no stuck bar.
+    await expect(page.locator(".chat-stuck-bar")).toHaveCount(0);
+    // No error bar.
+    await expect(page.locator(".chat-error-bar")).toHaveCount(0);
+
+    expect(pageErrors).toEqual([]);
   });
 });

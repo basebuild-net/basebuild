@@ -1,8 +1,17 @@
 # Agent Runtime
 
-Basebuild wraps terminal-based coding tools. The primary agent is OhMyPi (OMP).
-The architecture supports future adapters (Basebuild CLI, other CLIs, IDEs)
-without changing the chat UI contract.
+Basebuild is **native-first**: the primary chat runtime is an in-house Rust
+agent loop (`agent_loop_service.rs`) that handles provider streaming, tool
+calling, approval gates, and ask_user interactions directly. All providers
+(OpenAI, Anthropic, Devin, GLM-5.2, etc.) route through this native loop — no
+external CLI process is required for chat.
+
+OhMyPi (OMP) is a **supported tool**, not the chat transport. OMP may be used
+as a terminal panel, a plan runner, and an optional chat profile for users who
+want OMP's own tool ecosystem. The OMP RPC bridge (`omp-rpc` profile) exists
+for users who explicitly choose it, but the native agent loop is the default
+and preferred runtime. The architecture supports future adapters (Basebuild
+CLI, other CLIs, IDEs) without changing the chat UI contract.
 
 ## Runtime profiles
 
@@ -41,12 +50,30 @@ collection/upload remain disabled.
 Native chat exposes providers (Basebuild Local, OpenAI, Anthropic, Umans),
 models, effort levels, sync freshness, and source metadata through typed backend
 commands. Provider credentials are stored locally only and never uploaded.
+When both a Basebuild-saved credential and an OMP-imported credential exist for
+the same provider, the Basebuild-saved one takes precedence. OMP credentials
+serve as the fallback for providers not configured in Basebuild. Disconnecting a
+provider blocks both Basebuild and OMP credentials for that provider until a new
+key is saved (which unblocks it).
 `native_provider_catalog` returns the cache-first catalog; `native_provider_catalog_refresh`
 forces online sync for one provider or all providers. Direct provider/CLI model
 payloads are preferred, OpenAI-compatible providers use `/v1/models` when
 available, and the optional hosted Basebuild model directory is queried only
 when direct discovery is unavailable and without secrets, prompts, project
 paths, or local account identifiers.
+
+The composer opens provider/model configuration in one two-pane modal. A dense
+provider grid puts configured providers first with green Connected state;
+unconfigured providers use grey Available state. The adjacent searchable model
+pane stays scoped to the selected provider and shows capability badges. Models
+are keyed by both provider id and model id, so duplicate model
+ids cannot cross providers. On restore, the chat session's provider/model/effort
+wins over the project default; effort controls contain only values present in
+the selected model's `supportedEfforts`. Until catalog-owned effective transport
+capabilities land, the UI also rejects known bespoke transports that cannot
+participate in the native tool loop rather than starting a false planning run.
+Transports that cannot expose tools produce an explicit capability state before
+launch; they do not advertise planning support or start a fake tools-capable run.
 
 ## Provider-backed turn execution
 
@@ -81,14 +108,32 @@ API-key entry (`src-tauri/src/services/provider_login_service.rs`):
 
 ## Chat slash commands
 
-The composer intercepts recognized slash commands before provider send:
+The composer intercepts recognized slash commands before provider send. Typing
+`/` opens a command palette with a large, filterable list showing command names,
+descriptions, source badges, usage hints, and argument helpers. A visible
+`Commands` button in the composer rail opens the same palette without typing `/`.
+Keyboard: ArrowUp/ArrowDown navigates, Tab completes the selected command into
+the composer, Enter submits, Escape closes. Recent commands rank first.
 
-- `/login` opens the provider chooser; `/login <provider>` preselects a matching
-  provider and opens its connection UI.
-- `/model` opens the searchable model picker; `/model <filter>` pre-filters by
-  provider id, model id, or label.
-- `/models refresh` forces provider model-catalog sync and reports the result in
-  the composer.
+- `/login [provider]` opens the provider chooser; with a provider id/label,
+  preselects it and opens its connection UI.
+- `/model [query]` opens the searchable model picker; with a filter, pre-filters
+  by provider id, model id, or label.
+- `/provider [query]` opens the provider picker; with a filter, switches to the
+  matching provider with a compatible model fallback.
+- `/models refresh` forces provider model-catalog sync and reports the result
+  inline.
+- `/clear` clears the current chat transcript. Confirms before deleting persisted
+  messages; preserves the session and provider/model/effort selection.
+- `/new` starts a fresh empty chat for the current project without deleting the
+  previous chat.
+- `/commands` and `/help` show the complete command reference locally with names,
+  descriptions, usage, source labels, and a keyboard guide.
+- `/stop` cancels the current running chat request, or reports idle if nothing
+  is running.
+- `/plan`, `/idea`, `/openspec` execute planning pipeline UI actions.
+- `/mcp` shows a notice pointing to Settings for MCP server management.
+- `/skill:<name> [args]` injects a skill's content into the conversation.
 
 Unknown slash commands remain local and offer an explicit "send as text" escape.
 Slash commands are accelerators only; provider/model UI remains visible next to
@@ -306,6 +351,60 @@ truncates oldest turns first if the conversation exceeds the model's context
 window minus an output margin. The system prompt and latest user turn are always
 preserved. Oversized tool results are head+tail capped (full output stored locally).
 
+## Agent Activity Timeline
+
+Native and OMP-backed events normalize into ordered **activity items** so the chat
+UI can render one timeline for every supported runtime profile.
+
+### Activity item types
+
+Each item has one of the following types:
+
+- `assistant_text` — assistant prose rendered in the transcript.
+- `reasoning` — model reasoning/thinking content (often collapsed by default).
+- `tool_call` — a tool invocation, its inputs, status, and eventual result.
+- `question` — a blocking question posed to the user (e.g. OMP RPC `ask_user`).
+- `capture` — a captured artifact or checkpoint surfaced as an activity row.
+- `approval` — a pending tool approval gate.
+- `notice` — a non-blocking system or runtime notice.
+- `error` — a failure that stopped or degraded the run.
+
+### Common fields
+
+Every activity item carries:
+
+- `id` — stable identity for the item within the session.
+- `sequence` — ordering index; items render in sequence order when expanded.
+- `status` — current lifecycle state of the operation.
+- `summary` — short human-readable description shown in collapsed and expanded
+  views.
+- `startedAt` / `finishedAt` / `updatedAt` — timestamps when available.
+- `detail` — optional expandable payload (tool result, error trace, captured
+  output, etc.).
+
+### Presentation
+
+- **Ungrouped by default**: the timeline renders a flat chronological list.
+  Every tool call, thinking block, question, notice, error, approval, and
+  capture is its own row in the order received. No grouping or lumping.
+- **Thinking blocks split**: when a tool call, question, or other activity
+  interrupts reasoning, the current thinking block closes and later reasoning
+  starts a new `ThinkingBlock` row. Thinking is never concatenated with
+  assistant text.
+- **Loading rows**: streaming, thinking, running tools, waiting for answer,
+  queued, blocked, and failed states each show a loading row with both an
+  icon and text — never color alone.
+- **States**: running, waiting, blocked, and failed states surface the latest
+  operation summary, expandable detail, and safe actions such as cancellation
+  and retry where the backend allows it.
+
+### Blocking questions and approvals
+
+`question` and `approval` cards render inline in their owning surface (Schematic
+or planning) and visibly block the run. The run resumes the exact pending turn
+once, after the user answers or resolves the approval gate; duplicate or stale
+answers are ignored.
+
 ## Tool Runtime
 
 The `ToolRuntimeService` provides six built-in tools:
@@ -520,12 +619,11 @@ get/set/reset/list operations.
 
 ## Planning Inspector
 
-The side panel's Planning section is a three-tab inspector:
+The project Planning modal is a five-tab inspector:
 
-- **Plans** — the existing plan pipeline (create, edit, focus, queue). The
-  "Generate plans" modal and input boxes were removed
-  (schematic-grounded-planning); generation runs through the chat planning
-  menu instead.
+- **Plans** — the existing plan pipeline (edit, focus, queue). The blank/manual
+  Create plan affordance, Generate plans modal, and input boxes are removed;
+  generation begins from AI ideas and existing plan metadata remains editable.
 - **Ideas** — filterable idea history (all/concept/picked/rejected/archived)
   with promote, reject, and delete actions. Each idea card shows its
   `grounding` evidence and `anchor` (or an "outside current focus" flag when
@@ -534,6 +632,8 @@ The side panel's Planning section is a three-tab inspector:
   form, and "Suggest more ideas" which opens a chat turn scoped to the
   category. The empty state offers "Generate categories from project"
   (no hardcoded seeds).
+- **Flow** — lifecycle counts, launch policy, run board, and merge queue.
+- **Changes** — the OpenSpec change catalog.
 
 A schematic health badge appears in the inspector header when health is not
 `complete`, with a tooltip naming incomplete sections.
@@ -573,13 +673,19 @@ when `BASEBUILD_HOME` is unset. A shared test-util constructor
 env var. The user's real `~/.basebuild/state.db` is never read or written
 during tests.
 
-## OMP RPC chat bridge
+## OMP RPC chat bridge (optional profile)
 
-The `omp-rpc` chat runtime profile runs a persistent `omp --mode rpc` child
-per session (`omp_rpc_session_service.rs`), exchanging line-delimited JSON
-frames over stdio. Unlike the one-shot `OmpCodexRpcClient` (which uses
-`--no-tools --no-session`), the session bridge enables session+tools and
-stays alive for the duration of the chat.
+The `omp-rpc` chat runtime profile is an **optional** path for users who
+explicitly want OMP's own tool ecosystem. It is not the default and not
+required for any provider. The native agent loop (`agent_loop_service.rs`)
+is the default and preferred runtime for all providers, including Devin and
+GLM-5.2.
+
+When the `omp-rpc` profile is explicitly selected, it runs a persistent
+`omp --mode rpc` child per session (`omp_rpc_session_service.rs`), exchanging
+line-delimited JSON frames over stdio. Unlike the one-shot `OmpCodexRpcClient`
+(which uses `--no-tools --no-session`), the session bridge enables
+session+tools and stays alive for the duration of the chat.
 
 ### Frame map
 
@@ -680,3 +786,114 @@ chips. Detection:
 - Also detects "reply with X/Y" phrasing.
 - Strips code fences before scanning.
 - Renders chips after the message list; clicking a chip sends the option text.
+
+## Markdown rendering contract
+
+Assistant message bodies, thinking-block bodies, and command notices are
+rendered through an in-house markdown renderer (`MarkdownView.tsx`) that
+produces **React elements only** — never `dangerouslySetInnerHTML`, never
+HTML strings. Raw HTML in the markdown source is rendered as literal text.
+
+- Block tokenizer: fence, heading, list, blockquote, table, paragraph.
+- Inline tokenizer: code, bold, italic, link.
+- Links render as label + host text with the full URL in `title=`; no
+  navigation is attempted.
+- Fenced code blocks show a language label header and a copy button
+  (`navigator.clipboard` with toast feedback).
+- A minimal in-house syntax highlight pass covers comments, strings,
+  numbers, and small keyword sets for ts/js/rust/py/json/bash/css/html.
+  Unknown languages render unhighlighted. No external dependency.
+- Completed messages are memoized by content hash; only the streaming
+  message re-parses per frame.
+- User messages remain plain pre-wrapped text (no markdown rendering).
+
+## Message action rail
+
+Each persisted message has a per-message action rail:
+- **Copy** on all messages (clipboard write of raw source text with toast).
+- **Retry** on the latest assistant message (re-issues last user message;
+  prior assistant reply preserved; timeline marker links original and retried).
+- **Edit-and-resend** on the latest user message (prefills composer, sends
+  appends a new turn).
+Buttons are tab-reachable with `title=` tooltips.
+
+## Tool card depth
+
+Tool call results render as expandable cards (`ToolEventCard`) with:
+- Per-kind icons and duration display.
+- Expanded key/value argument table with nested JSON pretty-printed.
+- **Unified diff** for `write_file` and `edit_file` (LCS line-diff, cap 400
+  lines with head/tail elision; unchanged → explicit "no changes").
+- **Approval provenance** line: "Approved by user" / "Denied by user" /
+  "Allowed by rule `<pattern>`" / "Auto (mode)".
+- Expansion state persists across streaming re-renders (keyed by tool call
+  id via a module-level `Map<string, boolean>`).
+
+## Provider availability states
+
+The provider picker renders three states:
+- **Ready** (green): configured with a usable transport.
+- **Setup required** (grey): no credential stored.
+- **Transport unavailable** (warning): configured but all models have
+  bespoke `api_kind` and no `base_url` — can only use OMP RPC, not the
+  native agent loop transport.
+
+Per-provider error chips with Retry buttons appear when `provider.error`
+is set; retry triggers `native_provider_catalog_refresh({ providerId, force: true })`.
+
+"Update key" is available beside Disconnect for configured providers in
+both the settings panel and the chat provider picker.
+
+## Native schematic wizard round trip
+
+The schematic wizard uses the native agent loop's `ask_user` interaction
+mechanism:
+- `execute_ask_user` parks the turn on an mpsc channel waiting for resolution.
+- `resolve_interaction` delivers answers through the channel; `cancel_interaction`
+  delivers a cancelled resolution.
+- Pending interactions are stored in a global `Mutex<HashMap<String, mpsc::Sender>>`.
+
+When the agent writes to `.basebuild/project-schematic.md` via `write_file`,
+a post-turn mtime check in the native send path detects the change and
+emits a `SchematicUpdated` planning event so the schematic tab refreshes.
+
+## Idea grounding metadata
+
+Idea and category generation prompts include a mandatory **decision digest**:
+- Recent picked/rejected ideas (last 10).
+- Plans finished since the schematic's mtime.
+- When the digest is empty, an explicit "no decisions since schematic
+  update" line is injected (not silently omitted).
+
+`NativeGenerateIdeasResult` carries `GroundingMetadata`:
+- `schematicSections`: headings parsed from the schematic file.
+- `finishedPlans`: reference IDs of plans finished since schematic update.
+- `finishedPlanCount`, `pickedCount`, `rejectedCount`.
+- `digestEmpty`: whether the digest had no recent decisions.
+
+The Planning Inspector's Ideas tab renders a batch header with grounding
+provenance ("Grounded in: <sections> · N finished plans") and a
+"Generate from finished plans" action that produces a digest-weighted
+prompt variant (disabled when no finished plans since schematic update).
+
+## OpenSpec artifact quality gate
+
+`validate_artifacts(change_dir)` in `openspec_service.rs` checks:
+- `proposal.md` is non-empty with `## Why` and `## What-Changes` sections.
+- At least one spec directory with `spec.md` containing a requirement
+  heading and a scenario heading.
+- `tasks.md` has at least one task checkbox; pre-checked tasks produce
+  a warning (expected 0 for a new change).
+
+Errors block plan status advancement; warnings are advisory. The gate
+is wired into:
+- `pipeline_service::stage_generate_openspec` after `write_artifacts_atomic`:
+  failure keeps the plan in `draft`, records the pipeline run as failed,
+  and preserves artifacts on disk.
+- `PlanDependencyService::validate_readiness`: artifact errors flow into
+  readiness errors, warnings into readiness warnings.
+
+The task progress parser (`parse_task_progress`) counts nested/indented
+checkboxes and mixed markers (`-` and `*`) with arbitrary indentation
+depth. A single parser feeds plan cards, the context strip, and
+`plan_runner_service::evaluate_checklist_completion`.

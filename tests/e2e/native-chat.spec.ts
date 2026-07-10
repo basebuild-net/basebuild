@@ -1,12 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openMvpFixtureProject, waitForAppReady } from "./helpers";
 
 async function openFixtureProject(page: Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem("basebuild:first-run-complete", "true");
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Open project" }).click();
-  await expect(page.locator(".status-pill", { hasText: "C:\\basebuild-e2e\\project" })).toBeVisible();
+  await openMvpFixtureProject(page);
+  await waitForAppReady(page);
 }
 
 async function ensureChatPanel(page: Page) {
@@ -35,20 +32,25 @@ test.describe("native chat workspace", () => {
     await expect(page.locator(".chat-composer-header")).toBeVisible();
     await expect(page.locator(".chat-provider-trigger")).toBeVisible();
     await expect(page.locator(".chat-model-trigger")).toBeVisible();
-    await expect(page.locator(".chat-effort-select")).toHaveValue("medium");
+    await page.locator(".chat-provider-trigger").click();
+    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.getByTitle("Close provider and model catalog").click();
+    expect(await page.locator(".chat-effort-select").inputValue()).not.toBe("");
     await expect(page.locator(".chat-provider-trigger")).toContainText("Basebuild Local");
 
     // Metrics bar should render with 0 req initially.
     await expect(page.locator(".chat-metrics")).toContainText("0 req");
 
     // Type and send a message.
+    const usersBefore = await page.locator(".chat-message-user").count();
+    const assistantsBefore = await page.locator(".chat-message-assistant").count();
     await page.getByTitle(/Chat input/).first().fill("Hello native harness");
     await page.getByTitle("Send message").click();
 
     // The user and assistant messages should render.
-    await expect(page.locator(".chat-message-user")).toHaveCount(1);
-    await expect(page.locator(".chat-message-assistant")).toHaveCount(1);
-    await expect(page.locator(".chat-message-assistant .chat-message-content")).toContainText("Native harness echo");
+    await expect(page.locator(".chat-message-user")).toHaveCount(usersBefore + 1);
+    await expect(page.locator(".chat-message-assistant")).toHaveCount(assistantsBefore + 1);
+    await expect(page.locator(".chat-message-assistant .chat-message-content").last()).toContainText("Native harness echo");
 
     // The local-coordinator turn is explicitly labeled offline.
     await expect(page.locator(".chat-offline-tag")).toBeVisible();
@@ -70,7 +72,14 @@ test.describe("native chat workspace", () => {
     await ensureChatPanel(page);
 
     await page.locator(".chat-provider-trigger").click();
-    await page.locator(".chat-picker-item", { hasText: "OpenAI" }).first().click();
+    const catalogModal = page.locator('.provider-catalog-overlay[aria-label="Provider and model catalog"]');
+    await expect(catalogModal).toBeVisible();
+    await expect(catalogModal.locator(".provider-card.is-connected").first()).toBeVisible();
+    await expect(catalogModal.locator(".provider-status.is-connected").first()).toContainText("Connected");
+    await catalogModal.locator(".provider-card", { hasText: "OpenAI" }).first().click();
+
+    // The catalog closes after selecting a provider so the composer controls update.
+    await page.getByTitle("Close provider and model catalog").click();
 
     // The composer shows a degraded setup state and a Connect affordance.
     await expect(page.locator(".chat-provider-trigger")).toContainText("OpenAI");
@@ -78,12 +87,16 @@ test.describe("native chat workspace", () => {
     await expect(page.locator(".chat-composer-header button[title*='Connect']")).toBeVisible();
 
     // Attempting to send opens the connect prompt and keeps the draft; no turn is sent.
+    const messageCountBefore = await page.locator(".chat-message-user").count();
     await page.getByTitle(/Chat input/).first().fill("should not send yet");
     await page.getByTitle("Send message").click();
-    await expect(page.locator(".chat-login-form")).toBeVisible();
-    await expect(page.locator(".chat-login-form input[placeholder='API key']")).toBeVisible();
-    await expect(page.locator(".chat-link-btn", { hasText: "Get API key" })).toBeVisible();
-    await expect(page.locator(".chat-message-user")).toHaveCount(0);
+
+    const loginModal = page.locator(".modal-overlay").filter({
+      has: page.locator("input[type='password']"),
+    });
+    await expect(loginModal).toBeVisible();
+    await expect(loginModal.locator("input[placeholder='API key']")).toBeVisible();
+    await expect(page.locator(".chat-message-user")).toHaveCount(messageCountBefore);
     await expect(page.getByTitle(/Chat input/).first()).toHaveValue("should not send yet");
 
     expect(consoleErrors).toEqual([]);
@@ -100,7 +113,7 @@ test.describe("native chat workspace", () => {
 
     // Select the connected Umans provider and generate ideas from the overflow menu.
     await page.locator(".chat-provider-trigger").click();
-    await page.locator(".chat-picker-item", { hasText: "Umans" }).click();
+    await page.locator(".provider-card", { hasText: "Umans" }).click();
     await page.getByTitle("Idea generation actions").click();
     await page.getByTitle("Quick freeform idea generation in the chat").click();
     // Two idea cards render with promote actions.
@@ -120,9 +133,10 @@ test.describe("native chat workspace", () => {
 
     await page.getByTitle(/Chat input/).first().fill("/model glm");
     await page.getByTitle("Send message").click();
-    await expect(page.locator(".chat-picker", { hasText: "Choose model" })).toBeVisible();
-    await expect(page.locator(".chat-picker-item", { hasText: "Umans GLM 5.2" })).toBeVisible();
-    await page.locator(".chat-picker-item", { hasText: "Umans GLM 5.2" }).click();
+    await expect(page.locator('.provider-catalog-overlay[aria-label="Provider and model catalog"]')).toBeVisible();
+    await page.locator(".provider-card", { hasText: "Umans" }).click();
+    await expect(page.locator(".provider-model-row", { hasText: "Umans GLM 5.2" })).toBeVisible();
+    await page.locator(".provider-model-row", { hasText: "Umans GLM 5.2" }).click();
     await expect(page.locator(".chat-model-trigger")).toContainText("Umans GLM 5.2");
 
     await page.getByTitle(/Chat input/).first().fill("/models refresh");

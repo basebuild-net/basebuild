@@ -1,14 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openMvpFixtureProject, waitForAppReady } from "./helpers";
 
 async function openFixtureProject(page: Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem("basebuild:first-run-complete", "true");
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Open project" }).click();
-  await expect(
-    page.locator(".status-pill", { hasText: "C:\\basebuild-e2e\\project" }),
-  ).toBeVisible();
+  await openMvpFixtureProject(page);
+  await waitForAppReady(page);
+  await page.waitForTimeout(1500);
+  // Ensure a chat panel exists so the environment panel renders.
+  const panel = page.locator(".panel-grid-leaf").first();
+  if ((await panel.count()) === 0) {
+    await page.getByTitle("New chat").first().click();
+    await page.waitForTimeout(500);
+  }
 }
 
 test.describe("Notifications: toast + center + badge", () => {
@@ -78,9 +80,14 @@ test.describe("Notifications: toast + center + badge", () => {
   test("per-kind mute suppresses toast", async ({ page }) => {
     await openFixtureProject(page);
 
-    // Open settings → notifications.
-    await page.locator("button[title='Settings'], button[title='Sign in to basebuild.net']").first().click();
-    await expect(page.locator(".settings-modal")).toBeVisible();
+    // Open settings via the account menu.
+    const accountBtn = page.locator('button[title*="MVPUser"], button[title*="Sign in"]').first();
+    await expect(accountBtn).toBeVisible({ timeout: 10_000 });
+    await accountBtn.click({ timeout: 10_000 });
+    const settingsItem = page.locator('button[title="Open settings"]').first();
+    await expect(settingsItem).toBeVisible({ timeout: 5_000 });
+    await settingsItem.click({ timeout: 5_000 });
+    await expect(page.locator(".settings-modal")).toBeVisible({ timeout: 15_000 });
     await page.locator(".settings-tab", { hasText: "Notifications" }).click();
 
     // Set "Run finished" to center-only (no toast).

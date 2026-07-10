@@ -19,7 +19,6 @@ export function useSessionState(projectPath: string | null, lastActiveSessionId?
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [tabs, setTabs] = useState<SessionTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  // Per-tab grid layouts, hydrated from workspace restore state by AppShell.
   // Kept in-memory so the grid can mutate synchronously (resize/reorder) and
   // AppShell persists it back (debounced) via save_workspace_restore_state.
   const [tabGridStates, setTabGridStates] = useState<Record<string, ChatGrid>>({});

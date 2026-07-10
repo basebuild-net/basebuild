@@ -120,11 +120,13 @@ bases). Phases 1–2, 3–4, 5–6, 7–8, and 9 are intended PR boundaries.
 - [x] 6.3 Multi-select + "Approve selected" on Ideas tab → batch promote
       via `batchPromoteIdeas`; summary toast + per-idea error capture;
       checkboxes on concept ideas; clear selection.
-- [ ] 6.4 "Launch selected" on ready plans → confirmation enumerating chats/
+- [x] 6.4 "Launch selected" on ready plans → confirmation enumerating chats/
       worktrees/branches/providers → per-plan chat spawn via assignment;
       queued-beyond-cap state visible on the board.
-- [ ] 6.5 Playwright e2e: select 3 ideas → approve → 3 plans; launch 2 plans
+      Absorbed by `planning-cockpit` tasks 2.3/2.4 and 6.4.
+- [x] 6.5 Playwright e2e: select 3 ideas → approve → 3 plans; launch 2 plans
       → 2 chats with badges (mocked git/provider); board counts update live.
+      Absorbed by `planning-cockpit` task 2.4 and 6.4 e2e coverage.
 
 ## 7. Feedback loop (Phase D)
 

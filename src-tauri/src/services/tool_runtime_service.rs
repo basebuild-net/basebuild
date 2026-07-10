@@ -56,18 +56,126 @@ pub struct ToolResult {
     /// Full output before truncation, when the caller wants to persist it.
     /// `None` when content was not truncated.
     pub full_content: Option<String>,
+    /// Unified line diff for `edit_file`/`write_file` results, capped at
+    /// 400 lines with head/tail elision. `None` for non-file tools or
+    /// when content is unchanged.
+    pub diff: Option<String>,
+    /// How the approval decision was made: "approved", "denied", "auto",
+    /// "rule". `None` for non-gateway calls (propose_ideas, ask_user).
+    pub decision: Option<String>,
+    /// The rule pattern that matched, if any.
+    pub rule_source: Option<String>,
+    /// Whether the tool touched a sensitive path and its arguments/diff
+    /// should be redacted before persistence or emission.
+    pub sensitive: bool,
 }
 
 impl ToolResult {
     pub fn success(content: String) -> Self {
-        Self { content, status: "succeeded".to_string(), full_content: None }
+        Self { content, status: "succeeded".to_string(), full_content: None, diff: None, decision: None, rule_source: None, sensitive: false }
     }
     pub fn failure(content: String) -> Self {
-        Self { content, status: "failed".to_string(), full_content: None }
+        Self { content, status: "failed".to_string(), full_content: None, diff: None, decision: None, rule_source: None, sensitive: false }
     }
     pub fn denied(content: String) -> Self {
-        Self { content, status: "denied".to_string(), full_content: None }
+        Self { content, status: "denied".to_string(), full_content: None, diff: None, decision: None, rule_source: None, sensitive: false }
     }
+}
+/// Redaction marker used when a tool touches a sensitive path.
+const REDACTED_ARGUMENT: &str = "[redacted: sensitive path]";
+
+/// Recursively replace string values for keys that carry file body content
+/// (`content`, `old_text`, `new_text`) with a redaction marker. Non-body
+/// keys and path arguments are left untouched so audit logs still show what
+/// file was touched.
+fn redact_argument_value(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            for (key, val) in map.iter_mut() {
+                if (key == "content" || key == "old_text" || key == "new_text") && val.is_string() {
+                    *val = Value::String(REDACTED_ARGUMENT.to_string());
+                } else {
+                    redact_argument_value(val);
+                }
+            }
+        }
+        Value::Array(arr) => {
+            for val in arr {
+                redact_argument_value(val);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Redact body fields from a tool-arguments JSON string. Returns the original
+/// string unchanged if it is not valid JSON.
+pub fn redact_tool_arguments(arguments: &str) -> String {
+    let mut value: Value = match serde_json::from_str(arguments) {
+        Ok(v) => v,
+        Err(_) => return arguments.to_string(),
+    };
+    redact_argument_value(&mut value);
+    serde_json::to_string(&value).unwrap_or_else(|_| arguments.to_string())
+}
+
+/// Heuristic check for paths that commonly hold credentials or secrets.
+/// Matching is case-insensitive on the resolved workspace-relative path.
+fn is_sensitive_path(path: &Path) -> bool {
+    let name_lower = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|s| s.to_lowercase());
+    let ext_lower = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_lowercase());
+    let components: Vec<String> = path
+        .components()
+        .filter_map(|c| c.as_os_str().to_str().map(|s| s.to_lowercase()))
+        .collect();
+
+    // Any component is a known secret-bearing directory.
+    for comp in &components {
+        if comp == ".ssh" || comp == ".aws" || comp == ".gnupg" || comp == ".omp" {
+            return true;
+        }
+    }
+
+    if let Some(name) = name_lower {
+        // .env files and private-key naming conventions.
+        if name == ".env" || name.starts_with(".env.") {
+            return true;
+        }
+        if name.starts_with("id_rsa") || name.starts_with("id_ed25519") || name.starts_with("id_ecdsa") {
+            return true;
+        }
+        if name == "credentials.json" {
+            return true;
+        }
+
+        // Common secret-bearing extensions.
+        if let Some(ref ext) = ext_lower {
+            if ext == "pem" || ext == "key" || ext == "p12" || ext == "pfx" {
+                return true;
+            }
+        }
+
+        // SQLite/DB files inside a dot-directory.
+        if let Some(ref ext) = ext_lower {
+            if ext == "sqlite" || ext == "sqlite3" || ext == "db" || ext == "db3" {
+                let ancestor_dot = components
+                    .iter()
+                    .take(components.len().saturating_sub(1))
+                    .any(|c| c.starts_with('.'));
+                if ancestor_dot {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
 }
 
 /// Return the registry of all available tools with their schemas.
@@ -340,6 +448,10 @@ fn truncate_output(content: String) -> ToolResult {
         content: truncated,
         status: "succeeded".to_string(),
         full_content: Some(content),
+        diff: None,
+        decision: None,
+        rule_source: None,
+        sensitive: false,
     }
 }
 
@@ -392,6 +504,10 @@ fn read_file(workspace_root: &Path, args: &Value) -> ToolResult {
             content: out,
             status: "succeeded".to_string(),
             full_content: Some(content),
+            diff: None,
+            decision: None,
+            rule_source: None,
+            sensitive: false,
         };
     }
     // Return line-numbered content.
@@ -401,6 +517,78 @@ fn read_file(workspace_root: &Path, args: &Value) -> ToolResult {
     }
     ToolResult::success(out)
 }
+/// Maximum diff output lines before head+tail elision.
+const MAX_DIFF_LINES: usize = 400;
+
+/// Compute a unified line diff between `before` and `after` using a
+/// simple LCS algorithm. Output is capped at `MAX_DIFF_LINES` lines with
+/// head/tail elision. Returns `None` when content is unchanged.
+fn compute_diff(before: &str, after: &str) -> Option<String> {
+    let before_lines: Vec<&str> = before.lines().collect();
+    let after_lines: Vec<&str> = after.lines().collect();
+
+    // Short-circuit: identical content.
+    if before == after {
+        return None;
+    }
+
+    let n = before_lines.len();
+    let m = after_lines.len();
+
+    // LCS table (rows = before, cols = after). For large inputs this is
+    // O(n*m) memory; cap at 2000 lines each to avoid pathological cases.
+    if n > 2000 || m > 2000 {
+        // Fallback: just show all-after as additions and all-before as deletions.
+        return Some(format!(
+            "Diff too large ({} → {} lines); showing summary only.\n{} lines removed, {} lines added.",
+            n, m, n, m
+        ));
+    }
+
+    let mut lcs = vec![vec![0u32; m + 1]; n + 1];
+    for i in 1..=n {
+        for j in 1..=m {
+            if before_lines[i - 1] == after_lines[j - 1] {
+                lcs[i][j] = lcs[i - 1][j - 1] + 1;
+            } else {
+                lcs[i][j] = lcs[i - 1][j].max(lcs[i][j - 1]);
+            }
+        }
+    }
+
+    // Backtrack to produce the unified diff.
+    let mut diff_lines: Vec<String> = Vec::new();
+    let mut i = n;
+    let mut j = m;
+    while i > 0 || j > 0 {
+        if i > 0 && j > 0 && before_lines[i - 1] == after_lines[j - 1] {
+            diff_lines.push(format!(" {}", before_lines[i - 1]));
+            i -= 1;
+            j -= 1;
+        } else if j > 0 && (i == 0 || lcs[i][j - 1] >= lcs[i - 1][j]) {
+            diff_lines.push(format!("+{}", after_lines[j - 1]));
+            j -= 1;
+        } else if i > 0 {
+            diff_lines.push(format!("-{}", before_lines[i - 1]));
+            i -= 1;
+        }
+    }
+    diff_lines.reverse();
+
+    // Cap at MAX_DIFF_LINES with head/tail elision.
+    if diff_lines.len() <= MAX_DIFF_LINES {
+        Some(diff_lines.join("\n"))
+    } else {
+        let head = MAX_DIFF_LINES / 2;
+        let tail = MAX_DIFF_LINES - head;
+        let omitted = diff_lines.len() - MAX_DIFF_LINES;
+        let mut out: Vec<String> = diff_lines[..head].to_vec();
+        out.push(format!("... ({} lines omitted) ...", omitted));
+        out.extend(diff_lines[diff_lines.len() - tail..].iter().cloned());
+        Some(out.join("\n"))
+    }
+}
+
 
 fn write_file(workspace_root: &Path, args: &Value) -> ToolResult {
     let path = match args.get("path").and_then(Value::as_str) {
@@ -415,17 +603,52 @@ fn write_file(workspace_root: &Path, args: &Value) -> ToolResult {
         Ok(p) => p,
         Err(e) => return ToolResult::denied(e),
     };
+    let sensitive = is_sensitive_path(&resolved);
+    // Read existing content for diff (empty if new file). Skip the read for
+    // files larger than the read cap so writing a huge file does not force an
+    // equally huge in-memory pre-image.
+    let oversize = std::fs::metadata(&resolved)
+        .map(|m| m.len() > MAX_READ_FILE_BYTES)
+        .unwrap_or(false);
+    let before = if oversize {
+        String::new()
+    } else {
+        std::fs::read_to_string(&resolved).unwrap_or_default()
+    };
     // Create parent directories if needed.
     if let Some(parent) = resolved.parent() {
         if !parent.exists() {
             if let Err(e) = std::fs::create_dir_all(parent) {
-                return ToolResult::failure(format!("Failed to create directories for '{path}': {e}"));
+                return ToolResult {
+                    content: format!("Failed to create directories for '{path}': {e}"),
+                    status: "failed".to_string(),
+                    full_content: None,
+                    diff: None,
+                    decision: None,
+                    rule_source: None,
+                    sensitive,
+                };
             }
         }
     }
     match std::fs::write(&resolved, content) {
-        Ok(_) => ToolResult::success(format!("Wrote {} bytes to {}", content.len(), path)),
-        Err(e) => ToolResult::failure(format!("Failed to write file '{path}': {e}")),
+        Ok(_) => {
+            let diff = if sensitive || oversize {
+                None
+            } else {
+                compute_diff(&before, content)
+            };
+            ToolResult { content: format!("Wrote {} bytes to {}", content.len(), path), status: "succeeded".to_string(), full_content: None, diff, decision: None, rule_source: None, sensitive }
+        }
+        Err(e) => ToolResult {
+            content: format!("Failed to write file '{path}': {e}"),
+            status: "failed".to_string(),
+            full_content: None,
+            diff: None,
+            decision: None,
+            rule_source: None,
+            sensitive,
+        },
     }
 }
 
@@ -447,21 +670,61 @@ fn edit_file(workspace_root: &Path, args: &Value) -> ToolResult {
         Ok(p) => p,
         Err(e) => return ToolResult::denied(e),
     };
+    let sensitive = is_sensitive_path(&resolved);
+    // Editing huge files would allocate unbounded memory; reject explicitly.
+    if let Ok(metadata) = std::fs::metadata(&resolved) {
+        if metadata.len() > MAX_READ_FILE_BYTES {
+            return ToolResult {
+                content: format!("File exceeds the 1 MB edit limit: {path}"),
+                status: "failed".to_string(),
+                full_content: None,
+                diff: None,
+                decision: None,
+                rule_source: None,
+                sensitive,
+            };
+        }
+    }
     let content = match std::fs::read_to_string(&resolved) {
         Ok(c) => c,
-        Err(e) => return ToolResult::failure(format!("Failed to read file '{path}': {e}")),
+        Err(e) => return ToolResult {
+            content: format!("Failed to read file '{path}': {e}"),
+            status: "failed".to_string(),
+            full_content: None,
+            diff: None,
+            decision: None,
+            rule_source: None,
+            sensitive,
+        },
     };
     let actual = content.matches(old_text).count();
     if actual != expected {
-        return ToolResult::failure(format!(
-            "Edit rejected: expected {} occurrence(s) of old_text, found {}. No changes made.",
-            expected, actual
-        ));
+        return ToolResult {
+            content: format!(
+                "Edit rejected: expected {} occurrence(s) of old_text, found {}. No changes made.",
+                expected, actual
+            ),
+            status: "failed".to_string(),
+            full_content: None,
+            diff: None,
+            decision: None,
+            rule_source: None,
+            sensitive,
+        };
     }
     let new_content = content.replacen(old_text, new_text, expected);
+    let diff = if sensitive { None } else { compute_diff(&content, &new_content) };
     match std::fs::write(&resolved, &new_content) {
-        Ok(_) => ToolResult::success(format!("Replaced {} occurrence(s) in {}", expected, path)),
-        Err(e) => ToolResult::failure(format!("Failed to write file '{path}': {e}")),
+        Ok(_) => ToolResult { content: format!("Replaced {} occurrence(s) in {}", expected, path), status: "succeeded".to_string(), full_content: None, diff, decision: None, rule_source: None, sensitive },
+        Err(e) => ToolResult {
+            content: format!("Failed to write file '{path}': {e}"),
+            status: "failed".to_string(),
+            full_content: None,
+            diff: None,
+            decision: None,
+            rule_source: None,
+            sensitive,
+        },
     }
 }
 
@@ -1020,5 +1283,270 @@ mod tests {
         assert!(result.content.contains("[truncated"));
         assert!(result.full_content.is_some());
         assert!(result.content.starts_with('A'));
+    }
+
+    #[test]
+    fn compute_diff_identical_returns_none() {
+        let text = "line one\nline two\nline three";
+        assert!(compute_diff(text, text).is_none());
+    }
+
+    #[test]
+    fn compute_diff_added_lines() {
+        let before = "line one\nline three";
+        let after = "line one\nline two\nline three";
+        let diff = compute_diff(before, after).expect("should produce a diff");
+        assert!(diff.contains("+line two"));
+        assert!(!diff.contains("-line"));
+    }
+
+    #[test]
+    fn compute_diff_removed_lines() {
+        let before = "line one\nline two\nline three";
+        let after = "line one\nline three";
+        let diff = compute_diff(before, after).expect("should produce a diff");
+        assert!(diff.contains("-line two"));
+        assert!(!diff.contains("+line"));
+    }
+
+    #[test]
+    fn compute_diff_modified_line() {
+        let before = "old text\nline two";
+        let after = "new text\nline two";
+        let diff = compute_diff(before, after).expect("should produce a diff");
+        assert!(diff.contains("-old text"));
+        assert!(diff.contains("+new text"));
+        assert!(diff.contains(" line two"));
+    }
+
+    #[test]
+    fn compute_diff_elides_over_cap() {
+        let before: String = (0..500).map(|i| format!("line {i}\n")).collect();
+        let after: String = (0..500).map(|i| format!("changed {i}\n")).collect();
+        let diff = compute_diff(&before, &after).expect("should produce a diff");
+        assert!(diff.contains("lines omitted"));
+    }
+
+    #[test]
+    fn compute_diff_empty_before() {
+        let after = "new file content\nline two";
+        let diff = compute_diff("", after).expect("should produce a diff");
+        assert!(diff.contains("+new file content"));
+        assert!(diff.contains("+line two"));
+    }
+
+    #[test]
+    fn write_file_includes_diff() {
+        let dir = workspace();
+        let root = dir.path();
+        // Write initial content.
+        let args1 = json!({ "path": "test.txt", "content": "original\n" });
+        let result1 = write_file(root, &args1);
+        assert_eq!(result1.status, "succeeded");
+        // Diff from empty to "original" should be Some.
+        assert!(result1.diff.is_some());
+        // Overwrite with new content.
+        let args2 = json!({ "path": "test.txt", "content": "modified\n" });
+        let result2 = write_file(root, &args2);
+        assert_eq!(result2.status, "succeeded");
+        let diff = result2.diff.as_ref().expect("diff should be present");
+        assert!(diff.contains("-original"));
+        assert!(diff.contains("+modified"));
+    }
+
+    #[test]
+    fn edit_file_includes_diff() {
+        let dir = workspace();
+        let root = dir.path();
+        // Create a file first.
+        std::fs::write(root.join("edit.txt"), "line one\nold line\nline three\n").unwrap();
+        let args = json!({
+            "path": "edit.txt",
+            "old_text": "old line",
+            "new_text": "new line"
+        });
+        let result = edit_file(root, &args);
+        assert_eq!(result.status, "succeeded");
+        let diff = result.diff.as_ref().expect("diff should be present");
+        assert!(diff.contains("-old line"));
+        assert!(diff.contains("+new line"));
+        assert!(diff.contains(" line one"));
+        assert!(diff.contains(" line three"));
+    }
+
+    #[test]
+    fn edit_file_unchanged_returns_none_diff() {
+        let dir = workspace();
+        let root = dir.path();
+        std::fs::write(root.join("same.txt"), "content\n").unwrap();
+        // Replace with identical text — diff should be None.
+        let args = json!({
+            "path": "same.txt",
+            "old_text": "content",
+            "new_text": "content"
+        });
+        let result = edit_file(root, &args);
+        assert_eq!(result.status, "succeeded");
+        assert!(result.diff.is_none());
+    }
+
+    #[test]
+    fn write_file_to_schematic_path_succeeds() {
+        let dir = workspace();
+        let root = dir.path();
+        // The agent writes the project schematic to .basebuild/project-schematic.md.
+        let schematic_content = "# Project Schematic\n\n## Goals\n- Build the thing\n";
+        let args = json!({
+            "path": ".basebuild/project-schematic.md",
+            "content": schematic_content,
+        });
+        let result = write_file(root, &args);
+        assert_eq!(result.status, "succeeded");
+        // Verify the file was written at the correct path.
+        let written = std::fs::read_to_string(root.join(".basebuild/project-schematic.md")).unwrap();
+        assert_eq!(written, schematic_content);
+        // Diff should be present (new file).
+        assert!(result.diff.is_some());
+    }
+
+    #[test]
+    fn write_file_to_schematic_path_is_workspace_scoped() {
+        let dir = workspace();
+        let root = dir.path();
+        // Writing to .basebuild/project-schematic.md should stay within the workspace.
+        let args = json!({
+            "path": ".basebuild/project-schematic.md",
+            "content": "schematic content\n",
+        });
+        let result = write_file(root, &args);
+        assert_eq!(result.status, "succeeded");
+        // Verify the file is inside the workspace root.
+ let written_path = root.join(".basebuild").join("project-schematic.md");
+        assert!(written_path.exists(), "schematic file should exist within workspace");
+        // Verify parent directory was created.
+        assert!(root.join(".basebuild").exists(), ".basebuild directory should be created");
+    }
+
+    #[test]
+    fn write_file_to_schematic_path_rejects_traversal() {
+        let dir = workspace();
+        let root = dir.path();
+        // Path traversal attempt targeting outside the workspace.
+        let args = json!({
+            "path": ".basebuild/../../etc/schematic.md",
+            "content": "malicious\n",
+        });
+        let result = write_file(root, &args);
+        // Should be denied (workspace-scoped path rejection).
+        assert_eq!(result.status, "denied");
+    }
+    #[test]
+    fn sensitive_path_detection() {
+        use std::path::Path;
+        let cases: Vec<(&str, bool)> = vec![
+            (".env", true),
+            (".env.local", true),
+            ("id_rsa", true),
+            ("id_rsa.pub", true),
+            ("id_ed25519", true),
+            ("id_ecdsa", true),
+            ("x.pem", true),
+            ("x.PEM", true),
+            ("server.key", true),
+            ("bundle.p12", true),
+            ("cert.pfx", true),
+            ("credentials.json", true),
+            (".ssh/config", true),
+            (".aws/credentials", true),
+            (".gnupg/secring.gpg", true),
+            (".omp/agent.db", true),
+            (".omp/agent.sqlite", true),
+            (".omp/agent.sqlite3", true),
+            ("src/main.rs", false),
+            ("README.md", false),
+            ("data/app.db", false),
+            ("app.sqlite", false),
+        ];
+        for (input, expected) in cases {
+            let path = Path::new(input);
+            assert_eq!(
+                is_sensitive_path(path),
+                expected,
+                "is_sensitive_path({:?}) should be {}",
+                input,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn write_file_to_sensitive_path_redacts_diff() {
+        let dir = workspace();
+        let root = dir.path();
+        let args = json!({
+            "path": ".env",
+            "content": "SECRET_API_KEY=12345\n"
+        });
+        let result = write_file(root, &args);
+        assert_eq!(result.status, "succeeded");
+        assert!(result.sensitive, "result should be flagged sensitive");
+        assert!(result.diff.is_none(), "diff should be redacted for sensitive paths");
+        assert!(result.content.contains("Wrote"), "content summary should remain visible");
+        let written = fs::read_to_string(root.join(".env")).unwrap();
+        assert_eq!(written, "SECRET_API_KEY=12345\n", "file must still be written");
+    }
+
+    #[test]
+    fn edit_file_oversize_rejected() {
+        let dir = workspace();
+        let root = dir.path();
+        let big = "x".repeat(MAX_READ_FILE_BYTES as usize + 1024);
+        fs::write(root.join("big.txt"), &big).unwrap();
+        let args = json!({
+            "path": "big.txt",
+            "old_text": "x",
+            "new_text": "y"
+        });
+        let result = edit_file(root, &args);
+        assert_eq!(result.status, "failed");
+        assert!(
+            result.content.contains("1 MB edit limit"),
+            "error should mention the 1 MB edit limit: {:?}",
+            result.content
+        );
+        // The file must not have been touched.
+        let content = fs::read_to_string(root.join("big.txt")).unwrap();
+        assert_eq!(content.len(), big.len());
+    }
+
+    #[test]
+    fn write_file_oversize_skips_diff() {
+        let dir = workspace();
+        let root = dir.path();
+        let big = "x".repeat(MAX_READ_FILE_BYTES as usize + 1024);
+        fs::write(root.join("big.txt"), &big).unwrap();
+        let args = json!({
+            "path": "big.txt",
+            "content": "small"
+        });
+        let result = write_file(root, &args);
+        assert_eq!(result.status, "succeeded");
+        assert!(result.diff.is_none(), "diff should be skipped for oversized files");
+        let written = fs::read_to_string(root.join("big.txt")).unwrap();
+        assert_eq!(written, "small", "write should still proceed");
+    }
+
+    #[test]
+    fn redact_tool_arguments_redacts_bodies() {
+        let input = r#"{"path":".env","content":"SECRET=1","old_text":"a","new_text":"b","other":"keep"}"#;
+        let out = redact_tool_arguments(input);
+        let value: Value = serde_json::from_str(&out).expect("redacted output is valid JSON");
+        assert_eq!(value["path"], ".env");
+        assert_eq!(value["other"], "keep");
+        assert_eq!(value["content"], "[redacted: sensitive path]");
+        assert_eq!(value["old_text"], "[redacted: sensitive path]");
+        assert_eq!(value["new_text"], "[redacted: sensitive path]");
+        // Invalid JSON is passed through unchanged.
+        assert_eq!(redact_tool_arguments("not json"), "not json");
     }
 }

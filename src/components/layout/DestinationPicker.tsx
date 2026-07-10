@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useEscapeKey } from "../../lib/useEscapeKey";
 import { MessageSquare, Plus, X } from "lucide-react";
 import type { Panel } from "../../lib/panelGrid";
 
@@ -29,6 +30,7 @@ export function DestinationPicker({
   panels,
   title = "Choose destination",
 }: DestinationPickerProps) {
+  useEscapeKey(open, onClose);
   const [selected, setSelected] = useState<string | null>(null);
 
   useEffect(() => {

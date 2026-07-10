@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Lock, LogOut, Plug, RefreshCw, Settings2, Shield, Trash2, Unplug, User, X } from "lucide-react";
+import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Lock, LogOut, Plug, RefreshCw, Settings2, Shield, Trash2, Unplug, User, Wrench, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { CopyButton } from "./CopyButton";
 import { FinalTouchesTab } from "./FinalTouchesTab";
+import { OpenSpecSettingsTab } from "./OpenSpecSettingsTab";
 import { PlanningTab } from "./PlanningTab";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
 import { appVersion } from "../../lib/app";
@@ -75,6 +76,7 @@ import {
   DEFAULT_RUN_CONCURRENCY_ENTRY,
   type RunConcurrencyEntry,
 } from "../../lib/runConcurrency";
+import { useEscapeKey } from "../../lib/useEscapeKey";
 
 type SettingsModalProps = {
   open: boolean;
@@ -84,10 +86,11 @@ type SettingsModalProps = {
   updates: UpdaterState;
 };
 
-type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "mcp" | "planning" | "final_touches" | "concurrency" | "notifications" | "about";
+type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "mcp" | "planning" | "openspec" | "final_touches" | "concurrency" | "notifications" | "about";
 
 export function SettingsModal({ open, onClose, projectPath, account, updates }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
+  useEscapeKey(open, onClose);
   const [requirements, setRequirements] = useState<RequirementStatus[]>([]);
   const [loading, setLoading] = useState(false);
   // App version — compiled in at build time. Shows "0.0.0" in dev; the real
@@ -282,6 +285,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
     { id: "configs", label: "Config Packs", icon: Settings2 },
     { id: "mcp", label: "MCP Servers", icon: Plug },
     { id: "planning", label: "Planning", icon: Lightbulb },
+    { id: "openspec", label: "OpenSpec", icon: Wrench },
     { id: "final_touches", label: "Final Touches", icon: Settings2 },
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "concurrency", label: "Concurrency", icon: Settings2 },
@@ -491,7 +495,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                       />
                     </label>
 
-                    <label className="row gap-sm" style={{ marginTop: 4 }}>
+                    <label className="row gap-sm mt-4">
                       <input
                         type="checkbox"
                         title="Auto-send generated prompts — disabled by default for safety"
@@ -500,18 +504,18 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                       />
                       <span className="text-sm">Auto-send generated prompts</span>
                     </label>
-                    <p className="text-muted text-sm" style={{ marginTop: -4 }}>
+                    <p className="text-muted text-sm mt-n4">
                       When enabled, prompts from the chat planning menu are sent immediately. Disabled by default.
                     </p>
 
                     {/* GIT Ai — model used by Source → Generate commit */}
-                    <div className="stack-sm" style={{ marginTop: 12 }}>
-                      <h4 className="text-sm text-muted" style={{ marginBottom: 4 }}>GIT Ai</h4>
+                    <div className="stack-sm mt-12">
+                      <h4 className="text-sm text-muted mb-4">GIT Ai</h4>
                       <p className="text-muted text-sm">
                         Model used by Source → Generate commit. Only configured providers are listed. Falls back to your chat default when unset.
                       </p>
-                      <label className="row gap-sm" style={{ marginBottom: 4 }}>
-                        <span className="text-sm" style={{ width: 64 }}>Provider</span>
+                      <label className="row gap-sm mb-4">
+                        <span className="text-sm label-w-64">Provider</span>
                         <select
                           className="input"
                           title="GIT Ai provider — used by Source → Generate commit"
@@ -526,7 +530,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                       </label>
                       {defaults.gitAiProviderId ? (
                         <label className="row gap-sm">
-                          <span className="text-sm" style={{ width: 64 }}>Model</span>
+                          <span className="text-sm label-w-64">Model</span>
                           <select
                             className="input"
                             title="GIT Ai model — used by Source → Generate commit"
@@ -549,12 +553,12 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                 )}
 
                 {/* Profile validation */}
-                <div style={{ marginTop: 12 }}>
-                  <h4 className="text-sm text-muted" style={{ marginBottom: 6 }}>Adapter health</h4>
+                <div className="mt-12">
+                  <h4 className="text-sm text-muted mb-6">Adapter health</h4>
                   {profiles.map((p) => {
                     const v = profileValidations[p.id];
                     return (
-                      <div key={p.id} className={`requirement-row is-${v?.valid ? "ok" : "attention"}`} style={{ marginBottom: 4 }}>
+                      <div key={p.id} className={`requirement-row is-${v?.valid ? "ok" : "attention"} requirement-row-compact`}>
                         <span className={`requirement-badge is-${v?.valid ? "ok" : "attention"}`}>
                           {v?.valid ? "✓" : "!"}
                         </span>
@@ -620,7 +624,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                 </button>
 
                 {/* Approval Gateway */}
-                <div className="stack" style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+                <div className="stack approval-gateway-section">
                   <h4>Approval Gateway</h4>
                   <p className="text-muted text-sm">
                     Controls how the agent loop handles tool calls that need approval.
@@ -652,14 +656,14 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                   </p>
 
                   {/* Custom rules */}
-                  <div className="stack" style={{ marginTop: 8 }}>
+                  <div className="stack mt-8">
                     <h5>Custom Rules</h5>
                     {approvalRules.length === 0 ? (
                       <p className="text-muted text-sm">No custom rules. Default mode behavior applies.</p>
                     ) : (
                       <div className="stack">
                         {approvalRules.map((rule) => (
-                          <div key={rule.id} className="row gap-sm align-center" style={{ justifyContent: "space-between" }}>
+                          <div key={rule.id} className="row gap-sm align-center justify-between">
                             <span className="text-sm">
                               <strong>{rule.toolName}</strong>
                               {rule.commandPrefix ? <code className="text-muted"> {rule.commandPrefix}*</code> : null}
@@ -682,26 +686,23 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
 
                     {/* Add new rule */}
                     {projectPath ? (
-                      <div className="row gap-sm align-center" style={{ flexWrap: "wrap" }}>
+                      <div className="row gap-sm align-center flex-wrap">
                         <input
-                          className="input"
-                          style={{ width: 140 }}
+                          className="input input-w-140"
                           placeholder="tool name"
                           value={newRuleTool}
                           title="Tool name (e.g. run_command, edit_file)"
                           onChange={(e) => setNewRuleTool(e.target.value)}
                         />
                         <input
-                          className="input"
-                          style={{ width: 140 }}
+                          className="input input-w-140"
                           placeholder="command prefix (optional)"
                           value={newRulePrefix}
                           title="Only apply to commands starting with this prefix"
                           onChange={(e) => setNewRulePrefix(e.target.value)}
                         />
                         <select
-                          className="input"
-                          style={{ width: 100 }}
+                          className="input input-w-100"
                           value={newRuleDecision}
                           title="Decision for this rule"
                           onChange={(e) => setNewRuleDecision(e.target.value as PermissionDecision)}
@@ -737,8 +738,8 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                   </div>
 
                   {/* Audit trail */}
-                  <div className="stack" style={{ marginTop: 12 }}>
-                    <div className="row align-center" style={{ justifyContent: "space-between" }}>
+                  <div className="stack mt-12">
+                    <div className="row align-center justify-between">
                       <h5>Audit Trail</h5>
                       <button
                         className="btn btn-sm"
@@ -752,9 +753,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                     {auditTrail.length === 0 ? (
                       <p className="text-muted text-sm">No audit entries yet.</p>
                     ) : (
-                      <div className="stack" style={{ maxHeight: 200, overflowY: "auto" }}>
+                      <div className="stack scroll-y-200">
                         {auditTrail.map((entry) => (
-                          <div key={entry.id} className="text-sm" style={{ borderBottom: "1px solid var(--border)", paddingBottom: 4 }}>
+                          <div key={entry.id} className="text-sm audit-entry">
                             <span className={`badge badge-${entry.decision === "allow" ? "success" : entry.decision === "deny" ? "error" : "warning"}`}>
                               {entry.decision}
                             </span>{" "}
@@ -783,7 +784,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
 
                 {consent ? (
                   <>
-                    <label className="row gap-sm" style={{ marginTop: 4 }}>
+                    <label className="row gap-sm mt-4">
                       <input
                         type="checkbox"
                         title="Enable local usage analytics — stored on this device only"
@@ -792,11 +793,11 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                       />
                       <span className="text-sm">Enable local usage analytics</span>
                     </label>
-                    <p className="text-muted text-sm" style={{ marginTop: -4 }}>
+                    <p className="text-muted text-sm mt-n4">
                       Stores privacy-safe metadata (event name, feature area, outcome, duration) on this device only.
                     </p>
 
-                    <label className="row gap-sm" style={{ marginTop: 4 }}>
+                    <label className="row gap-sm mt-4">
                       <input
                         type="checkbox"
                         title="Enable remote upload of anonymous analytics — separate from local collection"
@@ -806,12 +807,12 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                       />
                       <span className="text-sm">Enable anonymous upload</span>
                     </label>
-                    <p className="text-muted text-sm" style={{ marginTop: -4 }}>
+                    <p className="text-muted text-sm mt-n4">
                       Upload is disabled until a reviewed endpoint is configured. No upload code runs unless this is enabled.
                     </p>
 
-                    <div style={{ marginTop: 8 }}>
-                      <h4 className="text-sm text-muted" style={{ marginBottom: 6 }}>Local analytics data</h4>
+                    <div className="mt-8">
+                      <h4 className="text-sm text-muted mb-6">Local analytics data</h4>
                       <div className="row gap-sm">
                         <span className="text-sm mono">{eventCount} events stored</span>
                         <button
@@ -840,7 +841,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                 )}
 
                 {consent && !consent.collectionEnabled ? (
-                  <div className="requirement-row is-ok" style={{ marginTop: 8 }}>
+                  <div className="requirement-row is-ok mt-8">
                     <span className="requirement-badge is-ok">✓</span>
                     <div>
                       <div className="requirement-name">Analytics disabled</div>
@@ -939,9 +940,12 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
               </div>
             ) : null}
 
-            {/* ─── Planning ─── */}
             {tab === "planning" ? (
               <PlanningTab projectPath={projectPath} />
+            ) : null}
+
+            {tab === "openspec" ? (
+              <OpenSpecSettingsTab projectPath={projectPath} />
             ) : null}
 
             {tab === "final_touches" ? (
@@ -966,7 +970,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                   Desktop application for managing OMP terminals, source control,
                   ideas, and plans.
                 </p>
-                <div className="row gap-sm" style={{ marginTop: 8 }}>
+                <div className="row gap-sm mt-8">
                   <a
                     className="btn btn-sm"
                     href="https://github.com/basebuild-net/basebuild/issues/new?labels=bug&template=bug_report.md&title=Bug:"
@@ -1000,7 +1004,7 @@ function PermissionSelect({ label, title, value, onChange }: {
   onChange: (v: PermissionDecision) => void;
 }) {
   return (
-    <label className="stack-sm" style={{ marginBottom: 8 }}>
+    <label className="stack-sm mb-8">
       <span className="text-sm text-muted">{label}</span>
       <select
         className="input"
@@ -1175,8 +1179,8 @@ function UsageSyncPanel({ signedIn }: { signedIn: boolean }) {
         (model, provider, tokens, cost, timing) — never prompts, source code, or secrets.
       </p>
 
-      <div className="row gap-sm" style={{ alignItems: "center", flexWrap: "wrap" }}>
-        <label className="row gap-sm" style={{ alignItems: "center" }}>
+      <div className="row gap-sm flex-wrap">
+        <label className="row gap-sm">
           <input
             type="checkbox"
             checked={status?.enabled ?? false}
@@ -1276,6 +1280,7 @@ function ModelProvidersPanel() {
   const [error, setError] = useState<string | null>(null);
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
   const [baseUrlDrafts, setBaseUrlDrafts] = useState<Record<string, string>>({});
+  const [updateKeyId, setUpdateKeyId] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
   const refresh = useCallback(async () => {
     try {
@@ -1337,8 +1342,15 @@ function ModelProvidersPanel() {
       setBusyId(providerId);
       setError(null);
       try {
-        await nativeSaveProviderCredential({ providerId, label, apiKey: key, baseUrl: baseUrlDrafts[providerId]?.trim() || null });
+        await nativeSaveProviderCredential({
+          providerId,
+          label,
+          apiKey: key,
+          baseUrl: (baseUrlDrafts[providerId] ?? "").trim() || null,
+        });
+        // Clear drafts only after a successful save so a failure keeps input.
         setKeyDrafts((prev) => ({ ...prev, [providerId]: "" }));
+        setUpdateKeyId(null);
         await refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -1346,7 +1358,7 @@ function ModelProvidersPanel() {
         setBusyId(null);
       }
     },
-    [keyDrafts, refresh],
+    [keyDrafts, baseUrlDrafts, refresh],
   );
 
   const disconnect = useCallback(
@@ -1368,7 +1380,7 @@ function ModelProvidersPanel() {
   const providers = (catalog?.providers ?? []).filter((p) => !p.localOnly);
 
   return (
-    <div className="stack" style={{ marginTop: 16 }}>
+    <div className="stack mt-16">
       <h3>Model Providers</h3>
       <p className="text-muted text-sm">
         Connect model providers with a web flow or an API key. Credentials are stored locally on this device only.
@@ -1383,11 +1395,11 @@ function ModelProvidersPanel() {
         <RefreshCw size={12} /> Refresh models
       </button>
       {providers.map((p) => (
-        <div key={p.id} className="requirement-row" style={{ alignItems: "flex-start" }}>
+        <div key={p.id} className="requirement-row items-start">
           <span className={`requirement-badge is-${p.configured ? "ok" : "attention"}`}>
             {p.configured ? "✓" : "!"}
           </span>
-          <div style={{ flex: 1 }}>
+          <div className="flex-1">
             <div className="requirement-name">
               {p.label} {p.configured ? <span className="text-muted text-sm">connected</span> : null}{p.modelCount > 0 ? <span className="text-muted text-sm"> · {p.modelCount} model{p.modelCount === 1 ? "" : "s"}</span> : null}
             </div>
@@ -1397,25 +1409,78 @@ function ModelProvidersPanel() {
               </a>
             ) : null}
             {p.configured ? (
-              <button
-                className="btn btn-sm"
-                type="button"
-                title={`Disconnect ${p.label}`}
-                disabled={busyId === p.id}
-                onClick={() => void disconnect(p.id)}
-                style={{ marginTop: 6 }}
-              >
-                <Unplug size={12} /> Disconnect
-              </button>
+              <div className="stack-sm mt-6">
+                <div className="row gap-sm">
+                  <button
+                    className="btn btn-sm"
+                    type="button"
+                    title={`Disconnect ${p.label}`}
+                    disabled={busyId === p.id}
+                    onClick={() => void disconnect(p.id)}
+                  >
+                    <Unplug size={12} /> Disconnect
+                  </button>
+                  <button
+                    className="btn btn-sm"
+                    type="button"
+                    title={`Update the API key for ${p.label}. The stored secret is never displayed.`}
+                    disabled={busyId === p.id}
+                    onClick={() => setUpdateKeyId(updateKeyId === p.id ? null : p.id)}
+                  >
+                    <Key size={12} /> Update key
+                  </button>
+                </div>
+                {updateKeyId === p.id ? (
+                  <div className="stack-sm">
+                    <div className="row gap-sm">
+                      <input
+                        className="input"
+                        type="password"
+                        placeholder="New API key"
+                        value={keyDrafts[p.id] ?? ""}
+                        onChange={(e) => setKeyDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                        title={`Enter a new API key for ${p.label}. The existing key is not shown.`}
+                      />
+                      <button
+                        className="btn btn-sm"
+                        type="button"
+                        title="Save the new API key"
+                        disabled={!(keyDrafts[p.id] ?? "").trim()}
+                        onClick={() => void saveKey(p.id, p.label)}
+                      >
+                        <Key size={12} /> Save
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        type="button"
+                        title="Cancel key update"
+                        onClick={() => { setUpdateKeyId(null); setKeyDrafts((prev) => ({ ...prev, [p.id]: "" })); }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    {p.id === "custom" ? (
+                      <input
+                        className="input"
+                        type="text"
+                        placeholder="Base URL (e.g. https://api.example.com/v1)"
+                        value={baseUrlDrafts[p.id] ?? ""}
+                        onChange={(e) => setBaseUrlDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                        title="Base URL for the custom OpenAI-compatible endpoint"
+                      />
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             ) : busyId === p.id ? (
-              <div className="row gap-sm" style={{ marginTop: 6 }}>
+              <div className="row gap-sm mt-6">
                 <span className="text-muted text-sm">Waiting for browser…</span>
                 <button className="btn btn-sm" type="button" title="Cancel" onClick={() => cancelWeb(p.id)}>
                   Cancel
                 </button>
               </div>
             ) : (
-              <div className="stack-sm" style={{ marginTop: 6 }}>
+              <div className="stack-sm mt-6">
                 <button
                   className="btn btn-primary btn-sm"
                   type="button"

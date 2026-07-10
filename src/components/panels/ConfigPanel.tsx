@@ -22,7 +22,7 @@ export function ConfigPanel({ projectPath }: { projectPath: string | null }) {
         <input className="input" placeholder="New pack name" type="text" value={newName}
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") void create(); }} />
-        <button className="btn btn-primary" onClick={() => void create()} type="button">Create</button>
+        <button className="btn btn-primary" title="Create config pack" onClick={() => void create()} type="button">Create</button>
       </div>
       {packs.length === 0 ? <p className="text-muted">No config packs found.</p> : null}
       {packs.map((pack) => (
@@ -32,7 +32,7 @@ export function ConfigPanel({ projectPath }: { projectPath: string | null }) {
             <span className="badge">v{pack.manifest.version}</span>
           </div>
           <p className="text-muted text-sm">{pack.manifest.description}</p>
-          <div className="row gap-sm" style={{ marginTop: 6 }}>
+          <div className="row gap-sm mt-6">
             <span className="pill">{pack.manifest.source}</span>
             {pack.manifest.author ? <span className="text-sm text-muted">{pack.manifest.author}</span> : null}
           </div>

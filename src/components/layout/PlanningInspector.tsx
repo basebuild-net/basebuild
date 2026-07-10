@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { FolderTree, LayoutGrid, Lightbulb, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { FolderTree, LayoutGrid, Plus, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
 import type { Plan, PlanStatus } from "../../lib/plans";
-import { isTerminalStatus, PLAN_STATUSES, PLAN_STATUS_LABEL } from "../../lib/plans";
+import { isTerminalStatus } from "../../lib/plans";
 import { batchPromoteIdeas } from "../../lib/plans";
 import { enqueuePlan, listPlanRuns, markPlanRunComplete, startQueue } from "../../lib/planRuns";
+import { useOpenSpecRuntime } from "../../state/useOpenSpecRuntime";
 import { PlanPanel } from "./PlanPanel";
+import { PlanningCommandCenter } from "./PlanningCommandCenter";
 import { IntegrationQueue } from "../panels/IntegrationQueue";
 import { ChangesPanel } from "../panels/ChangesPanel";
 import { CompletionCard } from "../panels/CompletionCard";
@@ -13,8 +15,24 @@ import { useIdeaState } from "../../state/ideas";
 import type { IdeaCategory, IdeaStatus } from "../../lib/ideas";
 import { useProjectSchematic } from "../../state/schematic";
 import { useLogs } from "../../state/log";
+import { subscribeGrounding, getLastGrounding } from "../../state/grounding";
+import type { GroundingMetadata } from "../../lib/native-chat";
+import {
+  getLaunchProfile,
+  setLaunchProfile as saveLaunchProfile,
+  getDependencyGraph,
+  listMergeQueue,
+  reviewMergeEntry,
+  type LaunchProfile,
+  type DependencyGraph,
+  type DependencyNode,
+  type MergeReviewEntry,
+  type EngineKind,
+  type WorkspacePolicy,
+  type SchedulingMode,
+} from "../../lib/planDependencies";
 
-type Tab = "plans" | "ideas" | "categories" | "flow" | "changes";
+export type PlanningTab = "plans" | "ideas" | "categories" | "flow" | "changes";
 
 type PlanningInspectorProps = {
   sessionId: string | null;
@@ -23,7 +41,7 @@ type PlanningInspectorProps = {
   loading: boolean;
   collapsed: boolean;
   onToggleCollapse: () => void;
-  onCreatePlan: () => void;
+
   onEditPlan: (plan: Plan) => void;
   onFocusPlan: (plan: Plan) => void;
   onSetPlanStatus: (id: string, status: PlanStatus) => void;
@@ -33,10 +51,14 @@ type PlanningInspectorProps = {
   onOpenChatSession: (chatSessionId: string) => void;
   onPromoteIdea?: (title: string, description: string, chatSessionId: string | null) => Promise<void> | void;
   onSuggestForCategory?: (category: IdeaCategory | null) => void;
+  onGenerateFromFinishedPlans?: () => void;
+  onGenerateCategories?: () => void;
   activeChatSessionId?: string | null;
   showHeader?: boolean;
-  /** When "modal", collapse toggle is hidden (no-op in modal context). */
   hostContext?: "dock" | "modal";
+  onAssignPlan?: (plan: Plan, profile: LaunchProfile) => void;
+  onShowToast?: (title: string, detail?: string, kind?: "success" | "error") => void;
+  initialTab?: PlanningTab;
 };
 
 const STATUS_FILTERS: { value: IdeaStatus | "all"; label: string }[] = [
@@ -46,7 +68,6 @@ const STATUS_FILTERS: { value: IdeaStatus | "all"; label: string }[] = [
   { value: "rejected", label: "Rejected" },
   { value: "archived", label: "Archived" },
 ];
-
 export function PlanningInspector({
   sessionId,
   projectPath,
@@ -54,7 +75,7 @@ export function PlanningInspector({
   loading,
   collapsed,
   onToggleCollapse,
-  onCreatePlan,
+
   onEditPlan,
   onFocusPlan,
   onSetPlanStatus,
@@ -64,11 +85,18 @@ export function PlanningInspector({
   onOpenChatSession,
   onPromoteIdea,
   onSuggestForCategory,
+  onGenerateFromFinishedPlans,
+  onGenerateCategories,
   activeChatSessionId,
   showHeader = true,
   hostContext = "dock",
+  onAssignPlan,
+  onShowToast,
+  initialTab = "plans",
 }: PlanningInspectorProps) {
-  const [tab, setTab] = useState<Tab>("plans");
+  const runtime = useOpenSpecRuntime(projectPath);
+  const runtimeReady = runtime.status?.state === "ready";
+  const [tab, setTab] = useState<PlanningTab>(initialTab);
   const [statusFilter, setStatusFilter] = useState<IdeaStatus | "all">("all");
   const [selectedCategory, setSelectedCategory] = useState<IdeaCategory | null>(null);
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -77,6 +105,43 @@ export function PlanningInspector({
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [planRuns, setPlanRuns] = useState<PlanRun[]>([]);
   const [completionDismissed, setCompletionDismissed] = useState<Set<string>>(new Set());
+  const [grounding, setGrounding] = useState<GroundingMetadata | null>(getLastGrounding());
+  useEffect(() => {
+    return subscribeGrounding(setGrounding);
+  }, []);
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
+  const [launchProfile, setLaunchProfile] = useState<LaunchProfile | null>(null);
+  const [launchForm, setLaunchForm] = useState<{
+    workerCount: number;
+    workspacePolicy: WorkspacePolicy;
+    schedulingMode: SchedulingMode;
+    engine: EngineKind;
+  }>({
+    workerCount: 2,
+    workspacePolicy: "isolated_worktrees",
+    schedulingMode: "safe",
+    engine: "openspec",
+  });
+  const [launchConfirmOpen, setLaunchConfirmOpen] = useState(false);
+  const [launchSummary, setLaunchSummary] = useState<{
+    workerCount: number;
+    providerCap: number;
+    startCount: number;
+    queueCount: number;
+    worktrees: number;
+    branches: number;
+    prerequisites: number;
+    collisions: number;
+    policy: WorkspacePolicy;
+    schedulingMode: SchedulingMode;
+  } | null>(null);
+  const [launchSaving, setLaunchSaving] = useState(false);
+  const [dependencyGraph, setDependencyGraph] = useState<DependencyGraph | null>(null);
+  const [mergeQueue, setMergeQueue] = useState<MergeReviewEntry[]>([]);
+  const [runBoardLoading, setRunBoardLoading] = useState(false);
+  const [mergeQueueLoading, setMergeQueueLoading] = useState(false);
   const ideaState = useIdeaState(sessionId);
   const schematic = useProjectSchematic(projectPath);
   const { addLog } = useLogs();
@@ -86,7 +151,7 @@ export function PlanningInspector({
     if (tab === "categories" && sessionId) {
       void ideaState.refresh();
     }
-  }, [tab, sessionId, ideaState]);
+  }, [tab, sessionId, ideaState.refresh]);
 
   // Fetch plan runs for completion cards.
   useEffect(() => {
@@ -98,6 +163,60 @@ export function PlanningInspector({
       .then(setPlanRuns)
       .catch(() => setPlanRuns([]));
   }, [sessionId, plans]);
+  // Load dependency graph for the run board.
+  useEffect(() => {
+    if (!sessionId) {
+      setDependencyGraph(null);
+      return;
+    }
+    setRunBoardLoading(true);
+    void getDependencyGraph(sessionId)
+      .then(setDependencyGraph)
+      .catch((e) => {
+        addLog("error", "Failed to load dependency graph", e instanceof Error ? e.message : String(e));
+        setDependencyGraph(null);
+      })
+      .finally(() => setRunBoardLoading(false));
+  }, [sessionId, addLog, plans]);
+  // Load merge-review queue for finished worktree runs.
+  useEffect(() => {
+    if (!sessionId) {
+      setMergeQueue([]);
+      return;
+    }
+    setMergeQueueLoading(true);
+    void listMergeQueue(sessionId)
+      .then(setMergeQueue)
+      .catch((e) => {
+        addLog("error", "Failed to load merge queue", e instanceof Error ? e.message : String(e));
+        setMergeQueue([]);
+      })
+      .finally(() => setMergeQueueLoading(false));
+  }, [sessionId, addLog]);
+  // Load saved launch profile for this project.
+  useEffect(() => {
+    if (!projectPath) {
+      setLaunchProfile(null);
+      return;
+    }
+    void getLaunchProfile(projectPath)
+      .then((profile) => {
+        setLaunchProfile(profile);
+        if (profile) {
+          setLaunchForm({
+            workerCount: Math.min(Math.max(profile.workerCount, 1), 8),
+            workspacePolicy: profile.workspacePolicy === "sequential_primary" ? "sequential_primary" : "isolated_worktrees",
+            schedulingMode: profile.schedulingMode === "yolo" ? "yolo" : "safe",
+            engine: profile.engine === "native" ? "native" : "openspec",
+          });
+        }
+      })
+      .catch(() => setLaunchProfile(null));
+  }, [projectPath]);
+  // Close launch confirmation when the plan list changes so the summary stays in sync.
+  useEffect(() => {
+    setLaunchConfirmOpen(false);
+  }, [plans]);
 
   const handlePromoteIdea = useCallback(
     async (idea: { id: string; title: string; description: string }) => {
@@ -125,6 +244,11 @@ export function PlanningInspector({
       } else {
         setBatchResult(`Promoted ${createdCount} plan(s).`);
       }
+      // Mark successfully promoted ideas as picked so counts refresh.
+      const pickedIds = new Set(result.created.map((p) => p.ideaId).filter((id): id is string => !!id));
+      await Promise.all(
+        Array.from(pickedIds).map((id) => ideaState.updateIdeaStatus(id, "picked")),
+      );
       setSelectedIdeaIds(new Set());
       void ideaState.refresh();
     } catch (e) {
@@ -132,6 +256,14 @@ export function PlanningInspector({
       setBatchResult(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }, [sessionId, selectedIdeaIds, ideaState, addLog]);
+
+  const handleRejectSelected = useCallback(async () => {
+    if (selectedIdeaIds.size === 0) return;
+    const ids = Array.from(selectedIdeaIds);
+    await Promise.all(ids.map((id) => ideaState.rejectIdea(id)));
+    setSelectedIdeaIds(new Set());
+    void ideaState.refresh();
+  }, [selectedIdeaIds, ideaState]);
   const handleCreateCategory = useCallback(() => {
     if (!sessionId || !newCategoryName.trim()) return;
     void (async () => {
@@ -140,7 +272,306 @@ export function PlanningInspector({
       setNewCategoryDesc("");
     })();
   }, [sessionId, newCategoryName, newCategoryDesc, ideaState]);
+  const handleSaveLaunchProfile = useCallback(async () => {
+    if (!projectPath) return;
+    setLaunchSaving(true);
+    try {
+      const profile: LaunchProfile = {
+        projectPath,
+        engine: launchForm.engine,
+        providerId: launchProfile?.providerId ?? "",
+        modelId: launchProfile?.modelId ?? "",
+        workerCount: launchForm.workerCount,
+        workspacePolicy: launchForm.workspacePolicy,
+        schedulingMode: launchForm.schedulingMode,
+        updatedAt: Date.now(),
+      };
+      await saveLaunchProfile(profile);
+      setLaunchProfile(profile);
+    } catch (e) {
+      addLog("error", "Failed to save launch profile", e instanceof Error ? e.message : String(e));
+    } finally {
+      setLaunchSaving(false);
+    }
+  }, [projectPath, launchForm, launchProfile, addLog]);
 
+  const handleLaunchClick = useCallback(async () => {
+    const readyPlans = plans.filter((p) => p.status === "ready");
+    let graphData: DependencyGraph | null = null;
+    if (sessionId) {
+      try {
+        graphData = await getDependencyGraph(sessionId);
+      } catch (e) {
+        addLog("warn", "Failed to load dependency graph for launch summary", e instanceof Error ? e.message : String(e));
+      }
+    }
+    const readyIds = new Set(readyPlans.map((p) => p.id));
+    const readyNodes = graphData?.nodes.filter((n) => readyIds.has(n.planId)) ?? [];
+    const startCount = Math.min(launchForm.workerCount, readyPlans.length);
+    const queueCount = Math.max(0, readyPlans.length - launchForm.workerCount);
+    const worktrees = launchForm.workspacePolicy === "isolated_worktrees" ? startCount : 0;
+    const branches = launchForm.workspacePolicy === "isolated_worktrees" ? startCount : 1;
+    const prerequisites = readyNodes.reduce((sum, n) => sum + n.prerequisites.length, 0);
+    const collisions = readyNodes.reduce((sum, n) => sum + n.collisions.length, 0);
+    setLaunchSummary({
+      workerCount: launchForm.workerCount,
+      providerCap: launchForm.workerCount,
+      startCount,
+      queueCount,
+      worktrees,
+      branches,
+      prerequisites,
+      collisions,
+      policy: launchForm.workspacePolicy,
+      schedulingMode: launchForm.schedulingMode,
+    });
+    setLaunchConfirmOpen(true);
+  }, [plans, sessionId, launchForm, addLog]);
+
+  const handleLaunchConfirm = useCallback(async () => {
+    setLaunchConfirmOpen(false);
+    const readyPlans = plans.filter((p) => p.status === "ready");
+    if (!sessionId) return;
+    for (const plan of readyPlans) {
+      try {
+        await enqueuePlan({ sessionId, planId: plan.id });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        addLog("error", `Failed to enqueue plan ${plan.referenceId}`, msg);
+      }
+    }
+    try {
+      await startQueue({
+        sessionId,
+        profile: {
+          concurrency: launchForm.workerCount,
+          providerId: launchProfile?.providerId ?? "",
+          modelId: launchProfile?.modelId ?? "",
+          effortLevel: launchProfile?.effortLevel,
+        },
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to start plan queue", msg);
+    }
+  }, [plans, sessionId, launchForm, launchProfile, addLog]);
+
+  const handleReviewMergeEntry = useCallback(
+    async (entryId: string, decision: "approved" | "rejected" | "merged") => {
+      try {
+        const updated = await reviewMergeEntry(entryId, decision);
+        setMergeQueue((prev) => prev.map((e) => (e.id === entryId ? updated : e)));
+        onShowToast?.(
+          `Merge ${decision}`,
+          `Entry ${updated.planId.slice(0, 8)} reviewed as ${decision}`,
+          "success",
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        addLog("error", "Failed to review merge entry", msg);
+        onShowToast?.("Review failed", msg, "error");
+      }
+    },
+    [addLog, onShowToast],
+  );
+
+  function RunBoardRow({ node }: { node: DependencyNode }) {
+    const plan = plans.find((p) => p.id === node.planId);
+    const run = planRuns.find((r) => r.planId === node.planId);
+    const ownerChat = run?.chatSessionId ? `#${run.chatSessionId.slice(0, 8)}` : "unassigned";
+    const engine = launchProfile?.engine === "native" ? "native" : "openspec";
+    const provider = launchProfile?.providerId || "—";
+    const model = launchProfile?.modelId || "—";
+    const worktree = run?.workspacePath ?? "—";
+    const branch = run?.workspacePath ? run.workspacePath.split(/[\\/]/).pop() ?? run.workspacePath : "—";
+    const tooltip = [
+      `Plan: ${node.title} (#${node.referenceId})`,
+      `Status: ${node.status}`,
+      `Priority: ${node.priority}`,
+      `Readiness: ${node.readiness}`,
+      `Prerequisites: ${node.prerequisites.join(", ") || "none"}`,
+      `Affected paths: ${node.affectedPaths.join(", ") || "none"}`,
+      `Collisions: ${node.collisions.join(", ") || "none"}`,
+      `Owner chat: ${ownerChat}`,
+      `Engine: ${engine}`,
+      `Provider: ${provider}`,
+      `Model: ${model}`,
+      `Branch: ${branch}`,
+      `Worktree: ${worktree}`,
+      node.blockReason ? `Blocked: ${node.blockReason}` : null,
+      `Dispatchable: ${node.dispatchable ? "yes" : "no"}`,
+      `YOLO confirmed: ${node.yoloConfirmed ? "yes" : "no"}`,
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n");
+
+    return (
+      <div className="run-board-row" title={tooltip}>
+        <div className="run-board-cell run-board-cell-title">{node.title}</div>
+        <div className="run-board-cell" title={`Priority: ${node.priority}`}>{node.priority}</div>
+        <div className="run-board-cell run-board-cell-badges">
+          {node.prerequisites.length > 0
+            ? node.prerequisites.map((prereq) => (
+                <span key={prereq} className="run-board-badge" title={`Prerequisite: ${prereq}`}>
+                  {prereq}
+                </span>
+              ))
+            : <span className="run-board-badge run-board-badge-empty" title="No prerequisites">—</span>}
+        </div>
+        <div className="run-board-cell" title={`Owner chat: ${ownerChat}`}>{ownerChat}</div>
+        <div className="run-board-cell" title={`Engine: ${engine} | Provider: ${provider} | Model: ${model}`}>
+          {engine}/{provider}/{model}
+        </div>
+        <div className="run-board-cell" title={`Branch: ${branch} | Worktree: ${worktree}`}>
+          {branch}
+        </div>
+        <div className="run-board-cell run-board-cell-badges">
+          {node.affectedPaths.length > 0
+            ? node.affectedPaths.map((path) => (
+                <span key={path} className="run-board-badge" title={`Claimed path: ${path}`}>
+                  {path.split(/[\\/]/).pop() ?? path}
+                </span>
+              ))
+            : <span className="run-board-badge run-board-badge-empty" title="No affected paths">—</span>}
+        </div>
+        <div className="run-board-cell" title="Progress: not tracked">—</div>
+        <div className="run-board-cell" title={node.blockReason || "No blockers"}>
+          {node.blockReason ? "blocked" : "—"}
+        </div>
+        <div className="run-board-cell" title={`Collisions: ${node.collisions.join(", ") || "none"}`}>
+          {node.collisions.length}
+        </div>
+        <div className="run-board-cell" title={`Merge readiness: ${node.readiness}`}>
+          {node.readiness}
+        </div>
+      </div>
+    );
+  }
+
+  function RunBoard() {
+    if (!sessionId) {
+      return (
+        <div className="run-board">
+          <div className="run-board-empty" title="No session selected">No session selected</div>
+        </div>
+      );
+    }
+    if (runBoardLoading) {
+      return (
+        <div className="run-board">
+          <div className="run-board-empty" title="Loading dependency graph">Loading run board…</div>
+        </div>
+      );
+    }
+    if (!dependencyGraph?.nodes.length) {
+      return (
+        <div className="run-board">
+          <div className="run-board-empty" title="No dependency graph nodes available">No run board entries</div>
+        </div>
+      );
+    }
+    return (
+      <div className="run-board" title={`Dependency graph for session ${sessionId.slice(0, 8)}`}>
+        <div className="run-board-header">
+          <span className="run-board-header-title">Run board</span>
+          <span className="text-muted text-sm" title={`${dependencyGraph.nodes.length} node(s)`}>
+            {dependencyGraph.nodes.length} node(s)
+          </span>
+        </div>
+        <div className="run-board-row run-board-row-header" title="Run board column headers">
+          <div className="run-board-cell">Plan</div>
+          <div className="run-board-cell">Prio</div>
+          <div className="run-board-cell">Prereqs</div>
+          <div className="run-board-cell">Chat</div>
+          <div className="run-board-cell">Engine/Provider/Model</div>
+          <div className="run-board-cell">Branch</div>
+          <div className="run-board-cell">Claims</div>
+          <div className="run-board-cell">%</div>
+          <div className="run-board-cell">Blockers</div>
+          <div className="run-board-cell">Collisions</div>
+          <div className="run-board-cell">Readiness</div>
+        </div>
+        {dependencyGraph.nodes.map((node) => (
+          <RunBoardRow key={node.planId} node={node} />
+        ))}
+      </div>
+    );
+  }
+
+  function MergeQueue() {
+    if (mergeQueueLoading) {
+      return (
+        <div className="merge-queue">
+          <div className="run-board-empty" title="Loading merge-review queue">Loading merge queue…</div>
+        </div>
+      );
+    }
+    if (mergeQueue.length === 0) {
+      return (
+        <div className="merge-queue">
+          <div className="run-board-empty" title="No merge-review entries">No merge-review entries</div>
+        </div>
+      );
+    }
+    return (
+      <div className="merge-queue">
+        <div className="run-board-header">
+          <span className="run-board-header-title">Merge review</span>
+          <span className="text-muted text-sm" title={`${mergeQueue.length} entry(ies)`}>
+            {mergeQueue.length} entry(ies)
+          </span>
+        </div>
+        {mergeQueue.map((entry) => {
+          const plan = plans.find((p) => p.id === entry.planId);
+          const title = plan?.title ?? `Plan ${entry.planId.slice(0, 8)}`;
+          const tooltip = [
+            `Plan: ${title}`,
+            `Status: ${entry.status}`,
+            `Collision review required: ${entry.collisionReviewRequired ? "yes" : "no"}`,
+            `Overlapping plans: ${entry.overlappingPlans.join(", ") || "none"}`,
+            `Created: ${new Date(entry.createdAt).toLocaleString()}`,
+            entry.reviewedAt ? `Reviewed: ${new Date(entry.reviewedAt).toLocaleString()}` : null,
+          ]
+            .filter((line): line is string => Boolean(line))
+            .join("\n");
+          return (
+            <div key={entry.id} className="merge-queue-entry" title={tooltip}>
+              <div className="merge-queue-entry-main">
+                <span className="merge-queue-entry-title" title={title}>{title}</span>
+                <span className="merge-queue-entry-status" title={`Status: ${entry.status}`}>{entry.status}</span>
+              </div>
+              <div className="merge-queue-entry-actions">
+                <button
+                  className="btn btn-sm"
+                  type="button"
+                  title={`Approve merge entry ${entry.id.slice(0, 8)}`}
+                  onClick={() => void handleReviewMergeEntry(entry.id, "approved")}
+                >
+                  Approve
+                </button>
+                <button
+                  className="btn btn-sm"
+                  type="button"
+                  title={`Reject merge entry ${entry.id.slice(0, 8)}`}
+                  onClick={() => void handleReviewMergeEntry(entry.id, "rejected")}
+                >
+                  Reject
+                </button>
+                <button
+                  className="btn btn-sm btn-primary"
+                  type="button"
+                  title={`Merge entry ${entry.id.slice(0, 8)}`}
+                  onClick={() => void handleReviewMergeEntry(entry.id, "merged")}
+                >
+                  Merge
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
   const filteredIdeas = statusFilter === "all"
     ? ideaState.ideas
     : ideaState.ideas.filter((i) => i.status === statusFilter);
@@ -245,7 +676,6 @@ export function PlanningInspector({
           loading={loading}
           collapsed={false}
           onToggleCollapse={() => setTab("ideas")}
-          onCreatePlan={onCreatePlan}
           onEditPlan={onEditPlan}
           onFocusPlan={onFocusPlan}
           onSetPlanStatus={onSetPlanStatus}
@@ -253,6 +683,8 @@ export function PlanningInspector({
           onCopyReference={onCopyReference}
           onOpenInTerminal={onOpenInTerminal}
           onOpenChatSession={onOpenChatSession}
+          onAssignPlan={onAssignPlan}
+          onShowToast={onShowToast}
         />
       ) : null}
 
@@ -271,8 +703,54 @@ export function PlanningInspector({
               </button>
             ))}
           </div>
+          {grounding ? (
+            <div
+              className="idea-batch-header"
+              title={
+                grounding.finishedPlans.length > 0
+                  ? `Finished plans: ${grounding.finishedPlans.join(", ")}`
+                  : "No finished plans since last schematic update"
+              }
+            >
+              <span className="idea-batch-header-label">Grounded in:</span>
+              {grounding.schematicSections.length > 0 ? (
+                <span className="idea-batch-header-sections">
+                  {grounding.schematicSections.join(" · ")}
+                </span>
+              ) : (
+                <span className="idea-batch-header-sections text-muted">no schematic sections</span>
+              )}
+              <span className="idea-batch-header-counts">
+                {grounding.finishedPlanCount > 0
+                  ? ` · ${grounding.finishedPlanCount} finished plan${grounding.finishedPlanCount > 1 ? "s" : ""}`
+                  : " · no finished plans"}
+                {grounding.pickedCount > 0 ? ` · ${grounding.pickedCount} picked` : ""}
+                {grounding.rejectedCount > 0 ? ` · ${grounding.rejectedCount} rejected` : ""}
+              </span>
+              {grounding.digestEmpty ? (
+                <span className="idea-batch-header-empty text-muted">
+                  {" "}— no decisions since schematic update
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+          {onGenerateFromFinishedPlans ? (
+            <button
+              className="btn btn-sm"
+              type="button"
+              disabled={!grounding || grounding.finishedPlanCount === 0}
+              title={
+                grounding && grounding.finishedPlanCount > 0
+                  ? `Generate ideas weighted by ${grounding.finishedPlanCount} finished plan${grounding.finishedPlanCount > 1 ? "s" : ""} since last schematic update`
+                  : "No finished plans since last schematic update — generate ideas freely instead"
+              }
+              onClick={() => onGenerateFromFinishedPlans()}
+            >
+              <Sparkles size={11} /> Generate from finished plans
+            </button>
+          ) : null}
           {selectedIdeaIds.size > 0 ? (
-            <div className="inspector-batch-bar" title="Batch-promote selected concept ideas to plans">
+            <div className="inspector-batch-bar" title="Batch actions for selected concept ideas">
               <span className="text-sm">{selectedIdeaIds.size} selected</span>
               <button
                 className="btn btn-sm btn-primary"
@@ -281,6 +759,14 @@ export function PlanningInspector({
                 onClick={() => void handleBatchPromote()}
               >
                 Approve selected
+              </button>
+              <button
+                className="btn btn-sm"
+                type="button"
+                title="Reject all selected ideas"
+                onClick={() => void handleRejectSelected()}
+              >
+                Reject all
               </button>
               <button
                 className="btn btn-sm"
@@ -393,6 +879,14 @@ export function PlanningInspector({
                 >
                   <Sparkles size={11} /> Suggest more ideas
                 </button>
+                <button
+                  className="btn btn-sm"
+                  type="button"
+                  title={`Regenerate ideas for ${selectedCategory.name}`}
+                  onClick={() => onSuggestForCategory?.(selectedCategory)}
+                >
+                  <RefreshCw size={11} /> Regenerate
+                </button>
               </div>
               {categoryIdeas.length === 0 ? (
                 <p className="text-muted text-sm">No ideas in this category yet.</p>
@@ -437,14 +931,14 @@ export function PlanningInspector({
                 </button>
               </div>
               {ideaState.categories.length === 0 ? (
-                <div className="empty-state" style={{ padding: "16px" }}>
+                <div className="empty-state empty-state-compact">
                   <FolderTree size={24} />
                   <p className="text-muted text-sm">No categories yet.</p>
                   <button
                     className="btn btn-sm btn-primary"
                     type="button"
                     title="Generate categories from the project schematic"
-                    onClick={() => onSuggestForCategory?.(null)}
+                    onClick={() => onGenerateCategories?.() ?? onSuggestForCategory?.(null)}
                   >
                     <Sparkles size={11} /> Generate categories from project
                   </button>
@@ -477,6 +971,90 @@ export function PlanningInspector({
 
       {tab === "flow" ? (
         <div className="flow-board stack">
+          {/* Visual command center — stage cards with counts and actions */}
+          <PlanningCommandCenter
+            ideas={ideaState.ideas.length}
+            openspec={plans.filter((p) => p.status === "openspec").length}
+            ready={plans.filter((p) => p.status === "ready").length}
+            queued={planRuns.filter((r) => r.status === "pending").length}
+            running={plans.filter((p) => p.status === "running").length}
+            blocked={planRuns.filter((r) => r.status === "failed").length}
+            review={planRuns.filter((r) => r.status === "awaiting_review").length}
+            finished={plans.filter((p) => p.status === "finished").length}
+            onGenerateIdeas={() => { setTab("ideas"); }}
+            onRunThroughOpenSpec={() => { setTab("plans"); }}
+            onAddWorker={() => { /* Future: create a new chat panel */ }}
+            onReview={() => { /* Future: focus review queue */ }}
+            onMerge={() => { /* Future: open merge queue */ }}
+            onArchiveSync={() => { setTab("changes"); }}
+          />
+          {/* Launch profile */}
+          <div className="launch-profile-form" title="Configure how ready plans are launched">
+            <div className="launch-profile-row">
+              <label className="launch-profile-field" title="Number of workers that may run simultaneously (1–8)">
+                <span>Workers</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={8}
+                  value={launchForm.workerCount}
+                  onChange={(e) => {
+                    const value = Math.min(Math.max(parseInt(e.target.value, 10) || 1, 1), 8);
+                    setLaunchForm((prev) => ({ ...prev, workerCount: value }));
+                  }}
+                  title="Worker count"
+                />
+              </label>
+              <label className="launch-profile-field" title="Effective concurrent provider call cap derived from worker count">
+                <span>Provider cap</span>
+                <span className="launch-profile-summary">{launchForm.workerCount}</span>
+              </label>
+              <label className="launch-profile-field" title="Workspace isolation policy for launched runs">
+                <span>Workspace</span>
+                <select
+                  value={launchForm.workspacePolicy}
+                  onChange={(e) => setLaunchForm((prev) => ({ ...prev, workspacePolicy: e.target.value as WorkspacePolicy }))}
+                  title="Workspace policy"
+                >
+                  <option value="isolated_worktrees">Isolated worktrees</option>
+                  <option value="sequential_primary">Sequential primary</option>
+                </select>
+              </label>
+              <label className="launch-profile-field" title="Scheduling safety mode">
+                <span>Scheduling</span>
+                <select
+                  value={launchForm.schedulingMode}
+                  onChange={(e) => setLaunchForm((prev) => ({ ...prev, schedulingMode: e.target.value as SchedulingMode }))}
+                  title="Scheduling mode"
+                >
+                  <option value="safe">Safe</option>
+                  <option value="yolo">Yolo</option>
+                </select>
+              </label>
+              <label className="launch-profile-field" title="Execution engine for launched plans">
+                <span>Engine</span>
+                <select
+                  value={launchForm.engine}
+                  onChange={(e) => setLaunchForm((prev) => ({ ...prev, engine: e.target.value as EngineKind }))}
+                  title="Engine kind"
+                >
+                  <option value="openspec">OpenSpec</option>
+                  <option value="native">Native</option>
+                </select>
+              </label>
+            </div>
+            <div className="launch-profile-confirm-actions">
+              <button
+                className="btn btn-sm btn-primary"
+                type="button"
+                title="Save launch profile for this project"
+                onClick={() => void handleSaveLaunchProfile()}
+                disabled={launchSaving || !projectPath}
+              >
+                {launchSaving ? "Saving…" : "Save launch profile"}
+              </button>
+            </div>
+          </div>
           {/* Schematic stage */}
           <div className="flow-stage" title="Project schematic — the steering document">
             <div className="flow-stage-header">
@@ -511,36 +1089,55 @@ export function PlanningInspector({
               {plans.filter((p) => p.status === "draft" || p.status === "openspec").length} draft, {plans.filter((p) => p.status === "ready").length} ready
             </span>
             {plans.filter((p) => p.status === "ready").length > 0 ? (
-              <button
-                className="btn btn-sm btn-primary flow-stage-action"
-                type="button"
-                title={`Launch ${plans.filter((p) => p.status === "ready").length} ready plan(s) — enqueues real runs with chats/worktrees/branches`}
-                onClick={async () => {
-                  const readyPlans = plans.filter((p) => p.status === "ready");
-                  if (!sessionId) return;
-                  // Enqueue each ready plan, then start the queue — real runs
-                  // with chat sessions and worktrees, not status flips.
-                  for (const plan of readyPlans) {
-                    try {
-                      await enqueuePlan({ sessionId, planId: plan.id });
-                    } catch (e) {
-                      const msg = e instanceof Error ? e.message : String(e);
-                      addLog("error", `Failed to enqueue plan ${plan.referenceId}`, msg);
-                    }
-                  }
-                  try {
-                    await startQueue({
-                      sessionId,
-                      profile: { concurrency: 1, providerId: "", modelId: "" },
-                    });
-                  } catch (e) {
-                    const msg = e instanceof Error ? e.message : String(e);
-                    addLog("error", "Failed to start plan queue", msg);
-                  }
-                }}
-              >
-                Launch {plans.filter((p) => p.status === "ready").length} ready
-              </button>
+              launchConfirmOpen && launchSummary ? (
+                <div className="launch-profile-confirm" title="Review launch summary before dispatching">
+                  <span className="launch-profile-confirm-title">Launch summary</span>
+                  <ul className="launch-profile-confirm-list">
+                    <li><span className="label">Workers</span><span className="value">{launchSummary.workerCount}</span></li>
+                    <li><span className="label">Provider cap</span><span className="value">{launchSummary.providerCap}</span></li>
+                    <li><span className="label">Start / queue</span><span className="value">{launchSummary.startCount} / {launchSummary.queueCount}</span></li>
+                    <li><span className="label">Worktrees</span><span className="value">{launchSummary.worktrees}</span></li>
+                    <li><span className="label">Branches</span><span className="value">{launchSummary.branches}</span></li>
+                    <li><span className="label">Prerequisites</span><span className="value">{launchSummary.prerequisites}</span></li>
+                    <li><span className="label">Collisions</span><span className="value">{launchSummary.collisions}</span></li>
+                    <li><span className="label">Policy</span><span className="value">{launchSummary.policy}</span></li>
+                    <li><span className="label">Scheduling</span><span className="value">{launchSummary.schedulingMode}</span></li>
+                  </ul>
+                  <div className="launch-profile-confirm-actions">
+                    <button
+                      className="btn btn-sm"
+                      type="button"
+                      title="Cancel launch"
+                      onClick={() => setLaunchConfirmOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="btn btn-sm btn-primary"
+                      type="button"
+                      title={`Launch ${launchSummary.startCount + launchSummary.queueCount} ready plan(s)`}
+                      onClick={() => void handleLaunchConfirm()}
+                    >
+                      Confirm launch
+                    </button>
+                  </div>
+                </div>
+              ) : runtimeReady ? (
+                <button
+                  className="btn btn-sm btn-primary flow-stage-action"
+                  type="button"
+                  title={`Launch ${plans.filter((p) => p.status === "ready").length} ready plan(s) — review summary before dispatch`}
+                  onClick={() => void handleLaunchClick()}
+                >
+                  Launch {plans.filter((p) => p.status === "ready").length} ready
+                </button>
+              ) : (
+                <div className="flow-runtime-blocked" title="OpenSpec runtime not configured">
+                  <span className="text-sm text-muted">
+                    OpenSpec runtime {runtime.status?.state ?? "missing"}. Configure in Settings → OpenSpec.
+                  </span>
+                </div>
+              )
             ) : null}
           </div>
 
@@ -594,6 +1191,12 @@ export function PlanningInspector({
                 />
               ))}
           </div>
+
+          {/* Run board — dependency graph nodes */}
+          <RunBoard />
+
+          {/* Merge-review queue */}
+          <MergeQueue />
         </div>
       ) : null}
 

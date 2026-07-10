@@ -22,7 +22,7 @@ use crate::services::provider_client::{
     ToolSchema,
 };
 use crate::services::settings_service::SettingsService;
-use crate::services::tool_runtime_service::{registry, ToolDef, ToolKind, ToolResult};
+use crate::services::tool_runtime_service::{redact_tool_arguments, registry, ToolDef, ToolKind, ToolResult};
 
 /// Maximum loop iterations before stopping.
 const MAX_ITERATIONS: usize = 25;
@@ -128,6 +128,21 @@ fn await_approval(
             },
         );
     }
+    // Emit a tool-event with status "pending" so the UI shows which tool
+    // is waiting for approval in the running-tools indicator.
+    let _ = app.emit(
+        "native-chat://tool-event",
+        json!({
+            "sessionId": session_id,
+            "toolCallId": call.id,
+            "toolName": call.name,
+            "status": "pending",
+            "summary": format!("{} — approval required", call.name),
+            "arguments": call.arguments,
+            "decision": "pending",
+            "ruleSource": "gateway",
+        }),
+    );
     let _ = app.emit(
         "native-chat://approval-request",
         json!({
@@ -228,9 +243,13 @@ pub struct ToolEventRecord {
     pub tool_name: String,
     pub status: String,
     pub summary: String,
+    /// The raw arguments JSON the model passed to the tool.
+    pub arguments: Option<String>,
     pub duration_ms: i64,
     pub decision: String,
     pub rule_source: Option<String>,
+    /// Unified line diff for file tools, if any.
+    pub diff: Option<String>,
 }
 
 /// Run an agentic loop for a session. This is the entry point for both
@@ -417,6 +436,11 @@ fn run_loop_inner(
             );
         };
 
+        // Signal the UI that the model is thinking (streaming will follow).
+        // On iterations > 1 this also clears the previous iteration's text
+        // so the UI shows a fresh streaming block for the new turn.
+        emit(if iteration > 1 { "next" } else { "thinking" }, "status");
+
         let response = match client.generate(&req, &emit) {
             Ok(r) => r,
             Err(e) => {
@@ -449,6 +473,9 @@ fn run_loop_inner(
                 tool_events,
             };
         }
+
+        // Signal the UI that tool execution is starting (clears streaming text).
+        emit("tools", "status");
 
         // Process tool calls.
         let tool_results = process_tool_calls(
@@ -555,6 +582,10 @@ fn process_tool_calls(
                     content: "Cancelled".to_string(),
                     status: "cancelled".to_string(),
                     full_content: None,
+                    diff: None,
+                    decision: None,
+                    rule_source: None,
+                    sensitive: false,
                 }
             } else if let Some(def) = def {
                 execute_with_gateway(
@@ -571,6 +602,10 @@ fn process_tool_calls(
                     content: format!("Unknown tool: {}", call.name),
                     status: "failed".to_string(),
                     full_content: None,
+                    diff: None,
+                    decision: None,
+                    rule_source: None,
+                    sensitive: false,
                 }
             };
             results.lock().push((idx, result));
@@ -595,6 +630,10 @@ fn process_tool_calls(
                 content: "Cancelled".to_string(),
                 status: "cancelled".to_string(),
                 full_content: None,
+                diff: None,
+                decision: None,
+                rule_source: None,
+                sensitive: false,
             };
             results.push((calls[*idx].clone(), result));
             break;
@@ -607,6 +646,10 @@ fn process_tool_calls(
                 content: format!("Unknown tool: {}", call.name),
                 status: "failed".to_string(),
                 full_content: None,
+                diff: None,
+                decision: None,
+                rule_source: None,
+                sensitive: false,
             }
         };
         record_tool_event(app, session_id, call, &result, tool_events);
@@ -805,12 +848,19 @@ fn execute_with_gateway(
         PermissionDecision::Ask => "pending",
     };
 
-    match decision.decision {
+    let result = match decision.decision {
         PermissionDecision::Allow => {
             let start = Instant::now();
-            let result = (def.execute)(workspace, &args);
+            let mut result = (def.execute)(workspace, &args);
             let duration_ms = start.elapsed().as_millis() as i64;
+            result.decision = Some(decision_str.to_string());
+            result.rule_source = decision.rule_source.clone();
             let summary = &result.content[..result.content.len().min(200)];
+            let arguments = if result.sensitive {
+                redact_tool_arguments(&call.arguments)
+            } else {
+                call.arguments.clone()
+            };
             let _ = app.emit(
                 "native-chat://tool-event",
                 json!({
@@ -819,9 +869,11 @@ fn execute_with_gateway(
                     "toolName": call.name,
                     "status": result.status,
                     "summary": summary,
+                    "arguments": arguments,
                     "durationMs": duration_ms,
                     "decision": decision_str,
                     "ruleSource": decision.rule_source,
+                    "diff": result.diff,
                 }),
             );
             result
@@ -835,6 +887,7 @@ fn execute_with_gateway(
                     "toolName": call.name,
                     "status": "denied",
                     "summary": decision.reason,
+                    "arguments": call.arguments,
                     "decision": "denied",
                     "ruleSource": decision.rule_source,
                 }),
@@ -843,17 +896,25 @@ fn execute_with_gateway(
                 content: format!("Denied: {}", decision.reason),
                 status: "denied".to_string(),
                 full_content: None,
+                diff: None,
+                decision: Some("denied".to_string()),
+                rule_source: decision.rule_source.clone(),
+                sensitive: false,
             }
         }
         PermissionDecision::Ask => {
-            // Should not reach here (requires_prompt handled above).
             ToolResult {
                 content: "Approval required but not handled.".to_string(),
                 status: "denied".to_string(),
                 full_content: None,
+                diff: None,
+                decision: None,
+                rule_source: None,
+                sensitive: false,
             }
         }
-    }
+    };
+    result
 }
 
 /// Record a tool event in the tool_events list (caller persists to DB).
@@ -868,9 +929,15 @@ fn record_tool_event(
         tool_name: call.name.clone(),
         status: result.status.clone(),
         summary: result.content[..result.content.len().min(200)].to_string(),
+        arguments: Some(if result.sensitive {
+            redact_tool_arguments(&call.arguments)
+        } else {
+            call.arguments.clone()
+        }),
         duration_ms: 0,
-        decision: "approved".to_string(),
-        rule_source: None,
+        decision: result.decision.clone().unwrap_or_else(|| "approved".to_string()),
+        rule_source: result.rule_source.clone(),
+        diff: result.diff.clone(),
     });
 }
 
@@ -982,5 +1049,55 @@ mod tests {
         assert!(!token.is_cancelled());
         token.cancel();
         assert!(token.is_cancelled());
+    }
+
+    #[test]
+    fn resolve_interaction_delivers_answers_to_parked_channel() {
+        // Simulate the ask_user flow: register a pending interaction with a
+        // channel, then resolve it from the UI side. The answers should
+        // arrive on the channel.
+        let interaction_id = format!("test-int-{}", std::process::id());
+        let (tx, rx) = std::sync::mpsc::channel::<InteractionResolution>();
+        {
+            let mut pending = PENDING_INTERACTIONS.lock();
+            pending.insert(interaction_id.clone(), tx);
+        }
+        let answers = vec![crate::models::interaction::QuestionAnswer {
+            question_id: "q1".to_string(),
+            selected: vec![],
+            text: Some("yes".to_string()),
+        }];
+        let result = resolve_interaction(&interaction_id, answers.clone());
+        assert!(result.is_ok(), "resolve_interaction should succeed");
+        // The parked channel should receive the resolution.
+        let resolution = rx.recv_timeout(std::time::Duration::from_secs(1)).expect("should receive resolution");
+        assert!(!resolution.cancelled, "should not be cancelled");
+        assert_eq!(resolution.answers.len(), 1);
+        assert_eq!(resolution.answers[0].question_id, "q1");
+        assert_eq!(resolution.answers[0].text.as_deref(), Some("yes"));
+        // The pending entry should be removed.
+        let pending = PENDING_INTERACTIONS.lock();
+        assert!(!pending.contains_key(&interaction_id), "pending entry should be removed");
+    }
+
+    #[test]
+    fn resolve_interaction_returns_error_for_unknown_id() {
+        let result = resolve_interaction("nonexistent-id", vec![]);
+        assert!(result.is_err(), "should error for unknown interaction id");
+    }
+
+    #[test]
+    fn cancel_interaction_delivers_cancelled_resolution() {
+        let interaction_id = format!("test-cancel-{}", std::process::id());
+        let (tx, rx) = std::sync::mpsc::channel::<InteractionResolution>();
+        {
+            let mut pending = PENDING_INTERACTIONS.lock();
+            pending.insert(interaction_id.clone(), tx);
+        }
+        let result = cancel_interaction(&interaction_id);
+        assert!(result.is_ok(), "cancel_interaction should succeed");
+        let resolution = rx.recv_timeout(std::time::Duration::from_secs(1)).expect("should receive resolution");
+        assert!(resolution.cancelled, "should be cancelled");
+        assert!(resolution.answers.is_empty(), "cancelled resolution should have no answers");
     }
 }

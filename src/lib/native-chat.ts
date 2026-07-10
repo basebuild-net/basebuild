@@ -9,6 +9,7 @@ export type NativeChatSession = {
   modelId: string;
   effortLevel: string;
   status: string;
+  runState: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -33,6 +34,15 @@ export type NativeToolEvent = {
   kind: string;
   status: string;
   summary: string;
+  /** Raw arguments JSON the model passed to the tool (file path, command, pattern, etc.). */
+  arguments: string | null;
+  /** Unified line diff for edit_file/write_file results. */
+  diff: string | null;
+  /** How the approval decision was made: "approved", "denied", "auto", "rule". */
+  decision: string | null;
+  /** The rule pattern that matched, if any. */
+  ruleSource: string | null;
+  sequence: number;
   createdAt: number;
 };
 
@@ -148,9 +158,19 @@ export type NativeGeneratedIdea = {
   description: string;
 };
 
+export type GroundingMetadata = {
+  schematicSections: string[];
+  finishedPlans: string[];
+  finishedPlanCount: number;
+  pickedCount: number;
+  rejectedCount: number;
+  digestEmpty: boolean;
+};
+
 export type NativeGenerateIdeasResult = {
   ideas: NativeGeneratedIdea[];
   setupRequired: NativeSetupRequired | null;
+  grounding: GroundingMetadata | null;
 };
 
 export type ProviderLoginStart = {
@@ -233,6 +253,18 @@ export async function nativeChatMessages(sessionId: string): Promise<NativeChatM
   return invoke<NativeChatMessage[]>("native_chat_messages", { sessionId });
 }
 
+/** Persist provider/model/effort on an existing session so the selection
+ * survives restart. Called when the user changes the selection in the
+ * composer. Also persists the project default for new sessions. */
+export async function nativeChatUpdateSessionModel(input: {
+  sessionId: string;
+  providerId: string;
+  modelId: string;
+  effortLevel: string;
+}): Promise<NativeChatSession> {
+  return invoke<NativeChatSession>("native_chat_update_session_model", input);
+}
+
 export async function nativeChatSend(input: {
   sessionId: string;
   content: string;
@@ -310,6 +342,13 @@ export async function nativeChatModelDefault(projectPath: string): Promise<Resol
 /** Cancel a running agent loop for a session. Returns true if a run was found. */
 export async function nativeChatCancel(sessionId: string): Promise<boolean> {
   return invoke<boolean>("native_chat_cancel", { sessionId });
+}
+
+/** Delete all persisted messages and tool events for a session.
+ * Preserves the session record and provider/model/effort selection.
+ * Returns the count of deleted messages. */
+export async function nativeChatClearMessages(sessionId: string): Promise<number> {
+  return invoke<number>("native_chat_clear_messages", { sessionId });
 }
 
 /** List tool events for a session (tool calls, approvals, metrics). */

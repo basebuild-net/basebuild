@@ -5,9 +5,11 @@ change. This document links to it and adds agent-specific rules.
 
 ## Core principles
 
-- **Pure black canvas** (`#000000`), pure white text (`#ffffff`), single orange
-  accent (`#ff5606`). Exception: app update install CTAs use blue (`#2563eb`)
-  so releases are visually distinct from normal actions.
+- **Dark canvas** (`--bb-bg`), white text (`--bb-text`), orange CTA accent
+  (`--bb-cta`). Plan statuses, tool call types, and context meters use vibrant
+  semantic CSS-variable colors (green, blue, purple, amber, red). Color never
+  acts alone — every state has a word and icon. Exception: app update install
+  CTAs use blue (`#2563eb`) so releases are visually distinct from normal actions.
 - **0px border radius everywhere.** No exceptions.
 - **No decorative borders.** Layer on whitespace, hover lifts, and uppercase
   typography.
@@ -15,6 +17,37 @@ change. This document links to it and adds agent-specific rules.
 - **Compact and dense.** Minimal padding, no wasted space.
 - **Tooltips on every interactive element** (`title` attribute). Verify with
   `title=`, not just `aria-label`.
+- **CSS variables only.** All colors, sizes, and scales are tokenized in
+  `globals.css` `:root` so themes can be swapped in the future. No hardcoded
+  color values in component files.
+- **Panel-grid and chat-header patterns use Basebuild-owned split-tree and
+  context-header primitives.** If external code is vendored in the future, add
+  it as an explicit module with license notice; do not leave ad-hoc source
+  references in component comments.
+
+## Product hierarchy and ownership
+
+The shell has four ownership levels. A control belongs to one level only; a stage
+button opens its exact destination and never creates a surrogate chat or defaults
+to a sibling tab.
+
+1. **Global navigation** — project/chat history and account controls.
+2. **Project command strip** — Schematic, Ideas, Plans, Running, Done, Changes.
+3. **Active chat** — transcript/activity timeline and composer.
+4. **Project modals** — Schematic, Planning, Changes, Files, and Settings.
+
+The top bar is an orientation/action strip, not a telemetry dump. It contains
+named project utilities, project/branch/workspace context, and planning stages.
+Provider/model/effort live in the composer configuration area; raw session ids,
+inactive-plan placeholders, and duplicate model/project badges do not render.
+
+### Modal versus popover
+
+Use a popover only for a short, single-step choice that can be understood in
+roughly 6-8 rows (chat actions, branch switch, New panel). Use a modal for
+search/browse configuration, multi-column content, previews, forms, or catalogs
+(provider/model, Schematic, Planning, Changes, Files, Settings). Modal layouts
+may obscure the chat: focused configuration is the current task.
 
 ## CSS rules
 
@@ -71,6 +104,19 @@ dependencies are NOT adopted.
   ahead/behind, changed-file count, confirm-gated Create PR action).
 - `.settings-table` — concurrency settings grid (provider, global max,
   project max, subagents, subagent cap).
+- `.settings-modal .modal-body` — always a row: fixed `.settings-sidebar`
+  beside flexible, independently scrolling `.settings-content`.
+- `.chat-env-context` + `.chat-context-badge` — compact chat context badges;
+  truncate with tooltip text rather than wrapping over header actions.
+- `.provider-catalog-modal` — two-pane provider/model configuration workspace.
+  `.provider-card-grid` fits two provider cards per row; `.provider-card`
+  combines green Connected or grey Available rail/dot/text with model count.
+  `.provider-model-list` is provider-scoped and searchable, with compact
+  `.provider-capability` badges. This is a modal, not a composer dropdown.
+
+Use popovers only for short single-step menus (roughly 6-8 rows). Searchable
+catalogs, forms, previews, and multi-column configuration belong in a named
+modal and may intentionally obscure the chat while configuration is active.
 
 ## Component reuse
 
@@ -120,15 +166,17 @@ The composer must be structurally impossible to clip:
   transcript (title, description, `.chat-idea-card-actions` with `Promote` /
   `Reject`). Promoted cards show a `Planned` status badge; rejected cards
   show `Rejected`. Cards are append-only and reload with the session.
-- The Planning Inspector (`.planning-inspector`) has three tabs
-  (`.inspector-tab`): Plans, Ideas, and Categories. The Ideas tab has
+- The Planning Inspector (`.planning-inspector`) has five tabs
+  (`.inspector-tab`): Plans, Ideas, Categories, Flow, and Changes. In a modal,
+  `.planning-inspector-modal` stays column-oriented even when wide container
+  queries make docked inspectors master-detail. The Ideas tab has
   status filter chips (`.inspector-filter-chip`) and per-idea promote/reject
   actions. The Categories tab lists `.inspector-category-card` entries with
   idea counts and drill-down detail.
 
-## Project schematic tab (technical)
+## Project schematic modal (technical)
 
-The schematic tab (`.project-schematic-tab`) renders `.basebuild/project-schematic.md`
+The dedicated `.modal-schematic` hosts `.project-schematic-tab`, which renders `.basebuild/project-schematic.md`
 as a structured section-card view by default, with a raw-markdown toggle:
 
 - Toolbar: `.project-schematic-toolbar` + `.project-schematic-toolbar-title`,
@@ -151,8 +199,10 @@ as a structured section-card view by default, with a raw-markdown toggle:
 - Empty state uses `.empty-state-actions` (button row) offering `Start wizard`
   first.
 
-The wizard itself is not a modal: entry points inject a guided prompt into the
-chat (skill-driven turn). The chat soft-gate notice is a full-width button
+The Schematic stage always opens this modal; starting the current wizard may
+still route a skill-driven turn through the destination chooser. The
+`ai-workbench-course-correction` change tracks moving the managed questionnaire
+and activity into the modal itself. The chat soft-gate notice is a full-width button
 (`.chat-command-notice-button`) that opens the schematic tab.
 
 Idea grounding/anchor flags on idea cards and inspector rows:
@@ -174,7 +224,103 @@ Settings → Final Touches tab uses `.final-touch-list`, `.final-touch-step`,
 `.final-touch-toggle`, and `.final-touch-add` classes. All inputs, selects,
 and buttons use 0px radius and `var(--bb-surface)` backgrounds.
 
+## Semantic visual states
+
+State is communicated with redundant text, icon, and shape cues. Color never
+carries meaning alone.
+
+- **Green (`--bb-success` / `--bb-positive`)** — connected, succeeded, complete,
+  added, ok. Examples: `.provider-card.is-connected`,
+  `.provider-status.is-connected`, `.tool-card-status-success`,
+  `.schematic-health-badge.is-complete`, `.chat-health-dot.is-ok`, `.text-ok`,
+  `.plan-queue-run-status-succeeded`.
+- **Grey (`--bb-muted` / `--bb-unavailable`)** — unavailable, inactive, cancelled,
+  archived, placeholder, disabled. Examples: `.provider-card.is-available`,
+  `.provider-status` default, `.provider-capability` default,
+  `.plan-queue-run-status-cancelled`, `.text-muted`, `.idea-status.is-archived`.
+- **Amber (`--bb-warning`)** — warning, partial, stuck, stale, offline. Examples:
+  `.schematic-health-badge.is-partial`,
+  `.schematic-section-card.is-missing`/`.is-placeholder`, `.schematic-nudge`,
+  `.chat-stuck-bar`, `.chat-setup-bar`, `.chat-command-notice`,
+  `.chat-offline-tag`, `.idea-outside-focus`, `.chat-health-dot.is-warn`,
+  `.badge-warn`, `.command-strip-count-warn`.
+- **Red (`--bb-danger` / `--bb-negative`)** — error, failed, missing, deleted,
+  denied, destructive. Examples: `.tool-card-error`, `.tool-card-status-error`,
+  `.question-card-error`, `.chat-error-bar`, `.chat-more-menu-item.is-danger`,
+  `.text-danger`, `.badge-error`, `.plan-queue-run-status-failed`,
+  `.schematic-health-badge.is-missing`, `.source-file-status.is-deleted`.
+- **Orange (`--bb-cta`)** — active selection, current focus, pending/running, CTA.
+  Examples: `.provider-model-row.is-active`, `.provider-card.is-active`,
+  `.settings-tab.is-active`, `.tool-card-running`, `.tool-card-status-running`,
+  `.question-card-pending`, `.chat-message-user`, `.chat-row.is-active`,
+  `.command-strip-count-active`.
+
+## Agent activity timeline
+
+The chat transcript normalizes native and OMP-backed events into ordered
+activity items: `assistant_text`, `reasoning`, `tool_call`, `question`, `capture`,
+`approval`, `notice`, and `error`. Each item carries a stable id, sequence,
+status, summary, timestamps, and optional expandable detail.
+
+Rendering contract:
+
+- Collapsed presentation is dense: one live activity group with the latest
+  operation visible. Use `.tool-card-group` with `.tool-card-group-list`; the
+  list is height-capped and auto-follows the newest call while a run is active.
+- Expansion preserves ordering and exposes individual calls. Use `.tool-card`
+  for each call with `.tool-card-status-success`, `.tool-card-status-error`,
+  `.tool-card-status-running`, and `.tool-card-expand` for the detail body.
+- Reasoning/thinking tokens render in `.reasoning-fold` above the assistant
+  reply; the fold auto-expands while streaming and collapses on completion.
+  Reasoning is never concatenated into the persisted content string.
+- Question and approval items remain inline and block the run visibly. Use
+  `.question-card` (`.question-card-pending`, `.question-card-success`,
+  `.question-card-error`) for these cards.
+- Captured ideas render as `.chat-idea-card` rows; notices and errors use
+  `.chat-command-notice`, `.chat-notice-bar`, and `.chat-error-bar`.
+- Unsupported transports produce an explicit capability state before launch, not
+  a fake tools-capable run.
+
 ## Screenshot verification
 
 Every UI change requires a screenshot. See
 [`testing.md`](./testing.md#visual-verification).
+
+## Markdown rendering classes
+
+- `.md-code-block`: fenced code block container (0px radius, mono font).
+- `.md-code-copy`: copy button in code block header.
+- `.md-inline-code`: inline code styling.
+- `.md-table`: markdown table rendering.
+- `.md-list`, `.md-blockquote`, `.md-heading-*`: heading scale inside chat.
+
+## Message action rail classes
+
+- `.message-action-rail`: per-message action button container.
+- `.message-action-btn`: individual action button (Copy, Retry, Edit).
+
+## Tool card classes
+
+- `.tool-card`: expandable tool call result container.
+- `.tool-card-header`: clickable header (kind icon + summary).
+- `.tool-card-diff`: unified diff display.
+- `.diff-add`, `.diff-del`: added/removed diff line classes.
+- `.tool-card-provenance`: approval provenance line ("Allowed by rule", etc.).
+- `.tool-card-arg-value`: argument value display in expanded card.
+
+## Provider state chips
+
+- `.provider-status.is-ready`: configured with usable transport (green).
+- `.provider-status.is-warning`: transport unavailable (amber).
+- `.provider-status.is-setup-required`: no credential (grey).
+- `.provider-card-error`: per-provider error chip container.
+- `.provider-card-error-text`: error message text.
+- `.provider-card-retry-btn`: retry button in error chip.
+
+## Idea grounding classes
+
+- `.idea-batch-header`: grounding provenance header in Ideas tab.
+- `.idea-batch-header-label`: "Grounded in:" label.
+- `.idea-batch-header-sections`: schematic section names.
+- `.idea-batch-header-counts`: finished plan / picked / rejected counts.
+- `.idea-batch-header-empty`: "no decisions since schematic update" notice.

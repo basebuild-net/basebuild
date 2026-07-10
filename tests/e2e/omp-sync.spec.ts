@@ -1,12 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openMvpFixtureProject, waitForAppReady } from "./helpers";
 
 async function openFixtureProject(page: Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem("basebuild:first-run-complete", "true");
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Open project" }).click();
-  await expect(page.locator(".status-pill", { hasText: "C:\\basebuild-e2e\\project" })).toBeVisible();
+  await openMvpFixtureProject(page);
+  await waitForAppReady(page);
+  await page.waitForTimeout(1500);
 }
 
 test.describe("OMP <-> Basebuild IDE sync", () => {
@@ -46,12 +44,18 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
 
     await openFixtureProject(page);
 
-    // Open Settings, navigate to the Account tab, and sign in.
-    await page.getByTitle("Sign in to basebuild.net").click();
+    // Open Settings and navigate to the Account tab.
+    // The MVP fixture has an authenticated account; click the account button
+    // to open the dropdown, then click Settings.
+    const accountBtn = page.locator('button[title*="MVPUser"], button[title*="Sign in"]').first();
+    await expect(accountBtn).toBeVisible({ timeout: 10_000 });
+    await accountBtn.click({ timeout: 10_000 });
+    const settingsItem = page.locator('button[title="Open settings"]').first();
+    await expect(settingsItem).toBeVisible({ timeout: 5_000 });
+    await settingsItem.click({ timeout: 5_000 });
+    // Wait for the lazy-loaded settings modal.
+    await expect(page.locator(".settings-modal")).toBeVisible({ timeout: 15_000 });
     await page.getByRole("button", { name: "Account", exact: true }).click();
-    await page.getByTitle("Open browser to sign in to basebuild.net").click();
-    // The mocked device flow resolves to success; account state refreshes.
-    await expect(page.locator(".account-name")).toContainText("TestUser", { timeout: 10_000 });
     // The Usage Sync panel renders with the auto-sync toggle, which defaults
     // to ON after sign-in.
     await expect(page.getByRole("heading", { name: "Usage Sync" })).toBeVisible();

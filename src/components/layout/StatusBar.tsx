@@ -24,7 +24,7 @@ export function StatusBar({ onClick }: StatusBarProps) {
 
   if (!lastEntry) {
     return (
-      <button className="status-bar" type="button" onClick={onClick}>
+      <button className="status-bar" type="button" title="Open log panel" onClick={onClick}>
         <span className="status-bar-message text-muted">No issues</span>
         <span className="status-bar-count">{logs.length} events</span>
       </button>

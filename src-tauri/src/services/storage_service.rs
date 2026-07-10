@@ -3,7 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::{models::recent_project::RecentProject, services::storage_paths::StoragePathService};
 
@@ -111,11 +111,73 @@ impl StorageService {
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|error| format!("Failed to read recent project row: {error}"))
     }
+
+    pub fn get_last_focused_project() -> Result<Option<RecentProject>, String> {
+        let connection = Self::connect()?;
+        let path = connection
+            .query_row(
+                "SELECT value FROM app_defaults WHERE key = 'last_focused_project_path'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| format!("Failed to read last focused project key: {error}"))?;
+
+        match path {
+            Some(path) => Self::recent_project_by_path(&connection, &path),
+            None => Ok(None),
+        }
+    }
+
+    pub fn set_last_focused_project(path: impl AsRef<Path>) -> Result<RecentProject, String> {
+        let path = path.as_ref();
+        let path_string = path.to_string_lossy().to_string();
+        let _ = Self::remember_recent_project(path)?;
+        let connection = Self::connect()?;
+        connection
+            .execute(
+                "INSERT INTO app_defaults (key, value) VALUES ('last_focused_project_path', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![path_string.as_str()],
+            )
+            .map_err(|error| format!("Failed to persist last focused project: {error}"))?;
+        Self::recent_project_by_path(&connection, &path_string)?
+            .ok_or_else(|| "Last focused project row was not persisted".to_string())
+    }
+
+    fn recent_project_by_path(
+        connection: &Connection,
+        path: &str,
+    ) -> Result<Option<RecentProject>, String> {
+        connection
+            .query_row(
+                "SELECT path, name, last_opened_at, last_active_session_id
+                 FROM recent_projects
+                 WHERE path = ?1",
+                params![path],
+                |row| {
+                    Ok(RecentProject {
+                        path: row.get(0)?,
+                        name: row.get(1)?,
+                        last_opened_at: row.get(2)?,
+                        last_active_session_id: row.get(3)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|error| format!("Failed to read recent project row: {error}"))
+    }
     pub fn remove_recent_project(path: &str) -> Result<(), String> {
         let connection = Self::connect()?;
         connection
             .execute("DELETE FROM recent_projects WHERE path = ?1", params![path])
             .map_err(|error| format!("Failed to remove recent project: {error}"))?;
+        connection
+            .execute(
+                "DELETE FROM app_defaults WHERE key = 'last_focused_project_path' AND value = ?1",
+                params![path],
+            )
+            .map_err(|error| format!("Failed to clear last focused project: {error}"))?;
         Ok(())
     }
 
@@ -277,6 +339,8 @@ impl StorageService {
                     kind TEXT NOT NULL,
                     status TEXT NOT NULL,
                     summary TEXT NOT NULL,
+                    arguments TEXT,
+                    sequence INTEGER NOT NULL DEFAULT 0,
                     created_at INTEGER NOT NULL,
                     FOREIGN KEY (session_id) REFERENCES native_chat_sessions(id) ON DELETE CASCADE,
                     FOREIGN KEY (message_id) REFERENCES native_chat_messages(id) ON DELETE SET NULL
@@ -301,6 +365,11 @@ impl StorageService {
                     api_key TEXT NOT NULL,
                     base_url TEXT,
                     updated_at INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS native_blocked_providers (
+                    provider_id TEXT PRIMARY KEY NOT NULL,
+                    blocked_at INTEGER NOT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS native_model_defaults (
@@ -568,6 +637,74 @@ impl StorageService {
                 );
                 CREATE INDEX IF NOT EXISTS idx_pending_interactions_session ON pending_interactions(session_id);
                 CREATE INDEX IF NOT EXISTS idx_pending_interactions_status ON pending_interactions(status) WHERE status = 'pending';
+
+                /* Plan dependency metadata (plan-dependency-scheduling). */
+                CREATE TABLE IF NOT EXISTS plan_dependency_meta (
+                    plan_id TEXT PRIMARY KEY NOT NULL,
+                    prerequisites TEXT NOT NULL DEFAULT '[]',
+                    affected_paths TEXT NOT NULL DEFAULT '[]',
+                    scheduling_mode TEXT NOT NULL DEFAULT 'safe',
+                    workspace_policy TEXT NOT NULL DEFAULT 'isolated_worktrees',
+                    updated_at INTEGER NOT NULL,
+                    FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+                );
+
+                /* File claims published by running workers. */
+                CREATE TABLE IF NOT EXISTS plan_file_claims (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    run_id TEXT NOT NULL,
+                    plan_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    action TEXT NOT NULL DEFAULT 'claim',
+                    created_at INTEGER NOT NULL,
+                    released_at INTEGER,
+                    FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_plan_file_claims_session ON plan_file_claims(session_id);
+                CREATE INDEX IF NOT EXISTS idx_plan_file_claims_active ON plan_file_claims(session_id) WHERE released_at IS NULL;
+
+                /* Append-only coordination event ledger. */
+                CREATE TABLE IF NOT EXISTS plan_coordination_events (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    session_id TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    plan_id TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    payload TEXT NOT NULL DEFAULT '{}',
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_plan_coord_events_session ON plan_coordination_events(session_id, created_at);
+
+                /* Per-project launch profile. */
+                CREATE TABLE IF NOT EXISTS plan_launch_profiles (
+                    project_path TEXT PRIMARY KEY NOT NULL,
+                    engine TEXT NOT NULL DEFAULT 'openspec',
+                    provider_id TEXT NOT NULL DEFAULT '',
+                    model_id TEXT NOT NULL DEFAULT '',
+                    effort_level TEXT,
+                    skill_id TEXT,
+                    worker_count INTEGER NOT NULL DEFAULT 1,
+                    workspace_policy TEXT NOT NULL DEFAULT 'isolated_worktrees',
+                    scheduling_mode TEXT NOT NULL DEFAULT 'safe',
+                    updated_at INTEGER NOT NULL
+                );
+
+                /* Merge-review queue for completed runs. */
+                CREATE TABLE IF NOT EXISTS plan_merge_queue (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    run_id TEXT NOT NULL,
+                    plan_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    collision_review_required INTEGER NOT NULL DEFAULT 0,
+                    overlapping_plans TEXT NOT NULL DEFAULT '[]',
+                    reviewed_at INTEGER,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_plan_merge_queue_session ON plan_merge_queue(session_id);
             ")
             .map_err(|error| format!("Failed to initialize Basebuild state database: {error}"))?;
         // Migration: add last_active_session_id to existing databases
@@ -763,6 +900,63 @@ impl StorageService {
         if !has_reasoning {
             let _ = connection.execute(
                 "ALTER TABLE native_chat_messages ADD COLUMN reasoning TEXT",
+                [],
+            );
+        }
+
+        // Migration (ai-workbench-course-correction): add sequence column to
+        // native_tool_events for stable per-session ordering independent of
+        // timestamp resolution. Default 0 for legacy rows.
+        let has_tool_sequence = connection
+            .prepare("SELECT sequence FROM native_tool_events LIMIT 0")
+            .is_ok();
+        if !has_tool_sequence {
+            let _ = connection.execute(
+                "ALTER TABLE native_tool_events ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0",
+                [],
+            );
+        }
+
+        // Migration (tool-visibility): add arguments column to
+        // native_tool_events so the UI can show file paths, commands,
+        // search patterns, etc. Null for legacy rows.
+        let has_tool_arguments = connection
+            .prepare("SELECT arguments FROM native_tool_events LIMIT 0")
+            .is_ok();
+        if !has_tool_arguments {
+            let _ = connection.execute(
+                "ALTER TABLE native_tool_events ADD COLUMN arguments TEXT",
+                [],
+            );
+        }
+        // Migration (chat-experience-completion): add diff column to
+        // native_tool_events for unified line diffs on file tools.
+        let has_tool_diff = connection
+            .prepare("SELECT diff FROM native_tool_events LIMIT 0")
+            .is_ok();
+        if !has_tool_diff {
+            let _ = connection.execute(
+                "ALTER TABLE native_tool_events ADD COLUMN diff TEXT",
+                [],
+            );
+        }
+        // Migration (chat-experience-completion): add decision + rule_source
+        // columns to native_tool_events for approval provenance display.
+        let has_tool_decision = connection
+            .prepare("SELECT decision FROM native_tool_events LIMIT 0")
+            .is_ok();
+        if !has_tool_decision {
+            let _ = connection.execute(
+                "ALTER TABLE native_tool_events ADD COLUMN decision TEXT",
+                [],
+            );
+        }
+        let has_tool_rule_source = connection
+            .prepare("SELECT rule_source FROM native_tool_events LIMIT 0")
+            .is_ok();
+        if !has_tool_rule_source {
+            let _ = connection.execute(
+                "ALTER TABLE native_tool_events ADD COLUMN rule_source TEXT",
                 [],
             );
         }
@@ -1334,5 +1528,95 @@ mod tests {
             )
             .ok();
         assert!(value.is_none(), "no row present -> service returns default");
+    }
+
+    #[test]
+    fn set_last_focused_project_inserts_missing_project_and_returns_it() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+
+        let path = "/test/missing-project";
+        let focused = StorageService::set_last_focused_project(path).unwrap();
+        assert_eq!(focused.path, path);
+        assert_eq!(focused.name, "missing-project");
+        assert!(focused.last_active_session_id.is_none());
+
+        let from_get = StorageService::get_last_focused_project().unwrap();
+        assert_eq!(from_get.map(|p| p.path), Some(path.to_string()));
+    }
+
+    #[test]
+    fn set_last_focused_project_preserves_last_active_session_id_and_bumps_timestamp() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+
+        let path = "/test/session-project";
+        let old_timestamp = 1000i64;
+        conn.execute(
+            "INSERT INTO recent_projects(path, name, last_opened_at, last_active_session_id)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![path, "session-project", old_timestamp, Some("sess-keep")],
+        )
+        .unwrap();
+
+        let focused = StorageService::set_last_focused_project(path).unwrap();
+        assert_eq!(focused.last_active_session_id.as_deref(), Some("sess-keep"));
+        assert!(
+            focused.last_opened_at > old_timestamp,
+            "set_last_focused_project must bump last_opened_at"
+        );
+    }
+
+    #[test]
+    fn get_last_focused_project_returns_explicit_focus_not_first_recent_row() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+
+        let path_a = "/test/project-a";
+        let path_b = "/test/project-b";
+        conn.execute(
+            "INSERT INTO recent_projects(path, name, last_opened_at, last_active_session_id)
+             VALUES (?1, ?2, ?3, ?4), (?5, ?6, ?7, ?8)",
+            params![
+                path_a,
+                "Project A",
+                1000i64,
+                None::<&str>,
+                path_b,
+                "Project B",
+                2000i64,
+                None::<&str>
+            ],
+        )
+        .unwrap();
+
+        StorageService::set_last_focused_project(path_a).unwrap();
+
+        // Make B strictly more recent than A so that a recency-first lookup
+        // would return B, proving get_last_focused_project uses explicit focus.
+        conn.execute(
+            "UPDATE recent_projects SET last_opened_at = ?1 WHERE path = ?2",
+            params![i64::MAX, path_b],
+        )
+        .unwrap();
+
+        let last = StorageService::get_last_focused_project().unwrap();
+        assert_eq!(last.map(|p| p.path), Some(path_a.to_string()));
+    }
+
+    #[test]
+    fn remove_recent_project_clears_last_focused_project() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+
+        let path = "/test/remove-project";
+        StorageService::set_last_focused_project(path).unwrap();
+        assert!(StorageService::get_last_focused_project().unwrap().is_some());
+
+        StorageService::remove_recent_project(path).unwrap();
+
+        assert!(StorageService::get_last_focused_project().unwrap().is_none());
     }
 }

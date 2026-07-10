@@ -1,7 +1,7 @@
 ---
 version: beta
 name: Basebuild Mono Desktop
-description: Desktop adaptation of the basebuild Mono design system. Pure black canvas, pure white type, a single high-contrast orange accent, square geometry (0px radius), and a borderless aesthetic adapted to a dense desktop tool. Collapsible columns, icon-only collapse modes, tooltips on every interactive element.
+description: Desktop adaptation of the basebuild design system. Dark tokenized canvas, white type, vibrant semantic status colors for plan/tool/status types, square geometry (0px radius), and a borderless aesthetic adapted to a dense desktop tool. All colors are CSS variables for future theme support. Collapsible columns, icon-only collapse modes, tooltips on every interactive element.
 colors:
   background: "#000000"
   surface: "#0a0a0a"
@@ -158,10 +158,16 @@ components:
 
 ## Overview
 
-Basebuild Mono Desktop adapts the basebuild Mono web design system for a
-desktop tool. The personality is preserved - **pure black canvas, pure white
-type, a single electric orange (`#ff5606`) accent, and square geometry** - but
-adapted for a dense, compact, instrument-like workspace.
+Basebuild Mono Desktop adapts the basebuild web design system for a
+desktop tool. The personality is preserved - **dark canvas, white type,
+vibrant semantic colors for status/tool types, and square geometry** - but
+adapted for a dense, compact, instrument-like workspace. Colors are tokenized
+as CSS variables in `globals.css` so themes can be swapped in the future.
+
+The single orange accent (`#ff5606`) remains the primary CTA color, but
+plan statuses, tool call types, and context meters use vibrant semantic
+colors (green, blue, purple, amber, red) to make state visible at a glance.
+Color never acts alone — every state has a word and icon alongside it.
 
 This is a desktop tool, not a marketing site. The UI is **extremely compact**:
 minimal padding, no wasted whitespace between elements, no large empty regions.
@@ -210,8 +216,9 @@ A compact, ~100px-tall block pinned to the top-right of the chat surface. It
 - **Changes / branch / source** — current git branch, ahead/behind, and the
   staged/unstaged/untracked counts. Inline actions: commit, push, pull. The
   diff/list view opens as a popover from the block, not a full column.
-- **Plans & Ideas** — the Planning Inspector (`Plans / Ideas / Categories`
-  tabs) lives here, folded by default. Schematic health badge and the End-goal
+- **Plans & Ideas** — the Planning Inspector (`Plans / Ideas / Categories /
+  Flow / Changes` tabs) opens as a project modal from the command strip and
+  remains available from the environment block. Schematic health and End-goal
   nudge render in this fold when relevant. Generation is still triggered from
   the chat composer's planning menu and runs as a visible chat turn — the block
   is for inspecting and managing, not for generation inputs.
@@ -223,11 +230,12 @@ A compact, ~100px-tall block pinned to the top-right of the chat surface. It
 The block is collapsible; when folded it shows just the branch name and a
   health dot. It floats above the transcript and never pushes chat content.
 
-### Workspace tabs (terminal, file viewer, schematic)
+### Workspace tabs and project surfaces
 
-Terminal sessions, the file viewer, and the project schematic open as
-**workspace tabs over the center** — same surface as chat, switchable. They are
-per-session and each has a `kind` (`terminal`, `file`, `schematic`, `chat`).
+Terminal sessions and the file viewer open as **workspace tabs over the
+center**. The Project Schematic is project-owned and opens in its dedicated
+modal from the top-level Schematic stage; it is not represented as a new chat.
+Workspace tabs are per-session and use `terminal`, `file`, and `chat` kinds.
 There is no always-visible tab bar; the active tab is indicated in the session
 header and switching is via the left column or keyboard. The default tab is the
 chat.
@@ -270,8 +278,52 @@ action row. The transition is a smooth width animation. In collapsed mode:
 
 The collapsed state is stored in React state (not persisted yet).
 
-## Tooltips
+## Product hierarchy
 
+The shell has four ownership levels. A control belongs to one level only:
+
+1. **Global navigation** — project/chat history and account controls (left
+   sidebar).
+2. **Project command strip** — Schematic, Ideas, Plans, Running, Done. Each
+   stage button opens its exact destination; it never creates a surrogate
+   chat or defaults to a sibling tab.
+3. **Active chat** — transcript/activity timeline and composer.
+4. **Project modals** — Schematic, Planning, Changes, Files, Settings.
+
+The top bar is an orientation/action strip, not a telemetry dump. It contains
+named project utilities, project/branch/workspace context, and planning stages.
+Provider/model/effort live in the composer configuration area; raw session ids,
+inactive-plan placeholders, and duplicate model/project badges do not render.
+
+### Modal versus popover
+
+Use a popover only for a short, single-step choice that can be understood in
+roughly 6-8 rows (chat actions, branch switch, New panel). Use a modal for
+search/browse configuration, multi-column content, previews, forms, or catalogs
+(provider/model, Schematic, Planning, Changes, Files, Settings). Modal layouts
+may obscure the chat: focused configuration is the current task.
+
+### Semantic visual states
+
+Color never acts alone — every state has text/icon redundancy:
+
+- **Connected/success** — green (`#4ade80`). Connected providers, staged files,
+  ahead count, completed runs.
+- **Unavailable/inactive** — grey (muted). Available providers, inactive stages.
+- **Warning** — amber (`#facc15`). Modified files, behind count, setup-required
+  providers, stale schematic.
+- **Error** — red (`#f87171`). Destructive actions, failed runs, deleted files.
+- **Active selection** — orange (`#ff5606`). Selected provider card, active
+  project, current tab.
+
+### Loading and errors
+
+Project switching immediately replaces project content with a stable loading
+surface. Modal bodies use visible skeleton/loading/error/empty states; Suspense
+fallbacks for user-opened surfaces are never blank. Errors include a retry and
+are debug-logged with action and project/session identifiers.
+
+## Tooltips
 Every interactive element has a tooltip via the `title` attribute. This is
 non-negotiable - density requires that users can discover what an icon does
 without clicking. For icon-only (collapsed) states, the tooltip is the primary

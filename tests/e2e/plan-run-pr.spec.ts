@@ -1,14 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openMvpFixtureProject, waitForAppReady } from "./helpers";
 
 async function openFixtureProject(page: Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem("basebuild:first-run-complete", "true");
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Open project" }).click();
-  await expect(
-    page.locator(".status-pill", { hasText: "C:\\basebuild-e2e\\project" }),
-  ).toBeVisible();
+  await openMvpFixtureProject(page);
+  await waitForAppReady(page);
 }
 
 async function ensureChatPanel(page: Page) {
@@ -98,6 +93,7 @@ test.describe("plan-run → PR recommendation", () => {
     const createBtn = page.locator(".pr-recommendation-card button", { hasText: "Create pull request" }).first();
     await expect(createBtn).toBeVisible();
     await createBtn.click({ force: true });
+    await page.waitForTimeout(300);
     // Confirmation prompt appears.
     await expect(page.locator(".pr-recommendation-confirm")).toBeVisible();
     await expect(page.locator(".pr-recommendation-confirm button", { hasText: "Confirm" })).toBeVisible();

@@ -39,7 +39,7 @@ export function CrashReportNotice({ onViewReports }: CrashReportNoticeProps) {
           onViewReports();
         }}
       >
-        View <ChevronRight size={12} style={{ display: "inline", verticalAlign: "middle" }} />
+        View <ChevronRight size={12} className="icon-inline" />
       </button>
       <button
         className="crash-notice-dismiss"

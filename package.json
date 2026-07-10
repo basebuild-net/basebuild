@@ -9,6 +9,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test:e2e": "playwright test",
+    "check:ui-invariants": "node scripts/check-ui-invariants.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

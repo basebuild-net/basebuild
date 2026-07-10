@@ -69,6 +69,16 @@ pub fn list_recent_projects(limit: Option<u32>) -> Result<Vec<RecentProject>, St
 }
 
 #[tauri::command]
+pub fn get_last_focused_project() -> Result<Option<RecentProject>, String> {
+    StorageService::get_last_focused_project()
+}
+
+#[tauri::command]
+pub fn set_last_focused_project(path: String) -> Result<RecentProject, String> {
+    StorageService::set_last_focused_project(path)
+}
+
+#[tauri::command]
 pub fn detect_project(path: String) -> ProjectDetection {
     ProjectService::detect(path)
 }
