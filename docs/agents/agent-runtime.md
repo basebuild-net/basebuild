@@ -7,11 +7,12 @@ calling, approval gates, and ask_user interactions directly. All providers
 external CLI process is required for chat.
 
 OhMyPi (OMP) is a **supported tool**, not the chat transport. OMP may be used
-as a terminal panel, a plan runner, and an optional chat profile for users who
-want OMP's own tool ecosystem. The OMP RPC bridge (`omp-rpc` profile) exists
-for users who explicitly choose it, but the native agent loop is the default
-and preferred runtime. The architecture supports future adapters (Basebuild
-CLI, other CLIs, IDEs) without changing the chat UI contract.
+as a terminal panel and a plan runner. Native chat never bridges through OMP
+RPC: routes with no native transport (ChatGPT-subscription OAuth, bespoke
+agent api_kinds without a direct endpoint) are refused with typed setup
+guidance (`route_requires_omp` in `native_chat_service.rs`). The architecture
+supports future adapters (Basebuild CLI, other CLIs, IDEs) without changing
+the chat UI contract.
 
 ## Runtime profiles
 
@@ -673,43 +674,29 @@ when `BASEBUILD_HOME` is unset. A shared test-util constructor
 env var. The user's real `~/.basebuild/state.db` is never read or written
 during tests.
 
-## OMP RPC chat bridge (optional profile)
+## OMP-routed models are refused in chat
 
-The `omp-rpc` chat runtime profile is an **optional** path for users who
-explicitly want OMP's own tool ecosystem. It is not the default and not
-required for any provider. The native agent loop (`agent_loop_service.rs`)
-is the default and preferred runtime for all providers, including Devin and
-GLM-5.2.
+Native chat streams providers directly and never delegates a turn to an OMP
+child process. `NativeChatService::route_requires_omp(api_kind,
+credential_base_url, is_local)` detects the two route shapes that have no
+native transport:
 
-When the `omp-rpc` profile is explicitly selected, it runs a persistent
-`omp --mode rpc` child per session (`omp_rpc_session_service.rs`), exchanging
-line-delimited JSON frames over stdio. Unlike the one-shot `OmpCodexRpcClient`
-(which uses `--no-tools --no-session`), the session bridge enables
-session+tools and stays alive for the duration of the chat.
+- the ChatGPT-subscription OAuth sentinel (`base_url == omp://openai-codex`),
+- a bespoke `api_kind` (e.g. `devin-agent`, `openai-codex-responses`) with no
+  direct endpoint.
 
-### Frame map
+`native_chat_send` returns a `setup_required` result for these routes — the
+draft is kept and the message explains the fix (reconnect with an API key, or
+pick a native-supported model). The former persistent `omp --mode rpc` chat
+bridge (`omp_rpc_session_service.rs`, `omp_rpc_*` commands) was removed: its
+frame parser had drifted from the current OMP RPC protocol (`message_start`,
+`thinking_*`, `extension_ui_request`, `tool_execution_*`) and leaked debug
+rows into transcripts, and it could not run Basebuild tools (approvals,
+ask_user question cards, the schematic wizard).
 
-Frames are untrusted child-process output. Parsing is tolerant: malformed
-lines are skipped, unknown frame kinds render as inert collapsed debug rows.
-Never executes or interpolates frame content.
-
-| Frame type | Mapping |
-|---|---|
-| `response` (command=prompt, success=false) | Error chunk on `native-chat://chunk` |
-| `assistantMessageEvent` / `event` | Nested event: `text_delta` → content, `reasoning_delta` → reasoning, `tool_*` → tool card |
-| `turn_end` / `agent_end` | Turn-end marker on `native-chat://chunk` |
-| `user_input` / `ask` / `question` | Pending interaction (question card) via `InteractionService`; answer returned over stdin |
-| Unknown | Inert debug row on `native-chat://chunk` (channel=debug) |
-
-### Lifecycle
-
-- `probe_omp_rpc()` gates the profile: `omp --version` must succeed.
-- `start_session()` spawns a hidden `omp --mode rpc` child, reads stdout on a
-  background thread, and emits `omp-rpc://status` events.
-- Process exit → `omp-rpc://status` (status=exited) → session-ended state;
-  visible history retained.
-- `cancel_session()` sends a cancel frame and cancels pending interactions.
-- `resolve_user_input()` sends the user's answer back over stdin.
+The one-shot `OmpRpcClient` in `provider_client.rs` remains only as the
+fallback transport for non-chat, single-shot generation paths (idea
+generation); it never streams into a chat transcript.
 
 ### Plan runs
 
@@ -769,14 +756,6 @@ wizard), it goes through `deliverPrompt()` in `src/lib/promptDelivery.ts`:
 The `DestinationPicker` dialog lets the user choose which open chat panel (or
 a new conversation) receives the prompt.
 
-## OMP RPC question routing
-
-OMP RPC `ask_user` frames are routed into `pending_interactions` by
-`handle_user_input` in `omp_rpc_session_service.rs`. The chat UI renders these
-as interactive question cards. Answers are serialized back over stdin via
-`resolve_user_input`. This applies to OMP RPC sessions only; native chat uses
-the in-process harness directly.
-
 ## Prose quick-reply detection
 
 `detectProseQuickReplies()` in `ChatPanel.tsx` detects enumerated options in
@@ -835,8 +814,8 @@ The provider picker renders three states:
 - **Ready** (green): configured with a usable transport.
 - **Setup required** (grey): no credential stored.
 - **Transport unavailable** (warning): configured but all models have
-  bespoke `api_kind` and no `base_url` — can only use OMP RPC, not the
-  native agent loop transport.
+  bespoke `api_kind` and no `base_url` — no native transport; chat sends
+  are refused with setup guidance.
 
 Per-provider error chips with Retry buttons appear when `provider.error`
 is set; retry triggers `native_provider_catalog_refresh({ providerId, force: true })`.

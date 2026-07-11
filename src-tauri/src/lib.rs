@@ -52,10 +52,6 @@ use commands::{
     omp::{
         omp_config_list, omp_debug_context, omp_stats, omp_status, omp_stream_command, omp_usage,
     },
-    omp_rpc::{
-        omp_rpc_cancel, omp_rpc_probe, omp_rpc_resolve, omp_rpc_send, omp_rpc_shutdown,
-        omp_rpc_start, omp_rpc_status,
-    },
     omp_telemetry::{
         omp_telemetry_refresh, omp_telemetry_snapshot, omp_telemetry_start, omp_telemetry_stop,
     },
@@ -224,7 +220,6 @@ pub fn run() {
     builder
         .manage(app_state::AppState::default())
         .manage(std::sync::Mutex::new(crate::services::agent_service::AgentManager::default()))
-        .manage(crate::services::omp_rpc_session_service::OmpRpcSessionRegistry::default())
         .setup(|app| {
             // Store handle so the panic hook can emit to the frontend
             if let Ok(mut handle) = APP_HANDLE.lock() {
@@ -323,13 +318,6 @@ pub fn run() {
             omp_usage,
             omp_debug_context,
             omp_stream_command,
-            omp_rpc_probe,
-            omp_rpc_start,
-            omp_rpc_send,
-            omp_rpc_cancel,
-            omp_rpc_shutdown,
-            omp_rpc_resolve,
-            omp_rpc_status,
             omp_telemetry_start,
             omp_telemetry_stop,
             omp_telemetry_snapshot,

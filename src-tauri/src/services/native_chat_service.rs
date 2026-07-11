@@ -20,7 +20,7 @@ use crate::{
         plan::Plan,
     },
     services::{
-        provider_client::{resolve_client, resolve_client_for_model, ChatMsg, ProviderRequest, OMP_CODEX_BASE_URL},
+        provider_client::{resolve_client_for_model, ChatMsg, ProviderRequest, OMP_CODEX_BASE_URL},
         session_service::SessionService,
         settings_service::SettingsService,
         storage_service::StorageService,
@@ -775,24 +775,43 @@ impl NativeChatService {
             base_url: credential.as_ref().and_then(|c| c.base_url.clone()),
             tools: Vec::new(),
         };
-        let uses_omp_rpc = req.base_url.as_deref() == Some(OMP_CODEX_BASE_URL)
-            || (api_kind != "openai-completions"
-                && api_kind != "openai-responses"
-                && api_kind != "azure-openai-responses"
-                && api_kind != "anthropic-messages"
-                && api_kind != "openrouter"
-                && api_kind != "ollama-chat"
-                && !is_local
-                && req.base_url.is_none());
+        // Native-first contract (AGENTS.md): native chat streams providers
+        // directly and NEVER bridges through OMP RPC. ChatGPT-subscription
+        // OAuth credentials (omp://openai-codex sentinel) and bespoke agent
+        // protocols with no direct endpoint have no native transport — refuse
+        // with actionable guidance instead of silently delegating to OMP,
+        // which cannot run Basebuild tools (approvals, ask_user, schematic
+        // wizard) and leaks protocol frames into the transcript.
+        if Self::route_requires_omp(&api_kind, req.base_url.as_deref(), is_local) {
+            let is_oauth = req.base_url.as_deref() == Some(OMP_CODEX_BASE_URL);
+            let message = if is_oauth {
+                format!(
+                    "{provider_label} is connected with a ChatGPT-subscription OAuth credential, which only works through the OMP bridge — native chat no longer uses it. Reconnect {provider_label} with an API key to chat natively (with tools, approvals, and the schematic wizard). Your draft was kept."
+                )
+            } else {
+                format!(
+                    "This model has no native API endpoint and previously routed through the OMP bridge — native chat no longer uses it. Pick a native-supported model (OpenAI, Anthropic, OpenRouter, Ollama, or any OpenAI-compatible endpoint), or connect {provider_label} with a direct base URL. Your draft was kept."
+                )
+            };
+            return Ok(NativeChatSendResult {
+                user_message,
+                assistant_message: None,
+                metrics: None,
+                tool_events: vec![],
+                setup_required: Some(NativeSetupRequired {
+                    provider_id: provider_id.clone(),
+                    provider_label: provider_label.clone(),
+                    message,
+                }),
+                offline: false,
+            });
+        }
 
         let started_at = now_millis();
 
-        // Check if the model supports tools → use the agent loop. OMP-backed
-        // providers are provider-only here: OMP owns their transport, but
-        // Basebuild tool schemas cannot be passed through the RPC bridge.
-        let supports_tools = !is_local
-            && !uses_omp_rpc
-            && Self::model_supports_tools(&provider_id, &model_id);
+        // Check if the model supports tools → use the agent loop. OMP-routed
+        // models were refused above, so every remaining route is native.
+        let supports_tools = !is_local && Self::model_supports_tools(&provider_id, &model_id);
 
         // Capture schematic mtime before the turn to detect agent-driven writes.
         let schematic_path = std::path::Path::new(&session.project_path)
@@ -896,157 +915,6 @@ impl NativeChatService {
                 assistant_message: Some(assistant_message),
                 metrics: Some(metric),
                 tool_events,
-                setup_required: None,
-                offline: false,
-            });
-        }
-
-        // OMP-RPC-bridged providers: route through the persistent OMP RPC
-        // session, which lets OMP use its own built-in tools (read_file,
-        // ask_user, etc.) without Basebuild passing tool schemas. The one-shot
-        // OmpRpcClient passes --no-tools and can't do multi-turn tool loops.
-        if uses_omp_rpc {
-            use crate::services::omp_rpc_session_service::{
-                start_session as omp_start_session,
-                send_prompt_and_wait as omp_send_prompt_and_wait,
-            };
-            use tauri::Manager;
-
-            // Start (or reuse) the persistent OMP RPC session.
-            let registry = app.state::<crate::services::omp_rpc_session_service::OmpRpcSessionRegistry>();
-            let needs_start = registry.get(&request.session_id).is_none();
-            if needs_start {
-                omp_start_session(
-                    app.clone(),
-                    request.session_id.clone(),
-                    &provider_id,
-                    &resolved_model_id,
-                )?;
-            }
-
-            // Emit a "thinking" status so the UI shows activity.
-            let _ = app.emit(
-                NATIVE_CHAT_CHUNK,
-                serde_json::json!({ "sessionId": &request.session_id, "delta": "thinking", "channel": "status" }),
-            );
-
-            // Send the prompt and wait for the turn to complete (5 min timeout).
-            let turn_result = omp_send_prompt_and_wait(
-                &app,
-                &request.session_id,
-                content,
-                300,
-            );
-
-            let completed_at = now_millis();
-            let duration_ms = completed_at.saturating_sub(started_at).max(1);
-
-            let (turn_content, turn_reasoning) = match turn_result {
-                Ok((c, r)) => (c, if r.is_empty() { None } else { Some(r) }),
-                Err(e) => {
-                    // Persist the error as an assistant message so the user
-                    // sees it in the transcript.
-                    let assistant_message = Self::insert_message(
-                        &request.session_id,
-                        "assistant",
-                        &format!("Error: {e}"),
-                        None,
-                        Some(&provider_id),
-                        Some(&model_id),
-                        Some(&effort_level),
-                    )?;
-                    let metric = NativeRequestMetric {
-                        id: gen_id("nreq"),
-                        session_id: request.session_id.clone(),
-                        provider_id: provider_id.clone(),
-                        model_id: model_id.clone(),
-                        effort_level: effort_level.clone(),
-                        started_at,
-                        completed_at: Some(completed_at),
-                        duration_ms: Some(duration_ms),
-                        ttft_ms: None,
-                        ttlt_ms: Some(duration_ms),
-                        input_tokens: 0,
-                        output_tokens: 0,
-                        cache_read_tokens: 0,
-                        cache_write_tokens: 0,
-                        tokens_per_second: None,
-                        cost_total: Some(0.0),
-                        outcome: "error".to_string(),
-                        error_class: Some("omp_rpc_error".to_string()),
-                        created_at: now_seconds(),
-                    };
-                    let _ = Self::insert_metric(&metric);
-                    Self::touch_session(&request.session_id)?;
-                    return Ok(NativeChatSendResult {
-                        user_message,
-                        assistant_message: Some(assistant_message),
-                        metrics: Some(metric),
-                        tool_events: Vec::new(),
-                        setup_required: None,
-                        offline: false,
-                    });
-                }
-            };
-
-            let assistant_message = Self::insert_message(
-                &request.session_id,
-                "assistant",
-                &turn_content,
-                turn_reasoning.as_deref(),
-                Some(&provider_id),
-                Some(&model_id),
-                Some(&effort_level),
-            )?;
-
-            let output_tokens = estimate_tokens(&turn_content);
-            let input_tokens = estimate_tokens(content);
-            let tokens_per_second =
-                Some((output_tokens as f64) / ((duration_ms as f64) / 1000.0).max(0.001));
-
-            let metric = NativeRequestMetric {
-                id: gen_id("nreq"),
-                session_id: request.session_id.clone(),
-                provider_id: provider_id.clone(),
-                model_id: model_id.clone(),
-                effort_level: effort_level.clone(),
-                started_at,
-                completed_at: Some(completed_at),
-                duration_ms: Some(duration_ms),
-                ttft_ms: None,
-                ttlt_ms: Some(duration_ms),
-                input_tokens,
-                output_tokens,
-                cache_read_tokens: 0,
-                cache_write_tokens: 0,
-                tokens_per_second,
-                cost_total: Some(0.0),
-                outcome: "success".to_string(),
-                error_class: None,
-                created_at: now_seconds(),
-            };
-            Self::insert_metric(&metric)?;
-
-            let summary = "OMP RPC turn: streamed via persistent OMP session with OMP built-in tools.";
-            let event = Self::insert_tool_event(
-                &request.session_id,
-                Some(&assistant_message.id),
-                "request_metrics",
-                "recorded",
-                summary,
-                None,
-                None,
-                None,
-                None,
-            )?;
-
-            Self::touch_session(&request.session_id)?;
-
-            return Ok(NativeChatSendResult {
-                user_message,
-                assistant_message: Some(assistant_message),
-                metrics: Some(metric),
-                tool_events: vec![event],
                 setup_required: None,
                 offline: false,
             });
@@ -1487,6 +1355,27 @@ impl NativeChatService {
             return (cm.api_kind.clone(), cm.base_url.clone());
         }
         (String::new(), String::new())
+    }
+
+    /// True when this (api_kind, credential base_url) combination has no
+    /// native transport and would previously have bridged through OMP RPC:
+    /// the ChatGPT-subscription OAuth sentinel (`omp://openai-codex`), or a
+    /// bespoke agent api_kind with no direct endpoint. Native chat refuses
+    /// these routes (native-first contract) instead of delegating to OMP.
+    pub fn route_requires_omp(
+        api_kind: &str,
+        credential_base_url: Option<&str>,
+        is_local: bool,
+    ) -> bool {
+        credential_base_url == Some(OMP_CODEX_BASE_URL)
+            || (api_kind != "openai-completions"
+                && api_kind != "openai-responses"
+                && api_kind != "azure-openai-responses"
+                && api_kind != "anthropic-messages"
+                && api_kind != "openrouter"
+                && api_kind != "ollama-chat"
+                && !is_local
+                && credential_base_url.is_none())
     }
 
     fn validate_provider_model(provider_id: &str, model_id: &str, allow_unconfigured: bool) -> DbResult<()> {
@@ -1930,6 +1819,40 @@ mod tests {
         assert!(catalog.providers.iter().any(|provider| provider.id == LOCAL_PROVIDER_ID && provider.configured));
         assert!(catalog.effort_levels.iter().any(|effort| effort.id == "xhigh"));
     }
+    #[test]
+    fn route_requires_omp_refuses_codex_oauth_sentinel() {
+        // ChatGPT-subscription OAuth has no native transport regardless of kind.
+        assert!(NativeChatService::route_requires_omp(
+            "openai-responses",
+            Some(crate::services::provider_client::OMP_CODEX_BASE_URL),
+            false,
+        ));
+    }
+
+    #[test]
+    fn route_requires_omp_refuses_bespoke_kind_without_endpoint() {
+        assert!(NativeChatService::route_requires_omp("devin-agent", None, false));
+        assert!(NativeChatService::route_requires_omp("openai-codex-responses", None, false));
+    }
+
+    #[test]
+    fn route_requires_omp_allows_native_kinds_and_escape_hatches() {
+        for kind in [
+            "openai-completions",
+            "openai-responses",
+            "azure-openai-responses",
+            "anthropic-messages",
+            "openrouter",
+            "ollama-chat",
+        ] {
+            assert!(!NativeChatService::route_requires_omp(kind, None, false), "{kind} is native");
+        }
+        // Custom base_url is the OpenAI-compatible escape hatch for bespoke kinds.
+        assert!(!NativeChatService::route_requires_omp("devin-agent", Some("https://server.codeium.com"), false));
+        // Local coordinator never routes through OMP.
+        assert!(!NativeChatService::route_requires_omp("", None, true));
+    }
+
     #[test]
     fn resolve_model_default_falls_back_when_no_project_or_global_default() {
         let dir = tempfile::TempDir::new().unwrap();

@@ -1774,16 +1774,6 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "provision_skill_dirs":
       return [] as T;
-    case "omp_rpc_probe":
-      return "omp 1.2.3" as T;
-    case "omp_rpc_start":
-    case "omp_rpc_send":
-    case "omp_rpc_cancel":
-    case "omp_rpc_shutdown":
-    case "omp_rpc_resolve":
-      return undefined as T;
-    case "omp_rpc_status":
-      return "none" as T;
     default:
       throw new Error(`Unhandled E2E Tauri command: ${command}`);
   }

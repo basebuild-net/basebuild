@@ -11,11 +11,11 @@ async function openFixtureProject(page: Page) {
   ).toBeVisible();
 }
 
-test.describe("OMP RPC bridge + skill registry", () => {
+test.describe("Mock command registry + skill registry", () => {
   test("mocked commands are registered and don't crash the frontend", async ({ page }) => {
     await openFixtureProject(page);
 
-    // The mock invoke in tauri-core.ts handles omp_rpc_*, list_resolved_skills,
+    // The mock invoke in tauri-core.ts handles list_resolved_skills,
     // integration_*, and milestone_auto_commit commands. Verify the frontend
     // loads without errors and the mock state is accessible.
     const state = await page.evaluate(() => {

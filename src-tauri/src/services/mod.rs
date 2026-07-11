@@ -13,7 +13,6 @@ pub mod idea_round_service;
 pub mod git_service;
 pub mod file_service;
 pub mod omp_telemetry_service;
-pub mod omp_rpc_session_service;
 pub mod omp_service;
 pub mod final_touches_service;
 pub mod plan_runner_service;

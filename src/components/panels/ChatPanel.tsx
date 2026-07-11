@@ -747,6 +747,11 @@ export function ChatPanel({
           setStreamPhase((prev) => prev === "thinking" ? "streaming" : prev);
           return;
         }
+        // Only the content channel accumulates into the visible stream.
+        // Anything else (debug frames, tool summaries, protocol markers)
+        // must never leak into the transcript — the debug listener captures
+        // every channel when debug mode is on.
+        if (channel !== "content") return;
         streamBufRef.current += event.payload.delta;
         setStreamText(streamBufRef.current);
         setStreamPhase("streaming");

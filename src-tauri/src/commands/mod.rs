@@ -13,7 +13,6 @@ pub mod git;
 pub mod ideas;
 pub mod idea_rounds;
 pub mod omp;
-pub mod omp_rpc;
 pub mod omp_telemetry;
 pub mod notifications;
 pub mod plans;
