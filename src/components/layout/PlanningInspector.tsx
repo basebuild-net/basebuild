@@ -3,7 +3,7 @@ import { FolderTree, LayoutGrid, Plus, RefreshCw, Sparkles, Trash2, X } from "lu
 import type { Plan, PlanStatus } from "../../lib/plans";
 import { isTerminalStatus } from "../../lib/plans";
 import { batchPromoteIdeas } from "../../lib/plans";
-import { enqueuePlan, listPlanRuns, markPlanRunComplete, startQueue, applyFinishPolicy } from "../../lib/planRuns";
+import { enqueuePlan, listPlanRuns, markPlanRunComplete, startQueue, getFinishOutcome } from "../../lib/planRuns";
 import { useOpenSpecRuntime } from "../../state/useOpenSpecRuntime";
 import { PlanPanel } from "./PlanPanel";
 import { PlanningCommandCenter } from "./PlanningCommandCenter";
@@ -203,7 +203,7 @@ export function PlanningInspector({
       const newOutcomes = new Map(finishOutcomes);
       for (const run of missing) {
         try {
-          const result = await applyFinishPolicy(run.id);
+          const result = await getFinishOutcome(run.id);
           if (result.kind === "applied") {
             newOutcomes.set(run.id, result.outcome);
           }

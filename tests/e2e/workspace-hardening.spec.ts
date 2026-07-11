@@ -106,12 +106,11 @@ test.describe("Workspace lifecycle hardening", () => {
       });
     });
 
-    // Apply finish policy — mock returns "applied" (simulating git repo),
-    // but in a real non-git project the backend would return fallback_hold.
-    // Here we verify the hold policy renders no outcome section.
+    // Read the finish outcome — the run never completed through
+    // plan_run_complete, so no outcome is persisted and the read-only
+    // command reports hold (matching the real backend for legacy runs).
     const result = await page.evaluate(async () => {
       const w = window as InvokeWindow;
-      // Change to hold to simulate the fallback.
       await w.__basebuildInvoke?.("plan_set_launch_profile", {
         profile: {
           projectPath: "C:\\basebuild-e2e\\project",
@@ -120,8 +119,7 @@ test.describe("Workspace lifecycle hardening", () => {
           finishPolicy: "hold", updatedAt: Date.now(),
         },
       });
-      // Apply finish policy on a fake run.
-      return w.__basebuildInvoke?.("plan_run_apply_finish_policy", { runId: "non-git-run" });
+      return w.__basebuildInvoke?.("plan_run_finish_outcome", { runId: "non-git-run" });
     });
     expect(result).toEqual({ kind: "hold" });
 

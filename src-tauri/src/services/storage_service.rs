@@ -501,6 +501,7 @@ impl StorageService {
                     steps_output TEXT NOT NULL DEFAULT '[]',
                     started_at INTEGER,
                     finished_at INTEGER,
+                    finish_outcome TEXT,
                     created_at INTEGER NOT NULL,
                     FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
                     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
@@ -891,6 +892,20 @@ impl StorageService {
             "UPDATE native_chat_sessions SET run_state = 'interrupted' WHERE run_state = 'running'",
             [],
         );
+
+        // Migration (idea-to-merge-autopilot): add finish_outcome to plan_runs
+        // so the applied finish policy is persisted once at completion and
+        // reads never re-execute policy side effects. Nullable — legacy runs
+        // read as "no outcome" (hold).
+        let has_finish_outcome = connection
+            .prepare("SELECT finish_outcome FROM plan_runs LIMIT 0")
+            .is_ok();
+        if !has_finish_outcome {
+            let _ = connection.execute(
+                "ALTER TABLE plan_runs ADD COLUMN finish_outcome TEXT",
+                [],
+            );
+        }
 
         // Migration (native-agent-loop): create approval_rules table for
         // persistent per-project tool-approval rules. Additive only.

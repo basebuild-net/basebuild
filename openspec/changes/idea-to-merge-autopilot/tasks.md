@@ -79,9 +79,11 @@
       `auto_commit` (GitService::commit_all), `auto_commit_pr` (commit +
       PullRequestService::create_pr), `queue_merge_review` (commit +
       add_to_merge_queue); non-git hard-fallback to hold with notification;
-      `FinishOutcome`/`FinishResult` types; wired into `complete_run` after
-      plan transitions to Finished; `plan_run_apply_finish_policy` Tauri
-      command; `GitService::commit_all` helper.
+      `FinishOutcome`/`FinishResult` types; applied EXACTLY ONCE from
+      `complete_run` with the result persisted to `plan_runs.finish_outcome`
+      (migration); read-only `plan_run_finish_outcome` Tauri command serves
+      the persisted outcome (post-review fix: reads never re-execute
+      commits/pushes/queue writes); `GitService::commit_all` helper.
 - [x] 4.3 Frontend: `FinishPolicy` type + `finishPolicy` on `LaunchProfile`
       TS type; policy selector (`<select>`) in launch profile form with 4
       options; `normalizeFinishPolicy` guard; effective policy shown in
@@ -89,8 +91,8 @@
       `ProfileForm` updated with `finishPolicy` for assign-with-profile.
 - [x] 4.4 Frontend: `CompletionCard` `finishOutcome` prop renders commit
       SHA, PR link, merge-ready flag, and policy errors; `PlanningInspector`
-      fetches outcomes via `applyFinishPolicy` for succeeded runs; `hold`
-      renders exactly as today (no outcome section).
+      fetches persisted outcomes via `getFinishOutcome` for succeeded runs;
+      `hold` renders exactly as today (no outcome section).
 - [x] 4.5 e2e (`finish-policy.spec.ts`, 6 tests): launch confirmation shows
       policy; auto_commit shows commit SHA; auto_commit_pr shows PR link;
       hold shows no outcome; queue_merge_review shows merge-ready flag;

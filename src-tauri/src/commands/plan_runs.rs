@@ -2,7 +2,7 @@ use tauri::AppHandle;
 
 use crate::{
     models::plan_run::{EnqueuePlanRequest, PlanQueueEntry, PlanRun, StartQueueRequest},
-    services::plan_runner_service::{FinishResult, PlanRunnerService},
+    services::plan_runner_service::PlanRunnerService,
 };
 
 #[tauri::command]
@@ -56,13 +56,11 @@ pub fn plan_run_mark_complete(app: AppHandle, run_id: String) -> Result<(), Stri
 }
 
 #[tauri::command]
-pub fn plan_run_apply_finish_policy(app: AppHandle, run_id: String) -> Result<serde_json::Value, String> {
-    let result = PlanRunnerService::apply_finish_policy(&app, &run_id)?;
-    Ok(match result {
-        FinishResult::Hold => serde_json::json!({ "kind": "hold" }),
-        FinishResult::FallbackHold(msg) => serde_json::json!({ "kind": "fallback_hold", "message": msg }),
-        FinishResult::Applied(outcome) => serde_json::to_value(outcome).map_err(|e| e.to_string())?,
-    })
+pub fn plan_run_finish_outcome(run_id: String) -> Result<serde_json::Value, String> {
+    // Read-only: returns the outcome persisted by `complete_run`. NEVER
+    // re-executes the policy (no commits, pushes, PRs, or queue writes).
+    Ok(PlanRunnerService::get_finish_outcome(&run_id)?
+        .unwrap_or_else(|| serde_json::json!({ "kind": "hold" })))
 }
 
 #[tauri::command]

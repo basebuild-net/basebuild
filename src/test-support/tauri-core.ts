@@ -199,11 +199,11 @@ type E2eState = {
   launchProfile?: LaunchProfile;
   mergeQueue: MergeReviewEntry[];
   planQueue: { id: string; sessionId: string; planId: string; sortOrder: number; createdAt: number }[];
-  planRuns: { id: string; planId: string; sessionId: string; chatSessionId?: string; status: string; runnerKind: string; error?: string; stepsOutput: unknown[]; startedAt?: number; finishedAt?: number; createdAt: number }[];
+  planRuns: { id: string; planId: string; sessionId: string; chatSessionId?: string; status: string; runnerKind: string; error?: string; stepsOutput: unknown[]; startedAt?: number; finishedAt?: number; createdAt: number; finishOutcome?: unknown }[];
   planDependencies?: Map<string, { prerequisites: string[]; affectedPaths: string[]; schedulingMode: string; workspacePolicy: string }>;
   /** e2e knob: entry ids whose "merged" review throws (simulated merge conflict). */
   mergeReviewFailIds?: Set<string>;
-  /** e2e knob: forces plan_run_apply_finish_policy to return this outcome error. */
+  /** e2e knob: forces the finish policy applied at plan_run_complete to record this outcome error. */
   finishPolicyError?: string;
   /** e2e knob: idea ids that fail during batch_promote_ideas (per-idea isolation). */
   promoteFailIds?: Set<string>;
@@ -782,56 +782,52 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       if (run) {
         run.status = args.succeeded ? "succeeded" : "failed";
         run.finishedAt = Math.floor(Date.now() / 1000);
+        // Mirror the backend: the finish policy is applied EXACTLY ONCE at
+        // completion and its outcome persisted on the run. Reads via
+        // plan_run_finish_outcome never re-apply.
+        if (args.succeeded) {
+          const policy = s.launchProfile?.finishPolicy ?? "hold";
+          if (policy === "hold") {
+            run.finishOutcome = { kind: "hold" };
+          } else if (s.finishPolicyError) {
+            run.finishOutcome = {
+              kind: "applied",
+              outcome: { runId, policy, commitSha: null, prUrl: null, mergeReady: false, error: s.finishPolicyError },
+            };
+          } else {
+            if (policy === "queue_merge_review") {
+              s.mergeQueue.push({
+                id: `mq-${Date.now()}`, runId: run.id, planId: run.planId, sessionId: run.sessionId,
+                status: "pending", collisionReviewRequired: false, overlappingPlans: [],
+                reviewedAt: null, createdAt: Date.now(),
+              });
+              __emit("planning://event", {
+                kind: "integration_action", entityId: run.id, projectPath: s.projectPath,
+                sessionId: run.sessionId, title: "Queued for merge review",
+                seq: (s.nextPlanningEventSeq ?? 0) + 1, ts: Math.floor(Date.now() / 1000),
+              });
+              s.nextPlanningEventSeq = (s.nextPlanningEventSeq ?? 0) + 1;
+            }
+            run.finishOutcome = {
+              kind: "applied",
+              outcome: {
+                runId, policy,
+                commitSha: "abc123def456",
+                prUrl: policy === "auto_commit_pr" ? "https://example.com/pr/1" : null,
+                mergeReady: policy === "queue_merge_review",
+                error: null,
+              },
+            };
+          }
+        }
       }
       return undefined as T;
     }
     case "plan_run_mark_complete":
       return undefined as T;
-    case "plan_run_apply_finish_policy": {
-      const profile = s.launchProfile;
-      const policy = profile?.finishPolicy ?? "hold";
-      if (policy === "hold") return { kind: "hold" } as T;
-      if (s.finishPolicyError) {
-        return {
-          kind: "applied",
-          outcome: {
-            runId: args.runId as string,
-            policy,
-            commitSha: null,
-            prUrl: null,
-            mergeReady: false,
-            error: s.finishPolicyError,
-          },
-        } as T;
-      }
-      // For queue_merge_review, seed the merge queue with the run.
-      if (policy === "queue_merge_review") {
-        const run = s.planRuns.find((r) => r.id === args.runId);
-        if (run) {
-          s.mergeQueue.push({
-            id: `mq-${Date.now()}`, runId: run.id, planId: run.planId, sessionId: run.sessionId,
-            status: "pending", collisionReviewRequired: false, overlappingPlans: [],
-            reviewedAt: null, createdAt: Date.now(),
-          });
-          __emit("planning://event", {
-            kind: "integration_action", entityId: run.id, projectPath: s.projectPath,
-            sessionId: run.sessionId, title: "Queued for merge review",
-            seq: (s.nextPlanningEventSeq ?? 0) + 1, ts: Math.floor(Date.now() / 1000),
-          });
-          s.nextPlanningEventSeq = (s.nextPlanningEventSeq ?? 0) + 1;
-        }
-      }
-      return {
-        kind: "applied",
-        outcome: {
-          runId: args.runId as string,
-          policy,
-          commitSha: policy !== "hold" ? "abc123def456" : null,
-          prUrl: policy === "auto_commit_pr" ? "https://example.com/pr/1" : null,
-          mergeReady: policy === "queue_merge_review",
-          error: null,
-        },
-      } as T;
+    case "plan_run_finish_outcome": {
+      const run = s.planRuns.find((r) => r.id === args.runId);
+      return (run?.finishOutcome ?? { kind: "hold" }) as T;
     }
     case "plan_run_check_completion":
       return [0, 0] as T;

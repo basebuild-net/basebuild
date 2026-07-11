@@ -501,11 +501,68 @@ impl PlanRunnerService {
     }
 
 
-    /// Apply the project's finish policy to a completed run. Called after
-    /// a run transitions to `succeeded` and the plan is `Finished`.
+    /// Apply the project's finish policy to a completed run and persist the
+    /// outcome on the run row. Called ONCE from `complete_run` after the run
+    /// transitions to `succeeded` and the plan is `Finished`. Reads go through
+    /// `get_finish_outcome` — they never re-execute policy side effects.
     /// Non-git or primary-checkout hard-fallbacks to hold. Failures surface
     /// without retry.
     pub fn apply_finish_policy(
+        app: &AppHandle,
+        run_id: &str,
+    ) -> DbResult<FinishResult> {
+        let result = Self::apply_finish_policy_inner(app, run_id)?;
+        Self::persist_finish_outcome(run_id, &result)?;
+        Ok(result)
+    }
+
+    /// Wire/persistence JSON for a finish result. Shape matches the frontend
+    /// `FinishResult` union: `{ kind: "hold" }`, `{ kind: "fallback_hold",
+    /// message }`, `{ kind: "applied", outcome }`.
+    pub fn finish_result_json(result: &FinishResult) -> serde_json::Value {
+        match result {
+            FinishResult::Hold => serde_json::json!({ "kind": "hold" }),
+            FinishResult::FallbackHold(msg) => {
+                serde_json::json!({ "kind": "fallback_hold", "message": msg })
+            }
+            FinishResult::Applied(outcome) => {
+                serde_json::json!({ "kind": "applied", "outcome": outcome })
+            }
+        }
+    }
+
+    fn persist_finish_outcome(run_id: &str, result: &FinishResult) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        let json = Self::finish_result_json(result).to_string();
+        conn.execute(
+            "UPDATE plan_runs SET finish_outcome = ?2 WHERE id = ?1",
+            params![run_id, json],
+        )
+        .map_err(|e| format!("Failed to persist finish outcome: {e}"))?;
+        Ok(())
+    }
+
+    /// Read the persisted finish outcome for a run. `None` when no policy has
+    /// been applied (legacy runs, or runs that have not completed).
+    pub fn get_finish_outcome(run_id: &str) -> DbResult<Option<serde_json::Value>> {
+        let conn = StorageService::connect()?;
+        let raw: Option<Option<String>> = conn
+            .query_row(
+                "SELECT finish_outcome FROM plan_runs WHERE id = ?1",
+                params![run_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        match raw.flatten() {
+            Some(json) => serde_json::from_str(&json)
+                .map(Some)
+                .map_err(|e| format!("Corrupt finish outcome: {e}")),
+            None => Ok(None),
+        }
+    }
+
+    fn apply_finish_policy_inner(
         app: &AppHandle,
         run_id: &str,
     ) -> DbResult<FinishResult> {
@@ -1241,6 +1298,63 @@ mod tests {
         let _g = crate::test_util::test::lock_db(&dir);
         let runs = PlanRunnerService::list_runs("no-such-session").unwrap();
         assert!(runs.is_empty());
+    }
+
+    #[test]
+    fn finish_outcome_persists_and_reads_without_reapplying() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+
+        // Seed session + plan + run so FK constraints pass.
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+             VALUES ('s1', '/test', 'Test', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plans (id, session_id, reference_id, title, description, status, priority, tags, ai_enhanced, created_at, updated_at)
+             VALUES ('p1', 's1', 'bb-aaa', 'Plan 1', 'desc', 'ready', 50, '[]', 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plan_runs (id, plan_id, session_id, status, runner_kind, steps_output, created_at)
+             VALUES ('r1', 'p1', 's1', 'succeeded', 'native', '[]', 0)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        // No outcome persisted yet — read returns None (frontend maps to hold).
+        assert!(PlanRunnerService::get_finish_outcome("r1").unwrap().is_none());
+
+        // Persist an applied outcome; read returns the wrapped JSON verbatim.
+        let applied = FinishResult::Applied(FinishOutcome {
+            run_id: "r1".to_string(),
+            policy: "auto_commit".to_string(),
+            commit_sha: Some("abc123".to_string()),
+            pr_url: None,
+            merge_ready: false,
+            error: None,
+        });
+        PlanRunnerService::persist_finish_outcome("r1", &applied).unwrap();
+        let read = PlanRunnerService::get_finish_outcome("r1").unwrap().unwrap();
+        assert_eq!(read["kind"], "applied");
+        assert_eq!(read["outcome"]["commitSha"], "abc123");
+        assert_eq!(read["outcome"]["policy"], "auto_commit");
+
+        // Reading twice is a pure read — same value, no state change.
+        let read2 = PlanRunnerService::get_finish_outcome("r1").unwrap().unwrap();
+        assert_eq!(read, read2);
+
+        // Fallback-hold persists with its message.
+        let fallback = FinishResult::FallbackHold("not a git repository".to_string());
+        PlanRunnerService::persist_finish_outcome("r1", &fallback).unwrap();
+        let read3 = PlanRunnerService::get_finish_outcome("r1").unwrap().unwrap();
+        assert_eq!(read3["kind"], "fallback_hold");
+        assert_eq!(read3["message"], "not a git repository");
     }
 
     #[test]
