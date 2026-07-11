@@ -1225,11 +1225,17 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         : req.content.includes("schematic-wizard-test")
         ? "I'll ask you some questions and then write the schematic."
         : `Native harness echo: ${req.content}`;
+      const assistantReasoning = isReasoningSplit
+        ? "I need to read the file first.\nNow I see the issue. Let me fix it."
+        : isMultiTurnTools
+        ? "Step 1: analyzing\nStep 2: analyzing\nStep 3: analyzing"
+        : undefined;
       const assistantMessage: NativeChatMessage = {
         id: `nmsg-${s.nextNativeMessageId++}`,
         sessionId: req.sessionId,
         role: "assistant",
         content: assistantContent,
+        reasoning: assistantReasoning,
         sortOrder: userMessage.sortOrder + 1,
         providerId: req.providerId ?? "basebuild-local",
         modelId: req.modelId ?? "basebuild-local-coordinator",

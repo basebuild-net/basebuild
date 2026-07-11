@@ -991,6 +991,7 @@ export function AppShell({ updates }: AppShellProps) {
               commitInsert(newPanel, panel.id, "right");
             }}
             onNewChat={() => handleCreateTypedPanel("chat")}
+            onOpenHistory={() => setHistoryDrawerOpen(true)}
           />
         );
       }

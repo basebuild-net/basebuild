@@ -27,6 +27,8 @@ import {
   BarChart3,
   Brain,
   Bug,
+  ChevronDown,
+  ChevronUp,
   Copy,
   Edit2,
   FolderTree,
@@ -165,6 +167,8 @@ type ChatPanelProps = {
   onNewChat?: () => void;
   /** Show a toast notification (success/warning/error/info). */
   onShowToast?: (title: string, detail?: string, kind?: "success" | "warning" | "error" | "info") => void;
+  /** Open the history drawer (closed panels). */
+  onOpenHistory?: () => void;
 };
 
 function formatMetric(value: number | null | undefined, suffix = "") {
@@ -200,12 +204,13 @@ function resolveAssistantLabel(
 }
 
 function ThinkingBlock({ text }: { text: string }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   return (
     <div className="chat-thinking-block" title="Model thinking — click to expand">
       <button
         className="chat-thinking-toggle"
         type="button"
+        title={expanded ? "Collapse model thinking trace" : "Expand model thinking trace"}
         onClick={() => setExpanded(!expanded)}
       >
         <Brain size={11} />
@@ -329,7 +334,7 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
 
   return (
     <div className={`tool-card tool-card-${statusClass}${isApproval ? " tool-card-approval" : ""}`} title={`${event.kind}: ${event.status}${timeStr ? ` at ${timeStr}` : ""}${provenance ? ` — ${provenance}` : ""}`}>
-      <div className="tool-card-header" onClick={() => { if (!isApproval) toggleExpanded(); }} role={isApproval ? undefined : "button"} tabIndex={isApproval ? -1 : 0}>
+      <div className="tool-card-header" onClick={() => { if (!isApproval) toggleExpanded(); }} role={isApproval ? undefined : "button"} tabIndex={isApproval ? -1 : 0} aria-expanded={isApproval ? undefined : expanded}>
         <span className="tool-card-icon">{icon}</span>
         <span className="tool-card-name">{event.kind.replace(/_/g, " ")}</span>
         {argDisplay ? <code className="tool-card-arg-value" title={`${argDisplay.label}: ${argDisplay.value}`}>{argDisplay.value}</code> : null}
@@ -411,6 +416,7 @@ export function ChatPanel({
   onDuplicateChat,
   onNewChat,
   onShowToast,
+  onOpenHistory,
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
@@ -438,6 +444,11 @@ export function ChatPanel({
   const [streamText, setStreamText] = useState("");
   const [reasoningText, setReasoningText] = useState("");
   const [streamPhase, setStreamPhase] = useState<"idle" | "thinking" | "streaming" | "tools">("idle");
+  const [isScrolledUp, setIsScrolledUp] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMatchCount, setSearchMatchCount] = useState(0);
+  const [searchActiveIndex, setSearchActiveIndex] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const streamStartRef = useRef<number | null>(null);
   const streamBufRef = useRef("");
@@ -1201,6 +1212,101 @@ export function ChatPanel({
     }
   }, [nativeMessages, legacyMessages, streamText, reasoningText, streamPhase, toolEvents, interactions]);
 
+  // Track whether the user has scrolled up from the bottom.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      setIsScrolledUp(distanceFromBottom > 80);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    setIsScrolledUp(false);
+  }, []);
+
+  // Highlight search matches in the transcript DOM.
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    // Clear previous marks.
+    const existing = container.querySelectorAll("mark.chat-search-highlight");
+    for (const mark of existing) {
+      const parent = mark.parentNode;
+      if (!parent) continue;
+      parent.replaceChild(document.createTextNode(mark.textContent ?? ""), mark);
+      parent.normalize();
+    }
+    if (!searchQuery || !showSearch) {
+      setSearchMatchCount(0);
+      setSearchActiveIndex(0);
+      return;
+    }
+    // Collect all text nodes before mutating.
+    const query = searchQuery.toLowerCase();
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const parent = (node as Text).parentElement;
+        if (!parent) return NodeFilter.FILTER_REJECT;
+        if (["SCRIPT", "STYLE", "TEXTAREA", "INPUT", "MARK"].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    const textNodes: Text[] = [];
+    let textNode = walker.nextNode();
+    while (textNode) {
+      textNodes.push(textNode as Text);
+      textNode = walker.nextNode();
+    }
+    // Wrap matches from end to start within each text node.
+    let count = 0;
+    for (const tn of textNodes) {
+      if (count >= 500) break;
+      const text = tn.textContent ?? "";
+      const lower = text.toLowerCase();
+      const indices: number[] = [];
+      let pos = 0;
+      while (pos < text.length && indices.length + count < 500) {
+        const idx = lower.indexOf(query, pos);
+        if (idx === -1) break;
+        indices.push(idx);
+        pos = idx + query.length;
+      }
+      for (let i = indices.length - 1; i >= 0; i--) {
+        const idx = indices[i];
+        const range = document.createRange();
+        range.setStart(tn, idx);
+        range.setEnd(tn, idx + query.length);
+        const mark = document.createElement("mark");
+        mark.className = "chat-search-highlight";
+        range.surroundContents(mark);
+        count++;
+      }
+    }
+    const marks = container.querySelectorAll<HTMLElement>("mark.chat-search-highlight");
+    setSearchMatchCount(marks.length);
+    setSearchActiveIndex(0);
+    if (marks[0]) {
+      marks[0].classList.add("chat-search-highlight-active");
+      marks[0].scrollIntoView({ block: "center" });
+    }
+  }, [searchQuery, showSearch]);
+
+  // Update active highlight when index changes.
+  useEffect(() => {
+    const marks = scrollRef.current?.querySelectorAll<HTMLElement>("mark.chat-search-highlight") ?? [];
+    marks.forEach((m, i) => {
+      if (i === searchActiveIndex) m.classList.add("chat-search-highlight-active");
+      else m.classList.remove("chat-search-highlight-active");
+    });
+  }, [searchActiveIndex, searchQuery, showSearch]);
+
   // Live elapsed timer — updates every second while streaming.
   useEffect(() => {
     if (!streaming || !streamStartRef.current) return;
@@ -1506,6 +1612,30 @@ export function ChatPanel({
       onShowToast?.("Copy failed", "Clipboard unavailable.", "error");
     }
   }, [onShowToast]);
+
+  const handleCopyConversation = useCallback(async () => {
+    const events = buildChatTimeline(nativeMessages, toolEvents, interactions);
+    if (events.length === 0) return;
+    const lines: string[] = [];
+    for (const ev of events) {
+      if (ev.kind === "user" || ev.kind === "assistant" || ev.kind === "system") {
+        const ts = ev.createdAt ? new Date(ev.createdAt * 1000).toISOString() : "";
+        lines.push(`### ${ev.kind.toUpperCase()}${ts ? ` (${ts})` : ""}\n\n${ev.content}`);
+        if (ev.reasoning) lines.push(`\n> **Reasoning:** ${ev.reasoning}`);
+      } else if (ev.kind === "tool") {
+        lines.push(`\n**Tool: ${ev.event.kind}** — ${ev.event.summary} (${ev.event.status})`);
+      } else if (ev.kind === "interaction") {
+        lines.push(`\n**Interaction: ${ev.interaction.id}** (status: ${ev.interaction.status})`);
+      }
+      lines.push("");
+    }
+    try {
+      await navigator.clipboard.writeText(lines.join("\n").trim());
+      onShowToast?.("Copied conversation", "Full transcript copied as markdown.", "success");
+    } catch {
+      onShowToast?.("Copy failed", "Clipboard unavailable.", "error");
+    }
+  }, [nativeMessages, toolEvents, interactions, onShowToast]);
 
   const handleRetryMessage = useCallback(async () => {
     // Find the last user message content.
@@ -1906,7 +2036,15 @@ export function ChatPanel({
   const modelName = selectedModel?.label ?? modelId;
 
   return (
-    <div className="chat-panel" ref={panelRef}>
+    <div className="chat-panel" ref={panelRef} tabIndex={-1} onKeyDown={(e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+    }}>
+      <div aria-live="polite" aria-atomic="true" className="sr-only" >
+        {streaming ? `Agent is responding${streamPhase === "tools" ? " — running tools" : streamPhase === "thinking" ? " — thinking" : ""}` : ""}
+      </div>
       <ChatHeader
         title={chatTitle ?? (nativeSessionId ? "Chat" : "New chat")}
         onRename={handleRename}
@@ -1923,10 +2061,10 @@ export function ChatPanel({
         branches={branches}
         onSwitchBranch={handleSwitchBranch}
         onCreateBranch={handleCreateBranch}
-        uncommittedCount={uncommittedCount}
+        onToggleHistory={() => onOpenHistory?.()}
         onStashAndSwitch={handleSwitchBranch}
         onDiscardAndSwitch={handleSwitchBranch}
-        onToggleHistory={() => { /* history toggle */ }}
+        uncommittedCount={uncommittedCount}
         onRenameAction={() => { /* handled by header internally */ }}
         onAssignPlan={handleOpenAssignPlan}
         onDuplicateChat={() => onDuplicateChat?.()}
@@ -2044,7 +2182,7 @@ export function ChatPanel({
                   );
                 }
                 rendered.push(
-                  <div key={ev.id} className={`chat-message chat-message-${ev.kind}`}>
+                  <div key={ev.id} className={`chat-message chat-message-${ev.kind}`} aria-label={`${ev.kind === "user" ? "You" : ev.kind === "assistant" ? "Assistant" : "System"}: ${ev.content.slice(0, 100)}`}>
                     <span className="chat-message-role">
                       {ev.kind === "user" ? "You" : ev.kind === "assistant" ? resolveAssistantLabel(catalog, selectedModel, ev.modelId ?? modelId, ev.providerId) : "System"}
                       {isOfflineTurn ? <span className="chat-offline-tag" title="No external model was contacted">Offline</span> : null}
@@ -2243,6 +2381,85 @@ export function ChatPanel({
           );
         })() : null}
       </div>
+      {/* Scroll-to-bottom button */}
+      {isScrolledUp ? (
+        <button
+          className="chat-scroll-bottom-btn"
+          type="button"
+          title="Scroll to bottom of conversation"
+          onClick={scrollToBottom}
+        >
+          <ChevronDown size={16} />
+        </button>
+      ) : null}
+      {/* In-conversation search bar */}
+      {showSearch ? (
+        <div className="chat-search-bar">
+          <input
+            className="chat-search-input"
+            type="text"
+            autoFocus
+            placeholder="Search conversation…"
+            value={searchQuery}
+            onChange={(e) => {
+              const q = e.target.value;
+              setSearchQuery(q);
+              if (!q) { setSearchMatchCount(0); setSearchActiveIndex(0); return; }
+              const els = scrollRef.current?.querySelectorAll<HTMLElement>("mark.chat-search-highlight") ?? [];
+              setSearchMatchCount(els.length);
+              setSearchActiveIndex(0);
+              if (els[0]) els[0].scrollIntoView({ block: "center" });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setShowSearch(false);
+                setSearchQuery("");
+                setSearchMatchCount(0);
+                chatInputRef.current?.focus();
+              } else if (e.key === "Enter") {
+                e.preventDefault();
+                const els = scrollRef.current?.querySelectorAll<HTMLElement>("mark.chat-search-highlight") ?? [];
+                if (els.length === 0) return;
+                const next = e.shiftKey
+                  ? (searchActiveIndex - 1 + els.length) % els.length
+                  : (searchActiveIndex + 1) % els.length;
+                setSearchActiveIndex(next);
+                els[next].scrollIntoView({ block: "center" });
+              }
+            }}
+            title="Search messages and tool cards — Enter for next, Shift+Enter for prev, Escape to close"
+          />
+          <span className="chat-search-count" title="Match count">
+            {searchMatchCount > 0 ? `${searchActiveIndex + 1}/${searchMatchCount}` : "0/0"}
+          </span>
+          <button className="chat-search-btn" type="button" title="Previous match (Shift+Enter)" onClick={() => {
+            const els = scrollRef.current?.querySelectorAll<HTMLElement>("mark.chat-search-highlight") ?? [];
+            if (els.length === 0) return;
+            const prev = (searchActiveIndex - 1 + els.length) % els.length;
+            setSearchActiveIndex(prev);
+            els[prev].scrollIntoView({ block: "center" });
+          }}>
+            <ChevronUp size={12} />
+          </button>
+          <button className="chat-search-btn" type="button" title="Next match (Enter)" onClick={() => {
+            const els = scrollRef.current?.querySelectorAll<HTMLElement>("mark.chat-search-highlight") ?? [];
+            if (els.length === 0) return;
+            const next = (searchActiveIndex + 1) % els.length;
+            setSearchActiveIndex(next);
+            els[next].scrollIntoView({ block: "center" });
+          }}>
+            <ChevronDown size={12} />
+          </button>
+          <button className="chat-search-btn" type="button" title="Close search (Escape)" onClick={() => {
+            setShowSearch(false);
+            setSearchQuery("");
+            setSearchMatchCount(0);
+            chatInputRef.current?.focus();
+          }}>
+            <X size={12} />
+          </button>
+        </div>
+      ) : null}
 
       {/* Generated ideas surface */}
       {nativeMode && ideaState.ideas.length > 0 ? (
@@ -2846,6 +3063,7 @@ export function ChatPanel({
           <textarea
             ref={chatInputRef}
             className="input chat-input"
+            aria-label="Chat message input"
             placeholder={
               nativeMode
                 ? "Type a message… (Enter to send, Shift+Enter for newline)"
@@ -2863,8 +3081,7 @@ export function ChatPanel({
               }
               setPaletteActiveIndex(0);
               const el = e.target;
-              el.style.height = "auto";
-              el.style.height = `${Math.min(el.scrollHeight, 360)}px`;
+              el.style.setProperty("--chat-input-height", `${Math.min(el.scrollHeight, 360)}px`);
             }}
             onKeyDown={(e) => {
               // Command palette keyboard navigation.
@@ -2954,6 +3171,15 @@ export function ChatPanel({
             }}
           >
             <Bug size={12} /> Debug
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm chat-copy-conversation-btn"
+            title="Copy entire conversation as markdown to clipboard"
+            disabled={nativeMessages.length === 0}
+            onClick={() => void handleCopyConversation()}
+          >
+            <Copy size={12} /> Copy All
           </button>
         </div>
         {debugMode ? (
