@@ -254,6 +254,32 @@ function applyMvpFixture(s: E2eState): void {
   s.plans = MVP_FIXTURE_PLANS.map((plan) => ({ ...plan }));
   s.nativeChatSessions = [
     {
+      id: "mvp-native-alpha",
+      projectPath: "C:\\basebuild-e2e\\alpha",
+      title: "Alpha onboarding",
+      profileId: "basebuild-native",
+      providerId: "umans",
+      modelId: "umans-glm-5.2",
+      effortLevel: "high",
+      status: "ready",
+      runState: "idle",
+      createdAt: 1_800_000_000 - 300,
+      updatedAt: 1_800_000_000 - 280,
+    },
+    {
+      id: "mvp-native-bravo",
+      projectPath: "C:\\basebuild-e2e\\bravo",
+      title: "Bravo planning",
+      profileId: "basebuild-native",
+      providerId: "umans",
+      modelId: "umans-glm-5.2",
+      effortLevel: "high",
+      status: "ready",
+      runState: "idle",
+      createdAt: 1_800_000_000 - 200,
+      updatedAt: 1_800_000_000 - 180,
+    },
+    {
       id: "mvp-native-charlie",
       projectPath: "C:\\basebuild-e2e\\charlie",
       title: "Charlie MVP chat",
@@ -268,6 +294,28 @@ function applyMvpFixture(s: E2eState): void {
     },
   ];
   s.nativeChatMessages = [
+    {
+      id: "mvp-msg-alpha-1",
+      sessionId: "mvp-native-alpha",
+      role: "user",
+      content: "Hello alpha",
+      sortOrder: 0,
+      providerId: "umans",
+      modelId: "umans-glm-5.2",
+      effortLevel: "high",
+      createdAt: 1_800_000_000 - 280,
+    },
+    {
+      id: "mvp-msg-bravo-1",
+      sessionId: "mvp-native-bravo",
+      role: "user",
+      content: "Hello bravo",
+      sortOrder: 0,
+      providerId: "umans",
+      modelId: "umans-glm-5.2",
+      effortLevel: "high",
+      createdAt: 1_800_000_000 - 180,
+    },
     {
       id: "mvp-msg-user",
       sessionId: "mvp-native-charlie",
@@ -970,6 +1018,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
           { id: "basebuild-local-coordinator", providerId: "basebuild-local", label: "Local Coordinator", supportsEffort: true, supportsStreaming: false, supportsTools: false, localOnly: true, contextWindow: null, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "bundled" },
           { id: "gpt-5.1", providerId: "openai", label: "GPT-5.1", supportsEffort: true, supportsStreaming: true, supportsTools: true, localOnly: false, contextWindow: 400000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: true, source: "bundled" },
           { id: "umans-glm-5.2", providerId: "umans", label: "Umans GLM 5.2", supportsEffort: true, supportsStreaming: true, supportsTools: true, localOnly: false, contextWindow: 128000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "provider_discovered" },
+          { id: "umans-lite-1.0", providerId: "umans", label: "Umans Lite 1.0", supportsEffort: true, supportsStreaming: true, supportsTools: false, localOnly: false, contextWindow: 32000, maxTokens: null, supportsReasoning: false, supportedEfforts: ["low", "medium"], supportsImages: false, source: "provider_discovered" },
         ],
         effortLevels: [
           { id: "low", label: "Low", description: "Fast" },
@@ -1008,6 +1057,16 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return (s.nativeChatSessions.find((session) => session.id === args.sessionId) ?? null) as T;
     case "native_chat_list":
       return s.nativeChatSessions.filter((session) => session.projectPath === args.projectPath) as T;
+    case "native_chat_history": {
+      const limit = (args.limit as number | null) ?? undefined;
+      const entries = s.nativeChatSessions
+        .map((session) => ({
+          ...session,
+          messageCount: s.nativeChatMessages.filter((m) => m.sessionId === session.id).length,
+        }))
+        .sort((a, b) => b.updatedAt - a.updatedAt);
+      return (limit ? entries.slice(0, limit) : entries) as T;
+    }
     case "native_chat_messages":
       return s.nativeChatMessages.filter((message) => message.sessionId === args.sessionId) as T;
     case "native_chat_send": {
@@ -1550,6 +1609,13 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return [] as T;
     case "read_resolved_skill":
       return "" as T;
+    case "read_skill": {
+      const skillName = (args.skillName as string) ?? "";
+      const cavemanBody = "You are a caveman. Speak in short grunts.";
+      const schematicBody = "Help the user create a project schematic by asking one question at a time.";
+      const body = skillName === "basebuild-project-schematic" ? schematicBody : cavemanBody;
+      return { name: skillName, description: "E2E skill stub", content: body } as T;
+    }
     case "provision_skill_dirs":
       return [] as T;
     case "omp_rpc_probe":

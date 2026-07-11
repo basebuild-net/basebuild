@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { usePromptDelivery } from "../../lib/promptDelivery";
 import { useEscapeKey } from "../../lib/useEscapeKey";
-import { markStart, markEnd } from "../../lib/timing";
+import { markStart, markEnd, formatRelativeTime } from "../../lib/timing";
 import { usePanelStatusPublisher, type PanelStatus } from "./PanelStatusContext";
 import { ChatComposerRail } from "./ChatComposerRail";
 import { ChatContextStrip } from "./ChatContextStrip";
@@ -10,12 +10,13 @@ import {
   BUILTIN_COMMANDS,
   buildCommandHelper,
   filterAndRank,
-  tabComplete,
   formatCommandReference,
   KEYBOARD_GUIDE,
+  parseCommandPayload,
   readCommandRecency,
   recordCommandUse,
   sourceLabel,
+  tabComplete,
 } from "../../lib/chatCommands";
 import { ChatHeader } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
@@ -74,6 +75,7 @@ import {
   nativeSaveProviderCredential,
   type ChatModelDefault,
   type NativeChatMessage,
+  type NativeModel,
   type NativeProviderCatalog,
   type NativeRequestMetricsSummary,
   type NativeSetupRequired,
@@ -87,6 +89,7 @@ import { inspectProjectSchematic, type SchematicReport } from "../../lib/schemat
 import { schematicWizardAction } from "../../lib/planningActions";
 import { readSkill } from "../../lib/skills";
 import type { AgentMode } from "../../lib/sessions";
+import { readModelRecency, recordModelUse } from "../../lib/modelRecency";
 import { useLogs } from "../../state/log";
 
 const SEND_TIMEOUT_MS = 45_000;
@@ -169,10 +172,30 @@ function formatMetric(value: number | null | undefined, suffix = "") {
 }
 
 function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) return seconds === 1 ? "1 second" : `${seconds} seconds`;
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
-  return `${m}m${s.toString().padStart(2, "0")}s`;
+  const minLabel = m === 1 ? "1 min" : `${m} min`;
+  const secLabel = s === 1 ? "1 sec" : `${s} sec`;
+  if (m < 60) return `${minLabel} ${secLabel}`;
+  const h = Math.floor(m / 60);
+  const remainingMin = m % 60;
+  const hourLabel = h === 1 ? "1 h" : `${h} h`;
+  const remMinLabel = remainingMin === 1 ? "1 min" : `${remainingMin} min`;
+  return `${hourLabel} ${remMinLabel}`;
+}
+
+function resolveAssistantLabel(
+  catalog: NativeProviderCatalog | null,
+  selectedModel: NativeModel | null,
+  modelId: string,
+  providerId: string | null,
+): string {
+  if (providerId && modelId) {
+    const catalogModel = catalog?.models.find((m) => m.providerId === providerId && m.id === modelId);
+    if (catalogModel) return catalogModel.label;
+  }
+  return selectedModel?.label ?? modelId ?? "Assistant";
 }
 
 function ThinkingBlock({ text }: { text: string }) {
@@ -190,6 +213,29 @@ function ThinkingBlock({ text }: { text: string }) {
       {expanded ? (
         <MarkdownView text={text} className="chat-thinking-content" />
       ) : null}
+    </div>
+  );
+}
+function UserMessageContent({
+  content,
+  onViewPayload,
+}: {
+  content: string;
+  onViewPayload: (name: string, payload: string) => void;
+}) {
+  const parsed = useMemo(() => parseCommandPayload(content), [content]);
+  if (!parsed) return <pre className="chat-message-content">{content}</pre>;
+  return (
+    <div className="chat-message-content">
+      <button
+        className="chat-command-chip"
+        type="button"
+        title={`View full ${parsed.name} payload`}
+        onClick={() => onViewPayload(parsed.name, parsed.content)}
+      >
+        {parsed.name}
+      </button>
+      {parsed.trailing ? <span className="chat-command-trailing">{parsed.trailing}</span> : null}
     </div>
   );
 }
@@ -438,12 +484,15 @@ export function ChatPanel({
   const [modelFilter, setModelFilter] = useState("");
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandRecency, setCommandRecency] = useState<Record<string, number>>(() => readCommandRecency());
+  const [modelRecency, setModelRecency] = useState<Record<string, number>>(() => readModelRecency());
+  const [commandPayloadModal, setCommandPayloadModal] = useState<{ name: string; content: string } | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [paletteActiveIndex, setPaletteActiveIndex] = useState(0);
   useEscapeKey(showProviderPicker || showModelPicker, () => {
     setShowProviderPicker(false);
     setShowModelPicker(false);
   });
+  useEscapeKey(commandPayloadModal !== null, () => setCommandPayloadModal(null));
   const sendTimerRef = useRef<number | null>(null);
   const assistantBufferRef = useRef("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -491,11 +540,18 @@ export function ChatPanel({
   const filteredModels = useMemo(() => {
     const models = catalog?.models.filter((m) => m.providerId === providerId) ?? [];
     const needle = modelFilter.trim().toLowerCase();
-    const ranked = models.slice().sort((a, b) =>
-      Number(b.supportsTools) - Number(a.supportsTools) ||
-      Number(b.supportsReasoning) - Number(a.supportsReasoning) ||
-      a.label.localeCompare(b.label),
-    );
+    const ranked = models.slice().sort((a, b) => {
+      const aKey = `${a.providerId}/${a.id}`;
+      const bKey = `${b.providerId}/${b.id}`;
+      const aRecent = modelRecency[aKey] ?? 0;
+      const bRecent = modelRecency[bKey] ?? 0;
+      if (aRecent !== bRecent) return bRecent - aRecent;
+      return (
+        Number(b.supportsTools) - Number(a.supportsTools) ||
+        Number(b.supportsReasoning) - Number(a.supportsReasoning) ||
+        a.label.localeCompare(b.label)
+      );
+    });
     if (!needle) return ranked;
     return ranked.filter((model) => {
       const provider = catalog?.providers.find((p) => p.id === model.providerId);
@@ -506,7 +562,7 @@ export function ChatPanel({
         (provider?.label.toLowerCase().includes(needle) ?? false)
       );
     });
-  }, [catalog, modelFilter, providerId]);
+  }, [catalog, modelFilter, providerId, modelRecency]);
   const nativeMode = profileId === NATIVE_PROFILE_ID;
   const selectedProvider = catalog?.providers.find((p) => p.id === providerId) ?? null;
   const selectedModel = catalog?.models.find((m) => m.id === modelId && m.providerId === providerId) ?? null;
@@ -1024,6 +1080,7 @@ export function ChatPanel({
         try {
           const result = await nativeChatSend({ sessionId: nativeSessionId, content: text, providerId, modelId, effortLevel });
           if (activeSendRef.current !== gen) return;
+          setModelRecency(recordModelUse(providerId, modelId));
           setNativeMessages((prev) => {
             const base = prev.filter((m) => m.id !== tempUserId);
             const next = [...base, result.userMessage];
@@ -1105,7 +1162,7 @@ export function ChatPanel({
         setLoading(false);
       }
     },
-    [nativeMode, nativeSessionId, selectedProvider, loading, providerId, modelId, effortLevel, agentId, addLog],
+    [nativeMode, nativeSessionId, selectedProvider, loading, providerId, modelId, effortLevel, agentId, addLog, setModelRecency],
   );
 
   // Prompt delivery consumption — replaces the old draft-prompt props.
@@ -1127,10 +1184,21 @@ export function ChatPanel({
     void sendMessage(delivery.text.trim()).then(() => consume());
   }, [delivery, consume, nativeSessionId, catalog, loading, sendMessage]);
 
-  // Auto-scroll
+  // Auto-scroll: follow bottom whenever content grows IF the user is within
+  // ~80px of the bottom. Don't yank scroll when they've scrolled up to read
+  // earlier messages. Also covers tool events / interactions growth.
+  const scrollHeightRef = useRef(0);
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [nativeMessages, legacyMessages, streamText, reasoningText, streamPhase]);
+    const el = scrollRef.current;
+    if (!el) return;
+    const newHeight = el.scrollHeight;
+    const oldHeight = scrollHeightRef.current;
+    scrollHeightRef.current = newHeight;
+    const distanceFromBottom = newHeight - el.scrollTop - el.clientHeight;
+    if (oldHeight === 0 || distanceFromBottom <= 80) {
+      el.scrollTop = newHeight;
+    }
+  }, [nativeMessages, legacyMessages, streamText, reasoningText, streamPhase, toolEvents, interactions]);
 
   // Live elapsed timer — updates every second while streaming.
   useEffect(() => {
@@ -1353,8 +1421,8 @@ export function ChatPanel({
         if (skillName) {
           try {
             const skill = await readSkill(skillName);
-            const prompt = `${skill.content}\n\n${rest}`;
-            await sendMessage(prompt);
+            const wrapped = `<command name="/${command}">\n${skill.content}\n</command>${rest ? "\n" + rest : ""}`;
+            await sendMessage(wrapped);
             setCommandRecency(recordCommandUse(command));
             setInput("");
             return;
@@ -1374,7 +1442,8 @@ export function ChatPanel({
           try {
             const skill = await readSkill("basebuild-project-schematic");
             const action = schematicWizardAction(skill.content, undefined);
-            await sendMessage(action.text);
+            const wrapped = `<command name="/schematic${rest ? " " + rest : ""}">\n${action.text}\n</command>`;
+            await sendMessage(wrapped);
             setCommandRecency(recordCommandUse("schematic"));
             setInput("");
             return;
@@ -1925,7 +1994,7 @@ export function ChatPanel({
               // No grouping — each tool call is its own row. Thinking blocks
               // render as separate rows, split around tool calls/questions.
               type ChatEvent =
-                | { kind: "user" | "assistant" | "system"; id: string; content: string; reasoning: string | null; createdAt: number | null; providerId: string | null; index: number }
+                | { kind: "user" | "assistant" | "system"; id: string; content: string; reasoning: string | null; createdAt: number | null; providerId: string | null; modelId: string | null; index: number }
                 | { kind: "tool"; id: string; event: NativeToolEvent; createdAt: number | null; index: number }
                 | { kind: "interaction"; id: string; interaction: PendingInteraction; createdAt: number | null; index: number };
 
@@ -1937,6 +2006,7 @@ export function ChatPanel({
                 const ts = "createdAt" in msg ? (msg as NativeChatMessage).createdAt : null;
                 const reasoning = "reasoning" in msg ? (msg as NativeChatMessage).reasoning ?? null : null;
                 const providerId = "providerId" in msg ? (msg as NativeChatMessage).providerId ?? null : null;
+                const modelIdValue = "modelId" in msg ? (msg as NativeChatMessage).modelId ?? null : null;
                 events.push({
                   kind: msg.role as "user" | "assistant" | "system",
                   id: msgId ?? `legacy-${i}`,
@@ -1944,9 +2014,9 @@ export function ChatPanel({
                   reasoning,
                   createdAt: ts,
                   providerId,
+                  modelId: modelIdValue,
                   index: i,
                 });
-                // Attach tool events with this messageId right after the message.
                 if (msgId) {
                   for (const te of toolEvents) {
                     if (te.messageId === msgId) {
@@ -2044,13 +2114,15 @@ export function ChatPanel({
                 rendered.push(
                   <div key={ev.id} className={`chat-message chat-message-${ev.kind}`}>
                     <span className="chat-message-role">
-                      {ev.kind === "user" ? "You" : ev.kind === "assistant" ? "Basebuild" : "System"}
+                      {ev.kind === "user" ? "You" : ev.kind === "assistant" ? resolveAssistantLabel(catalog, selectedModel, ev.modelId ?? modelId, ev.providerId) : "System"}
                       {isOfflineTurn ? <span className="chat-offline-tag" title="No external model was contacted">Offline</span> : null}
                       {timeStr ? <span className="chat-message-time" title={fullDate ?? ""}>{timeStr}</span> : null}
                     </span>
                     {ev.kind === "assistant"
                       ? <MarkdownView text={ev.content} className="chat-message-content" />
-                      : <pre className="chat-message-content">{ev.content}</pre>}
+                      : ev.kind === "user"
+                        ? <UserMessageContent content={ev.content} onViewPayload={(name, payload) => setCommandPayloadModal({ name, content: payload })} />
+                        : <pre className="chat-message-content">{ev.content}</pre>}
                     {ev.kind === "user" || ev.kind === "assistant" ? (
                       <div className="chat-message-actions">
                         <button
@@ -2113,9 +2185,11 @@ export function ChatPanel({
               return (
                 <div key={key} className={`chat-message chat-message-${msg.role}`}>
                   <span className="chat-message-role">
-                    {msg.role === "user" ? "You" : msg.role === "assistant" ? "Basebuild" : "System"}
+                    {msg.role === "user" ? "You" : msg.role === "assistant" ? resolveAssistantLabel(catalog, selectedModel, modelId, providerId) : "System"}
                   </span>
-                  <pre className="chat-message-content">{msg.content}</pre>
+                  {msg.role === "user"
+                    ? <UserMessageContent content={msg.content} onViewPayload={(name, payload) => setCommandPayloadModal({ name, content: payload })} />
+                    : <pre className="chat-message-content">{msg.content}</pre>}
                 </div>
               );
             })}
@@ -2135,7 +2209,7 @@ export function ChatPanel({
         {streaming && streamText ? (
           <div className="chat-message chat-message-assistant">
             <span className="chat-message-role">
-              Basebuild
+              {selectedModel?.label ?? modelId}
               <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
             </span>
             <div className="chat-message-content"><MarkdownView text={streamText} /><span className="chat-cursor" /></div>
@@ -2146,7 +2220,7 @@ export function ChatPanel({
         {streaming && streamPhase === "thinking" && !streamText && !reasoningText ? (
           <div className="chat-message chat-thinking-indicator" title={`Waiting for the model to start responding (${formatElapsed(elapsed)})`}>
             <span className="chat-message-role">
-              Basebuild
+              {selectedModel?.label ?? modelId}
               <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
             </span>
             <div className="chat-thinking-dots">
@@ -2387,6 +2461,28 @@ export function ChatPanel({
                 {savingCred ? "Saving…" : "Save key & connect"}
               </button>
               {loginError ? <p className="text-danger text-sm">{loginError}</p> : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Command payload modal: shows the full injected skill/command body. */}
+      {commandPayloadModal ? (
+        <div className="modal-overlay" onClick={() => setCommandPayloadModal(null)} title="Close command payload">
+          <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title={`${commandPayloadModal.name} payload`}>
+            <div className="modal-header">
+              <h2>{commandPayloadModal.name}</h2>
+              <button
+                className="btn-icon"
+                title="Close"
+                type="button"
+                onClick={() => setCommandPayloadModal(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="modal-body command-payload-body" onClick={(e) => e.stopPropagation()} title="Full injected command payload">
+              <pre className="command-payload-pre">{commandPayloadModal.content}</pre>
             </div>
           </div>
         </div>
@@ -2709,6 +2805,7 @@ export function ChatPanel({
                               addLog("debug", "Model selected", `provider=${model.providerId}; model=${model.id}`);
                               setProviderId(model.providerId);
                               setModelId(model.id);
+                              setModelRecency(recordModelUse(model.providerId, model.id));
                               setShowProviderPicker(false);
                               setShowModelPicker(false);
                               setSetupRequired(null);
@@ -2721,6 +2818,11 @@ export function ChatPanel({
                               <span className="provider-model-id">{model.id}</span>
                             </span>
                             <span className="provider-model-badges">
+                              {modelRecency[`${model.providerId}/${model.id}`] ? (
+                                <span className="provider-model-recency" title="Last used">
+                                  used {formatRelativeTime(modelRecency[`${model.providerId}/${model.id}`]!)}
+                                </span>
+                              ) : null}
                               {model.supportsTools ? <span className="provider-capability is-positive">Tools</span> : null}
                               {model.supportsReasoning ? <span className="provider-capability">Reasoning</span> : null}
                               <span className="provider-capability">{model.supportedEfforts.length ? model.supportedEfforts.join("/") : "Standard"}</span>

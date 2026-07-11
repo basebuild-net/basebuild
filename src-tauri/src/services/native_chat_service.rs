@@ -7,8 +7,9 @@ use crate::{
     events::NATIVE_CHAT_CHUNK,
     models::{
         native_chat::{
-            ChatModelDefault, NativeChatMessage, NativeChatSendRequest, NativeChatSendResult,
-            NativeChatSession, NativeChatStartRequest, NativeGenerateIdeasRequest,
+            ChatModelDefault, NativeChatHistoryEntry, NativeChatMessage,
+            NativeChatSendRequest, NativeChatSendResult, NativeChatSession,
+            NativeChatStartRequest, NativeGenerateIdeasRequest,
             NativeGenerateIdeasResult, NativeGeneratedIdea, NativeProviderCatalog,
             NativeProviderCredential, NativeProviderCredentialInput, NativeRequestMetric,
             NativeRequestMetricsSummary, NativeSetupRequired, NativeToolApprovalRequest,
@@ -621,6 +622,24 @@ impl NativeChatService {
             .query_map(params![project_path], map_session)
             .map_err(|e| e.to_string())?;
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    pub fn chat_history(limit: Option<i64>) -> DbResult<Vec<NativeChatHistoryEntry>> {
+        let conn = StorageService::connect()?;
+        let base_sql = "SELECT s.id, s.project_path, s.title, s.profile_id, s.provider_id, s.model_id, s.effort_level, s.status, s.run_state, s.created_at, s.updated_at, COUNT(m.id) as message_count
+                        FROM native_chat_sessions s
+                        LEFT JOIN native_chat_messages m ON m.session_id = s.id
+                        GROUP BY s.id
+                        ORDER BY s.updated_at DESC";
+        if let Some(l) = limit {
+            let mut stmt = conn.prepare(&format!("{} LIMIT ?1", base_sql)).map_err(|e| e.to_string())?;
+            let rows = stmt.query_map(params![l], map_history_entry).map_err(|e| e.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        } else {
+            let mut stmt = conn.prepare(base_sql).map_err(|e| e.to_string())?;
+            let rows = stmt.query_map([], map_history_entry).map_err(|e| e.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        }
     }
 
     pub fn list_messages(session_id: &str) -> DbResult<Vec<NativeChatMessage>> {
@@ -1738,6 +1757,23 @@ fn map_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<NativeChatSession> {
     })
 }
 
+fn map_history_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<NativeChatHistoryEntry> {
+    Ok(NativeChatHistoryEntry {
+        id: row.get(0)?,
+        project_path: row.get(1)?,
+        title: row.get(2)?,
+        profile_id: row.get(3)?,
+        provider_id: row.get(4)?,
+        model_id: row.get(5)?,
+        effort_level: row.get(6)?,
+        status: row.get(7)?,
+        run_state: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "idle".to_string()),
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
+        message_count: row.get(11)?,
+    })
+}
+
 fn map_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<NativeChatMessage> {
     Ok(NativeChatMessage {
         id: row.get(0)?,
@@ -2118,6 +2154,51 @@ mod tests {
         // Clearing an already-empty session should return 0.
         let deleted2 = NativeChatService::clear_session_messages(&session.id).unwrap();
         assert_eq!(deleted2, 0);
+    }
+
+    #[test]
+    fn chat_history_returns_cross_project_sessions_with_counts_newest_first() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+
+        let older = NativeChatService::start_session(NativeChatStartRequest {
+            project_path: "/test/history-a".to_string(),
+            title: Some("Older".to_string()),
+            provider_id: Some(LOCAL_PROVIDER_ID.to_string()),
+            model_id: Some("basebuild-local-coordinator".to_string()),
+            effort_level: Some("medium".to_string()),
+        })
+        .unwrap();
+        // Ensure distinct updated_at values so ORDER BY is deterministic.
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        NativeChatService::insert_message(&older.id, "user", "hello", None, Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium")).unwrap();
+        NativeChatService::insert_message(&older.id, "assistant", "hi", None, Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium")).unwrap();
+
+        let newer = NativeChatService::start_session(NativeChatStartRequest {
+            project_path: "/test/history-b".to_string(),
+            title: Some("Newer".to_string()),
+            provider_id: Some(LOCAL_PROVIDER_ID.to_string()),
+            model_id: Some("basebuild-local-coordinator".to_string()),
+            effort_level: Some("medium".to_string()),
+        })
+        .unwrap();
+        NativeChatService::insert_message(&newer.id, "user", "only one", None, Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium")).unwrap();
+        // Force deterministic ordering: newer must sort before older.
+        StorageService::connect()
+            .unwrap()
+            .execute("UPDATE native_chat_sessions SET updated_at = ?1 WHERE id = ?2", params![older.updated_at + 10, newer.id])
+            .unwrap();
+
+        let all = NativeChatService::chat_history(None).unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].title, "Newer");
+        assert_eq!(all[0].message_count, 1);
+        assert_eq!(all[1].title, "Older");
+        assert_eq!(all[1].message_count, 2);
+
+        let limited = NativeChatService::chat_history(Some(1)).unwrap();
+        assert_eq!(limited.len(), 1);
+        assert_eq!(limited[0].title, "Newer");
     }
     #[test]
     fn delete_credential_blocks_omp_credentials() {

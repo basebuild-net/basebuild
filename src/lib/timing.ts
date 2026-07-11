@@ -61,3 +61,22 @@ export async function timed<T>(key: TimingKey, fn: () => Promise<T>): Promise<T>
     markEnd(key);
   }
 }
+
+
+/** Format an epoch timestamp as a lowercase relative string.
+ *  Accepts both seconds (Rust `updated_at`) and milliseconds (JS `Date.now()`)
+ *  by treating values below 1 trillion as seconds.
+ *  Returns: "just now", "{n}s ago", "{n} min ago", "{n}h ago", "{n}d ago".
+ */
+export function formatRelativeTime(timestamp: number): string {
+  if (!timestamp) return "";
+  const now = Date.now();
+  const tsMs = timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp;
+  const diff = Math.max(0, Math.floor((now - tsMs) / 1000));
+  if (diff < 10) return "just now";
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+

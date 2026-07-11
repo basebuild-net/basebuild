@@ -2,12 +2,13 @@ use tauri::AppHandle;
 
 use crate::{
     models::native_chat::{
-        ChatModelDefault, NativeChatMessage, NativeChatSendRequest, NativeChatSendResult,
-        NativeChatSession, NativeChatStartRequest, NativeGenerateIdeasRequest,
-        NativeGenerateIdeasResult, NativeProviderCatalog, NativeProviderCatalogRefreshRequest,
-        NativeProviderCredential, NativeProviderCredentialInput, NativeRequestMetric,
-        NativeRequestMetricsSummary, NativeToolApprovalRequest, NativeToolApprovalResult,
-        NativeToolEvent, ResolvedChatModelDefault,
+        ChatModelDefault, NativeChatHistoryEntry, NativeChatMessage, NativeChatSendRequest,
+        NativeChatSendResult, NativeChatSession, NativeChatStartRequest,
+        NativeGenerateIdeasRequest, NativeGenerateIdeasResult, NativeProviderCatalog,
+        NativeProviderCatalogRefreshRequest, NativeProviderCredential,
+        NativeProviderCredentialInput, NativeRequestMetric, NativeRequestMetricsSummary,
+        NativeToolApprovalRequest, NativeToolApprovalResult, NativeToolEvent,
+        ResolvedChatModelDefault,
     },
     models::permission::{PermissionDecision, SessionRule},
     services::native_chat_service::NativeChatService,
@@ -63,6 +64,11 @@ pub fn native_chat_update_session_model(
 #[tauri::command]
 pub fn native_chat_list(project_path: String) -> Result<Vec<NativeChatSession>, String> {
     NativeChatService::list_sessions(&project_path)
+}
+
+#[tauri::command]
+pub fn native_chat_history(limit: Option<i64>) -> Result<Vec<NativeChatHistoryEntry>, String> {
+    NativeChatService::chat_history(limit)
 }
 
 #[tauri::command]

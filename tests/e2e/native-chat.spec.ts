@@ -148,4 +148,118 @@ test.describe("native chat workspace", () => {
     await expect(page.locator(".chat-command-notice")).toContainText("Unknown slash command");
     await expect(page.getByTitle("Send this slash-prefixed text as a normal message")).toBeVisible();
   });
+
+  test("skill send renders a command chip and trailing text, not the raw skill body", async ({ page }) => {
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+
+    await page.locator(".chat-provider-trigger").click();
+    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.getByTitle("Close provider and model catalog").click();
+    // Send is a silent no-op until the native session binds and the provider
+    // switch settles — wait for both before clicking (fixture rows would
+    // otherwise satisfy `.last()` visibility vacuously).
+    await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
+    await expect(page.locator(".chat-provider-trigger")).toContainText("Basebuild Local");
+    const usersBefore = await page.locator(".chat-message-user").count();
+
+    await page.getByTitle(/Chat input/).first().fill("/skill:caveman hello world");
+    await expect(page.getByTitle("Send message")).toBeEnabled();
+    await page.getByTitle("Send message").click();
+
+    await expect(page.locator(".chat-message-user")).toHaveCount(usersBefore + 1, { timeout: 10_000 });
+    // Fixture messages carry future timestamps, so the new row is NOT last in
+    // the chronologically-sorted transcript — select it by its trailing text.
+    const userRow = page.locator(".chat-message-user").filter({ hasText: "hello world" });
+    // Chip shows the command name.
+    const chip = userRow.locator(".chat-command-chip");
+    await expect(chip).toContainText("/skill:caveman");
+    // Trailing user text is shown, not the skill body.
+    await expect(userRow).toContainText("hello world");
+    await expect(userRow).not.toContainText("Speak in short grunts");
+
+    // Clicking the chip opens the payload modal with the full body.
+    await chip.click();
+    const modal = page.locator(".modal");
+    await expect(modal).toBeVisible();
+    await expect(modal.locator(".modal-header h2")).toContainText("/skill:caveman");
+    await expect(modal.locator(".command-payload-pre")).toContainText("Speak in short grunts");
+    await page.keyboard.press("Escape");
+    await expect(modal).toBeHidden();
+  });
+
+  test("assistant message shows the selected model label, not 'Basebuild'", async ({ page }) => {
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+
+    await page.locator(".chat-provider-trigger").click();
+    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.getByTitle("Close provider and model catalog").click();
+    await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
+    await expect(page.locator(".chat-provider-trigger")).toContainText("Basebuild Local");
+    const assistantsBefore = await page.locator(".chat-message-assistant").count();
+
+    await page.getByTitle(/Chat input/).first().fill("model-label-test");
+    await expect(page.getByTitle("Send message")).toBeEnabled();
+    await page.getByTitle("Send message").click();
+
+    await expect(page.locator(".chat-message-assistant")).toHaveCount(assistantsBefore + 1, { timeout: 10_000 });
+    const assistantRow = page.locator(".chat-message-assistant").last();
+    const role = assistantRow.locator(".chat-message-role");
+    await expect(role).toContainText("Local Coordinator");
+    await expect(role).not.toContainText("Basebuild");
+  });
+
+  test("user and assistant messages are full-width left-aligned", async ({ page }) => {
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+
+    await page.locator(".chat-provider-trigger").click();
+    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.getByTitle("Close provider and model catalog").click();
+    await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
+    await expect(page.locator(".chat-provider-trigger")).toContainText("Basebuild Local");
+    const usersBefore = await page.locator(".chat-message-user").count();
+
+    await page.getByTitle(/Chat input/).first().fill("alignment-test");
+    await expect(page.getByTitle("Send message")).toBeEnabled();
+    await page.getByTitle("Send message").click();
+    await expect(page.locator(".chat-message-user")).toHaveCount(usersBefore + 1, { timeout: 10_000 });
+
+    const userRow = page.locator(".chat-message-user").last();
+    const assistantRow = page.locator(".chat-message-assistant").last();
+    await expect(assistantRow).toBeVisible({ timeout: 10_000 });
+
+    const userBox = await userRow.boundingBox();
+    const assistantBox = await assistantRow.boundingBox();
+    const messagesBox = await page.locator(".chat-messages").first().boundingBox();
+    expect(userBox).toBeTruthy();
+    expect(assistantBox).toBeTruthy();
+    expect(messagesBox).toBeTruthy();
+    // Both rows span nearly the full width of the scroll container.
+    expect(userBox!.width).toBeGreaterThan(messagesBox!.width * 0.9);
+    expect(assistantBox!.width).toBeGreaterThan(messagesBox!.width * 0.9);
+    // User row has the distinctive left accent border.
+    await expect(userRow).toHaveCSS("border-left-color", "rgb(255, 86, 6)");
+  });
+
+  test("elapsed badge reads in conversational units", async ({ page }) => {
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+
+    await page.locator(".chat-provider-trigger").click();
+    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.getByTitle("Close provider and model catalog").click();
+    await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
+    await expect(page.locator(".chat-provider-trigger")).toContainText("Basebuild Local");
+
+    await page.getByTitle(/Chat input/).first().fill("stream-test");
+    await expect(page.getByTitle("Send message")).toBeEnabled();
+    await page.getByTitle("Send message").click();
+
+    // The streaming assistant row shows an elapsed badge with readable text.
+    const badge = page.locator(".chat-message-assistant .chat-elapsed-badge").first();
+    await expect(badge).toBeVisible({ timeout: 5_000 });
+    await expect(badge).toContainText(/\d+ second/);
+  });
 });

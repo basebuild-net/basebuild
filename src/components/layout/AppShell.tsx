@@ -1302,9 +1302,11 @@ export function AppShell({ updates }: AppShellProps) {
                 {historyDrawerOpen ? (
                   <Suspense fallback={<ModalLoading />}>
                     <HistoryDrawer
+                      activeProjectPath={activeProjectPath}
                       closedPanels={panelGridState.closedPanels}
                       onReopen={handlePanelReopen}
                       onDelete={handlePanelDelete}
+                      onSelectProject={setActiveProjectPath}
                       onClose={() => setHistoryDrawerOpen(false)}
                     />
                   </Suspense>

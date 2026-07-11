@@ -366,3 +366,22 @@ pub struct ResolvedChatModelDefault {
     /// provider or missing model) and a fallback was used instead.
     pub notice: Option<String>,
 }
+
+/// Cross-project chat session summary with message count, returned by the
+/// history modal command. Ordered by `updated_at` descending.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeChatHistoryEntry {
+    pub id: String,
+    pub project_path: String,
+    pub title: String,
+    pub profile_id: String,
+    pub provider_id: String,
+    pub model_id: String,
+    pub effort_level: String,
+    pub status: String,
+    pub run_state: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub message_count: i64,
+}
