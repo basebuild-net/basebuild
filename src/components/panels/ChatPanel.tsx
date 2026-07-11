@@ -82,6 +82,7 @@ import {
   type NativeToolEvent,
 } from "../../lib/native-chat";
 import { resolveToolApproval } from "../../lib/native-chat";
+import { buildChatTimeline } from "../../lib/chatTimeline";
 import { useIdeaState } from "../../state/ideas";
 import { setLastGrounding } from "../../state/grounding";
 import type { Idea } from "../../lib/ideas";
@@ -1990,75 +1991,7 @@ export function ChatPanel({
               // reasoning into a single sorted list, rendered in order.
               // No grouping — each tool call is its own row. Thinking blocks
               // render as separate rows, split around tool calls/questions.
-              type ChatEvent =
-                | { kind: "user" | "assistant" | "system"; id: string; content: string; reasoning: string | null; createdAt: number | null; providerId: string | null; modelId: string | null; index: number }
-                | { kind: "tool"; id: string; event: NativeToolEvent; createdAt: number | null; index: number }
-                | { kind: "interaction"; id: string; interaction: PendingInteraction; createdAt: number | null; index: number };
-
-              // Build the merged event list.
-              const events: ChatEvent[] = [];
-              for (let i = 0; i < renderMessages.length; i++) {
-                const msg = renderMessages[i];
-                const msgId = "id" in msg ? String(msg.id) : null;
-                const ts = "createdAt" in msg ? (msg as NativeChatMessage).createdAt : null;
-                const reasoning = "reasoning" in msg ? (msg as NativeChatMessage).reasoning ?? null : null;
-                const providerId = "providerId" in msg ? (msg as NativeChatMessage).providerId ?? null : null;
-                const modelIdValue = "modelId" in msg ? (msg as NativeChatMessage).modelId ?? null : null;
-                events.push({
-                  kind: msg.role as "user" | "assistant" | "system",
-                  id: msgId ?? `legacy-${i}`,
-                  content: msg.content,
-                  reasoning,
-                  createdAt: ts,
-                  providerId,
-                  modelId: modelIdValue,
-                  index: i,
-                });
-                if (msgId) {
-                  for (const te of toolEvents) {
-                    if (te.messageId === msgId) {
-                      events.push({
-                        kind: "tool",
-                        id: te.id,
-                        event: te,
-                        createdAt: te.createdAt,
-                        index: te.sequence,
-                      });
-                    }
-                  }
-                }
-              }
-              // Live tool events (null messageId) — use their own
-              // createdAt so they sort to the correct chronological
-              // position, not the top of the conversation.
-              for (const te of toolEvents) {
-                if (!te.messageId) {
-                  events.push({
-                    kind: "tool",
-                    id: te.id,
-                    event: te,
-                    createdAt: te.createdAt,
-                    index: te.sequence,
-                  });
-                }
-              }
-              // Live interactions go at the end (no messageId binding yet).
-              for (const intr of interactions) {
-                events.push({
-                  kind: "interaction",
-                  id: intr.id,
-                  interaction: intr,
-                  createdAt: intr.createdAt ?? null,
-                  index: events.length,
-                });
-              }
-              // Sort by (createdAt, index) — stable chronological order.
-              events.sort((a, b) => {
-                const ta = a.createdAt ?? 0;
-                const tb = b.createdAt ?? 0;
-                if (ta !== tb) return ta - tb;
-                return a.index - b.index;
-              });
+              const events = buildChatTimeline(nativeMessages, toolEvents, interactions);
               // Compute last user/assistant message IDs for action rail.
               let lastUserId: string | null = null;
               let lastAssistantId: string | null = null;

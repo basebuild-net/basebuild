@@ -1087,9 +1087,11 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       const isMultiToolStream = req.content.includes("multi-tool-stream-test");
       const isApprovalStream = req.content.includes("approval-stream-test");
       const isStopPartial = req.content.includes("stop-partial-test");
-      const isStreamTest = req.content.includes("stream-test") && !isMultiToolStream && !isApprovalStream && !isStopPartial;
+      const isReasoningSplit = req.content.includes("reasoning-split-test");
+      const isMultiTurnTools = req.content.includes("multi-turn-tools-test");
+      const isStreamTest = req.content.includes("stream-test") && !isMultiToolStream && !isApprovalStream && !isStopPartial && !isReasoningSplit && !isMultiTurnTools;
       const streamedContent = "Streaming **bold** and `code` arrived incrementally.";
-      if (isStreamTest || isMultiToolStream || isApprovalStream || isStopPartial) {
+      if (isStreamTest || isMultiToolStream || isApprovalStream || isStopPartial || isReasoningSplit || isMultiTurnTools) {
         const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
         const chunk = (delta: string, channel?: string) =>
           __emit("native-chat://chunk", { sessionId: req.sessionId, delta, ...(channel ? { channel } : {}) });
@@ -1157,6 +1159,38 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
           // The send promise will be cancelled by native_chat_cancel.
           // Keep the hold short (3s) so a follow-up send doesn't block long.
           await sleep(3000);
+        } else if (isReasoningSplit) {
+          // Reasoning → tool call → more reasoning → another tool → final text.
+          // Tests that reasoning blocks split around tool calls.
+          const ts0 = Math.floor(Date.now() / 1000);
+          chunk("I need to read the file first.");
+          await sleep(200);
+          toolEvent({ id: `te-rs-read-${ts0}`, kind: "read_file", status: "running", summary: "Reading src/app.ts", arguments: JSON.stringify({ path: "src/app.ts" }), sequence: 1 });
+          await sleep(200);
+          toolEvent({ id: `te-rs-read-${ts0}`, kind: "read_file", status: "success", summary: "Read 80 lines", arguments: JSON.stringify({ path: "src/app.ts" }), sequence: 1 });
+          await sleep(200);
+          chunk("Now I see the issue. Let me fix it.", "reasoning");
+          await sleep(200);
+          toolEvent({ id: `te-rs-edit-${ts0}`, kind: "edit_file", status: "running", summary: "Editing src/app.ts", arguments: JSON.stringify({ path: "src/app.ts" }), diff: "-old\n+new\n", sequence: 2 });
+          await sleep(200);
+          toolEvent({ id: `te-rs-edit-${ts0}`, kind: "edit_file", status: "success", summary: "Replaced 1 line", arguments: JSON.stringify({ path: "src/app.ts" }), diff: "-old\n+new\n", sequence: 2 });
+          await sleep(200);
+          chunk("The fix is applied. The bug was in the null check.");
+          await sleep(100);
+        } else if (isMultiTurnTools) {
+          // Single send that produces multiple tool calls with reasoning
+          // between each — simulates a multi-step agent turn.
+          const ts0 = Math.floor(Date.now() / 1000);
+          for (let step = 1; step <= 3; step++) {
+            chunk(`Step ${step}: analyzing`, "reasoning");
+            await sleep(150);
+            toolEvent({ id: `te-mt-${step}-${ts0}`, kind: `step_${step}`, status: "running", summary: `Running step ${step}`, arguments: JSON.stringify({ step }), sequence: step });
+            await sleep(150);
+            toolEvent({ id: `te-mt-${step}-${ts0}`, kind: `step_${step}`, status: "success", summary: `Step ${step} done`, arguments: JSON.stringify({ step }), sequence: step });
+            await sleep(100);
+          }
+          chunk("All steps complete.");
+          await sleep(100);
         } else {
           chunk("Streaming **bold**");
           await sleep(250);
@@ -1174,6 +1208,10 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         ? "I need to edit src/main.ts to fix the bug."
         : isStopPartial
         ? "I'll analyze the problem and propose a"
+        : isReasoningSplit
+        ? "The fix is applied. The bug was in the null check."
+        : isMultiTurnTools
+        ? "All steps complete."
         : req.content.includes("Write one concise git commit message")
         ? "Let me write a concise commit message.\n\n1. `launch-sbox.sh` - changes\n2. `patch_engine.sh` - changes\n\n---\n\nRework patch system to target sbox-public"
         : req.content.includes("quick-reply-test")
@@ -1319,8 +1357,19 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
             { id: `te-read-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "read_file", status: "success", summary: "Read 120 lines", arguments: JSON.stringify({ path: "src/main.ts" }), diff: null, decision: "approved", ruleSource: null, sequence: 1, createdAt: ts },
             { id: `te-edit-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "edit_file", status: "pending", summary: "Edit src/main.ts", arguments: JSON.stringify({ path: "src/main.ts", old_text: "foo", new_text: "bar" }), diff: null, decision: "pending", ruleSource: null, sequence: 2, createdAt: ts },
           ]
+        : isReasoningSplit
+        ? [
+            { id: `te-rs-read-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "read_file", status: "success", summary: "Read 80 lines", arguments: JSON.stringify({ path: "src/app.ts" }), diff: null, decision: "approved", ruleSource: null, sequence: 1, createdAt: ts },
+            { id: `te-rs-edit-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "edit_file", status: "success", summary: "Replaced 1 line", arguments: JSON.stringify({ path: "src/app.ts" }), diff: "-old\n+new\n", decision: "approved", ruleSource: null, sequence: 2, createdAt: ts },
+          ]
+        : isMultiTurnTools
+        ? [
+            { id: `te-mt-1-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "step_1", status: "success", summary: "Step 1 done", arguments: JSON.stringify({ step: 1 }), diff: null, decision: "approved", ruleSource: null, sequence: 1, createdAt: ts },
+            { id: `te-mt-2-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "step_2", status: "success", summary: "Step 2 done", arguments: JSON.stringify({ step: 2 }), diff: null, decision: "approved", ruleSource: null, sequence: 2, createdAt: ts },
+            { id: `te-mt-3-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "step_3", status: "success", summary: "Step 3 done", arguments: JSON.stringify({ step: 3 }), diff: null, decision: "approved", ruleSource: null, sequence: 3, createdAt: ts },
+          ]
         : [];
-      if (isToolCardTest || isSchematicWizardTest || isSchematicDenyTest || isMultiToolStreamPersist || isApprovalStreamPersist) {
+      if (isToolCardTest || isSchematicWizardTest || isSchematicDenyTest || isMultiToolStreamPersist || isApprovalStreamPersist || isReasoningSplit || isMultiTurnTools) {
         for (const te of toolEvents) s.nativeToolEvents.push(te);
       }
       return {
