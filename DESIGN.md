@@ -144,6 +144,17 @@ components:
     textColor: "{colors.on-surface}"
     padding: "2px 6px"
     rounded: "{rounded.none}"
+  option-list:
+    border: "1px solid {colors.outline}"
+    rounded: "{rounded.none}"
+  option-list-item:
+    textColor: "{colors.on-surface-muted}"
+    padding: "4px 8px"
+    rounded: "{rounded.none}"
+  option-list-item-active:
+    textColor: "{colors.on-surface}"
+    backgroundColor: "{colors.surface-container-high}"
+    borderBottom: "2px solid {colors.cta}"
   card:
     border: "1px solid {colors.outline}"
     padding: "8px 10px"
@@ -294,6 +305,23 @@ The top bar is an orientation/action strip, not a telemetry dump. It contains
 named project utilities, project/branch/workspace context, and planning stages.
 Provider/model/effort live in the composer configuration area; raw session ids,
 inactive-plan placeholders, and duplicate model/project badges do not render.
+
+### Selection controls
+
+Native `<select>` dropdowns are banned for enumerated choices. A fixed set of
+2-6 options (permission mode, effort, plan status, engine, scheduling,
+workspace policy, decisions) renders as a **square option list**: a bordered
+button group showing every option at once, active option marked with the
+orange CTA underline and `aria-pressed`, each option carrying a `title`
+tooltip. No dropdown click cost, no OS-rounded styling, nothing hidden.
+
+- **Option list** — 2-6 fixed options. All visible, one active. Square,
+  0px radius, 1px outline border around the group.
+- **Card catalog** — models and providers only. The searchable card grid
+  (provider cards, model rows) stays the single pattern for model selection.
+- **Native `<select>`** — permitted only for long dynamic lists (runtime
+  profiles, git AI provider/model, category filters) until a dedicated
+  list-picker capability replaces them.
 
 ### Modal versus popover
 
