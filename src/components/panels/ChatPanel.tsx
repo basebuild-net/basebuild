@@ -1209,9 +1209,13 @@ export function ChatPanel({
     void sendMessage(delivery.text.trim()).then(() => consume());
   }, [delivery, consume, nativeSessionId, catalog, loading, sendMessage]);
 
-  // Auto-scroll: follow bottom whenever content grows IF the user is within
-  // ~80px of the bottom. Don't yank scroll when they've scrolled up to read
-  // earlier messages. Also covers tool events / interactions growth.
+  // Auto-scroll: follow the bottom whenever content grows IF the user was
+  // pinned to the bottom BEFORE the growth. The "was at bottom?" check MUST
+  // use the pre-growth height (`oldHeight`): measuring against the new,
+  // already-grown `scrollHeight` counts the just-added content as distance
+  // and wrongly concludes the user scrolled up — so the view stops following
+  // exactly when a new message/chunk lands. Also covers tool events /
+  // interactions / streaming deltas.
   const scrollHeightRef = useRef(0);
   useEffect(() => {
     const el = scrollRef.current;
@@ -1219,8 +1223,8 @@ export function ChatPanel({
     const newHeight = el.scrollHeight;
     const oldHeight = scrollHeightRef.current;
     scrollHeightRef.current = newHeight;
-    const distanceFromBottom = newHeight - el.scrollTop - el.clientHeight;
-    if (oldHeight === 0 || distanceFromBottom <= 80) {
+    const wasAtBottom = oldHeight - el.scrollTop - el.clientHeight <= 80;
+    if (oldHeight === 0 || wasAtBottom) {
       el.scrollTop = newHeight;
     }
   }, [nativeMessages, legacyMessages, streamText, reasoningText, streamPhase, toolEvents, interactions]);
@@ -2171,6 +2175,10 @@ export function ChatPanel({
                   continue;
                 }
                 if (ev.kind === "interaction") {
+                  // Pending questions render in the sticky dock above the
+                  // composer (always visible); only answered/cancelled ones
+                  // render inline here as conversation history.
+                  if (ev.interaction.status === "pending") continue;
                   rendered.push(
                     <QuestionCard
                       key={`intr-${ev.id}`}
@@ -2394,6 +2402,50 @@ export function ChatPanel({
           );
         })() : null}
       </div>
+      {/* Sticky approval bar — always visible above the composer whenever a
+          tool call is awaiting approval, independent of scroll position or
+          streaming state. The in-transcript card can scroll out of view when
+          the model streamed text before the tool call; this bar guarantees
+          the Allow/Deny actions are always reachable. */}
+      {nativeMode ? (() => {
+        const pending = toolEvents.filter((e) => e.status === "pending");
+        if (pending.length === 0) return null;
+        const names = pending.map((e) => e.kind.replace(/_/g, " ")).join(", ");
+        const resolveAll = (decision: "allow" | "allow_session" | "deny") =>
+          pending.forEach((e) => void handleResolveApproval(e.id, decision));
+        return (
+          <div className="chat-approval-bar" title={`Approval required: ${names}`}>
+            <span className="chat-approval-bar-label">
+              <span className="chat-approval-bar-icon" aria-hidden="true">🔐</span>
+              Approve <strong>{names}</strong>?
+            </span>
+            <div className="chat-approval-bar-actions">
+              <button className="btn btn-sm btn-primary" type="button" title="Allow this tool call once" onClick={() => resolveAll("allow")}>Allow Once</button>
+              <button className="btn btn-sm" type="button" title="Allow all calls to this tool for this session" onClick={() => resolveAll("allow_session")}>Allow Session</button>
+              <button className="btn btn-sm" type="button" title="Deny this tool call" onClick={() => resolveAll("deny")}>Deny</button>
+              <button className="btn btn-sm chat-approval-bar-auto" type="button" title="Switch to Auto mode: allow all tool calls without asking. Change back in Settings." onClick={() => void handleSetApprovalMode("auto")}>Allow All (Auto)</button>
+            </div>
+          </div>
+        );
+      })() : null}
+      {/* Pending-question dock — the active ask_user question is pinned here
+          above the composer so its options / text input / Submit / Cancel are
+          always visible, instead of scrolling out of view up in the transcript
+          (which left only the cryptic "/send to escape" banner). Answered and
+          cancelled questions fall back into the transcript as history. */}
+      {nativeMode
+        ? interactions
+            .filter((i) => i.status === "pending")
+            .map((intr) => (
+              <div className="chat-question-dock" key={`dock-${intr.id}`}>
+                <QuestionCard
+                  interaction={intr}
+                  onResolved={(resolved) => setInteractions((prev) => prev.map((i) => i.id === resolved.id ? resolved : i))}
+                  onCancelled={(id) => setInteractions((prev) => prev.map((i) => i.id === id ? { ...i, status: "cancelled" } : i))}
+                />
+              </div>
+            ))
+        : null}
       {/* Scroll-to-bottom button */}
       {isScrolledUp ? (
         <button

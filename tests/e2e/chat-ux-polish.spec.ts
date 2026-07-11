@@ -74,6 +74,30 @@ test.describe("chat UX polish: scroll-to-bottom, search, copy, thinking default,
     await expect(scrollBtn).not.toBeVisible({ timeout: 5_000 });
   });
 
+  test("view stays pinned to the newest message after a tall streamed turn", async ({ page }) => {
+    // Regression: auto-scroll measured distance-from-bottom against the
+    // already-grown scrollHeight, so it read every new message as "user
+    // scrolled up" and stopped following. When the user is at the bottom the
+    // view MUST stay with the newest content as it streams in.
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+    await selectLocalProvider(page);
+
+    await sendMessage(page, "multi-tool-stream-test");
+    await waitForCompletion(page, "All tests passed");
+    await page.waitForTimeout(500);
+
+    const messages = page.locator(".chat-messages");
+    const isScrollable = await messages.evaluate((el: HTMLElement) => el.scrollHeight > el.clientHeight);
+    test.skip(!isScrollable, "transcript did not overflow the viewport");
+
+    // The container must be at (or within a hair of) the bottom.
+    const distanceFromBottom = await messages.evaluate(
+      (el: HTMLElement) => el.scrollHeight - el.scrollTop - el.clientHeight,
+    );
+    expect(distanceFromBottom).toBeLessThanOrEqual(4);
+  });
+
   test("thinking block defaults to expanded", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);

@@ -377,21 +377,38 @@ test.describe("chat coherence: tool ordering, stop, approval, completion", () =>
     await approvalCard.getByTitle("Deny this tool call").click();
   });
 
-  test("pending approval card is inside the viewport when waiting indicator shows", async ({ page }) => {
+  test("sticky approval bar is always reachable regardless of scroll or payload size", async ({ page }) => {
+    // The real bug: with a tall streamed turn the in-transcript approval card
+    // scrolls out of view above the fold, so the user sees "waiting for
+    // approval" with no buttons. The sticky bar lives OUTSIDE the scroll
+    // container (between transcript and composer) and must always be visible
+    // and actionable, no matter how tall the conversation is.
     await openFixtureProject(page);
     await ensureChatPanel(page);
     await selectLocalProvider(page);
 
-    const longPayload = "approval-stream-test\n" + "Padding line for a very tall user message.\n".repeat(60);
+    const longPayload = "approval-stream-test\n" + "Padding line for a very tall user message.\n".repeat(80);
     await sendMessage(page, longPayload);
 
-    // Waiting indicator appears…
-    await expect(page.locator(".chat-loading-approval")).toBeVisible({ timeout: 10_000 });
+    // The sticky bar appears and is in the viewport.
+    const bar = page.locator(".chat-approval-bar");
+    await expect(bar).toBeVisible({ timeout: 10_000 });
+    await expect(bar).toBeInViewport({ timeout: 5_000 });
 
-    // …and the approval card is actually on screen (not scrolled away).
-    const approvalCard = page.locator(".tool-card-approval").first();
-    await expect(approvalCard).toBeInViewport({ timeout: 5_000 });
+    // Its Deny button is clickable and resolves the pending approval.
+    await bar.getByTitle("Deny this tool call").click();
+    await expect(bar).not.toBeVisible({ timeout: 5_000 });
+  });
 
-    await approvalCard.getByTitle("Deny this tool call").click();
+  test("sticky approval bar Allow Once resolves and dismisses", async ({ page }) => {
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+    await selectLocalProvider(page);
+
+    await sendMessage(page, "approval-stream-test");
+    const bar = page.locator(".chat-approval-bar");
+    await expect(bar).toBeVisible({ timeout: 10_000 });
+    await bar.getByTitle("Allow this tool call once").click();
+    await expect(bar).not.toBeVisible({ timeout: 5_000 });
   });
 });

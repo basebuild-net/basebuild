@@ -135,6 +135,50 @@ test.describe("Interactive elements: ask_user question card", () => {
     // The QuestionCard should also render with a text input.
     await expect(page.locator(".question-card-input")).toBeVisible();
   });
+
+  test("pending question is docked above the composer and always reachable", async ({ page }) => {
+    // Regression: the pending question card lived inline in the transcript and
+    // scrolled out of view behind streamed content, leaving only the cryptic
+    // "/send to escape" banner. It now docks above the composer, outside the
+    // scroll container, so its controls are always on screen.
+    await openFixtureProject(page);
+    const sessionId = await getNativeSessionId(page);
+
+    await injectInteraction(page, {
+      id: "test-intr-dock",
+      questions: [
+        {
+          id: "q1",
+          prompt: "Which framework?",
+          kind: "options",
+          options: [{ label: "Next.js" }, { label: "Remix" }],
+          recommended: 0,
+          allowFreeText: false,
+        },
+      ],
+      status: "pending",
+      createdAt: Math.floor(Date.now() / 1000),
+    }, sessionId);
+
+    // The pending card renders inside the dock (a sibling of the scroll
+    // container, not inside it) and is in the viewport.
+    const dockedCard = page.locator(".chat-question-dock .question-card-pending");
+    await expect(dockedCard).toBeVisible({ timeout: 5_000 });
+    await expect(dockedCard).toBeInViewport({ timeout: 5_000 });
+
+    // The dock is NOT inside the scrollable transcript.
+    const dockOutsideScroller = await page.evaluate(() => {
+      const dock = document.querySelector(".chat-question-dock");
+      const scroller = document.querySelector(".chat-messages");
+      return !!dock && !!scroller && !scroller.contains(dock);
+    });
+    expect(dockOutsideScroller).toBe(true);
+
+    // Its Submit control is clickable and resolves the question.
+    await page.locator(".question-card-option", { hasText: "Next.js" }).click();
+    await page.locator(".question-card-actions button", { hasText: "Submit" }).click();
+    await expect(page.locator(".question-card-success")).toBeVisible({ timeout: 5_000 });
+  });
 });
 
 test.describe("Planning model regression: tool → question → capture → complete", () => {

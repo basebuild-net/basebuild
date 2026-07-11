@@ -1374,7 +1374,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         : isApprovalStreamPersist
         ? [
             { id: `te-read-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "read_file", status: "success", summary: "Read 120 lines", arguments: JSON.stringify({ path: "src/main.ts" }), diff: null, decision: "approved", ruleSource: null, sequence: 1, createdAt: ts },
-            { id: `te-edit-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "edit_file", status: "pending", summary: "Edit src/main.ts", arguments: JSON.stringify({ path: "src/main.ts", old_text: "foo", new_text: "bar" }), diff: null, decision: "pending", ruleSource: null, sequence: 2, createdAt: ts },
+            { id: `te-edit-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "edit_file", status: "success", summary: "Edited src/main.ts", arguments: JSON.stringify({ path: "src/main.ts", old_text: "foo", new_text: "bar" }), diff: "-foo\n+bar\n", decision: "approved", ruleSource: null, sequence: 2, createdAt: ts },
           ]
         : isReasoningSplit
         ? [
