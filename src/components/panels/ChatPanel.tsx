@@ -246,7 +246,7 @@ function UserMessageContent({
 const toolCardExpanded = new Map<string, boolean>();
 
 function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode }: { event: NativeToolEvent; onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void; debugMode?: boolean; onSetApprovalMode?: (mode: "safe" | "balanced" | "auto") => void; }) {
-  const [expanded, setExpanded] = useState(() => toolCardExpanded.get(event.id) ?? false);
+  const [expanded, setExpanded] = useState(() => toolCardExpanded.get(event.id) ?? true);
   const toggleExpanded = useCallback(() => {
     setExpanded((prev) => {
       const next = !prev;
@@ -263,7 +263,7 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
   const isMetrics = event.kind === "request_metrics";
   const icon = isApproval ? "🔐" : isCommand ? "▶" : isEdit ? "✎" : isMetrics ? "📊" : "🔧";
   const statusClass = isRunning ? "running" : isError ? "error" : event.status === "success" || event.status === "recorded" || event.status === "allow" ? "success" : "info";
-  const showExpanded = expanded || isApproval || event.status === "running";
+  const showExpanded = expanded || isApproval;
 
   // Prefer the structured diff field from the backend; fall back to
   // parsing the summary for legacy events that predate the diff column.
@@ -1551,20 +1551,17 @@ export function ChatPanel({
   }, [agentId, projectPath, profileId]);
   // Forcefully stop the in-flight native chat turn: cancel the backend run,
   // invalidate the in-flight send so its resolution can't revive the spinner,
-  // and immediately free the composer so the user can send again.
+  // and immediately free the composer so the user can send again. Preserves
+  // the partial stream text and reasoning so the user can read what was
+  // generated before they stopped — the text clears on the next send.
   const handleStopNative = useCallback(async () => {
     if (!nativeSessionId) return;
     // Bump the generation first so the in-flight send()'s finally treats this
     // as a user stop (gen + 1) and reloads persisted partial output.
     activeSendRef.current += 1;
     setStreaming(false);
-        streamStartRef.current = null;
-        setElapsed(0);
-    setStreamText("");
-    setReasoningText("");
-    setStreamPhase("idle");
-    streamBufRef.current = "";
-    reasoningBufRef.current = "";
+    streamStartRef.current = null;
+    setElapsed(0);
     setStuck(false);
     setLoading(false);
     try {
@@ -2024,22 +2021,24 @@ export function ChatPanel({
                         kind: "tool",
                         id: te.id,
                         event: te,
-                        createdAt: ts,
-                        index: i + 0.5,
+                        createdAt: te.createdAt,
+                        index: te.sequence,
                       });
                     }
                   }
                 }
               }
-              // Live tool events (null messageId) go at the end.
+              // Live tool events (null messageId) — use their own
+              // createdAt so they sort to the correct chronological
+              // position, not the top of the conversation.
               for (const te of toolEvents) {
                 if (!te.messageId) {
                   events.push({
                     kind: "tool",
                     id: te.id,
                     event: te,
-                    createdAt: null,
-                    index: events.length,
+                    createdAt: te.createdAt,
+                    index: te.sequence,
                   });
                 }
               }
@@ -2194,25 +2193,25 @@ export function ChatPanel({
               );
             })}
 
-        {/* Live thinking with elapsed timer */}
-        {streaming && reasoningText ? (
+        {/* Thinking block — visible while streaming and after stop */}
+        {reasoningText ? (
           <div className="chat-message chat-message-assistant chat-message-reasoning" title="Live chain-of-thought from the model. Final answer follows.">
             <span className="chat-message-role">
-              Thinking…
-              <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
+              Thinking{streaming ? "…" : " (stopped)"}
+              {streaming ? <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span> : null}
             </span>
-            <pre className="chat-message-content chat-reasoning-live">{reasoningText}<span className="chat-cursor" /></pre>
+            <pre className="chat-message-content chat-reasoning-live">{reasoningText}{streaming ? <span className="chat-cursor" /> : null}</pre>
           </div>
         ) : null}
 
-        {/* Streaming assistant text with elapsed timer */}
-        {streaming && streamText ? (
+        {/* Assistant text — visible while streaming and after stop */}
+        {streamText ? (
           <div className="chat-message chat-message-assistant">
             <span className="chat-message-role">
               {selectedModel?.label ?? modelId}
-              <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
+              {streaming ? <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span> : null}
             </span>
-            <div className="chat-message-content"><MarkdownView text={streamText} /><span className="chat-cursor" /></div>
+            <div className="chat-message-content"><MarkdownView text={streamText} />{streaming ? <span className="chat-cursor" /> : null}</div>
           </div>
         ) : null}
 
