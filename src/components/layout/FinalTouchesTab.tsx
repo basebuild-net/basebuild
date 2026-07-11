@@ -8,6 +8,7 @@ import {
   type FinalTouchStep,
   type FinalTouchStepKind,
 } from "../../lib/finalTouches";
+import { OptionList, type OptionListOption } from "./OptionList";
 
 type FinalTouchesTabProps = {
   projectPath: string | null;
@@ -18,6 +19,12 @@ const STEP_KINDS: { value: FinalTouchStepKind; label: string; configLabel: strin
   { value: "validate", label: "Validate", configLabel: "Prompt" },
   { value: "commit", label: "Commit", configLabel: "Message" },
   { value: "pull_request", label: "Pull Request", configLabel: "Title" },
+];
+const STEP_KIND_OPTION_ITEMS: OptionListOption<FinalTouchStepKind>[] = [
+  { id: "shell", label: "Shell", title: "Run a shell command" },
+  { id: "validate", label: "Validate", title: "Validate with a prompt" },
+  { id: "commit", label: "Commit", title: "Create a commit" },
+  { id: "pull_request", label: "Pull Request", title: "Open a pull request" },
 ];
 
 export function FinalTouchesTab({ projectPath }: FinalTouchesTabProps) {
@@ -133,17 +140,12 @@ export function FinalTouchesTab({ projectPath }: FinalTouchesTabProps) {
 
       {/* Add new step */}
       <div className="final-touch-add">
-        <select
+        <OptionList
           value={newKind}
-          onChange={(e) => setNewKind(e.target.value as FinalTouchStepKind)}
-          title="Step kind"
-        >
-          {STEP_KINDS.map((k) => (
-            <option key={k.value} value={k.value}>
-              {k.label}
-            </option>
-          ))}
-        </select>
+          options={STEP_KIND_OPTION_ITEMS}
+          onChange={(id) => setNewKind(id)}
+          label="Step kind"
+        />
         <input
           type="text"
           placeholder="Label (e.g. Run tests)"

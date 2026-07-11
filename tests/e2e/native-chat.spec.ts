@@ -35,7 +35,7 @@ test.describe("native chat workspace", () => {
     await page.locator(".chat-provider-trigger").click();
     await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
     await page.getByTitle("Close provider and model catalog").click();
-    expect(await page.locator(".chat-effort-select").inputValue()).not.toBe("");
+    await expect(page.locator(".option-list[aria-label='Effort level'] .option-list-btn.is-active")).not.toBeEmpty();
     await expect(page.locator(".chat-provider-trigger")).toContainText("Basebuild Local");
 
     // Metrics bar should render with 0 req initially.

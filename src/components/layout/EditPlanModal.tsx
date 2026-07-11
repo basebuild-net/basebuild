@@ -3,6 +3,15 @@ import { useEscapeKey } from "../../lib/useEscapeKey";
 import { X } from "lucide-react";
 import type { NewPlan, Plan, PlanStatus } from "../../lib/plans";
 import { PLAN_STATUS_LABEL } from "../../lib/plans";
+import { OptionList, type OptionListOption } from "./OptionList";
+const STATUS_OPTION_ITEMS: OptionListOption<PlanStatus>[] = [
+  { id: "draft", label: PLAN_STATUS_LABEL.draft, title: "Plan is still being drafted" },
+  { id: "openspec", label: PLAN_STATUS_LABEL.openspec, title: "Plan is being refined in OpenSpec" },
+  { id: "ready", label: PLAN_STATUS_LABEL.ready, title: "Plan is ready to run" },
+  { id: "running", label: PLAN_STATUS_LABEL.running, title: "Plan is currently running" },
+  { id: "finished", label: PLAN_STATUS_LABEL.finished, title: "Plan has finished successfully" },
+  { id: "cancelled", label: PLAN_STATUS_LABEL.cancelled, title: "Plan was cancelled" },
+];
 
 type EditPlanModalProps = {
   plan: Plan | null;
@@ -100,14 +109,12 @@ export function EditPlanModal({ plan, open, onClose, onSave }: EditPlanModalProp
           <div className="row">
             <label className="stack-sm flex-1">
               <span className="text-sm text-muted">Status</span>
-              <select className="input" title="Plan status" value={status} onChange={(e) => setStatus(e.target.value as PlanStatus)}>
-                <option value="draft">{PLAN_STATUS_LABEL.draft}</option>
-                <option value="openspec">{PLAN_STATUS_LABEL.openspec}</option>
-                <option value="ready">{PLAN_STATUS_LABEL.ready}</option>
-                <option value="running">{PLAN_STATUS_LABEL.running}</option>
-                <option value="finished">{PLAN_STATUS_LABEL.finished}</option>
-                <option value="cancelled">{PLAN_STATUS_LABEL.cancelled}</option>
-              </select>
+              <OptionList
+                value={status}
+                options={STATUS_OPTION_ITEMS}
+                onChange={(id) => setStatus(id)}
+                label="Plan status"
+              />
             </label>
             <label className="stack-sm flex-1">
               <span className="text-sm text-muted">Priority (0–100)</span>

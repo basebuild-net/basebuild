@@ -139,12 +139,14 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
-    // The effort selector is in the composer rail as a <select>.
-    const effortSelect = page.locator(".chat-effort-select").first();
-    await expect(effortSelect).toBeVisible({ timeout: 5_000 });
+    // The effort selector is a square option list in the composer rail.
+    const effortList = page.locator(".chat-composer-header .option-list[aria-label='Effort level']").first();
+    await expect(effortList).toBeVisible({ timeout: 5_000 });
 
-    // The effort selector has a tooltip.
-    await expect(effortSelect).toHaveAttribute("title");
+    // Exactly one active option, and every option has a tooltip.
+    const activeOption = effortList.locator(".option-list-btn.is-active");
+    await expect(activeOption).toHaveCount(1);
+    await expect(activeOption).toHaveAttribute("title");
 
     expect(pageErrors).toEqual([]);
    });

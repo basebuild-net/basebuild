@@ -1743,9 +1743,15 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "set_milestone_auto_commit":
       return undefined as T;
     case "list_resolved_skills":
-      return [] as T;
-    case "read_resolved_skill":
-      return "" as T;
+      return [
+        { name: "basebuild-project-schematic", description: "Guided project schematic interview", source: "bundled", runtime: "both", path: "/skills/basebuild-project-schematic.md" },
+        { name: "basebuild-session-title", description: "Generates concise session titles", source: "bundled", runtime: "native", path: "/skills/basebuild-session-title.md" },
+        { name: "caveman", description: "Ultra-compressed communication mode", source: "user", runtime: "omp", path: "/skills/caveman.md" },
+      ] as T;
+    case "read_resolved_skill": {
+      const skillName = (args.skillName as string) ?? "";
+      return `# ${skillName}\n\nE2E stub content for ${skillName}.` as T;
+    }
     case "read_skill": {
       const skillName = (args.skillName as string) ?? "";
       const cavemanBody = "You are a caveman. Speak in short grunts.";

@@ -1199,8 +1199,6 @@ a { color: inherit; text-decoration: none; }
 .chat-loading-approval { border-left: 2px solid var(--bb-warning); padding-left: 6px; }
 .chat-loading-approval .chat-loading-spinner { animation-duration: 1.5s; }
 .chat-loading-approval .chat-loading-label { color: var(--bb-warning); }
-.chat-permission-select { font-size: 10px; padding: 2px 4px; background: var(--bb-bg); color: var(--bb-text); border: 1px solid var(--bb-border); border-radius: 0; cursor: pointer; }
-.chat-permission-select:hover { border-color: var(--bb-border-strong); }
 /* ─── Scroll-to-bottom button ─── */
 .chat-scroll-bottom-btn { position: absolute; bottom: 8px; right: 8px; z-index: 10; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--bb-surface-high); border: 1px solid var(--bb-border-strong); border-radius: 0; cursor: pointer; color: var(--bb-text); box-shadow: 0 2px 8px rgba(0,0,0,0.2); transition: background 0.08s; }
 .chat-scroll-bottom-btn:hover { background: var(--bb-bg); border-color: var(--bb-cta); }
@@ -1219,7 +1217,33 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .chat-copy-conversation-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 /* ─── Screen reader only ─── */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-.chat-permission-select:focus { outline: 1px solid var(--bb-cta); }
+/* ─── Option list (square segmented control — DESIGN.md Selection controls) ─── */
+.option-list { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--bb-border); border-radius: 0; background: var(--bb-bg); }
+.option-list-btn { font-size: 11px; padding: 4px 8px; color: var(--bb-muted); background: transparent; border: none; border-right: 1px solid var(--bb-border); border-bottom: 2px solid transparent; border-radius: 0; cursor: pointer; font-family: var(--bb-font); white-space: nowrap; }
+.option-list-btn:last-child { border-right: none; }
+.option-list-btn:hover:not(:disabled) { color: var(--bb-text); background: var(--bb-surface); }
+.option-list-btn:focus-visible { outline: 1px solid var(--bb-cta); outline-offset: -1px; }
+.option-list-btn.is-active { color: var(--bb-text); background: var(--bb-surface-high); border-bottom-color: var(--bb-cta); }
+.option-list-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.option-list-compact .option-list-btn { font-size: 10px; padding: 2px 6px; }
+/* ─── Skills tab (settings) ─── */
+.skills-list { display: flex; flex-direction: column; gap: 4px; }
+.skill-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--bb-border); background: var(--bb-surface); border-radius: 0; }
+.skill-row-name { font-family: var(--bb-mono); font-size: 11px; color: var(--bb-text); flex-shrink: 0; }
+.skill-row-desc { font-size: 11px; color: var(--bb-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-badge { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 5px; border: 1px solid var(--bb-border-strong); color: var(--bb-muted); border-radius: 0; flex-shrink: 0; }
+.skill-badge-override { color: var(--bb-warning); border-color: rgba(250, 204, 21, 0.4); }
+.skill-badge-user { color: var(--bb-info); border-color: rgba(129, 140, 248, 0.4); }
+.skill-preview-content { font-family: var(--bb-mono); font-size: 11px; white-space: pre-wrap; word-break: break-word; max-height: 60vh; overflow-y: auto; margin: 0; padding: 8px; background: var(--bb-bg); border: 1px solid var(--bb-border); color: var(--bb-text); }
+/* ─── Plan skill picker ─── */
+.skill-picker { position: relative; }
+.skill-picker-trigger { width: 100%; text-align: left; font-size: 11px; padding: 4px 8px; border: 1px solid var(--bb-border); background: var(--bb-bg); color: var(--bb-text); border-radius: 0; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.skill-picker-trigger:hover { border-color: var(--bb-border-strong); }
+.skill-picker-menu { position: absolute; top: 100%; left: 0; right: 0; z-index: 30; max-height: 200px; overflow-y: auto; border: 1px solid var(--bb-border-strong); background: var(--bb-surface-high); display: flex; flex-direction: column; }
+.skill-picker-item { text-align: left; font-size: 11px; padding: 4px 8px; background: transparent; border: none; border-bottom: 1px solid var(--bb-border); color: var(--bb-muted); border-radius: 0; cursor: pointer; font-family: var(--bb-mono); }
+.skill-picker-item:last-child { border-bottom: none; }
+.skill-picker-item:hover { color: var(--bb-text); background: var(--bb-surface); }
+.skill-picker-item.is-active { color: var(--bb-text); background: var(--bb-surface-high); border-left: 2px solid var(--bb-cta); }
 .tool-card-approval { border: 1px solid var(--bb-warning); border-left: 3px solid var(--bb-warning); background: color-mix(in srgb, var(--bb-warning) 4%, var(--bb-surface)); }
 .tool-card-approval-actions { flex-wrap: wrap; gap: 4px; padding: 6px 8px; }
 .tool-card-allow-all { color: var(--bb-warning); border-color: var(--bb-warning); }
@@ -1337,7 +1361,6 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .chat-model-trigger { flex: 1 1 120px; justify-content: flex-start; }
 .chat-trigger-kicker { flex-shrink: 0; color: var(--bb-muted); font-family: var(--bb-mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; }
 .chat-trigger-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-effort-select { flex: 0 0 82px; min-width: 82px; max-width: 82px; }
 .chat-health-dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 0; }
 .chat-health-dot.is-ok { background: var(--bb-positive, #16a34a); }
 .chat-health-dot.is-warn { background: var(--bb-warning); }
@@ -2940,8 +2963,6 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .approval-gateway-section { margin-top: 16px; border-top: 1px solid var(--bb-border); padding-top: 16px; }
 /* Requirement row compact */
 .requirement-row-compact { margin-bottom: 4px; }
-/* Select auto-width compact */
-.select-auto-compact { width: auto; font-size: 10px; padding: 2px 4px; }
 /* Ideas header label */
 .ideas-header-label { margin: 0; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--bb-muted); }
 /* Check icon opacity states */

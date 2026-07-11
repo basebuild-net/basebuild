@@ -146,10 +146,12 @@ test.describe("Chat composer (DESIGN.md §Chat composer)", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    const effortSelect = page.locator(".chat-effort-select").first();
-    if (await effortSelect.count() > 0) {
-      const title = await effortSelect.getAttribute("title");
-      expect(title, "Effort selector should have a tooltip").toBeTruthy();
+    const effortButtons = page.locator(".chat-composer-header .option-list[aria-label='Effort level'] .option-list-btn");
+    const count = await effortButtons.count();
+    expect(count, "Effort option list should render options").toBeGreaterThan(1);
+    for (let i = 0; i < count; i++) {
+      const title = await effortButtons.nth(i).getAttribute("title");
+      expect(title, `Effort option ${i} should have a tooltip`).toBeTruthy();
     }
   });
 

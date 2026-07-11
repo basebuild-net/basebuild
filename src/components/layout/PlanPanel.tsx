@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckCircle,
@@ -36,6 +36,8 @@ import { PlanQueueSection } from "./PlanQueueSection";
 import { openspecTaskProgress } from "../../lib/openspec";
 import { useOpenSpecRuntime } from "../../state/useOpenSpecRuntime";
 import { PlanImportModal } from "./PlanImportModal";
+import { OptionList, type OptionListOption } from "./OptionList";
+import { listResolvedSkills, type ResolvedSkill } from "../../lib/skillRegistry";
 
 type EffortLevel = "low" | "medium" | "high";
 
@@ -488,10 +490,23 @@ type PlanPromotionFormProps = {
   onValidationChange?: (result: ValidationResult | null) => void;
 };
 
-const EFFORT_OPTIONS: EffortLevel[] = ["low", "medium", "high"];
-const ENGINE_OPTIONS: EngineKind[] = ["openspec", "native"];
-const WORKSPACE_OPTIONS: WorkspacePolicy[] = ["isolated_worktrees", "sequential_primary"];
-const SCHEDULING_OPTIONS: SchedulingMode[] = ["safe", "yolo"];
+const ENGINE_OPTION_ITEMS: OptionListOption<EngineKind>[] = [
+  { id: "openspec", label: "openspec", title: "Use the OpenSpec planning engine" },
+  { id: "native", label: "native", title: "Use the native planning engine" },
+];
+const EFFORT_OPTION_ITEMS: OptionListOption<EffortLevel>[] = [
+  { id: "low", label: "low", title: "Low effort — smaller, faster runs" },
+  { id: "medium", label: "medium", title: "Medium effort — balanced depth and speed" },
+  { id: "high", label: "high", title: "High effort — deeper, more thorough runs" },
+];
+const WORKSPACE_OPTION_ITEMS: OptionListOption<WorkspacePolicy>[] = [
+  { id: "isolated_worktrees", label: "isolated worktrees", title: "Each run uses its own isolated worktree" },
+  { id: "sequential_primary", label: "sequential primary", title: "Run sequentially in the primary worktree" },
+];
+const SCHEDULING_OPTION_ITEMS: OptionListOption<SchedulingMode>[] = [
+  { id: "safe", label: "safe", title: "Safe scheduling — conservative dependency ordering" },
+  { id: "yolo", label: "yolo", title: "Eager scheduling — run as soon as possible" },
+];
 
 function PlanPromotionForm({
   plan,
@@ -506,6 +521,10 @@ function PlanPromotionForm({
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [reviseMessage, setReviseMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [resolvedSkills, setResolvedSkills] = useState<ResolvedSkill[]>([]);
+  const [skillsFailed, setSkillsFailed] = useState(false);
+  const [skillMenuOpen, setSkillMenuOpen] = useState(false);
+  const skillPickerRef = useRef<HTMLDivElement | null>(null);
   const runtime = useOpenSpecRuntime(projectPath);
   const runtimeReady = runtime.status?.state === "ready";
 
@@ -516,6 +535,36 @@ function PlanPromotionForm({
   useEffect(() => {
     onValidationChange?.(validation);
   }, [validation, onValidationChange]);
+
+  useEffect(() => {
+    let cancelled = false;
+    listResolvedSkills()
+      .then((skills) => {
+        if (cancelled) return;
+        if (skills.length === 0) {
+          setSkillsFailed(true);
+        } else {
+          setResolvedSkills(skills);
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSkillsFailed(true);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!skillMenuOpen) return;
+    function handleDocumentClick(e: MouseEvent) {
+      if (!skillPickerRef.current) return;
+      if (!skillPickerRef.current.contains(e.target as Node)) {
+        setSkillMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleDocumentClick);
+    return () => document.removeEventListener("mousedown", handleDocumentClick);
+  }, [skillMenuOpen]);
 
   const runValidation = useCallback(async () => {
     setLoading(true);
@@ -593,16 +642,12 @@ function PlanPromotionForm({
       <div className="plan-promotion-fields">
         <label className="plan-promotion-field" title="Engine">
           <span className="plan-promotion-label">Engine</span>
-          <select
-            className="input plan-promotion-input"
-            title="Engine"
+          <OptionList
             value={form.engine}
-            onChange={(e) => setForm((prev) => ({ ...prev, engine: e.target.value as EngineKind }))}
-          >
-            {ENGINE_OPTIONS.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
+            options={ENGINE_OPTION_ITEMS}
+            onChange={(id) => setForm((prev) => ({ ...prev, engine: id }))}
+            label="Engine"
+          />
         </label>
         <label className="plan-promotion-field" title="Provider">
           <span className="plan-promotion-label">Provider</span>
@@ -628,27 +673,65 @@ function PlanPromotionForm({
         </label>
         <label className="plan-promotion-field" title="Effort">
           <span className="plan-promotion-label">Effort</span>
-          <select
-            className="input plan-promotion-input"
-            title="Effort"
+          <OptionList
             value={form.effortLevel}
-            onChange={(e) => setForm((prev) => ({ ...prev, effortLevel: e.target.value as EffortLevel }))}
-          >
-            {EFFORT_OPTIONS.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
+            options={EFFORT_OPTION_ITEMS}
+            onChange={(id) => setForm((prev) => ({ ...prev, effortLevel: id }))}
+            label="Effort"
+          />
         </label>
         <label className="plan-promotion-field" title="Skill">
           <span className="plan-promotion-label">Skill</span>
-          <input
-            className="input plan-promotion-input"
-            type="text"
-            title="Skill"
-            placeholder="Skill"
-            value={form.skillId}
-            onChange={(e) => setForm((prev) => ({ ...prev, skillId: e.target.value }))}
-          />
+          {skillsFailed ? (
+            <input
+              className="input plan-promotion-input"
+              type="text"
+              title="Skill"
+              placeholder="Skill"
+              value={form.skillId}
+              onChange={(e) => setForm((prev) => ({ ...prev, skillId: e.target.value }))}
+            />
+          ) : (
+            <div className="skill-picker" ref={skillPickerRef}>
+              <button
+                className="skill-picker-trigger"
+                type="button"
+                title={form.skillId ? `Selected skill: ${form.skillId}` : "No skill selected"}
+                onClick={() => setSkillMenuOpen((v) => !v)}
+              >
+                {form.skillId || "No skill"}
+              </button>
+              {skillMenuOpen ? (
+                <div className="skill-picker-menu">
+                  <button
+                    className={`skill-picker-item${form.skillId === "" ? " is-active" : ""}`}
+                    type="button"
+                    title="No skill"
+                    onClick={() => {
+                      setForm((prev) => ({ ...prev, skillId: "" }));
+                      setSkillMenuOpen(false);
+                    }}
+                  >
+                    No skill
+                  </button>
+                  {resolvedSkills.map((skill) => (
+                    <button
+                      key={skill.name}
+                      className={`skill-picker-item${form.skillId === skill.name ? " is-active" : ""}`}
+                      type="button"
+                      title={skill.description}
+                      onClick={() => {
+                        setForm((prev) => ({ ...prev, skillId: skill.name }));
+                        setSkillMenuOpen(false);
+                      }}
+                    >
+                      {skill.name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          )}
         </label>
         <label className="plan-promotion-field" title="Workers">
           <span className="plan-promotion-label">Workers</span>
@@ -664,29 +747,21 @@ function PlanPromotionForm({
         </label>
         <label className="plan-promotion-field" title="Workspace policy">
           <span className="plan-promotion-label">Workspace</span>
-          <select
-            className="input plan-promotion-input"
-            title="Workspace policy"
+          <OptionList
             value={form.workspacePolicy}
-            onChange={(e) => setForm((prev) => ({ ...prev, workspacePolicy: e.target.value as WorkspacePolicy }))}
-          >
-            {WORKSPACE_OPTIONS.map((opt) => (
-              <option key={opt} value={opt}>{opt.replace(/_/g, " ")}</option>
-            ))}
-          </select>
+            options={WORKSPACE_OPTION_ITEMS}
+            onChange={(id) => setForm((prev) => ({ ...prev, workspacePolicy: id }))}
+            label="Workspace policy"
+          />
         </label>
         <label className="plan-promotion-field" title="Scheduling mode">
           <span className="plan-promotion-label">Scheduling</span>
-          <select
-            className="input plan-promotion-input"
-            title="Scheduling mode"
+          <OptionList
             value={form.schedulingMode}
-            onChange={(e) => setForm((prev) => ({ ...prev, schedulingMode: e.target.value as SchedulingMode }))}
-          >
-            {SCHEDULING_OPTIONS.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
+            options={SCHEDULING_OPTION_ITEMS}
+            onChange={(id) => setForm((prev) => ({ ...prev, schedulingMode: id }))}
+            label="Scheduling mode"
+          />
         </label>
       </div>
       {validation ? (

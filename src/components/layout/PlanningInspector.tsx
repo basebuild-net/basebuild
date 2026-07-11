@@ -15,6 +15,7 @@ import { MissionControlBoard } from "./MissionControlBoard";
 import type { PlanRun, FinishOutcome } from "../../lib/planRuns";
 import { useIdeaState } from "../../state/ideas";
 import type { IdeaCategory, IdeaStatus } from "../../lib/ideas";
+import { OptionList, type OptionListOption } from "./OptionList";
 import { useProjectSchematic } from "../../state/schematic";
 import { useLogs } from "../../state/log";
 import { subscribeGrounding, getLastGrounding } from "../../state/grounding";
@@ -47,6 +48,24 @@ const FINISH_POLICY_LABELS: Record<FinishPolicy, string> = {
   auto_commit_pr: "Auto-commit + PR",
   queue_merge_review: "Queue merge review",
 };
+const ENGINE_OPTION_ITEMS: OptionListOption<EngineKind>[] = [
+  { id: "openspec", label: "OpenSpec", title: "Use the OpenSpec planning engine" },
+  { id: "native", label: "Native", title: "Use the native planning engine" },
+];
+const WORKSPACE_OPTION_ITEMS: OptionListOption<WorkspacePolicy>[] = [
+  { id: "isolated_worktrees", label: "Isolated worktrees", title: "Each run uses its own isolated worktree" },
+  { id: "sequential_primary", label: "Sequential primary", title: "Run sequentially in the primary worktree" },
+];
+const SCHEDULING_OPTION_ITEMS: OptionListOption<SchedulingMode>[] = [
+  { id: "safe", label: "Safe", title: "Safe scheduling — conservative dependency ordering" },
+  { id: "yolo", label: "Yolo", title: "Eager scheduling — run as soon as possible" },
+];
+const FINISH_OPTION_ITEMS: OptionListOption<FinishPolicy>[] = [
+  { id: "hold", label: "Hold for review", title: "Hold finished runs for manual review" },
+  { id: "auto_commit", label: "Auto-commit", title: "Automatically commit changes when a run finishes" },
+  { id: "auto_commit_pr", label: "Auto-commit + PR", title: "Commit changes and open a pull request" },
+  { id: "queue_merge_review", label: "Queue merge review", title: "Queue the result for merge review" },
+];
 
 type PlanningInspectorProps = {
   sessionId: string | null;
@@ -1242,49 +1261,39 @@ export function PlanningInspector({
               </label>
               <label className="launch-profile-field" title="Workspace isolation policy for launched runs">
                 <span>Workspace</span>
-                <select
+                <OptionList
                   value={launchForm.workspacePolicy}
-                  onChange={(e) => setLaunchForm((prev) => ({ ...prev, workspacePolicy: e.target.value as WorkspacePolicy }))}
-                  title="Workspace policy"
-                >
-                  <option value="isolated_worktrees">Isolated worktrees</option>
-                  <option value="sequential_primary">Sequential primary</option>
-                </select>
+                  options={WORKSPACE_OPTION_ITEMS}
+                  onChange={(id) => setLaunchForm((prev) => ({ ...prev, workspacePolicy: id }))}
+                  label="Workspace policy"
+                />
               </label>
               <label className="launch-profile-field" title="Scheduling safety mode">
                 <span>Scheduling</span>
-                <select
+                <OptionList
                   value={launchForm.schedulingMode}
-                  onChange={(e) => setLaunchForm((prev) => ({ ...prev, schedulingMode: e.target.value as SchedulingMode }))}
-                  title="Scheduling mode"
-                >
-                  <option value="safe">Safe</option>
-                  <option value="yolo">Yolo</option>
-                </select>
+                  options={SCHEDULING_OPTION_ITEMS}
+                  onChange={(id) => setLaunchForm((prev) => ({ ...prev, schedulingMode: id }))}
+                  label="Scheduling mode"
+                />
               </label>
               <label className="launch-profile-field" title="Execution engine for launched plans">
                 <span>Engine</span>
-                <select
+                <OptionList
                   value={launchForm.engine}
-                  onChange={(e) => setLaunchForm((prev) => ({ ...prev, engine: e.target.value as EngineKind }))}
-                  title="Engine kind"
-                >
-                  <option value="openspec">OpenSpec</option>
-                  <option value="native">Native</option>
-                </select>
+                  options={ENGINE_OPTION_ITEMS}
+                  onChange={(id) => setLaunchForm((prev) => ({ ...prev, engine: id }))}
+                  label="Engine kind"
+                />
               </label>
               <label className="launch-profile-field" title="What happens when a plan run finishes — hold for manual review, auto-commit to the worktree, commit + push a PR, or queue for merge review">
                 <span>On finish</span>
-                <select
+                <OptionList
                   value={launchForm.finishPolicy}
-                  onChange={(e) => setLaunchForm((prev) => ({ ...prev, finishPolicy: e.target.value as FinishPolicy }))}
-                  title="Finish policy"
-                >
-                  <option value="hold">Hold for review</option>
-                  <option value="auto_commit">Auto-commit</option>
-                  <option value="auto_commit_pr">Auto-commit + PR</option>
-                  <option value="queue_merge_review">Queue merge review</option>
-                </select>
+                  options={FINISH_OPTION_ITEMS}
+                  onChange={(id) => setLaunchForm((prev) => ({ ...prev, finishPolicy: id }))}
+                  label="Finish policy"
+                />
               </label>
             </div>
             <div className="launch-profile-confirm-actions">

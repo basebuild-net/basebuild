@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { Check, ChevronRight, Sparkles, TerminalSquare, X } from "lucide-react";
 import { listRuntimeProfiles, getRuntimeDefaults, setRuntimeDefaults, type RuntimeProfile, type RuntimeDefaults } from "../../lib/settings";
+import { RuntimeDefaultsFields } from "./RuntimeDefaultsFields";
 import { getAnalyticsConsent, setAnalyticsConsent, type AnalyticsConsent } from "../../lib/analytics";
 
 type FirstRunModalProps = {
@@ -91,19 +92,12 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
             <>
               <h3>Choose your chat adapter</h3>
               <p className="text-muted text-sm">OMP is the default. Future adapters (Basebuild CLI, others) will appear here.</p>
-              <label className="stack-sm">
-                <span className="text-sm text-muted">Default chat adapter</span>
-                <select
-                  className="input"
-                  title="Select your default chat adapter"
-                  value={defaults.defaultChatProfileId ?? ""}
-                  onChange={(e) => setDefaults({ ...defaults, defaultChatProfileId: e.target.value || null })}
-                >
-                  {chatProfiles.map((p) => (
-                    <option key={p.id} value={p.id}>{p.label}</option>
-                  ))}
-                </select>
-              </label>
+              <RuntimeDefaultsFields
+                defaults={defaults}
+                chatProfiles={chatProfiles}
+                terminalProfiles={terminalProfiles}
+                onChange={(d) => setDefaults(d)}
+              />
               <div className="row">
                 <button className="btn" type="button" title="Go back" onClick={() => setStep("welcome")}>Back</button>
                 <button className="btn btn-primary" type="button" title="Continue to terminal setup" onClick={() => void saveDefaultsAndAdvance(defaults, "terminal")}>
@@ -116,19 +110,12 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
           {step === "terminal" && defaults ? (
             <>
               <h3>Choose your terminal</h3>
-              <label className="stack-sm">
-                <span className="text-sm text-muted">Default terminal</span>
-                <select
-                  className="input"
-                  title="Select your default terminal"
-                  value={defaults.defaultTerminalProfileId ?? ""}
-                  onChange={(e) => setDefaults({ ...defaults, defaultTerminalProfileId: e.target.value || null })}
-                >
-                  {terminalProfiles.map((p) => (
-                    <option key={p.id} value={p.id}>{p.label}</option>
-                  ))}
-                </select>
-              </label>
+              <RuntimeDefaultsFields
+                defaults={defaults}
+                chatProfiles={chatProfiles}
+                terminalProfiles={terminalProfiles}
+                onChange={(d) => setDefaults(d)}
+              />
               <div className="row">
                 <button className="btn" type="button" title="Go back" onClick={() => setStep("adapter")}>Back</button>
                 <button className="btn btn-primary" type="button" title="Continue to privacy setup" onClick={() => void saveDefaultsAndAdvance(defaults, "privacy")}>

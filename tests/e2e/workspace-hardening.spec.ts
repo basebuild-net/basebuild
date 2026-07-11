@@ -125,13 +125,13 @@ test.describe("Workspace lifecycle hardening", () => {
 
     // Verify the launch profile form shows hold as the finish policy.
     const modal = await openFlowTab(page);
-    const finishSelect = modal.locator("select[title='Finish policy']").first();
-    await expect(finishSelect).toHaveValue("hold");
+    const finishList = modal.locator(".option-list[aria-label='Finish policy']").first();
+    await expect(finishList.locator(".option-list-btn.is-active")).toHaveText("Hold for review");
 
     await page.waitForTimeout(1000);
-    // The workspace select should show "Sequential primary".
-    const workspaceSelect = modal.locator("select[title='Workspace policy']").first();
-    await expect(workspaceSelect).toHaveValue("sequential_primary");
+    // The workspace option list should show "Sequential primary" active.
+    const workspaceList = modal.locator(".option-list[aria-label='Workspace policy']").first();
+    await expect(workspaceList.locator(".option-list-btn.is-active")).toHaveText("Sequential primary");
   });
 
   test("prune confirmations: cleanup merged requires explicit button click", async ({ page }) => {

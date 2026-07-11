@@ -68,15 +68,15 @@ test.describe("Finish policy", () => {
     const modal = await openPlansModal(page);
     // Navigate to Flow tab where the launch profile form lives.
     await modal.locator(".inspector-tab", { hasText: "Flow" }).click();
-    // Set the finish policy to auto_commit via the selector.
-    const finishSelect = modal.locator("select[title='Finish policy']").first();
-    await finishSelect.selectOption("auto_commit");
+    // Set the finish policy to auto_commit via the option list.
+    const finishList = modal.locator(".option-list[aria-label='Finish policy']").first();
+    await finishList.getByRole("button", { name: "Auto-commit", exact: true }).click();
     // Save the profile.
     await modal.getByTitle("Save launch profile for this project").click();
     await expect(modal.locator(".toast", { hasText: "saved" })).toBeVisible({ timeout: 5_000 }).catch(() => {
-      // Toast may be ephemeral; check the selector retained the value.
+      // Toast may be ephemeral; check the option list retained the value.
     });
-    await expect(finishSelect).toHaveValue("auto_commit");
+    await expect(finishList.getByRole("button", { name: "Auto-commit", exact: true })).toHaveAttribute("aria-pressed", "true");
   });
 
   test("auto_commit policy shows commit SHA in completion card", async ({ page }) => {

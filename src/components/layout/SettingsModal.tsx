@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Lock, LogOut, Plug, RefreshCw, Settings2, Shield, Trash2, Unplug, User, Wrench, X } from "lucide-react";
+import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Lock, LogOut, Plug, RefreshCw, Settings2, Shield, Sparkles, Trash2, Unplug, User, Wrench, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { CopyButton } from "./CopyButton";
 import { FinalTouchesTab } from "./FinalTouchesTab";
 import { OpenSpecSettingsTab } from "./OpenSpecSettingsTab";
 import { PlanningTab } from "./PlanningTab";
+import { OptionList } from "./OptionList";
+import { RuntimeDefaultsFields } from "./RuntimeDefaultsFields";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
 import { appVersion } from "../../lib/app";
 import type { UpdaterState } from "../../state/updater";
@@ -49,6 +51,7 @@ import {
   notificationGetSettings,
   notificationSetSettings,
   type NotificationSettings as NotificationSettingsType,
+  type NotificationDelivery,
 } from "../../lib/notifications";
  import {
   getAnalyticsConsent,
@@ -77,6 +80,7 @@ import {
   type RunConcurrencyEntry,
 } from "../../lib/runConcurrency";
 import { useEscapeKey } from "../../lib/useEscapeKey";
+import { listResolvedSkills, readResolvedSkill, type ResolvedSkill } from "../../lib/skillRegistry";
 
 type SettingsModalProps = {
   open: boolean;
@@ -86,7 +90,7 @@ type SettingsModalProps = {
   updates: UpdaterState;
 };
 
-type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "mcp" | "planning" | "openspec" | "final_touches" | "concurrency" | "notifications" | "about";
+type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "mcp" | "planning" | "openspec" | "final_touches" | "concurrency" | "notifications" | "skills" | "about";
 
 export function SettingsModal({ open, onClose, projectPath, account, updates }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
@@ -289,6 +293,8 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
     { id: "final_touches", label: "Final Touches", icon: Settings2 },
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "concurrency", label: "Concurrency", icon: Settings2 },
+    { id: "skills", label: "Skills", icon: Sparkles },
+    { id: "about", label: "About", icon: Globe },
   ];
 
   const updateChecking = updates.status === "checking";
@@ -435,24 +441,13 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
 
                 {defaults ? (
                   <>
-                    <label className="stack-sm">
-                      <span className="text-sm text-muted">Default chat adapter</span>
-                      <select
-                        className="input"
-                        title="Select default chat adapter"
-                        value={defaults.defaultChatProfileId ?? ""}
-                        onChange={(e) => void saveDefaults({ ...defaults, defaultChatProfileId: e.target.value || null })}
-                      >
-                        {chatProfiles.map((p) => {
-                          const v = profileValidations[p.id];
-                          return (
-                            <option key={p.id} value={p.id}>
-                              {p.label}{v && !v.valid ? " (unavailable)" : ""}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </label>
+                    <RuntimeDefaultsFields
+                      defaults={defaults}
+                      chatProfiles={chatProfiles}
+                      terminalProfiles={terminalProfiles}
+                      profileValidations={profileValidations}
+                      onChange={(d) => void saveDefaults(d)}
+                    />
 
                     {defaults.defaultChatProfileId &&
                     profileValidations[defaults.defaultChatProfileId] &&
@@ -468,20 +463,6 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                         </div>
                       </div>
                     ) : null}
-
-                    <label className="stack-sm">
-                      <span className="text-sm text-muted">Default terminal</span>
-                      <select
-                        className="input"
-                        title="Select default terminal"
-                        value={defaults.defaultTerminalProfileId ?? ""}
-                        onChange={(e) => void saveDefaults({ ...defaults, defaultTerminalProfileId: e.target.value || null })}
-                      >
-                        {terminalProfiles.map((p) => (
-                          <option key={p.id} value={p.id}>{p.label}</option>
-                        ))}
-                      </select>
-                    </label>
 
                     <label className="stack-sm">
                       <span className="text-sm text-muted">Default model (optional)</span>
@@ -701,16 +682,17 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                           title="Only apply to commands starting with this prefix"
                           onChange={(e) => setNewRulePrefix(e.target.value)}
                         />
-                        <select
-                          className="input input-w-100"
+                        <OptionList
+                          label="Decision for this rule"
                           value={newRuleDecision}
-                          title="Decision for this rule"
-                          onChange={(e) => setNewRuleDecision(e.target.value as PermissionDecision)}
-                        >
-                          <option value="ask">Ask</option>
-                          <option value="allow">Allow</option>
-                          <option value="deny">Deny</option>
-                        </select>
+                          compact
+                          onChange={setNewRuleDecision}
+                          options={[
+                            { id: "ask", label: "Ask", title: "Ask before each action" },
+                            { id: "allow", label: "Allow", title: "Allow automatically" },
+                            { id: "deny", label: "Deny", title: "Deny automatically" },
+                          ]}
+                        />
                         <button
                           className="btn btn-sm btn-primary"
                           type="button"
@@ -961,6 +943,11 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
               <ConcurrencyTab projectPath={projectPath} />
             ) : null}
 
+            {/* ─── Skills ─── */}
+            {tab === "skills" ? (
+              <SkillsTab />
+            ) : null}
+
             {/* ─── About ─── */}
             {tab === "about" ? (
               <div className="stack">
@@ -1004,18 +991,19 @@ function PermissionSelect({ label, title, value, onChange }: {
   onChange: (v: PermissionDecision) => void;
 }) {
   return (
-    <label className="stack-sm mb-8">
+    <label className="stack-sm mb-8" title={title}>
       <span className="text-sm text-muted">{label}</span>
-      <select
-        className="input"
-        title={title}
+      <OptionList
+        label={label}
         value={value}
-        onChange={(e) => onChange(e.target.value as PermissionDecision)}
-      >
-        <option value="ask">Ask before each action</option>
-        <option value="allow">Allow automatically</option>
-        <option value="deny">Deny automatically</option>
-      </select>
+        compact
+        onChange={onChange}
+        options={[
+          { id: "ask", label: "Ask before each action", title: "Ask before each action" },
+          { id: "allow", label: "Allow automatically", title: "Allow automatically" },
+          { id: "deny", label: "Deny automatically", title: "Deny automatically" },
+        ]}
+      />
     </label>
   );
 }
@@ -1684,7 +1672,7 @@ function ConcurrencyTab({ projectPath }: { projectPath: string | null }) {
   );
 }
 
-const NOTIFICATION_KIND_LABELS: { kind: string; label: string; defaultDelivery: string }[] = [
+const NOTIFICATION_KIND_LABELS: { kind: string; label: string; defaultDelivery: NotificationDelivery }[] = [
   { kind: "run_finished", label: "Run finished", defaultDelivery: "toast_and_center" },
   { kind: "run_failed", label: "Run failed", defaultDelivery: "toast_and_center" },
   { kind: "run_started", label: "Run started", defaultDelivery: "toast_and_center" },
@@ -1695,7 +1683,6 @@ const NOTIFICATION_KIND_LABELS: { kind: string; label: string; defaultDelivery: 
   { kind: "schematic_drift_suspected", label: "Schematic drift", defaultDelivery: "toast_and_center" },
   { kind: "stage_succeeded", label: "Stage succeeded", defaultDelivery: "toast_and_center" },
   { kind: "stage_failed", label: "Stage failed", defaultDelivery: "toast_and_center" },
-  { kind: "idea_captured", label: "Idea captured", defaultDelivery: "center_only" },
   { kind: "idea_status_changed", label: "Idea status changed", defaultDelivery: "center_only" },
   { kind: "category_created", label: "Category created", defaultDelivery: "center_only" },
   { kind: "schematic_updated", label: "Schematic updated", defaultDelivery: "center_only" },
@@ -1703,10 +1690,10 @@ const NOTIFICATION_KIND_LABELS: { kind: string; label: string; defaultDelivery: 
   { kind: "stage_cancelled", label: "Stage cancelled", defaultDelivery: "center_only" },
 ];
 
-const DELIVERY_LABELS: { value: string; label: string }[] = [
-  { value: "toast_and_center", label: "Toast + Center" },
-  { value: "center_only", label: "Center only" },
-  { value: "off", label: "Off" },
+const DELIVERY_LABELS: { id: NotificationDelivery; label: string; title: string }[] = [
+  { id: "toast_and_center", label: "Toast + Center", title: "Toast + Center" },
+  { id: "center_only", label: "Center only", title: "Center only" },
+  { id: "off", label: "Off", title: "Off" },
 ];
 
 function NotificationsTab() {
@@ -1717,10 +1704,9 @@ function NotificationsTab() {
     void notificationGetSettings().then(setSettings).catch(() => {});
   }, []);
 
-  const effective = (kind: string, defaultDelivery: string): string =>
-    settings?.overrides[kind] ?? defaultDelivery;
-
-  const save = useCallback(async (kind: string, delivery: string, defaultDelivery: string) => {
+  const effective = (kind: string, defaultDelivery: NotificationDelivery): NotificationDelivery =>
+    (settings?.overrides[kind] as NotificationDelivery | undefined) ?? defaultDelivery;
+  const save = useCallback(async (kind: string, delivery: NotificationDelivery, defaultDelivery: NotificationDelivery) => {
     if (!settings) return;
     setSaving(kind);
     try {
@@ -1754,20 +1740,124 @@ function NotificationsTab() {
         {NOTIFICATION_KIND_LABELS.map(({ kind, label, defaultDelivery }) => (
           <div key={kind} className="settings-row">
             <span className="settings-label" title={`Default: ${defaultDelivery}`}>{label}</span>
-            <select
-              className="select"
-              title={`Delivery for ${label}`}
+            <OptionList
+              label={`Delivery for ${label}`}
               value={effective(kind, defaultDelivery)}
+              compact
               disabled={saving === kind}
-              onChange={(e) => void save(kind, e.target.value, defaultDelivery)}
-            >
-              {DELIVERY_LABELS.map((d) => (
-                <option key={d.value} value={d.value}>{d.label}</option>
-              ))}
-            </select>
+              onChange={(v) => void save(kind, v, defaultDelivery)}
+              options={DELIVERY_LABELS}
+            />
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function SkillsTab() {
+  const [skills, setSkills] = useState<ResolvedSkill[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [previewSkill, setPreviewSkill] = useState<ResolvedSkill | null>(null);
+  const [previewContent, setPreviewContent] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const list = await listResolvedSkills();
+        setSkills(list);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to load skills");
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!previewSkill) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setPreviewSkill(null);
+      }
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [previewSkill]);
+
+  async function openPreview(skill: ResolvedSkill) {
+    setPreviewSkill(skill);
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setPreviewContent(null);
+    try {
+      const content = await readResolvedSkill(skill.name);
+      setPreviewContent(content);
+    } catch (e) {
+      setPreviewError(e instanceof Error ? e.message : "Failed to load skill content");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  return (
+    <div className="stack">
+      <h3>Skills</h3>
+      <p className="text-muted text-sm">Resolved skills available to the agent loop.</p>
+      {error ? (
+        <p className="text-danger text-sm">{error}</p>
+      ) : skills === null ? (
+        <p className="text-muted text-sm">Loading skills…</p>
+      ) : skills.length === 0 ? (
+        <p className="text-muted text-sm">No skills resolved. Bundled skills provision on first run.</p>
+      ) : (
+        <div className="skills-list">
+          {skills.map((skill) => (
+            <div key={skill.name} className="skill-row">
+              <div className="skill-row-name" title={skill.path}>{skill.name}</div>
+              <div className="skill-row-desc">{skill.description}</div>
+              <span className={`skill-badge skill-badge-${skill.source}`}>{skill.source}</span>
+              <span className="skill-badge">{skill.runtime}</span>
+              <button
+                className="btn btn-sm"
+                type="button"
+                title="Preview skill content"
+                onClick={() => void openPreview(skill)}
+              >
+                View
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {previewSkill ? (
+        <div className="modal-overlay" onClick={() => setPreviewSkill(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{previewSkill.name}</h3>
+              <button
+                className="btn-icon"
+                type="button"
+                title="Close preview"
+                onClick={() => setPreviewSkill(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="modal-body">
+              {previewLoading ? (
+                <p className="text-muted text-sm">Loading…</p>
+              ) : previewError ? (
+                <p className="text-danger text-sm">{previewError}</p>
+              ) : (
+                <pre className="skill-preview-content">{previewContent ?? ""}</pre>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

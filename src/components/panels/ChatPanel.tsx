@@ -22,6 +22,7 @@ import { ChatHeader } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
 import { QuestionCard } from "./QuestionCard";
 import { MarkdownView } from "./MarkdownView";
+import { OptionList } from "../layout/OptionList";
 import {
   AlertCircle,
   BarChart3,
@@ -3150,16 +3151,17 @@ export function ChatPanel({
           )}
         </div>
         <div className="chat-input-controls">
-          <select
-            className="chat-permission-select"
-            title={`Permission mode: ${approvalMode === "auto" ? "Auto — all tools allowed without asking" : approvalMode === "safe" ? "Safe — always ask before any tool" : "Balanced — read-only tools auto-allowed, mutating tools ask"}. Change to control how the agent handles tool calls.`}
+          <OptionList<ApprovalMode>
             value={approvalMode}
-            onChange={(e) => void handleSetApprovalMode(e.target.value as ApprovalMode)}
-          >
-            <option value="balanced" title="Read-only tools auto-allowed; writes and commands prompt">Balanced</option>
-            <option value="safe" title="Every tool call prompts the user">Always Ask</option>
-            <option value="auto" title="No prompts; everything auto-allowed within workspace">Run Everything</option>
-          </select>
+            onChange={(mode) => void handleSetApprovalMode(mode)}
+            label="Permission mode"
+            compact
+            options={[
+              { id: "balanced", label: "Balanced", title: "Balanced — read-only tools auto-allowed, mutating tools ask" },
+              { id: "safe", label: "Always Ask", title: "Safe — every tool call prompts the user" },
+              { id: "auto", label: "Run Everything", title: "Auto — no prompts; everything auto-allowed within workspace" },
+            ]}
+          />
           <button
             type="button"
             className={`btn btn-sm chat-debug-toggle ${debugMode ? "chat-debug-toggle-on" : ""}`}
