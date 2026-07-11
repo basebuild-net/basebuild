@@ -320,4 +320,34 @@ test.describe("buildChatTimeline: chronological ordering", () => {
     const events = buildChatTimeline(msgs, [], []);
     expect(ids(events)).toEqual(["u1", "a1", "u2", "a2", "u3", "a3"]);
   });
+
+  test("live pending approval in the same second as the user message sorts after it", () => {
+    // Regression: the optimistic user message and a fast approval request
+    // both get second-granularity createdAt. On the tie, the live event's
+    // old index (= sequence 1) sorted BEFORE the user message (array index
+    // 1+), pushing the approval card above a potentially huge injected
+    // payload (schematic wizard) and off-screen.
+    const msgs = [
+      makeMessage({ role: "user", content: "old turn", id: "u0", createdAt: 900 }),
+      makeMessage({ role: "assistant", content: "old resp", id: "a0", createdAt: 950 }),
+      makeMessage({ role: "user", content: "<command>huge schematic skill payload</command>", id: "temp-1", createdAt: 1000 }),
+    ];
+    const tools = [
+      makeToolEvent({ id: "call-run", kind: "run_command", status: "pending", messageId: null, createdAt: 1000, sequence: 1 }),
+    ];
+    const events = buildChatTimeline(msgs, tools, []);
+    expect(ids(events)).toEqual(["u0", "a0", "temp-1", "call-run"]);
+  });
+
+  test("multiple live tool events on a same-second tie keep sequence order after the message", () => {
+    const msgs = [
+      makeMessage({ role: "user", content: "go", id: "u1", createdAt: 1000 }),
+    ];
+    const tools = [
+      makeToolEvent({ id: "t1", kind: "read_file", messageId: null, createdAt: 1000, sequence: 1 }),
+      makeToolEvent({ id: "t2", kind: "run_command", status: "pending", messageId: null, createdAt: 1000, sequence: 2 }),
+    ];
+    const events = buildChatTimeline(msgs, tools, []);
+    expect(ids(events)).toEqual(["u1", "t1", "t2"]);
+  });
 });

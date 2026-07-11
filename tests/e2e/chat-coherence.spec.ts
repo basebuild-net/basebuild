@@ -338,4 +338,60 @@ test.describe("chat coherence: tool ordering, stop, approval, completion", () =>
 
     await attachScreenshot(page, "multi-turn-no-interleave.png");
   });
+
+  test("pending approval card renders AFTER the user message that triggered it", async ({ page }) => {
+    // Regression: the optimistic user message and the live pending approval
+    // get the same second-granularity createdAt; the old index tiebreak
+    // sorted the approval card ABOVE the user message. With a huge injected
+    // payload (schematic wizard) the card ended up off-screen — the user saw
+    // "Waiting for approval" with no buttons anywhere.
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+    await selectLocalProvider(page);
+
+    // Long payload simulates the schematic wizard's injected skill body.
+    const longPayload = "approval-stream-test\n" + "This line pads the injected command payload.\n".repeat(60);
+    await sendMessage(page, longPayload);
+
+    // The pending approval card must appear with actionable buttons.
+    const approvalCard = page.locator(".tool-card-approval").first();
+    await expect(approvalCard).toBeVisible({ timeout: 10_000 });
+    await expect(approvalCard.getByTitle("Allow this tool call once")).toBeVisible();
+    await expect(approvalCard.getByTitle("Deny this tool call")).toBeVisible();
+
+    // DOM order: the approval card must come AFTER the user message that
+    // triggered it. (The MVP fixture pre-seeds a far-future "Start MVP
+    // baseline" user message that intentionally sorts last — compare against
+    // the triggering message, not the last user row.)
+    const order = await page.evaluate(() => {
+      const userMsgs = Array.from(document.querySelectorAll(".chat-message-user"));
+      const trigger = userMsgs.find((el) => el.textContent?.includes("approval-stream-test"));
+      const card = document.querySelector(".tool-card-approval");
+      if (!card || !trigger) return "missing";
+      const pos = trigger.compareDocumentPosition(card);
+      return pos & Node.DOCUMENT_POSITION_FOLLOWING ? "after" : "before";
+    });
+    expect(order).toBe("after");
+
+    // Resolve so the held send doesn't leak into the next test.
+    await approvalCard.getByTitle("Deny this tool call").click();
+  });
+
+  test("pending approval card is inside the viewport when waiting indicator shows", async ({ page }) => {
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+    await selectLocalProvider(page);
+
+    const longPayload = "approval-stream-test\n" + "Padding line for a very tall user message.\n".repeat(60);
+    await sendMessage(page, longPayload);
+
+    // Waiting indicator appears…
+    await expect(page.locator(".chat-loading-approval")).toBeVisible({ timeout: 10_000 });
+
+    // …and the approval card is actually on screen (not scrolled away).
+    const approvalCard = page.locator(".tool-card-approval").first();
+    await expect(approvalCard).toBeInViewport({ timeout: 5_000 });
+
+    await approvalCard.getByTitle("Deny this tool call").click();
+  });
 });

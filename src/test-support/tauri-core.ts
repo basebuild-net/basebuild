@@ -1113,6 +1113,10 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         await sleep(200);
 
         if (isMultiToolStream || isApprovalStream) {
+          // Real backend emits a "tools" status chunk before tool processing
+          // (agent_loop_service: emit("tools", "status")) — mirror it so the
+          // running-tools / waiting-approval indicator renders in e2e.
+          chunk("tools", "status");
           // Emit tool events with incremental timestamps — tests ordering.
           const ts0 = Math.floor(Date.now() / 1000);
           toolEvent({ id: `te-read-${ts0}`, kind: "read_file", status: "running", summary: "Reading src/main.ts", arguments: JSON.stringify({ path: "src/main.ts" }), sequence: 1 });
@@ -1123,11 +1127,20 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
           chunk("Now I'll edit the file.");
           await sleep(100);
           if (isApprovalStream) {
-            // Pending approval — the UI must show Allow/Deny buttons.
-            toolEvent({ id: `te-edit-${ts0}`, kind: "edit_file", status: "pending", summary: "Edit src/main.ts", arguments: JSON.stringify({ path: "src/main.ts", old_text: "foo", new_text: "bar" }), sequence: 2 });
-            // Don't resolve — the test will click Allow/Deny or stop.
-            // Emit a content delta so partial text is visible.
+            // Real flow (agent_loop_service): text streams first, then a
+            // "tools" status chunk, then await_approval emits BOTH a pending
+            // tool-event AND an approval-request, then the loop BLOCKS.
             chunk("I need to edit **src/main.ts** to fix the bug.");
+            await sleep(100);
+            chunk("tools", "status");
+            toolEvent({ id: `te-edit-${ts0}`, kind: "edit_file", status: "pending", summary: "Edit src/main.ts", arguments: JSON.stringify({ path: "src/main.ts", old_text: "foo", new_text: "bar" }), sequence: 2 });
+            __emit("native-chat://approval-request", {
+              sessionId: req.sessionId,
+              toolCallId: `te-edit-${ts0}`,
+              toolName: "edit_file",
+              arguments: JSON.stringify({ path: "src/main.ts", old_text: "foo", new_text: "bar" }),
+            });
+            // Don't resolve — the test will click Allow/Deny or stop.
             // Keep the send promise alive — don't resolve yet.
             // The test will either resolve the approval or stop.
             // We resolve with a partial message after a long delay.
@@ -1646,7 +1659,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       s.autoSyncEnabled = args.enabled as boolean;
       return undefined as T;
     case "get_approval_mode":
-      return "balanced" as T;
+      return "auto" as T;
     case "set_approval_mode":
       return undefined as T;
     case "list_approval_rules":

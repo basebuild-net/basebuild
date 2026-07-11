@@ -334,7 +334,7 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
   })();
 
   return (
-    <div className={`tool-card tool-card-${statusClass}${isApproval ? " tool-card-approval" : ""}`} title={`${event.kind}: ${event.status}${timeStr ? ` at ${timeStr}` : ""}${provenance ? ` — ${provenance}` : ""}`}>
+    <div data-tool-id={event.id} className={`tool-card tool-card-${statusClass}${isApproval ? " tool-card-approval" : ""}`} title={`${event.kind}: ${event.status}${timeStr ? ` at ${timeStr}` : ""}${provenance ? ` — ${provenance}` : ""}`}>
       <div className="tool-card-header" onClick={() => { if (!isApproval) toggleExpanded(); }} role={isApproval ? undefined : "button"} tabIndex={isApproval ? -1 : 0} aria-expanded={isApproval ? undefined : expanded}>
         <span className="tool-card-icon">{icon}</span>
         <span className="tool-card-name">{event.kind.replace(/_/g, " ")}</span>
@@ -440,7 +440,7 @@ export function ChatPanel({
   const [debugEvents, setDebugEvents] = useState<Array<{ ts: number; channel: string; data: unknown }>>([]);
   const [debugExpanded, setDebugExpanded] = useState(false);
   const [setupRequired, setSetupRequired] = useState<NativeSetupRequired | null>(null);
-  const [approvalMode, setApprovalMode] = useState<ApprovalMode>("balanced");
+  const [approvalMode, setApprovalMode] = useState<ApprovalMode>("auto");
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [reasoningText, setReasoningText] = useState("");
@@ -609,7 +609,7 @@ export function ChatPanel({
           nativeRequestMetricsSummary(),
           nativeChatModelDefault(projectPath),
           nativeSessionId ? nativeChatGet(nativeSessionId) : Promise.resolve(null),
-          getApprovalMode(projectPath).catch(() => "balanced" as ApprovalMode),
+          getApprovalMode(projectPath).catch(() => "auto" as ApprovalMode),
         ]);
         setProfileId(defaults.defaultChatProfileId ?? NATIVE_PROFILE_ID);
         setApprovalMode(mode);
@@ -883,6 +883,13 @@ export function ChatPanel({
           createdAt: Math.floor(Date.now() / 1000),
         }];
       });
+      // An approval demands attention: after the card renders, make sure it
+      // is inside the viewport regardless of current scroll position.
+      window.setTimeout(() => {
+        scrollRef.current
+          ?.querySelector(`[data-tool-id="${CSS.escape(event.payload.toolCallId)}"]`)
+          ?.scrollIntoView({ block: "nearest" });
+      }, 50);
     });
     const unlistenInteraction = listen<{ sessionId: string; interactionId?: string }>(
       "native-chat://interactive-request",

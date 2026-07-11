@@ -57,7 +57,12 @@ export function buildChatTimeline(
     }
   }
 
-  // Live tool events (null messageId) — use their own createdAt.
+  // Live tool events (null messageId) — use their own createdAt. They
+  // belong to the in-flight turn, so on a timestamp tie (second
+  // granularity) with any message they must sort AFTER all messages:
+  // index = messages.length + sequence. Without this offset a pending
+  // approval card emitted in the same second as the (possibly huge)
+  // optimistic user message sorts above it and ends up off-screen.
   for (const te of toolEvents) {
     if (!te.messageId) {
       events.push({
@@ -65,7 +70,7 @@ export function buildChatTimeline(
         id: te.id,
         event: te,
         createdAt: te.createdAt,
-        index: te.sequence,
+        index: messages.length + te.sequence,
       });
     }
   }

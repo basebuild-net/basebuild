@@ -111,7 +111,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
   const [permissions, setPermissions] = useState<PermissionRules | null>(null);
 
   // Approval gateway state
-  const [approvalMode, setApprovalModeState] = useState<ApprovalMode>("balanced");
+  const [approvalMode, setApprovalModeState] = useState<ApprovalMode>("auto");
   const [approvalRules, setApprovalRules] = useState<ApprovalRule[]>([]);
   const [auditTrail, setAuditTrail] = useState<AuditEntry[]>([]);
   const [newRuleTool, setNewRuleTool] = useState("");
@@ -632,8 +632,8 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                   </div>
                   <p className="text-muted text-sm">
                     {approvalMode === "safe" && "Every tool call prompts for approval. Most secure, most interruptions."}
-                    {approvalMode === "balanced" && "Read-only tools auto-allow; mutating tools prompt. Recommended."}
-                    {approvalMode === "auto" && "All tools auto-allow. Fastest but least secure. Use only for trusted workflows."}
+                    {approvalMode === "balanced" && "Read-only tools auto-allow; mutating tools prompt."}
+                    {approvalMode === "auto" && "All tools auto-allow within workspace scoping. Fastest; the default."}
                   </p>
 
                   {/* Custom rules */}
