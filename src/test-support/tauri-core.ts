@@ -1084,25 +1084,96 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       // before resolving, so e2e can assert the thinking indicator and
       // incremental markdown rendering (contract: native-chat://chunk with
       // { sessionId, delta, channel? } — channel "status" carries phases).
-      const isStreamTest = req.content.includes("stream-test");
+      const isMultiToolStream = req.content.includes("multi-tool-stream-test");
+      const isApprovalStream = req.content.includes("approval-stream-test");
+      const isStopPartial = req.content.includes("stop-partial-test");
+      const isStreamTest = req.content.includes("stream-test") && !isMultiToolStream && !isApprovalStream && !isStopPartial;
       const streamedContent = "Streaming **bold** and `code` arrived incrementally.";
-      if (isStreamTest) {
+      if (isStreamTest || isMultiToolStream || isApprovalStream || isStopPartial) {
         const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
         const chunk = (delta: string, channel?: string) =>
           __emit("native-chat://chunk", { sessionId: req.sessionId, delta, ...(channel ? { channel } : {}) });
+        const toolEvent = (ev: Partial<NativeToolEvent> & { id: string; kind: string; status: string; sequence: number }) =>
+          __emit("native-chat://tool-event", {
+            sessionId: req.sessionId,
+            toolCallId: ev.id,
+            toolName: ev.kind,
+            status: ev.status,
+            summary: ev.summary ?? "",
+            arguments: ev.arguments ?? null,
+            diff: ev.diff ?? null,
+            decision: ev.decision ?? null,
+            ruleSource: ev.ruleSource ?? null,
+          });
         chunk("thinking", "status");
-        await sleep(400);
+        await sleep(300);
         chunk("Considering the request…", "reasoning");
-        await sleep(150);
-        chunk("Streaming **bold**");
-        await sleep(250);
-        chunk(" and `code`");
-        await sleep(250);
-        chunk(" arrived incrementally.");
-        await sleep(150);
+        await sleep(200);
+
+        if (isMultiToolStream || isApprovalStream) {
+          // Emit tool events with incremental timestamps — tests ordering.
+          const ts0 = Math.floor(Date.now() / 1000);
+          toolEvent({ id: `te-read-${ts0}`, kind: "read_file", status: "running", summary: "Reading src/main.ts", arguments: JSON.stringify({ path: "src/main.ts" }), sequence: 1 });
+          chunk("Let me read the file first.", "reasoning");
+          await sleep(300);
+          toolEvent({ id: `te-read-${ts0}`, kind: "read_file", status: "success", summary: "Read 120 lines", arguments: JSON.stringify({ path: "src/main.ts" }), sequence: 1 });
+          await sleep(200);
+          chunk("Now I'll edit the file.");
+          await sleep(100);
+          if (isApprovalStream) {
+            // Pending approval — the UI must show Allow/Deny buttons.
+            toolEvent({ id: `te-edit-${ts0}`, kind: "edit_file", status: "pending", summary: "Edit src/main.ts", arguments: JSON.stringify({ path: "src/main.ts", old_text: "foo", new_text: "bar" }), sequence: 2 });
+            // Don't resolve — the test will click Allow/Deny or stop.
+            // Emit a content delta so partial text is visible.
+            chunk("I need to edit **src/main.ts** to fix the bug.");
+            // Keep the send promise alive — don't resolve yet.
+            // The test will either resolve the approval or stop.
+            // We resolve with a partial message after a long delay.
+            await sleep(10000);
+          } else {
+            toolEvent({ id: `te-edit-${ts0}`, kind: "edit_file", status: "running", summary: "Editing src/main.ts", arguments: JSON.stringify({ path: "src/main.ts" }), diff: "-foo\n+bar\n", sequence: 2 });
+            await sleep(300);
+            toolEvent({ id: `te-edit-${ts0}`, kind: "edit_file", status: "success", summary: "Replaced 1 occurrence", arguments: JSON.stringify({ path: "src/main.ts" }), diff: "-foo\n+bar\n", sequence: 2 });
+            await sleep(200);
+            chunk("Now I'll run the tests.");
+            await sleep(100);
+            toolEvent({ id: `te-run-${ts0}`, kind: "run_command", status: "running", summary: "Running npm test", arguments: JSON.stringify({ command: "npm test" }), sequence: 3 });
+            await sleep(300);
+            toolEvent({ id: `te-run-${ts0}`, kind: "run_command", status: "success", summary: "exit 0:\nall tests passed", arguments: JSON.stringify({ command: "npm test" }), sequence: 3 });
+            await sleep(200);
+            chunk("All tests passed. The fix is complete.");
+            await sleep(100);
+          }
+        } else if (isStopPartial) {
+          // Emit partial text then hold — the user will press Stop.
+          chunk("I'll analyze the");
+          await sleep(200);
+          chunk(" problem and");
+          await sleep(200);
+          chunk(" propose a");
+          await sleep(200);
+          // Hold here — the test will press Stop during this window.
+          // Don't emit more chunks; don't resolve the promise.
+          // The send promise will be cancelled by native_chat_cancel.
+          // Keep the hold short (3s) so a follow-up send doesn't block long.
+          await sleep(3000);
+        } else {
+          chunk("Streaming **bold**");
+          await sleep(250);
+          chunk(" and `code`");
+          await sleep(250);
+          chunk(" arrived incrementally.");
+          await sleep(150);
+        }
       }
       const assistantContent = isStreamTest
         ? streamedContent
+        : isMultiToolStream
+        ? "All tests passed. The fix is complete."
+        : isApprovalStream
+        ? "I need to edit src/main.ts to fix the bug."
+        : isStopPartial
+        ? "I'll analyze the problem and propose a"
         : req.content.includes("Write one concise git commit message")
         ? "Let me write a concise commit message.\n\n1. `launch-sbox.sh` - changes\n2. `patch_engine.sh` - changes\n\n---\n\nRework patch system to target sbox-public"
         : req.content.includes("quick-reply-test")
@@ -1154,6 +1225,10 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       const isToolCardTest = req.content.includes("tool-card-test");
       const isSchematicWizardTest = req.content.includes("schematic-wizard-test");
       const isSchematicDenyTest = req.content.includes("schematic-wizard-deny-test");
+      // Multi-tool-stream and approval-stream events were emitted live
+      // during streaming above. Persist them so reload preserves them.
+      const isMultiToolStreamPersist = isMultiToolStream;
+      const isApprovalStreamPersist = isApprovalStream;
       const toolEvents: NativeToolEvent[] = isToolCardTest
         ? [
             {
@@ -1233,8 +1308,19 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
               createdAt: ts,
             },
           ]
+        : isMultiToolStreamPersist
+        ? [
+            { id: `te-read-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "read_file", status: "success", summary: "Read 120 lines", arguments: JSON.stringify({ path: "src/main.ts" }), diff: null, decision: "approved", ruleSource: null, sequence: 1, createdAt: ts },
+            { id: `te-edit-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "edit_file", status: "success", summary: "Replaced 1 occurrence", arguments: JSON.stringify({ path: "src/main.ts" }), diff: "-foo\n+bar\n", decision: "approved", ruleSource: null, sequence: 2, createdAt: ts },
+            { id: `te-run-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "run_command", status: "success", summary: "exit 0:\nall tests passed", arguments: JSON.stringify({ command: "npm test" }), diff: null, decision: "approved", ruleSource: null, sequence: 3, createdAt: ts },
+          ]
+        : isApprovalStreamPersist
+        ? [
+            { id: `te-read-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "read_file", status: "success", summary: "Read 120 lines", arguments: JSON.stringify({ path: "src/main.ts" }), diff: null, decision: "approved", ruleSource: null, sequence: 1, createdAt: ts },
+            { id: `te-edit-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "edit_file", status: "pending", summary: "Edit src/main.ts", arguments: JSON.stringify({ path: "src/main.ts", old_text: "foo", new_text: "bar" }), diff: null, decision: "pending", ruleSource: null, sequence: 2, createdAt: ts },
+          ]
         : [];
-      if (isToolCardTest || isSchematicWizardTest || isSchematicDenyTest) {
+      if (isToolCardTest || isSchematicWizardTest || isSchematicDenyTest || isMultiToolStreamPersist || isApprovalStreamPersist) {
         for (const te of toolEvents) s.nativeToolEvents.push(te);
       }
       return {
