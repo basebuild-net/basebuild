@@ -15,7 +15,7 @@ import {
   Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { flattenPanels } from "../../lib/panelGrid";
+import { flattenPanels, parsePanelGrid } from "../../lib/panelGrid";
 import { usePanelStatus, type PanelStatus } from "../panels/PanelStatusContext";
 import { AccountButton } from "./AccountButton";
 import { UpdateButton } from "./UpdateButton";
@@ -23,6 +23,7 @@ import { RepoIcon } from "./RepoIcon";
 import { getRepoIdentity, type RepoHost, type RepoIdentity } from "../../lib/repoIdentity";
 import { getProjectAgentStatus, type AgentStatus } from "../../lib/agentStatus";
 import { nativeChatList, type NativeChatSession } from "../../lib/native-chat";
+import { getWorkspaceRestoreState } from "../../lib/workspace";
 import { formatRelativeTime } from "../../lib/timing";
 import type { AccountState } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
@@ -135,7 +136,9 @@ export function ActivitySidebar({
     return () => { cancelled = true; };
   }, [projects]);
 
-  // Fetch chat sessions for non-active projects once on mount (parallel, error-tolerant).
+  // Fetch chats OPEN in each non-active project's saved workspace grid —
+  // never the full session history. Mirrors what the active project shows
+  // (its open panels), just unloaded.
   useEffect(() => {
     let cancelled = false;
     const otherProjects = projects.filter((p) => p.path !== activeProjectPath);
@@ -143,8 +146,17 @@ export function ActivitySidebar({
     void Promise.all(
       otherProjects.map(async (p) => {
         try {
-          const sessions = await nativeChatList(p.path);
-          return [p.path, sessions] as [string, NativeChatSession[]];
+          const [restore, sessions] = await Promise.all([
+            getWorkspaceRestoreState(p.path),
+            nativeChatList(p.path),
+          ]);
+          const grid = parsePanelGrid(restore.panelGrid);
+          const openChatIds = new Set(
+            flattenPanels(grid.root)
+              .filter((panel) => panel.type === "chat" && panel.chatSessionId)
+              .map((panel) => panel.chatSessionId as string),
+          );
+          return [p.path, sessions.filter((s) => openChatIds.has(s.id))] as [string, NativeChatSession[]];
         } catch {
           return [p.path, []] as [string, NativeChatSession[]];
         }
