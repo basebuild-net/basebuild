@@ -34,25 +34,43 @@ pub struct DetectedProviderPlan {
     pub note: Option<String>,
 }
 
-/// One selectable plan from the basebuild.net catalog, for the declaration UI.
+/// One modular per-window usage cap from the catalog. Window length is data
+/// (seconds), not a fixed column — handles 5h, 4h, 2h, 1h, daily, weekly,
+/// monthly, any period. NULL window = per-request limit (context window).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProviderPlanOption {
-    /// Catalog `ProviderPlan.id` — the exact id passed to `declare_usage_profile`.
-    pub id: String,
-    pub provider: String,
-    pub name: String,
-    pub tier: Option<String>,
-    pub price: Option<f64>,
-    pub period: Option<String>,
-    /// Whether the plan is unmetered (no request cap).
-    pub unmetered: bool,
-    /// Period-aware request caps used for volume-based plan estimation.
-    pub session_request_cap: Option<i64>,
-    pub weekly_request_cap: Option<i64>,
-    pub monthly_request_cap: Option<i64>,
-    pub daily_request_cap: Option<i64>,
-    /// Catalog-declared confidence in the limit data (e.g. `documented`).
-    pub usage_limit_confidence: Option<String>,
-    pub label: String,
+pub struct UsageLimit {
+    /// Window length in seconds (18000=5h, 3600=1h, 86400=1d, 604800=7d,
+    /// 2592000=30d). None = per-request limit (not a period cap).
+    pub window_seconds: Option<i64>,
+    /// Max requests in the window. None = no request cap.
+    pub request_cap: Option<i64>,
+    /// Max input tokens in the window. None = no input token cap.
+    pub input_token_cap: Option<i64>,
+    /// Max output tokens in the window. None = no output token cap.
+    pub output_token_cap: Option<i64>,
+    /// How reliable: "documented" | "inferred" | "unknown".
+    pub confidence: Option<String>,
 }
+
+ /// One selectable plan from the basebuild.net catalog, for the declaration UI.
+ #[derive(Debug, Clone, Serialize, Deserialize)]
+ #[serde(rename_all = "camelCase")]
+ pub struct ProviderPlanOption {
+     /// Catalog `ProviderPlan.id` — the exact id passed to `declare_usage_profile`.
+     pub id: String,
+     pub provider: String,
+     pub name: String,
+     pub tier: Option<String>,
+     pub price: Option<f64>,
+     pub period: Option<String>,
+     /// Whether the plan is unmetered (no request cap).
+     pub unmetered: bool,
+    /// Modular per-window usage caps from the catalog. Canonical source for
+    /// volume-based plan estimation. Backfilled from legacy flat fields when
+    /// the catalog response doesn't include `usageLimits`.
+    pub usage_limits: Vec<UsageLimit>,
+     /// Catalog-declared confidence in the limit data (e.g. `documented`).
+     pub usage_limit_confidence: Option<String>,
+     pub label: String,
+ }

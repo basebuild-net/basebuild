@@ -16,12 +16,12 @@
 //! `list_plans()` / `declare()` bridge to basebuild.net so a declared plan syncs
 //! as an authoritative attribution.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use base64::Engine;
 use serde_json::{json, Value};
 
-use crate::models::plan_detection::{DetectedProviderPlan, ProviderPlanOption};
+use crate::models::plan_detection::{DetectedProviderPlan, ProviderPlanOption, UsageLimit};
 use crate::services::auth_service::AuthService;
 use crate::services::native_chat_service::{omp_agent_dir, NativeChatService};
 use crate::services::omp_service::OmpService;
@@ -208,6 +208,7 @@ impl PlanDetectionService {
                         let id = p.get("id").and_then(Value::as_str)?.to_string();
                         let provider = p.get("provider").and_then(Value::as_str)?.to_string();
                         let name = p.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+                        let usage_limits = parse_usage_limits(p);
                         Some(ProviderPlanOption {
                             id,
                             provider,
@@ -216,10 +217,7 @@ impl PlanDetectionService {
                             price: p.get("price").and_then(Value::as_f64),
                             period: p.get("period").and_then(Value::as_str).map(str::to_string),
                             unmetered: p.get("unmetered").and_then(Value::as_bool).unwrap_or(false),
-                            session_request_cap: p.get("sessionRequestCap").and_then(Value::as_i64),
-                            weekly_request_cap: p.get("weeklyRequestCap").and_then(Value::as_i64),
-                            monthly_request_cap: p.get("monthlyRequestCap").and_then(Value::as_i64),
-                            daily_request_cap: p.get("dailyRequestCap").and_then(Value::as_i64),
+                            usage_limits,
                             usage_limit_confidence: p
                                 .get("usageLimitConfidence")
                                 .and_then(Value::as_str)
@@ -266,6 +264,69 @@ fn map_omp_provider(omp_id: &str) -> String {
         "openai-codex" => "openai".to_string(),
         "google-gemini-cli" => "google".to_string(),
         other => other.to_string(),
+    }
+}
+
+/// Parse `usageLimits` from a `list_plans` plan JSON object. Falls back to
+/// backfilling from the legacy flat cap fields when `usageLimits` is absent.
+fn parse_usage_limits(p: &Value) -> Vec<UsageLimit> {
+    // Primary: parse the modular `usageLimits` array from the catalog.
+    if let Some(arr) = p.get("usageLimits").and_then(Value::as_array) {
+        let limits: Vec<UsageLimit> = arr
+            .iter()
+            .filter_map(|l| {
+                Some(UsageLimit {
+                    window_seconds: l.get("windowSeconds").and_then(Value::as_i64),
+                    request_cap: l.get("requestCap").and_then(Value::as_i64),
+                    input_token_cap: l.get("inputTokenCap").and_then(Value::as_i64),
+                    output_token_cap: l.get("outputTokenCap").and_then(Value::as_i64),
+                    confidence: l.get("confidence").and_then(Value::as_str).map(str::to_string),
+                })
+            })
+            .collect();
+        if !limits.is_empty() {
+            return limits;
+        }
+    }
+    // Backfill: derive from legacy flat cap fields.
+    let mut limits = Vec::new();
+    let conf = p
+        .get("usageLimitConfidence")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    if let Some(c) = p.get("sessionRequestCap").and_then(Value::as_i64) {
+        limits.push(UsageLimit { window_seconds: Some(18_000), request_cap: Some(c), input_token_cap: None, output_token_cap: None, confidence: conf.clone() });
+    }
+    if let Some(c) = p.get("dailyRequestCap").and_then(Value::as_i64) {
+        limits.push(UsageLimit { window_seconds: Some(86_400), request_cap: Some(c), input_token_cap: None, output_token_cap: None, confidence: conf.clone() });
+    }
+    if let Some(c) = p.get("weeklyRequestCap").and_then(Value::as_i64) {
+        limits.push(UsageLimit { window_seconds: Some(604_800), request_cap: Some(c), input_token_cap: None, output_token_cap: None, confidence: conf.clone() });
+    }
+    if let Some(c) = p.get("monthlyRequestCap").and_then(Value::as_i64) {
+        limits.push(UsageLimit { window_seconds: Some(2_592_000), request_cap: Some(c), input_token_cap: None, output_token_cap: None, confidence: conf.clone() });
+    }
+    if let Some(c) = p.get("requestLimit").and_then(Value::as_i64) {
+        let window_secs = parse_window_string(p.get("requestLimitWindow").and_then(Value::as_str));
+        limits.push(UsageLimit { window_seconds: window_secs, request_cap: Some(c), input_token_cap: None, output_token_cap: None, confidence: conf });
+    }
+    limits
+}
+
+/// Parse a window string ("5h", "3h", "1h", "day", "week", "month") into seconds.
+fn parse_window_string(s: Option<&str>) -> Option<i64> {
+    let s = s?.trim();
+    if let Ok(h) = s.trim_end_matches(['h', 'H']).parse::<i64>() {
+        return Some(h * 3600);
+    }
+    if let Ok(m) = s.trim_end_matches(['m', 'M']).parse::<i64>() {
+        return Some(m * 60);
+    }
+    match s.to_lowercase().as_str() {
+        "day" | "daily" => Some(86_400),
+        "week" | "weekly" => Some(604_800),
+        "month" | "monthly" => Some(2_592_000),
+        _ => None,
     }
 }
 
@@ -337,7 +398,47 @@ fn peak_requests_in_window(conn: &Connection, stats_provider: &str, window_ms: i
     peak.map(|p| p.max(0) as u64)
 }
 
-/// Compute a provider's observed peak request volume across all windows.
+/// Peak metrics in a single fixed time bucket of `window_ms` milliseconds.
+/// Fixed buckets are a conservative proxy for a rolling peak (bucket peak ≤
+/// rolling peak), so "observed exceeds cap" is always sound (never a false positive).
+#[derive(Debug, Clone, Default)]
+struct WindowMetrics {
+    requests: u64,
+    input_tokens: u64,
+    output_tokens: u64,
+    total_tokens: u64,
+}
+
+/// Peak request count AND token volume in any fixed `window_ms` bucket for a
+/// provider, from OMP's stats.db messages table. Returns zeros when the query
+/// fails (missing columns, no data). This is the signal for modular cap-based
+/// inference — compares against both request and token caps.
+fn peak_metrics_in_window(conn: &Connection, stats_provider: &str, window_ms: i64) -> WindowMetrics {
+    let row: rusqlite::Result<(i64, i64, i64, i64)> = conn.query_row(
+        r#"SELECT MAX(req), MAX(inp), MAX(outp), MAX(total) FROM (
+           SELECT COUNT(*) AS req,
+                  SUM("input_tokens") AS inp,
+                  SUM("output_tokens") AS outp,
+                  SUM("input_tokens" + "output_tokens" + "cache_read_tokens") AS total
+           FROM messages
+           WHERE provider = ?1
+           GROUP BY CAST(timestamp / ?2 AS INTEGER)
+         )"#,
+        rusqlite::params![stats_provider, window_ms],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+    );
+    match row {
+        Ok((req, inp, outp, total)) => WindowMetrics {
+            requests: req.max(0) as u64,
+            input_tokens: inp.max(0) as u64,
+            output_tokens: outp.max(0) as u64,
+            total_tokens: total.max(0) as u64,
+        },
+        Err(_) => WindowMetrics::default(),
+    }
+}
+
+/// Compute a provider's observed peak request volume across legacy fixed windows.
 fn observed_usage(stats_provider: &str) -> ObservedUsage {
     let Some(conn) = open_stats_db() else {
         return ObservedUsage::default();
@@ -366,28 +467,59 @@ fn website_to_stats_provider(website: &str) -> String {
     }
 }
 
-/// Estimate a plan from observed request volume vs the catalog's per-window
-/// request caps. Rules out any plan whose defined cap is below the observed
-/// peak for that window, then picks the cheapest remaining plan. Returns None
-/// when the evidence doesn't rule out the cheapest plan (ambiguous — no guess)
-/// or no plan declares a usable cap. Predictive: `confidence = "inferred"`.
+/// Estimate a plan from observed usage volume vs the catalog's modular per-window
+/// caps. For each plan, for each `UsageLimit` with a defined `window_seconds`:
+/// compute the observed peak (requests + tokens) in that exact window, and rule
+/// out the plan if any cap is exceeded. Pick the cheapest surviving plan. Returns
+/// None when the evidence doesn't rule out the cheapest plan (ambiguous — no
+/// guess) or no plan declares a usable cap. Predictive: `confidence = "inferred"`.
 fn infer_plan_from_caps(
     provider: &str,
     stats_provider: &str,
     plans: &[ProviderPlanOption],
-    observed: &ObservedUsage,
+    _observed: &ObservedUsage,
 ) -> Option<DetectedProviderPlan> {
-    // Need ≥2 priced plans and at least one declared cap to distinguish tiers.
+    // Collect all unique window lengths (in ms) from the plans' usage_limits.
+    let mut window_ms_set: BTreeSet<i64> = BTreeSet::new();
+    for p in plans {
+        for l in &p.usage_limits {
+            if let Some(secs) = l.window_seconds {
+                window_ms_set.insert(secs * 1000);
+            }
+        }
+    }
+    // Compute observed peak metrics per window (single stats.db connection).
+    let conn = open_stats_db();
+    let metrics_by_window: BTreeMap<i64, WindowMetrics> = match &conn {
+        Some(c) => window_ms_set
+            .iter()
+            .map(|&wms| (wms, peak_metrics_in_window(c, stats_provider, wms)))
+            .collect(),
+        None => BTreeMap::new(),
+    };
+    infer_from_modular_caps(provider, stats_provider, plans, &metrics_by_window)
+}
+
+/// Pure inference rule: given plans + observed peak metrics per window (ms),
+/// rule out any plan whose cap is exceeded and pick the cheapest survivor.
+/// No db access — testable in isolation. Returns None when ambiguous (cheapest
+/// not ruled out) or no plan has usable caps. Predictive: `confidence = "inferred"`.
+fn infer_from_modular_caps(
+    provider: &str,
+    stats_provider: &str,
+    plans: &[ProviderPlanOption],
+    metrics_by_window: &BTreeMap<i64, WindowMetrics>,
+) -> Option<DetectedProviderPlan> {
     let mut priced: Vec<&ProviderPlanOption> =
         plans.iter().filter(|p| p.price.is_some()).collect();
     if priced.len() < 2 {
         return None;
     }
     let has_caps = priced.iter().any(|p| {
-        p.session_request_cap.is_some()
-            || p.weekly_request_cap.is_some()
-            || p.monthly_request_cap.is_some()
-            || p.daily_request_cap.is_some()
+        p.usage_limits.iter().any(|l| {
+            l.window_seconds.is_some()
+                && (l.request_cap.is_some() || l.input_token_cap.is_some() || l.output_token_cap.is_some())
+        })
     });
     if !has_caps {
         return None;
@@ -398,26 +530,34 @@ fn infer_plan_from_caps(
             .partial_cmp(&b.price.unwrap_or(f64::MAX))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    // A plan is ruled out if any of its declared caps is below the observed
-    // peak for that window. Unmetered plans are never ruled out.
-    let ruled_out = |p: &ProviderPlanOption| -> Option<&'static str> {
+    let ruled_out = |p: &ProviderPlanOption| -> Option<String> {
         if p.unmetered {
             return None;
         }
-        if p.session_request_cap.is_some_and(|c| observed.peak_session_5h > c as u64) {
-            return Some("5h session");
-        }
-        if p.weekly_request_cap.is_some_and(|c| observed.peak_week > c as u64) {
-            return Some("weekly");
-        }
-        if p.monthly_request_cap.is_some_and(|c| observed.peak_month > c as u64) {
-            return Some("monthly");
+        for l in &p.usage_limits {
+            let Some(secs) = l.window_seconds else { continue };
+            let wms = secs * 1000;
+            let Some(m) = metrics_by_window.get(&wms) else { continue };
+            if let Some(cap) = l.request_cap {
+                if m.requests > cap as u64 {
+                    return Some(format!("{}s request cap", secs));
+                }
+            }
+            if let Some(cap) = l.input_token_cap {
+                if m.input_tokens > cap as u64 {
+                    return Some(format!("{}s input token cap", secs));
+                }
+            }
+            if let Some(cap) = l.output_token_cap {
+                if m.output_tokens > cap as u64 {
+                    return Some(format!("{}s output token cap", secs));
+                }
+            }
         }
         None
     };
     let cheapest = priced[0];
     let cheapest_exceeded = ruled_out(cheapest)?; // None ⇒ ambiguous ⇒ no guess
-    // Inferred = cheapest plan NOT ruled out; if all are, the priciest.
     let inferred = priced
         .iter()
         .find(|p| ruled_out(p).is_none())
@@ -428,7 +568,7 @@ fn infer_plan_from_caps(
         .clone()
         .unwrap_or_else(|| "inferred".to_string());
     let note = format!(
-        "Observed usage exceeds {}'s {} request cap → likely {}. Estimate from volume; confirm your plan.",
+        "Observed usage exceeds {}'s {} → likely {}. Estimate from volume; confirm your plan.",
         cheapest.name, cheapest_exceeded, inferred.name,
     );
     Some(DetectedProviderPlan {
@@ -616,6 +756,13 @@ mod tests {
     }
 
     fn plan(name: &str, price: f64, session_cap: Option<i64>, unmetered: bool) -> ProviderPlanOption {
+        let usage_limits = session_cap.map(|c| vec![UsageLimit {
+            window_seconds: Some(18_000),
+            request_cap: Some(c),
+            input_token_cap: None,
+            output_token_cap: None,
+            confidence: None,
+        }]).unwrap_or_default();
         ProviderPlanOption {
             id: name.to_string(),
             provider: "acme".to_string(),
@@ -624,13 +771,16 @@ mod tests {
             price: Some(price),
             period: Some("month".to_string()),
             unmetered,
-            session_request_cap: session_cap,
-            weekly_request_cap: None,
-            monthly_request_cap: None,
-            daily_request_cap: None,
+            usage_limits,
             usage_limit_confidence: None,
             label: name.to_string(),
         }
+    }
+
+    fn metrics_5h(requests: u64) -> BTreeMap<i64, WindowMetrics> {
+        let mut m = BTreeMap::new();
+        m.insert(18_000_000, WindowMetrics { requests, ..Default::default() });
+        m
     }
 
     #[test]
@@ -639,8 +789,8 @@ mod tests {
             plan("Lite", 10.0, Some(100), false),
             plan("Max", 40.0, None, true),
         ];
-        let observed = ObservedUsage { peak_session_5h: 150, ..Default::default() };
-        let out = infer_plan_from_caps("acme", "acme", &plans, &observed).unwrap();
+        let metrics = metrics_5h(150);
+        let out = infer_from_modular_caps("acme", "acme", &plans, &metrics).unwrap();
         assert_eq!(out.detected_plan_type.as_deref(), Some("Max"));
         assert_eq!(out.confidence, "inferred");
         assert_eq!(out.source, "volume");
@@ -653,8 +803,8 @@ mod tests {
             plan("Lite", 10.0, Some(100), false),
             plan("Max", 40.0, None, true),
         ];
-        let observed = ObservedUsage { peak_session_5h: 50, ..Default::default() };
-        assert!(infer_plan_from_caps("acme", "acme", &plans, &observed).is_none());
+        let metrics = metrics_5h(50);
+        assert!(infer_from_modular_caps("acme", "acme", &plans, &metrics).is_none());
     }
 
     #[test]
@@ -663,15 +813,15 @@ mod tests {
             plan("Lite", 10.0, None, false),
             plan("Max", 40.0, None, true),
         ];
-        let observed = ObservedUsage { peak_session_5h: 9999, ..Default::default() };
-        assert!(infer_plan_from_caps("acme", "acme", &plans, &observed).is_none());
+        let metrics = metrics_5h(9999);
+        assert!(infer_from_modular_caps("acme", "acme", &plans, &metrics).is_none());
     }
 
     #[test]
     fn caps_inference_none_with_single_plan() {
         let plans = vec![plan("Only", 10.0, Some(100), false)];
-        let observed = ObservedUsage { peak_session_5h: 9999, ..Default::default() };
-        assert!(infer_plan_from_caps("acme", "acme", &plans, &observed).is_none());
+        let metrics = metrics_5h(9999);
+        assert!(infer_from_modular_caps("acme", "acme", &plans, &metrics).is_none());
     }
 
     #[test]
@@ -680,8 +830,82 @@ mod tests {
             plan("Lite", 10.0, Some(100), false),
             plan("Mid", 25.0, Some(500), false),
         ];
-        let observed = ObservedUsage { peak_session_5h: 10_000, ..Default::default() };
-        let out = infer_plan_from_caps("acme", "acme", &plans, &observed).unwrap();
+        let metrics = metrics_5h(10_000);
+        let out = infer_from_modular_caps("acme", "acme", &plans, &metrics).unwrap();
         assert_eq!(out.detected_plan_type.as_deref(), Some("Mid"));
+    }
+
+    #[test]
+    fn caps_inference_token_cap_rules_out_plan() {
+        let plans = vec![
+            ProviderPlanOption {
+                id: "p1".into(), provider: "acme".into(), name: "Lite".into(),
+                tier: Some("pro".into()), price: Some(10.0), period: Some("month".into()),
+                unmetered: false,
+                usage_limits: vec![UsageLimit {
+                    window_seconds: Some(604_800), request_cap: None,
+                    input_token_cap: Some(1_000_000), output_token_cap: None, confidence: None,
+                }],
+                usage_limit_confidence: None, label: "Lite".into(),
+            },
+            ProviderPlanOption {
+                id: "p2".into(), provider: "acme".into(), name: "Max".into(),
+                tier: Some("pro".into()), price: Some(40.0), period: Some("month".into()),
+                unmetered: false,
+                usage_limits: vec![UsageLimit {
+                    window_seconds: Some(604_800), request_cap: None,
+                    input_token_cap: Some(10_000_000), output_token_cap: None, confidence: None,
+                }],
+                usage_limit_confidence: None, label: "Max".into(),
+            },
+        ];
+        let mut metrics = BTreeMap::new();
+        metrics.insert(604_800_000, WindowMetrics { input_tokens: 2_000_000, ..Default::default() });
+        let out = infer_from_modular_caps("acme", "acme", &plans, &metrics).unwrap();
+        assert_eq!(out.detected_plan_type.as_deref(), Some("Max"));
+    }
+
+    #[test]
+    fn parse_usage_limits_from_modular_array() {
+        let p = json!({
+            "usageLimits": [
+                {"windowSeconds": 18000, "requestCap": 200, "inputTokenCap": null, "outputTokenCap": null, "confidence": "documented"},
+                {"windowSeconds": 604800, "requestCap": null, "inputTokenCap": 50000000, "outputTokenCap": null, "confidence": "documented"}
+            ]
+        });
+        let limits = parse_usage_limits(&p);
+        assert_eq!(limits.len(), 2);
+        assert_eq!(limits[0].window_seconds, Some(18_000));
+        assert_eq!(limits[0].request_cap, Some(200));
+        assert_eq!(limits[1].window_seconds, Some(604_800));
+        assert_eq!(limits[1].input_token_cap, Some(50_000_000));
+    }
+
+    #[test]
+    fn parse_usage_limits_backfill_from_legacy_fields() {
+        let p = json!({
+            "sessionRequestCap": 200,
+            "weeklyRequestCap": 2000,
+            "requestLimit": 80,
+            "requestLimitWindow": "3h"
+        });
+        let limits = parse_usage_limits(&p);
+        assert_eq!(limits.len(), 3);
+        assert!(limits.iter().any(|l| l.window_seconds == Some(18_000) && l.request_cap == Some(200)));
+        assert!(limits.iter().any(|l| l.window_seconds == Some(604_800) && l.request_cap == Some(2000)));
+        assert!(limits.iter().any(|l| l.window_seconds == Some(10_800) && l.request_cap == Some(80)));
+    }
+
+    #[test]
+    fn parse_window_string_handles_common_formats() {
+        assert_eq!(parse_window_string(Some("5h")), Some(18_000));
+        assert_eq!(parse_window_string(Some("3h")), Some(10_800));
+        assert_eq!(parse_window_string(Some("1h")), Some(3_600));
+        assert_eq!(parse_window_string(Some("30m")), Some(1_800));
+        assert_eq!(parse_window_string(Some("day")), Some(86_400));
+        assert_eq!(parse_window_string(Some("week")), Some(604_800));
+        assert_eq!(parse_window_string(Some("month")), Some(2_592_000));
+        assert_eq!(parse_window_string(None), None);
+        assert_eq!(parse_window_string(Some("unknown")), None);
     }
 }
