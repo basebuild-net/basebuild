@@ -16,7 +16,7 @@ async function ensureChatPanel(page: Page) {
 }
 
 async function selectLocalProvider(page: Page) {
-  await page.locator(".chat-provider-trigger").click();
+  await page.locator(".chat-column-model-chip").click();
   await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
   await page.getByTitle("Close provider and model catalog").click();
 }
@@ -122,29 +122,25 @@ test.describe("chat UX polish: scroll-to-bottom, search, copy, thinking default,
     await waitForCompletion(page, "hello world");
     await page.waitForTimeout(500);
 
-    // Copy conversation button should be visible and enabled.
-    const copyBtn = page.locator(".chat-copy-conversation-btn");
-    await expect(copyBtn).toBeVisible();
-    await expect(copyBtn).not.toBeDisabled();
-
-    // Click it — should not error.
-    await copyBtn.click();
-    await page.waitForTimeout(500);
-
-    // Verify a toast appeared (success).
-    const toast = page.locator(".toast").filter({ hasText: "Copied conversation" });
-    await expect(toast).toBeVisible({ timeout: 5_000 });
+    // Copy conversation moved into the compact header's secondary menu.
+    const header = page.locator(".chat-column-header").first();
+    await header.getByTitle("More actions").click();
+    const copyAction = header.getByTitle("Copy the entire conversation as markdown");
+    await expect(copyAction).toBeVisible();
+    await expect(copyAction).not.toBeDisabled();
+    await copyAction.click();
+    await expect(page.locator(".toast").filter({ hasText: "Copied conversation" })).toBeVisible({ timeout: 5_000 });
   });
 
-  test("copy conversation button is disabled when no messages", async ({ page }) => {
+  test("copy conversation action is enabled for pre-seeded history", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
     await selectLocalProvider(page);
 
-    // The pre-seeded MVP message exists, so the button should be enabled.
-    const copyBtn = page.locator(".chat-copy-conversation-btn");
-    await expect(copyBtn).toBeVisible();
-    await expect(copyBtn).not.toBeDisabled();
+    // The pre-seeded MVP message enables the menu action.
+    const header = page.locator(".chat-column-header").first();
+    await header.getByTitle("More actions").click();
+    await expect(header.getByTitle("Copy the entire conversation as markdown")).not.toBeDisabled();
   });
 
   test("history toggle opens the history drawer", async ({ page }) => {

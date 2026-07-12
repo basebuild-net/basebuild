@@ -1247,6 +1247,23 @@ impl NativeChatService {
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
     }
 
+    pub fn latest_metric_for_session(session_id: &str) -> DbResult<Option<NativeRequestMetric>> {
+        let conn = StorageService::connect()?;
+        conn.query_row(
+            "SELECT id, session_id, provider_id, model_id, effort_level, started_at, completed_at, duration_ms, ttft_ms, ttlt_ms,
+                    input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at,
+                    subscription_tier, subscription_source, plan_name
+             FROM native_request_metrics
+             WHERE session_id = ?1
+             ORDER BY created_at DESC
+             LIMIT 1",
+            params![session_id],
+            map_metric,
+        )
+        .optional()
+        .map_err(|error| error.to_string())
+    }
+
     /// Metrics created strictly after `since_created_at` (epoch seconds),
     /// oldest-first, for the incremental app→basebuild.net message sync.
     pub fn metrics_since(since_created_at: i64, limit: u32) -> DbResult<Vec<NativeRequestMetric>> {
@@ -2284,5 +2301,47 @@ mod tests {
             "umans credential should be visible after unblock (got {} creds)",
             creds.len()
         );
+    }
+
+    #[test]
+    fn latest_metric_is_scoped_to_the_requested_session() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        for session_id in ["session-a", "session-b"] {
+            conn.execute(
+                "INSERT INTO native_chat_sessions (
+                    id, project_path, title, profile_id, provider_id, model_id,
+                    effort_level, status, run_state, created_at, updated_at
+                 ) VALUES (?1, '/test/project', 'Chat', 'basebuild-native',
+                    'basebuild-local', 'basebuild-local-coordinator', 'medium',
+                    'ready', 'idle', 1, 1)",
+                params![session_id],
+            )
+            .unwrap();
+        }
+        for (id, session_id, created_at, input_tokens, output_tokens) in [
+            ("metric-a-old", "session-a", 10, 100, 20),
+            ("metric-b", "session-b", 30, 900, 90),
+            ("metric-a-new", "session-a", 40, 240, 60),
+        ] {
+            conn.execute(
+                "INSERT INTO native_request_metrics (
+                    id, session_id, provider_id, model_id, effort_level,
+                    started_at, input_tokens, output_tokens, outcome, created_at
+                 ) VALUES (?1, ?2, 'basebuild-local', 'basebuild-local-coordinator',
+                    'medium', ?3, ?4, ?5, 'success', ?3)",
+                params![id, session_id, created_at, input_tokens, output_tokens],
+            )
+            .unwrap();
+        }
+
+        let latest = NativeChatService::latest_metric_for_session("session-a")
+            .unwrap()
+            .expect("session metric");
+        assert_eq!(latest.id, "metric-a-new");
+        assert_eq!(latest.input_tokens, 240);
+        assert_eq!(latest.output_tokens, 60);
+        assert!(NativeChatService::latest_metric_for_session("missing").unwrap().is_none());
     }
 }

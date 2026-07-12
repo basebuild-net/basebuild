@@ -63,18 +63,35 @@ available, and the optional hosted Basebuild model directory is queried only
 when direct discovery is unavailable and without secrets, prompts, project
 paths, or local account identifiers.
 
-The composer opens provider/model configuration in one two-pane modal. A dense
-provider grid puts configured providers first with green Connected state;
-unconfigured providers use grey Available state. The adjacent searchable model
-pane stays scoped to the selected provider and shows capability badges. Models
-are keyed by both provider id and model id, so duplicate model
-ids cannot cross providers. On restore, the chat session's provider/model/effort
-wins over the project default; effort controls contain only values present in
-the selected model's `supportedEfforts`. Until catalog-owned effective transport
-capabilities land, the UI also rejects known bespoke transports that cannot
-participate in the native tool loop rather than starting a false planning run.
-Transports that cannot expose tools produce an explicit capability state before
-launch; they do not advertise planning support or start a fake tools-capable run.
+Provider/model configuration opens from the sticky chat header into one
+two-pane modal. A dense provider grid puts configured providers first with
+green Connected state; unconfigured providers use grey Available state. The
+adjacent searchable model pane stays scoped to the selected provider and shows
+capability badges. Models are keyed by both provider id and model id, so
+duplicate model ids cannot cross providers. On restore, the chat session's
+provider/model/effort wins over the project default. The header effort dropdown
+contains only values present in the selected model's `supportedEfforts`; the
+textual permission dropdown, run state, branch, and circular context indicator
+share that rail. The composer footer contains only the growing input and
+send/stop. Until catalog-owned effective transport capabilities land, the UI
+also rejects known bespoke transports that cannot participate in the native
+tool loop rather than starting a false planning run. Transports that cannot
+expose tools produce an explicit capability state before launch; they do not
+advertise planning support or start a fake tools-capable run.
+
+## Chat loading and streaming performance
+
+Existing-session messages, tool events, and interactions begin loading without
+waiting for provider catalog, permission, branch/worktree, or global request
+metadata. Content and reasoning fragments accumulate in order and flush to
+React once per animation frame, bounding renderer work during high-frequency
+streams. The transcript follows output while pinned to the bottom and preserves
+the reader's position after an upward scroll.
+
+The context circle uses the latest completed metric for the current session
+(`input_tokens + output_tokens`) against the selected model's `contextWindow`.
+New sessions display zero usage. Missing model limits remain explicit in the
+tooltip; the UI never labels zero as unknown.
 
 ## Provider-backed turn execution
 

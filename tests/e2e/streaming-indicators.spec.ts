@@ -242,15 +242,13 @@ test.describe("Streaming indicators", () => {
     await expect(inputRow.locator(".chat-send-btn").first()).toBeVisible();
   });
 
-  test("chat input area has context strip below input", async ({ page }) => {
+  test("focused composer receives the orange area highlight", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
     const inputArea = page.locator(".chat-input-area").first();
-    await expect(inputArea).toBeVisible();
-
-    // Context strip should be within the input area.
-    const strip = inputArea.locator(".chat-context-strip").first();
-    await expect(strip).toBeVisible({ timeout: 5_000 });
+    await inputArea.locator("textarea").focus();
+    await expect(inputArea).toHaveCSS("outline-color", "rgb(255, 86, 6)");
+    await expect(inputArea.locator(".chat-context-strip")).toHaveCount(0);
   });
 });

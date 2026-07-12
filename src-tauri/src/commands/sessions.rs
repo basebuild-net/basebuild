@@ -9,8 +9,10 @@ pub fn create_session(project_path: String, title: String) -> Result<Session, St
 }
 
 #[tauri::command]
-pub fn list_sessions(project_path: String) -> Result<Vec<Session>, String> {
-    SessionService::list_sessions(&project_path)
+pub async fn list_sessions(project_path: String) -> Result<Vec<Session>, String> {
+    tauri::async_runtime::spawn_blocking(move || SessionService::list_sessions(&project_path))
+        .await
+        .map_err(|error| format!("Session-list task panicked: {error}"))?
 }
 
 #[tauri::command]
@@ -43,8 +45,10 @@ pub fn create_tab(
 }
 
 #[tauri::command]
-pub fn list_tabs(session_id: String) -> Result<Vec<SessionTab>, String> {
-    SessionService::list_tabs(&session_id)
+pub async fn list_tabs(session_id: String) -> Result<Vec<SessionTab>, String> {
+    tauri::async_runtime::spawn_blocking(move || SessionService::list_tabs(&session_id))
+        .await
+        .map_err(|error| format!("Tab-list task panicked: {error}"))?
 }
 
 #[tauri::command]

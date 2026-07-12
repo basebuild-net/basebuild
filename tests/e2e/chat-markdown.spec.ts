@@ -29,7 +29,7 @@ test.describe("chat markdown rendering", () => {
     await ensureChatPanel(page);
 
     // Select the local provider (deterministic, no external calls).
-    await page.locator(".chat-provider-trigger").click();
+    await page.locator(".chat-column-model-chip").click();
     await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
     await page.getByTitle("Close provider and model catalog").click();
 
@@ -91,7 +91,7 @@ test.describe("chat markdown rendering", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    await page.locator(".chat-provider-trigger").click();
+    await page.locator(".chat-column-model-chip").click();
     await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
     await page.getByTitle("Close provider and model catalog").click();
 

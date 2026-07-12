@@ -16,7 +16,7 @@ async function ensureChatPanel(page: Page) {
 }
 
 async function selectLocalProvider(page: Page) {
-  await page.locator(".chat-provider-trigger").click();
+  await page.locator(".chat-column-model-chip").click();
   await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
   await page.getByTitle("Close provider and model catalog").click();
 }

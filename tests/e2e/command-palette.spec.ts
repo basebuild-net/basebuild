@@ -80,7 +80,7 @@ test.describe("Command palette (chat-command-palette)", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    const commandsBtn = page.getByTitle("Open the command palette — browse and insert slash commands").first();
+    const commandsBtn = page.getByTitle("Open command palette").first();
     await expect(commandsBtn).toBeVisible({ timeout: 5_000 });
     await commandsBtn.click();
     await page.waitForTimeout(200);

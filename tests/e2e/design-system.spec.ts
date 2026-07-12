@@ -140,7 +140,7 @@ test.describe("Design system invariants (DESIGN.md)", () => {
     await ensureChatPanel(page);
 
     // Open the provider picker modal.
-    await page.locator(".chat-provider-trigger").first().click();
+    await page.locator(".chat-column-model-chip").first().click();
     await expect(page.locator(".provider-catalog-overlay").first()).toBeVisible({ timeout: 5_000 });
 
     // The modal should use the standard modal-overlay + modal pattern.
@@ -203,24 +203,16 @@ test.describe("Design system invariants (DESIGN.md)", () => {
     expect(scrollWidth, "No horizontal scroll at 1280px").toBeLessThanOrEqual(clientWidth + 1);
   });
 
-  test("context strip shows workspace id and model", async ({ page }) => {
+  test("compact header shows model and context with tooltips", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    const strip = page.locator(".chat-context-strip").first();
-    await expect(strip).toBeVisible({ timeout: 5_000 });
-
-    // DESIGN.md: context strip shows workspace id, branch, model.
-    // Check that at least the model chip is present.
-    const chips = strip.locator(".chat-context-chip");
-    const chipCount = await chips.count();
-    expect(chipCount).toBeGreaterThan(0);
-
-    // Each chip should have a tooltip.
-    for (let i = 0; i < chipCount; i++) {
-      const title = await chips.nth(i).getAttribute("title");
-      expect(title, `Context chip ${i} should have a title tooltip`).toBeTruthy();
-    }
+    const model = page.locator(".chat-column-model-chip").first();
+    const context = page.locator(".chat-header-context").first();
+    await expect(model).toBeVisible({ timeout: 5_000 });
+    await expect(context).toBeVisible();
+    await expect(model).toHaveAttribute("title", /Model:/);
+    await expect(context).toHaveAttribute("title", /Context usage:/);
   });
 
   test("command strip stage buttons have status colors", async ({ page }) => {

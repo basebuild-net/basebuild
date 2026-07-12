@@ -211,11 +211,10 @@ collapsible to icon-only) and the center chat surface (fills the rest).
   Collapsing the column to icon-only hides the list and labels; tooltips carry
   the full text.
 
-- **Center chat surface:** The whole center is the active chat. No tool tabs,
-  no right panel. The session header is minimal (title, status pill). The chat
-  transcript fills the height, scrolling independently, with the composer pinned
-  to the bottom. Two things float over the chat on the top-right; everything
-  else is the conversation.
+- **Center chat surface:** The whole center is the active chat. No tool tabs or
+  right panel. A compact sticky configuration header sits above the independently
+  scrolling transcript, and the composer stays pinned to the bottom. Two things
+  float over the chat on the top-right; everything else is the conversation.
 
 ### Floating environment info (top-right of chat)
 
@@ -253,31 +252,33 @@ chat.
 
 ### Chat composer
 
-The composer is simple on purpose: a tall, roomy input and only the controls
-you need every turn — no crowded button bars, no overflow menus hiding the
-essentials.
+The composer is intentionally minimal: a compact two-line input that grows for
+long drafts, plus send/stop. Configuration belongs in one sticky header instead
+of being repeated above and below the input.
 
-- **Tall, growing input.** The text field is multi-line by default and grows
-  as you type, expanding to a generous height so long prompts stay fully
-  readable while drafting before it scrolls internally. The message list above
-  yields space to the input, never the other way around.
-- **Model and effort always visible.** The model picker and effort selector
-  sit on one compact row with the input and are never tucked away. Provider /
-  connection status appears inline only when action is needed (e.g. connect).
-- **Context size + usage.** Next to model/effort, a compact readout shows the
-  active context window size and current usage (tokens used vs. the model's
-  context limit) so you can see how much headroom you have left.
-- **Voice input.** A microphone button on the input row toggles voice-to-text
-  into the chat box. While active, it shows a recording state; the transcript
-  is inserted at the cursor in the input field.
-- **Minimal chrome.** Send, model, effort, mic, and context readout are the
-  controls that matter. Rarer actions are reached through slash commands
-  (`/login`, `/model`, `/models refresh`) instead of adding more buttons.
-- **Pinned, never clipped.** The composer stays at the bottom of the chat
-  panel at any window size; the conversation scrolls, the composer does not.
-- While the catalog loads, the selectors show placeholder skeletons; every
-  control has a tooltip. Offline (local-coordinator) replies carry an amber
-  "Offline" tag so local output is never mistaken for a provider answer.
+- **Compact, growing input.** The text field starts at two lines and grows as
+  you type, remaining readable for long prompts before it scrolls internally.
+  The message list yields space to the input, never the other way around.
+- **One configuration header.** Model, effort, textual permission mode, run
+  state, context usage, and branch live in the sticky chat header. Model opens
+  the provider/model workspace; effort and permission use compact dropdowns.
+- **Measured context circle.** A small circular indicator shows the latest
+  completed session request against the selected model's context window. Its
+  tooltip carries the exact token ratio and percentage. A new chat shows zero,
+  never ambiguous “unknown usage” text.
+- **Minimal chrome.** The footer contains only the growing input and send/stop.
+  Commands have one header icon. Copy/debug/history and other rare actions live
+  in the header menu or slash-command flows.
+- **Focused surface.** Focusing the textarea outlines the complete composer
+  area in orange so keyboard focus is unambiguous.
+- **Pinned, never clipped.** The composer stays at the bottom of the chat panel
+  at any window size; the conversation scrolls, the composer does not.
+- **Follow latest by default.** New turns and streamed output remain visible
+  while the reader is at the bottom. Scrolling upward preserves the reading
+  position until the reader returns to the bottom or uses the latest control.
+- Every interactive control has a tooltip. Offline (local-coordinator) replies
+  carry an amber “Offline” tag so local output is never mistaken for a provider
+  answer.
 
 ## Collapsible Columns
 
@@ -303,23 +304,26 @@ The shell has four ownership levels. A control belongs to one level only:
 
 The top bar is an orientation/action strip, not a telemetry dump. It contains
 named project utilities, project/branch/workspace context, and planning stages.
-Provider/model/effort live in the composer configuration area; raw session ids,
-inactive-plan placeholders, and duplicate model/project badges do not render.
+The per-chat sticky header owns provider/model/effort/permission/context; raw
+session ids, global request totals, inactive-plan placeholders, and duplicate
+model/project badges do not render.
 
 ### Selection controls
 
-Native `<select>` dropdowns are banned for enumerated choices. A fixed set of
-2-6 options (permission mode, effort, plan status, engine, scheduling,
-workspace policy, decisions) renders as a **square option list**: a bordered
-button group showing every option at once, active option marked with the
-orange CTA underline and `aria-pressed`, each option carrying a `title`
-tooltip. No dropdown click cost, no OS-rounded styling, nothing hidden.
+Fixed, roomy settings choices use a **square option list**: a bordered row of
+buttons where the active option has an orange underline, `aria-pressed`, and a
+tooltip. Exception: the dense chat header uses square native dropdowns for
+effort and permission mode so all configuration fits on one 28px rail without
+duplicating controls in the composer. These dropdowns retain 0px geometry,
+visible text, keyboard support, and `title=` tooltips.
 
-- **Option list** — 2-6 fixed options. All visible, one active. Square,
-  0px radius, 1px outline border around the group.
+- **Option list** — 2-6 fixed options in forms and settings. All visible, one
+  active. Square, 0px radius, 1px outline border around the group.
+- **Compact header dropdown** — effort and permission mode in the chat header.
+  Text remains visible; the menu opens only when the user changes configuration.
 - **Card catalog** — models and providers only. The searchable card grid
   (provider cards, model rows) stays the single pattern for model selection.
-- **Native `<select>`** — permitted only for long dynamic lists (runtime
+- **Native `<select>`** — also permitted for long dynamic lists (runtime
   profiles, git AI provider/model, category filters) until a dedicated
   list-picker capability replaces them.
 

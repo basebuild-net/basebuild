@@ -17,7 +17,7 @@ async function ensureChatPanel(page: Page) {
 
 async function openProviderPicker(page: Page) {
   await ensureChatPanel(page);
-  await page.locator(".chat-provider-trigger").first().click();
+  await page.locator(".chat-column-model-chip").first().click();
   await expect(page.locator(".provider-catalog-overlay").first()).toBeVisible({ timeout: 5_000 });
 }
 

@@ -309,32 +309,84 @@ export function ProjectSidebar({
   }
 }
 
+const RECENT_PROJECT_CACHE_KEY = "basebuild.recent-projects.v1";
+
+function readRecentProjectCache(): RecentProject[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(RECENT_PROJECT_CACHE_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is RecentProject => {
+      if (!item || typeof item !== "object") return false;
+      const candidate = item as Partial<RecentProject>;
+      return typeof candidate.path === "string"
+        && typeof candidate.name === "string"
+        && typeof candidate.lastOpenedAt === "number"
+        && (candidate.lastActiveSessionId === null || typeof candidate.lastActiveSessionId === "string");
+    });
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentProjectCache(projects: RecentProject[]) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(RECENT_PROJECT_CACHE_KEY, JSON.stringify(projects));
+  } catch {
+    // SQLite remains authoritative when webview storage is unavailable.
+  }
+}
+
 export function useProjectSidebar(activeProjectPath: string | null) {
-  const [projects, setProjects] = useState<RecentProject[]>([]);
+  const [projects, setProjects] = useState<RecentProject[]>(readRecentProjectCache);
+  const [projectsReady, setProjectsReady] = useState(false);
   const [projectDetection, setProjectDetection] = useState<ProjectDetection | null>(null);
   const [sessionsByProject, setSessionsByProject] = useState<Map<string, Session[]>>(new Map());
   const [pickerInFlight, setPickerInFlight] = useState(false);
   const pickerPromiseRef = useRef<Promise<string | null> | null>(null);
+  const hydrationGenerationRef = useRef(0);
   const { addLog } = useLogs();
+
+  async function hydrateProjectSessions(list: RecentProject[], priorityPath: string | null) {
+    const generation = ++hydrationGenerationRef.current;
+    const ordered = priorityPath
+      ? [...list.filter((project) => project.path === priorityPath), ...list.filter((project) => project.path !== priorityPath)]
+      : list;
+    for (let index = 0; index < ordered.length; index += 1) {
+      if (generation !== hydrationGenerationRef.current) return;
+      const project = ordered[index];
+      try {
+        const sessions = await listSessions(project.path);
+        if (generation !== hydrationGenerationRef.current) return;
+        setSessionsByProject((current) => {
+          const next = new Map(current);
+          next.set(project.path, sessions);
+          return next;
+        });
+      } catch {
+        // A missing project or transient read does not block other projects.
+      }
+      // Prioritize the first (active) project, then yield between inactive
+      // histories so project selection and the first chat can paint.
+      if (index < ordered.length - 1) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      }
+    }
+  }
 
   async function refreshProjects() {
     try {
       const list = await listRecentProjects();
       setProjects(list);
-      // Fetch sessions for ALL projects in parallel
-      const entries = await Promise.all<[string, Session[]]>(
-        list.map(async (p) => {
-          try {
-            const sessions = await listSessions(p.path);
-            return [p.path, sessions] as [string, Session[]];
-          } catch {
-            return [p.path, [] as Session[]] as [string, Session[]];
-          }
-        }),
-      );
-      setSessionsByProject(new Map(entries));
+      writeRecentProjectCache(list);
+      void hydrateProjectSessions(list, activeProjectPath);
+      setProjectsReady(true);
     } catch {
-      // ignore
+      // Cached rows are orientation-only and must never activate a project
+      // when SQLite cannot confirm the authoritative recent-project list.
+      setProjects([]);
+      setProjectsReady(true);
     }
   }
 
@@ -421,5 +473,10 @@ export function useProjectSidebar(activeProjectPath: string | null) {
     }
   }, [activeProjectPath]);
 
-  return { projects, projectDetection, sessionsByProject, refreshProjects, refreshSessions, selectProject, removeProject, openFolder, pickerInFlight, isPickerInFlight: () => pickerPromiseRef.current !== null };
+  useEffect(() => {
+    if (!activeProjectPath || projects.length === 0) return;
+    void hydrateProjectSessions(projects, activeProjectPath);
+  }, [activeProjectPath]);
+
+  return { projects, projectsReady, projectDetection, sessionsByProject, refreshProjects, refreshSessions, selectProject, removeProject, openFolder, pickerInFlight, isPickerInFlight: () => pickerPromiseRef.current !== null };
 }

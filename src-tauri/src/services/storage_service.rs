@@ -10,6 +10,11 @@ use crate::{models::recent_project::RecentProject, services::storage_paths::Stor
 #[derive(Debug, Default)]
 pub struct StorageService;
 
+// Increment whenever `initialize` gains a schema-changing migration. Existing
+// databases run the idempotent initializer once per version; current databases
+// skip its ~50 table/column probes entirely on normal launches.
+const CURRENT_SCHEMA_VERSION: i64 = 1;
+
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
         let paths = StoragePathService::ensure_global_layout()?;
@@ -17,11 +22,9 @@ impl StorageService {
     }
 
     pub fn connect() -> Result<Connection, String> {
-        // Run schema init/migrations at most once per DB path per process.
-        // The CREATE TABLE / ALTER TABLE probes are idempotent but expensive
-        // (~50 tables + column-migration checks); re-running them on every
-        // connection made boot and chat-load slow. Keyed by path so
-        // test-isolated DBs each initialize exactly once.
+        // Serialize the first connection per database path. The persisted
+        // `user_version` is the cross-process fast path; this set avoids even
+        // that probe after the first connection in this process.
         static INITIALIZED_DBS: std::sync::LazyLock<
             parking_lot::Mutex<std::collections::HashSet<PathBuf>>,
         > = std::sync::LazyLock::new(|| parking_lot::Mutex::new(std::collections::HashSet::new()));
@@ -46,11 +49,8 @@ impl StorageService {
         connection
             .busy_timeout(std::time::Duration::from_millis(5000))
             .map_err(|e| format!("Failed to set busy_timeout: {e}"))?;
-        // WAL: readers don't block writers; sticky (set once at startup, but
-        // idempotent per-connect so every connection sees the right mode).
-        // Ignore "database is locked" here — WAL is already set by the first
-        // connection; a concurrent set just confirms the mode.
-        let _ = connection.pragma_update(None, "journal_mode", "WAL");
+        // WAL is sticky. Set it once per process below instead of asking
+        // SQLite to rewrite/confirm journal mode for every short-lived read.
         // Normal synchronous is safe with WAL and avoids the fsync-per-commit
         // cost of FULL.
         connection
@@ -58,11 +58,21 @@ impl StorageService {
             .map_err(|e| format!("Failed to set synchronous mode: {e}"))?;
 
         {
-            // Hold the lock across check+init so concurrent first-time connects
-            // block until the schema exists rather than racing a half-built DB.
+            // Hold the lock across journal setup, version check, migration,
+            // and version write so concurrent first-time connections cannot
+            // observe a half-prepared schema.
             let mut initialized = INITIALIZED_DBS.lock();
             if !initialized.contains(&db_path) {
-                Self::initialize(&connection)?;
+                let _ = connection.pragma_update(None, "journal_mode", "WAL");
+                let schema_version = connection
+                    .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                    .map_err(|error| format!("Failed to read schema version: {error}"))?;
+                if schema_version < CURRENT_SCHEMA_VERSION {
+                    Self::initialize(&connection)?;
+                    connection
+                        .pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)
+                        .map_err(|error| format!("Failed to persist schema version: {error}"))?;
+                }
                 initialized.insert(db_path.clone());
             }
         }
@@ -1486,6 +1496,32 @@ mod tests {
             .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
             .unwrap();
         assert_eq!(timeout, 5000);
+        let schema_version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(schema_version, CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn connect_skips_initializer_for_current_schema_version() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let db_path = StorageService::state_db_path().unwrap();
+        let seeded = Connection::open(&db_path).unwrap();
+        seeded
+            .pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)
+            .unwrap();
+        drop(seeded);
+
+        let conn = StorageService::connect().unwrap();
+        let table_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'recent_projects'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(table_count, 0, "current databases must bypass the full initializer");
     }
 
     #[test]

@@ -15,33 +15,44 @@ async function ensureChatPanel(page: Page) {
   await page.waitForTimeout(500);
 }
 
+async function debugAction(page: Page) {
+  const header = page.locator(".chat-column-header").first();
+  await header.getByTitle("More actions").click();
+  return header.locator(".chat-more-menu-item").filter({ hasText: /debug events/i }).first();
+}
+
+async function toggleDebug(page: Page) {
+  const action = await debugAction(page);
+  await expect(action).toBeVisible();
+  await action.click();
+}
+
 test.describe("Debug mode", () => {
-  test("debug toggle button is visible below chat input", async ({ page }) => {
+  test("debug action is available from the compact header menu", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    const debugBtn = page.locator(".chat-debug-toggle").first();
-    await expect(debugBtn).toBeVisible({ timeout: 5_000 });
-    await expect(debugBtn).toHaveAttribute("title", /Debug mode/i);
+    const action = await debugAction(page);
+    await expect(action).toBeVisible({ timeout: 5_000 });
+    await expect(action).toHaveAttribute("title", /raw event data|debug event rendering/i);
   });
 
   test("clicking debug toggle activates debug mode", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    const debugBtn = page.locator(".chat-debug-toggle").first();
+    const debugPanel = page.locator(".chat-debug-panel");
 
     // Initially off (no debug panel).
-    await expect(page.locator(".chat-debug-panel")).toHaveCount(0);
+    await expect(debugPanel).toHaveCount(0);
 
     // Turn on.
-    await debugBtn.click();
+    await toggleDebug(page);
 
     // Debug panel should appear.
-    await expect(page.locator(".chat-debug-panel").first()).toBeVisible({ timeout: 3_000 });
-
-    // Toggle button should show active state.
-    await expect(debugBtn).toHaveClass(/chat-debug-toggle-on/);
+    await expect(debugPanel.first()).toBeVisible({ timeout: 3_000 });
+    const action = await debugAction(page);
+    await expect(action).toContainText("Hide debug events");
   });
 
   test("debug panel shows expand toggle with event count", async ({ page }) => {
@@ -49,7 +60,7 @@ test.describe("Debug mode", () => {
     await ensureChatPanel(page);
 
     // Turn on debug mode.
-    await page.locator(".chat-debug-toggle").first().click();
+    await toggleDebug(page);
 
     const panelToggle = page.locator(".chat-debug-panel-toggle").first();
     await expect(panelToggle).toBeVisible();
@@ -62,7 +73,7 @@ test.describe("Debug mode", () => {
     await ensureChatPanel(page);
 
     // Turn on debug mode.
-    await page.locator(".chat-debug-toggle").first().click();
+    await toggleDebug(page);
 
     // Expand the panel.
     await page.locator(".chat-debug-panel-toggle").first().click();
@@ -84,7 +95,7 @@ test.describe("Debug mode", () => {
     await ensureChatPanel(page);
 
     // Turn on debug mode.
-    await page.locator(".chat-debug-toggle").first().click();
+    await toggleDebug(page);
     await expect(page.locator(".chat-debug-panel").first()).toBeVisible();
 
     // Reload page.
@@ -101,7 +112,7 @@ test.describe("Debug mode", () => {
     await ensureChatPanel(page);
 
     // Turn on debug mode and expand.
-    await page.locator(".chat-debug-toggle").first().click();
+    await toggleDebug(page);
     await page.locator(".chat-debug-panel-toggle").first().click();
 
     // Clear button should be visible.
@@ -115,11 +126,11 @@ test.describe("Debug mode", () => {
     await ensureChatPanel(page);
 
     // Turn on.
-    await page.locator(".chat-debug-toggle").first().click();
+    await toggleDebug(page);
     await expect(page.locator(".chat-debug-panel").first()).toBeVisible();
 
     // Turn off.
-    await page.locator(".chat-debug-toggle").first().click();
+    await toggleDebug(page);
     await expect(page.locator(".chat-debug-panel")).toHaveCount(0);
   });
 });

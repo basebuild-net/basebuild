@@ -53,16 +53,16 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
 
     // Establish a deterministic starting model; session restore may otherwise
     // legitimately retain the model chosen by a previous test.
-    await page.locator(".chat-model-trigger").first().click();
+    await page.locator(".chat-column-model-chip").first().click();
     await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
     await page.getByTitle("Close provider and model catalog").click();
 
-    // The composer shows the model. The header may also show a model chip.
-    await expect(page.locator(".chat-model-trigger").first()).toContainText("Local Coordinator");
+    // The compact header shows the selected model.
+    await expect(page.locator(".chat-column-model-chip").first()).toContainText("Local");
 
     // Open the model picker and select a different model.
     await page.evaluate(() => {
-      const btn = document.querySelector<HTMLButtonElement>(".chat-model-trigger");
+      const btn = document.querySelector<HTMLButtonElement>(".chat-column-model-chip");
       btn?.click();
     });
     await expect(page.locator(".provider-catalog-overlay[aria-label='Provider and model catalog']")).toBeVisible();
@@ -73,7 +73,7 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     if (await umansItem.count() > 0) {
       await umansItem.click();
       // The composer model control updates to the new model.
-      await expect(page.locator(".chat-model-trigger").first()).toContainText("Umans GLM 5.2");
+      await expect(page.locator(".chat-column-model-chip").first()).toContainText("Umans GLM 5.2");
     }
 
     expect(pageErrors).toEqual([]);
@@ -139,14 +139,10 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
-    // The effort selector is a square option list in the composer rail.
-    const effortList = page.locator(".chat-composer-header .option-list[aria-label='Effort level']").first();
-    await expect(effortList).toBeVisible({ timeout: 5_000 });
-
-    // Exactly one active option, and every option has a tooltip.
-    const activeOption = effortList.locator(".option-list-btn.is-active");
-    await expect(activeOption).toHaveCount(1);
-    await expect(activeOption).toHaveAttribute("title");
+    const effortSelect = page.locator(".chat-header-select[aria-label='Effort level']").first();
+    await expect(effortSelect).toBeVisible({ timeout: 5_000 });
+    await expect(effortSelect).toHaveAttribute("title", /Effort level:/);
+    expect(await effortSelect.locator("option").count()).toBeGreaterThan(1);
 
     expect(pageErrors).toEqual([]);
    });
@@ -162,10 +158,10 @@ test.describe("Provider/model catalog: connected-first ordering and modal layout
     await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
-    // Open the provider catalog modal via the composer trigger.
-    const providerTrigger = page.locator(".chat-provider-trigger").first();
-    await expect(providerTrigger).toBeVisible({ timeout: 5_000 });
-    await providerTrigger.click({ force: true });
+    // Open the provider catalog modal from the header model control.
+    const modelTrigger = page.locator(".chat-column-model-chip").first();
+    await expect(modelTrigger).toBeVisible({ timeout: 5_000 });
+    await modelTrigger.click({ force: true });
 
     // The modal overlay should be visible.
     await expect(page.locator(".provider-catalog-overlay")).toBeVisible({ timeout: 5_000 });
@@ -204,7 +200,7 @@ test.describe("Provider/model catalog: connected-first ordering and modal layout
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
     // Open the provider catalog modal.
-    await page.locator(".chat-provider-trigger").first().click({ force: true });
+    await page.locator(".chat-column-model-chip").first().click({ force: true });
     await expect(page.locator(".provider-catalog-overlay")).toBeVisible({ timeout: 5_000 });
 
     // Model rows should have capability badges (Tools, Reasoning, or effort).

@@ -28,18 +28,15 @@ test.describe("native chat workspace", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    // The compact composer rail with provider/model/effort controls should be visible.
-    await expect(page.locator(".chat-composer-header")).toBeVisible();
-    await expect(page.locator(".chat-provider-trigger")).toBeVisible();
-    await expect(page.locator(".chat-model-trigger")).toBeVisible();
-    await page.locator(".chat-provider-trigger").click();
+    // Model, effort, permissions, and context are consolidated in the header.
+    await expect(page.locator(".chat-column-model-chip")).toBeVisible();
+    await expect(page.locator(".chat-header-select[aria-label='Effort level']")).toBeVisible();
+    await expect(page.locator(".chat-header-select[aria-label='Permission mode']")).toBeVisible();
+    const context = page.locator(".chat-header-context");
+    await expect(context).toHaveAttribute("title", /Context usage: 0 .*tokens/);
+    await page.locator(".chat-column-model-chip").click();
     await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
     await page.getByTitle("Close provider and model catalog").click();
-    await expect(page.locator(".option-list[aria-label='Effort level'] .option-list-btn.is-active")).not.toBeEmpty();
-    await expect(page.locator(".chat-provider-trigger")).toContainText("Basebuild Local");
-
-    // Metrics bar should render with 0 req initially.
-    await expect(page.locator(".chat-metrics")).toContainText("0 req");
 
     // Type and send a message.
     const usersBefore = await page.locator(".chat-message-user").count();
@@ -55,8 +52,8 @@ test.describe("native chat workspace", () => {
     // The local-coordinator turn is explicitly labeled offline.
     await expect(page.locator(".chat-offline-tag")).toBeVisible();
 
-    // The metrics bar should now reflect one request.
-    await expect(page.locator(".chat-metrics")).toContainText("1 req");
+    // The latest request updates the session-scoped context indicator.
+    await expect(context).not.toHaveAttribute("title", /Context usage: 0 .*tokens/);
 
     expect(pageErrors).toEqual([]);
     expect(consoleErrors).toEqual([]);
@@ -71,20 +68,14 @@ test.describe("native chat workspace", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    await page.locator(".chat-provider-trigger").click();
+    await page.locator(".chat-column-model-chip").click();
     const catalogModal = page.locator('.provider-catalog-overlay[aria-label="Provider and model catalog"]');
     await expect(catalogModal).toBeVisible();
     await expect(catalogModal.locator(".provider-card.is-connected").first()).toBeVisible();
     await expect(catalogModal.locator(".provider-status.is-connected").first()).toContainText("Connected");
     await catalogModal.locator(".provider-card", { hasText: "OpenAI" }).first().click();
-
-    // The catalog closes after selecting a provider so the composer controls update.
     await page.getByTitle("Close provider and model catalog").click();
 
-    // The composer shows a degraded setup state and a Connect affordance.
-    await expect(page.locator(".chat-provider-trigger")).toContainText("OpenAI");
-    await expect(page.locator(".chat-provider-trigger")).toHaveClass(/is-warn/);
-    await expect(page.locator(".chat-composer-header button[title*='Connect']")).toBeVisible();
 
     // Attempting to send opens the connect prompt and keeps the draft; no turn is sent.
     const messageCountBefore = await page.locator(".chat-message-user").count();
@@ -112,7 +103,7 @@ test.describe("native chat workspace", () => {
     await ensureChatPanel(page);
 
     // Select the connected Umans provider and generate ideas from the overflow menu.
-    await page.locator(".chat-provider-trigger").click();
+    await page.locator(".chat-column-model-chip").click();
     await page.locator(".provider-card", { hasText: "Umans" }).click();
     await page.getByTitle("Idea generation actions").click();
     await page.getByTitle("Quick freeform idea generation in the chat").click();
@@ -137,7 +128,7 @@ test.describe("native chat workspace", () => {
     await page.locator(".provider-card", { hasText: "Umans" }).click();
     await expect(page.locator(".provider-model-row", { hasText: "Umans GLM 5.2" })).toBeVisible();
     await page.locator(".provider-model-row", { hasText: "Umans GLM 5.2" }).click();
-    await expect(page.locator(".chat-model-trigger")).toContainText("Umans GLM 5.2");
+    await expect(page.locator(".chat-column-model-chip")).toContainText("Umans GLM 5.2");
 
     await page.getByTitle(/Chat input/).first().fill("/models refresh");
     await page.getByTitle("Send message").click();
@@ -153,14 +144,14 @@ test.describe("native chat workspace", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    await page.locator(".chat-provider-trigger").click();
+    await page.locator(".chat-column-model-chip").click();
     await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
     await page.getByTitle("Close provider and model catalog").click();
     // Send is a silent no-op until the native session binds and the provider
     // switch settles — wait for both before clicking (fixture rows would
     // otherwise satisfy `.last()` visibility vacuously).
     await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
-    await expect(page.locator(".chat-provider-trigger")).toContainText("Basebuild Local");
+    await expect(page.locator(".chat-column-model-chip")).toContainText("Local");
     const usersBefore = await page.locator(".chat-message-user").count();
 
     await page.getByTitle(/Chat input/).first().fill("/skill:caveman hello world");
@@ -192,11 +183,11 @@ test.describe("native chat workspace", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    await page.locator(".chat-provider-trigger").click();
+    await page.locator(".chat-column-model-chip").click();
     await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
     await page.getByTitle("Close provider and model catalog").click();
     await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
-    await expect(page.locator(".chat-provider-trigger")).toContainText("Basebuild Local");
+    await expect(page.locator(".chat-column-model-chip")).toContainText("Local");
     const assistantsBefore = await page.locator(".chat-message-assistant").count();
 
     await page.getByTitle(/Chat input/).first().fill("model-label-test");
@@ -214,11 +205,11 @@ test.describe("native chat workspace", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    await page.locator(".chat-provider-trigger").click();
+    await page.locator(".chat-column-model-chip").click();
     await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
     await page.getByTitle("Close provider and model catalog").click();
     await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
-    await expect(page.locator(".chat-provider-trigger")).toContainText("Basebuild Local");
+    await expect(page.locator(".chat-column-model-chip")).toContainText("Local");
     const usersBefore = await page.locator(".chat-message-user").count();
 
     await page.getByTitle(/Chat input/).first().fill("alignment-test");
@@ -247,11 +238,11 @@ test.describe("native chat workspace", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    await page.locator(".chat-provider-trigger").click();
+    await page.locator(".chat-column-model-chip").click();
     await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
     await page.getByTitle("Close provider and model catalog").click();
     await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
-    await expect(page.locator(".chat-provider-trigger")).toContainText("Basebuild Local");
+    await expect(page.locator(".chat-column-model-chip")).toContainText("Local");
 
     await page.getByTitle(/Chat input/).first().fill("stream-test");
     await expect(page.getByTitle("Send message")).toBeEnabled();

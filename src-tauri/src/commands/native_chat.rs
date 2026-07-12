@@ -15,8 +15,10 @@ use crate::{
 };
 
 #[tauri::command]
-pub fn native_provider_catalog() -> Result<NativeProviderCatalog, String> {
-    Ok(NativeChatService::provider_catalog())
+pub async fn native_provider_catalog() -> Result<NativeProviderCatalog, String> {
+    tauri::async_runtime::spawn_blocking(NativeChatService::provider_catalog)
+        .await
+        .map_err(|error| format!("Provider-catalog task panicked: {error}"))
 }
 
 #[tauri::command]
@@ -47,8 +49,10 @@ pub fn native_chat_start(request: NativeChatStartRequest) -> Result<NativeChatSe
 }
 
 #[tauri::command]
-pub fn native_chat_get(session_id: String) -> Result<Option<NativeChatSession>, String> {
-    NativeChatService::get_session(&session_id)
+pub async fn native_chat_get(session_id: String) -> Result<Option<NativeChatSession>, String> {
+    tauri::async_runtime::spawn_blocking(move || NativeChatService::get_session(&session_id))
+        .await
+        .map_err(|error| format!("Chat-session task panicked: {error}"))?
 }
 
 #[tauri::command]
@@ -72,8 +76,10 @@ pub fn native_chat_history(limit: Option<i64>) -> Result<Vec<NativeChatHistoryEn
 }
 
 #[tauri::command]
-pub fn native_chat_messages(session_id: String) -> Result<Vec<NativeChatMessage>, String> {
-    NativeChatService::list_messages(&session_id)
+pub async fn native_chat_messages(session_id: String) -> Result<Vec<NativeChatMessage>, String> {
+    tauri::async_runtime::spawn_blocking(move || NativeChatService::list_messages(&session_id))
+        .await
+        .map_err(|error| format!("Chat-message task panicked: {error}"))?
 }
 
 /// Delete all persisted messages and tool events for a chat session.
@@ -111,6 +117,17 @@ pub async fn native_generate_ideas(
 #[tauri::command]
 pub fn native_request_metrics(limit: Option<u32>) -> Result<Vec<NativeRequestMetric>, String> {
     NativeChatService::list_metrics(limit.unwrap_or(100))
+}
+
+#[tauri::command]
+pub async fn native_session_latest_metric(
+    session_id: String,
+) -> Result<Option<NativeRequestMetric>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        NativeChatService::latest_metric_for_session(&session_id)
+    })
+    .await
+    .map_err(|error| format!("Session-metric task panicked: {error}"))?
 }
 
 #[tauri::command]
@@ -161,8 +178,10 @@ pub fn native_chat_resolve_approval(
 }
 
 #[tauri::command]
-pub fn native_chat_tool_events(session_id: String) -> Result<Vec<NativeToolEvent>, String> {
-    NativeChatService::list_tool_events(&session_id)
+pub async fn native_chat_tool_events(session_id: String) -> Result<Vec<NativeToolEvent>, String> {
+    tauri::async_runtime::spawn_blocking(move || NativeChatService::list_tool_events(&session_id))
+        .await
+        .map_err(|error| format!("Chat-tool-event task panicked: {error}"))?
 }
 
 #[tauri::command]
@@ -231,8 +250,10 @@ pub fn native_provider_refresh_omp_credentials(
 }
 
 #[tauri::command]
-pub fn native_chat_model_default(project_path: String) -> Result<ResolvedChatModelDefault, String> {
-    NativeChatService::resolve_model_default(&project_path)
+pub async fn native_chat_model_default(project_path: String) -> Result<ResolvedChatModelDefault, String> {
+    tauri::async_runtime::spawn_blocking(move || NativeChatService::resolve_model_default(&project_path))
+        .await
+        .map_err(|error| format!("Chat-model-default task panicked: {error}"))?
 }
 
 #[tauri::command]

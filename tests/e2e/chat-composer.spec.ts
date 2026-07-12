@@ -16,17 +16,16 @@ async function ensureChatPanel(page: Page) {
 }
 
 test.describe("Chat composer (DESIGN.md §Chat composer)", () => {
-  test("composer has a tall, growing textarea", async ({ page }) => {
+  test("composer has a compact, growing textarea", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
     const textarea = page.locator(".chat-input").first();
     await expect(textarea).toBeVisible({ timeout: 5_000 });
 
-    // DESIGN.md: multi-line by default, grows as you type.
-    // Initial rows attribute should be >= 3.
+    // Compact by default, then grows as multiline content is entered.
     const rows = await textarea.getAttribute("rows");
-    expect(parseInt(rows ?? "0", 10)).toBeGreaterThanOrEqual(3);
+    expect(parseInt(rows ?? "0", 10)).toBeGreaterThanOrEqual(2);
 
     // Verify it grows when typing.
     const initialHeight = await textarea.evaluate((el) => (el as HTMLTextAreaElement).offsetHeight);
@@ -93,66 +92,41 @@ test.describe("Chat composer (DESIGN.md §Chat composer)", () => {
     expect(title!.toLowerCase()).toMatch(/send|stop|message/);
   });
 
-  test("debug toggle button has correct tooltip", async ({ page }) => {
+  test("debug action is available from the header menu", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    const debugBtn = page.locator(".chat-debug-toggle").first();
-    const title = await debugBtn.getAttribute("title");
-    expect(title).toBeTruthy();
-    expect(title!.toLowerCase()).toContain("debug");
+    const header = page.locator(".chat-column-header").first();
+    await header.getByTitle("More actions").click();
+    await expect(header.getByText("Show debug events")).toBeVisible();
   });
 
-  test("context strip is below the input row", async ({ page }) => {
+  test("context usage lives in the header, not below the input", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    const inputRow = page.locator(".chat-input-row").first();
-    const contextStrip = page.locator(".chat-context-strip").first();
-
-    await expect(inputRow).toBeVisible();
-    await expect(contextStrip).toBeVisible({ timeout: 5_000 });
-
-    // Context strip should be after input row in DOM order.
-    const inputRowBox = await inputRow.boundingBox();
-    const stripBox = await contextStrip.boundingBox();
-
-    expect(inputRowBox).toBeTruthy();
-    expect(stripBox).toBeTruthy();
-    // Context strip should be below the input row.
-    expect(stripBox!.y).toBeGreaterThan(inputRowBox!.y);
+    await expect(page.locator(".chat-input-row").first()).toBeVisible();
+    await expect(page.locator(".chat-header-context").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".chat-context-strip")).toHaveCount(0);
   });
 
-  test("composer controls have tooltips", async ({ page }) => {
+  test("header controls have tooltips", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    // The composer rail should have provider and model triggers.
-    const providerTrigger = page.locator(".chat-provider-trigger").first();
-    const modelTrigger = page.locator(".chat-model-trigger").first();
-
-    if (await providerTrigger.count() > 0) {
-      const title = await providerTrigger.getAttribute("title");
-      expect(title, "Provider trigger should have a tooltip").toBeTruthy();
-    }
-
-    if (await modelTrigger.count() > 0) {
-      const title = await modelTrigger.getAttribute("title");
-      expect(title, "Model trigger should have a tooltip").toBeTruthy();
-    }
+    await expect(page.locator(".chat-column-model-chip").first()).toHaveAttribute("title", /Model:/);
+    await expect(page.locator(".chat-header-select[aria-label='Permission mode']").first()).toHaveAttribute("title", /Permission mode:/);
+    await expect(page.locator(".chat-header-context").first()).toHaveAttribute("title", /Context usage:/);
   });
 
-  test("effort selector has tooltip", async ({ page }) => {
+  test("effort dropdown has a tooltip and supported options", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    const effortButtons = page.locator(".chat-composer-header .option-list[aria-label='Effort level'] .option-list-btn");
-    const count = await effortButtons.count();
-    expect(count, "Effort option list should render options").toBeGreaterThan(1);
-    for (let i = 0; i < count; i++) {
-      const title = await effortButtons.nth(i).getAttribute("title");
-      expect(title, `Effort option ${i} should have a tooltip`).toBeTruthy();
-    }
+    const effortSelect = page.locator(".chat-header-select[aria-label='Effort level']").first();
+    await expect(effortSelect).toBeVisible();
+    await expect(effortSelect).toHaveAttribute("title", /Effort level:/);
+    expect(await effortSelect.locator("option").count()).toBeGreaterThan(1);
   });
 
   test("provider catalog modal opens and closes", async ({ page }) => {
@@ -160,7 +134,7 @@ test.describe("Chat composer (DESIGN.md §Chat composer)", () => {
     await ensureChatPanel(page);
 
     // Open.
-    await page.locator(".chat-provider-trigger").first().click();
+    await page.locator(".chat-column-model-chip").first().click();
     await expect(page.locator(".provider-catalog-overlay").first()).toBeVisible({ timeout: 5_000 });
 
     // Close via overlay click.
@@ -172,7 +146,7 @@ test.describe("Chat composer (DESIGN.md §Chat composer)", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    await page.locator(".chat-provider-trigger").first().click();
+    await page.locator(".chat-column-model-chip").first().click();
     await expect(page.locator(".provider-catalog-overlay").first()).toBeVisible({ timeout: 5_000 });
 
     // Should have provider cards.
@@ -190,7 +164,7 @@ test.describe("Chat composer (DESIGN.md §Chat composer)", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    await page.locator(".chat-provider-trigger").first().click();
+    await page.locator(".chat-column-model-chip").first().click();
     await expect(page.locator(".provider-catalog-overlay").first()).toBeVisible({ timeout: 5_000 });
 
     // Models section should be visible.
@@ -230,7 +204,7 @@ test.describe("Chat composer (DESIGN.md §Chat composer)", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    await page.locator(".chat-model-trigger").click();
+    await page.locator(".chat-column-model-chip").click();
     // Wait for the provider catalog modal and the model list (default provider: umans).
     await expect(page.locator(".provider-catalog-models")).toBeVisible();
     const rows = page.locator(".provider-model-row");

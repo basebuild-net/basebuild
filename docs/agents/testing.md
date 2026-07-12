@@ -149,6 +149,20 @@ journey:
 | Restart/smoke | `mvp-restart-smoke.spec.ts` | Focus restore, no duplicate activation, no orphan warnings, 60s streaming, click-to-feedback budget. |
 | UI invariants | `scripts/check-ui-invariants.mjs` | One stylesheet, 0px radius, tooltips on interactive elements, no inline styles. |
 
+### Startup and compact-chat performance regressions
+
+| Suite | What it asserts |
+|---|---|
+| Rust `connect_` storage tests | Fresh databases initialize and persist `user_version`; current databases bypass the full initializer; WAL/busy timeout remain configured. |
+| Rust `latest_metric_is_scoped_to_the_requested_session` | Context usage reads the newest metric for the active session without leaking another session's totals. |
+| `chat-composer.spec.ts` / `chat-context-strip.spec.ts` | Header owns model/effort/permission/run/context, footer has no duplicates, controls retain tooltips. |
+| `streaming-indicators.spec.ts` / `chat-ux-polish.spec.ts` | Whole-composer orange focus treatment and latest-message resume behavior. |
+| `mvp-restart-smoke.spec.ts` | Project/session restore remains single-activation and responsive after cache-first project discovery. |
+
+At the 960×640 minimum viewport, capture the chat panel and verify: 28px
+configuration header, no horizontal document overflow, compact composer, no
+composer rail/context strip, and visible focus outline after textarea focus.
+
 ## Chat experience completion test suites
 
 | Suite | What it asserts |

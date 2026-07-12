@@ -133,63 +133,28 @@ test.describe("OpenSpec wrapper integration (MVP §Golden path)", () => {
   });
 });
 
-test.describe("Context strip (MVP §Context strip)", () => {
-  test("context strip shows workspace id", async ({ page }) => {
+test.describe("Compact chat context header (MVP §Context)", () => {
+  test("header shows model, run state, branch, and measured context", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    const strip = page.locator(".chat-context-strip").first();
-    await expect(strip).toBeVisible({ timeout: 5_000 });
-
-    // Should have a workspace chip.
-    const wsChip = strip.locator(".chat-context-chip").filter({ hasText: /ws|workspace|nchat/i }).first();
-    if (await wsChip.count() > 0) {
-      await expect(wsChip).toBeVisible();
-    }
+    await expect(page.locator(".chat-column-model-chip").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".chat-header-run-state").first()).toContainText(/idle|running|queued/i);
+    await expect(page.locator(".chat-header-context").first()).toHaveAttribute("title", /Context usage:/);
+    const branch = page.locator(".chat-column-branch").first();
+    if (await branch.count() > 0) await expect(branch).toHaveAttribute("title", /Branch:/);
   });
 
-  test("context strip shows model", async ({ page }) => {
+  test("compact context controls have tooltips", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    const strip = page.locator(".chat-context-strip").first();
-    const modelChip = strip.locator(".chat-context-chip").filter({ hasText: /model/i }).first();
-    await expect(modelChip).toBeVisible();
-  });
-
-  test("context strip shows run state when idle", async ({ page }) => {
-    await openFixtureProject(page);
-    await ensureChatPanel(page);
-
-    const strip = page.locator(".chat-context-strip").first();
-    const runState = strip.locator(".chat-context-run-state").first();
-    await expect(runState).toBeVisible();
-    await expect(runState).toContainText(/idle|running|queued/i);
-  });
-
-  test("context strip shows branch", async ({ page }) => {
-    await openFixtureProject(page);
-    await ensureChatPanel(page);
-
-    const strip = page.locator(".chat-context-strip").first();
-    const branchChip = strip.locator(".chat-context-chip").filter({ hasText: /branch|main/i }).first();
-    if (await branchChip.count() > 0) {
-      await expect(branchChip).toBeVisible();
-    }
-  });
-
-  test("context strip chips have tooltips", async ({ page }) => {
-    await openFixtureProject(page);
-    await ensureChatPanel(page);
-
-    const strip = page.locator(".chat-context-strip").first();
-    const chips = strip.locator(".chat-context-chip");
-    const count = await chips.count();
-    expect(count).toBeGreaterThan(0);
-
-    for (let i = 0; i < count; i++) {
-      const title = await chips.nth(i).getAttribute("title");
-      expect(title, `Context chip ${i} should have a tooltip`).toBeTruthy();
+    for (const control of [
+      page.locator(".chat-column-model-chip").first(),
+      page.locator(".chat-header-run-state").first(),
+      page.locator(".chat-header-context").first(),
+    ]) {
+      await expect(control).toHaveAttribute("title", /.+/);
     }
   });
 });
