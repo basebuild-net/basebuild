@@ -88,6 +88,16 @@ impl AnalyticsService {
             params![CONSENT_KEY, serde_json::to_string(consent).map_err(|e| e.to_string())?],
         )
         .map_err(|e| e.to_string())?;
+        // Keep the permission-rule gate in sync with the user's consent. The
+        // usage-sync gate (`gates_pass` → allow_usage_analytics_upload) and the
+        // collection path read the permission rules, NOT this consent blob;
+        // without this propagation the visible Privacy toggle never opens the
+        // gate and sync silently never runs.
+        if let Ok(mut rules) = crate::services::settings_service::SettingsService::get_permission_rules() {
+            rules.allow_usage_analytics_collection = consent.collection_enabled;
+            rules.allow_usage_analytics_upload = consent.upload_enabled;
+            let _ = crate::services::settings_service::SettingsService::set_permission_rules(&rules);
+        }
         Ok(())
     }
 

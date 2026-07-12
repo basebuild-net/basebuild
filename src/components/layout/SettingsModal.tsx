@@ -1177,6 +1177,11 @@ function UsageSyncPanel({ signedIn }: { signedIn: boolean }) {
         subscription each message used. The app sends only aggregated usage stats (model,
         provider, subscription tier, tokens, cost, timing) — never prompts, source code, or secrets.
       </p>
+      {status && !status.gatesPass ? (
+        <p className="text-danger text-sm" title="Usage upload is currently off">
+          Syncing is paused — turn on &quot;Enable anonymous upload&quot; in Settings → Privacy to allow usage upload. Until then, Auto-sync and Sync now do nothing.
+        </p>
+      ) : null}
 
       <div className="row gap-sm flex-wrap">
         <label className="row gap-sm">
