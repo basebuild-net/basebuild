@@ -96,8 +96,9 @@ test.describe("panel grid", () => {
       });
       await page.waitForTimeout(300);
     }
-    await expect(page.locator(".history-drawer")).toBeVisible();
-    await expect(page.locator(".history-drawer-item")).toHaveCount(1);
+    await expect(page.locator(".modal-overlay[aria-label='History']")).toBeVisible();
+    // Scope to the closed-panels section — the modal also lists all chats.
+    await expect(page.locator("section[aria-label='Closed panels'] .history-modal-item")).toHaveCount(1);
 
     expect(pageErrors).toEqual([]);
   });
@@ -124,11 +125,10 @@ test.describe("panel grid", () => {
       const btn = document.querySelector<HTMLButtonElement>("button[title*='History']");
       btn?.click();
     });
-    await page.waitForTimeout(300);
-    await expect(page.locator(".history-drawer")).toBeVisible();
+    await expect(page.locator(".modal-overlay[aria-label='History']")).toBeVisible();
 
     await page.evaluate(() => {
-      const btn = document.querySelector<HTMLButtonElement>(".history-drawer-item button");
+      const btn = document.querySelector<HTMLButtonElement>(".history-modal-closed-actions button");
       btn?.click();
     });
     await page.waitForTimeout(500);

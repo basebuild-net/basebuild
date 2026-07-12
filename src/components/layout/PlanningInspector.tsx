@@ -3,16 +3,19 @@ import { FolderTree, LayoutGrid, Plus, RefreshCw, Sparkles, Trash2, X } from "lu
 import type { Plan, PlanStatus } from "../../lib/plans";
 import { isTerminalStatus } from "../../lib/plans";
 import { batchPromoteIdeas } from "../../lib/plans";
-import { enqueuePlan, listPlanRuns, markPlanRunComplete, startQueue } from "../../lib/planRuns";
+import { enqueuePlan, listPlanRuns, markPlanRunComplete, startQueue, getFinishOutcome } from "../../lib/planRuns";
 import { useOpenSpecRuntime } from "../../state/useOpenSpecRuntime";
 import { PlanPanel } from "./PlanPanel";
 import { PlanningCommandCenter } from "./PlanningCommandCenter";
 import { IntegrationQueue } from "../panels/IntegrationQueue";
 import { ChangesPanel } from "../panels/ChangesPanel";
 import { CompletionCard } from "../panels/CompletionCard";
-import type { PlanRun } from "../../lib/planRuns";
+import { IdeaRoundsSection } from "./IdeaRoundsSection";
+import { MissionControlBoard } from "./MissionControlBoard";
+import type { PlanRun, FinishOutcome } from "../../lib/planRuns";
 import { useIdeaState } from "../../state/ideas";
 import type { IdeaCategory, IdeaStatus } from "../../lib/ideas";
+import { OptionList, type OptionListOption } from "./OptionList";
 import { useProjectSchematic } from "../../state/schematic";
 import { useLogs } from "../../state/log";
 import { subscribeGrounding, getLastGrounding } from "../../state/grounding";
@@ -30,9 +33,39 @@ import {
   type EngineKind,
   type WorkspacePolicy,
   type SchedulingMode,
+  type FinishPolicy,
 } from "../../lib/planDependencies";
 
-export type PlanningTab = "plans" | "ideas" | "categories" | "flow" | "changes";
+export type PlanningTab = "plans" | "ideas" | "categories" | "flow" | "runs" | "changes";
+
+const FINISH_POLICIES: readonly FinishPolicy[] = ["hold", "auto_commit", "auto_commit_pr", "queue_merge_review"];
+function normalizeFinishPolicy(value: string | undefined): FinishPolicy {
+  return FINISH_POLICIES.find((p) => p === value) ?? "hold";
+}
+const FINISH_POLICY_LABELS: Record<FinishPolicy, string> = {
+  hold: "Hold for review",
+  auto_commit: "Auto-commit",
+  auto_commit_pr: "Auto-commit + PR",
+  queue_merge_review: "Queue merge review",
+};
+const ENGINE_OPTION_ITEMS: OptionListOption<EngineKind>[] = [
+  { id: "openspec", label: "OpenSpec", title: "Use the OpenSpec planning engine" },
+  { id: "native", label: "Native", title: "Use the native planning engine" },
+];
+const WORKSPACE_OPTION_ITEMS: OptionListOption<WorkspacePolicy>[] = [
+  { id: "isolated_worktrees", label: "Isolated worktrees", title: "Each run uses its own isolated worktree" },
+  { id: "sequential_primary", label: "Sequential primary", title: "Run sequentially in the primary worktree" },
+];
+const SCHEDULING_OPTION_ITEMS: OptionListOption<SchedulingMode>[] = [
+  { id: "safe", label: "Safe", title: "Safe scheduling — conservative dependency ordering" },
+  { id: "yolo", label: "Yolo", title: "Eager scheduling — run as soon as possible" },
+];
+const FINISH_OPTION_ITEMS: OptionListOption<FinishPolicy>[] = [
+  { id: "hold", label: "Hold for review", title: "Hold finished runs for manual review" },
+  { id: "auto_commit", label: "Auto-commit", title: "Automatically commit changes when a run finishes" },
+  { id: "auto_commit_pr", label: "Auto-commit + PR", title: "Commit changes and open a pull request" },
+  { id: "queue_merge_review", label: "Queue merge review", title: "Queue the result for merge review" },
+];
 
 type PlanningInspectorProps = {
   sessionId: string | null;
@@ -52,12 +85,15 @@ type PlanningInspectorProps = {
   onPromoteIdea?: (title: string, description: string, chatSessionId: string | null) => Promise<void> | void;
   onSuggestForCategory?: (category: IdeaCategory | null) => void;
   onGenerateFromFinishedPlans?: () => void;
+  onStartIdeaRound?: () => void;
   onGenerateCategories?: () => void;
+  /** Open grid panels (panel id ↔ chat session id) for mission control. */
+  chatPanels?: { panelId: string; chatSessionId: string | null }[];
   activeChatSessionId?: string | null;
   showHeader?: boolean;
   hostContext?: "dock" | "modal";
   onAssignPlan?: (plan: Plan, profile: LaunchProfile) => void;
-  onShowToast?: (title: string, detail?: string, kind?: "success" | "error") => void;
+  onShowToast?: (title: string, detail?: string, kind?: "success" | "warning" | "error" | "info") => void;
   initialTab?: PlanningTab;
 };
 
@@ -86,7 +122,9 @@ export function PlanningInspector({
   onPromoteIdea,
   onSuggestForCategory,
   onGenerateFromFinishedPlans,
+  onStartIdeaRound,
   onGenerateCategories,
+  chatPanels,
   activeChatSessionId,
   showHeader = true,
   hostContext = "dock",
@@ -105,6 +143,7 @@ export function PlanningInspector({
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [planRuns, setPlanRuns] = useState<PlanRun[]>([]);
   const [completionDismissed, setCompletionDismissed] = useState<Set<string>>(new Set());
+  const [finishOutcomes, setFinishOutcomes] = useState<Map<string, FinishOutcome>>(new Map());
   const [grounding, setGrounding] = useState<GroundingMetadata | null>(getLastGrounding());
   useEffect(() => {
     return subscribeGrounding(setGrounding);
@@ -118,11 +157,13 @@ export function PlanningInspector({
     workspacePolicy: WorkspacePolicy;
     schedulingMode: SchedulingMode;
     engine: EngineKind;
+    finishPolicy: FinishPolicy;
   }>({
     workerCount: 2,
     workspacePolicy: "isolated_worktrees",
     schedulingMode: "safe",
     engine: "openspec",
+    finishPolicy: "hold",
   });
   const [launchConfirmOpen, setLaunchConfirmOpen] = useState(false);
   const [launchSummary, setLaunchSummary] = useState<{
@@ -136,12 +177,20 @@ export function PlanningInspector({
     collisions: number;
     policy: WorkspacePolicy;
     schedulingMode: SchedulingMode;
+    finishPolicy: FinishPolicy;
   } | null>(null);
   const [launchSaving, setLaunchSaving] = useState(false);
   const [dependencyGraph, setDependencyGraph] = useState<DependencyGraph | null>(null);
   const [mergeQueue, setMergeQueue] = useState<MergeReviewEntry[]>([]);
   const [runBoardLoading, setRunBoardLoading] = useState(false);
   const [mergeQueueLoading, setMergeQueueLoading] = useState(false);
+  const [mergeSelected, setMergeSelected] = useState<Set<string>>(new Set());
+  const [mergeSession, setMergeSession] = useState<{
+    active: boolean;
+    currentEntryId: string | null;
+    total: number;
+    results: { entryId: string; action: "merged" | "skipped" | "conflicted"; detail?: string }[];
+  }>({ active: false, currentEntryId: null, total: 0, results: [] });
   const ideaState = useIdeaState(sessionId);
   const schematic = useProjectSchematic(projectPath);
   const { addLog } = useLogs();
@@ -163,6 +212,28 @@ export function PlanningInspector({
       .then(setPlanRuns)
       .catch(() => setPlanRuns([]));
   }, [sessionId, plans]);
+  // Fetch finish-policy outcomes for succeeded runs (for completion cards).
+  useEffect(() => {
+    const succeeded = planRuns.filter((r) => r.status === "succeeded");
+    if (succeeded.length === 0) return;
+    const missing = succeeded.filter((r) => !finishOutcomes.has(r.id));
+    if (missing.length === 0) return;
+    void (async () => {
+      const newOutcomes = new Map(finishOutcomes);
+      for (const run of missing) {
+        try {
+          const result = await getFinishOutcome(run.id);
+          if (result.kind === "applied") {
+            newOutcomes.set(run.id, result.outcome);
+          }
+        } catch {
+          // ignore — outcome not available
+        }
+      }
+      setFinishOutcomes(newOutcomes);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planRuns]);
   // Load dependency graph for the run board.
   useEffect(() => {
     if (!sessionId) {
@@ -192,7 +263,7 @@ export function PlanningInspector({
         setMergeQueue([]);
       })
       .finally(() => setMergeQueueLoading(false));
-  }, [sessionId, addLog]);
+  }, [sessionId, addLog, plans]);
   // Load saved launch profile for this project.
   useEffect(() => {
     if (!projectPath) {
@@ -208,6 +279,7 @@ export function PlanningInspector({
             workspacePolicy: profile.workspacePolicy === "sequential_primary" ? "sequential_primary" : "isolated_worktrees",
             schedulingMode: profile.schedulingMode === "yolo" ? "yolo" : "safe",
             engine: profile.engine === "native" ? "native" : "openspec",
+            finishPolicy: normalizeFinishPolicy(profile.finishPolicy),
           });
         }
       })
@@ -284,6 +356,7 @@ export function PlanningInspector({
         workerCount: launchForm.workerCount,
         workspacePolicy: launchForm.workspacePolicy,
         schedulingMode: launchForm.schedulingMode,
+        finishPolicy: launchForm.finishPolicy,
         updatedAt: Date.now(),
       };
       await saveLaunchProfile(profile);
@@ -324,6 +397,7 @@ export function PlanningInspector({
       collisions,
       policy: launchForm.workspacePolicy,
       schedulingMode: launchForm.schedulingMode,
+      finishPolicy: launchForm.finishPolicy,
     });
     setLaunchConfirmOpen(true);
   }, [plans, sessionId, launchForm, addLog]);
@@ -513,6 +587,96 @@ export function PlanningInspector({
         </div>
       );
     }
+    const pendingEntries = mergeQueue.filter((e) => e.status === "pending");
+    const reviewedEntries = mergeQueue.filter((e) => e.status !== "pending");
+    // Dependency-aware ordering: use the dependency graph to sort entries by
+    // their plan's prerequisites (prerequisites come first).
+    const ordered = [...pendingEntries].sort((a, b) => {
+      const aDeps = dependencyGraph?.nodes.find((n) => n.planId === a.planId)?.prerequisites ?? [];
+      const bDeps = dependencyGraph?.nodes.find((n) => n.planId === b.planId)?.prerequisites ?? [];
+      if (aDeps.includes(b.planId)) return 1; // a depends on b → b first
+      if (bDeps.includes(a.planId)) return -1; // b depends on a → a first
+      return 0;
+    });
+    const allSelected = pendingEntries.length > 0 && pendingEntries.every((e) => mergeSelected.has(e.id));
+    const handleToggleSelect = (entryId: string) => {
+      setMergeSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(entryId)) next.delete(entryId);
+        else next.add(entryId);
+        return next;
+      });
+    };
+    const handleToggleAll = () => {
+      if (allSelected) {
+        setMergeSelected(new Set());
+      } else {
+        setMergeSelected(new Set(pendingEntries.map((e) => e.id)));
+      }
+    };
+    const handleStartSession = () => {
+      const selected = ordered.filter((e) => mergeSelected.has(e.id));
+      if (selected.length === 0) return;
+      setMergeSession({ active: true, currentEntryId: selected[0].id, total: selected.length, results: [] });
+    };
+    const handleSessionAction = async (action: "merged" | "skipped" | "stop") => {
+      if (!mergeSession.currentEntryId) return;
+      const entryId = mergeSession.currentEntryId;
+      if (action === "stop") {
+        setMergeSession((prev) => ({ ...prev, active: false, currentEntryId: null }));
+        return;
+      }
+      if (action === "merged") {
+        try {
+          await reviewMergeEntry(entryId, "merged");
+          setMergeQueue((prev) => prev.map((e) => (e.id === entryId ? { ...e, status: "merged", reviewedAt: Date.now() } : e)));
+        } catch (e) {
+          setMergeSession((prev) => ({
+            ...prev,
+            results: [...prev.results, { entryId, action: "conflicted", detail: e instanceof Error ? e.message : String(e) }],
+          }));
+          advanceSession();
+          return;
+        }
+      }
+      setMergeSession((prev) => ({
+        ...prev,
+        results: [...prev.results, { entryId, action }],
+      }));
+      advanceSession();
+    };
+    const advanceSession = () => {
+      // Use the full mergeQueue (not just pending) to maintain stable ordering
+      // after entries are merged/skipped. Filter by selection and sort by
+      // dependency order.
+      const selectedOrdered = mergeQueue
+        .filter((e) => mergeSelected.has(e.id))
+        .sort((a, b) => {
+          const aDeps = dependencyGraph?.nodes.find((n) => n.planId === a.planId)?.prerequisites ?? [];
+          const bDeps = dependencyGraph?.nodes.find((n) => n.planId === b.planId)?.prerequisites ?? [];
+          if (aDeps.includes(b.planId)) return 1;
+          if (bDeps.includes(a.planId)) return -1;
+          return 0;
+        });
+      const currentIdx = selectedOrdered.findIndex((e) => e.id === mergeSession.currentEntryId);
+      const next = selectedOrdered[currentIdx + 1];
+      if (next) {
+        setMergeSession((prev) => ({ ...prev, currentEntryId: next.id }));
+      } else {
+        setMergeSession((prev) => ({ ...prev, active: false, currentEntryId: null }));
+      }
+    };
+    const handleCleanupMerged = () => {
+      const merged = mergeSession.results.filter((r) => r.action === "merged");
+      setMergeQueue((prev) => prev.filter((e) => !merged.some((r) => r.entryId === e.id)));
+      setMergeSession({ active: false, currentEntryId: null, total: 0, results: [] });
+      setMergeSelected(new Set());
+    };
+    // Session summary when inactive but has results.
+    const showSummary = !mergeSession.active && mergeSession.results.length > 0;
+    const mergedCount = mergeSession.results.filter((r) => r.action === "merged").length;
+    const skippedCount = mergeSession.results.filter((r) => r.action === "skipped").length;
+    const conflictedCount = mergeSession.results.filter((r) => r.action === "conflicted").length;
     return (
       <div className="merge-queue">
         <div className="run-board-header">
@@ -521,9 +685,52 @@ export function PlanningInspector({
             {mergeQueue.length} entry(ies)
           </span>
         </div>
-        {mergeQueue.map((entry) => {
+        {mergeSession.active ? (
+          <div className="merge-session-active" title="Review session in progress">
+            <span className="merge-session-label">
+              {mergeSession.results.length + 1}/{mergeSession.total}
+            </span>
+            <div className="merge-session-actions">
+              <button className="btn btn-sm btn-primary" type="button" title="Merge this entry" onClick={() => void handleSessionAction("merged")}>Merge</button>
+              <button className="btn btn-sm" type="button" title="Skip this entry" onClick={() => void handleSessionAction("skipped")}>Skip</button>
+              <button className="btn btn-sm" type="button" title="Stop the review session" onClick={() => void handleSessionAction("stop")}>Stop</button>
+            </div>
+          </div>
+        ) : null}
+        {showSummary ? (
+          <div className="merge-session-summary" title="Session summary">
+            <span className="merge-session-summary-title">Session summary</span>
+            <span className="merge-session-summary-row">Merged: {mergedCount}</span>
+            <span className="merge-session-summary-row">Skipped: {skippedCount}</span>
+            {conflictedCount > 0 ? <span className="merge-session-summary-row merge-session-conflict">Conflicted: {conflictedCount}</span> : null}
+            {mergedCount > 0 ? (
+              <button className="btn btn-sm" type="button" title="Clean up merged entries from the queue" onClick={handleCleanupMerged}>Clean up merged</button>
+            ) : null}
+          </div>
+        ) : null}
+        {!mergeSession.active ? (
+          <div className="merge-queue-batch-actions">
+            <label className="merge-queue-select-all" title="Select all pending entries">
+              <input type="checkbox" checked={allSelected} onChange={handleToggleAll} title="Select all" />
+              <span>Select all</span>
+            </label>
+            <button
+              className="btn btn-sm btn-primary"
+              type="button"
+              title="Start a guided review session for selected entries"
+              disabled={mergeSelected.size === 0}
+              onClick={handleStartSession}
+            >
+              Review &amp; merge ({mergeSelected.size})
+            </button>
+          </div>
+        ) : null}
+        {[...ordered, ...reviewedEntries].map((entry) => {
           const plan = plans.find((p) => p.id === entry.planId);
           const title = plan?.title ?? `Plan ${entry.planId.slice(0, 8)}`;
+          const isSelected = mergeSelected.has(entry.id);
+          const isCurrent = mergeSession.currentEntryId === entry.id;
+          const sessionResult = mergeSession.results.find((r) => r.entryId === entry.id);
           const tooltip = [
             `Plan: ${title}`,
             `Status: ${entry.status}`,
@@ -531,41 +738,36 @@ export function PlanningInspector({
             `Overlapping plans: ${entry.overlappingPlans.join(", ") || "none"}`,
             `Created: ${new Date(entry.createdAt).toLocaleString()}`,
             entry.reviewedAt ? `Reviewed: ${new Date(entry.reviewedAt).toLocaleString()}` : null,
+            sessionResult ? `Session: ${sessionResult.action}` : null,
           ]
             .filter((line): line is string => Boolean(line))
             .join("\n");
           return (
-            <div key={entry.id} className="merge-queue-entry" title={tooltip}>
+            <div key={entry.id} className={`merge-queue-entry${isCurrent ? " merge-queue-entry-current" : ""}`} title={tooltip}>
               <div className="merge-queue-entry-main">
+                {!mergeSession.active && entry.status === "pending" ? (
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => handleToggleSelect(entry.id)}
+                    title={`Select ${title}`}
+                  />
+                ) : null}
                 <span className="merge-queue-entry-title" title={title}>{title}</span>
                 <span className="merge-queue-entry-status" title={`Status: ${entry.status}`}>{entry.status}</span>
+                {sessionResult ? (
+                  <span className="merge-queue-entry-session-result" title={`Session result: ${sessionResult.action}`}>
+                    {sessionResult.action}
+                  </span>
+                ) : null}
               </div>
-              <div className="merge-queue-entry-actions">
-                <button
-                  className="btn btn-sm"
-                  type="button"
-                  title={`Approve merge entry ${entry.id.slice(0, 8)}`}
-                  onClick={() => void handleReviewMergeEntry(entry.id, "approved")}
-                >
-                  Approve
-                </button>
-                <button
-                  className="btn btn-sm"
-                  type="button"
-                  title={`Reject merge entry ${entry.id.slice(0, 8)}`}
-                  onClick={() => void handleReviewMergeEntry(entry.id, "rejected")}
-                >
-                  Reject
-                </button>
-                <button
-                  className="btn btn-sm btn-primary"
-                  type="button"
-                  title={`Merge entry ${entry.id.slice(0, 8)}`}
-                  onClick={() => void handleReviewMergeEntry(entry.id, "merged")}
-                >
-                  Merge
-                </button>
-              </div>
+              {!mergeSession.active ? (
+                <div className="merge-queue-entry-actions">
+                  <button className="btn btn-sm" type="button" title={`Approve merge entry ${entry.id.slice(0, 8)}`} onClick={() => void handleReviewMergeEntry(entry.id, "approved")}>Approve</button>
+                  <button className="btn btn-sm" type="button" title={`Reject merge entry ${entry.id.slice(0, 8)}`} onClick={() => void handleReviewMergeEntry(entry.id, "rejected")}>Reject</button>
+                  <button className="btn btn-sm btn-primary" type="button" title={`Merge entry ${entry.id.slice(0, 8)}`} onClick={() => void handleReviewMergeEntry(entry.id, "merged")}>Merge</button>
+                </div>
+              ) : null}
             </div>
           );
         })}
@@ -646,6 +848,14 @@ export function PlanningInspector({
             onClick={() => setTab("flow")}
           >
             Flow
+          </button>
+          <button
+            className={`inspector-tab${tab === "runs" ? " is-active" : ""}`}
+            type="button"
+            title="Mission control — live run cards with progress and estimates"
+            onClick={() => setTab("runs")}
+          >
+            Runs
           </button>
           <button
             className={`inspector-tab${tab === "changes" ? " is-active" : ""}`}
@@ -779,9 +989,40 @@ export function PlanningInspector({
             </div>
           ) : null}
           {batchResult ? <p className="text-sm text-muted">{batchResult}</p> : null}
+          <IdeaRoundsSection
+            sessionId={sessionId}
+            ideas={ideaState.ideas}
+            onStartRound={() => onStartIdeaRound?.()}
+            onDeployed={(createdCount, failed) => {
+              void ideaState.refresh();
+              setTab("plans");
+              if (failed.length > 0) {
+                onShowToast?.(
+                  `${createdCount} plan(s) created, ${failed.length} failed`,
+                  failed.map((f) => `${f.ideaId}: ${f.error}`).join("; "),
+                  "warning",
+                );
+              } else {
+                onShowToast?.(`${createdCount} plan(s) created`, "Run them through OpenSpec to reach ready, then launch into chats.", "success");
+              }
+            }}
+            onShowToast={onShowToast}
+          />
           <div className="inspector-ideas-list">
             {filteredIdeas.length === 0 ? (
-              <p className="text-muted text-sm">No ideas {statusFilter === "all" ? "yet" : `in ${statusFilter}`}.</p>
+              <div className="inspector-ideas-empty">
+                <p className="text-muted text-sm">No ideas {statusFilter === "all" ? "yet" : `in ${statusFilter}`}.</p>
+                {onStartIdeaRound && statusFilter === "all" ? (
+                  <button
+                    className="btn btn-sm btn-primary"
+                    type="button"
+                    title="Generate ideas — one-click round grounded in the schematic, decision history, and preferences"
+                    onClick={() => onStartIdeaRound()}
+                  >
+                    <Sparkles size={11} /> Generate ideas
+                  </button>
+                ) : null}
+              </div>
             ) : null}
             {filteredIdeas.map((idea) => (
               <div key={idea.id} className={`chat-idea-card chat-idea-status-${idea.status}`}>
@@ -981,12 +1222,21 @@ export function PlanningInspector({
             blocked={planRuns.filter((r) => r.status === "failed").length}
             review={planRuns.filter((r) => r.status === "awaiting_review").length}
             finished={plans.filter((p) => p.status === "finished").length}
-            onGenerateIdeas={() => { setTab("ideas"); }}
+            onGenerateIdeas={() => {
+              if (onStartIdeaRound) onStartIdeaRound();
+              else setTab("ideas");
+            }}
             onRunThroughOpenSpec={() => { setTab("plans"); }}
             onAddWorker={() => { /* Future: create a new chat panel */ }}
             onReview={() => { /* Future: focus review queue */ }}
             onMerge={() => { /* Future: open merge queue */ }}
             onArchiveSync={() => { setTab("changes"); }}
+            onStageClick={(stage) => {
+              if (stage === "queued" || stage === "running" || stage === "blocked" || stage === "review") setTab("runs");
+              else if (stage === "ideas") setTab("ideas");
+              else if (stage === "finished") setTab("changes");
+              else setTab("plans");
+            }}
           />
           {/* Launch profile */}
           <div className="launch-profile-form" title="Configure how ready plans are launched">
@@ -1011,36 +1261,39 @@ export function PlanningInspector({
               </label>
               <label className="launch-profile-field" title="Workspace isolation policy for launched runs">
                 <span>Workspace</span>
-                <select
+                <OptionList
                   value={launchForm.workspacePolicy}
-                  onChange={(e) => setLaunchForm((prev) => ({ ...prev, workspacePolicy: e.target.value as WorkspacePolicy }))}
-                  title="Workspace policy"
-                >
-                  <option value="isolated_worktrees">Isolated worktrees</option>
-                  <option value="sequential_primary">Sequential primary</option>
-                </select>
+                  options={WORKSPACE_OPTION_ITEMS}
+                  onChange={(id) => setLaunchForm((prev) => ({ ...prev, workspacePolicy: id }))}
+                  label="Workspace policy"
+                />
               </label>
               <label className="launch-profile-field" title="Scheduling safety mode">
                 <span>Scheduling</span>
-                <select
+                <OptionList
                   value={launchForm.schedulingMode}
-                  onChange={(e) => setLaunchForm((prev) => ({ ...prev, schedulingMode: e.target.value as SchedulingMode }))}
-                  title="Scheduling mode"
-                >
-                  <option value="safe">Safe</option>
-                  <option value="yolo">Yolo</option>
-                </select>
+                  options={SCHEDULING_OPTION_ITEMS}
+                  onChange={(id) => setLaunchForm((prev) => ({ ...prev, schedulingMode: id }))}
+                  label="Scheduling mode"
+                />
               </label>
               <label className="launch-profile-field" title="Execution engine for launched plans">
                 <span>Engine</span>
-                <select
+                <OptionList
                   value={launchForm.engine}
-                  onChange={(e) => setLaunchForm((prev) => ({ ...prev, engine: e.target.value as EngineKind }))}
-                  title="Engine kind"
-                >
-                  <option value="openspec">OpenSpec</option>
-                  <option value="native">Native</option>
-                </select>
+                  options={ENGINE_OPTION_ITEMS}
+                  onChange={(id) => setLaunchForm((prev) => ({ ...prev, engine: id }))}
+                  label="Engine kind"
+                />
+              </label>
+              <label className="launch-profile-field" title="What happens when a plan run finishes — hold for manual review, auto-commit to the worktree, commit + push a PR, or queue for merge review">
+                <span>On finish</span>
+                <OptionList
+                  value={launchForm.finishPolicy}
+                  options={FINISH_OPTION_ITEMS}
+                  onChange={(id) => setLaunchForm((prev) => ({ ...prev, finishPolicy: id }))}
+                  label="Finish policy"
+                />
               </label>
             </div>
             <div className="launch-profile-confirm-actions">
@@ -1102,6 +1355,7 @@ export function PlanningInspector({
                     <li><span className="label">Collisions</span><span className="value">{launchSummary.collisions}</span></li>
                     <li><span className="label">Policy</span><span className="value">{launchSummary.policy}</span></li>
                     <li><span className="label">Scheduling</span><span className="value">{launchSummary.schedulingMode}</span></li>
+                    <li><span className="label">On finish</span><span className="value">{FINISH_POLICY_LABELS[launchSummary.finishPolicy]}</span></li>
                   </ul>
                   <div className="launch-profile-confirm-actions">
                     <button
@@ -1174,6 +1428,7 @@ export function PlanningInspector({
                   key={run.id}
                   run={run}
                   projectPath={projectPath ?? ""}
+                  finishOutcome={finishOutcomes.get(run.id) ?? null}
                   onMarkComplete={async (runId) => {
                     await markPlanRunComplete(runId);
                     setPlanRuns((prev) => prev.map((r) => (r.id === runId ? { ...r, status: "succeeded" } : r)));
@@ -1198,6 +1453,16 @@ export function PlanningInspector({
           {/* Merge-review queue */}
           <MergeQueue />
         </div>
+      ) : null}
+
+      {tab === "runs" ? (
+        <MissionControlBoard
+          sessionId={sessionId}
+          projectPath={projectPath}
+          plans={plans}
+          chatPanels={chatPanels}
+          onOpenChatSession={onOpenChatSession}
+        />
       ) : null}
 
       {tab === "changes" ? (

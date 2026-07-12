@@ -168,6 +168,7 @@ export function ChatHeader(props: ChatHeaderProps) {
           className={`chat-column-mode-pill${props.agentMode === "build" ? " is-build" : " is-plan"}`}
           type="button"
           title={modeTitle}
+          aria-pressed={props.agentMode === "build"}
           onClick={props.onToggleAgentMode}
         >
           {modeLabel}

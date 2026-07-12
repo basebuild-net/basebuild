@@ -99,8 +99,23 @@ type Idea = {
   title: string;
   description: string;
   status: string;
+  grounding?: string;
+  anchor?: string | null;
+  batchId?: string | null;
   createdAt: number;
   updatedAt: number;
+};
+
+type IdeaRound = {
+  id: string;
+  sessionId: string;
+  status: string;
+  createdAt: number;
+  completedAt: number | null;
+  conceptCount: number;
+  pickedCount: number;
+  rejectedCount: number;
+  archivedCount: number;
 };
 
 type Category = {
@@ -124,9 +139,36 @@ type Plan = {
   tags: string[];
   aiEnhanced: boolean;
   context: null;
+  changeName?: string | null;
   createdAt: number;
   updatedAt: number;
   finishedAt: number | null;
+};
+
+type LaunchProfile = {
+  projectPath: string;
+  engine: string;
+  providerId: string;
+  modelId: string;
+  effortLevel?: string;
+  skillId?: string;
+  workerCount: number;
+  workspacePolicy: string;
+  schedulingMode: string;
+  finishPolicy: string;
+  updatedAt: number;
+};
+
+type MergeReviewEntry = {
+  id: string;
+  runId: string;
+  planId: string;
+  sessionId: string;
+  status: "pending" | "approved" | "rejected" | "merged";
+  collisionReviewRequired: boolean;
+  overlappingPlans: string[];
+  reviewedAt: number | null;
+  createdAt: number;
 };
 
 type E2eState = {
@@ -149,9 +191,22 @@ type E2eState = {
   ideas: Idea[];
   nextCategoryId: number;
   nextIdeaId: number;
+  ideaRounds: { id: string; sessionId: string; status: string; createdAt: number; completedAt: number | null }[];
+  activeRoundBySession: Map<string, string>;
+  nextRoundId: number;
+  nextPlanningEventSeq?: number;
+  taskProgressByChange?: Map<string, [number, number]>;
+  launchProfile?: LaunchProfile;
+  mergeQueue: MergeReviewEntry[];
   planQueue: { id: string; sessionId: string; planId: string; sortOrder: number; createdAt: number }[];
-  planRuns: { id: string; planId: string; sessionId: string; chatSessionId?: string; status: string; runnerKind: string; error?: string; stepsOutput: unknown[]; startedAt?: number; finishedAt?: number; createdAt: number }[];
+  planRuns: { id: string; planId: string; sessionId: string; chatSessionId?: string; status: string; runnerKind: string; error?: string; stepsOutput: unknown[]; startedAt?: number; finishedAt?: number; createdAt: number; finishOutcome?: unknown }[];
   planDependencies?: Map<string, { prerequisites: string[]; affectedPaths: string[]; schedulingMode: string; workspacePolicy: string }>;
+  /** e2e knob: entry ids whose "merged" review throws (simulated merge conflict). */
+  mergeReviewFailIds?: Set<string>;
+  /** e2e knob: forces the finish policy applied at plan_run_complete to record this outcome error. */
+  finishPolicyError?: string;
+  /** e2e knob: idea ids that fail during batch_promote_ideas (per-idea isolation). */
+  promoteFailIds?: Set<string>;
   workspaceRestoreByProject: Map<string, unknown>;
   recentProjects: { path: string; name: string; lastOpenedAt: number; lastActiveSessionId: string | null }[];
   pickProjectCalls: number;
@@ -199,6 +254,32 @@ function applyMvpFixture(s: E2eState): void {
   s.plans = MVP_FIXTURE_PLANS.map((plan) => ({ ...plan }));
   s.nativeChatSessions = [
     {
+      id: "mvp-native-alpha",
+      projectPath: "C:\\basebuild-e2e\\alpha",
+      title: "Alpha onboarding",
+      profileId: "basebuild-native",
+      providerId: "umans",
+      modelId: "umans-glm-5.2",
+      effortLevel: "high",
+      status: "ready",
+      runState: "idle",
+      createdAt: 1_800_000_000 - 300,
+      updatedAt: 1_800_000_000 - 280,
+    },
+    {
+      id: "mvp-native-bravo",
+      projectPath: "C:\\basebuild-e2e\\bravo",
+      title: "Bravo planning",
+      profileId: "basebuild-native",
+      providerId: "umans",
+      modelId: "umans-glm-5.2",
+      effortLevel: "high",
+      status: "ready",
+      runState: "idle",
+      createdAt: 1_800_000_000 - 200,
+      updatedAt: 1_800_000_000 - 180,
+    },
+    {
       id: "mvp-native-charlie",
       projectPath: "C:\\basebuild-e2e\\charlie",
       title: "Charlie MVP chat",
@@ -213,6 +294,28 @@ function applyMvpFixture(s: E2eState): void {
     },
   ];
   s.nativeChatMessages = [
+    {
+      id: "mvp-msg-alpha-1",
+      sessionId: "mvp-native-alpha",
+      role: "user",
+      content: "Hello alpha",
+      sortOrder: 0,
+      providerId: "umans",
+      modelId: "umans-glm-5.2",
+      effortLevel: "high",
+      createdAt: 1_800_000_000 - 280,
+    },
+    {
+      id: "mvp-msg-bravo-1",
+      sessionId: "mvp-native-bravo",
+      role: "user",
+      content: "Hello bravo",
+      sortOrder: 0,
+      providerId: "umans",
+      modelId: "umans-glm-5.2",
+      effortLevel: "high",
+      createdAt: 1_800_000_000 - 180,
+    },
     {
       id: "mvp-msg-user",
       sessionId: "mvp-native-charlie",
@@ -288,7 +391,11 @@ function state(): E2eState {
       ideas: [],
       nextCategoryId: 1,
       nextIdeaId: 1,
+      ideaRounds: [],
+      activeRoundBySession: new Map(),
+      nextRoundId: 1,
       planQueue: [],
+      mergeQueue: [],
       planRuns: [],
       workspaceRestoreByProject: new Map(),
       recentProjects: [],
@@ -336,6 +443,7 @@ function makePlan(sessionId: string, input: Partial<Plan> & { title: string; des
     tags: input.tags ?? [],
     aiEnhanced: false,
     context: null,
+    changeName: input.changeName ?? null,
     createdAt: ts,
     updatedAt: ts,
     finishedAt: null,
@@ -565,6 +673,38 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       s.plans.push(plan);
       return plan as T;
     }
+    case "batch_promote_ideas": {
+      const sessionId = args.sessionId as string;
+      const ideaIds = args.ideaIds as string[];
+      const created: Plan[] = [];
+      const errors: { ideaId: string; error: string }[] = [];
+      for (const ideaId of ideaIds) {
+        const idea = s.ideas.find((i) => i.id === ideaId);
+        if (!idea) {
+          errors.push({ ideaId, error: "Idea not found" });
+          continue;
+        }
+        if (s.promoteFailIds?.has(ideaId)) {
+          errors.push({ ideaId, error: "promotion failed (e2e)" });
+          continue;
+        }
+        const plan = makePlan(sessionId, { title: idea.title, description: idea.description });
+        s.plans.push(plan);
+        idea.status = "picked";
+        created.push(plan);
+        s.nextPlanningEventSeq = (s.nextPlanningEventSeq ?? 0) + 1;
+        __emit("planning://event", {
+          kind: "plan_created",
+          entityId: plan.id,
+          projectPath: s.projectPath,
+          sessionId,
+          title: plan.title,
+          seq: s.nextPlanningEventSeq,
+          ts: Math.floor(Date.now() / 1000),
+        });
+      }
+      return { created, errors } as T;
+    }
     case "update_plan":
     case "set_plan_status":
     case "set_plan_context": {
@@ -598,7 +738,9 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "plan_assign_to_chat": {
       const planId = typeof args.planId === "string" ? args.planId : "";
       const chatSessionId = typeof args.chatSessionId === "string" ? args.chatSessionId : "";
-      const run = { id: `run-${Date.now()}`, planId, sessionId: typeof args.sessionId === "string" ? args.sessionId : "", chatSessionId, workspacePath: undefined, status: "running", runnerKind: "native", error: undefined, stepsOutput: [], createdAt: Date.now() };
+      const plan = s.plans.find((p) => p.id === planId);
+      const nowSecs = Math.floor(Date.now() / 1000);
+      const run = { id: `run-${Date.now()}`, planId, sessionId: typeof args.sessionId === "string" && args.sessionId ? args.sessionId : (plan?.sessionId ?? ""), chatSessionId, workspacePath: `worktrees/bb-${planId}`, status: "running", runnerKind: "native", error: undefined, stepsOutput: [], startedAt: nowSecs, finishedAt: undefined, createdAt: Date.now() };
       s.planRuns.push(run);
       return run as T;
     }
@@ -618,14 +760,75 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return undefined as T;
     case "openspec_refresh_task_progress":
       return false as T;
+    case "openspec_task_progress": {
+      // Tests drive progress via the __e2e_set_task_progress command
+      // (change name → [completed, total]); default 0/0.
+      const knobs = (s.taskProgressByChange ??= new Map<string, [number, number]>());
+      const progress = knobs.get(args.changeName as string) ?? [0, 0];
+      return progress as T;
+    }
+    case "__e2e_set_task_progress": {
+      const knobs = (s.taskProgressByChange ??= new Map<string, [number, number]>());
+      knobs.set(args.changeName as string, [args.completed as number, args.total as number]);
+      return undefined as T;
+    }
     case "plan_run_pause":
       return undefined as T;
     case "plan_run_cancel":
       return undefined as T;
-    case "plan_run_complete":
+    case "plan_run_complete": {
+      const runId = args.runId as string;
+      const run = s.planRuns.find((r) => r.id === runId);
+      if (run) {
+        run.status = args.succeeded ? "succeeded" : "failed";
+        run.finishedAt = Math.floor(Date.now() / 1000);
+        // Mirror the backend: the finish policy is applied EXACTLY ONCE at
+        // completion and its outcome persisted on the run. Reads via
+        // plan_run_finish_outcome never re-apply.
+        if (args.succeeded) {
+          const policy = s.launchProfile?.finishPolicy ?? "hold";
+          if (policy === "hold") {
+            run.finishOutcome = { kind: "hold" };
+          } else if (s.finishPolicyError) {
+            run.finishOutcome = {
+              kind: "applied",
+              outcome: { runId, policy, commitSha: null, prUrl: null, mergeReady: false, error: s.finishPolicyError },
+            };
+          } else {
+            if (policy === "queue_merge_review") {
+              s.mergeQueue.push({
+                id: `mq-${Date.now()}`, runId: run.id, planId: run.planId, sessionId: run.sessionId,
+                status: "pending", collisionReviewRequired: false, overlappingPlans: [],
+                reviewedAt: null, createdAt: Date.now(),
+              });
+              __emit("planning://event", {
+                kind: "integration_action", entityId: run.id, projectPath: s.projectPath,
+                sessionId: run.sessionId, title: "Queued for merge review",
+                seq: (s.nextPlanningEventSeq ?? 0) + 1, ts: Math.floor(Date.now() / 1000),
+              });
+              s.nextPlanningEventSeq = (s.nextPlanningEventSeq ?? 0) + 1;
+            }
+            run.finishOutcome = {
+              kind: "applied",
+              outcome: {
+                runId, policy,
+                commitSha: "abc123def456",
+                prUrl: policy === "auto_commit_pr" ? "https://example.com/pr/1" : null,
+                mergeReady: policy === "queue_merge_review",
+                error: null,
+              },
+            };
+          }
+        }
+      }
       return undefined as T;
+    }
     case "plan_run_mark_complete":
       return undefined as T;
+    case "plan_run_finish_outcome": {
+      const run = s.planRuns.find((r) => r.id === args.runId);
+      return (run?.finishOutcome ?? { kind: "hold" }) as T;
+    }
     case "plan_run_check_completion":
       return [0, 0] as T;
     case "plan_run_list":
@@ -710,20 +913,44 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return undefined as T;
     case "plan_file_claims_list":
       return [] as T;
-    case "plan_coordination_event_publish": {
-      const req = args.request as { sessionId: string; runId: string; planId: string; kind: string; payload?: string };
-      return { id: `evt-${Date.now()}`, ...req, payload: req.payload ?? "{}", createdAt: Date.now() } as T;
+    case "plan_merge_queue_list":
+      return s.mergeQueue.filter((e) => e.sessionId === args.sessionId) as T;
+    case "plan_merge_queue_review": {
+      const entryId = args.entryId as string;
+      const decision = args.decision as string;
+      if (decision === "merged" && s.mergeReviewFailIds?.has(entryId)) {
+        throw new Error(`merge conflict in ${entryId}: overlapping hunks in src/app.ts`);
+      }
+      const entry = s.mergeQueue.find((e) => e.id === entryId);
+      if (entry) {
+        entry.status = decision as MergeReviewEntry["status"];
+        entry.reviewedAt = Date.now();
+      }
+      return (entry ?? { id: entryId, runId: "", planId: "", sessionId: "", status: decision as MergeReviewEntry["status"], collisionReviewRequired: false, overlappingPlans: [], reviewedAt: Date.now(), createdAt: 0 }) as T;
+    }
+    case "__e2e_fail_merge_review":
+      s.mergeReviewFailIds = new Set(args.entryIds as string[]);
+      return undefined as T;
+    case "__e2e_set_finish_policy_error":
+      s.finishPolicyError = args.error as string;
+      return undefined as T;
+    case "__e2e_fail_promote_ideas":
+      s.promoteFailIds = new Set(args.ideaIds as string[]);
+      return undefined as T;
+    case "__e2e_seed_merge_queue": {
+      const entries = args.entries as MergeReviewEntry[];
+      s.mergeQueue = entries;
+      return undefined as T;
     }
     case "plan_coordination_events":
       return [] as T;
-    case "plan_set_launch_profile":
+    case "plan_set_launch_profile": {
+      const profile = args.profile as LaunchProfile;
+      s.launchProfile = profile;
       return undefined as T;
+    }
     case "plan_get_launch_profile":
-      return null as T;
-    case "plan_merge_queue_list":
-      return [] as T;
-    case "plan_merge_queue_review":
-      return { id: args.entryId as string, runId: "", planId: "", sessionId: "", status: args.decision as string, collisionReviewRequired: false, overlappingPlans: [], reviewedAt: Date.now(), createdAt: 0 } as T;
+      return (s.launchProfile ?? null) as T;
     case "plan_assign_with_profile": {
       const req = args.request as { planId: string; chatSessionId: string };
       const plan = s.plans.find((p) => p.id === req.planId);
@@ -787,6 +1014,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
           { id: "basebuild-local-coordinator", providerId: "basebuild-local", label: "Local Coordinator", supportsEffort: true, supportsStreaming: false, supportsTools: false, localOnly: true, contextWindow: null, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "bundled" },
           { id: "gpt-5.1", providerId: "openai", label: "GPT-5.1", supportsEffort: true, supportsStreaming: true, supportsTools: true, localOnly: false, contextWindow: 400000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: true, source: "bundled" },
           { id: "umans-glm-5.2", providerId: "umans", label: "Umans GLM 5.2", supportsEffort: true, supportsStreaming: true, supportsTools: true, localOnly: false, contextWindow: 128000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "provider_discovered" },
+          { id: "umans-lite-1.0", providerId: "umans", label: "Umans Lite 1.0", supportsEffort: true, supportsStreaming: true, supportsTools: false, localOnly: false, contextWindow: 32000, maxTokens: null, supportsReasoning: false, supportedEfforts: ["low", "medium"], supportsImages: false, source: "provider_discovered" },
         ],
         effortLevels: [
           { id: "low", label: "Low", description: "Fast" },
@@ -825,6 +1053,16 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return (s.nativeChatSessions.find((session) => session.id === args.sessionId) ?? null) as T;
     case "native_chat_list":
       return s.nativeChatSessions.filter((session) => session.projectPath === args.projectPath) as T;
+    case "native_chat_history": {
+      const limit = (args.limit as number | null) ?? undefined;
+      const entries = s.nativeChatSessions
+        .map((session) => ({
+          ...session,
+          messageCount: s.nativeChatMessages.filter((m) => m.sessionId === session.id).length,
+        }))
+        .sort((a, b) => b.updatedAt - a.updatedAt);
+      return (limit ? entries.slice(0, limit) : entries) as T;
+    }
     case "native_chat_messages":
       return s.nativeChatMessages.filter((message) => message.sessionId === args.sessionId) as T;
     case "native_chat_send": {
@@ -846,25 +1084,147 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       // before resolving, so e2e can assert the thinking indicator and
       // incremental markdown rendering (contract: native-chat://chunk with
       // { sessionId, delta, channel? } — channel "status" carries phases).
-      const isStreamTest = req.content.includes("stream-test");
+      const isMultiToolStream = req.content.includes("multi-tool-stream-test");
+      const isApprovalStream = req.content.includes("approval-stream-test");
+      const isStopPartial = req.content.includes("stop-partial-test");
+      const isReasoningSplit = req.content.includes("reasoning-split-test");
+      const isMultiTurnTools = req.content.includes("multi-turn-tools-test");
+      const isStreamTest = req.content.includes("stream-test") && !isMultiToolStream && !isApprovalStream && !isStopPartial && !isReasoningSplit && !isMultiTurnTools;
       const streamedContent = "Streaming **bold** and `code` arrived incrementally.";
-      if (isStreamTest) {
+      if (isStreamTest || isMultiToolStream || isApprovalStream || isStopPartial || isReasoningSplit || isMultiTurnTools) {
         const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
         const chunk = (delta: string, channel?: string) =>
           __emit("native-chat://chunk", { sessionId: req.sessionId, delta, ...(channel ? { channel } : {}) });
+        const toolEvent = (ev: Partial<NativeToolEvent> & { id: string; kind: string; status: string; sequence: number }) =>
+          __emit("native-chat://tool-event", {
+            sessionId: req.sessionId,
+            toolCallId: ev.id,
+            toolName: ev.kind,
+            status: ev.status,
+            summary: ev.summary ?? "",
+            arguments: ev.arguments ?? null,
+            diff: ev.diff ?? null,
+            decision: ev.decision ?? null,
+            ruleSource: ev.ruleSource ?? null,
+          });
         chunk("thinking", "status");
-        await sleep(400);
+        await sleep(300);
         chunk("Considering the request…", "reasoning");
-        await sleep(150);
-        chunk("Streaming **bold**");
-        await sleep(250);
-        chunk(" and `code`");
-        await sleep(250);
-        chunk(" arrived incrementally.");
-        await sleep(150);
+        await sleep(200);
+
+        if (isMultiToolStream || isApprovalStream) {
+          // Real backend emits a "tools" status chunk before tool processing
+          // (agent_loop_service: emit("tools", "status")) — mirror it so the
+          // running-tools / waiting-approval indicator renders in e2e.
+          chunk("tools", "status");
+          // Emit tool events with incremental timestamps — tests ordering.
+          const ts0 = Math.floor(Date.now() / 1000);
+          toolEvent({ id: `te-read-${ts0}`, kind: "read_file", status: "running", summary: "Reading src/main.ts", arguments: JSON.stringify({ path: "src/main.ts" }), sequence: 1 });
+          chunk("Let me read the file first.", "reasoning");
+          await sleep(300);
+          toolEvent({ id: `te-read-${ts0}`, kind: "read_file", status: "success", summary: "Read 120 lines", arguments: JSON.stringify({ path: "src/main.ts" }), sequence: 1 });
+          await sleep(200);
+          chunk("Now I'll edit the file.");
+          await sleep(100);
+          if (isApprovalStream) {
+            // Real flow (agent_loop_service): text streams first, then a
+            // "tools" status chunk, then await_approval emits BOTH a pending
+            // tool-event AND an approval-request, then the loop BLOCKS.
+            chunk("I need to edit **src/main.ts** to fix the bug.");
+            await sleep(100);
+            chunk("tools", "status");
+            toolEvent({ id: `te-edit-${ts0}`, kind: "edit_file", status: "pending", summary: "Edit src/main.ts", arguments: JSON.stringify({ path: "src/main.ts", old_text: "foo", new_text: "bar" }), sequence: 2 });
+            __emit("native-chat://approval-request", {
+              sessionId: req.sessionId,
+              toolCallId: `te-edit-${ts0}`,
+              toolName: "edit_file",
+              arguments: JSON.stringify({ path: "src/main.ts", old_text: "foo", new_text: "bar" }),
+            });
+            // Don't resolve — the test will click Allow/Deny or stop.
+            // Keep the send promise alive — don't resolve yet.
+            // The test will either resolve the approval or stop.
+            // We resolve with a partial message after a long delay.
+            await sleep(10000);
+          } else {
+            toolEvent({ id: `te-edit-${ts0}`, kind: "edit_file", status: "running", summary: "Editing src/main.ts", arguments: JSON.stringify({ path: "src/main.ts" }), diff: "-foo\n+bar\n", sequence: 2 });
+            await sleep(300);
+            toolEvent({ id: `te-edit-${ts0}`, kind: "edit_file", status: "success", summary: "Replaced 1 occurrence", arguments: JSON.stringify({ path: "src/main.ts" }), diff: "-foo\n+bar\n", sequence: 2 });
+            await sleep(200);
+            chunk("Now I'll run the tests.");
+            await sleep(100);
+            toolEvent({ id: `te-run-${ts0}`, kind: "run_command", status: "running", summary: "Running npm test", arguments: JSON.stringify({ command: "npm test" }), sequence: 3 });
+            await sleep(300);
+            toolEvent({ id: `te-run-${ts0}`, kind: "run_command", status: "success", summary: "exit 0:\nall tests passed", arguments: JSON.stringify({ command: "npm test" }), sequence: 3 });
+            await sleep(200);
+            chunk("All tests passed. The fix is complete.");
+            await sleep(100);
+          }
+        } else if (isStopPartial) {
+          // Emit partial text then hold — the user will press Stop.
+          chunk("I'll analyze the");
+          await sleep(200);
+          chunk(" problem and");
+          await sleep(200);
+          chunk(" propose a");
+          await sleep(200);
+          // Hold here — the test will press Stop during this window.
+          // Don't emit more chunks; don't resolve the promise.
+          // The send promise will be cancelled by native_chat_cancel.
+          // Keep the hold short (3s) so a follow-up send doesn't block long.
+          await sleep(3000);
+        } else if (isReasoningSplit) {
+          // Reasoning → tool call → more reasoning → another tool → final text.
+          // Tests that reasoning blocks split around tool calls.
+          const ts0 = Math.floor(Date.now() / 1000);
+          chunk("I need to read the file first.");
+          await sleep(200);
+          toolEvent({ id: `te-rs-read-${ts0}`, kind: "read_file", status: "running", summary: "Reading src/app.ts", arguments: JSON.stringify({ path: "src/app.ts" }), sequence: 1 });
+          await sleep(200);
+          toolEvent({ id: `te-rs-read-${ts0}`, kind: "read_file", status: "success", summary: "Read 80 lines", arguments: JSON.stringify({ path: "src/app.ts" }), sequence: 1 });
+          await sleep(200);
+          chunk("Now I see the issue. Let me fix it.", "reasoning");
+          await sleep(200);
+          toolEvent({ id: `te-rs-edit-${ts0}`, kind: "edit_file", status: "running", summary: "Editing src/app.ts", arguments: JSON.stringify({ path: "src/app.ts" }), diff: "-old\n+new\n", sequence: 2 });
+          await sleep(200);
+          toolEvent({ id: `te-rs-edit-${ts0}`, kind: "edit_file", status: "success", summary: "Replaced 1 line", arguments: JSON.stringify({ path: "src/app.ts" }), diff: "-old\n+new\n", sequence: 2 });
+          await sleep(200);
+          chunk("The fix is applied. The bug was in the null check.");
+          await sleep(100);
+        } else if (isMultiTurnTools) {
+          // Single send that produces multiple tool calls with reasoning
+          // between each — simulates a multi-step agent turn.
+          const ts0 = Math.floor(Date.now() / 1000);
+          for (let step = 1; step <= 3; step++) {
+            chunk(`Step ${step}: analyzing`, "reasoning");
+            await sleep(150);
+            toolEvent({ id: `te-mt-${step}-${ts0}`, kind: `step_${step}`, status: "running", summary: `Running step ${step}`, arguments: JSON.stringify({ step }), sequence: step });
+            await sleep(150);
+            toolEvent({ id: `te-mt-${step}-${ts0}`, kind: `step_${step}`, status: "success", summary: `Step ${step} done`, arguments: JSON.stringify({ step }), sequence: step });
+            await sleep(100);
+          }
+          chunk("All steps complete.");
+          await sleep(100);
+        } else {
+          chunk("Streaming **bold**");
+          await sleep(250);
+          chunk(" and `code`");
+          await sleep(250);
+          chunk(" arrived incrementally.");
+          await sleep(150);
+        }
       }
       const assistantContent = isStreamTest
         ? streamedContent
+        : isMultiToolStream
+        ? "All tests passed. The fix is complete."
+        : isApprovalStream
+        ? "I need to edit src/main.ts to fix the bug."
+        : isStopPartial
+        ? "I'll analyze the problem and propose a"
+        : isReasoningSplit
+        ? "The fix is applied. The bug was in the null check."
+        : isMultiTurnTools
+        ? "All steps complete."
         : req.content.includes("Write one concise git commit message")
         ? "Let me write a concise commit message.\n\n1. `launch-sbox.sh` - changes\n2. `patch_engine.sh` - changes\n\n---\n\nRework patch system to target sbox-public"
         : req.content.includes("quick-reply-test")
@@ -878,11 +1238,17 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         : req.content.includes("schematic-wizard-test")
         ? "I'll ask you some questions and then write the schematic."
         : `Native harness echo: ${req.content}`;
+      const assistantReasoning = isReasoningSplit
+        ? "I need to read the file first.\nNow I see the issue. Let me fix it."
+        : isMultiTurnTools
+        ? "Step 1: analyzing\nStep 2: analyzing\nStep 3: analyzing"
+        : undefined;
       const assistantMessage: NativeChatMessage = {
         id: `nmsg-${s.nextNativeMessageId++}`,
         sessionId: req.sessionId,
         role: "assistant",
         content: assistantContent,
+        reasoning: assistantReasoning,
         sortOrder: userMessage.sortOrder + 1,
         providerId: req.providerId ?? "basebuild-local",
         modelId: req.modelId ?? "basebuild-local-coordinator",
@@ -916,6 +1282,10 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       const isToolCardTest = req.content.includes("tool-card-test");
       const isSchematicWizardTest = req.content.includes("schematic-wizard-test");
       const isSchematicDenyTest = req.content.includes("schematic-wizard-deny-test");
+      // Multi-tool-stream and approval-stream events were emitted live
+      // during streaming above. Persist them so reload preserves them.
+      const isMultiToolStreamPersist = isMultiToolStream;
+      const isApprovalStreamPersist = isApprovalStream;
       const toolEvents: NativeToolEvent[] = isToolCardTest
         ? [
             {
@@ -995,8 +1365,30 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
               createdAt: ts,
             },
           ]
+        : isMultiToolStreamPersist
+        ? [
+            { id: `te-read-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "read_file", status: "success", summary: "Read 120 lines", arguments: JSON.stringify({ path: "src/main.ts" }), diff: null, decision: "approved", ruleSource: null, sequence: 1, createdAt: ts },
+            { id: `te-edit-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "edit_file", status: "success", summary: "Replaced 1 occurrence", arguments: JSON.stringify({ path: "src/main.ts" }), diff: "-foo\n+bar\n", decision: "approved", ruleSource: null, sequence: 2, createdAt: ts },
+            { id: `te-run-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "run_command", status: "success", summary: "exit 0:\nall tests passed", arguments: JSON.stringify({ command: "npm test" }), diff: null, decision: "approved", ruleSource: null, sequence: 3, createdAt: ts },
+          ]
+        : isApprovalStreamPersist
+        ? [
+            { id: `te-read-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "read_file", status: "success", summary: "Read 120 lines", arguments: JSON.stringify({ path: "src/main.ts" }), diff: null, decision: "approved", ruleSource: null, sequence: 1, createdAt: ts },
+            { id: `te-edit-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "edit_file", status: "success", summary: "Edited src/main.ts", arguments: JSON.stringify({ path: "src/main.ts", old_text: "foo", new_text: "bar" }), diff: "-foo\n+bar\n", decision: "approved", ruleSource: null, sequence: 2, createdAt: ts },
+          ]
+        : isReasoningSplit
+        ? [
+            { id: `te-rs-read-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "read_file", status: "success", summary: "Read 80 lines", arguments: JSON.stringify({ path: "src/app.ts" }), diff: null, decision: "approved", ruleSource: null, sequence: 1, createdAt: ts },
+            { id: `te-rs-edit-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "edit_file", status: "success", summary: "Replaced 1 line", arguments: JSON.stringify({ path: "src/app.ts" }), diff: "-old\n+new\n", decision: "approved", ruleSource: null, sequence: 2, createdAt: ts },
+          ]
+        : isMultiTurnTools
+        ? [
+            { id: `te-mt-1-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "step_1", status: "success", summary: "Step 1 done", arguments: JSON.stringify({ step: 1 }), diff: null, decision: "approved", ruleSource: null, sequence: 1, createdAt: ts },
+            { id: `te-mt-2-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "step_2", status: "success", summary: "Step 2 done", arguments: JSON.stringify({ step: 2 }), diff: null, decision: "approved", ruleSource: null, sequence: 2, createdAt: ts },
+            { id: `te-mt-3-${ts}`, sessionId: req.sessionId, messageId: assistantMessage.id, kind: "step_3", status: "success", summary: "Step 3 done", arguments: JSON.stringify({ step: 3 }), diff: null, decision: "approved", ruleSource: null, sequence: 3, createdAt: ts },
+          ]
         : [];
-      if (isToolCardTest || isSchematicWizardTest || isSchematicDenyTest) {
+      if (isToolCardTest || isSchematicWizardTest || isSchematicDenyTest || isMultiToolStreamPersist || isApprovalStreamPersist || isReasoningSplit || isMultiTurnTools) {
         for (const te of toolEvents) s.nativeToolEvents.push(te);
       }
       return {
@@ -1091,11 +1483,59 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         title: args.title as string,
         description: args.description as string,
         status: "concept",
+        grounding: (args.grounding as string | undefined) ?? "",
+        anchor: (args.anchor as string | null | undefined) ?? null,
+        batchId: s.activeRoundBySession.get(args.sessionId as string) ?? null,
         createdAt: ts,
         updatedAt: ts,
       };
       s.ideas.push(idea);
       return idea as T;
+    }
+    case "start_idea_round": {
+      const sessionId = args.sessionId as string;
+      const ts = Math.floor(Date.now() / 1000);
+      const prev = s.activeRoundBySession.get(sessionId);
+      if (prev) {
+        const prevRound = s.ideaRounds.find((r) => r.id === prev);
+        if (prevRound) { prevRound.status = "succeeded"; prevRound.completedAt = ts; }
+      }
+      const id = `round-${s.nextRoundId++}`;
+      s.ideaRounds.push({ id, sessionId, status: "running", createdAt: ts, completedAt: null });
+      s.activeRoundBySession.set(sessionId, id);
+      return id as T;
+    }
+    case "finish_idea_round": {
+      const sessionId = args.sessionId as string;
+      const active = s.activeRoundBySession.get(sessionId) ?? null;
+      if (active) {
+        s.activeRoundBySession.delete(sessionId);
+        const round = s.ideaRounds.find((r) => r.id === active);
+        if (round) { round.status = "succeeded"; round.completedAt = Math.floor(Date.now() / 1000); }
+      }
+      return active as T;
+    }
+    case "list_idea_rounds": {
+      const sessionId = args.sessionId as string;
+      const rounds: IdeaRound[] = s.ideaRounds
+        .filter((r) => r.sessionId === sessionId)
+        .map((r) => {
+          const roundIdeas = s.ideas.filter((i) => i.batchId === r.id);
+          const count = (status: string) => roundIdeas.filter((i) => i.status === status).length;
+          return {
+            id: r.id,
+            sessionId: r.sessionId,
+            status: r.status,
+            createdAt: r.createdAt,
+            completedAt: r.completedAt,
+            conceptCount: count("concept"),
+            pickedCount: count("picked"),
+            rejectedCount: count("rejected"),
+            archivedCount: count("archived"),
+          };
+        })
+        .sort((a, b) => b.createdAt - a.createdAt);
+      return rounds as T;
     }
     case "update_idea_status": {
       const idea = s.ideas.find((item) => item.id === args.id);
@@ -1219,7 +1659,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       s.autoSyncEnabled = args.enabled as boolean;
       return undefined as T;
     case "get_approval_mode":
-      return "balanced" as T;
+      return "auto" as T;
     case "set_approval_mode":
       return undefined as T;
     case "list_approval_rules":
@@ -1316,22 +1756,34 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "set_milestone_auto_commit":
       return undefined as T;
     case "list_resolved_skills":
-      return [] as T;
-    case "read_resolved_skill":
-      return "" as T;
+      return [
+        { name: "basebuild-project-schematic", description: "Guided project schematic interview", source: "bundled", runtime: "both", path: "/skills/basebuild-project-schematic.md" },
+        { name: "basebuild-session-title", description: "Generates concise session titles", source: "bundled", runtime: "native", path: "/skills/basebuild-session-title.md" },
+        { name: "caveman", description: "Ultra-compressed communication mode", source: "user", runtime: "omp", path: "/skills/caveman.md" },
+      ] as T;
+    case "read_resolved_skill": {
+      const skillName = (args.skillName as string) ?? "";
+      return `# ${skillName}\n\nE2E stub content for ${skillName}.` as T;
+    }
+    case "read_skill": {
+      const skillName = (args.skillName as string) ?? "";
+      const cavemanBody = "You are a caveman. Speak in short grunts.";
+      const schematicBody = "Help the user create a project schematic by asking one question at a time.";
+      const body = skillName === "basebuild-project-schematic" ? schematicBody : cavemanBody;
+      return { name: skillName, description: "E2E skill stub", content: body } as T;
+    }
     case "provision_skill_dirs":
       return [] as T;
-    case "omp_rpc_probe":
-      return "omp 1.2.3" as T;
-    case "omp_rpc_start":
-    case "omp_rpc_send":
-    case "omp_rpc_cancel":
-    case "omp_rpc_shutdown":
-    case "omp_rpc_resolve":
-      return undefined as T;
-    case "omp_rpc_status":
-      return "none" as T;
     default:
       throw new Error(`Unhandled E2E Tauri command: ${command}`);
   }
+}
+
+// E2E hook: let Playwright tests drive mocked commands directly (e.g. seed
+// ideas during a round). Mirrors the `__emit` hook in tauri-event.ts.
+// Named cast: window carries test-only hooks the DOM lib cannot express.
+type TestHookWindow = Window & { __basebuildInvoke?: typeof invoke };
+if (typeof window !== "undefined") {
+  const hookWindow: TestHookWindow = window;
+  hookWindow.__basebuildInvoke = invoke;
 }

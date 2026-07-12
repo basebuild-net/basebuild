@@ -36,6 +36,7 @@ async-trait = "0.1.89"
 http = "1.4.2"
 oauth2 = "5.0"
 regex = "1"
+base64 = "0.22.1"
 
 [dev-dependencies]
 tempfile = "3"

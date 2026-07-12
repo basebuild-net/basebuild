@@ -72,9 +72,13 @@ pub enum ApprovalMode {
     Auto,
 }
 
+/// Default is Auto (run everything): no prompts, everything auto-allowed
+/// within workspace scoping. Users opt into Balanced/Safe per project.
+/// Note: `from_str` still falls back to Balanced for unknown *stored*
+/// values — a corrupt explicit setting degrades conservatively.
 impl Default for ApprovalMode {
     fn default() -> Self {
-        Self::Balanced
+        Self::Auto
     }
 }
 
@@ -180,6 +184,19 @@ pub struct UsageSyncSettings {
     pub auto_sync_interval_minutes: i64,
     /// Epoch seconds of the last successful sync, when any.
     pub last_usage_sync_at: Option<i64>,
+    /// Detail level for the app→basebuild.net message sync: "rows" (send
+    /// per-message rows; the server rolls up + owns aggregation) or "summary"
+    /// (roll up client-side, send summaries).
+    #[serde(default = "default_usage_sync_mode")]
+    pub usage_sync_mode: String,
+    /// created_at (epoch seconds) of the last message row synced — the cursor
+    /// for the incremental message sync.
+    #[serde(default)]
+    pub last_message_sync_at: Option<i64>,
+}
+
+fn default_usage_sync_mode() -> String {
+    "rows".to_string()
 }
 
 impl Default for UsageSyncSettings {
@@ -188,6 +205,28 @@ impl Default for UsageSyncSettings {
             auto_sync_usage: true,
             auto_sync_interval_minutes: 60,
             last_usage_sync_at: None,
+            usage_sync_mode: default_usage_sync_mode(),
+            last_message_sync_at: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn approval_mode_defaults_to_auto() {
+        // Product decision: new projects run everything without prompts.
+        assert_eq!(ApprovalMode::default(), ApprovalMode::Auto);
+    }
+
+    #[test]
+    fn approval_mode_from_str_roundtrips_and_degrades_conservatively() {
+        assert_eq!(ApprovalMode::from_str("safe"), ApprovalMode::Safe);
+        assert_eq!(ApprovalMode::from_str("balanced"), ApprovalMode::Balanced);
+        assert_eq!(ApprovalMode::from_str("auto"), ApprovalMode::Auto);
+        // Unknown *stored* values degrade to Balanced, not the Auto default.
+        assert_eq!(ApprovalMode::from_str("garbage"), ApprovalMode::Balanced);
     }
 }

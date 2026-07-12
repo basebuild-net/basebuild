@@ -249,6 +249,12 @@ export async function nativeChatList(projectPath: string): Promise<NativeChatSes
   return invoke<NativeChatSession[]>("native_chat_list", { projectPath });
 }
 
+export type NativeChatHistoryEntry = NativeChatSession & { messageCount: number };
+
+export async function nativeChatHistory(limit?: number): Promise<NativeChatHistoryEntry[]> {
+  return invoke<NativeChatHistoryEntry[]>("native_chat_history", { limit: limit ?? null });
+}
+
 export async function nativeChatMessages(sessionId: string): Promise<NativeChatMessage[]> {
   return invoke<NativeChatMessage[]>("native_chat_messages", { sessionId });
 }

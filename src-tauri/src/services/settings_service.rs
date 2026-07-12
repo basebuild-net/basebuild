@@ -329,7 +329,7 @@ impl SettingsService {
 
     // ─── Approval Gateway ───
 
-    /// Get the per-project approval mode (default: Balanced).
+    /// Get the per-project approval mode (default: Auto — run everything).
     pub fn get_approval_mode(project_path: &str) -> DbResult<ApprovalMode> {
         let conn = StorageService::connect()?;
         let value: Option<String> = conn

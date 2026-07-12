@@ -45,10 +45,8 @@ test.describe("Schematic wizard: native agent writes schematic via tool call", (
     await expect(writeCard).toBeVisible();
     await expect(writeCard).toContainText("project-schematic.md");
 
-    // Expand the card to see the diff.
-    await writeCard.locator(".tool-card-header").click();
+    // Cards start expanded — diff is visible immediately.
     const writeDiff = writeCard.locator(".tool-card-diff");
-    await expect(writeDiff).toBeVisible();
     await expect(writeDiff.locator(".diff-add").first()).toContainText("Project Schematic");
 
     // The card should show provenance (allowed by rule for .basebuild/**).
@@ -65,8 +63,7 @@ test.describe("Schematic wizard: native agent writes schematic via tool call", (
     const writeCard = page.locator(".tool-card").filter({ hasText: "write file" }).first();
     await expect(writeCard).toBeVisible();
 
-    // Expand to see arguments.
-    await writeCard.locator(".tool-card-header").click();
+    // Cards start expanded — arguments are visible immediately.
 
     // The argument display should show the file path.
     await expect(writeCard.locator(".tool-card-arg-value")).toContainText("project-schematic.md");
@@ -91,8 +88,7 @@ test.describe("Schematic wizard: native agent writes schematic via tool call", (
     await expect(deniedCard).toHaveClass(/tool-card-error/);
     await expect(deniedCard.locator(".tool-card-status")).toContainText(/denied/i);
 
-    // Expanding shows the denial provenance (user decision, no rule).
-    await deniedCard.locator(".tool-card-header").click();
+    // Cards start expanded — provenance is visible immediately.
     await expect(deniedCard.locator(".tool-card-provenance")).toContainText("Denied by user");
 
     // A denied write must not render a diff — nothing was written.

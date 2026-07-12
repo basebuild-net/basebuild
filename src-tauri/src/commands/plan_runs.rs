@@ -56,6 +56,14 @@ pub fn plan_run_mark_complete(app: AppHandle, run_id: String) -> Result<(), Stri
 }
 
 #[tauri::command]
+pub fn plan_run_finish_outcome(run_id: String) -> Result<serde_json::Value, String> {
+    // Read-only: returns the outcome persisted by `complete_run`. NEVER
+    // re-executes the policy (no commits, pushes, PRs, or queue writes).
+    Ok(PlanRunnerService::get_finish_outcome(&run_id)?
+        .unwrap_or_else(|| serde_json::json!({ "kind": "hold" })))
+}
+
+#[tauri::command]
 pub fn plan_run_check_completion(app: AppHandle, run_id: String) -> Result<(u32, u32), String> {
     PlanRunnerService::check_run_completion(&app, &run_id)
 }

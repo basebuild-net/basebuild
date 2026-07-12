@@ -5,6 +5,7 @@ import type { PlanRun } from "./planRuns";
 export type SchedulingMode = "safe" | "yolo";
 export type WorkspacePolicy = "isolated_worktrees" | "sequential_primary";
 export type EngineKind = "openspec" | "native";
+export type FinishPolicy = "hold" | "auto_commit" | "auto_commit_pr" | "queue_merge_review";
 
 export type PlanDependencies = {
   planId: string;
@@ -74,6 +75,7 @@ export type LaunchProfile = {
   workerCount: number;
   workspacePolicy: string;
   schedulingMode: string;
+  finishPolicy: string;
   updatedAt: number;
 };
 

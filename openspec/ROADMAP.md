@@ -55,6 +55,23 @@ _None. Completed OpenSpec changes are archived into canonical specs._
 Ordered by owner priority. Gated items show their blocking dependency; the
 top **ungated** item is what can actually start now.
 
+1. `idea-to-merge-autopilot` — ★ **owner-prioritized (2026-07-10 ask);
+   ungated, ready now.** Orchestration layer over the merged golden-path
+   capabilities: one-click zero-input idea rounds (schematic + decision
+   digest + preferences grounding, round review, single-confirmation bulk
+   deploy through batch promote + batch launch), a run mission-control board
+   (per-run cards: owner chat, branch/worktree, `n/m` progress, blockers,
+   attention states, task-velocity completion estimates), guided multi-run
+   workspace merge-review sessions over the integration queue
+   (dependency-aware order, conflict-safe per-run merge/skip, session
+   summary + batch cleanup), and a per-project configurable post-finish
+   policy (`hold` default / `auto_commit` / `auto_commit_pr` with one-time
+   remote acknowledgment / `queue_merge_review`; merge-to-default never
+   automatic). Starts with a live baseline audit of the golden path. New
+   caps `idea-rounds`, `run-mission-control`, `workspace-merge-review`;
+   modifies `plan-completion-flow`, `plan-merge-cleanup`. Pairs with
+   `diff-review-workflow` (per-run diff surface). Artifacts generated
+   2026-07-10 (0/30).
 1. `openspec-chat-workbench` — ★ **owner-prioritized (2026-07-09 ask);
    ungated, ready after the PR #26 merge decision.** Re-centers Basebuild as a
    chat-first wrapper around OpenSpec: Settings-managed OpenSpec install/health,
@@ -182,9 +199,9 @@ _Last refreshed: 2026-07-10 (`node scripts/openspec-status.mjs --write`)_
 
 |Change|Progress|Status|Next command|
 |---|---|---|---|
-|`chat-experience-completion`|49/53|in progress|`/apply chat-experience-completion`|
 |`chat-first-shell`|17/31|in progress|`/apply chat-first-shell`|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
+|`idea-to-merge-autopilot`|30/31|in progress|`/apply idea-to-merge-autopilot`|
 |`plan-import`|11/13|in progress|`/apply plan-import`|
 |`provider-parity-workspace-fixes`|28/42|in progress|`/apply provider-parity-workspace-fixes`|
 |`chat-history-persistence`|0/21|not started|`/apply chat-history-persistence`|
@@ -200,6 +217,9 @@ _Last refreshed: 2026-07-10 (`node scripts/openspec-status.mjs --write`)_
 |`project-grid-workspace`|0/33|not started|`/apply project-grid-workspace`|
 |`schematic-enhance-ui`|0/14|not started|`/apply schematic-enhance-ui`|
 |`session-compaction`|0/13|not started|`/apply session-compaction`|
+|`chat-experience-completion`|53/53|complete — archive|`/archive chat-experience-completion`|
+|`chat-experience-review-fixes`|20/20|complete — archive|`/archive chat-experience-review-fixes`|
+|`global-shell-reliability`|28/28|complete — archive|`/archive global-shell-reliability`|
 |`openspec-chat-workbench`|71/71|complete — archive|`/archive openspec-chat-workbench`|
 <!-- status:end -->
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { usePromptDelivery } from "../../lib/promptDelivery";
 import { useEscapeKey } from "../../lib/useEscapeKey";
-import { markStart, markEnd } from "../../lib/timing";
+import { markStart, markEnd, formatRelativeTime } from "../../lib/timing";
 import { usePanelStatusPublisher, type PanelStatus } from "./PanelStatusContext";
 import { ChatComposerRail } from "./ChatComposerRail";
 import { ChatContextStrip } from "./ChatContextStrip";
@@ -10,22 +10,26 @@ import {
   BUILTIN_COMMANDS,
   buildCommandHelper,
   filterAndRank,
-  tabComplete,
   formatCommandReference,
   KEYBOARD_GUIDE,
+  parseCommandPayload,
   readCommandRecency,
   recordCommandUse,
   sourceLabel,
+  tabComplete,
 } from "../../lib/chatCommands";
 import { ChatHeader } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
 import { QuestionCard } from "./QuestionCard";
 import { MarkdownView } from "./MarkdownView";
+import { OptionList } from "../layout/OptionList";
 import {
   AlertCircle,
   BarChart3,
   Brain,
   Bug,
+  ChevronDown,
+  ChevronUp,
   Copy,
   Edit2,
   FolderTree,
@@ -74,12 +78,14 @@ import {
   nativeSaveProviderCredential,
   type ChatModelDefault,
   type NativeChatMessage,
+  type NativeModel,
   type NativeProviderCatalog,
   type NativeRequestMetricsSummary,
   type NativeSetupRequired,
   type NativeToolEvent,
 } from "../../lib/native-chat";
 import { resolveToolApproval } from "../../lib/native-chat";
+import { buildChatTimeline } from "../../lib/chatTimeline";
 import { useIdeaState } from "../../state/ideas";
 import { setLastGrounding } from "../../state/grounding";
 import type { Idea } from "../../lib/ideas";
@@ -87,6 +93,7 @@ import { inspectProjectSchematic, type SchematicReport } from "../../lib/schemat
 import { schematicWizardAction } from "../../lib/planningActions";
 import { readSkill } from "../../lib/skills";
 import type { AgentMode } from "../../lib/sessions";
+import { readModelRecency, recordModelUse } from "../../lib/modelRecency";
 import { useLogs } from "../../state/log";
 
 const SEND_TIMEOUT_MS = 45_000;
@@ -161,6 +168,8 @@ type ChatPanelProps = {
   onNewChat?: () => void;
   /** Show a toast notification (success/warning/error/info). */
   onShowToast?: (title: string, detail?: string, kind?: "success" | "warning" | "error" | "info") => void;
+  /** Open the history drawer (closed panels). */
+  onOpenHistory?: () => void;
 };
 
 function formatMetric(value: number | null | undefined, suffix = "") {
@@ -169,19 +178,40 @@ function formatMetric(value: number | null | undefined, suffix = "") {
 }
 
 function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) return seconds === 1 ? "1 second" : `${seconds} seconds`;
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
-  return `${m}m${s.toString().padStart(2, "0")}s`;
+  const minLabel = m === 1 ? "1 min" : `${m} min`;
+  const secLabel = s === 1 ? "1 sec" : `${s} sec`;
+  if (m < 60) return `${minLabel} ${secLabel}`;
+  const h = Math.floor(m / 60);
+  const remainingMin = m % 60;
+  const hourLabel = h === 1 ? "1 h" : `${h} h`;
+  const remMinLabel = remainingMin === 1 ? "1 min" : `${remainingMin} min`;
+  return `${hourLabel} ${remMinLabel}`;
+}
+
+function resolveAssistantLabel(
+  catalog: NativeProviderCatalog | null,
+  selectedModel: NativeModel | null,
+  modelId: string,
+  providerId: string | null,
+): string {
+  if (providerId && modelId) {
+    const catalogModel = catalog?.models.find((m) => m.providerId === providerId && m.id === modelId);
+    if (catalogModel) return catalogModel.label;
+  }
+  return selectedModel?.label ?? modelId ?? "Assistant";
 }
 
 function ThinkingBlock({ text }: { text: string }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   return (
     <div className="chat-thinking-block" title="Model thinking — click to expand">
       <button
         className="chat-thinking-toggle"
         type="button"
+        title={expanded ? "Collapse model thinking trace" : "Expand model thinking trace"}
         onClick={() => setExpanded(!expanded)}
       >
         <Brain size={11} />
@@ -193,6 +223,29 @@ function ThinkingBlock({ text }: { text: string }) {
     </div>
   );
 }
+function UserMessageContent({
+  content,
+  onViewPayload,
+}: {
+  content: string;
+  onViewPayload: (name: string, payload: string) => void;
+}) {
+  const parsed = useMemo(() => parseCommandPayload(content), [content]);
+  if (!parsed) return <pre className="chat-message-content">{content}</pre>;
+  return (
+    <div className="chat-message-content">
+      <button
+        className="chat-command-chip"
+        type="button"
+        title={`View full ${parsed.name} payload`}
+        onClick={() => onViewPayload(parsed.name, parsed.content)}
+      >
+        {parsed.name}
+      </button>
+      {parsed.trailing ? <span className="chat-command-trailing">{parsed.trailing}</span> : null}
+    </div>
+  );
+}
 
 // Module-level expansion state for tool cards. Keyed by tool event id,
 // survives re-renders during streaming so a card the user expanded stays
@@ -200,7 +253,7 @@ function ThinkingBlock({ text }: { text: string }) {
 const toolCardExpanded = new Map<string, boolean>();
 
 function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode }: { event: NativeToolEvent; onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void; debugMode?: boolean; onSetApprovalMode?: (mode: "safe" | "balanced" | "auto") => void; }) {
-  const [expanded, setExpanded] = useState(() => toolCardExpanded.get(event.id) ?? false);
+  const [expanded, setExpanded] = useState(() => toolCardExpanded.get(event.id) ?? true);
   const toggleExpanded = useCallback(() => {
     setExpanded((prev) => {
       const next = !prev;
@@ -217,7 +270,7 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
   const isMetrics = event.kind === "request_metrics";
   const icon = isApproval ? "🔐" : isCommand ? "▶" : isEdit ? "✎" : isMetrics ? "📊" : "🔧";
   const statusClass = isRunning ? "running" : isError ? "error" : event.status === "success" || event.status === "recorded" || event.status === "allow" ? "success" : "info";
-  const showExpanded = expanded || isApproval || event.status === "running";
+  const showExpanded = expanded || isApproval;
 
   // Prefer the structured diff field from the backend; fall back to
   // parsing the summary for legacy events that predate the diff column.
@@ -281,8 +334,8 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
   })();
 
   return (
-    <div className={`tool-card tool-card-${statusClass}${isApproval ? " tool-card-approval" : ""}`} title={`${event.kind}: ${event.status}${timeStr ? ` at ${timeStr}` : ""}${provenance ? ` — ${provenance}` : ""}`}>
-      <div className="tool-card-header" onClick={() => { if (!isApproval) toggleExpanded(); }} role={isApproval ? undefined : "button"} tabIndex={isApproval ? -1 : 0}>
+    <div data-tool-id={event.id} className={`tool-card tool-card-${statusClass}${isApproval ? " tool-card-approval" : ""}`} title={`${event.kind}: ${event.status}${timeStr ? ` at ${timeStr}` : ""}${provenance ? ` — ${provenance}` : ""}`}>
+      <div className="tool-card-header" onClick={() => { if (!isApproval) toggleExpanded(); }} role={isApproval ? undefined : "button"} tabIndex={isApproval ? -1 : 0} aria-expanded={isApproval ? undefined : expanded}>
         <span className="tool-card-icon">{icon}</span>
         <span className="tool-card-name">{event.kind.replace(/_/g, " ")}</span>
         {argDisplay ? <code className="tool-card-arg-value" title={`${argDisplay.label}: ${argDisplay.value}`}>{argDisplay.value}</code> : null}
@@ -364,6 +417,7 @@ export function ChatPanel({
   onDuplicateChat,
   onNewChat,
   onShowToast,
+  onOpenHistory,
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
@@ -386,11 +440,16 @@ export function ChatPanel({
   const [debugEvents, setDebugEvents] = useState<Array<{ ts: number; channel: string; data: unknown }>>([]);
   const [debugExpanded, setDebugExpanded] = useState(false);
   const [setupRequired, setSetupRequired] = useState<NativeSetupRequired | null>(null);
-  const [approvalMode, setApprovalMode] = useState<ApprovalMode>("balanced");
+  const [approvalMode, setApprovalMode] = useState<ApprovalMode>("auto");
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [reasoningText, setReasoningText] = useState("");
   const [streamPhase, setStreamPhase] = useState<"idle" | "thinking" | "streaming" | "tools">("idle");
+  const [isScrolledUp, setIsScrolledUp] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMatchCount, setSearchMatchCount] = useState(0);
+  const [searchActiveIndex, setSearchActiveIndex] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const streamStartRef = useRef<number | null>(null);
   const streamBufRef = useRef("");
@@ -438,12 +497,15 @@ export function ChatPanel({
   const [modelFilter, setModelFilter] = useState("");
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandRecency, setCommandRecency] = useState<Record<string, number>>(() => readCommandRecency());
+  const [modelRecency, setModelRecency] = useState<Record<string, number>>(() => readModelRecency());
+  const [commandPayloadModal, setCommandPayloadModal] = useState<{ name: string; content: string } | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [paletteActiveIndex, setPaletteActiveIndex] = useState(0);
   useEscapeKey(showProviderPicker || showModelPicker, () => {
     setShowProviderPicker(false);
     setShowModelPicker(false);
   });
+  useEscapeKey(commandPayloadModal !== null, () => setCommandPayloadModal(null));
   const sendTimerRef = useRef<number | null>(null);
   const assistantBufferRef = useRef("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -491,11 +553,18 @@ export function ChatPanel({
   const filteredModels = useMemo(() => {
     const models = catalog?.models.filter((m) => m.providerId === providerId) ?? [];
     const needle = modelFilter.trim().toLowerCase();
-    const ranked = models.slice().sort((a, b) =>
-      Number(b.supportsTools) - Number(a.supportsTools) ||
-      Number(b.supportsReasoning) - Number(a.supportsReasoning) ||
-      a.label.localeCompare(b.label),
-    );
+    const ranked = models.slice().sort((a, b) => {
+      const aKey = `${a.providerId}/${a.id}`;
+      const bKey = `${b.providerId}/${b.id}`;
+      const aRecent = modelRecency[aKey] ?? 0;
+      const bRecent = modelRecency[bKey] ?? 0;
+      if (aRecent !== bRecent) return bRecent - aRecent;
+      return (
+        Number(b.supportsTools) - Number(a.supportsTools) ||
+        Number(b.supportsReasoning) - Number(a.supportsReasoning) ||
+        a.label.localeCompare(b.label)
+      );
+    });
     if (!needle) return ranked;
     return ranked.filter((model) => {
       const provider = catalog?.providers.find((p) => p.id === model.providerId);
@@ -506,7 +575,7 @@ export function ChatPanel({
         (provider?.label.toLowerCase().includes(needle) ?? false)
       );
     });
-  }, [catalog, modelFilter, providerId]);
+  }, [catalog, modelFilter, providerId, modelRecency]);
   const nativeMode = profileId === NATIVE_PROFILE_ID;
   const selectedProvider = catalog?.providers.find((p) => p.id === providerId) ?? null;
   const selectedModel = catalog?.models.find((m) => m.id === modelId && m.providerId === providerId) ?? null;
@@ -540,7 +609,7 @@ export function ChatPanel({
           nativeRequestMetricsSummary(),
           nativeChatModelDefault(projectPath),
           nativeSessionId ? nativeChatGet(nativeSessionId) : Promise.resolve(null),
-          getApprovalMode(projectPath).catch(() => "balanced" as ApprovalMode),
+          getApprovalMode(projectPath).catch(() => "auto" as ApprovalMode),
         ]);
         setProfileId(defaults.defaultChatProfileId ?? NATIVE_PROFILE_ID);
         setApprovalMode(mode);
@@ -678,6 +747,11 @@ export function ChatPanel({
           setStreamPhase((prev) => prev === "thinking" ? "streaming" : prev);
           return;
         }
+        // Only the content channel accumulates into the visible stream.
+        // Anything else (debug frames, tool summaries, protocol markers)
+        // must never leak into the transcript — the debug listener captures
+        // every channel when debug mode is on.
+        if (channel !== "content") return;
         streamBufRef.current += event.payload.delta;
         setStreamText(streamBufRef.current);
         setStreamPhase("streaming");
@@ -814,6 +888,13 @@ export function ChatPanel({
           createdAt: Math.floor(Date.now() / 1000),
         }];
       });
+      // An approval demands attention: after the card renders, make sure it
+      // is inside the viewport regardless of current scroll position.
+      window.setTimeout(() => {
+        scrollRef.current
+          ?.querySelector(`[data-tool-id="${CSS.escape(event.payload.toolCallId)}"]`)
+          ?.scrollIntoView({ block: "nearest" });
+      }, 50);
     });
     const unlistenInteraction = listen<{ sessionId: string; interactionId?: string }>(
       "native-chat://interactive-request",
@@ -1024,6 +1105,7 @@ export function ChatPanel({
         try {
           const result = await nativeChatSend({ sessionId: nativeSessionId, content: text, providerId, modelId, effortLevel });
           if (activeSendRef.current !== gen) return;
+          setModelRecency(recordModelUse(providerId, modelId));
           setNativeMessages((prev) => {
             const base = prev.filter((m) => m.id !== tempUserId);
             const next = [...base, result.userMessage];
@@ -1044,8 +1126,12 @@ export function ChatPanel({
           const msg = e instanceof Error ? e.message : String(e);
           addLog("error", "Failed to send native message", msg);
           try {
-            setNativeMessages(await nativeChatMessages(nativeSessionId));
-            setToolEvents(await nativeChatToolEvents(nativeSessionId));
+            const [msgs, events] = await Promise.all([
+              nativeChatMessages(nativeSessionId),
+              nativeChatToolEvents(nativeSessionId),
+            ]);
+            setNativeMessages(msgs);
+            setToolEvents(events);
           } catch {
             /* ignore */
           }
@@ -1065,8 +1151,10 @@ export function ChatPanel({
             // backend persisted (partial reply + tool events) without touching
             // the spinner state (handleStopNative already reset it).
             try {
-              const msgs = await nativeChatMessages(nativeSessionId);
-              const events = await nativeChatToolEvents(nativeSessionId);
+              const [msgs, events] = await Promise.all([
+                nativeChatMessages(nativeSessionId),
+                nativeChatToolEvents(nativeSessionId),
+              ]);
               if (activeSendRef.current === gen + 1) {
                 setNativeMessages(msgs);
                 setToolEvents(events);
@@ -1105,7 +1193,7 @@ export function ChatPanel({
         setLoading(false);
       }
     },
-    [nativeMode, nativeSessionId, selectedProvider, loading, providerId, modelId, effortLevel, agentId, addLog],
+    [nativeMode, nativeSessionId, selectedProvider, loading, providerId, modelId, effortLevel, agentId, addLog, setModelRecency],
   );
 
   // Prompt delivery consumption — replaces the old draft-prompt props.
@@ -1127,10 +1215,120 @@ export function ChatPanel({
     void sendMessage(delivery.text.trim()).then(() => consume());
   }, [delivery, consume, nativeSessionId, catalog, loading, sendMessage]);
 
-  // Auto-scroll
+  // Auto-scroll: follow the bottom whenever content grows IF the user was
+  // pinned to the bottom BEFORE the growth. The "was at bottom?" check MUST
+  // use the pre-growth height (`oldHeight`): measuring against the new,
+  // already-grown `scrollHeight` counts the just-added content as distance
+  // and wrongly concludes the user scrolled up — so the view stops following
+  // exactly when a new message/chunk lands. Also covers tool events /
+  // interactions / streaming deltas.
+  const scrollHeightRef = useRef(0);
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [nativeMessages, legacyMessages, streamText, reasoningText, streamPhase]);
+    const el = scrollRef.current;
+    if (!el) return;
+    const newHeight = el.scrollHeight;
+    const oldHeight = scrollHeightRef.current;
+    scrollHeightRef.current = newHeight;
+    const wasAtBottom = oldHeight - el.scrollTop - el.clientHeight <= 80;
+    if (oldHeight === 0 || wasAtBottom) {
+      el.scrollTop = newHeight;
+    }
+  }, [nativeMessages, legacyMessages, streamText, reasoningText, streamPhase, toolEvents, interactions]);
+
+  // Track whether the user has scrolled up from the bottom.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      setIsScrolledUp(distanceFromBottom > 80);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    setIsScrolledUp(false);
+  }, []);
+
+  // Highlight search matches in the transcript DOM.
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    // Clear previous marks.
+    const existing = container.querySelectorAll("mark.chat-search-highlight");
+    for (const mark of existing) {
+      const parent = mark.parentNode;
+      if (!parent) continue;
+      parent.replaceChild(document.createTextNode(mark.textContent ?? ""), mark);
+      parent.normalize();
+    }
+    if (!searchQuery || !showSearch) {
+      setSearchMatchCount(0);
+      setSearchActiveIndex(0);
+      return;
+    }
+    // Collect all text nodes before mutating.
+    const query = searchQuery.toLowerCase();
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const parent = (node as Text).parentElement;
+        if (!parent) return NodeFilter.FILTER_REJECT;
+        if (["SCRIPT", "STYLE", "TEXTAREA", "INPUT", "MARK"].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    const textNodes: Text[] = [];
+    let textNode = walker.nextNode();
+    while (textNode) {
+      textNodes.push(textNode as Text);
+      textNode = walker.nextNode();
+    }
+    // Wrap matches from end to start within each text node.
+    let count = 0;
+    for (const tn of textNodes) {
+      if (count >= 500) break;
+      const text = tn.textContent ?? "";
+      const lower = text.toLowerCase();
+      const indices: number[] = [];
+      let pos = 0;
+      while (pos < text.length && indices.length + count < 500) {
+        const idx = lower.indexOf(query, pos);
+        if (idx === -1) break;
+        indices.push(idx);
+        pos = idx + query.length;
+      }
+      for (let i = indices.length - 1; i >= 0; i--) {
+        const idx = indices[i];
+        const range = document.createRange();
+        range.setStart(tn, idx);
+        range.setEnd(tn, idx + query.length);
+        const mark = document.createElement("mark");
+        mark.className = "chat-search-highlight";
+        range.surroundContents(mark);
+        count++;
+      }
+    }
+    const marks = container.querySelectorAll<HTMLElement>("mark.chat-search-highlight");
+    setSearchMatchCount(marks.length);
+    setSearchActiveIndex(0);
+    if (marks[0]) {
+      marks[0].classList.add("chat-search-highlight-active");
+      marks[0].scrollIntoView({ block: "center" });
+    }
+  }, [searchQuery, showSearch]);
+
+  // Update active highlight when index changes.
+  useEffect(() => {
+    const marks = scrollRef.current?.querySelectorAll<HTMLElement>("mark.chat-search-highlight") ?? [];
+    marks.forEach((m, i) => {
+      if (i === searchActiveIndex) m.classList.add("chat-search-highlight-active");
+      else m.classList.remove("chat-search-highlight-active");
+    });
+  }, [searchActiveIndex, searchQuery, showSearch]);
 
   // Live elapsed timer — updates every second while streaming.
   useEffect(() => {
@@ -1353,8 +1551,8 @@ export function ChatPanel({
         if (skillName) {
           try {
             const skill = await readSkill(skillName);
-            const prompt = `${skill.content}\n\n${rest}`;
-            await sendMessage(prompt);
+            const wrapped = `<command name="/${command}">\n${skill.content}\n</command>${rest ? "\n" + rest : ""}`;
+            await sendMessage(wrapped);
             setCommandRecency(recordCommandUse(command));
             setInput("");
             return;
@@ -1374,7 +1572,8 @@ export function ChatPanel({
           try {
             const skill = await readSkill("basebuild-project-schematic");
             const action = schematicWizardAction(skill.content, undefined);
-            await sendMessage(action.text);
+            const wrapped = `<command name="/schematic${rest ? " " + rest : ""}">\n${action.text}\n</command>`;
+            await sendMessage(wrapped);
             setCommandRecency(recordCommandUse("schematic"));
             setInput("");
             return;
@@ -1427,6 +1626,14 @@ export function ChatPanel({
     await sendMessage(text);
   }, [input, nativeMode, sendMessage, catalog, addLog, interactions, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId, onOpenSchematic, projectPath, selectedModel]);
 
+  // Merged chronological timeline (messages + tool events + interactions).
+  // Memoized so it is rebuilt only when the underlying lists change — not on
+  // every render or stream delta tick (streamText renders separately).
+  const chatTimeline = useMemo(
+    () => buildChatTimeline(nativeMessages, toolEvents, interactions),
+    [nativeMessages, toolEvents, interactions],
+  );
+
   // Message action rail handlers.
   const handleCopyMessage = useCallback(async (content: string) => {
     try {
@@ -1436,6 +1643,30 @@ export function ChatPanel({
       onShowToast?.("Copy failed", "Clipboard unavailable.", "error");
     }
   }, [onShowToast]);
+
+  const handleCopyConversation = useCallback(async () => {
+    const events = chatTimeline;
+    if (events.length === 0) return;
+    const lines: string[] = [];
+    for (const ev of events) {
+      if (ev.kind === "user" || ev.kind === "assistant" || ev.kind === "system") {
+        const ts = ev.createdAt ? new Date(ev.createdAt * 1000).toISOString() : "";
+        lines.push(`### ${ev.kind.toUpperCase()}${ts ? ` (${ts})` : ""}\n\n${ev.content}`);
+        if (ev.reasoning) lines.push(`\n> **Reasoning:** ${ev.reasoning}`);
+      } else if (ev.kind === "tool") {
+        lines.push(`\n**Tool: ${ev.event.kind}** — ${ev.event.summary} (${ev.event.status})`);
+      } else if (ev.kind === "interaction") {
+        lines.push(`\n**Interaction: ${ev.interaction.id}** (status: ${ev.interaction.status})`);
+      }
+      lines.push("");
+    }
+    try {
+      await navigator.clipboard.writeText(lines.join("\n").trim());
+      onShowToast?.("Copied conversation", "Full transcript copied as markdown.", "success");
+    } catch {
+      onShowToast?.("Copy failed", "Clipboard unavailable.", "error");
+    }
+  }, [chatTimeline, onShowToast]);
 
   const handleRetryMessage = useCallback(async () => {
     // Find the last user message content.
@@ -1482,20 +1713,17 @@ export function ChatPanel({
   }, [agentId, projectPath, profileId]);
   // Forcefully stop the in-flight native chat turn: cancel the backend run,
   // invalidate the in-flight send so its resolution can't revive the spinner,
-  // and immediately free the composer so the user can send again.
+  // and immediately free the composer so the user can send again. Preserves
+  // the partial stream text and reasoning so the user can read what was
+  // generated before they stopped — the text clears on the next send.
   const handleStopNative = useCallback(async () => {
     if (!nativeSessionId) return;
     // Bump the generation first so the in-flight send()'s finally treats this
     // as a user stop (gen + 1) and reloads persisted partial output.
     activeSendRef.current += 1;
     setStreaming(false);
-        streamStartRef.current = null;
-        setElapsed(0);
-    setStreamText("");
-    setReasoningText("");
-    setStreamPhase("idle");
-    streamBufRef.current = "";
-    reasoningBufRef.current = "";
+    streamStartRef.current = null;
+    setElapsed(0);
     setStuck(false);
     setLoading(false);
     try {
@@ -1839,7 +2067,15 @@ export function ChatPanel({
   const modelName = selectedModel?.label ?? modelId;
 
   return (
-    <div className="chat-panel" ref={panelRef}>
+    <div className="chat-panel" ref={panelRef} tabIndex={-1} onKeyDown={(e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+    }}>
+      <div aria-live="polite" aria-atomic="true" className="sr-only" >
+        {streaming ? `Agent is responding${streamPhase === "tools" ? " — running tools" : streamPhase === "thinking" ? " — thinking" : ""}` : ""}
+      </div>
       <ChatHeader
         title={chatTitle ?? (nativeSessionId ? "Chat" : "New chat")}
         onRename={handleRename}
@@ -1856,10 +2092,10 @@ export function ChatPanel({
         branches={branches}
         onSwitchBranch={handleSwitchBranch}
         onCreateBranch={handleCreateBranch}
-        uncommittedCount={uncommittedCount}
+        onToggleHistory={() => onOpenHistory?.()}
         onStashAndSwitch={handleSwitchBranch}
         onDiscardAndSwitch={handleSwitchBranch}
-        onToggleHistory={() => { /* history toggle */ }}
+        uncommittedCount={uncommittedCount}
         onRenameAction={() => { /* handled by header internally */ }}
         onAssignPlan={handleOpenAssignPlan}
         onDuplicateChat={() => onDuplicateChat?.()}
@@ -1924,72 +2160,7 @@ export function ChatPanel({
               // reasoning into a single sorted list, rendered in order.
               // No grouping — each tool call is its own row. Thinking blocks
               // render as separate rows, split around tool calls/questions.
-              type ChatEvent =
-                | { kind: "user" | "assistant" | "system"; id: string; content: string; reasoning: string | null; createdAt: number | null; providerId: string | null; index: number }
-                | { kind: "tool"; id: string; event: NativeToolEvent; createdAt: number | null; index: number }
-                | { kind: "interaction"; id: string; interaction: PendingInteraction; createdAt: number | null; index: number };
-
-              // Build the merged event list.
-              const events: ChatEvent[] = [];
-              for (let i = 0; i < renderMessages.length; i++) {
-                const msg = renderMessages[i];
-                const msgId = "id" in msg ? String(msg.id) : null;
-                const ts = "createdAt" in msg ? (msg as NativeChatMessage).createdAt : null;
-                const reasoning = "reasoning" in msg ? (msg as NativeChatMessage).reasoning ?? null : null;
-                const providerId = "providerId" in msg ? (msg as NativeChatMessage).providerId ?? null : null;
-                events.push({
-                  kind: msg.role as "user" | "assistant" | "system",
-                  id: msgId ?? `legacy-${i}`,
-                  content: msg.content,
-                  reasoning,
-                  createdAt: ts,
-                  providerId,
-                  index: i,
-                });
-                // Attach tool events with this messageId right after the message.
-                if (msgId) {
-                  for (const te of toolEvents) {
-                    if (te.messageId === msgId) {
-                      events.push({
-                        kind: "tool",
-                        id: te.id,
-                        event: te,
-                        createdAt: ts,
-                        index: i + 0.5,
-                      });
-                    }
-                  }
-                }
-              }
-              // Live tool events (null messageId) go at the end.
-              for (const te of toolEvents) {
-                if (!te.messageId) {
-                  events.push({
-                    kind: "tool",
-                    id: te.id,
-                    event: te,
-                    createdAt: null,
-                    index: events.length,
-                  });
-                }
-              }
-              // Live interactions go at the end (no messageId binding yet).
-              for (const intr of interactions) {
-                events.push({
-                  kind: "interaction",
-                  id: intr.id,
-                  interaction: intr,
-                  createdAt: intr.createdAt ?? null,
-                  index: events.length,
-                });
-              }
-              // Sort by (createdAt, index) — stable chronological order.
-              events.sort((a, b) => {
-                const ta = a.createdAt ?? 0;
-                const tb = b.createdAt ?? 0;
-                if (ta !== tb) return ta - tb;
-                return a.index - b.index;
-              });
+              const events = chatTimeline;
               // Compute last user/assistant message IDs for action rail.
               let lastUserId: string | null = null;
               let lastAssistantId: string | null = null;
@@ -2018,6 +2189,10 @@ export function ChatPanel({
                   continue;
                 }
                 if (ev.kind === "interaction") {
+                  // Pending questions render in the sticky dock above the
+                  // composer (always visible); only answered/cancelled ones
+                  // render inline here as conversation history.
+                  if (ev.interaction.status === "pending") continue;
                   rendered.push(
                     <QuestionCard
                       key={`intr-${ev.id}`}
@@ -2042,15 +2217,17 @@ export function ChatPanel({
                   );
                 }
                 rendered.push(
-                  <div key={ev.id} className={`chat-message chat-message-${ev.kind}`}>
+                  <div key={ev.id} className={`chat-message chat-message-${ev.kind}`} aria-label={`${ev.kind === "user" ? "You" : ev.kind === "assistant" ? "Assistant" : "System"}: ${ev.content.slice(0, 100)}`}>
                     <span className="chat-message-role">
-                      {ev.kind === "user" ? "You" : ev.kind === "assistant" ? "Basebuild" : "System"}
+                      {ev.kind === "user" ? "You" : ev.kind === "assistant" ? resolveAssistantLabel(catalog, selectedModel, ev.modelId ?? modelId, ev.providerId) : "System"}
                       {isOfflineTurn ? <span className="chat-offline-tag" title="No external model was contacted">Offline</span> : null}
                       {timeStr ? <span className="chat-message-time" title={fullDate ?? ""}>{timeStr}</span> : null}
                     </span>
                     {ev.kind === "assistant"
                       ? <MarkdownView text={ev.content} className="chat-message-content" />
-                      : <pre className="chat-message-content">{ev.content}</pre>}
+                      : ev.kind === "user"
+                        ? <UserMessageContent content={ev.content} onViewPayload={(name, payload) => setCommandPayloadModal({ name, content: payload })} />
+                        : <pre className="chat-message-content">{ev.content}</pre>}
                     {ev.kind === "user" || ev.kind === "assistant" ? (
                       <div className="chat-message-actions">
                         <button
@@ -2113,32 +2290,34 @@ export function ChatPanel({
               return (
                 <div key={key} className={`chat-message chat-message-${msg.role}`}>
                   <span className="chat-message-role">
-                    {msg.role === "user" ? "You" : msg.role === "assistant" ? "Basebuild" : "System"}
+                    {msg.role === "user" ? "You" : msg.role === "assistant" ? resolveAssistantLabel(catalog, selectedModel, modelId, providerId) : "System"}
                   </span>
-                  <pre className="chat-message-content">{msg.content}</pre>
+                  {msg.role === "user"
+                    ? <UserMessageContent content={msg.content} onViewPayload={(name, payload) => setCommandPayloadModal({ name, content: payload })} />
+                    : <pre className="chat-message-content">{msg.content}</pre>}
                 </div>
               );
             })}
 
-        {/* Live thinking with elapsed timer */}
-        {streaming && reasoningText ? (
+        {/* Thinking block — visible while streaming and after stop */}
+        {reasoningText ? (
           <div className="chat-message chat-message-assistant chat-message-reasoning" title="Live chain-of-thought from the model. Final answer follows.">
             <span className="chat-message-role">
-              Thinking…
-              <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
+              Thinking{streaming ? "…" : " (stopped)"}
+              {streaming ? <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span> : null}
             </span>
-            <pre className="chat-message-content chat-reasoning-live">{reasoningText}<span className="chat-cursor" /></pre>
+            <pre className="chat-message-content chat-reasoning-live">{reasoningText}{streaming ? <span className="chat-cursor" /> : null}</pre>
           </div>
         ) : null}
 
-        {/* Streaming assistant text with elapsed timer */}
-        {streaming && streamText ? (
+        {/* Assistant text — visible while streaming and after stop */}
+        {streamText ? (
           <div className="chat-message chat-message-assistant">
             <span className="chat-message-role">
-              Basebuild
-              <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
+              {selectedModel?.label ?? modelId}
+              {streaming ? <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span> : null}
             </span>
-            <div className="chat-message-content"><MarkdownView text={streamText} /><span className="chat-cursor" /></div>
+            <div className="chat-message-content"><MarkdownView text={streamText} />{streaming ? <span className="chat-cursor" /> : null}</div>
           </div>
         ) : null}
 
@@ -2146,7 +2325,7 @@ export function ChatPanel({
         {streaming && streamPhase === "thinking" && !streamText && !reasoningText ? (
           <div className="chat-message chat-thinking-indicator" title={`Waiting for the model to start responding (${formatElapsed(elapsed)})`}>
             <span className="chat-message-role">
-              Basebuild
+              {selectedModel?.label ?? modelId}
               <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
             </span>
             <div className="chat-thinking-dots">
@@ -2237,6 +2416,129 @@ export function ChatPanel({
           );
         })() : null}
       </div>
+      {/* Sticky approval bar — always visible above the composer whenever a
+          tool call is awaiting approval, independent of scroll position or
+          streaming state. The in-transcript card can scroll out of view when
+          the model streamed text before the tool call; this bar guarantees
+          the Allow/Deny actions are always reachable. */}
+      {nativeMode ? (() => {
+        const pending = toolEvents.filter((e) => e.status === "pending");
+        if (pending.length === 0) return null;
+        const names = pending.map((e) => e.kind.replace(/_/g, " ")).join(", ");
+        const resolveAll = (decision: "allow" | "allow_session" | "deny") =>
+          pending.forEach((e) => void handleResolveApproval(e.id, decision));
+        return (
+          <div className="chat-approval-bar" title={`Approval required: ${names}`}>
+            <span className="chat-approval-bar-label">
+              <span className="chat-approval-bar-icon" aria-hidden="true">🔐</span>
+              Approve <strong>{names}</strong>?
+            </span>
+            <div className="chat-approval-bar-actions">
+              <button className="btn btn-sm btn-primary" type="button" title="Allow this tool call once" onClick={() => resolveAll("allow")}>Allow Once</button>
+              <button className="btn btn-sm" type="button" title="Allow all calls to this tool for this session" onClick={() => resolveAll("allow_session")}>Allow Session</button>
+              <button className="btn btn-sm" type="button" title="Deny this tool call" onClick={() => resolveAll("deny")}>Deny</button>
+              <button className="btn btn-sm chat-approval-bar-auto" type="button" title="Switch to Auto mode: allow all tool calls without asking. Change back in Settings." onClick={() => void handleSetApprovalMode("auto")}>Allow All (Auto)</button>
+            </div>
+          </div>
+        );
+      })() : null}
+      {/* Pending-question dock — the active ask_user question is pinned here
+          above the composer so its options / text input / Submit / Cancel are
+          always visible, instead of scrolling out of view up in the transcript
+          (which left only the cryptic "/send to escape" banner). Answered and
+          cancelled questions fall back into the transcript as history. */}
+      {nativeMode
+        ? interactions
+            .filter((i) => i.status === "pending")
+            .map((intr) => (
+              <div className="chat-question-dock" key={`dock-${intr.id}`}>
+                <QuestionCard
+                  interaction={intr}
+                  onResolved={(resolved) => setInteractions((prev) => prev.map((i) => i.id === resolved.id ? resolved : i))}
+                  onCancelled={(id) => setInteractions((prev) => prev.map((i) => i.id === id ? { ...i, status: "cancelled" } : i))}
+                />
+              </div>
+            ))
+        : null}
+      {/* Scroll-to-bottom button */}
+      {isScrolledUp ? (
+        <button
+          className="chat-scroll-bottom-btn"
+          type="button"
+          title="Scroll to bottom of conversation"
+          onClick={scrollToBottom}
+        >
+          <ChevronDown size={16} />
+        </button>
+      ) : null}
+      {/* In-conversation search bar */}
+      {showSearch ? (
+        <div className="chat-search-bar">
+          <input
+            className="chat-search-input"
+            type="text"
+            autoFocus
+            placeholder="Search conversation…"
+            value={searchQuery}
+            onChange={(e) => {
+              const q = e.target.value;
+              setSearchQuery(q);
+              if (!q) { setSearchMatchCount(0); setSearchActiveIndex(0); return; }
+              const els = scrollRef.current?.querySelectorAll<HTMLElement>("mark.chat-search-highlight") ?? [];
+              setSearchMatchCount(els.length);
+              setSearchActiveIndex(0);
+              if (els[0]) els[0].scrollIntoView({ block: "center" });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setShowSearch(false);
+                setSearchQuery("");
+                setSearchMatchCount(0);
+                chatInputRef.current?.focus();
+              } else if (e.key === "Enter") {
+                e.preventDefault();
+                const els = scrollRef.current?.querySelectorAll<HTMLElement>("mark.chat-search-highlight") ?? [];
+                if (els.length === 0) return;
+                const next = e.shiftKey
+                  ? (searchActiveIndex - 1 + els.length) % els.length
+                  : (searchActiveIndex + 1) % els.length;
+                setSearchActiveIndex(next);
+                els[next].scrollIntoView({ block: "center" });
+              }
+            }}
+            title="Search messages and tool cards — Enter for next, Shift+Enter for prev, Escape to close"
+          />
+          <span className="chat-search-count" title="Match count">
+            {searchMatchCount > 0 ? `${searchActiveIndex + 1}/${searchMatchCount}` : "0/0"}
+          </span>
+          <button className="chat-search-btn" type="button" title="Previous match (Shift+Enter)" onClick={() => {
+            const els = scrollRef.current?.querySelectorAll<HTMLElement>("mark.chat-search-highlight") ?? [];
+            if (els.length === 0) return;
+            const prev = (searchActiveIndex - 1 + els.length) % els.length;
+            setSearchActiveIndex(prev);
+            els[prev].scrollIntoView({ block: "center" });
+          }}>
+            <ChevronUp size={12} />
+          </button>
+          <button className="chat-search-btn" type="button" title="Next match (Enter)" onClick={() => {
+            const els = scrollRef.current?.querySelectorAll<HTMLElement>("mark.chat-search-highlight") ?? [];
+            if (els.length === 0) return;
+            const next = (searchActiveIndex + 1) % els.length;
+            setSearchActiveIndex(next);
+            els[next].scrollIntoView({ block: "center" });
+          }}>
+            <ChevronDown size={12} />
+          </button>
+          <button className="chat-search-btn" type="button" title="Close search (Escape)" onClick={() => {
+            setShowSearch(false);
+            setSearchQuery("");
+            setSearchMatchCount(0);
+            chatInputRef.current?.focus();
+          }}>
+            <X size={12} />
+          </button>
+        </div>
+      ) : null}
 
       {/* Generated ideas surface */}
       {nativeMode && ideaState.ideas.length > 0 ? (
@@ -2387,6 +2689,28 @@ export function ChatPanel({
                 {savingCred ? "Saving…" : "Save key & connect"}
               </button>
               {loginError ? <p className="text-danger text-sm">{loginError}</p> : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Command payload modal: shows the full injected skill/command body. */}
+      {commandPayloadModal ? (
+        <div className="modal-overlay" onClick={() => setCommandPayloadModal(null)} title="Close command payload">
+          <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title={`${commandPayloadModal.name} payload`}>
+            <div className="modal-header">
+              <h2>{commandPayloadModal.name}</h2>
+              <button
+                className="btn-icon"
+                title="Close"
+                type="button"
+                onClick={() => setCommandPayloadModal(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="modal-body command-payload-body" onClick={(e) => e.stopPropagation()} title="Full injected command payload">
+              <pre className="command-payload-pre">{commandPayloadModal.content}</pre>
             </div>
           </div>
         </div>
@@ -2709,6 +3033,7 @@ export function ChatPanel({
                               addLog("debug", "Model selected", `provider=${model.providerId}; model=${model.id}`);
                               setProviderId(model.providerId);
                               setModelId(model.id);
+                              setModelRecency(recordModelUse(model.providerId, model.id));
                               setShowProviderPicker(false);
                               setShowModelPicker(false);
                               setSetupRequired(null);
@@ -2721,6 +3046,11 @@ export function ChatPanel({
                               <span className="provider-model-id">{model.id}</span>
                             </span>
                             <span className="provider-model-badges">
+                              {modelRecency[`${model.providerId}/${model.id}`] ? (
+                                <span className="provider-model-recency" title="Last used">
+                                  used {formatRelativeTime(modelRecency[`${model.providerId}/${model.id}`]!)}
+                                </span>
+                              ) : null}
                               {model.supportsTools ? <span className="provider-capability is-positive">Tools</span> : null}
                               {model.supportsReasoning ? <span className="provider-capability">Reasoning</span> : null}
                               <span className="provider-capability">{model.supportedEfforts.length ? model.supportedEfforts.join("/") : "Standard"}</span>
@@ -2812,6 +3142,7 @@ export function ChatPanel({
           <textarea
             ref={chatInputRef}
             className="input chat-input"
+            aria-label="Chat message input"
             placeholder={
               nativeMode
                 ? "Type a message… (Enter to send, Shift+Enter for newline)"
@@ -2829,8 +3160,7 @@ export function ChatPanel({
               }
               setPaletteActiveIndex(0);
               const el = e.target;
-              el.style.height = "auto";
-              el.style.height = `${Math.min(el.scrollHeight, 360)}px`;
+              el.style.setProperty("--chat-input-height", `${Math.min(el.scrollHeight, 360)}px`);
             }}
             onKeyDown={(e) => {
               // Command palette keyboard navigation.
@@ -2899,16 +3229,17 @@ export function ChatPanel({
           )}
         </div>
         <div className="chat-input-controls">
-          <select
-            className="chat-permission-select"
-            title={`Permission mode: ${approvalMode === "auto" ? "Auto — all tools allowed without asking" : approvalMode === "safe" ? "Safe — always ask before any tool" : "Balanced — read-only tools auto-allowed, mutating tools ask"}. Change to control how the agent handles tool calls.`}
+          <OptionList<ApprovalMode>
             value={approvalMode}
-            onChange={(e) => void handleSetApprovalMode(e.target.value as ApprovalMode)}
-          >
-            <option value="balanced" title="Read-only tools auto-allowed; writes and commands prompt">Balanced</option>
-            <option value="safe" title="Every tool call prompts the user">Always Ask</option>
-            <option value="auto" title="No prompts; everything auto-allowed within workspace">Run Everything</option>
-          </select>
+            onChange={(mode) => void handleSetApprovalMode(mode)}
+            label="Permission mode"
+            compact
+            options={[
+              { id: "balanced", label: "Balanced", title: "Balanced — read-only tools auto-allowed, mutating tools ask" },
+              { id: "safe", label: "Always Ask", title: "Safe — every tool call prompts the user" },
+              { id: "auto", label: "Run Everything", title: "Auto — no prompts; everything auto-allowed within workspace" },
+            ]}
+          />
           <button
             type="button"
             className={`btn btn-sm chat-debug-toggle ${debugMode ? "chat-debug-toggle-on" : ""}`}
@@ -2920,6 +3251,15 @@ export function ChatPanel({
             }}
           >
             <Bug size={12} /> Debug
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm chat-copy-conversation-btn"
+            title="Copy entire conversation as markdown to clipboard"
+            disabled={nativeMessages.length === 0}
+            onClick={() => void handleCopyConversation()}
+          >
+            <Copy size={12} /> Copy All
           </button>
         </div>
         {debugMode ? (

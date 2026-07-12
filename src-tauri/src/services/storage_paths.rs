@@ -40,13 +40,26 @@ impl StoragePathService {
     }
 
     pub fn ensure_global_layout() -> Result<StoragePaths, String> {
+        // The directory set only needs creating once per home path per
+        // process. Guarding it removes three create_dir_all syscalls from
+        // every StorageService::connect() (called ~200 places, dozens during
+        // boot/chat-load). Keyed by global_dir so test-isolated homes each
+        // ensure once.
+        static ENSURED: std::sync::LazyLock<
+            parking_lot::Mutex<std::collections::HashSet<PathBuf>>,
+        > = std::sync::LazyLock::new(|| parking_lot::Mutex::new(std::collections::HashSet::new()));
         let paths = Self::resolve(None)?;
+        let mut ensured = ENSURED.lock();
+        if ensured.contains(&paths.global_dir) {
+            return Ok(paths);
+        }
         fs::create_dir_all(paths.global_dir.join("configs"))
             .map_err(|error| format!("Failed to create global configs directory: {error}"))?;
         fs::create_dir_all(paths.global_dir.join("marketplace").join("cache"))
             .map_err(|error| format!("Failed to create marketplace cache directory: {error}"))?;
         fs::create_dir_all(paths.global_dir.join("updates"))
             .map_err(|error| format!("Failed to create updates directory: {error}"))?;
+        ensured.insert(paths.global_dir.clone());
         Ok(paths)
     }
 }

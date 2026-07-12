@@ -186,6 +186,7 @@ mod tests {
             ],
             recommended: Some(1),
             allow_free_text: false,
+            detail: None,
         }]
     }
 

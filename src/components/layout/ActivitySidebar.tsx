@@ -7,6 +7,7 @@ import {
   FolderPlus,
   LayoutList,
   LayoutTemplate,
+  Loader2,
   MessageSquare,
   Plus,
   Settings2,
@@ -14,17 +15,21 @@ import {
   Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { flattenPanels } from "../../lib/panelGrid";
+import { flattenPanels, parsePanelGrid } from "../../lib/panelGrid";
 import { usePanelStatus, type PanelStatus } from "../panels/PanelStatusContext";
 import { AccountButton } from "./AccountButton";
 import { UpdateButton } from "./UpdateButton";
 import { RepoIcon } from "./RepoIcon";
-import { getRepoIdentity, type RepoIdentity } from "../../lib/repoIdentity";
+import { getRepoIdentity, type RepoHost, type RepoIdentity } from "../../lib/repoIdentity";
 import { getProjectAgentStatus, type AgentStatus } from "../../lib/agentStatus";
+import { nativeChatList, type NativeChatSession } from "../../lib/native-chat";
+import { getWorkspaceRestoreState } from "../../lib/workspace";
+import { formatRelativeTime } from "../../lib/timing";
 import type { AccountState } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
 import type { Panel, PanelType, SplitNode } from "../../lib/panelGrid";
 import type { RecentProject } from "../../lib/projects";
+
 const typeIcons: Record<PanelType, LucideIcon> = {
   chat: MessageSquare,
   terminal: TerminalSquare,
@@ -41,6 +46,26 @@ const statusDotClass: Record<PanelStatus, string> = {
   asking: "panel-status-asking",
   error: "panel-status-error",
   succeeded: "panel-status-succeeded",
+};
+
+const activeStatusWords: Record<PanelStatus, boolean> = {
+  idle: false,
+  streaming: true,
+  thinking: true,
+  running: true,
+  asking: true,
+  error: false,
+  succeeded: false,
+};
+
+const statusWordLabel: Record<PanelStatus, string> = {
+  idle: "idle",
+  streaming: "streaming",
+  thinking: "thinking",
+  running: "running",
+  asking: "asking",
+  error: "error",
+  succeeded: "done",
 };
 
 export type ActivitySidebarProps = {
@@ -85,6 +110,8 @@ export function ActivitySidebar({
   onToggleCollapse,
 }: ActivitySidebarProps) {
   const [repoIdentities, setRepoIdentities] = useState<Map<string, RepoIdentity>>(new Map());
+  const [otherProjectChats, setOtherProjectChats] = useState<Map<string, NativeChatSession[]>>(new Map());
+  const [, setClock] = useState(0);
 
   // Fetch repo identity (host, name, branch) for all projects.
   useEffect(() => {
@@ -108,6 +135,49 @@ export function ActivitySidebar({
     });
     return () => { cancelled = true; };
   }, [projects]);
+
+  // Fetch chats OPEN in each non-active project's saved workspace grid —
+  // never the full session history. Mirrors what the active project shows
+  // (its open panels), just unloaded.
+  useEffect(() => {
+    let cancelled = false;
+    const otherProjects = projects.filter((p) => p.path !== activeProjectPath);
+    if (otherProjects.length === 0) return;
+    void Promise.all(
+      otherProjects.map(async (p) => {
+        try {
+          const [restore, sessions] = await Promise.all([
+            getWorkspaceRestoreState(p.path),
+            nativeChatList(p.path),
+          ]);
+          const grid = parsePanelGrid(restore.panelGrid);
+          const openChatIds = new Set(
+            flattenPanels(grid.root)
+              .filter((panel) => panel.type === "chat" && panel.chatSessionId)
+              .map((panel) => panel.chatSessionId as string),
+          );
+          return [p.path, sessions.filter((s) => openChatIds.has(s.id))] as [string, NativeChatSession[]];
+        } catch {
+          return [p.path, []] as [string, NativeChatSession[]];
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      const map = new Map<string, NativeChatSession[]>();
+      for (const [path, sessions] of entries) {
+        map.set(path, sessions);
+      }
+      setOtherProjectChats(map);
+    });
+    return () => { cancelled = true; };
+  }, [projects, activeProjectPath]);
+
+  // Tick a clock every 15s so relative times refresh.
+  useEffect(() => {
+    const id = window.setInterval(() => setClock((c) => c + 1), 15000);
+    return () => window.clearInterval(id);
+  }, []);
+
   const { statuses } = usePanelStatus();
   const panels = useMemo(() => flattenPanels(root), [root]);
 
@@ -121,7 +191,7 @@ export function ActivitySidebar({
           <button className="btn-icon" type="button" title="History" onClick={onOpenHistory}>
             <Clock size={14} />
           </button>
-          <button className="btn-icon" type="button" title="Plans & Ideas" onClick={onOpenPlans} disabled={!activeProjectPath}>
+          <button className="btn-icon" type="button" title="Plans & Ideas" aria-label="Plans & Ideas" onClick={onOpenPlans} disabled={!activeProjectPath}>
             <LayoutList size={14} />
           </button>
           <button className="btn-icon" type="button" title={pickerInFlight ? "Opening folder picker…" : "Add project folder"} onClick={onOpenFolder} disabled={pickerInFlight}>
@@ -157,6 +227,28 @@ export function ActivitySidebar({
   const activeBranch = activeIdentity?.branch ?? null;
   const activeHost = activeIdentity?.host ?? "folder";
   const activeAgentStatus = getProjectAgentStatus(panels.map((p) => statuses[p.id]?.status ?? "idle"));
+  function renderPanelMeta(panelId: string) {
+    const entry = statuses[panelId];
+    const status = entry?.status ?? "idle";
+    const since = entry?.since;
+    if (activeStatusWords[status]) {
+      return (
+        <span className="activity-sidebar-row-meta" title={`Status: ${statusWordLabel[status]}`}>
+          {statusWordLabel[status]}
+          <Loader2 size={9} className="is-spinning" />
+        </span>
+      );
+    }
+    if (since) {
+      return (
+        <span className="activity-sidebar-row-meta" title={new Date(since).toLocaleString()}>
+          {formatRelativeTime(since)}
+        </span>
+      );
+    }
+    return null;
+  }
+
   return (
     <aside className="project-chat-sidebar" aria-label="Activity sidebar">
       <div className="sidebar-top-actions">
@@ -165,6 +257,9 @@ export function ActivitySidebar({
         </button>
         <button className="btn-icon" type="button" title="New terminal" onClick={onCreateTerminal} disabled={!activeProjectPath}>
           <TerminalSquare size={14} />
+        </button>
+        <button className="btn-icon" type="button" title="Plans & Ideas" aria-label="Plans & Ideas" onClick={onOpenPlans} disabled={!activeProjectPath}>
+          <LayoutList size={14} />
         </button>
         <button className="btn-icon" type="button" title={pickerInFlight ? "Opening folder picker…" : "Add project folder"} onClick={onOpenFolder} disabled={pickerInFlight}>
           <FolderPlus size={14} />
@@ -178,12 +273,18 @@ export function ActivitySidebar({
         <div className="activity-sidebar-list">
           {activeProjectPath ? (
             <div className="activity-sidebar-project">
-              <RepoIcon host={activeHost} size={14} />
-              <span className="activity-sidebar-project-name" title={activeProjectPath}>
-                {activeName}
-              </span>
-              {activeBranch ? <span className="activity-sidebar-project-branch" title={`Branch: ${activeBranch}`}>{activeBranch}</span> : null}
-              <span className={`agent-status-dot agent-status-${activeAgentStatus}`} title={`Agent: ${activeAgentStatus}`} aria-label={`Agent status: ${activeAgentStatus}`} />
+              <div className="activity-sidebar-project-main">
+                <RepoIcon host={activeHost} size={14} />
+                <span className="activity-sidebar-project-name" title={activeProjectPath}>
+                  {activeName}
+                </span>
+                <span className={`agent-status-dot agent-status-${activeAgentStatus}`} title={`Agent: ${activeAgentStatus}`} aria-label={`Agent status: ${activeAgentStatus}`} />
+              </div>
+              {activeBranch ? (
+                <span className="activity-sidebar-project-branch" title={`Branch: ${activeBranch}`}>
+                  {activeBranch}
+                </span>
+              ) : null}
             </div>
           ) : null}
           {/* Panels (chats) nested under the project */}
@@ -195,7 +296,6 @@ export function ActivitySidebar({
             panels.map((panel) => {
               const Icon = typeIcons[panel.type] ?? FileText;
               const isActive = panel.id === activePanelId;
-              const status = statuses[panel.id]?.status ?? "idle";
               return (
                 <div
                   key={panel.id}
@@ -205,7 +305,8 @@ export function ActivitySidebar({
                 >
                   <Icon size={11} className="activity-sidebar-row-icon" />
                   <span className="activity-sidebar-row-title">{panel.title}</span>
-                  <span className={`activity-sidebar-row-status panel-status-indicator ${statusDotClass[status]}`} />
+                  {renderPanelMeta(panel.id)}
+                  <span className={`activity-sidebar-row-status panel-status-indicator ${statusDotClass[statuses[panel.id]?.status ?? "idle"]}`} />
                 </div>
               );
             })
@@ -218,33 +319,48 @@ export function ActivitySidebar({
                 const name = identity?.name ?? project.name;
                 const branch = identity?.branch ?? null;
                 const host = identity?.host ?? "folder";
+                const chats = otherProjectChats.get(project.path) ?? [];
                 return (
-                  <div
-                    key={project.path}
-                    className="activity-sidebar-project-row"
-                    title={project.path}
-                    onClick={() => onSelectProject(project.path)}
-                  >
-                    <RepoIcon host={host} size={11} />
-                    <span className="activity-sidebar-row-title">{name}</span>
-                    {branch ? <span className="activity-sidebar-project-branch" title={`Branch: ${branch}`}>{branch}</span> : null}
-                    <span className="agent-status-dot agent-status-idle" title="Agent: idle" aria-label="Agent status: idle" />
+                  <div key={project.path} className="activity-sidebar-project-row">
+                    <div
+                      className="activity-sidebar-project-main"
+                      title={project.path}
+                      onClick={() => onSelectProject(project.path)}
+                    >
+                      <RepoIcon host={host} size={11} />
+                      <span className="activity-sidebar-row-title">{name}</span>
+                      <span className="agent-status-dot agent-status-idle" title="Agent: idle" aria-label="Agent status: idle" />
+                    </div>
+                    {branch ? (
+                      <span className="activity-sidebar-project-branch" title={`Branch: ${branch}`} onClick={() => onSelectProject(project.path)}>
+                        {branch}
+                      </span>
+                    ) : null}
+                    {chats.length > 0 ? (
+                      <div className="activity-sidebar-project-chats" aria-label={`${name} chats`}>
+                        {chats.map((session) => {
+                          const fullTs = new Date(session.updatedAt * 1000).toLocaleString();
+                          return (
+                            <div
+                              key={session.id}
+                              className="activity-sidebar-project-chat"
+                              title={`${session.title} — ${fullTs}`}
+                              onClick={() => onSelectProject(project.path)}
+                            >
+                              <MessageSquare size={10} className="activity-sidebar-row-icon" />
+                              <span className="activity-sidebar-project-chat-title">{session.title}</span>
+                              <span className="activity-sidebar-project-chat-time">{formatRelativeTime(session.updatedAt)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}
             </div>
           ) : null}
         </div>
-        <button
-          className="activity-sidebar-history-btn"
-          type="button"
-          title="Plans & Ideas"
-          onClick={onOpenPlans}
-          disabled={!activeProjectPath}
-        >
-          <LayoutList size={11} />
-          <span>Plans & Ideas</span>
-        </button>
         <button
           className="activity-sidebar-history-btn"
           type="button"

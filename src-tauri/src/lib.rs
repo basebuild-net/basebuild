@@ -48,25 +48,20 @@ use commands::{
         create_category, create_idea, delete_category, delete_idea, ensure_default_categories,
         list_categories, list_ideas, promote_ideas, reject_idea, update_idea_status,
     },
+    idea_rounds::{finish_idea_round, list_idea_rounds, start_idea_round},
     omp::{
         omp_config_list, omp_debug_context, omp_stats, omp_status, omp_stream_command, omp_usage,
-    },
-    omp_rpc::{
-        omp_rpc_cancel, omp_rpc_probe, omp_rpc_resolve, omp_rpc_send, omp_rpc_shutdown,
-        omp_rpc_start, omp_rpc_status,
     },
     omp_telemetry::{
         omp_telemetry_refresh, omp_telemetry_snapshot, omp_telemetry_start, omp_telemetry_stop,
     },
     native_chat::{
-        native_chat_get, native_chat_list, native_chat_messages, native_chat_clear_messages, native_chat_send,
-        native_chat_start, native_chat_cancel, native_chat_resolve_approval,
-        native_chat_update_session_model,
-        native_chat_tool_events, native_chat_model_default,
-        native_chat_set_project_model_default,
-        native_chat_set_global_model_default, native_catalog_sync,
-        native_delete_provider_credential, native_generate_ideas,
-        native_list_provider_credentials, native_provider_catalog,
+        native_catalog_sync, native_chat_cancel, native_chat_clear_messages, native_chat_get,
+        native_chat_history, native_chat_list, native_chat_messages, native_chat_model_default,
+        native_chat_resolve_approval, native_chat_send, native_chat_set_global_model_default,
+        native_chat_set_project_model_default, native_chat_start, native_chat_tool_events,
+        native_chat_update_session_model, native_delete_provider_credential,
+        native_generate_ideas, native_list_provider_credentials, native_provider_catalog,
         native_provider_catalog_refresh, native_provider_login_cancel,
         native_provider_login_poll, native_provider_login_start,
         native_provider_omp_login_command, native_provider_refresh_omp_credentials,
@@ -86,7 +81,7 @@ use commands::{
     plan_runs::{
         plan_assign_to_chat, plan_run_cancel, plan_run_check_completion, plan_run_complete,
         plan_run_enqueue, plan_run_get, plan_run_list, plan_run_list_queue, plan_run_mark_complete,
-        plan_run_pause, plan_run_remove, plan_run_reorder, plan_run_start, plan_run_start_omp,
+        plan_run_finish_outcome, plan_run_pause, plan_run_remove, plan_run_reorder, plan_run_start, plan_run_start_omp,
     },
     plan_dependency::{
         plan_assign_with_profile, plan_coordination_event_publish, plan_coordination_events,
@@ -144,8 +139,9 @@ use commands::{
         stability_unseen_count, stability_violations,
     },
     sync::{
-        sync_raw_usage_native, usage_sync_projected_usage, usage_sync_set_enabled,
-        usage_sync_status, usage_sync_trigger,
+        sync_raw_usage_native, usage_declare_provider_plans, usage_detect_provider_plans,
+        usage_list_provider_plans, usage_sync_projected_usage, usage_sync_set_enabled,
+        usage_sync_set_mode, usage_sync_status, usage_sync_trigger,
     },
      terminal::{close_terminal, create_terminal, list_terminals, resize_terminal, terminal_replay, write_terminal},
     workspace::{get_workspace_restore_state, save_workspace_restore_state},
@@ -225,7 +221,6 @@ pub fn run() {
     builder
         .manage(app_state::AppState::default())
         .manage(std::sync::Mutex::new(crate::services::agent_service::AgentManager::default()))
-        .manage(crate::services::omp_rpc_session_service::OmpRpcSessionRegistry::default())
         .setup(|app| {
             // Store handle so the panic hook can emit to the frontend
             if let Ok(mut handle) = APP_HANDLE.lock() {
@@ -288,6 +283,7 @@ pub fn run() {
                         crate::services::sync_service::trigger_sync(
                             window.app_handle().clone(),
                             "window-hidden",
+                            false,
                         );
                     }
                 }
@@ -296,6 +292,7 @@ pub fn run() {
                     crate::services::sync_service::trigger_sync(
                         window.app_handle().clone(),
                         "focus-lost",
+                        false,
                     );
                 }
                 _ => {}
@@ -324,13 +321,6 @@ pub fn run() {
             omp_usage,
             omp_debug_context,
             omp_stream_command,
-            omp_rpc_probe,
-            omp_rpc_start,
-            omp_rpc_send,
-            omp_rpc_cancel,
-            omp_rpc_shutdown,
-            omp_rpc_resolve,
-            omp_rpc_status,
             omp_telemetry_start,
             omp_telemetry_stop,
             omp_telemetry_snapshot,
@@ -381,6 +371,7 @@ pub fn run() {
             plan_run_complete,
             plan_run_mark_complete,
             plan_run_check_completion,
+            plan_run_finish_outcome,
             plan_run_list,
             plan_run_get,
             plan_set_dependencies,
@@ -486,6 +477,9 @@ pub fn run() {
             promote_ideas,
             reject_idea,
             ensure_default_categories,
+            start_idea_round,
+            finish_idea_round,
+            list_idea_rounds,
             agent_start,
             agent_send,
             agent_capabilities,
@@ -496,6 +490,7 @@ pub fn run() {
             native_chat_start,
             native_chat_get,
             native_chat_list,
+            native_chat_history,
             native_chat_messages,
             native_chat_clear_messages,
             native_chat_update_session_model,
@@ -558,8 +553,11 @@ pub fn run() {
             sync_raw_usage_native,
             usage_sync_trigger,
             usage_sync_set_enabled,
-            usage_sync_status,
+            usage_sync_set_mode,
             usage_sync_projected_usage,
+            usage_detect_provider_plans,
+            usage_list_provider_plans,
+            usage_declare_provider_plans,
             get_workspace_restore_state,
             save_workspace_restore_state,
             workspace_create,
@@ -588,8 +586,15 @@ pub fn run() {
             notification_set_settings,
              get_skipped_update_version,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Basebuild");
+        .build(tauri::generate_context!())
+        .expect("error while building Basebuild")
+        .run(|_app, event| {
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                eprintln!("[APP] ExitRequested — running final sync before exit");
+                crate::services::sync_service::sync_on_exit();
+                eprintln!("[APP] final sync done — exiting");
+            }
+        });
 }
 
 #[cfg(test)]

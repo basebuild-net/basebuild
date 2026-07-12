@@ -675,8 +675,8 @@ impl PlanDependencyService {
         let conn = StorageService::connect()?;
         conn.execute(
             "INSERT INTO plan_launch_profiles (project_path, engine, provider_id, model_id,
-             effort_level, skill_id, worker_count, workspace_policy, scheduling_mode, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             effort_level, skill_id, worker_count, workspace_policy, scheduling_mode, finish_policy, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(project_path) DO UPDATE SET
                 engine = excluded.engine,
                 provider_id = excluded.provider_id,
@@ -686,6 +686,7 @@ impl PlanDependencyService {
                 worker_count = excluded.worker_count,
                 workspace_policy = excluded.workspace_policy,
                 scheduling_mode = excluded.scheduling_mode,
+                finish_policy = excluded.finish_policy,
                 updated_at = excluded.updated_at",
             params![
                 profile.project_path,
@@ -697,6 +698,7 @@ impl PlanDependencyService {
                 profile.worker_count,
                 profile.workspace_policy,
                 profile.scheduling_mode,
+                profile.finish_policy,
                 now(),
             ],
         )
@@ -704,12 +706,11 @@ impl PlanDependencyService {
         Ok(())
     }
 
-    /// Get the launch profile for a project.
     pub fn get_launch_profile(project_path: &str) -> DbResult<Option<LaunchProfile>> {
         let conn = StorageService::connect()?;
         conn.query_row(
             "SELECT project_path, engine, provider_id, model_id, effort_level, skill_id,
-             worker_count, workspace_policy, scheduling_mode, updated_at
+             worker_count, workspace_policy, scheduling_mode, finish_policy, updated_at
              FROM plan_launch_profiles WHERE project_path = ?1",
             params![project_path],
             |row| {
@@ -723,7 +724,8 @@ impl PlanDependencyService {
                     worker_count: row.get(6)?,
                     workspace_policy: row.get(7)?,
                     scheduling_mode: row.get(8)?,
-                    updated_at: row.get(9)?,
+                    finish_policy: row.get(9)?,
+                    updated_at: row.get(10)?,
                 })
             },
         )
@@ -1049,6 +1051,7 @@ mod tests {
             worker_count: 4,
             workspace_policy: "isolated_worktrees".to_string(),
             scheduling_mode: "safe".to_string(),
+            finish_policy: "auto_commit".to_string(),
             updated_at: 0,
         };
         PlanDependencyService::set_launch_profile(&profile).expect("set profile");
@@ -1059,6 +1062,31 @@ mod tests {
         assert_eq!(got.worker_count, 4);
         assert_eq!(got.engine, "openspec");
         assert_eq!(got.workspace_policy, "isolated_worktrees");
+        assert_eq!(got.finish_policy, "auto_commit");
+    }
+
+    #[test]
+    fn test_launch_profile_finish_policy_defaults_to_hold() {
+        let (_dir, _guard) = isolated_home();
+        // A profile with finish_policy set to "hold" round-trips.
+        let profile = LaunchProfile {
+            project_path: "/test/hold-project".to_string(),
+            engine: "native".to_string(),
+            provider_id: String::new(),
+            model_id: String::new(),
+            effort_level: None,
+            skill_id: None,
+            worker_count: 1,
+            workspace_policy: "sequential_primary".to_string(),
+            scheduling_mode: "yolo".to_string(),
+            finish_policy: "hold".to_string(),
+            updated_at: 0,
+        };
+        PlanDependencyService::set_launch_profile(&profile).expect("set profile");
+        let got = PlanDependencyService::get_launch_profile("/test/hold-project")
+            .expect("get profile")
+            .expect("profile exists");
+        assert_eq!(got.finish_policy, "hold");
     }
 
     #[test]

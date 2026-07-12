@@ -4,6 +4,7 @@ import { Check, ChevronRight, Lightbulb, Plus, Trash2 } from "lucide-react";
 import { useIdeaState } from "../../state/ideas";
 import type { IdeaStatus } from "../../lib/ideas";
 
+import { OptionList, type OptionListOption } from "../layout/OptionList";
 const STATUS_LABELS: Record<IdeaStatus, string> = {
   concept: "Concept",
   picked: "Picked",
@@ -18,6 +19,12 @@ const STATUS_CLASS: Record<IdeaStatus, string> = {
   archived: "is-archived",
 };
 
+const STATUS_OPTION_ITEMS: OptionListOption<IdeaStatus>[] = [
+  { id: "concept", label: STATUS_LABELS.concept, title: "Idea is still a concept" },
+  { id: "picked", label: STATUS_LABELS.picked, title: "Idea has been picked for planning" },
+  { id: "rejected", label: STATUS_LABELS.rejected, title: "Idea has been rejected" },
+  { id: "archived", label: STATUS_LABELS.archived, title: "Idea has been archived" },
+];
 const STATUS_ORDER: IdeaStatus[] = ["concept", "picked", "rejected", "archived"];
 
 type IdeasPanelProps = {
@@ -175,15 +182,13 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
                     <Check size={12} className={selectedIds.has(idea.id) ? "check-icon-selected" : "check-icon-unselected"} />
                   </button>
                   <span className="idea-card-title">{idea.title}</span>
-                  <select
-                    className="input select-auto-compact"
+                  <OptionList
                     value={idea.status}
-                    onChange={(e) => void updateIdeaStatus(idea.id, e.target.value as IdeaStatus)}
-                  >
-                    {STATUS_ORDER.map((s) => (
-                      <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-                    ))}
-                  </select>
+                    options={STATUS_OPTION_ITEMS}
+                    onChange={(id) => void updateIdeaStatus(idea.id, id)}
+                    label="Idea status"
+                    compact
+                  />
                   <span className={`idea-status ${STATUS_CLASS[idea.status]}`}>{STATUS_LABELS[idea.status]}</span>
                   <button
                     className="btn-icon btn-icon-sm text-danger"

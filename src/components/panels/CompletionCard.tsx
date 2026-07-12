@@ -1,20 +1,21 @@
 import { useState } from "react";
 import { Check, GitBranch, GitCommit, GitPullRequest, Loader2, X } from "lucide-react";
 
-import type { PlanRun } from "../../lib/planRuns";
+import type { PlanRun, FinishOutcome } from "../../lib/planRuns";
 
 type CompletionCardProps = {
   run: PlanRun;
   projectPath: string;
+  finishOutcome?: FinishOutcome | null;
   onMarkComplete: (runId: string) => Promise<void>;
   onCommit: (runId: string, message: string) => Promise<void>;
   onCreatePR: (runId: string, title: string, body: string) => Promise<void>;
   onDismiss: () => void;
 };
-
 export function CompletionCard({
   run,
   projectPath,
+  finishOutcome,
   onMarkComplete,
   onCommit,
   onCreatePR,
@@ -97,6 +98,30 @@ export function CompletionCard({
         {isAwaitingReview ? (
           <div className="completion-card-notice">
             Checklist incomplete. Review the remaining tasks, then mark complete or keep running.
+          </div>
+        ) : null}
+        {finishOutcome ? (
+          <div className="completion-card-outcome" title={`Finish policy: ${finishOutcome.policy}`}>
+            {finishOutcome.commitSha ? (
+              <span className="completion-card-outcome-row">
+                <GitCommit size={10} /> Committed: <code>{finishOutcome.commitSha.slice(0, 8)}</code>
+              </span>
+            ) : null}
+            {finishOutcome.prUrl ? (
+              <span className="completion-card-outcome-row">
+                <GitPullRequest size={10} /> <a href={finishOutcome.prUrl} target="_blank" rel="noopener noreferrer" title={`Open pull request: ${finishOutcome.prUrl}`}>{finishOutcome.prUrl}</a>
+              </span>
+            ) : null}
+            {finishOutcome.mergeReady ? (
+              <span className="completion-card-outcome-row">
+                <Check size={10} /> Queued for merge review
+              </span>
+            ) : null}
+            {finishOutcome.error ? (
+              <span className="completion-card-outcome-row completion-card-outcome-error">
+                Policy error: {finishOutcome.error}
+              </span>
+            ) : null}
           </div>
         ) : null}
 

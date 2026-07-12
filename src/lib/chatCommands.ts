@@ -277,6 +277,30 @@ export function recordCommandUse(name: string, now: number = Date.now()): Record
   return result;
 }
 
+/** Parsed command payload from a user message that wraps injected context. */
+export type CommandPayload = {
+  name: string;
+  content: string;
+  trailing: string;
+};
+
+const COMMAND_PAYLOAD_REGEX = /^<command name="([^"]+)\">\n?([\s\S]*?)\n?<\/command>\n?([\s\S]*)$/;
+
+/**
+ * Detect a wrapped command payload in a user message.
+ * Matches: <command name="/skill:caveman">...skill content...</command>rest
+ * Returns null when no payload is present.
+ */
+export function parseCommandPayload(text: string): CommandPayload | null {
+  const match = text.match(COMMAND_PAYLOAD_REGEX);
+  if (!match) return null;
+  return {
+    name: match[1],
+    content: match[2],
+    trailing: match[3].replace(/^\n/, ""),
+  };
+}
+
 // ─── Filtering & ranking ─────────────────────────────────────────────────────
 
 /** Source priority — higher wins (mirrors slash-command-registry spec). */

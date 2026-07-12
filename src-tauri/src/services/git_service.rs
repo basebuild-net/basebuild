@@ -47,6 +47,21 @@ impl GitService {
         Ok(())
     }
 
+    /// Stage all changes and commit with the given message. Returns the
+    /// commit SHA on success. Used by the auto-commit finish policy.
+    pub fn commit_all(path: impl AsRef<Path>, message: &str) -> Result<String, String> {
+        let p = path.as_ref();
+        run_git(p, &["add", "--all"])?;
+        // Check if there's anything to commit.
+        let status = run_git(p, &["status", "--porcelain"])?;
+        if status.trim().is_empty() {
+            return Ok(String::new()); // Nothing to commit — empty tree.
+        }
+        run_git(p, &["commit", "-m", message])?;
+        let sha = run_git(p, &["rev-parse", "HEAD"])?;
+        Ok(sha.trim().to_string())
+    }
+
     pub fn unstage_all(path: impl AsRef<Path>) -> Result<(), String> {
         run_git(path.as_ref(), &["reset", "HEAD"])?;
         Ok(())

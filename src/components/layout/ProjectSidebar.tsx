@@ -364,32 +364,43 @@ export function useProjectSidebar(activeProjectPath: string | null) {
       return pickerPromiseRef.current;
     }
     setPickerInFlight(true);
-    const promise = (async () => {
+    // Register the in-flight promise BEFORE any async work begins so the
+    // guard is effective even under extreme timing pressure (e.g. rapid
+    // concurrent Playwright clicks in CI). The deferred-promise pattern
+    // decouples ref registration from IIFE scheduling.
+    let resolvePromise!: (value: string | null) => void;
+    let rejectPromise!: (reason: unknown) => void;
+    const promise = new Promise<string | null>((resolve, reject) => {
+      resolvePromise = resolve;
+      rejectPromise = reject;
+    });
+    pickerPromiseRef.current = promise;
+    promise.finally(() => {
+      pickerPromiseRef.current = null;
+    });
+    (async () => {
       addLog("info", "Opening folder picker...");
       try {
         const path = await pickProjectDirectory();
         if (!path) {
           addLog("info", "No folder selected");
-          return null;
+          resolvePromise(null);
+          return;
         }
         addLog("info", `Folder selected: ${path}`);
         await rememberRecentProject(path);
         await refreshProjects();
         // Detection runs once via the `activeProjectPath` effect below; do not
         // call `selectProject` here — that would duplicate the diagnostic event.
-        return path;
+        resolvePromise(path);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         addLog("error", "Folder picker failed", message);
-        throw err;
+        rejectPromise(err);
       } finally {
         setPickerInFlight(false);
       }
     })();
-    pickerPromiseRef.current = promise;
-    promise.finally(() => {
-      pickerPromiseRef.current = null;
-    });
     return promise;
   }
 

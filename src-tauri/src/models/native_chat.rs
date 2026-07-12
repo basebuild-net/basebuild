@@ -289,6 +289,15 @@ pub struct NativeRequestMetric {
     pub outcome: String,
     pub error_class: Option<String>,
     pub created_at: i64,
+    /// Resolved provider subscription/tier at send time (plus|pro|max|free|api|null).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription_tier: Option<String>,
+    /// How the subscription was resolved: declared|provider-api|api-key|unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription_source: Option<String>,
+    /// Optional human-readable plan label (e.g. "ChatGPT Plus").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -365,4 +374,23 @@ pub struct ResolvedChatModelDefault {
     /// Non-empty when the stored default was unavailable (disconnected
     /// provider or missing model) and a fallback was used instead.
     pub notice: Option<String>,
+}
+
+/// Cross-project chat session summary with message count, returned by the
+/// history modal command. Ordered by `updated_at` descending.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeChatHistoryEntry {
+    pub id: String,
+    pub project_path: String,
+    pub title: String,
+    pub profile_id: String,
+    pub provider_id: String,
+    pub model_id: String,
+    pub effort_level: String,
+    pub status: String,
+    pub run_state: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub message_count: i64,
 }

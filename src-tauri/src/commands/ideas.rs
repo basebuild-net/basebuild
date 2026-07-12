@@ -64,6 +64,7 @@ pub fn create_idea(
         category_id.as_deref(),
         grounding.as_deref().unwrap_or(""),
         anchor.as_deref(),
+        None,
     )?;
     let project_path = SessionService::get(&session_id)
         .ok()

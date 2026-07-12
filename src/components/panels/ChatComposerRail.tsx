@@ -1,5 +1,6 @@
 import { Command, Key, RefreshCw, Unplug } from "lucide-react";
 import type { NativeProviderCatalog } from "../../lib/native-chat";
+import { OptionList } from "../layout/OptionList";
 
 /** Compact single-line composer rail (`chat-composer-controls`).
  *
@@ -56,17 +57,16 @@ export function ChatComposerRail(props: ChatComposerRailProps) {
             <span className="chat-trigger-kicker">Model</span>
             <span className="chat-trigger-label">{modelName}</span>
           </button>
-          {effortOptions.length > 0 ? (
-            <select
-              className="input chat-select chat-effort-select"
-              title="Select an effort level supported by this model"
+          {effortOptions.length > 1 ? (
+            <OptionList
               value={effortOptions.some((effort) => effort.id === effortLevel) ? effortLevel : effortOptions[0].id}
-              onChange={(e) => props.onChangeEffort(e.target.value)}
-            >
-              {effortOptions.map((ef) => (
-                <option key={ef.id} value={ef.id}>{ef.label}</option>
-              ))}
-            </select>
+              onChange={(effort) => props.onChangeEffort(effort)}
+              label="Effort level"
+              compact
+              options={effortOptions.map((ef) => ({ id: ef.id, label: ef.label, title: `Effort: ${ef.label} — supported by this model` }))}
+            />
+          ) : effortOptions.length === 1 ? (
+            <span className="chat-effort-static" title={`Effort: ${effortOptions[0].label} — the only level this model supports`}>{effortOptions[0].label}</span>
           ) : (
             <span className="chat-effort-static" title="This model does not expose reasoning effort controls">Standard</span>
           )}

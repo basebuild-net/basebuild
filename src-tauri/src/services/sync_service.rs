@@ -30,6 +30,7 @@ static AUTOSYNC_STATUS: Mutex<AutoSyncStatus> = parking_lot::const_mutex(AutoSyn
     interval_minutes: DEFAULT_INTERVAL_MINUTES,
     last_sync_at: None,
     last_error: None,
+    sync_mode: String::new(),
 });
 
 /// Sync raw OMP usage to basebuild.net using the stored native token.
@@ -119,11 +120,207 @@ pub fn sync_raw_usage_native() -> Result<String, String> {
     Ok(result.to_string())
 }
 
+/// Sync per-message usage rows to basebuild.net via the `sync_messages` MCP
+/// tool. Reads native chat request metrics since the last message-sync cursor
+/// and sends them either as raw rows (server rolls up + owns aggregation) or as
+/// client-side summaries, per the `usage_sync_mode` setting. Advances the
+/// cursor only on a successful push. Returns a human-readable result message.
+pub fn sync_messages_native() -> Result<String, String> {
+    use crate::services::native_chat_service::NativeChatService;
+
+    let token = AuthService::get_access_token()?
+        .ok_or("Not signed in. Open Settings > Account to sign in.")?;
+
+    let mut settings = SettingsService::get_usage_sync_settings()?;
+    let since = settings.last_message_sync_at.unwrap_or(0);
+    let metrics = NativeChatService::metrics_since(since, 5000)?;
+    if metrics.is_empty() {
+        return Ok("no new messages".to_string());
+    }
+    let window_start = metrics.iter().map(|m| m.created_at).min().unwrap_or(since);
+    let window_end = metrics.iter().map(|m| m.created_at).max().unwrap_or(since);
+
+    let arguments = if settings.usage_sync_mode == "summary" {
+        json!({
+            "mode": "summary",
+            "windowStart": window_start,
+            "windowEnd": window_end,
+            "summaries": build_message_summaries(&metrics),
+        })
+    } else {
+        json!({
+            "mode": "rows",
+            "windowStart": window_start,
+            "windowEnd": window_end,
+            "rows": metrics.iter().map(message_row_json).collect::<Vec<_>>(),
+        })
+    };
+
+    let rpc_body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": "sync_messages", "arguments": arguments }
+    });
+
+    let result = post_mcp(&token, &rpc_body)?;
+    // Advance the cursor only after the server accepted the batch.
+    settings.last_message_sync_at = Some(window_end);
+    let _ = SettingsService::set_usage_sync_settings(&settings);
+    Ok(format!("{} rows: {result}", metrics.len()))
+}
+
+fn message_row_json(m: &crate::models::native_chat::NativeRequestMetric) -> Value {
+    json!({
+        "id": m.id,
+        "ts": m.created_at,
+        "provider": m.provider_id,
+        "model": m.model_id,
+        "effort": m.effort_level,
+        "subscriptionTier": m.subscription_tier,
+        "subscriptionSource": m.subscription_source,
+        "planName": m.plan_name,
+        "inputTokens": m.input_tokens,
+        "outputTokens": m.output_tokens,
+        "cacheReadTokens": m.cache_read_tokens,
+        "costTotal": m.cost_total.unwrap_or(0.0),
+        "durationMs": m.duration_ms,
+        "ttftMs": m.ttft_ms,
+        "outcome": m.outcome,
+    })
+}
+
+/// Roll native metrics up client-side, grouped by (provider, model, tier).
+fn build_message_summaries(metrics: &[crate::models::native_chat::NativeRequestMetric]) -> Vec<Value> {
+    use std::collections::HashMap;
+    struct Acc {
+        provider: String,
+        model: String,
+        effort: String,
+        tier: Option<String>,
+        source: Option<String>,
+        plan_name: Option<String>,
+        requests: i64,
+        input: i64,
+        output: i64,
+        cache_read: i64,
+        cost: f64,
+        errors: i64,
+        dur_sum: i64,
+        dur_n: i64,
+        ttft_sum: i64,
+        ttft_n: i64,
+    }
+    let mut map: HashMap<String, Acc> = HashMap::new();
+    for m in metrics {
+        let key = format!(
+            "{}\u{1}{}\u{1}{}",
+            m.provider_id,
+            m.model_id,
+            m.subscription_tier.clone().unwrap_or_default(),
+        );
+        let acc = map.entry(key).or_insert_with(|| Acc {
+            provider: m.provider_id.clone(),
+            model: m.model_id.clone(),
+            effort: m.effort_level.clone(),
+            tier: m.subscription_tier.clone(),
+            source: m.subscription_source.clone(),
+            plan_name: m.plan_name.clone(),
+            requests: 0,
+            input: 0,
+            output: 0,
+            cache_read: 0,
+            cost: 0.0,
+            errors: 0,
+            dur_sum: 0,
+            dur_n: 0,
+            ttft_sum: 0,
+            ttft_n: 0,
+        });
+        acc.requests += 1;
+        acc.input += m.input_tokens;
+        acc.output += m.output_tokens;
+        acc.cache_read += m.cache_read_tokens;
+        acc.cost += m.cost_total.unwrap_or(0.0);
+        if m.outcome == "error" {
+            acc.errors += 1;
+        }
+        if let Some(d) = m.duration_ms {
+            acc.dur_sum += d;
+            acc.dur_n += 1;
+        }
+        if let Some(t) = m.ttft_ms {
+            acc.ttft_sum += t;
+            acc.ttft_n += 1;
+        }
+    }
+    map.into_values()
+        .map(|a| {
+            json!({
+                "provider": a.provider,
+                "model": a.model,
+                "effort": a.effort,
+                "subscriptionTier": a.tier,
+                "subscriptionSource": a.source,
+                "planName": a.plan_name,
+                "requests": a.requests,
+                "inputTokens": a.input,
+                "outputTokens": a.output,
+                "cacheReadTokens": a.cache_read,
+                "costTotal": a.cost,
+                "errorCount": a.errors,
+                "avgDurationMs": if a.dur_n > 0 { Some(a.dur_sum as f64 / a.dur_n as f64) } else { None },
+                "avgTtftMs": if a.ttft_n > 0 { Some(a.ttft_sum as f64 / a.ttft_n as f64) } else { None },
+            })
+        })
+        .collect()
+}
+
+/// POST a JSON-RPC body to the MCP endpoint and extract the result text.
+/// Clears auth on 401. Shared by the raw-usage and message sync paths.
+fn post_mcp(token: &str, rpc_body: &Value) -> Result<String, String> {
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .post(MCP_URL)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .json(rpc_body)
+        .send()
+        .map_err(|e| format!("Failed to connect to basebuild.net: {e}"))?;
+    let status = resp.status();
+    let text = resp.text().unwrap_or_default();
+    if status == reqwest::StatusCode::UNAUTHORIZED {
+        let _ = AuthService::clear_auth();
+        return Err("Token expired or revoked. Please sign in again.".into());
+    }
+    if !status.is_success() {
+        return Err(format!("MCP sync failed ({status}): {text}"));
+    }
+    let parsed: Value =
+        serde_json::from_str(&text).map_err(|e| format!("Failed to parse MCP response: {e}"))?;
+    if let Some(error) = parsed.get("error") {
+        let message = error
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown MCP error");
+        return Err(format!("MCP error: {message}"));
+    }
+    Ok(parsed
+        .get("result")
+        .and_then(|v| v.get("content"))
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|item| item.get("text"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("Synced successfully.")
+        .to_string())
+}
+
 // ─── Projected-usage reads (native token, /api/mcp) ───────────────────────
 
 /// Call an MCP `tools/call` method by name with no arguments, returning the
 /// parsed `result.content[0].text` as a `Value`. On 401, clears auth.
-fn call_mcp_tool(token: &str, tool: &str, arguments: Value) -> Result<Value, String> {
+pub(crate) fn call_mcp_tool(token: &str, tool: &str, arguments: Value) -> Result<Value, String> {
     let rpc_body = json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -294,23 +491,131 @@ fn parse_plan_timeline_window(row: &Value) -> PlanTimelineWindow {
     }
 }
 
+// ─── Environment telemetry (installed tools, skills, providers) ──────────
+
+/// Collect the user's installed-tool environment: connectors, skills,
+/// provider credentials, OMP status, and app version. Sent to basebuild.net
+/// via the `sync_environment` MCP tool for internal analytics (not shown
+/// publicly). All fields are metadata only — no prompts, code, or secrets.
+pub fn sync_environment_native() -> Result<String, String> {
+    let token = AuthService::get_access_token()?
+        .ok_or_else(|| "Not signed in".to_string())?;
+    let env = collect_environment();
+    let rpc_body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "sync_environment",
+            "arguments": env,
+        }
+    });
+    post_mcp(&token, &rpc_body)
+}
+
+/// Gather environment metadata from local DB + filesystem. Each section is
+/// best-effort: a failure in one section doesn't prevent the others.
+fn collect_environment() -> Value {
+    let connectors = collect_connectors();
+    let skills = collect_skills();
+    let providers = collect_providers();
+    let omp = collect_omp_status();
+    let app_version = env!("CARGO_PKG_VERSION").to_string();
+    json!({
+        "source": "basebuild-app",
+        "appVersion": app_version,
+        "connectors": connectors,
+        "skills": skills,
+        "providers": providers,
+        "omp": omp,
+        "collectedAt": now_seconds(),
+    })
+}
+
+/// Registered connectors: id, name, version, enabled, state.
+fn collect_connectors() -> Vec<Value> {
+    crate::services::connector_service::ConnectorService::list()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| json!({
+            "id": c.manifest_id,
+            "name": c.name,
+            "version": c.version,
+            "enabled": c.enabled,
+            "state": c.state.as_str(),
+        }))
+        .collect()
+}
+
+/// Resolved skills: name, source, runtime.
+fn collect_skills() -> Vec<Value> {
+    crate::services::skill_registry_service::SkillRegistryService::list()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| json!({
+            "name": s.name,
+            "source": match s.source {
+                crate::services::skill_registry_service::SkillSource::Bundled => "bundled",
+                crate::services::skill_registry_service::SkillSource::User => "user",
+                crate::services::skill_registry_service::SkillSource::Override => "override",
+            },
+            "runtime": match s.runtime {
+                crate::services::skill_registry_service::SkillRuntime::Native => "native",
+                crate::services::skill_registry_service::SkillRuntime::Omp => "omp",
+                crate::services::skill_registry_service::SkillRuntime::Both => "both",
+            },
+        }))
+        .collect()
+}
+
+/// Provider credentials: which providers the user has auth'd (id + label only,
+/// never tokens/keys).
+fn collect_providers() -> Vec<Value> {
+    crate::services::native_chat_service::NativeChatService::list_credentials()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| json!({
+            "providerId": c.provider_id,
+            "label": c.label,
+        }))
+        .collect()
+}
+
+/// OMP install status: installed + version.
+fn collect_omp_status() -> Value {
+    let status = crate::services::omp_service::OmpService::status();
+    json!({
+        "installed": status.installed,
+        "version": status.version,
+    })
+}
+
 // ─── Auto-sync driver ──────────────────────────────────────────────────────
 
 /// Check whether the gates currently allow a sync push: signed in AND
 /// auto-sync enabled AND upload permission granted. Does not perform network
 /// I/O for the gate check itself (only reads stored settings/auth).
 pub fn gates_pass() -> bool {
-    let Ok(Some(_token)) = AuthService::get_access_token() else {
-        return false;
+    let token_ok = match AuthService::get_access_token() {
+        Ok(Some(_)) => true,
+        Ok(None) => { eprintln!("[SYNC] gates: no token"); false }
+        Err(e) => { eprintln!("[SYNC] gates: token error: {e}"); false }
     };
-    let Ok(rules) = SettingsService::get_permission_rules() else {
-        return false;
+    if !token_ok { return false; }
+    let rules = match SettingsService::get_permission_rules() {
+        Ok(r) => r,
+        Err(e) => { eprintln!("[SYNC] gates: permission rules error: {e}"); return false; }
     };
     if !rules.allow_usage_analytics_upload {
+        eprintln!("[SYNC] gates: allow_usage_analytics_upload=false");
         return false;
     }
     let status = AUTOSYNC_STATUS.lock().clone();
-    status.enabled
+    if !status.enabled {
+        eprintln!("[SYNC] gates: auto_sync_usage=false (status.enabled=false)");
+        return false;
+    }
+    true
 }
 
 /// Read the current auto-sync status (cached, no network I/O).
@@ -321,6 +626,7 @@ pub fn autosync_status() -> AutoSyncStatus {
     let settings = SettingsService::get_usage_sync_settings().unwrap_or_default();
     status.enabled = settings.auto_sync_usage;
     status.interval_minutes = settings.auto_sync_interval_minutes.max(1);
+    status.sync_mode = settings.usage_sync_mode.clone();
     // Write back so the cached status stays fresh for other callers.
     *AUTOSYNC_STATUS.lock() = status.clone();
     status
@@ -337,54 +643,104 @@ pub fn set_autosync_enabled(enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Persist the usage sync detail mode ("rows" | "summary").
+pub fn set_usage_sync_mode(mode: &str) -> Result<(), String> {
+    let normalized = if mode == "summary" { "summary" } else { "rows" };
+    let mut settings = SettingsService::get_usage_sync_settings().unwrap_or_default();
+    settings.usage_sync_mode = normalized.to_string();
+    SettingsService::set_usage_sync_settings(&settings)?;
+    let mut status = AUTOSYNC_STATUS.lock().clone();
+    status.sync_mode = normalized.to_string();
+    *AUTOSYNC_STATUS.lock() = status;
+    Ok(())
+}
+
 /// Trigger a sync push now (manual or opportunistic). Re-checks gates and
-/// freshness, then calls `sync_raw_usage_native`. Records last_sync_at /
-/// last_error and emits a status event. Non-blocking on failure.
-pub fn trigger_sync(app: AppHandle, reason: &str) {
+/// freshness (unless `skip_freshness` is true), then calls
+/// `sync_raw_usage_native`. Records last_sync_at / last_error and emits a
+/// status event. Non-blocking on failure.
+pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
+    eprintln!("[SYNC] trigger_sync reason={reason} skip_freshness={skip_freshness}");
     if !gates_pass() {
+        eprintln!("[SYNC] gates_pass=false — aborting (need: signed in + upload permission + auto-sync enabled)");
         return;
     }
+    eprintln!("[SYNC] gates_pass=true");
     // Debounce: enforce a minimum gap between pushes.
     let now = now_seconds();
     {
         let status = AUTOSYNC_STATUS.lock().clone();
         if let Some(last) = status.last_sync_at {
             if now - last < MIN_INTER_SYNC_GAP_SECS {
+                eprintln!("[SYNC] debounced — last sync was {}s ago, min gap is {}s", now - last, MIN_INTER_SYNC_GAP_SECS);
                 return;
             }
         }
     }
     // Freshness check: ask the server if data is stale before pushing.
-    let should_push = match AuthService::get_access_token() {
-        Ok(Some(token)) => {
-            call_mcp_tool(&token, "get_my_live_usage", json!({}))
-                .ok()
-                .and_then(|v| v.get("shouldSync").and_then(|v| v.as_bool()))
-                .unwrap_or(true)
+    // Skipped on startup so the first sync fires unconditionally.
+    let should_push = if skip_freshness {
+        let has_token = AuthService::get_access_token().map(|t| t.is_some()).unwrap_or(false);
+        eprintln!("[SYNC] skip_freshness=true, has_token={has_token}");
+        has_token
+    } else {
+        match AuthService::get_access_token() {
+            Ok(Some(token)) => {
+                eprintln!("[SYNC] checking server freshness…");
+                let fresh = call_mcp_tool(&token, "get_my_live_usage", json!({}))
+                    .ok()
+                    .and_then(|v| v.get("shouldSync").and_then(|v| v.as_bool()))
+                    .unwrap_or(true);
+                eprintln!("[SYNC] server shouldSync={fresh}");
+                fresh
+            }
+            _ => {
+                eprintln!("[SYNC] no token — aborting");
+                false
+            }
         }
-        _ => false,
     };
     if !should_push {
+        eprintln!("[SYNC] should_push=false — aborting");
         return;
     }
+    eprintln!("[SYNC] launching sync thread…");
 
     let app2 = app.clone();
     let reason_owned = reason.to_string();
     thread::spawn(move || {
+        eprintln!("[SYNC] thread started — calling sync_raw_usage_native…");
         let result = sync_raw_usage_native();
+        eprintln!("[SYNC] sync_raw_usage_native: {}", match &result { Ok(m) => format!("ok: {m}"), Err(e) => format!("ERR: {e}") });
+        eprintln!("[SYNC] calling sync_messages_native…");
+        let messages_result = sync_messages_native();
+        eprintln!("[SYNC] sync_messages_native: {}", match &messages_result { Ok(m) => format!("ok: {m}"), Err(e) => format!("ERR: {e}") });
+        eprintln!("[SYNC] calling sync_environment_native…");
+        let env_result = sync_environment_native();
+        eprintln!("[SYNC] sync_environment_native: {}", match &env_result { Ok(m) => format!("ok: {m}"), Err(e) => format!("ERR: {e}") });
         let now = now_seconds();
         let mut status = AUTOSYNC_STATUS.lock().clone();
         match result {
             Ok(msg) => {
                 status.last_sync_at = Some(now);
                 status.last_error = None;
+                let extra = match &messages_result {
+                    Ok(m) => format!(" | messages: {m}"),
+                    Err(e) => format!(" | messages sync failed: {e}"),
+                };
+                let env_extra = match &env_result {
+                    Ok(_) => " | env: ok".to_string(),
+                    Err(e) => format!(" | env sync failed: {e}"),
+                };
+                eprintln!("[SYNC] ✅ all syncs complete: {reason_owned}: {msg}{extra}{env_extra}");
                 let _ = app2.emit(
                     USAGE_SYNC_STATUS,
-                    &SyncResult { ok: true, message: format!("{reason_owned}: {msg}"), completed_at: now },
+                    &SyncResult { ok: true, message: format!("{reason_owned}: {msg}{extra}{env_extra}"), completed_at: now },
                 );
             }
             Err(e) => {
                 status.last_error = Some(e.clone());
+                eprintln!("[SYNC] ❌ raw usage sync failed: {e}");
                 let _ = app2.emit(
                     USAGE_SYNC_STATUS,
                     &SyncResult { ok: false, message: format!("{reason_owned}: {e}"), completed_at: now },
@@ -402,17 +758,24 @@ pub fn trigger_sync(app: AppHandle, reason: &str) {
 /// Start the auto-sync background loop. Idempotent. Ticks every
 /// `autoSyncIntervalMinutes` and on each tick re-checks gates + freshness.
 pub fn start_autosync_loop(app: AppHandle) {
+    eprintln!("[SYNC] start_autosync_loop called");
     if AUTOSYNC_RUNNING.swap(true, Ordering::SeqCst) {
+        eprintln!("[SYNC] autosync already running — skipping");
         return;
     }
+    eprintln!("[SYNC] autosync loop starting…");
     thread::spawn(move || {
+        let mut first_tick = true;
         loop {
             if !AUTOSYNC_RUNNING.load(Ordering::SeqCst) {
                 break;
             }
             let interval_minutes = autosync_status().interval_minutes.max(1);
-            // Sync (if gates + freshness allow) on each tick.
-            trigger_sync(app.clone(), "hourly");
+            // First tick = startup: sync unconditionally (skip freshness check)
+            // so the user's data flows immediately on app launch. Subsequent
+            // ticks use the server freshness check to avoid redundant pushes.
+            trigger_sync(app.clone(), if first_tick { "startup" } else { "hourly" }, first_tick);
+            first_tick = false;
             // Sleep for the interval, checking the stop flag every 5s so the
             // loop can exit promptly when stopped.
             let sleep_secs = (interval_minutes as u64) * 60;
@@ -435,6 +798,32 @@ pub fn stop_autosync_loop() {
     AUTOSYNC_RUNNING.store(false, Ordering::SeqCst);
 }
 
+
+/// Blocking final sync on app exit. Bypasses debounce + freshness — just
+/// pushes everything if gates pass. Called from `RunEvent::ExitRequested` so
+/// the app doesn't exit until the push completes (or times out after 10s).
+/// Best-effort: errors are logged, never propagated — we must not block exit.
+pub fn sync_on_exit() {
+    eprintln!("[SYNC] sync_on_exit — final push before exit");
+    if !gates_pass() {
+        eprintln!("[SYNC] sync_on_exit: gates fail — skipping");
+        return;
+    }
+    // Stop the autosync loop so it doesn't race with this final push.
+    stop_autosync_loop();
+    // Blocking sync with a timeout — we can't hang the exit forever.
+    let (tx, rx) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let raw = sync_raw_usage_native();
+        let msgs = sync_messages_native();
+        eprintln!("[SYNC] sync_on_exit: raw={:?}, msgs={:?}", raw.is_ok(), msgs.is_ok());
+        let _ = tx.send(());
+    });
+    match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+        Ok(()) => eprintln!("[SYNC] sync_on_exit: final push complete"),
+        Err(_) => eprintln!("[SYNC] sync_on_exit: timed out after 10s — exiting anyway"),
+    }
+}
 fn now_seconds() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

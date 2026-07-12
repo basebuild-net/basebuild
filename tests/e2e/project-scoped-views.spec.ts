@@ -2,49 +2,49 @@ import { expect, test } from "@playwright/test";
 import { openMvpFixtureProject, waitForAppReady, fixtureProject } from "./helpers";
 
 test.describe("Project-scoped views", () => {
-  test("history drawer shows only active project's closed panels", async ({ page }) => {
+  test("history modal shows closed panels and all chats", async ({ page }) => {
     await openMvpFixtureProject(page);
     await waitForAppReady(page);
     await expect(page.locator(".workspace-splash")).not.toBeVisible({ timeout: 10_000 });
 
-    // Open the history drawer.
+    // Open the history modal.
     await page.getByTitle(/History/).first().click();
-    const drawer = page.locator(".history-drawer");
-    await expect(drawer).toBeVisible({ timeout: 5_000 });
+    const modal = page.locator(".modal-overlay[aria-label='History']");
+    await expect(modal).toBeVisible({ timeout: 5_000 });
 
-    // The drawer title shows the count of closed panels for this project.
-    await expect(drawer.locator(".history-drawer-header")).toContainText(/History/);
+    // The modal title shows History.
+    await expect(modal.locator(".modal-header")).toContainText(/History/);
 
-    // Close the drawer.
-    await page.getByTitle("Close history").click();
-    await expect(drawer).not.toBeVisible();
+    // Close the modal.
+    await page.getByTitle("Close (Esc)").click();
+    await expect(modal).not.toBeVisible();
   });
 
-  test("switching projects updates the history drawer content", async ({ page }) => {
+  test("switching projects updates the history modal content", async ({ page }) => {
     await openMvpFixtureProject(page);
     await waitForAppReady(page);
     await expect(page.locator(".workspace-splash")).not.toBeVisible({ timeout: 10_000 });
 
-    // Open history drawer for the first project.
+    // Open history modal for the first project.
     await page.getByTitle(/History/).first().click();
-    const drawer = page.locator(".history-drawer");
-    await expect(drawer).toBeVisible({ timeout: 5_000 });
-    const firstCount = await drawer.locator(".history-drawer-item").count();
+    const modal = page.locator(".modal-overlay[aria-label='History']");
+    await expect(modal).toBeVisible({ timeout: 5_000 });
+    const firstCount = await modal.locator(".history-modal-item").count();
 
-    // Close drawer, switch to a different project.
-    await page.getByTitle("Close history").click();
+    // Close modal, switch to a different project.
+    await page.getByTitle("Close (Esc)").click();
     const target = fixtureProject(1);
     await page.locator(".activity-sidebar-project-row").filter({ hasText: target.path.split(/[\\/]/).pop() ?? target.path }).first().click();
 
     // Wait for the switch overlay to clear.
     await expect(page.locator(".project-switching-overlay")).not.toBeVisible({ timeout: 10_000 });
 
-    // Open history drawer again — it should show the new project's panels.
+    // Open history modal again — it should show the new project's panels.
     await page.getByTitle(/History/).first().click();
-    await expect(drawer).toBeVisible({ timeout: 5_000 });
-    // The count may differ — the key assertion is that the drawer renders
+    await expect(modal).toBeVisible({ timeout: 5_000 });
+    // The count may differ — the key assertion is that the modal renders
     // without stale content from the previous project.
-    const secondCount = await drawer.locator(".history-drawer-item").count();
+    const secondCount = await modal.locator(".history-modal-item").count();
     // Both counts are from the fixture's closed panels for their respective projects.
     expect(secondCount).toBeGreaterThanOrEqual(0);
   });

@@ -7,6 +7,7 @@ pub mod omp_telemetry;
 pub mod connector;
 pub mod notification;
 pub mod plan;
+pub mod plan_detection;
 pub mod plan_import;
 pub mod plan_run;
 pub mod plan_dependency;

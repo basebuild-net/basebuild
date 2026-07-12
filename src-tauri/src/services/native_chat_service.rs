@@ -7,8 +7,9 @@ use crate::{
     events::NATIVE_CHAT_CHUNK,
     models::{
         native_chat::{
-            ChatModelDefault, NativeChatMessage, NativeChatSendRequest, NativeChatSendResult,
-            NativeChatSession, NativeChatStartRequest, NativeGenerateIdeasRequest,
+            ChatModelDefault, NativeChatHistoryEntry, NativeChatMessage,
+            NativeChatSendRequest, NativeChatSendResult, NativeChatSession,
+            NativeChatStartRequest, NativeGenerateIdeasRequest,
             NativeGenerateIdeasResult, NativeGeneratedIdea, NativeProviderCatalog,
             NativeProviderCredential, NativeProviderCredentialInput, NativeRequestMetric,
             NativeRequestMetricsSummary, NativeSetupRequired, NativeToolApprovalRequest,
@@ -19,7 +20,7 @@ use crate::{
         plan::Plan,
     },
     services::{
-        provider_client::{resolve_client, resolve_client_for_model, ChatMsg, ProviderRequest, OMP_CODEX_BASE_URL},
+        provider_client::{resolve_client_for_model, ChatMsg, ProviderRequest, OMP_CODEX_BASE_URL},
         session_service::SessionService,
         settings_service::SettingsService,
         storage_service::StorageService,
@@ -623,6 +624,24 @@ impl NativeChatService {
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
     }
 
+    pub fn chat_history(limit: Option<i64>) -> DbResult<Vec<NativeChatHistoryEntry>> {
+        let conn = StorageService::connect()?;
+        let base_sql = "SELECT s.id, s.project_path, s.title, s.profile_id, s.provider_id, s.model_id, s.effort_level, s.status, s.run_state, s.created_at, s.updated_at, COUNT(m.id) as message_count
+                        FROM native_chat_sessions s
+                        LEFT JOIN native_chat_messages m ON m.session_id = s.id
+                        GROUP BY s.id
+                        ORDER BY s.updated_at DESC";
+        if let Some(l) = limit {
+            let mut stmt = conn.prepare(&format!("{} LIMIT ?1", base_sql)).map_err(|e| e.to_string())?;
+            let rows = stmt.query_map(params![l], map_history_entry).map_err(|e| e.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        } else {
+            let mut stmt = conn.prepare(base_sql).map_err(|e| e.to_string())?;
+            let rows = stmt.query_map([], map_history_entry).map_err(|e| e.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        }
+    }
+
     pub fn list_messages(session_id: &str) -> DbResult<Vec<NativeChatMessage>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn
@@ -756,24 +775,43 @@ impl NativeChatService {
             base_url: credential.as_ref().and_then(|c| c.base_url.clone()),
             tools: Vec::new(),
         };
-        let uses_omp_rpc = req.base_url.as_deref() == Some(OMP_CODEX_BASE_URL)
-            || (api_kind != "openai-completions"
-                && api_kind != "openai-responses"
-                && api_kind != "azure-openai-responses"
-                && api_kind != "anthropic-messages"
-                && api_kind != "openrouter"
-                && api_kind != "ollama-chat"
-                && !is_local
-                && req.base_url.is_none());
+        // Native-first contract (AGENTS.md): native chat streams providers
+        // directly and NEVER bridges through OMP RPC. ChatGPT-subscription
+        // OAuth credentials (omp://openai-codex sentinel) and bespoke agent
+        // protocols with no direct endpoint have no native transport — refuse
+        // with actionable guidance instead of silently delegating to OMP,
+        // which cannot run Basebuild tools (approvals, ask_user, schematic
+        // wizard) and leaks protocol frames into the transcript.
+        if Self::route_requires_omp(&api_kind, req.base_url.as_deref(), is_local) {
+            let is_oauth = req.base_url.as_deref() == Some(OMP_CODEX_BASE_URL);
+            let message = if is_oauth {
+                format!(
+                    "{provider_label} is connected with a ChatGPT-subscription OAuth credential, which only works through the OMP bridge — native chat no longer uses it. Reconnect {provider_label} with an API key to chat natively (with tools, approvals, and the schematic wizard). Your draft was kept."
+                )
+            } else {
+                format!(
+                    "This model has no native API endpoint and previously routed through the OMP bridge — native chat no longer uses it. Pick a native-supported model (OpenAI, Anthropic, OpenRouter, Ollama, or any OpenAI-compatible endpoint), or connect {provider_label} with a direct base URL. Your draft was kept."
+                )
+            };
+            return Ok(NativeChatSendResult {
+                user_message,
+                assistant_message: None,
+                metrics: None,
+                tool_events: vec![],
+                setup_required: Some(NativeSetupRequired {
+                    provider_id: provider_id.clone(),
+                    provider_label: provider_label.clone(),
+                    message,
+                }),
+                offline: false,
+            });
+        }
 
         let started_at = now_millis();
 
-        // Check if the model supports tools → use the agent loop. OMP-backed
-        // providers are provider-only here: OMP owns their transport, but
-        // Basebuild tool schemas cannot be passed through the RPC bridge.
-        let supports_tools = !is_local
-            && !uses_omp_rpc
-            && Self::model_supports_tools(&provider_id, &model_id);
+        // Check if the model supports tools → use the agent loop. OMP-routed
+        // models were refused above, so every remaining route is native.
+        let supports_tools = !is_local && Self::model_supports_tools(&provider_id, &model_id);
 
         // Capture schematic mtime before the turn to detect agent-driven writes.
         let schematic_path = std::path::Path::new(&session.project_path)
@@ -848,6 +886,7 @@ impl NativeChatService {
                 }
             }
 
+            let subscription = Self::resolve_subscription(&provider_id);
             let metric = NativeRequestMetric {
                 id: gen_id("nreq"),
                 session_id: request.session_id.clone(),
@@ -867,6 +906,9 @@ impl NativeChatService {
                 cost_total: Some(0.0),
                 outcome: if run_result.cancelled { "cancelled" } else { "success" }.to_string(),
                 error_class: None,
+                subscription_tier: subscription.0.clone(),
+                subscription_source: subscription.1.clone(),
+                plan_name: subscription.2.clone(),
                 created_at: now_seconds(),
             };
             Self::insert_metric(&metric)?;
@@ -877,157 +919,6 @@ impl NativeChatService {
                 assistant_message: Some(assistant_message),
                 metrics: Some(metric),
                 tool_events,
-                setup_required: None,
-                offline: false,
-            });
-        }
-
-        // OMP-RPC-bridged providers: route through the persistent OMP RPC
-        // session, which lets OMP use its own built-in tools (read_file,
-        // ask_user, etc.) without Basebuild passing tool schemas. The one-shot
-        // OmpRpcClient passes --no-tools and can't do multi-turn tool loops.
-        if uses_omp_rpc {
-            use crate::services::omp_rpc_session_service::{
-                start_session as omp_start_session,
-                send_prompt_and_wait as omp_send_prompt_and_wait,
-            };
-            use tauri::Manager;
-
-            // Start (or reuse) the persistent OMP RPC session.
-            let registry = app.state::<crate::services::omp_rpc_session_service::OmpRpcSessionRegistry>();
-            let needs_start = registry.get(&request.session_id).is_none();
-            if needs_start {
-                omp_start_session(
-                    app.clone(),
-                    request.session_id.clone(),
-                    &provider_id,
-                    &resolved_model_id,
-                )?;
-            }
-
-            // Emit a "thinking" status so the UI shows activity.
-            let _ = app.emit(
-                NATIVE_CHAT_CHUNK,
-                serde_json::json!({ "sessionId": &request.session_id, "delta": "thinking", "channel": "status" }),
-            );
-
-            // Send the prompt and wait for the turn to complete (5 min timeout).
-            let turn_result = omp_send_prompt_and_wait(
-                &app,
-                &request.session_id,
-                content,
-                300,
-            );
-
-            let completed_at = now_millis();
-            let duration_ms = completed_at.saturating_sub(started_at).max(1);
-
-            let (turn_content, turn_reasoning) = match turn_result {
-                Ok((c, r)) => (c, if r.is_empty() { None } else { Some(r) }),
-                Err(e) => {
-                    // Persist the error as an assistant message so the user
-                    // sees it in the transcript.
-                    let assistant_message = Self::insert_message(
-                        &request.session_id,
-                        "assistant",
-                        &format!("Error: {e}"),
-                        None,
-                        Some(&provider_id),
-                        Some(&model_id),
-                        Some(&effort_level),
-                    )?;
-                    let metric = NativeRequestMetric {
-                        id: gen_id("nreq"),
-                        session_id: request.session_id.clone(),
-                        provider_id: provider_id.clone(),
-                        model_id: model_id.clone(),
-                        effort_level: effort_level.clone(),
-                        started_at,
-                        completed_at: Some(completed_at),
-                        duration_ms: Some(duration_ms),
-                        ttft_ms: None,
-                        ttlt_ms: Some(duration_ms),
-                        input_tokens: 0,
-                        output_tokens: 0,
-                        cache_read_tokens: 0,
-                        cache_write_tokens: 0,
-                        tokens_per_second: None,
-                        cost_total: Some(0.0),
-                        outcome: "error".to_string(),
-                        error_class: Some("omp_rpc_error".to_string()),
-                        created_at: now_seconds(),
-                    };
-                    let _ = Self::insert_metric(&metric);
-                    Self::touch_session(&request.session_id)?;
-                    return Ok(NativeChatSendResult {
-                        user_message,
-                        assistant_message: Some(assistant_message),
-                        metrics: Some(metric),
-                        tool_events: Vec::new(),
-                        setup_required: None,
-                        offline: false,
-                    });
-                }
-            };
-
-            let assistant_message = Self::insert_message(
-                &request.session_id,
-                "assistant",
-                &turn_content,
-                turn_reasoning.as_deref(),
-                Some(&provider_id),
-                Some(&model_id),
-                Some(&effort_level),
-            )?;
-
-            let output_tokens = estimate_tokens(&turn_content);
-            let input_tokens = estimate_tokens(content);
-            let tokens_per_second =
-                Some((output_tokens as f64) / ((duration_ms as f64) / 1000.0).max(0.001));
-
-            let metric = NativeRequestMetric {
-                id: gen_id("nreq"),
-                session_id: request.session_id.clone(),
-                provider_id: provider_id.clone(),
-                model_id: model_id.clone(),
-                effort_level: effort_level.clone(),
-                started_at,
-                completed_at: Some(completed_at),
-                duration_ms: Some(duration_ms),
-                ttft_ms: None,
-                ttlt_ms: Some(duration_ms),
-                input_tokens,
-                output_tokens,
-                cache_read_tokens: 0,
-                cache_write_tokens: 0,
-                tokens_per_second,
-                cost_total: Some(0.0),
-                outcome: "success".to_string(),
-                error_class: None,
-                created_at: now_seconds(),
-            };
-            Self::insert_metric(&metric)?;
-
-            let summary = "OMP RPC turn: streamed via persistent OMP session with OMP built-in tools.";
-            let event = Self::insert_tool_event(
-                &request.session_id,
-                Some(&assistant_message.id),
-                "request_metrics",
-                "recorded",
-                summary,
-                None,
-                None,
-                None,
-                None,
-            )?;
-
-            Self::touch_session(&request.session_id)?;
-
-            return Ok(NativeChatSendResult {
-                user_message,
-                assistant_message: Some(assistant_message),
-                metrics: Some(metric),
-                tool_events: vec![event],
                 setup_required: None,
                 offline: false,
             });
@@ -1050,6 +941,7 @@ impl NativeChatService {
             Ok(r) => r,
             Err(e) => {
                 let completed_at = now_millis();
+                let subscription = Self::resolve_subscription(&provider_id);
                 let metric = NativeRequestMetric {
                     id: gen_id("nreq"),
                     session_id: request.session_id.clone(),
@@ -1069,6 +961,9 @@ impl NativeChatService {
                     cost_total: Some(0.0),
                     outcome: "error".to_string(),
                     error_class: Some("provider_error".to_string()),
+                    subscription_tier: subscription.0.clone(),
+                    subscription_source: subscription.1.clone(),
+                    plan_name: subscription.2.clone(),
                     created_at: now_seconds(),
                 };
                 let _ = Self::insert_metric(&metric);
@@ -1094,6 +989,7 @@ impl NativeChatService {
         let tokens_per_second =
             Some((output_tokens as f64) / ((duration_ms as f64) / 1000.0).max(0.001));
 
+        let subscription = Self::resolve_subscription(&provider_id);
         let metric = NativeRequestMetric {
             id: gen_id("nreq"),
             session_id: request.session_id.clone(),
@@ -1113,6 +1009,9 @@ impl NativeChatService {
             cost_total: Some(0.0),
             outcome: "success".to_string(),
             error_class: None,
+            subscription_tier: subscription.0.clone(),
+            subscription_source: subscription.1.clone(),
+            plan_name: subscription.2.clone(),
             created_at: now_seconds(),
         };
         Self::insert_metric(&metric)?;
@@ -1269,7 +1168,7 @@ impl NativeChatService {
         let response = client.generate(&req, &emit)?;
         let ideas = Self::parse_ideas(&response.content);
         let cat_id_ref = category_id.as_deref();
-        let _ = Self::parse_and_capture_ideas(&response.content, &request.session_id, cat_id_ref);
+        let _ = Self::parse_and_capture_ideas(&response.content, &request.session_id, cat_id_ref, Some(&run_id));
         // Mark the pipeline run as succeeded.
         let stage_kind = if category_id.is_some() { "generate_ideas_category" } else { "generate_ideas" };
         let _ = Self::record_pipeline_run(&run_id, &request.session_id, &session.project_path, stage_kind, "succeeded", now_seconds());
@@ -1300,7 +1199,7 @@ impl NativeChatService {
     /// Parse idea-shaped JSON from a model response and capture each as a
     /// concept idea in the ideas catalog. Fallback for models that emit ideas
     /// as prose/JSON instead of calling the propose_ideas tool.
-    fn parse_and_capture_ideas(content: &str, session_id: &str, category_id: Option<&str>) {
+    fn parse_and_capture_ideas(content: &str, session_id: &str, category_id: Option<&str>, batch_id: Option<&str>) {
         let text = content.trim();
         let (start, end) = match (text.find('['), text.rfind(']')) {
             (Some(s), Some(e)) if e > s => (s, e),
@@ -1328,6 +1227,7 @@ impl NativeChatService {
                 category_id,
                 "",
                 None,
+                batch_id,
             );
         }
     }
@@ -1338,11 +1238,29 @@ impl NativeChatService {
         let mut stmt = conn
             .prepare(
                 "SELECT id, session_id, provider_id, model_id, effort_level, started_at, completed_at, duration_ms, ttft_ms, ttlt_ms,
-                        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at
+                        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at,
+                        subscription_tier, subscription_source, plan_name
                  FROM native_request_metrics ORDER BY created_at DESC LIMIT ?1",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt.query_map(params![limit], map_metric).map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    /// Metrics created strictly after `since_created_at` (epoch seconds),
+    /// oldest-first, for the incremental app→basebuild.net message sync.
+    pub fn metrics_since(since_created_at: i64, limit: u32) -> DbResult<Vec<NativeRequestMetric>> {
+        let limit = i64::from(limit.clamp(1, 5000));
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, session_id, provider_id, model_id, effort_level, started_at, completed_at, duration_ms, ttft_ms, ttlt_ms,
+                        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at,
+                        subscription_tier, subscription_source, plan_name
+                 FROM native_request_metrics WHERE created_at > ?1 ORDER BY created_at ASC LIMIT ?2",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt.query_map(params![since_created_at, limit], map_metric).map_err(|e| e.to_string())?;
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
     }
 
@@ -1467,6 +1385,27 @@ impl NativeChatService {
             return (cm.api_kind.clone(), cm.base_url.clone());
         }
         (String::new(), String::new())
+    }
+
+    /// True when this (api_kind, credential base_url) combination has no
+    /// native transport and would previously have bridged through OMP RPC:
+    /// the ChatGPT-subscription OAuth sentinel (`omp://openai-codex`), or a
+    /// bespoke agent api_kind with no direct endpoint. Native chat refuses
+    /// these routes (native-first contract) instead of delegating to OMP.
+    pub fn route_requires_omp(
+        api_kind: &str,
+        credential_base_url: Option<&str>,
+        is_local: bool,
+    ) -> bool {
+        credential_base_url == Some(OMP_CODEX_BASE_URL)
+            || (api_kind != "openai-completions"
+                && api_kind != "openai-responses"
+                && api_kind != "azure-openai-responses"
+                && api_kind != "anthropic-messages"
+                && api_kind != "openrouter"
+                && api_kind != "ollama-chat"
+                && !is_local
+                && credential_base_url.is_none())
     }
 
     fn validate_provider_model(provider_id: &str, model_id: &str, allow_unconfigured: bool) -> DbResult<()> {
@@ -1622,13 +1561,51 @@ impl NativeChatService {
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Failed to collect tool events: {e}"))
     }
+    /// Resolve the provider's subscription/tier for per-message usage sync.
+    /// Reads the declared per-provider plan map from settings
+    /// (`usage.provider_plans` in app_defaults): a JSON object keyed by
+    /// provider id → `{ "tier": "...", "planName": "..." }`. Returns
+    /// `(tier, source, plan_name)`; falls back to `(None, "unknown", None)`
+    /// when nothing is declared for the provider.
+    fn resolve_subscription(provider_id: &str) -> (Option<String>, Option<String>, Option<String>) {
+        if let Ok(conn) = StorageService::connect() {
+            let raw: Option<String> = conn
+                .query_row(
+                    "SELECT value FROM app_defaults WHERE key = 'usage.provider_plans'",
+                    [],
+                    |r| r.get(0),
+                )
+                .optional()
+                .ok()
+                .flatten();
+            if let Some(raw) = raw {
+                if let Ok(map) = serde_json::from_str::<serde_json::Value>(&raw) {
+                    if let Some(entry) = map.get(provider_id) {
+                        let tier = entry
+                            .get("tier")
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.is_empty())
+                            .map(str::to_string);
+                        if tier.is_some() {
+                            let plan_name =
+                                entry.get("planName").and_then(|v| v.as_str()).map(str::to_string);
+                            return (tier, Some("declared".to_string()), plan_name);
+                        }
+                    }
+                }
+            }
+        }
+        (None, Some("unknown".to_string()), None)
+    }
+
     fn insert_metric(metric: &NativeRequestMetric) -> DbResult<()> {
         let conn = StorageService::connect()?;
         conn.execute(
             "INSERT INTO native_request_metrics (
                 id, session_id, provider_id, model_id, effort_level, started_at, completed_at, duration_ms, ttft_ms, ttlt_ms,
-                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at,
+                subscription_tier, subscription_source, plan_name
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
                 metric.id,
                 metric.session_id,
@@ -1649,6 +1626,9 @@ impl NativeChatService {
                 metric.outcome,
                 metric.error_class,
                 metric.created_at,
+                metric.subscription_tier,
+                metric.subscription_source,
+                metric.plan_name,
             ],
         )
         .map_err(|e| format!("Failed to save native request metrics: {e}"))?;
@@ -1737,6 +1717,23 @@ fn map_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<NativeChatSession> {
     })
 }
 
+fn map_history_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<NativeChatHistoryEntry> {
+    Ok(NativeChatHistoryEntry {
+        id: row.get(0)?,
+        project_path: row.get(1)?,
+        title: row.get(2)?,
+        profile_id: row.get(3)?,
+        provider_id: row.get(4)?,
+        model_id: row.get(5)?,
+        effort_level: row.get(6)?,
+        status: row.get(7)?,
+        run_state: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "idle".to_string()),
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
+        message_count: row.get(11)?,
+    })
+}
+
 fn map_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<NativeChatMessage> {
     Ok(NativeChatMessage {
         id: row.get(0)?,
@@ -1773,6 +1770,9 @@ fn map_metric(row: &rusqlite::Row<'_>) -> rusqlite::Result<NativeRequestMetric> 
         outcome: row.get(16)?,
         error_class: row.get(17)?,
         created_at: row.get(18)?,
+        subscription_tier: row.get(19)?,
+        subscription_source: row.get(20)?,
+        plan_name: row.get(21)?,
     })
 }
 
@@ -1868,7 +1868,7 @@ fn omp_oauth_token(omp_provider: &str) -> Option<String> {
     Some(token)
 }
 
-fn omp_agent_dir() -> &'static std::path::Path {
+pub(crate) fn omp_agent_dir() -> &'static std::path::Path {
     &OMP_AGENT_DIR
 }
 
@@ -1893,6 +1893,40 @@ mod tests {
         assert!(catalog.providers.iter().any(|provider| provider.id == LOCAL_PROVIDER_ID && provider.configured));
         assert!(catalog.effort_levels.iter().any(|effort| effort.id == "xhigh"));
     }
+    #[test]
+    fn route_requires_omp_refuses_codex_oauth_sentinel() {
+        // ChatGPT-subscription OAuth has no native transport regardless of kind.
+        assert!(NativeChatService::route_requires_omp(
+            "openai-responses",
+            Some(crate::services::provider_client::OMP_CODEX_BASE_URL),
+            false,
+        ));
+    }
+
+    #[test]
+    fn route_requires_omp_refuses_bespoke_kind_without_endpoint() {
+        assert!(NativeChatService::route_requires_omp("devin-agent", None, false));
+        assert!(NativeChatService::route_requires_omp("openai-codex-responses", None, false));
+    }
+
+    #[test]
+    fn route_requires_omp_allows_native_kinds_and_escape_hatches() {
+        for kind in [
+            "openai-completions",
+            "openai-responses",
+            "azure-openai-responses",
+            "anthropic-messages",
+            "openrouter",
+            "ollama-chat",
+        ] {
+            assert!(!NativeChatService::route_requires_omp(kind, None, false), "{kind} is native");
+        }
+        // Custom base_url is the OpenAI-compatible escape hatch for bespoke kinds.
+        assert!(!NativeChatService::route_requires_omp("devin-agent", Some("https://server.codeium.com"), false));
+        // Local coordinator never routes through OMP.
+        assert!(!NativeChatService::route_requires_omp("", None, true));
+    }
+
     #[test]
     fn resolve_model_default_falls_back_when_no_project_or_global_default() {
         let dir = tempfile::TempDir::new().unwrap();
@@ -2117,6 +2151,51 @@ mod tests {
         // Clearing an already-empty session should return 0.
         let deleted2 = NativeChatService::clear_session_messages(&session.id).unwrap();
         assert_eq!(deleted2, 0);
+    }
+
+    #[test]
+    fn chat_history_returns_cross_project_sessions_with_counts_newest_first() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+
+        let older = NativeChatService::start_session(NativeChatStartRequest {
+            project_path: "/test/history-a".to_string(),
+            title: Some("Older".to_string()),
+            provider_id: Some(LOCAL_PROVIDER_ID.to_string()),
+            model_id: Some("basebuild-local-coordinator".to_string()),
+            effort_level: Some("medium".to_string()),
+        })
+        .unwrap();
+        // Ensure distinct updated_at values so ORDER BY is deterministic.
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        NativeChatService::insert_message(&older.id, "user", "hello", None, Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium")).unwrap();
+        NativeChatService::insert_message(&older.id, "assistant", "hi", None, Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium")).unwrap();
+
+        let newer = NativeChatService::start_session(NativeChatStartRequest {
+            project_path: "/test/history-b".to_string(),
+            title: Some("Newer".to_string()),
+            provider_id: Some(LOCAL_PROVIDER_ID.to_string()),
+            model_id: Some("basebuild-local-coordinator".to_string()),
+            effort_level: Some("medium".to_string()),
+        })
+        .unwrap();
+        NativeChatService::insert_message(&newer.id, "user", "only one", None, Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium")).unwrap();
+        // Force deterministic ordering: newer must sort before older.
+        StorageService::connect()
+            .unwrap()
+            .execute("UPDATE native_chat_sessions SET updated_at = ?1 WHERE id = ?2", params![older.updated_at + 10, newer.id])
+            .unwrap();
+
+        let all = NativeChatService::chat_history(None).unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].title, "Newer");
+        assert_eq!(all[0].message_count, 1);
+        assert_eq!(all[1].title, "Older");
+        assert_eq!(all[1].message_count, 2);
+
+        let limited = NativeChatService::chat_history(Some(1)).unwrap();
+        assert_eq!(limited.len(), 1);
+        assert_eq!(limited[0].title, "Newer");
     }
     #[test]
     fn delete_credential_blocks_omp_credentials() {

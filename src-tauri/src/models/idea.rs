@@ -11,6 +11,7 @@ pub struct IdeaCategory {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Idea {
     pub id: String,
     pub session_id: String,
@@ -24,6 +25,9 @@ pub struct Idea {
     /// Optional schematic element the idea serves (Vision / End goal / Current
     /// priority). When empty, the UI flags the idea "outside current focus".
     pub anchor: Option<String>,
+    /// Generation round (batch) that captured this idea. `None` for manual
+    /// creations and captures outside a round. Groups ideas into rounds.
+    pub batch_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }

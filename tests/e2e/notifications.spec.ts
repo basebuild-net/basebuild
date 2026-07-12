@@ -90,9 +90,9 @@ test.describe("Notifications: toast + center + badge", () => {
     await expect(page.locator(".settings-modal")).toBeVisible({ timeout: 15_000 });
     await page.locator(".settings-tab", { hasText: "Notifications" }).click();
 
-    // Set "Run finished" to center-only (no toast).
+    // Set "Run finished" to center-only (no toast) via the option list.
     const runFinishedRow = page.locator(".settings-row", { hasText: "Run finished" });
-    await runFinishedRow.locator("select").selectOption("center_only");
+    await runFinishedRow.getByRole("button", { name: "Center only", exact: true }).click();
 
     await page.locator(".settings-modal button[title='Close']").click();
     await page.waitForTimeout(200);

@@ -146,10 +146,12 @@ test.describe("Chat composer (DESIGN.md §Chat composer)", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    const effortSelect = page.locator(".chat-effort-select").first();
-    if (await effortSelect.count() > 0) {
-      const title = await effortSelect.getAttribute("title");
-      expect(title, "Effort selector should have a tooltip").toBeTruthy();
+    const effortButtons = page.locator(".chat-composer-header .option-list[aria-label='Effort level'] .option-list-btn");
+    const count = await effortButtons.count();
+    expect(count, "Effort option list should render options").toBeGreaterThan(1);
+    for (let i = 0; i < count; i++) {
+      const title = await effortButtons.nth(i).getAttribute("title");
+      expect(title, `Effort option ${i} should have a tooltip`).toBeTruthy();
     }
   });
 
@@ -214,5 +216,27 @@ test.describe("Chat composer (DESIGN.md §Chat composer)", () => {
     const panelBottom = panelBox!.y + panelBox!.height;
     const inputBottom = inputBox!.y + inputBox!.height;
     expect(Math.abs(panelBottom - inputBottom)).toBeLessThan(50);
+  });
+
+  test("model picker lists recently-used model first and shows 'used ... ago'", async ({ page }) => {
+    // Seed recency for the umans model that ranks LAST by the default
+    // capability ordering (no tools, no reasoning) — recency must hoist it.
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        "basebuild.modelRecency",
+        JSON.stringify({ "umans/umans-lite-1.0": Date.now() - 5 * 60 * 1000 }),
+      );
+    });
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+
+    await page.locator(".chat-model-trigger").click();
+    // Wait for the provider catalog modal and the model list (default provider: umans).
+    await expect(page.locator(".provider-catalog-models")).toBeVisible();
+    const rows = page.locator(".provider-model-row");
+    await expect(rows.first()).toContainText("Umans Lite 1.0");
+    await expect(rows.first()).toContainText("used 5 min ago");
+    // The higher-capability model without recency ranks after it.
+    await expect(rows.nth(1)).toContainText("Umans GLM 5.2");
   });
 });
