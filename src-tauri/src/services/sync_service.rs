@@ -320,7 +320,7 @@ fn post_mcp(token: &str, rpc_body: &Value) -> Result<String, String> {
 
 /// Call an MCP `tools/call` method by name with no arguments, returning the
 /// parsed `result.content[0].text` as a `Value`. On 401, clears auth.
-fn call_mcp_tool(token: &str, tool: &str, arguments: Value) -> Result<Value, String> {
+pub(crate) fn call_mcp_tool(token: &str, tool: &str, arguments: Value) -> Result<Value, String> {
     let rpc_body = json!({
         "jsonrpc": "2.0",
         "id": 1,

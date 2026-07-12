@@ -43,3 +43,30 @@ pub fn usage_sync_status() -> Result<AutoSyncStatus, String> {
 pub fn usage_sync_projected_usage() -> Result<ProjectedUsage, String> {
     sync_service::fetch_projected_usage()
 }
+
+/// Detect per-provider subscription plans from the local OMP usage ledger.
+/// Providers that expose no documented plan type come back with
+/// `needsDeclaration = true` so the UI can prompt the user to pick a plan.
+#[tauri::command]
+pub fn usage_detect_provider_plans(
+) -> Result<Vec<crate::models::plan_detection::DetectedProviderPlan>, String> {
+    crate::services::plan_detection_service::PlanDetectionService::detect()
+}
+
+/// List the basebuild.net plan catalog for the declaration dropdown. When
+/// `provider` is given, only that provider's plans are returned.
+#[tauri::command]
+pub fn usage_list_provider_plans(
+    provider: Option<String>,
+) -> Result<Vec<crate::models::plan_detection::ProviderPlanOption>, String> {
+    crate::services::plan_detection_service::PlanDetectionService::list_plans(provider.as_deref())
+}
+
+/// Declare per-provider plans to basebuild.net (100%-confidence attribution).
+/// `plans` maps a provider slug to a catalog plan id; an empty id clears it.
+#[tauri::command]
+pub fn usage_declare_provider_plans(
+    plans: std::collections::BTreeMap<String, String>,
+) -> Result<String, String> {
+    crate::services::plan_detection_service::PlanDetectionService::declare(plans)
+}
