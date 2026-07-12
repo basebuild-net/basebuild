@@ -596,17 +596,26 @@ fn collect_omp_status() -> Value {
 /// auto-sync enabled AND upload permission granted. Does not perform network
 /// I/O for the gate check itself (only reads stored settings/auth).
 pub fn gates_pass() -> bool {
-    let Ok(Some(_token)) = AuthService::get_access_token() else {
-        return false;
+    let token_ok = match AuthService::get_access_token() {
+        Ok(Some(_)) => true,
+        Ok(None) => { eprintln!("[SYNC] gates: no token"); false }
+        Err(e) => { eprintln!("[SYNC] gates: token error: {e}"); false }
     };
-    let Ok(rules) = SettingsService::get_permission_rules() else {
-        return false;
+    if !token_ok { return false; }
+    let rules = match SettingsService::get_permission_rules() {
+        Ok(r) => r,
+        Err(e) => { eprintln!("[SYNC] gates: permission rules error: {e}"); return false; }
     };
     if !rules.allow_usage_analytics_upload {
+        eprintln!("[SYNC] gates: allow_usage_analytics_upload=false");
         return false;
     }
     let status = AUTOSYNC_STATUS.lock().clone();
-    status.enabled
+    if !status.enabled {
+        eprintln!("[SYNC] gates: auto_sync_usage=false (status.enabled=false)");
+        return false;
+    }
+    true
 }
 
 /// Read the current auto-sync status (cached, no network I/O).
@@ -651,15 +660,19 @@ pub fn set_usage_sync_mode(mode: &str) -> Result<(), String> {
 /// `sync_raw_usage_native`. Records last_sync_at / last_error and emits a
 /// status event. Non-blocking on failure.
 pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
+    eprintln!("[SYNC] trigger_sync reason={reason} skip_freshness={skip_freshness}");
     if !gates_pass() {
+        eprintln!("[SYNC] gates_pass=false — aborting (need: signed in + upload permission + auto-sync enabled)");
         return;
     }
+    eprintln!("[SYNC] gates_pass=true");
     // Debounce: enforce a minimum gap between pushes.
     let now = now_seconds();
     {
         let status = AUTOSYNC_STATUS.lock().clone();
         if let Some(last) = status.last_sync_at {
             if now - last < MIN_INTER_SYNC_GAP_SECS {
+                eprintln!("[SYNC] debounced — last sync was {}s ago, min gap is {}s", now - last, MIN_INTER_SYNC_GAP_SECS);
                 return;
             }
         }
@@ -667,28 +680,44 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
     // Freshness check: ask the server if data is stale before pushing.
     // Skipped on startup so the first sync fires unconditionally.
     let should_push = if skip_freshness {
-        AuthService::get_access_token().map(|t| t.is_some()).unwrap_or(false)
+        let has_token = AuthService::get_access_token().map(|t| t.is_some()).unwrap_or(false);
+        eprintln!("[SYNC] skip_freshness=true, has_token={has_token}");
+        has_token
     } else {
         match AuthService::get_access_token() {
             Ok(Some(token)) => {
-                call_mcp_tool(&token, "get_my_live_usage", json!({}))
+                eprintln!("[SYNC] checking server freshness…");
+                let fresh = call_mcp_tool(&token, "get_my_live_usage", json!({}))
                     .ok()
                     .and_then(|v| v.get("shouldSync").and_then(|v| v.as_bool()))
-                    .unwrap_or(true)
+                    .unwrap_or(true);
+                eprintln!("[SYNC] server shouldSync={fresh}");
+                fresh
             }
-            _ => false,
+            _ => {
+                eprintln!("[SYNC] no token — aborting");
+                false
+            }
         }
     };
     if !should_push {
+        eprintln!("[SYNC] should_push=false — aborting");
         return;
     }
+    eprintln!("[SYNC] launching sync thread…");
 
     let app2 = app.clone();
     let reason_owned = reason.to_string();
     thread::spawn(move || {
+        eprintln!("[SYNC] thread started — calling sync_raw_usage_native…");
         let result = sync_raw_usage_native();
+        eprintln!("[SYNC] sync_raw_usage_native: {}", match &result { Ok(m) => format!("ok: {m}"), Err(e) => format!("ERR: {e}") });
+        eprintln!("[SYNC] calling sync_messages_native…");
         let messages_result = sync_messages_native();
+        eprintln!("[SYNC] sync_messages_native: {}", match &messages_result { Ok(m) => format!("ok: {m}"), Err(e) => format!("ERR: {e}") });
+        eprintln!("[SYNC] calling sync_environment_native…");
         let env_result = sync_environment_native();
+        eprintln!("[SYNC] sync_environment_native: {}", match &env_result { Ok(m) => format!("ok: {m}"), Err(e) => format!("ERR: {e}") });
         let now = now_seconds();
         let mut status = AUTOSYNC_STATUS.lock().clone();
         match result {
@@ -703,6 +732,7 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
                     Ok(_) => " | env: ok".to_string(),
                     Err(e) => format!(" | env sync failed: {e}"),
                 };
+                eprintln!("[SYNC] ✅ all syncs complete: {reason_owned}: {msg}{extra}{env_extra}");
                 let _ = app2.emit(
                     USAGE_SYNC_STATUS,
                     &SyncResult { ok: true, message: format!("{reason_owned}: {msg}{extra}{env_extra}"), completed_at: now },
@@ -710,6 +740,7 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
             }
             Err(e) => {
                 status.last_error = Some(e.clone());
+                eprintln!("[SYNC] ❌ raw usage sync failed: {e}");
                 let _ = app2.emit(
                     USAGE_SYNC_STATUS,
                     &SyncResult { ok: false, message: format!("{reason_owned}: {e}"), completed_at: now },
@@ -727,9 +758,12 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
 /// Start the auto-sync background loop. Idempotent. Ticks every
 /// `autoSyncIntervalMinutes` and on each tick re-checks gates + freshness.
 pub fn start_autosync_loop(app: AppHandle) {
+    eprintln!("[SYNC] start_autosync_loop called");
     if AUTOSYNC_RUNNING.swap(true, Ordering::SeqCst) {
+        eprintln!("[SYNC] autosync already running — skipping");
         return;
     }
+    eprintln!("[SYNC] autosync loop starting…");
     thread::spawn(move || {
         let mut first_tick = true;
         loop {
