@@ -102,6 +102,38 @@ export async function usageSyncProjectedUsage(): Promise<ProjectedUsage> {
   return invoke<ProjectedUsage>("usage_sync_projected_usage");
 }
 
+export type DetectedProviderPlan = {
+  provider: string;
+  ompProvider: string;
+  accountEmail: string | null;
+  detectedPlanType: string | null;
+  confidence: string;
+  source: string;
+  needsDeclaration: boolean;
+};
+
+export type ProviderPlanOption = {
+  id: string;
+  provider: string;
+  name: string;
+  tier: string | null;
+  price: number | null;
+  period: string | null;
+  label: string;
+};
+
+export async function usageDetectProviderPlans(): Promise<DetectedProviderPlan[]> {
+  return invoke<DetectedProviderPlan[]>("usage_detect_provider_plans");
+}
+
+export async function usageListProviderPlans(provider?: string): Promise<ProviderPlanOption[]> {
+  return invoke<ProviderPlanOption[]>("usage_list_provider_plans", { provider: provider ?? null });
+}
+
+export async function usageDeclareProviderPlans(plans: Record<string, string>): Promise<string> {
+  return invoke<string>("usage_declare_provider_plans", { plans });
+}
+
 export async function listenUsageSyncStatus(
   handler: EventCallback<SyncResult>,
 ): Promise<UnlistenFn> {

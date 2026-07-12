@@ -2530,6 +2530,8 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .usage-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .usage-table th { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--bb-border); font-weight: 600; color: var(--bb-text-muted); }
 .usage-table td { padding: 4px 6px; border-bottom: 1px solid var(--bb-border); }
+.usage-plan-row { padding: 4px 0; align-items: center; }
+.usage-plan-provider { min-width: 96px; font-weight: 600; }
 
 /* ─── Project chat sidebar (left column) ─── */
 .project-chat-sidebar {

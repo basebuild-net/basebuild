@@ -14,6 +14,12 @@ import { authStartDeviceFlow, authPollDeviceFlow, type PollResult } from "../../
 import { useAccount, type AccountState } from "../../state/account";
 import { useUsageSync } from "../../state/usageSync";
 import {
+  usageDetectProviderPlans,
+  usageListProviderPlans,
+  usageDeclareProviderPlans,
+} from "../../lib/usageSync";
+import type { DetectedProviderPlan, ProviderPlanOption } from "../../lib/usageSync";
+import {
   nativeProviderCatalog,
   nativeProviderLoginStart,
   nativeProviderLoginPoll,
@@ -1289,6 +1295,136 @@ function UsageSyncPanel({ signedIn }: { signedIn: boolean }) {
           </table>
         </div>
       ) : null}
+
+      <ProviderPlansPanel gatesPass={status?.gatesPass ?? false} />
+    </div>
+  );
+}
+
+function ProviderPlansPanel({ gatesPass }: { gatesPass: boolean }) {
+  const [detected, setDetected] = useState<DetectedProviderPlan[]>([]);
+  const [catalog, setCatalog] = useState<Map<string, ProviderPlanOption[]>>(new Map());
+  const [selections, setSelections] = useState<Map<string, string>>(new Map());
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [d, c] = await Promise.all([usageDetectProviderPlans(), usageListProviderPlans()]);
+      setDetected(d);
+      const byProvider = new Map<string, ProviderPlanOption[]>();
+      for (const opt of c) {
+        const arr = byProvider.get(opt.provider) ?? [];
+        arr.push(opt);
+        byProvider.set(opt.provider, arr);
+      }
+      setCatalog(byProvider);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  function pickPlan(provider: string, planId: string) {
+    setSelections((prev) => {
+      const next = new Map(prev);
+      if (planId) {
+        next.set(provider, planId);
+      } else {
+        next.delete(provider);
+      }
+      return next;
+    });
+  }
+
+  async function savePlans() {
+    if (selections.size === 0) return;
+    setSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const plans: Record<string, string> = {};
+      for (const [provider, planId] of selections) {
+        plans[provider] = planId;
+      }
+      const msg = await usageDeclareProviderPlans(plans);
+      setMessage(msg);
+      setSelections(new Map());
+      await load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (detected.length === 0 && !loading) return null;
+
+  return (
+    <div className="card">
+      <h4>Provider Plans</h4>
+      <p className="text-muted text-sm">
+        Detected natively from your provider credentials. Providers we can&apos;t detect (their API
+        doesn&apos;t expose the plan) show a picker — declaring your exact plan gives basebuild.net a
+        100%-confidence attribution instead of a guess.
+      </p>
+      {!gatesPass ? (
+        <p className="text-muted text-sm">
+          Enable usage upload in Settings → Privacy to sync declared plans.
+        </p>
+      ) : null}
+      {loading ? <p className="text-muted text-sm">Detecting…</p> : null}
+      {detected.map((d) => {
+        const options = catalog.get(d.provider) ?? [];
+        return (
+          <div key={d.provider} className="usage-plan-row row gap-sm flex-wrap" title={`${d.provider}: ${d.source}`}>
+            <span className="text-sm usage-plan-provider">{d.provider}</span>
+            {d.needsDeclaration ? (
+              <select
+                className="input input-sm"
+                value={selections.get(d.provider) ?? ""}
+                disabled={saving || options.length === 0}
+                onChange={(e) => pickPlan(d.provider, e.target.value)}
+                title={`Declare your ${d.provider} plan`}
+              >
+                <option value="">
+                  {options.length === 0 ? "No catalog plans" : "Select your plan…"}
+                </option>
+                {options.map((o) => (
+                  <option key={o.id} value={o.id}>{o.label}</option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-sm" title={`Detected via ${d.source}`}>
+                ✓ {d.detectedPlanType ?? "detected"}
+                <span className="text-muted"> · {d.source === "native" ? "native credential" : d.source}</span>
+              </span>
+            )}
+          </div>
+        );
+      })}
+      {selections.size > 0 ? (
+        <button
+          className="btn btn-sm"
+          type="button"
+          disabled={saving || !gatesPass}
+          onClick={() => void savePlans()}
+          title="Save declared plans to basebuild.net"
+        >
+          {saving ? "Saving…" : `Save ${selections.size} plan${selections.size === 1 ? "" : "s"}`}
+        </button>
+      ) : null}
+      {message ? <p className="text-muted text-sm">✓ {message}</p> : null}
+      {error ? <p className="text-danger text-sm">{error}</p> : null}
     </div>
   );
 }
