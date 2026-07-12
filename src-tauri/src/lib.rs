@@ -140,7 +140,7 @@ use commands::{
     },
     sync::{
         sync_raw_usage_native, usage_sync_projected_usage, usage_sync_set_enabled,
-        usage_sync_status, usage_sync_trigger,
+        usage_sync_set_mode, usage_sync_status, usage_sync_trigger,
     },
      terminal::{close_terminal, create_terminal, list_terminals, resize_terminal, terminal_replay, write_terminal},
     workspace::{get_workspace_restore_state, save_workspace_restore_state},
@@ -550,6 +550,7 @@ pub fn run() {
             sync_raw_usage_native,
             usage_sync_trigger,
             usage_sync_set_enabled,
+            usage_sync_set_mode,
             usage_sync_status,
             usage_sync_projected_usage,
             get_workspace_restore_state,

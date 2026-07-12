@@ -25,6 +25,13 @@ pub fn usage_sync_set_enabled(enabled: bool) -> Result<(), String> {
     sync_service::set_autosync_enabled(enabled)
 }
 
+/// Set the usage sync detail mode: "rows" (per-message rows; server rolls up)
+/// or "summary" (client rolls up, sends summaries).
+#[tauri::command]
+pub fn usage_sync_set_mode(mode: String) -> Result<(), String> {
+    sync_service::set_usage_sync_mode(&mode)
+}
+
 /// Read the current auto-sync status (cached, no network I/O).
 #[tauri::command]
 pub fn usage_sync_status() -> Result<AutoSyncStatus, String> {

@@ -30,6 +30,7 @@ static AUTOSYNC_STATUS: Mutex<AutoSyncStatus> = parking_lot::const_mutex(AutoSyn
     interval_minutes: DEFAULT_INTERVAL_MINUTES,
     last_sync_at: None,
     last_error: None,
+    sync_mode: String::new(),
 });
 
 /// Sync raw OMP usage to basebuild.net using the stored native token.
@@ -117,6 +118,202 @@ pub fn sync_raw_usage_native() -> Result<String, String> {
         .unwrap_or("Usage synced successfully.");
 
     Ok(result.to_string())
+}
+
+/// Sync per-message usage rows to basebuild.net via the `sync_messages` MCP
+/// tool. Reads native chat request metrics since the last message-sync cursor
+/// and sends them either as raw rows (server rolls up + owns aggregation) or as
+/// client-side summaries, per the `usage_sync_mode` setting. Advances the
+/// cursor only on a successful push. Returns a human-readable result message.
+pub fn sync_messages_native() -> Result<String, String> {
+    use crate::services::native_chat_service::NativeChatService;
+
+    let token = AuthService::get_access_token()?
+        .ok_or("Not signed in. Open Settings > Account to sign in.")?;
+
+    let mut settings = SettingsService::get_usage_sync_settings()?;
+    let since = settings.last_message_sync_at.unwrap_or(0);
+    let metrics = NativeChatService::metrics_since(since, 5000)?;
+    if metrics.is_empty() {
+        return Ok("no new messages".to_string());
+    }
+    let window_start = metrics.iter().map(|m| m.created_at).min().unwrap_or(since);
+    let window_end = metrics.iter().map(|m| m.created_at).max().unwrap_or(since);
+
+    let arguments = if settings.usage_sync_mode == "summary" {
+        json!({
+            "mode": "summary",
+            "windowStart": window_start,
+            "windowEnd": window_end,
+            "summaries": build_message_summaries(&metrics),
+        })
+    } else {
+        json!({
+            "mode": "rows",
+            "windowStart": window_start,
+            "windowEnd": window_end,
+            "rows": metrics.iter().map(message_row_json).collect::<Vec<_>>(),
+        })
+    };
+
+    let rpc_body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": "sync_messages", "arguments": arguments }
+    });
+
+    let result = post_mcp(&token, &rpc_body)?;
+    // Advance the cursor only after the server accepted the batch.
+    settings.last_message_sync_at = Some(window_end);
+    let _ = SettingsService::set_usage_sync_settings(&settings);
+    Ok(format!("{} rows: {result}", metrics.len()))
+}
+
+fn message_row_json(m: &crate::models::native_chat::NativeRequestMetric) -> Value {
+    json!({
+        "id": m.id,
+        "ts": m.created_at,
+        "provider": m.provider_id,
+        "model": m.model_id,
+        "effort": m.effort_level,
+        "subscriptionTier": m.subscription_tier,
+        "subscriptionSource": m.subscription_source,
+        "planName": m.plan_name,
+        "inputTokens": m.input_tokens,
+        "outputTokens": m.output_tokens,
+        "cacheReadTokens": m.cache_read_tokens,
+        "costTotal": m.cost_total.unwrap_or(0.0),
+        "durationMs": m.duration_ms,
+        "ttftMs": m.ttft_ms,
+        "outcome": m.outcome,
+    })
+}
+
+/// Roll native metrics up client-side, grouped by (provider, model, tier).
+fn build_message_summaries(metrics: &[crate::models::native_chat::NativeRequestMetric]) -> Vec<Value> {
+    use std::collections::HashMap;
+    struct Acc {
+        provider: String,
+        model: String,
+        effort: String,
+        tier: Option<String>,
+        source: Option<String>,
+        plan_name: Option<String>,
+        requests: i64,
+        input: i64,
+        output: i64,
+        cache_read: i64,
+        cost: f64,
+        errors: i64,
+        dur_sum: i64,
+        dur_n: i64,
+        ttft_sum: i64,
+        ttft_n: i64,
+    }
+    let mut map: HashMap<String, Acc> = HashMap::new();
+    for m in metrics {
+        let key = format!(
+            "{}\u{1}{}\u{1}{}",
+            m.provider_id,
+            m.model_id,
+            m.subscription_tier.clone().unwrap_or_default(),
+        );
+        let acc = map.entry(key).or_insert_with(|| Acc {
+            provider: m.provider_id.clone(),
+            model: m.model_id.clone(),
+            effort: m.effort_level.clone(),
+            tier: m.subscription_tier.clone(),
+            source: m.subscription_source.clone(),
+            plan_name: m.plan_name.clone(),
+            requests: 0,
+            input: 0,
+            output: 0,
+            cache_read: 0,
+            cost: 0.0,
+            errors: 0,
+            dur_sum: 0,
+            dur_n: 0,
+            ttft_sum: 0,
+            ttft_n: 0,
+        });
+        acc.requests += 1;
+        acc.input += m.input_tokens;
+        acc.output += m.output_tokens;
+        acc.cache_read += m.cache_read_tokens;
+        acc.cost += m.cost_total.unwrap_or(0.0);
+        if m.outcome == "error" {
+            acc.errors += 1;
+        }
+        if let Some(d) = m.duration_ms {
+            acc.dur_sum += d;
+            acc.dur_n += 1;
+        }
+        if let Some(t) = m.ttft_ms {
+            acc.ttft_sum += t;
+            acc.ttft_n += 1;
+        }
+    }
+    map.into_values()
+        .map(|a| {
+            json!({
+                "provider": a.provider,
+                "model": a.model,
+                "effort": a.effort,
+                "subscriptionTier": a.tier,
+                "subscriptionSource": a.source,
+                "planName": a.plan_name,
+                "requests": a.requests,
+                "inputTokens": a.input,
+                "outputTokens": a.output,
+                "cacheReadTokens": a.cache_read,
+                "costTotal": a.cost,
+                "errorCount": a.errors,
+                "avgDurationMs": if a.dur_n > 0 { Some(a.dur_sum as f64 / a.dur_n as f64) } else { None },
+                "avgTtftMs": if a.ttft_n > 0 { Some(a.ttft_sum as f64 / a.ttft_n as f64) } else { None },
+            })
+        })
+        .collect()
+}
+
+/// POST a JSON-RPC body to the MCP endpoint and extract the result text.
+/// Clears auth on 401. Shared by the raw-usage and message sync paths.
+fn post_mcp(token: &str, rpc_body: &Value) -> Result<String, String> {
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .post(MCP_URL)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .json(rpc_body)
+        .send()
+        .map_err(|e| format!("Failed to connect to basebuild.net: {e}"))?;
+    let status = resp.status();
+    let text = resp.text().unwrap_or_default();
+    if status == reqwest::StatusCode::UNAUTHORIZED {
+        let _ = AuthService::clear_auth();
+        return Err("Token expired or revoked. Please sign in again.".into());
+    }
+    if !status.is_success() {
+        return Err(format!("MCP sync failed ({status}): {text}"));
+    }
+    let parsed: Value =
+        serde_json::from_str(&text).map_err(|e| format!("Failed to parse MCP response: {e}"))?;
+    if let Some(error) = parsed.get("error") {
+        let message = error
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown MCP error");
+        return Err(format!("MCP error: {message}"));
+    }
+    Ok(parsed
+        .get("result")
+        .and_then(|v| v.get("content"))
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|item| item.get("text"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("Synced successfully.")
+        .to_string())
 }
 
 // ─── Projected-usage reads (native token, /api/mcp) ───────────────────────
@@ -321,6 +518,7 @@ pub fn autosync_status() -> AutoSyncStatus {
     let settings = SettingsService::get_usage_sync_settings().unwrap_or_default();
     status.enabled = settings.auto_sync_usage;
     status.interval_minutes = settings.auto_sync_interval_minutes.max(1);
+    status.sync_mode = settings.usage_sync_mode.clone();
     // Write back so the cached status stays fresh for other callers.
     *AUTOSYNC_STATUS.lock() = status.clone();
     status
@@ -334,6 +532,18 @@ pub fn set_autosync_enabled(enabled: bool) -> Result<(), String> {
     let mut status = AUTOSYNC_STATUS.lock().clone();
     status.enabled = enabled;
     status.gates_pass = gates_pass();
+    Ok(())
+}
+
+/// Persist the usage sync detail mode ("rows" | "summary").
+pub fn set_usage_sync_mode(mode: &str) -> Result<(), String> {
+    let normalized = if mode == "summary" { "summary" } else { "rows" };
+    let mut settings = SettingsService::get_usage_sync_settings().unwrap_or_default();
+    settings.usage_sync_mode = normalized.to_string();
+    SettingsService::set_usage_sync_settings(&settings)?;
+    let mut status = AUTOSYNC_STATUS.lock().clone();
+    status.sync_mode = normalized.to_string();
+    *AUTOSYNC_STATUS.lock() = status;
     Ok(())
 }
 
@@ -372,15 +582,20 @@ pub fn trigger_sync(app: AppHandle, reason: &str) {
     let reason_owned = reason.to_string();
     thread::spawn(move || {
         let result = sync_raw_usage_native();
+        let messages_result = sync_messages_native();
         let now = now_seconds();
         let mut status = AUTOSYNC_STATUS.lock().clone();
         match result {
             Ok(msg) => {
                 status.last_sync_at = Some(now);
                 status.last_error = None;
+                let extra = match &messages_result {
+                    Ok(m) => format!(" | messages: {m}"),
+                    Err(e) => format!(" | messages sync failed: {e}"),
+                };
                 let _ = app2.emit(
                     USAGE_SYNC_STATUS,
-                    &SyncResult { ok: true, message: format!("{reason_owned}: {msg}"), completed_at: now },
+                    &SyncResult { ok: true, message: format!("{reason_owned}: {msg}{extra}"), completed_at: now },
                 );
             }
             Err(e) => {

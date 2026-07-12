@@ -14,6 +14,9 @@ export type Question = {
   options?: QuestionOption[];
   recommended?: number;
   allowFreeText?: boolean;
+  /** Optional read-only preview/context (e.g. prefilled field content the
+   *  user is being asked to confirm). Rendered as a block in the card. */
+  detail?: string;
 };
 
 export type InteractionStatus = "pending" | "answered" | "cancelled";

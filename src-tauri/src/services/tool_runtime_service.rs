@@ -314,7 +314,7 @@ pub fn registry() -> Vec<ToolDef> {
         ToolDef {
             schema: ToolSchema {
                 name: "ask_user".to_string(),
-                description: "Present one or more questions to the user and wait for their response. Each question carries an id, a prompt, a kind (options, multi, confirm, text), an optional option list, an optional recommended-option index, and an optional allow-free-text flag. The loop pauses until the user responds or the run is cancelled.".to_string(),
+                description: "Present one or more questions to the user and wait for their response. Each question carries an id, a prompt, a kind (options, multi, confirm, text), an optional option list, an optional recommended-option index, an optional allow-free-text flag, and an optional `detail` preview. The user can always ALSO type a custom answer for any question, so answers may include both a selected option and free text. The loop pauses until the user responds or the run is cancelled.".to_string(),
                 parameters: json!({
                     "type": "object",
                     "properties": {
@@ -340,7 +340,8 @@ pub fn registry() -> Vec<ToolDef> {
                                         }
                                     },
                                     "recommended": { "type": "integer", "description": "Index into `options` of the recommended choice. The recommended option is visibly marked." },
-                                    "allowFreeText": { "type": "boolean", "description": "If true, allow free-text input even for `options` kind.", "default": false }
+                                    "allowFreeText": { "type": "boolean", "description": "Deprecated hint: the UI always accepts a typed answer for every question. Kept for compatibility.", "default": false },
+                                    "detail": { "type": "string", "description": "Optional read-only preview/context shown in the card (e.g. the prefilled field content the user is confirming). Use this so the user can review a value before answering. Not treated as an answer." }
                                 },
                                 "required": ["id", "prompt", "kind"]
                             }

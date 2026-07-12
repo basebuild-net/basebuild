@@ -106,20 +106,14 @@ export function QuestionCard({ interaction, onResolved, onCancelled }: QuestionC
         {interaction.questions.map((q, qi) => {
           const cur = ensureAnswer(q);
           const selected = cur.selected ?? [];
+          const hasOptions = q.kind === "options" || q.kind === "multi" || q.kind === "confirm";
           return (
             <div key={q.id} className="question-card-question">
               <div className="question-card-prompt">{qi + 1}. {q.prompt}</div>
-              {q.kind === "text" || (q.kind === "options" && q.allowFreeText) ? (
-                <input
-                  type="text"
-                  className="question-card-input"
-                  placeholder="Type your answer…"
-                  value={cur.text ?? ""}
-                  onChange={(e) => setText(q, e.target.value)}
-                  title={`Answer for: ${q.prompt}`}
-                />
+              {q.detail ? (
+                <pre className="question-card-detail" title="Prefilled content — review before confirming">{q.detail}</pre>
               ) : null}
-              {q.kind === "options" || q.kind === "multi" || q.kind === "confirm" ? (
+              {hasOptions ? (
                 <div className="question-card-options">
                   {q.options?.map((opt, oi) => {
                     const isSel = selected.includes(opt.label);
@@ -138,6 +132,20 @@ export function QuestionCard({ interaction, onResolved, onCancelled }: QuestionC
                   })}
                 </div>
               ) : null}
+              {/* Every question also accepts a typed custom answer. */}
+              <div className="question-card-input-wrap">
+                <span className="question-card-input-label">
+                  {hasOptions ? "Or type a custom answer" : "Your answer"}
+                </span>
+                <input
+                  type="text"
+                  className="question-card-input"
+                  placeholder={hasOptions ? "Type a custom answer…" : "Type your answer…"}
+                  value={cur.text ?? ""}
+                  onChange={(e) => setText(q, e.target.value)}
+                  title={`Answer for: ${q.prompt}`}
+                />
+              </div>
             </div>
           );
         })}
@@ -169,10 +177,14 @@ export function QuestionCard({ interaction, onResolved, onCancelled }: QuestionC
 
 function formatAnswer(q: Question, answers: unknown): string {
   if (!answers || typeof answers !== "object") return "—";
-  const map = answers as Record<string, QuestionAnswer>;
-  const a = map[q.id];
+  // The backend persists answers as an array of QuestionAnswer; tolerate an
+  // id-keyed map too for forward/backward compatibility.
+  const a = Array.isArray(answers)
+    ? (answers as QuestionAnswer[]).find((x) => x?.questionId === q.id)
+    : (answers as Record<string, QuestionAnswer>)[q.id];
   if (!a) return "—";
-  if (a.text) return a.text;
-  if (a.selected && a.selected.length > 0) return a.selected.join(", ");
-  return "—";
+  const parts: string[] = [];
+  if (a.selected && a.selected.length > 0) parts.push(a.selected.join(", "));
+  if (a.text && a.text.trim()) parts.push(a.text.trim());
+  return parts.length > 0 ? parts.join(" — ") : "—";
 }

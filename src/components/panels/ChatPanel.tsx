@@ -1126,8 +1126,12 @@ export function ChatPanel({
           const msg = e instanceof Error ? e.message : String(e);
           addLog("error", "Failed to send native message", msg);
           try {
-            setNativeMessages(await nativeChatMessages(nativeSessionId));
-            setToolEvents(await nativeChatToolEvents(nativeSessionId));
+            const [msgs, events] = await Promise.all([
+              nativeChatMessages(nativeSessionId),
+              nativeChatToolEvents(nativeSessionId),
+            ]);
+            setNativeMessages(msgs);
+            setToolEvents(events);
           } catch {
             /* ignore */
           }
@@ -1147,8 +1151,10 @@ export function ChatPanel({
             // backend persisted (partial reply + tool events) without touching
             // the spinner state (handleStopNative already reset it).
             try {
-              const msgs = await nativeChatMessages(nativeSessionId);
-              const events = await nativeChatToolEvents(nativeSessionId);
+              const [msgs, events] = await Promise.all([
+                nativeChatMessages(nativeSessionId),
+                nativeChatToolEvents(nativeSessionId),
+              ]);
               if (activeSendRef.current === gen + 1) {
                 setNativeMessages(msgs);
                 setToolEvents(events);
@@ -1620,6 +1626,14 @@ export function ChatPanel({
     await sendMessage(text);
   }, [input, nativeMode, sendMessage, catalog, addLog, interactions, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId, onOpenSchematic, projectPath, selectedModel]);
 
+  // Merged chronological timeline (messages + tool events + interactions).
+  // Memoized so it is rebuilt only when the underlying lists change — not on
+  // every render or stream delta tick (streamText renders separately).
+  const chatTimeline = useMemo(
+    () => buildChatTimeline(nativeMessages, toolEvents, interactions),
+    [nativeMessages, toolEvents, interactions],
+  );
+
   // Message action rail handlers.
   const handleCopyMessage = useCallback(async (content: string) => {
     try {
@@ -1631,7 +1645,7 @@ export function ChatPanel({
   }, [onShowToast]);
 
   const handleCopyConversation = useCallback(async () => {
-    const events = buildChatTimeline(nativeMessages, toolEvents, interactions);
+    const events = chatTimeline;
     if (events.length === 0) return;
     const lines: string[] = [];
     for (const ev of events) {
@@ -1652,7 +1666,7 @@ export function ChatPanel({
     } catch {
       onShowToast?.("Copy failed", "Clipboard unavailable.", "error");
     }
-  }, [nativeMessages, toolEvents, interactions, onShowToast]);
+  }, [chatTimeline, onShowToast]);
 
   const handleRetryMessage = useCallback(async () => {
     // Find the last user message content.
@@ -2146,7 +2160,7 @@ export function ChatPanel({
               // reasoning into a single sorted list, rendered in order.
               // No grouping — each tool call is its own row. Thinking blocks
               // render as separate rows, split around tool calls/questions.
-              const events = buildChatTimeline(nativeMessages, toolEvents, interactions);
+              const events = chatTimeline;
               // Compute last user/assistant message IDs for action rail.
               let lastUserId: string | null = null;
               let lastAssistantId: string | null = null;

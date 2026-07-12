@@ -25,6 +25,17 @@ export function buildChatTimeline(
 ): ChatEvent[] {
   const events: ChatEvent[] = [];
 
+  // Bucket bound tool events by their parent message id once (O(m + t))
+  // instead of scanning all tool events per message (O(m × t)).
+  const toolsByMessage = new Map<string, NativeToolEvent[]>();
+  for (const te of toolEvents) {
+    if (te.messageId) {
+      const bucket = toolsByMessage.get(te.messageId);
+      if (bucket) bucket.push(te);
+      else toolsByMessage.set(te.messageId, [te]);
+    }
+  }
+
   // Messages with their bound tool events.
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
@@ -39,20 +50,19 @@ export function buildChatTimeline(
       modelId: msg.modelId ?? null,
       index: i,
     });
-    if (msg.id) {
-      for (const te of toolEvents) {
-        if (te.messageId === msg.id) {
-          events.push({
-            kind: "tool",
-            id: te.id,
-            event: te,
-            createdAt: te.createdAt,
-            // Fractional index: parent message index + sequence fraction.
-            // Ensures bound tools sort after their parent message and
-            // before the next message, regardless of timestamps.
-            index: i + te.sequence * 0.001,
-          });
-        }
+    const bound = msg.id ? toolsByMessage.get(msg.id) : undefined;
+    if (bound) {
+      for (const te of bound) {
+        events.push({
+          kind: "tool",
+          id: te.id,
+          event: te,
+          createdAt: te.createdAt,
+          // Fractional index: parent message index + sequence fraction.
+          // Ensures bound tools sort after their parent message and
+          // before the next message, regardless of timestamps.
+          index: i + te.sequence * 0.001,
+        });
       }
     }
   }
@@ -75,13 +85,19 @@ export function buildChatTimeline(
     }
   }
 
-  // Live interactions (no messageId binding yet).
+  // Live interactions (no messageId binding yet). Interactions persist
+  // createdAt in MILLISECONDS while messages/tool events use SECONDS, so
+  // normalize to seconds — otherwise every interaction's ~1000× larger
+  // timestamp sorts it to the very bottom of the transcript instead of the
+  // chronological point where the question was asked.
   for (const intr of interactions) {
+    const raw = intr.createdAt ?? null;
+    const createdAt = raw != null && raw > 1e12 ? Math.floor(raw / 1000) : raw;
     events.push({
       kind: "interaction",
       id: intr.id,
       interaction: intr,
-      createdAt: intr.createdAt ?? null,
+      createdAt,
       index: events.length,
     });
   }

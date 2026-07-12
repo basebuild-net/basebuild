@@ -72,6 +72,8 @@ export type AutoSyncStatus = {
   intervalMinutes: number;
   lastSyncAt?: number;
   lastError?: string;
+  /** Usage sync detail mode: "rows" (server rolls up) or "summary". */
+  syncMode?: string;
 };
 
 export type SyncResult = {
@@ -86,6 +88,10 @@ export async function usageSyncTrigger(reason?: string): Promise<void> {
 
 export async function usageSyncSetEnabled(enabled: boolean): Promise<void> {
   await invoke("usage_sync_set_enabled", { enabled });
+}
+
+export async function usageSyncSetMode(mode: "rows" | "summary"): Promise<void> {
+  await invoke("usage_sync_set_mode", { mode });
 }
 
 export async function usageSyncStatus(): Promise<AutoSyncStatus> {

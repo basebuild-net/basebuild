@@ -3,6 +3,7 @@ import {
   listenUsageSyncStatus,
   usageSyncProjectedUsage,
   usageSyncSetEnabled,
+  usageSyncSetMode,
   usageSyncStatus,
   usageSyncTrigger,
   type AutoSyncStatus,
@@ -20,6 +21,7 @@ export type UsageSyncState = {
   fetchProjected: () => Promise<void>;
   triggerSync: (reason?: string) => Promise<void>;
   setEnabled: (enabled: boolean) => Promise<void>;
+  setMode: (mode: "rows" | "summary") => Promise<void>;
 };
 
 export function useUsageSync(signedIn: boolean): UsageSyncState {
@@ -71,6 +73,19 @@ export function useUsageSync(signedIn: boolean): UsageSyncState {
     [refresh],
   );
 
+  const setMode = useCallback(
+    async (mode: "rows" | "summary") => {
+      setError(null);
+      try {
+        await usageSyncSetMode(mode);
+        await refresh();
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [refresh],
+  );
+
   useEffect(() => {
     void refresh();
     if (signedIn) void fetchProjected();
@@ -100,5 +115,6 @@ export function useUsageSync(signedIn: boolean): UsageSyncState {
     fetchProjected,
     triggerSync,
     setEnabled,
+    setMode,
   };
 }

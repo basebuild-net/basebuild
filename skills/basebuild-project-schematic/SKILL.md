@@ -116,6 +116,26 @@ template order. For each section:
 
 Assemble the document, show it in full, write only after approval.
 
+### Save progress incrementally (never lose answers)
+
+The interview is long. Persist progress so cancelling mid-way never discards
+answered sections. Work against a **draft** file, separate from the final
+approved schematic:
+
+- Draft path: `.basebuild/project-schematic.draft.md`.
+- After each section is answered/confirmed, rewrite the draft: every section
+  completed so far, in template order, under a first-line marker
+  `<!-- DRAFT: schematic in progress — resume by re-running the wizard -->`.
+  This is the one exception to "write only after approval": a clearly-marked
+  draft is scratch state, not the steering document.
+- On final approval, write the real `.basebuild/project-schematic.md` (the full
+  document, as below) and delete the draft.
+
+**Resume**: at the start of Create mode, check for the draft. If it exists,
+read it, show which sections are already filled, and offer (via `ask_user`) to
+resume from the first unanswered section or start over. Never silently
+overwrite a draft.
+
 ## Update mode
 
 1. Read the current schematic.
@@ -181,17 +201,25 @@ questions:
 
 - **Wizard section confirmations**: in Create mode, after prefilling each
   section, call `ask_user` with a `confirm` question (accept / edit / skip)
-  before moving to the next section.
+  before moving to the next section. **Always put the prefilled/proposed
+  section content in the question's `detail` field** so the user can review the
+  exact text in the card before confirming — never ask "does this look good?"
+  without showing what "this" is.
 - **Re-align approvals**: in Re-align mode, for each drifted section, call
   `ask_user` with a `confirm` question to apply the proposed replacement text
-  or skip it.
+  or skip it — put the proposed replacement in `detail` so it is reviewable.
 - **Enhance approval**: in Enhance mode, present the before/after diff via
-  `ask_user` with a `confirm` question before applying.
+  `ask_user` with a `confirm` question before applying — put the diff (or the
+  rewritten text) in `detail`.
 
 When `ask_user` is NOT available (CLI-only sessions, no native loop), fall back
 to prose questions and wait for the user's typed response. The skill works
 identically either way — `ask_user` is a UX enhancement, not a dependency.
 
 Each `ask_user` question needs: `id`, `prompt`, `kind` (options|multi|confirm|
-text), `options` (for non-text kinds), `recommended` (optional index), and
-`allowFreeText` (optional, defaults false). Answers come back keyed by `id`.
+text), `options` (for non-text kinds), `recommended` (optional index),
+`allowFreeText` (optional), and `detail` (optional read-only preview/context
+shown in the card — use it to show prefilled content, a diff, or the field the
+user is confirming). The user can always type a custom answer for any
+question, so an answer may carry both a selected option and free text. Answers
+come back keyed by question `id`.

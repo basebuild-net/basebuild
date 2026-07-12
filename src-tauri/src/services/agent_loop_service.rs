@@ -760,6 +760,7 @@ fn execute_ask_user(app: &AppHandle, session_id: &str, call: &ToolCallRequest) -
             .unwrap_or_default();
         let recommended = q.get("recommended").and_then(Value::as_i64).map(|i| i as usize);
         let allow_free_text = q.get("allowFreeText").and_then(Value::as_bool).unwrap_or(false);
+        let detail = q.get("detail").and_then(Value::as_str).map(str::to_string);
         parsed.push(crate::models::interaction::Question {
             id,
             prompt,
@@ -767,6 +768,7 @@ fn execute_ask_user(app: &AppHandle, session_id: &str, call: &ToolCallRequest) -
             options,
             recommended,
             allow_free_text,
+            detail,
         });
     }
     // Persist the pending interaction.

@@ -1187,9 +1187,16 @@ a { color: inherit; text-decoration: none; }
 .question-card-answer { font-size: 11px; font-family: var(--bb-mono, monospace); }
 .question-card-options { display: flex; flex-wrap: wrap; gap: 4px; }
 .question-card-option { font-size: 11px; }
-.question-card-recommended { border: 1px dashed var(--bb-cta); }
-.question-card-input { width: 100%; padding: 4px 6px; font-size: 11px; border: 1px solid var(--bb-border); border-radius: 0; background: var(--bb-bg); color: var(--bb-text); box-sizing: border-box; }
-.question-card-input:focus { outline: 1px solid var(--bb-cta); border-color: var(--bb-cta); }
+/* Recommended option: star only, no dashed outline (dashed read as "already selected"). */
+.question-card-recommended { font-weight: 700; }
+/* Read-only prefill/context preview so the user can review before confirming. */
+.question-card-detail { margin: 0; padding: 6px 8px; font-size: 10px; line-height: 1.45; font-family: var(--bb-mono, monospace); white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow-y: auto; background: var(--bb-bg); border-left: 2px solid var(--bb-cta); color: var(--bb-text); }
+/* Typed-answer group: label + clearly delineated input box. */
+.question-card-input-wrap { display: flex; flex-direction: column; gap: 3px; }
+.question-card-input-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; color: var(--bb-muted); }
+.question-card-input { width: 100%; padding: 7px 9px; font-size: 12px; border: 2px solid var(--bb-border); border-radius: 0; background: var(--bb-bg); color: var(--bb-text); box-sizing: border-box; }
+.question-card-input::placeholder { color: var(--bb-muted); }
+.question-card-input:focus { outline: none; border-color: var(--bb-cta); box-shadow: inset 0 0 0 1px var(--bb-cta); }
 .question-card-actions { display: flex; gap: 4px; }
 .question-card-error { font-size: 10px; color: var(--bb-danger, #c53030); }
 /* Composer answering banner */

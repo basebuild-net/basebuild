@@ -184,6 +184,19 @@ pub struct UsageSyncSettings {
     pub auto_sync_interval_minutes: i64,
     /// Epoch seconds of the last successful sync, when any.
     pub last_usage_sync_at: Option<i64>,
+    /// Detail level for the app→basebuild.net message sync: "rows" (send
+    /// per-message rows; the server rolls up + owns aggregation) or "summary"
+    /// (roll up client-side, send summaries).
+    #[serde(default = "default_usage_sync_mode")]
+    pub usage_sync_mode: String,
+    /// created_at (epoch seconds) of the last message row synced — the cursor
+    /// for the incremental message sync.
+    #[serde(default)]
+    pub last_message_sync_at: Option<i64>,
+}
+
+fn default_usage_sync_mode() -> String {
+    "rows".to_string()
 }
 
 impl Default for UsageSyncSettings {
@@ -192,6 +205,8 @@ impl Default for UsageSyncSettings {
             auto_sync_usage: true,
             auto_sync_interval_minutes: 60,
             last_usage_sync_at: None,
+            usage_sync_mode: default_usage_sync_mode(),
+            last_message_sync_at: None,
         }
     }
 }

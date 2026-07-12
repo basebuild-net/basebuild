@@ -150,6 +150,9 @@ pub struct AutoSyncStatus {
     /// Last error message, when any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
+    /// Current usage sync detail mode ("rows" | "summary").
+    #[serde(default)]
+    pub sync_mode: String,
 }
 
 /// Result of a manual or triggered sync push.

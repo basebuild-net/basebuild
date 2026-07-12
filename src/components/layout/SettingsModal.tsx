@@ -1121,10 +1121,11 @@ function AccountPanel({ account }: { account: AccountState }) {
 }
 
 function UsageSyncPanel({ signedIn }: { signedIn: boolean }) {
-  const { status, projected, loading, error, lastSyncResult, fetchProjected, triggerSync, setEnabled } =
+  const { status, projected, loading, error, lastSyncResult, fetchProjected, triggerSync, setEnabled, setMode } =
     useUsageSync(signedIn);
   const [toggling, setToggling] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [savingMode, setSavingMode] = useState(false);
 
   if (!signedIn) {
     return (
@@ -1156,6 +1157,15 @@ function UsageSyncPanel({ signedIn }: { signedIn: boolean }) {
     }
   }
 
+  async function changeMode(mode: "rows" | "summary") {
+    setSavingMode(true);
+    try {
+      await setMode(mode);
+    } finally {
+      setSavingMode(false);
+    }
+  }
+
   const liveRows = projected?.live.rows ?? [];
   const snapshotRows = projected?.snapshot.rows ?? [];
 
@@ -1163,8 +1173,9 @@ function UsageSyncPanel({ signedIn }: { signedIn: boolean }) {
     <div className="stack">
       <h3>Usage Sync</h3>
       <p className="text-muted text-sm">
-        Sync your OMP usage to basebuild.net. The app sends only aggregated usage stats
-        (model, provider, tokens, cost, timing) — never prompts, source code, or secrets.
+        Sync your usage to basebuild.net so your dashboard shows what provider, model, and
+        subscription each message used. The app sends only aggregated usage stats (model,
+        provider, subscription tier, tokens, cost, timing) — never prompts, source code, or secrets.
       </p>
 
       <div className="row gap-sm flex-wrap">
@@ -1192,6 +1203,21 @@ function UsageSyncPanel({ signedIn }: { signedIn: boolean }) {
             Last sync: {new Date((status.lastSyncAt ?? 0) * 1000).toLocaleString()}
           </span>
         ) : null}
+      </div>
+
+      <div className="row gap-sm flex-wrap">
+        <label className="text-sm" htmlFor="usage-sync-mode">Detail level</label>
+        <select
+          id="usage-sync-mode"
+          className="input input-sm"
+          value={status?.syncMode === "summary" ? "summary" : "rows"}
+          disabled={savingMode}
+          onChange={(e) => void changeMode(e.target.value === "summary" ? "summary" : "rows")}
+          title="How much usage detail the app sends to basebuild.net"
+        >
+          <option value="rows">Full message rows — server rolls up (recommended)</option>
+          <option value="summary">Client summaries — lighter, less detail</option>
+        </select>
       </div>
 
       {status?.lastError ? (

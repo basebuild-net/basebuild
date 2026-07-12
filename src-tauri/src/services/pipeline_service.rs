@@ -861,7 +861,8 @@ fn ask_user_tool_schema() -> crate::services::provider_client::ToolSchema {
                                 }
                             },
                             "recommended": { "type": "integer", "description": "Index of recommended option." },
-                            "allowFreeText": { "type": "boolean", "description": "Allow free-text even for options kind.", "default": false }
+                            "allowFreeText": { "type": "boolean", "description": "Allow free-text even for options kind.", "default": false },
+                            "detail": { "type": "string", "description": "Optional read-only preview/context shown in the card (e.g. prefilled field content to confirm)." }
                         },
                         "required": ["id", "prompt", "kind"]
                     }
@@ -917,7 +918,8 @@ fn handle_pipeline_ask_user(
             .unwrap_or_default();
         let recommended = q.get("recommended").and_then(serde_json::Value::as_i64).map(|i| i as usize);
         let allow_free_text = q.get("allowFreeText").and_then(serde_json::Value::as_bool).unwrap_or(false);
-        parsed.push(crate::models::interaction::Question { id, prompt, kind, options, recommended, allow_free_text });
+        let detail = q.get("detail").and_then(serde_json::Value::as_str).map(str::to_string);
+        parsed.push(crate::models::interaction::Question { id, prompt, kind, options, recommended, allow_free_text, detail });
     }
     let interaction = crate::services::interaction_service::InteractionService::create(
         session_id,

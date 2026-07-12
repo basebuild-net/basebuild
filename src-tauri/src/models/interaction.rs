@@ -49,6 +49,10 @@ pub struct Question {
     /// Allow free-text input even for `options` kind.
     #[serde(default)]
     pub allow_free_text: bool,
+    /// Optional read-only preview/context shown in the card (e.g. prefilled
+    /// field content the user is being asked to confirm). Not an answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 /// An option in a question.
@@ -166,6 +170,7 @@ mod tests {
             }],
             recommended: Some(0),
             allow_free_text: false,
+            detail: None,
         };
         let json = serde_json::to_string(&q).unwrap();
         assert!(json.contains("\"allowFreeText\":false"));

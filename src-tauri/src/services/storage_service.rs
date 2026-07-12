@@ -17,6 +17,14 @@ impl StorageService {
     }
 
     pub fn connect() -> Result<Connection, String> {
+        // Run schema init/migrations at most once per DB path per process.
+        // The CREATE TABLE / ALTER TABLE probes are idempotent but expensive
+        // (~50 tables + column-migration checks); re-running them on every
+        // connection made boot and chat-load slow. Keyed by path so
+        // test-isolated DBs each initialize exactly once.
+        static INITIALIZED_DBS: std::sync::LazyLock<
+            parking_lot::Mutex<std::collections::HashSet<PathBuf>>,
+        > = std::sync::LazyLock::new(|| parking_lot::Mutex::new(std::collections::HashSet::new()));
         // Test isolation guard: in cfg(test) builds, BASEBUILD_HOME MUST be set
         // to an isolated temp dir. This catches tests that write to the user's
         // real ~/.basebuild/state.db (observed: /test/project-* rows in prod DB).
@@ -29,7 +37,7 @@ impl StorageService {
             );
         }
         let db_path = Self::state_db_path()?;
-        let connection = Connection::open(db_path)
+        let connection = Connection::open(&db_path)
             .map_err(|error| format!("Failed to open Basebuild state database: {error}"))?;
 
         // ── SQLite robustness pragmas ──────────────────────────────────────
@@ -49,7 +57,15 @@ impl StorageService {
             .pragma_update(None, "synchronous", "NORMAL")
             .map_err(|e| format!("Failed to set synchronous mode: {e}"))?;
 
-        Self::initialize(&connection)?;
+        {
+            // Hold the lock across check+init so concurrent first-time connects
+            // block until the schema exists rather than racing a half-built DB.
+            let mut initialized = INITIALIZED_DBS.lock();
+            if !initialized.contains(&db_path) {
+                Self::initialize(&connection)?;
+                initialized.insert(db_path.clone());
+            }
+        }
         Ok(connection)
     }
 
@@ -414,6 +430,9 @@ impl StorageService {
                     cost_total REAL,
                     outcome TEXT NOT NULL,
                     error_class TEXT,
+                    subscription_tier TEXT,
+                    subscription_source TEXT,
+                    plan_name TEXT,
                     created_at INTEGER NOT NULL,
                     FOREIGN KEY (session_id) REFERENCES native_chat_sessions(id) ON DELETE CASCADE
                 );
@@ -715,6 +734,27 @@ impl StorageService {
         if !has_column {
             let _ = connection.execute(
                 "ALTER TABLE recent_projects ADD COLUMN last_active_session_id TEXT",
+                [],
+            );
+        }
+
+        // Migration (usage-message-sync): add per-message subscription columns
+        // to native_request_metrics so each request row carries the resolved
+        // provider plan/tier for the app→basebuild.net usage sync.
+        let has_sub_tier = connection
+            .prepare("SELECT subscription_tier FROM native_request_metrics LIMIT 0")
+            .is_ok();
+        if !has_sub_tier {
+            let _ = connection.execute(
+                "ALTER TABLE native_request_metrics ADD COLUMN subscription_tier TEXT",
+                [],
+            );
+            let _ = connection.execute(
+                "ALTER TABLE native_request_metrics ADD COLUMN subscription_source TEXT",
+                [],
+            );
+            let _ = connection.execute(
+                "ALTER TABLE native_request_metrics ADD COLUMN plan_name TEXT",
                 [],
             );
         }
@@ -1154,6 +1194,7 @@ impl StorageService {
                     auto_sync_usage: auto != 0,
                     auto_sync_interval_minutes: interval,
                     last_usage_sync_at: last,
+                    ..Default::default()
                 };
                 let _ = connection.execute(
                     "INSERT INTO usage_sync_settings (key, value) VALUES ('settings', ?1)",

@@ -289,6 +289,15 @@ pub struct NativeRequestMetric {
     pub outcome: String,
     pub error_class: Option<String>,
     pub created_at: i64,
+    /// Resolved provider subscription/tier at send time (plus|pro|max|free|api|null).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription_tier: Option<String>,
+    /// How the subscription was resolved: declared|provider-api|api-key|unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription_source: Option<String>,
+    /// Optional human-readable plan label (e.g. "ChatGPT Plus").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

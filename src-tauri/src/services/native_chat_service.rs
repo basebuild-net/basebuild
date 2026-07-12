@@ -886,6 +886,7 @@ impl NativeChatService {
                 }
             }
 
+            let subscription = Self::resolve_subscription(&provider_id);
             let metric = NativeRequestMetric {
                 id: gen_id("nreq"),
                 session_id: request.session_id.clone(),
@@ -905,6 +906,9 @@ impl NativeChatService {
                 cost_total: Some(0.0),
                 outcome: if run_result.cancelled { "cancelled" } else { "success" }.to_string(),
                 error_class: None,
+                subscription_tier: subscription.0.clone(),
+                subscription_source: subscription.1.clone(),
+                plan_name: subscription.2.clone(),
                 created_at: now_seconds(),
             };
             Self::insert_metric(&metric)?;
@@ -937,6 +941,7 @@ impl NativeChatService {
             Ok(r) => r,
             Err(e) => {
                 let completed_at = now_millis();
+                let subscription = Self::resolve_subscription(&provider_id);
                 let metric = NativeRequestMetric {
                     id: gen_id("nreq"),
                     session_id: request.session_id.clone(),
@@ -956,6 +961,9 @@ impl NativeChatService {
                     cost_total: Some(0.0),
                     outcome: "error".to_string(),
                     error_class: Some("provider_error".to_string()),
+                    subscription_tier: subscription.0.clone(),
+                    subscription_source: subscription.1.clone(),
+                    plan_name: subscription.2.clone(),
                     created_at: now_seconds(),
                 };
                 let _ = Self::insert_metric(&metric);
@@ -981,6 +989,7 @@ impl NativeChatService {
         let tokens_per_second =
             Some((output_tokens as f64) / ((duration_ms as f64) / 1000.0).max(0.001));
 
+        let subscription = Self::resolve_subscription(&provider_id);
         let metric = NativeRequestMetric {
             id: gen_id("nreq"),
             session_id: request.session_id.clone(),
@@ -1000,6 +1009,9 @@ impl NativeChatService {
             cost_total: Some(0.0),
             outcome: "success".to_string(),
             error_class: None,
+            subscription_tier: subscription.0.clone(),
+            subscription_source: subscription.1.clone(),
+            plan_name: subscription.2.clone(),
             created_at: now_seconds(),
         };
         Self::insert_metric(&metric)?;
@@ -1226,11 +1238,29 @@ impl NativeChatService {
         let mut stmt = conn
             .prepare(
                 "SELECT id, session_id, provider_id, model_id, effort_level, started_at, completed_at, duration_ms, ttft_ms, ttlt_ms,
-                        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at
+                        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at,
+                        subscription_tier, subscription_source, plan_name
                  FROM native_request_metrics ORDER BY created_at DESC LIMIT ?1",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt.query_map(params![limit], map_metric).map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    /// Metrics created strictly after `since_created_at` (epoch seconds),
+    /// oldest-first, for the incremental app→basebuild.net message sync.
+    pub fn metrics_since(since_created_at: i64, limit: u32) -> DbResult<Vec<NativeRequestMetric>> {
+        let limit = i64::from(limit.clamp(1, 5000));
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, session_id, provider_id, model_id, effort_level, started_at, completed_at, duration_ms, ttft_ms, ttlt_ms,
+                        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at,
+                        subscription_tier, subscription_source, plan_name
+                 FROM native_request_metrics WHERE created_at > ?1 ORDER BY created_at ASC LIMIT ?2",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt.query_map(params![since_created_at, limit], map_metric).map_err(|e| e.to_string())?;
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
     }
 
@@ -1531,13 +1561,51 @@ impl NativeChatService {
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Failed to collect tool events: {e}"))
     }
+    /// Resolve the provider's subscription/tier for per-message usage sync.
+    /// Reads the declared per-provider plan map from settings
+    /// (`usage.provider_plans` in app_defaults): a JSON object keyed by
+    /// provider id → `{ "tier": "...", "planName": "..." }`. Returns
+    /// `(tier, source, plan_name)`; falls back to `(None, "unknown", None)`
+    /// when nothing is declared for the provider.
+    fn resolve_subscription(provider_id: &str) -> (Option<String>, Option<String>, Option<String>) {
+        if let Ok(conn) = StorageService::connect() {
+            let raw: Option<String> = conn
+                .query_row(
+                    "SELECT value FROM app_defaults WHERE key = 'usage.provider_plans'",
+                    [],
+                    |r| r.get(0),
+                )
+                .optional()
+                .ok()
+                .flatten();
+            if let Some(raw) = raw {
+                if let Ok(map) = serde_json::from_str::<serde_json::Value>(&raw) {
+                    if let Some(entry) = map.get(provider_id) {
+                        let tier = entry
+                            .get("tier")
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.is_empty())
+                            .map(str::to_string);
+                        if tier.is_some() {
+                            let plan_name =
+                                entry.get("planName").and_then(|v| v.as_str()).map(str::to_string);
+                            return (tier, Some("declared".to_string()), plan_name);
+                        }
+                    }
+                }
+            }
+        }
+        (None, Some("unknown".to_string()), None)
+    }
+
     fn insert_metric(metric: &NativeRequestMetric) -> DbResult<()> {
         let conn = StorageService::connect()?;
         conn.execute(
             "INSERT INTO native_request_metrics (
                 id, session_id, provider_id, model_id, effort_level, started_at, completed_at, duration_ms, ttft_ms, ttlt_ms,
-                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at,
+                subscription_tier, subscription_source, plan_name
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
                 metric.id,
                 metric.session_id,
@@ -1558,6 +1626,9 @@ impl NativeChatService {
                 metric.outcome,
                 metric.error_class,
                 metric.created_at,
+                metric.subscription_tier,
+                metric.subscription_source,
+                metric.plan_name,
             ],
         )
         .map_err(|e| format!("Failed to save native request metrics: {e}"))?;
@@ -1699,6 +1770,9 @@ fn map_metric(row: &rusqlite::Row<'_>) -> rusqlite::Result<NativeRequestMetric> 
         outcome: row.get(16)?,
         error_class: row.get(17)?,
         created_at: row.get(18)?,
+        subscription_tier: row.get(19)?,
+        subscription_source: row.get(20)?,
+        plan_name: row.get(21)?,
     })
 }
 
