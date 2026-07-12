@@ -1868,7 +1868,7 @@ fn omp_oauth_token(omp_provider: &str) -> Option<String> {
     Some(token)
 }
 
-fn omp_agent_dir() -> &'static std::path::Path {
+pub(crate) fn omp_agent_dir() -> &'static std::path::Path {
     &OMP_AGENT_DIR
 }
 

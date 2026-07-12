@@ -110,6 +110,7 @@ export type DetectedProviderPlan = {
   confidence: string;
   source: string;
   needsDeclaration: boolean;
+  note: string | null;
 };
 
 export type ProviderPlanOption = {

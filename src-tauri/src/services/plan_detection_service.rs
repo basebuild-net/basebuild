@@ -21,12 +21,12 @@ use std::collections::BTreeMap;
 use base64::Engine;
 use serde_json::{json, Value};
 
-use crate::models::native_chat::NativeProviderCredential;
 use crate::models::plan_detection::{DetectedProviderPlan, ProviderPlanOption};
 use crate::services::auth_service::AuthService;
-use crate::services::native_chat_service::NativeChatService;
+use crate::services::native_chat_service::{omp_agent_dir, NativeChatService};
 use crate::services::omp_service::OmpService;
 use crate::services::sync_service::call_mcp_tool;
+use rusqlite::{Connection, OpenFlags};
 
 pub struct PlanDetectionService;
 
@@ -53,6 +53,7 @@ impl PlanDetectionService {
                         source: "native".to_string(),
                         needs_declaration: false,
                         detected_plan_type: Some(plan_type),
+                        note: None,
                     },
                 );
             }
@@ -69,6 +70,26 @@ impl PlanDetectionService {
             }
         }
 
+        // 2b. Volume inference — when a provider publishes no plan API, a lower
+        // plan's hard rate cap gives a lower bound: if the observed peak hourly
+        // request rate exceeds that cap, the user cannot be on the lower plan.
+        // Surfaced as `inferred` for the user to confirm — never auto-declared,
+        // never a false positive (peak ≤ cap stays undecided).
+        for baseline in VOLUME_BASELINES {
+            let documented = by_provider
+                .get(baseline.website_provider)
+                .map(|e| !e.needs_declaration)
+                .unwrap_or(false);
+            if documented {
+                continue;
+            }
+            if let Some(peak) = peak_hourly_requests(baseline.stats_provider) {
+                if let Some(entry) = infer_from_volume(baseline, peak) {
+                    by_provider.insert(baseline.website_provider.to_string(), entry);
+                }
+            }
+        }
+
         // 3. Connected providers with no signal → needs_declaration.
         for cred in &credentials {
             by_provider
@@ -81,6 +102,7 @@ impl PlanDetectionService {
                     source: "none".to_string(),
                     needs_declaration: true,
                     detected_plan_type: None,
+                    note: None,
                 });
         }
 
@@ -123,6 +145,7 @@ impl PlanDetectionService {
                 source: if documented { "omp" } else { "none" }.to_string(),
                 needs_declaration: !documented,
                 detected_plan_type,
+                note: None,
             };
             match by_provider.get(&provider) {
                 Some(existing) if !existing.needs_declaration => {}
@@ -209,6 +232,77 @@ fn map_omp_provider(omp_id: &str) -> String {
         "google-gemini-cli" => "google".to_string(),
         other => other.to_string(),
     }
+}
+
+/// A provider's lower-plan hard rate cap, for volume-based plan inference.
+struct VolumeBaseline {
+    /// basebuild.net provider slug (for the DetectedProviderPlan + declare).
+    website_provider: &'static str,
+    /// Provider id as stored in OMP's `stats.db` messages table.
+    stats_provider: &'static str,
+    /// The lower plan's hard requests-per-hour cap.
+    lower_plan_hourly_cap: u64,
+    lower_plan_name: &'static str,
+    upper_plan_name: &'static str,
+}
+
+/// Known lower-plan rate caps. Umans Code Pro caps at 500 req/hr; sustaining a
+/// peak above it means the account must be on Code Max (the higher plan).
+const VOLUME_BASELINES: &[VolumeBaseline] = &[VolumeBaseline {
+    website_provider: "umans-ai",
+    stats_provider: "umans",
+    lower_plan_hourly_cap: 500,
+    lower_plan_name: "Code Pro",
+    upper_plan_name: "Code Max",
+}];
+
+/// Peak requests in any single clock-hour for a provider, read from OMP's
+/// `stats.db` messages table (read-only). None when the db or provider is
+/// absent. This is the signal for volume-based plan inference.
+fn peak_hourly_requests(stats_provider: &str) -> Option<u64> {
+    let path = omp_agent_dir().parent()?.join("stats.db");
+    if !path.exists() {
+        return None;
+    }
+    let conn = Connection::open_with_flags(
+        &path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .ok()?;
+    let peak: Option<i64> = conn
+        .query_row(
+            "SELECT MAX(cnt) FROM (
+               SELECT COUNT(*) AS cnt FROM messages
+               WHERE provider = ?1
+               GROUP BY CAST(timestamp / 3600000 AS INTEGER)
+             )",
+            [stats_provider],
+            |r| r.get(0),
+        )
+        .ok()?;
+    peak.map(|p| p.max(0) as u64)
+}
+
+/// Build a volume-inferred plan when the observed peak exceeds the baseline's
+/// lower-plan cap. Returns None when peak ≤ cap (undecided — no false positive).
+/// Pure: the inference rule, isolated for testing.
+fn infer_from_volume(baseline: &VolumeBaseline, peak: u64) -> Option<DetectedProviderPlan> {
+    if peak <= baseline.lower_plan_hourly_cap {
+        return None;
+    }
+    Some(DetectedProviderPlan {
+        provider: baseline.website_provider.to_string(),
+        omp_provider: baseline.stats_provider.to_string(),
+        account_email: None,
+        detected_plan_type: Some(baseline.upper_plan_name.to_string()),
+        confidence: "inferred".to_string(),
+        source: "volume".to_string(),
+        needs_declaration: true,
+        note: Some(format!(
+            "Peak {peak} req/hr exceeds {}'s {} req/hr cap → likely {}. Confirm your plan.",
+            baseline.lower_plan_name, baseline.lower_plan_hourly_cap, baseline.upper_plan_name,
+        )),
+    })
 }
 
 /// Decode a JWT payload (base64url, unverified — we only read our own claims).
@@ -333,5 +427,31 @@ mod tests {
         assert_eq!(opts.len(), 1);
         assert_eq!(opts[0].id, "p1");
         assert_eq!(opts[0].label, "Pro $20/month");
+    }
+
+    #[test]
+    fn volume_inference_fires_above_cap() {
+        let baseline = &VOLUME_BASELINES[0];
+        let out = infer_from_volume(baseline, baseline.lower_plan_hourly_cap + 1).unwrap();
+        assert_eq!(out.provider, "umans-ai");
+        assert_eq!(out.confidence, "inferred");
+        assert_eq!(out.source, "volume");
+        assert_eq!(out.detected_plan_type.as_deref(), Some("Code Max"));
+        assert!(out.needs_declaration);
+        assert!(out.note.is_some());
+    }
+
+    #[test]
+    fn volume_inference_none_at_or_below_cap() {
+        let baseline = &VOLUME_BASELINES[0];
+        assert!(infer_from_volume(baseline, baseline.lower_plan_hourly_cap).is_none());
+        assert!(infer_from_volume(baseline, 0).is_none());
+    }
+
+    #[test]
+    fn umans_baseline_is_configured() {
+        let b = VOLUME_BASELINES.iter().find(|b| b.website_provider == "umans-ai").unwrap();
+        assert_eq!(b.stats_provider, "umans");
+        assert_eq!(b.lower_plan_hourly_cap, 500);
     }
 }

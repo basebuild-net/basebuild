@@ -1323,6 +1323,17 @@ function ProviderPlansPanel({ gatesPass }: { gatesPass: boolean }) {
         byProvider.set(opt.provider, arr);
       }
       setCatalog(byProvider);
+      // Pre-select volume-inferred plans (match the inferred plan name to a
+      // catalog option) so the user can confirm the prediction with one click.
+      const seeded = new Map<string, string>();
+      for (const dp of d) {
+        if (!dp.needsDeclaration || !dp.detectedPlanType) continue;
+        const match = (byProvider.get(dp.provider) ?? []).find(
+          (o) => o.name.toLowerCase() === dp.detectedPlanType!.toLowerCase(),
+        );
+        if (match) seeded.set(dp.provider, match.id);
+      }
+      if (seeded.size > 0) setSelections(seeded);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -1386,29 +1397,37 @@ function ProviderPlansPanel({ gatesPass }: { gatesPass: boolean }) {
       {detected.map((d) => {
         const options = catalog.get(d.provider) ?? [];
         return (
-          <div key={d.provider} className="usage-plan-row row gap-sm flex-wrap" title={`${d.provider}: ${d.source}`}>
-            <span className="text-sm usage-plan-provider">{d.provider}</span>
-            {d.needsDeclaration ? (
-              <select
-                className="input input-sm"
-                value={selections.get(d.provider) ?? ""}
-                disabled={saving || options.length === 0}
-                onChange={(e) => pickPlan(d.provider, e.target.value)}
-                title={`Declare your ${d.provider} plan`}
-              >
-                <option value="">
-                  {options.length === 0 ? "No catalog plans" : "Select your plan…"}
-                </option>
-                {options.map((o) => (
-                  <option key={o.id} value={o.id}>{o.label}</option>
-                ))}
-              </select>
-            ) : (
-              <span className="text-sm" title={`Detected via ${d.source}`}>
-                ✓ {d.detectedPlanType ?? "detected"}
-                <span className="text-muted"> · {d.source === "native" ? "native credential" : d.source}</span>
-              </span>
-            )}
+          <div key={d.provider} className="stack" style={{ gap: 2 }}>
+            <div className="usage-plan-row row gap-sm flex-wrap" title={`${d.provider}: ${d.source}`}>
+              <span className="text-sm usage-plan-provider">{d.provider}</span>
+              {d.needsDeclaration ? (
+                <select
+                  className="input input-sm"
+                  value={selections.get(d.provider) ?? ""}
+                  disabled={saving || options.length === 0}
+                  onChange={(e) => pickPlan(d.provider, e.target.value)}
+                  title={`Declare your ${d.provider} plan`}
+                >
+                  <option value="">
+                    {options.length === 0 ? "No catalog plans" : "Select your plan…"}
+                  </option>
+                  {options.map((o) => (
+                    <option key={o.id} value={o.id}>{o.label}</option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-sm" title={`Detected via ${d.source}`}>
+                  ✓ {d.detectedPlanType ?? "detected"}
+                  <span className="text-muted"> · {d.source === "native" ? "native credential" : d.source}</span>
+                </span>
+              )}
+              {d.confidence === "inferred" ? (
+                <span className="text-muted text-sm" title="Predicted from usage volume, not provider-confirmed">
+                  inferred
+                </span>
+              ) : null}
+            </div>
+            {d.note ? <p className="text-muted text-sm">{d.note}</p> : null}
           </div>
         );
       })}
