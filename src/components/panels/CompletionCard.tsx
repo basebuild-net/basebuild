@@ -109,7 +109,7 @@ export function CompletionCard({
             ) : null}
             {finishOutcome.prUrl ? (
               <span className="completion-card-outcome-row">
-                <GitPullRequest size={10} /> <a href={finishOutcome.prUrl} target="_blank" rel="noopener noreferrer">{finishOutcome.prUrl}</a>
+                <GitPullRequest size={10} /> <a href={finishOutcome.prUrl} target="_blank" rel="noopener noreferrer" title={`Open pull request: ${finishOutcome.prUrl}`}>{finishOutcome.prUrl}</a>
               </span>
             ) : null}
             {finishOutcome.mergeReady ? (

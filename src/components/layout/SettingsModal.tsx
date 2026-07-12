@@ -1397,7 +1397,7 @@ function ProviderPlansPanel({ gatesPass }: { gatesPass: boolean }) {
       {detected.map((d) => {
         const options = catalog.get(d.provider) ?? [];
         return (
-          <div key={d.provider} className="stack" style={{ gap: 2 }}>
+          <div key={d.provider} className="stack gap-xs">
             <div className="usage-plan-row row gap-sm flex-wrap" title={`${d.provider}: ${d.source}`}>
               <span className="text-sm usage-plan-provider">{d.provider}</span>
               {d.needsDeclaration ? (

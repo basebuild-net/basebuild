@@ -115,6 +115,38 @@ function checkBorderRadius() {
   }
 }
 
+/**
+ * Determine whether a position on a line falls inside a comment.
+ * Handles line comments (//) and block comments (/* *​/).
+ * `inBlockComment` is the state carried from previous lines.
+ */
+function isInsideComment(line, index, inBlockComment) {
+  if (inBlockComment) {
+    // If the block comment closes before the tag, the tag is not in a comment.
+    const closeIdx = line.indexOf("*/");
+    return closeIdx === -1 || closeIdx >= index;
+  }
+  // Check for a line comment (//) before the tag position.
+  const lineCommentIdx = line.indexOf("//");
+  return lineCommentIdx !== -1 && lineCommentIdx < index;
+}
+
+/**
+ * Update the block-comment state after processing a line.
+ * Toggles on /* and off on *​/ , handling multiple pairs per line.
+ */
+function updateBlockCommentState(line, inBlockComment) {
+  let state = inBlockComment;
+  for (let i = 0; i < line.length; i++) {
+    if (state) {
+      if (line[i] === "*" && line[i + 1] === "/") { state = false; i++; }
+    } else {
+      if (line[i] === "/" && line[i + 1] === "*") { state = true; i++; }
+      else if (line[i] === "/" && line[i + 1] === "/") { break; } // rest is a line comment
+    }
+  }
+  return state;
+}
 /** 4. Check interactive elements without title= attribute. */
 function checkTooltips() {
   console.log("Checking for interactive elements without title=...");
@@ -127,13 +159,18 @@ function checkTooltips() {
       } else if (extname(entry) === ".tsx") {
         const content = readFileSync(full, "utf8");
         const lines = content.split("\n");
+        let inBlockComment = false;
 
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i];
           // Check <button, <a, <select, <input tags for missing title=
           // Only check opening tags — skip closing tags and self-closing refs
           const tagMatch = line.match(/<(button|a|select|input)\b[^>]*>/g);
-          if (!tagMatch) continue;
+          if (!tagMatch) {
+            // Still need to track block comment state even on non-matching lines.
+            inBlockComment = updateBlockCommentState(line, inBlockComment);
+            continue;
+          }
 
           for (const tag of tagMatch) {
             // Skip if it's a closing tag
@@ -144,11 +181,16 @@ function checkTooltips() {
             if (/type=["']hidden["']/.test(tag)) continue;
             // Skip inputs inside test-support
             if (full.includes("test-support")) continue;
+            // Skip tags inside comments (line comments or block comments).
+            // Prevents false positives like `/// replaces native <select>`.
+            const tagIndex = line.indexOf(tag);
+            if (isInsideComment(line, tagIndex, inBlockComment)) continue;
             // Skip if it's a self-closing tag with no interactive behavior (like <input type="checkbox" />)
             // Actually, checkboxes are interactive — but they often have title on the <label>
             // For now, flag all without title= or aria-label=
             fail(full, i + 1, `Interactive <${tag.match(/<(\w+)/)[1]}> without title= or aria-label=`);
           }
+          inBlockComment = updateBlockCommentState(line, inBlockComment);
         }
       }
     }

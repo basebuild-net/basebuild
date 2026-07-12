@@ -550,6 +550,7 @@ a { color: inherit; text-decoration: none; }
 .row-between { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .gap-sm { gap: 4px; }
+.gap-xs { gap: 2px; }
 .pad { padding: 6px 8px; }
 .text-muted { color: var(--bb-muted); }
 .text-sm { font-size: 11px; }
