@@ -45,6 +45,14 @@ pub struct ProviderPlanOption {
     pub tier: Option<String>,
     pub price: Option<f64>,
     pub period: Option<String>,
-    /// Human-readable label (e.g. `Pro $20/month`).
+    /// Whether the plan is unmetered (no request cap).
+    pub unmetered: bool,
+    /// Period-aware request caps used for volume-based plan estimation.
+    pub session_request_cap: Option<i64>,
+    pub weekly_request_cap: Option<i64>,
+    pub monthly_request_cap: Option<i64>,
+    pub daily_request_cap: Option<i64>,
+    /// Catalog-declared confidence in the limit data (e.g. `documented`).
+    pub usage_limit_confidence: Option<String>,
     pub label: String,
 }

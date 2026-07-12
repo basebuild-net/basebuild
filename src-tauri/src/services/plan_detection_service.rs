@@ -70,6 +70,32 @@ impl PlanDetectionService {
             }
         }
 
+        // 2a. Catalog-driven volume estimation (predictive) — for any provider
+        // whose catalog plans document per-window request caps, estimate the
+        // plan from observed session/weekly/monthly request volume. Best-effort:
+        // needs the catalog (list_plans) + local stats.db. Lower-bound rule: if
+        // observed exceeds a plan's cap the user can't be on it → step up.
+        if let Ok(catalog) = Self::list_plans(None) {
+            let mut plans_by_provider: BTreeMap<String, Vec<ProviderPlanOption>> = BTreeMap::new();
+            for opt in catalog {
+                plans_by_provider.entry(opt.provider.clone()).or_default().push(opt);
+            }
+            for (provider, plans) in &plans_by_provider {
+                let documented = by_provider
+                    .get(provider)
+                    .map(|e| !e.needs_declaration)
+                    .unwrap_or(false);
+                if documented {
+                    continue;
+                }
+                let stats_provider = website_to_stats_provider(provider);
+                let observed = observed_usage(&stats_provider);
+                if let Some(entry) = infer_plan_from_caps(provider, &stats_provider, plans, &observed) {
+                    by_provider.insert(provider.clone(), entry);
+                }
+            }
+        }
+
         // 2b. Volume inference — when a provider publishes no plan API, a lower
         // plan's hard rate cap gives a lower bound: if the observed peak hourly
         // request rate exceeds that cap, the user cannot be on the lower plan.
@@ -189,6 +215,15 @@ impl PlanDetectionService {
                             tier: p.get("tier").and_then(Value::as_str).map(str::to_string),
                             price: p.get("price").and_then(Value::as_f64),
                             period: p.get("period").and_then(Value::as_str).map(str::to_string),
+                            unmetered: p.get("unmetered").and_then(Value::as_bool).unwrap_or(false),
+                            session_request_cap: p.get("sessionRequestCap").and_then(Value::as_i64),
+                            weekly_request_cap: p.get("weeklyRequestCap").and_then(Value::as_i64),
+                            monthly_request_cap: p.get("monthlyRequestCap").and_then(Value::as_i64),
+                            daily_request_cap: p.get("dailyRequestCap").and_then(Value::as_i64),
+                            usage_limit_confidence: p
+                                .get("usageLimitConfidence")
+                                .and_then(Value::as_str)
+                                .map(str::to_string),
                             label: p
                                 .get("label")
                                 .and_then(Value::as_str)
@@ -255,32 +290,157 @@ const VOLUME_BASELINES: &[VolumeBaseline] = &[VolumeBaseline {
     lower_plan_name: "Code Pro",
     upper_plan_name: "Code Max",
 }];
+/// Window lengths (ms) for volume estimation.
+const WINDOW_HOUR_MS: i64 = 3_600_000;
+const WINDOW_5H_MS: i64 = 18_000_000;
+const WINDOW_WEEK_MS: i64 = 604_800_000;
+const WINDOW_MONTH_MS: i64 = 2_592_000_000; // 30 days
 
-/// Peak requests in any single clock-hour for a provider, read from OMP's
-/// `stats.db` messages table (read-only). None when the db or provider is
-/// absent. This is the signal for volume-based plan inference.
-fn peak_hourly_requests(stats_provider: &str) -> Option<u64> {
+/// Observed peak request counts per fixed window for a provider. Fixed buckets
+/// are a conservative proxy for a rolling peak (bucket peak ≤ rolling peak), so
+/// a "observed > cap" ruling is always sound (never a false positive).
+#[derive(Debug, Clone, Default)]
+struct ObservedUsage {
+    peak_hour: u64,
+    peak_session_5h: u64,
+    peak_week: u64,
+    peak_month: u64,
+}
+
+/// Open OMP's `stats.db` (read-only), sibling of the agent dir.
+fn open_stats_db() -> Option<Connection> {
     let path = omp_agent_dir().parent()?.join("stats.db");
     if !path.exists() {
         return None;
     }
-    let conn = Connection::open_with_flags(
+    Connection::open_with_flags(
         &path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
-    .ok()?;
+    .ok()
+}
+
+/// Peak request count in any fixed `window_ms` bucket for a provider, from
+/// OMP's stats.db messages table. None when the db/provider is absent.
+fn peak_requests_in_window(conn: &Connection, stats_provider: &str, window_ms: i64) -> Option<u64> {
     let peak: Option<i64> = conn
         .query_row(
             "SELECT MAX(cnt) FROM (
                SELECT COUNT(*) AS cnt FROM messages
                WHERE provider = ?1
-               GROUP BY CAST(timestamp / 3600000 AS INTEGER)
+               GROUP BY CAST(timestamp / ?2 AS INTEGER)
              )",
-            [stats_provider],
+            rusqlite::params![stats_provider, window_ms],
             |r| r.get(0),
         )
         .ok()?;
     peak.map(|p| p.max(0) as u64)
+}
+
+/// Compute a provider's observed peak request volume across all windows.
+fn observed_usage(stats_provider: &str) -> ObservedUsage {
+    let Some(conn) = open_stats_db() else {
+        return ObservedUsage::default();
+    };
+    ObservedUsage {
+        peak_hour: peak_requests_in_window(&conn, stats_provider, WINDOW_HOUR_MS).unwrap_or(0),
+        peak_session_5h: peak_requests_in_window(&conn, stats_provider, WINDOW_5H_MS).unwrap_or(0),
+        peak_week: peak_requests_in_window(&conn, stats_provider, WINDOW_WEEK_MS).unwrap_or(0),
+        peak_month: peak_requests_in_window(&conn, stats_provider, WINDOW_MONTH_MS).unwrap_or(0),
+    }
+}
+
+/// Umans-baseline compatibility: peak requests in any single clock-hour.
+fn peak_hourly_requests(stats_provider: &str) -> Option<u64> {
+    let conn = open_stats_db()?;
+    peak_requests_in_window(&conn, stats_provider, WINDOW_HOUR_MS)
+}
+
+/// Map a basebuild.net provider slug to the id used in OMP's stats.db messages.
+fn website_to_stats_provider(website: &str) -> String {
+    match website {
+        "openai" => "openai-codex".to_string(),
+        "google" => "google-gemini-cli".to_string(),
+        "umans-ai" => "umans".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Estimate a plan from observed request volume vs the catalog's per-window
+/// request caps. Rules out any plan whose defined cap is below the observed
+/// peak for that window, then picks the cheapest remaining plan. Returns None
+/// when the evidence doesn't rule out the cheapest plan (ambiguous — no guess)
+/// or no plan declares a usable cap. Predictive: `confidence = "inferred"`.
+fn infer_plan_from_caps(
+    provider: &str,
+    stats_provider: &str,
+    plans: &[ProviderPlanOption],
+    observed: &ObservedUsage,
+) -> Option<DetectedProviderPlan> {
+    // Need ≥2 priced plans and at least one declared cap to distinguish tiers.
+    let mut priced: Vec<&ProviderPlanOption> =
+        plans.iter().filter(|p| p.price.is_some()).collect();
+    if priced.len() < 2 {
+        return None;
+    }
+    let has_caps = priced.iter().any(|p| {
+        p.session_request_cap.is_some()
+            || p.weekly_request_cap.is_some()
+            || p.monthly_request_cap.is_some()
+            || p.daily_request_cap.is_some()
+    });
+    if !has_caps {
+        return None;
+    }
+    priced.sort_by(|a, b| {
+        a.price
+            .unwrap_or(f64::MAX)
+            .partial_cmp(&b.price.unwrap_or(f64::MAX))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    // A plan is ruled out if any of its declared caps is below the observed
+    // peak for that window. Unmetered plans are never ruled out.
+    let ruled_out = |p: &ProviderPlanOption| -> Option<&'static str> {
+        if p.unmetered {
+            return None;
+        }
+        if p.session_request_cap.is_some_and(|c| observed.peak_session_5h > c as u64) {
+            return Some("5h session");
+        }
+        if p.weekly_request_cap.is_some_and(|c| observed.peak_week > c as u64) {
+            return Some("weekly");
+        }
+        if p.monthly_request_cap.is_some_and(|c| observed.peak_month > c as u64) {
+            return Some("monthly");
+        }
+        None
+    };
+    let cheapest = priced[0];
+    let cheapest_exceeded = ruled_out(cheapest)?; // None ⇒ ambiguous ⇒ no guess
+    // Inferred = cheapest plan NOT ruled out; if all are, the priciest.
+    let inferred = priced
+        .iter()
+        .find(|p| ruled_out(p).is_none())
+        .copied()
+        .unwrap_or_else(|| *priced.last().unwrap());
+    let conf = inferred
+        .usage_limit_confidence
+        .clone()
+        .unwrap_or_else(|| "inferred".to_string());
+    let note = format!(
+        "Observed usage exceeds {}'s {} request cap → likely {}. Estimate from volume; confirm your plan.",
+        cheapest.name, cheapest_exceeded, inferred.name,
+    );
+    Some(DetectedProviderPlan {
+        provider: provider.to_string(),
+        omp_provider: stats_provider.to_string(),
+        account_email: None,
+        detected_plan_type: Some(inferred.name.clone()),
+        confidence: if conf == "documented" { "inferred".to_string() } else { conf },
+        source: "volume".to_string(),
+        needs_declaration: true,
+        note: Some(note),
+    })
 }
 
 /// Build a volume-inferred plan when the observed peak exceeds the baseline's
@@ -453,5 +613,75 @@ mod tests {
         let b = VOLUME_BASELINES.iter().find(|b| b.website_provider == "umans-ai").unwrap();
         assert_eq!(b.stats_provider, "umans");
         assert_eq!(b.lower_plan_hourly_cap, 500);
+    }
+
+    fn plan(name: &str, price: f64, session_cap: Option<i64>, unmetered: bool) -> ProviderPlanOption {
+        ProviderPlanOption {
+            id: name.to_string(),
+            provider: "acme".to_string(),
+            name: name.to_string(),
+            tier: Some("pro".to_string()),
+            price: Some(price),
+            period: Some("month".to_string()),
+            unmetered,
+            session_request_cap: session_cap,
+            weekly_request_cap: None,
+            monthly_request_cap: None,
+            daily_request_cap: None,
+            usage_limit_confidence: None,
+            label: name.to_string(),
+        }
+    }
+
+    #[test]
+    fn caps_inference_steps_up_when_cheapest_exceeded() {
+        let plans = vec![
+            plan("Lite", 10.0, Some(100), false),
+            plan("Max", 40.0, None, true),
+        ];
+        let observed = ObservedUsage { peak_session_5h: 150, ..Default::default() };
+        let out = infer_plan_from_caps("acme", "acme", &plans, &observed).unwrap();
+        assert_eq!(out.detected_plan_type.as_deref(), Some("Max"));
+        assert_eq!(out.confidence, "inferred");
+        assert_eq!(out.source, "volume");
+        assert!(out.needs_declaration);
+    }
+
+    #[test]
+    fn caps_inference_none_when_cheapest_fits() {
+        let plans = vec![
+            plan("Lite", 10.0, Some(100), false),
+            plan("Max", 40.0, None, true),
+        ];
+        let observed = ObservedUsage { peak_session_5h: 50, ..Default::default() };
+        assert!(infer_plan_from_caps("acme", "acme", &plans, &observed).is_none());
+    }
+
+    #[test]
+    fn caps_inference_none_without_caps() {
+        let plans = vec![
+            plan("Lite", 10.0, None, false),
+            plan("Max", 40.0, None, true),
+        ];
+        let observed = ObservedUsage { peak_session_5h: 9999, ..Default::default() };
+        assert!(infer_plan_from_caps("acme", "acme", &plans, &observed).is_none());
+    }
+
+    #[test]
+    fn caps_inference_none_with_single_plan() {
+        let plans = vec![plan("Only", 10.0, Some(100), false)];
+        let observed = ObservedUsage { peak_session_5h: 9999, ..Default::default() };
+        assert!(infer_plan_from_caps("acme", "acme", &plans, &observed).is_none());
+    }
+
+    #[test]
+    fn caps_inference_picks_priciest_when_all_exceeded() {
+        let plans = vec![
+            plan("Lite", 10.0, Some(100), false),
+            plan("Mid", 25.0, Some(500), false),
+        ];
+        let observed = ObservedUsage { peak_session_5h: 10_000, ..Default::default() };
+        let out = infer_plan_from_caps("acme", "acme", &plans, &observed).unwrap();
+        assert_eq!(out.detected_plan_type.as_deref(), Some("Mid"));
     }
 }
