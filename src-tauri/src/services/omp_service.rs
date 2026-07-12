@@ -48,7 +48,7 @@ impl OmpService {
 
     pub fn run_json(args: &[&str]) -> Result<OmpCommandResult, String> {
         let mut result = run_omp(args)?;
-        result.json = serde_json::from_str(&result.stdout).ok();
+        result.json = parse_json_lenient(&result.stdout);
         Ok(result)
     }
 
@@ -119,4 +119,21 @@ fn run_omp(args: &[&str]) -> Result<OmpCommandResult, String> {
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
         json: None,
     })
+}
+
+/// Parse a JSON document from command stdout that may be prefixed with a
+/// non-JSON preamble. `omp stats --json` prints session-sync progress lines
+/// ("Synced N new entries...") to stdout before the JSON, which breaks a naive
+/// whole-string parse. Try the whole string first (fast path for clean output
+/// like `omp usage --json`), then fall back to the first `{`/`[` and read one
+/// complete JSON value from there, ignoring any trailing bytes.
+fn parse_json_lenient(stdout: &str) -> Option<Value> {
+    if let Ok(v) = serde_json::from_str::<Value>(stdout) {
+        return Some(v);
+    }
+    let start = stdout.find(['{', '['])?;
+    serde_json::Deserializer::from_str(&stdout[start..])
+        .into_iter::<Value>()
+        .next()
+        .and_then(Result::ok)
 }
