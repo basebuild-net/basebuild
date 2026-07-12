@@ -491,6 +491,105 @@ fn parse_plan_timeline_window(row: &Value) -> PlanTimelineWindow {
     }
 }
 
+// ─── Environment telemetry (installed tools, skills, providers) ──────────
+
+/// Collect the user's installed-tool environment: connectors, skills,
+/// provider credentials, OMP status, and app version. Sent to basebuild.net
+/// via the `sync_environment` MCP tool for internal analytics (not shown
+/// publicly). All fields are metadata only — no prompts, code, or secrets.
+pub fn sync_environment_native() -> Result<String, String> {
+    let token = AuthService::get_access_token()?
+        .ok_or_else(|| "Not signed in".to_string())?;
+    let env = collect_environment();
+    let rpc_body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "sync_environment",
+            "arguments": env,
+        }
+    });
+    post_mcp(&token, &rpc_body)
+}
+
+/// Gather environment metadata from local DB + filesystem. Each section is
+/// best-effort: a failure in one section doesn't prevent the others.
+fn collect_environment() -> Value {
+    let connectors = collect_connectors();
+    let skills = collect_skills();
+    let providers = collect_providers();
+    let omp = collect_omp_status();
+    let app_version = env!("CARGO_PKG_VERSION").to_string();
+    json!({
+        "source": "basebuild-app",
+        "appVersion": app_version,
+        "connectors": connectors,
+        "skills": skills,
+        "providers": providers,
+        "omp": omp,
+        "collectedAt": now_seconds(),
+    })
+}
+
+/// Registered connectors: id, name, version, enabled, state.
+fn collect_connectors() -> Vec<Value> {
+    crate::services::connector_service::ConnectorService::list()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| json!({
+            "id": c.manifest_id,
+            "name": c.name,
+            "version": c.version,
+            "enabled": c.enabled,
+            "state": c.state.as_str(),
+        }))
+        .collect()
+}
+
+/// Resolved skills: name, source, runtime.
+fn collect_skills() -> Vec<Value> {
+    crate::services::skill_registry_service::SkillRegistryService::list()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| json!({
+            "name": s.name,
+            "source": match s.source {
+                crate::services::skill_registry_service::SkillSource::Bundled => "bundled",
+                crate::services::skill_registry_service::SkillSource::User => "user",
+                crate::services::skill_registry_service::SkillSource::Override => "override",
+            },
+            "runtime": match s.runtime {
+                crate::services::skill_registry_service::SkillRuntime::Native => "native",
+                crate::services::skill_registry_service::SkillRuntime::Omp => "omp",
+                crate::services::skill_registry_service::SkillRuntime::Both => "both",
+            },
+        }))
+        .collect()
+}
+
+/// Provider credentials: which providers the user has auth'd (id + label only,
+/// never tokens/keys).
+fn collect_providers() -> Vec<Value> {
+    crate::services::native_chat_service::NativeChatService::list_credentials()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| json!({
+            "providerId": c.provider_id,
+            "label": c.label,
+        }))
+        .collect()
+}
+
+/// OMP install status: installed + version.
+fn collect_omp_status() -> Value {
+    let status = crate::services::omp_service::OmpService::status();
+    json!({
+        "installed": status.installed,
+        "version": status.version,
+    })
+}
+
 // ─── Auto-sync driver ──────────────────────────────────────────────────────
 
 /// Check whether the gates currently allow a sync push: signed in AND
@@ -548,9 +647,10 @@ pub fn set_usage_sync_mode(mode: &str) -> Result<(), String> {
 }
 
 /// Trigger a sync push now (manual or opportunistic). Re-checks gates and
-/// freshness, then calls `sync_raw_usage_native`. Records last_sync_at /
-/// last_error and emits a status event. Non-blocking on failure.
-pub fn trigger_sync(app: AppHandle, reason: &str) {
+/// freshness (unless `skip_freshness` is true), then calls
+/// `sync_raw_usage_native`. Records last_sync_at / last_error and emits a
+/// status event. Non-blocking on failure.
+pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
     if !gates_pass() {
         return;
     }
@@ -565,14 +665,19 @@ pub fn trigger_sync(app: AppHandle, reason: &str) {
         }
     }
     // Freshness check: ask the server if data is stale before pushing.
-    let should_push = match AuthService::get_access_token() {
-        Ok(Some(token)) => {
-            call_mcp_tool(&token, "get_my_live_usage", json!({}))
-                .ok()
-                .and_then(|v| v.get("shouldSync").and_then(|v| v.as_bool()))
-                .unwrap_or(true)
+    // Skipped on startup so the first sync fires unconditionally.
+    let should_push = if skip_freshness {
+        AuthService::get_access_token().map(|t| t.is_some()).unwrap_or(false)
+    } else {
+        match AuthService::get_access_token() {
+            Ok(Some(token)) => {
+                call_mcp_tool(&token, "get_my_live_usage", json!({}))
+                    .ok()
+                    .and_then(|v| v.get("shouldSync").and_then(|v| v.as_bool()))
+                    .unwrap_or(true)
+            }
+            _ => false,
         }
-        _ => false,
     };
     if !should_push {
         return;
@@ -583,6 +688,7 @@ pub fn trigger_sync(app: AppHandle, reason: &str) {
     thread::spawn(move || {
         let result = sync_raw_usage_native();
         let messages_result = sync_messages_native();
+        let env_result = sync_environment_native();
         let now = now_seconds();
         let mut status = AUTOSYNC_STATUS.lock().clone();
         match result {
@@ -593,9 +699,13 @@ pub fn trigger_sync(app: AppHandle, reason: &str) {
                     Ok(m) => format!(" | messages: {m}"),
                     Err(e) => format!(" | messages sync failed: {e}"),
                 };
+                let env_extra = match &env_result {
+                    Ok(_) => " | env: ok".to_string(),
+                    Err(e) => format!(" | env sync failed: {e}"),
+                };
                 let _ = app2.emit(
                     USAGE_SYNC_STATUS,
-                    &SyncResult { ok: true, message: format!("{reason_owned}: {msg}{extra}"), completed_at: now },
+                    &SyncResult { ok: true, message: format!("{reason_owned}: {msg}{extra}{env_extra}"), completed_at: now },
                 );
             }
             Err(e) => {
@@ -621,13 +731,17 @@ pub fn start_autosync_loop(app: AppHandle) {
         return;
     }
     thread::spawn(move || {
+        let mut first_tick = true;
         loop {
             if !AUTOSYNC_RUNNING.load(Ordering::SeqCst) {
                 break;
             }
             let interval_minutes = autosync_status().interval_minutes.max(1);
-            // Sync (if gates + freshness allow) on each tick.
-            trigger_sync(app.clone(), "hourly");
+            // First tick = startup: sync unconditionally (skip freshness check)
+            // so the user's data flows immediately on app launch. Subsequent
+            // ticks use the server freshness check to avoid redundant pushes.
+            trigger_sync(app.clone(), if first_tick { "startup" } else { "hourly" }, first_tick);
+            first_tick = false;
             // Sleep for the interval, checking the stop flag every 5s so the
             // loop can exit promptly when stopped.
             let sleep_secs = (interval_minutes as u64) * 60;

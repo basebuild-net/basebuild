@@ -282,6 +282,7 @@ pub fn run() {
                         crate::services::sync_service::trigger_sync(
                             window.app_handle().clone(),
                             "window-hidden",
+                            false,
                         );
                     }
                 }
@@ -290,6 +291,7 @@ pub fn run() {
                     crate::services::sync_service::trigger_sync(
                         window.app_handle().clone(),
                         "focus-lost",
+                        false,
                     );
                 }
                 _ => {}

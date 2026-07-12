@@ -15,7 +15,7 @@ pub fn sync_raw_usage_native() -> Result<String, String> {
 /// and freshness, then pushes if due. Non-blocking: emits `usage-sync://status`.
 #[tauri::command]
 pub fn usage_sync_trigger(app: AppHandle, reason: Option<String>) -> Result<(), String> {
-    sync_service::trigger_sync(app, &reason.unwrap_or_else(|| "manual".to_string()));
+    sync_service::trigger_sync(app, &reason.unwrap_or_else(|| "manual".to_string()), false);
     Ok(())
 }
 

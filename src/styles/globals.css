@@ -49,11 +49,6 @@ html[data-bb-zoom="110"] { --bb-ui-scale: 1.1; }
 html[data-bb-zoom="125"] { --bb-ui-scale: 1.25; }
 html[data-bb-zoom="150"] { --bb-ui-scale: 1.5; }
 .app-shell { font-size: calc(13px * var(--bb-ui-scale)); }
-/* Zoom indicator (bottom-right) */
-.zoom-indicator { position: fixed; bottom: 8px; right: 8px; display: flex; align-items: center; gap: 4px; padding: 2px 6px; background: var(--bb-surface-high); border: 1px solid var(--bb-border); font-size: 10px; color: var(--bb-muted); z-index: 9999; }
-.zoom-indicator-btn { background: none; border: none; color: var(--bb-muted); cursor: pointer; padding: 0 2px; font-size: 11px; }
-.zoom-indicator-btn:hover { color: var(--bb-text); }
-.zoom-indicator-reset { font-size: 9px; text-decoration: underline; }
   /* Semantic visual states — color never acts alone; always pair with a text
      label or icon. Connected/success → green, unavailable/inactive → grey,
      warning → amber, error → red, active selection → orange (CTA). */

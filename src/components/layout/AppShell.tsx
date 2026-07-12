@@ -104,7 +104,7 @@ type AppShellProps = {
 
 export function AppShell({ updates }: AppShellProps) {
   const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null);
-  const { zoom, zoomIn, zoomOut, zoomReset } = useZoom();
+  useZoom(); // Ctrl+/-/0 keyboard shortcuts; visible - 100% + indicator removed
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [gridView, setGridView] = useState(false);
   const [fileModalOpen, setFileModalOpen] = useState(false);
@@ -1550,14 +1550,6 @@ export function AppShell({ updates }: AppShellProps) {
         onProceed={() => { void handleStartIdeaRound(true); }}
         onCancel={() => setRoundGateOpen(false)}
       />
-      <div className="zoom-indicator" title={`Zoom: ${zoom}%. Ctrl+/- to adjust, Ctrl+0 to reset.`}>
-        <button className="zoom-indicator-btn" type="button" title="Zoom out (Ctrl+-)" onClick={zoomOut}>−</button>
-        <span>{zoom}%</span>
-        <button className="zoom-indicator-btn" type="button" title="Zoom in (Ctrl++)" onClick={zoomIn}>+</button>
-        {zoom !== 100 ? (
-          <button className="zoom-indicator-btn zoom-indicator-reset" type="button" title="Reset zoom (Ctrl+0)" onClick={zoomReset}>reset</button>
-        ) : null}
-      </div>
     </div>
     </PanelStatusProvider>
   );
