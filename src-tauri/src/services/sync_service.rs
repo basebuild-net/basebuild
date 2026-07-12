@@ -798,6 +798,32 @@ pub fn stop_autosync_loop() {
     AUTOSYNC_RUNNING.store(false, Ordering::SeqCst);
 }
 
+
+/// Blocking final sync on app exit. Bypasses debounce + freshness — just
+/// pushes everything if gates pass. Called from `RunEvent::ExitRequested` so
+/// the app doesn't exit until the push completes (or times out after 10s).
+/// Best-effort: errors are logged, never propagated — we must not block exit.
+pub fn sync_on_exit() {
+    eprintln!("[SYNC] sync_on_exit — final push before exit");
+    if !gates_pass() {
+        eprintln!("[SYNC] sync_on_exit: gates fail — skipping");
+        return;
+    }
+    // Stop the autosync loop so it doesn't race with this final push.
+    stop_autosync_loop();
+    // Blocking sync with a timeout — we can't hang the exit forever.
+    let (tx, rx) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let raw = sync_raw_usage_native();
+        let msgs = sync_messages_native();
+        eprintln!("[SYNC] sync_on_exit: raw={:?}, msgs={:?}", raw.is_ok(), msgs.is_ok());
+        let _ = tx.send(());
+    });
+    match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+        Ok(()) => eprintln!("[SYNC] sync_on_exit: final push complete"),
+        Err(_) => eprintln!("[SYNC] sync_on_exit: timed out after 10s — exiting anyway"),
+    }
+}
 fn now_seconds() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

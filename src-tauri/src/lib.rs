@@ -586,8 +586,15 @@ pub fn run() {
             notification_set_settings,
              get_skipped_update_version,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Basebuild");
+        .build(tauri::generate_context!())
+        .expect("error while building Basebuild")
+        .run(|_app, event| {
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                eprintln!("[APP] ExitRequested — running final sync before exit");
+                crate::services::sync_service::sync_on_exit();
+                eprintln!("[APP] final sync done — exiting");
+            }
+        });
 }
 
 #[cfg(test)]
