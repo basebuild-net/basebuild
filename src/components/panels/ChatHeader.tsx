@@ -29,10 +29,6 @@ type PlanBadge = {
 } | null;
 
 type ChatHeaderProps = {
-  title: string;
-  onRename: (title: string) => void;
-  /** Locked titles are never auto-overwritten by titling. Set on user rename. */
-  titleLocked: boolean;
   modelChip: string;
   modelId: string;
   effortChip: string;
@@ -81,14 +77,15 @@ type ChatHeaderProps = {
   onDrop?: (e: React.DragEvent) => void;
 };
 
-export function ChatHeader(props: ChatHeaderProps) {
+export function ChatTitleBar(props: {
+  title: string;
+  onRename: (title: string) => void;
+  titleLocked: boolean;
+  /** Increment this number to trigger edit mode externally (e.g. from the more-actions menu). */
+  renameSignal: number;
+}) {
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(props.title);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [branchOpen, setBranchOpen] = useState(false);
-  const [newBranchName, setNewBranchName] = useState("");
-  const [creatingBranch, setCreatingBranch] = useState(false);
-  const [switchTarget, setSwitchTarget] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -103,6 +100,11 @@ export function ChatHeader(props: ChatHeaderProps) {
     setDraftTitle(props.title);
   }, [props.title]);
 
+  // External rename trigger
+  useEffect(() => {
+    if (props.renameSignal > 0) setEditing(true);
+  }, [props.renameSignal]);
+
   function commitRename() {
     setEditing(false);
     const next = draftTitle.trim();
@@ -115,6 +117,42 @@ export function ChatHeader(props: ChatHeaderProps) {
     setEditing(false);
     setDraftTitle(props.title);
   }
+
+  return (
+    <div className="chat-title-bar">
+      {editing ? (
+        <input
+          ref={inputRef}
+          className="input chat-column-title-input"
+          value={draftTitle}
+          title="Rename chat - Enter to save, Esc to cancel"
+          onChange={(e) => setDraftTitle(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); commitRename(); }
+            if (e.key === "Escape") { e.preventDefault(); cancelRename(); }
+          }}
+          onBlur={commitRename}
+        />
+      ) : (
+        <button
+          className="chat-column-title"
+          type="button"
+          title={`${props.title}${props.titleLocked ? " (locked)" : ""} - double-click to rename`}
+          onDoubleClick={() => setEditing(true)}
+        >
+          <span className="chat-column-title-text">{props.title}</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function ChatHeader(props: ChatHeaderProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [branchOpen, setBranchOpen] = useState(false);
+  const [newBranchName, setNewBranchName] = useState("");
+  const [creatingBranch, setCreatingBranch] = useState(false);
+  const [switchTarget, setSwitchTarget] = useState<string | null>(null);
 
   function handleSwitch(name: string) {
     setBranchOpen(false);
@@ -149,29 +187,6 @@ export function ChatHeader(props: ChatHeaderProps) {
       onDrop={props.onDrop}
     >
       <div className="chat-column-header-left">
-        {editing ? (
-          <input
-            ref={inputRef}
-            className="input chat-column-title-input"
-            value={draftTitle}
-            title="Rename chat — Enter to save, Esc to cancel"
-            onChange={(e) => setDraftTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") { e.preventDefault(); commitRename(); }
-              if (e.key === "Escape") { e.preventDefault(); cancelRename(); }
-            }}
-            onBlur={commitRename}
-          />
-        ) : (
-          <button
-            className="chat-column-title"
-            type="button"
-            title={`${props.title}${props.titleLocked ? " (locked)" : ""} — double-click to rename`}
-            onDoubleClick={() => setEditing(true)}
-          >
-            <span className="chat-column-title-text">{props.title}</span>
-          </button>
-        )}
         <button
           className="chat-column-model-chip"
           type="button"
@@ -294,7 +309,7 @@ export function ChatHeader(props: ChatHeaderProps) {
         </button>
         {menuOpen ? (
           <MoreActionsMenu
-            onRename={() => { setMenuOpen(false); setEditing(true); }}
+            onRename={() => { setMenuOpen(false); props.onRenameAction(); }}
             onAssignPlan={() => { setMenuOpen(false); props.onAssignPlan(); }}
             onDuplicate={() => { setMenuOpen(false); props.onDuplicateChat(); }}
             onClose={() => { setMenuOpen(false); props.onCloseChat(); }}

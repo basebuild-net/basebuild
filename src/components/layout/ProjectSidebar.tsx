@@ -6,7 +6,6 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  FolderOpen,
   FolderPlus,
   MoreHorizontal,
   Pencil,
@@ -27,6 +26,14 @@ import {
 } from "../../lib/projects";
 import { listSessions, type Session } from "../../lib/sessions";
 import { useLogs } from "../../state/log";
+function ProjectMonogram({ name, active }: { name: string; active: boolean }) {
+  const letter = name.charAt(0).toUpperCase() || "?";
+  return (
+    <span className={`sidebar-project-monogram${active ? " is-active" : ""}`} aria-hidden="true">
+      {letter}
+    </span>
+  );
+}
 
 type ProjectSidebarProps = {
   activeProjectPath: string | null;
@@ -76,7 +83,11 @@ export function ProjectSidebar({
   const [editingSession, setEditingSession] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [sessionMenu, setSessionMenu] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const visibleProjects = projects.filter((p) => !hiddenPaths.has(p.path));
+  const searchFiltered = searchQuery.trim()
+    ? visibleProjects.filter((p) => p.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+    : visibleProjects;
 
   async function handleReveal(path: string) {
     try {
@@ -96,6 +107,9 @@ export function ProjectSidebar({
     <aside className="sidebar" aria-label="Projects">
       <div className="sidebar-header">
         <span className="sidebar-title">Projects</span>
+        <span className="sidebar-sort-indicator" title="Sorted alphabetically">
+          A-Z
+        </span>
         <button className="btn-icon" title="Open folder" aria-label="Open folder" type="button" onClick={onOpenFolder}>
           <FolderPlus size={15} />
         </button>
@@ -110,11 +124,21 @@ export function ProjectSidebar({
         </button>
       </div>
 
+      <div className="sidebar-search">
+        <input
+          type="search"
+          className="sidebar-search-input"
+          placeholder="Search projects..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+      </div>
+
       <div className="sidebar-list">
-        {visibleProjects.length === 0 ? (
+        {searchFiltered.length === 0 ? (
           <p className="text-muted text-sm pad sidebar-empty">No projects yet.</p>
         ) : (
-          visibleProjects.map((project) => {
+          searchFiltered.map((project) => {
             const isActive = project.path === activeProjectPath;
             const projectSessions = sessionsByProject.get(project.path) ?? [];
             const isCollapsed = collapsedProjects.has(project.path);
@@ -144,7 +168,7 @@ export function ProjectSidebar({
                     title={project.path}
                     onClick={() => onSelectProject(project.path)}
                   >
-                    <FolderOpen size={14} className="sidebar-item-icon" />
+                    <ProjectMonogram name={project.name} active={isActive} />
                     <span className="sidebar-item-label">{project.name}</span>
                     {projectSessions.length > 0 ? (
                       <span className="sidebar-session-count">{projectSessions.length}</span>

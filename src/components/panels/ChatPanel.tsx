@@ -16,7 +16,7 @@ import {
   sourceLabel,
   tabComplete,
 } from "../../lib/chatCommands";
-import { ChatHeader } from "./ChatHeader";
+import { ChatHeader, ChatTitleBar } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
 import { QuestionCard } from "./QuestionCard";
 import { MarkdownView } from "./MarkdownView";
@@ -527,6 +527,7 @@ export function ChatPanel({
   const [planBadge, setPlanBadge] = useState<{ referenceId: string; title: string; status: string } | null>(null);
   const [agentMode, setAgentMode] = useState<AgentMode>("plan");
   const [titleLocked, setTitleLocked] = useState(false);
+  const [renameSignal, setRenameSignal] = useState(0);
   const [uncommittedCount, setUncommittedCount] = useState(0);
   const [prRec, setPrRec] = useState<PrRecommendation | null>(null);
   const [showPrCard, setShowPrCard] = useState(false);
@@ -2073,71 +2074,11 @@ export function ChatPanel({
       <div aria-live="polite" aria-atomic="true" className="sr-only" >
         {streaming ? `Agent is responding${streamPhase === "tools" ? " — running tools" : streamPhase === "thinking" ? " — thinking" : ""}` : ""}
       </div>
-      <ChatHeader
+      <ChatTitleBar
         title={chatTitle ?? (nativeSessionId ? "Chat" : "New chat")}
         onRename={handleRename}
         titleLocked={titleLocked}
-        modelChip={modelName}
-        modelId={modelId}
-        effortChip={effortLevel}
-        effortOptions={(catalog?.effortLevels ?? [])
-          .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
-          .map((effort) => ({ id: effort.id, label: effort.label }))}
-        onPickModel={() => {
-          addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
-          setShowModelPicker(true);
-          setShowProviderPicker(false);
-        }}
-        onChangeEffort={(effort) => {
-          addLog("debug", "Chat effort selected", `sessionId=${nativeSessionId ?? "none"}; effort=${effort}`);
-          setEffortLevel(effort);
-          persistSelection(providerId, modelId, effort);
-        }}
-        permissionMode={approvalMode}
-        onChangePermission={(mode) => void handleSetApprovalMode(mode)}
-        runState={streaming ? "running" : loading ? "queued" : "idle"}
-        contextUsed={contextUsedTokens}
-        contextLimit={selectedModel?.contextWindow ?? null}
-        onOpenCommands={() => {
-          addLog("debug", "Command palette opened via header", `sessionId=${activeSessionId ?? "none"}`);
-          setShowCommandPalette(true);
-          setInput("/");
-          window.requestAnimationFrame(() => chatInputRef.current?.focus());
-        }}
-        debugMode={debugMode}
-        onToggleDebug={() => {
-          const next = !debugMode;
-          addLog("debug", "Chat debug mode toggled", `enabled=${next}`);
-          setDebugMode(next);
-          localStorage.setItem("basebuild.debug-mode", String(next));
-        }}
-        canCopyConversation={nativeMessages.length > 0}
-        onCopyConversation={() => {
-          addLog("debug", "Copy conversation selected", `sessionId=${nativeSessionId ?? "none"}`);
-          void handleCopyConversation();
-        }}
-        agentMode={agentMode}
-        onToggleAgentMode={() => setAgentMode((m) => (m === "build" ? "plan" : "build"))}
-        planBadge={planBadge}
-        onOpenPlan={() => { /* focus the plan in the side panel */ }}
-        branch={branch}
-        worktreePath={worktreePath}
-        branches={branches}
-        onSwitchBranch={handleSwitchBranch}
-        onCreateBranch={handleCreateBranch}
-        onToggleHistory={() => onOpenHistory?.()}
-        onStashAndSwitch={handleSwitchBranch}
-        onDiscardAndSwitch={handleSwitchBranch}
-        uncommittedCount={uncommittedCount}
-        onRenameAction={() => { /* handled by header internally */ }}
-        onAssignPlan={handleOpenAssignPlan}
-        onDuplicateChat={() => onDuplicateChat?.()}
-        onCloseChat={() => onCloseChat?.()}
-        onCloseAndDelete={() => onCloseAndDeleteChat?.()}
-        prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
-        onCreatePullRequest={handleCreatePullRequest}
-        projectPath={projectPath}
-        sessionId={nativeSessionId}
+        renameSignal={renameSignal}
       />
       {showPrCard && prRec ? (
         <PrRecommendationCard
@@ -2741,6 +2682,69 @@ export function ChatPanel({
 
       {/* Composer footer: always visible, never clipped */}
       <div className="chat-input-area">
+        <ChatHeader
+          modelChip={modelName}
+          modelId={modelId}
+          effortChip={effortLevel}
+          effortOptions={(catalog?.effortLevels ?? [])
+            .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
+            .map((effort) => ({ id: effort.id, label: effort.label }))}
+          onPickModel={() => {
+            addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
+            setShowModelPicker(true);
+            setShowProviderPicker(false);
+          }}
+          onChangeEffort={(effort) => {
+            addLog("debug", "Chat effort selected", `sessionId=${nativeSessionId ?? "none"}; effort=${effort}`);
+            setEffortLevel(effort);
+            persistSelection(providerId, modelId, effort);
+          }}
+          permissionMode={approvalMode}
+          onChangePermission={(mode) => void handleSetApprovalMode(mode)}
+          runState={streaming ? "running" : loading ? "queued" : "idle"}
+          contextUsed={contextUsedTokens}
+          contextLimit={selectedModel?.contextWindow ?? null}
+          onOpenCommands={() => {
+            addLog("debug", "Command palette opened via header", `sessionId=${activeSessionId ?? "none"}`);
+            setShowCommandPalette(true);
+            setInput("/");
+            window.requestAnimationFrame(() => chatInputRef.current?.focus());
+          }}
+          debugMode={debugMode}
+          onToggleDebug={() => {
+            const next = !debugMode;
+            addLog("debug", "Chat debug mode toggled", `enabled=${next}`);
+            setDebugMode(next);
+            localStorage.setItem("basebuild.debug-mode", String(next));
+          }}
+          canCopyConversation={nativeMessages.length > 0}
+          onCopyConversation={() => {
+            addLog("debug", "Copy conversation selected", `sessionId=${nativeSessionId ?? "none"}`);
+            void handleCopyConversation();
+          }}
+          agentMode={agentMode}
+          onToggleAgentMode={() => setAgentMode((m) => (m === "build" ? "plan" : "build"))}
+          planBadge={planBadge}
+          onOpenPlan={() => { /* focus the plan in the side panel */ }}
+          branch={branch}
+          worktreePath={worktreePath}
+          branches={branches}
+          onSwitchBranch={handleSwitchBranch}
+          onCreateBranch={handleCreateBranch}
+          onToggleHistory={() => onOpenHistory?.()}
+          onStashAndSwitch={handleSwitchBranch}
+          onDiscardAndSwitch={handleSwitchBranch}
+          uncommittedCount={uncommittedCount}
+          onRenameAction={() => setRenameSignal((n) => n + 1)}
+          onAssignPlan={handleOpenAssignPlan}
+          onDuplicateChat={() => onDuplicateChat?.()}
+          onCloseChat={() => onCloseChat?.()}
+          onCloseAndDelete={() => onCloseAndDeleteChat?.()}
+          prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
+          onCreatePullRequest={handleCreatePullRequest}
+          projectPath={projectPath}
+          sessionId={nativeSessionId}
+        />
         {nativeMode ? (
           <>
             {showPlanningMenu ? (

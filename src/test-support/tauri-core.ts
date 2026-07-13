@@ -455,7 +455,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
 
   switch (command) {
     case "list_recent_projects":
-      return s.recentProjects.slice(0, Number(args.limit ?? 10)) as T;
+      return [...s.recentProjects].sort((a, b) => a.name.localeCompare(b.name)).slice(0, Number(args.limit ?? 10)) as T;
     case "pick_project_directory": {
       s.pickProjectCalls += 1;
       const delayMs = globalState.__BASEBUILD_E2E_PICKER_DELAY_MS__ ?? 0;
@@ -471,9 +471,13 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       s.projectPath = path;
       const name = path.split("\\").pop() || "project";
       const existing = s.recentProjects.find((project) => project.path === path);
-      const project = { path, name, lastOpenedAt: Math.floor(Date.now() / 1000), lastActiveSessionId: existing?.lastActiveSessionId ?? null };
-      s.recentProjects = [project, ...s.recentProjects.filter((item) => item.path !== path)];
-      return project as T;
+      if (existing) {
+        existing.name = name;
+        existing.lastOpenedAt = Math.floor(Date.now() / 1000);
+      } else {
+        s.recentProjects.push({ path, name, lastOpenedAt: Math.floor(Date.now() / 1000), lastActiveSessionId: null });
+      }
+      return s.recentProjects.find((project) => project.path === path) as T;
     }
     case "get_last_focused_project": {
       const focusedPath = typeof localStorage !== "undefined" ? localStorage.getItem("basebuild:last-focused-project") : null;
@@ -484,11 +488,15 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       const path = args.path as string;
       if (typeof localStorage !== "undefined") localStorage.setItem("basebuild:last-focused-project", path);
       s.projectPath = path;
+      // Do NOT reorder the list - matching the Rust backend's INSERT OR IGNORE
+      // which only inserts if missing, never bumps last_opened_at for existing rows.
       const existing = s.recentProjects.find((project) => project.path === path);
-      const name = path.split("\\").pop() || "project";
-      const project = { path, name, lastOpenedAt: Math.floor(Date.now() / 1000), lastActiveSessionId: existing?.lastActiveSessionId ?? null };
-      s.recentProjects = [project, ...s.recentProjects.filter((item) => item.path !== path)];
-      return project as T;
+      if (!existing) {
+        const name = path.split("\\").pop() || "project";
+        s.recentProjects.push({ path, name, lastOpenedAt: Math.floor(Date.now() / 1000), lastActiveSessionId: null });
+      }
+      const result = s.recentProjects.find((project) => project.path === path) ?? null;
+      return result as T;
     }
     case "remove_recent_project":
       s.recentProjects = s.recentProjects.filter((project) => project.path !== args.path);

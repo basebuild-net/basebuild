@@ -271,95 +271,90 @@ export function ActivitySidebar({
 
       <div className="activity-sidebar">
         <div className="activity-sidebar-list">
-          {activeProjectPath ? (
-            <div className="activity-sidebar-project">
-              <div className="activity-sidebar-project-main">
-                <RepoIcon host={activeHost} size={14} />
-                <span className="activity-sidebar-project-name" title={activeProjectPath}>
-                  {activeName}
-                </span>
-                <span className={`agent-status-dot agent-status-${activeAgentStatus}`} title={`Agent: ${activeAgentStatus}`} aria-label={`Agent status: ${activeAgentStatus}`} />
-              </div>
-              {activeBranch ? (
-                <span className="activity-sidebar-project-branch" title={`Branch: ${activeBranch}`}>
-                  {activeBranch}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-          {/* Panels (chats) nested under the project */}
-          {panels.length === 0 ? (
+          {/* All projects in alphabetical order - active project stays in place */}
+          {projects.length === 0 ? (
             <div className="sidebar-empty text-muted text-sm">
-              No panels open. <button className="chat-link-btn" type="button" title="Start a new chat" onClick={onCreateChat}>Start a chat</button>.
+              No projects yet. <button className="chat-link-btn" type="button" title="Add a project folder" onClick={onOpenFolder}>Add a folder</button>.
             </div>
           ) : (
-            panels.map((panel) => {
-              const Icon = typeIcons[panel.type] ?? FileText;
-              const isActive = panel.id === activePanelId;
+            projects.map((project) => {
+              const isActive = project.path === activeProjectPath;
+              const identity = repoIdentities.get(project.path);
+              const name = identity?.name ?? project.name;
+              const branch = identity?.branch ?? null;
+              const host = identity?.host ?? "folder";
+              const agentStatus = isActive
+                ? activeAgentStatus
+                : "idle";
+              const chats = !isActive
+                ? otherProjectChats.get(project.path) ?? []
+                : [];
               return (
-                <div
-                  key={panel.id}
-                  className={`activity-sidebar-row${isActive ? " is-active" : ""}`}
-                  title={panel.title}
-                  onClick={() => onFocusPanel(panel.id)}
-                >
-                  <Icon size={11} className="activity-sidebar-row-icon" />
-                  <span className="activity-sidebar-row-title">{panel.title}</span>
-                  {renderPanelMeta(panel.id)}
-                  <span className={`activity-sidebar-row-status panel-status-indicator ${statusDotClass[statuses[panel.id]?.status ?? "idle"]}`} />
+                <div key={project.path} className={`activity-sidebar-project-row${isActive ? " is-active" : ""}`}>
+                  <div
+                    className="activity-sidebar-project-main"
+                    title={project.path}
+                    onClick={() => onSelectProject(project.path)}
+                  >
+                    <RepoIcon host={host} size={isActive ? 14 : 11} />
+                    <span className={isActive ? "activity-sidebar-project-name" : "activity-sidebar-row-title"}>{name}</span>
+                    <span className={`agent-status-dot agent-status-${agentStatus}`} title={`Agent: ${agentStatus}`} aria-label={`Agent status: ${agentStatus}`} />
+                  </div>
+                  {branch ? (
+                    <span className="activity-sidebar-project-branch" title={`Branch: ${branch}`} onClick={() => onSelectProject(project.path)}>
+                      {branch}
+                    </span>
+                  ) : null}
+                  {/* Active project: show open panels (chats) underneath */}
+                  {isActive && panels.length > 0 ? (
+                    panels.map((panel) => {
+                      const Icon = typeIcons[panel.type] ?? FileText;
+                      const isPanelActive = panel.id === activePanelId;
+                      return (
+                        <div
+                          key={panel.id}
+                          className={`activity-sidebar-row${isPanelActive ? " is-active" : ""}`}
+                          title={panel.title}
+                          onClick={() => onFocusPanel(panel.id)}
+                        >
+                          <Icon size={11} className="activity-sidebar-row-icon" />
+                          <span className="activity-sidebar-row-title">{panel.title}</span>
+                          {renderPanelMeta(panel.id)}
+                          <span className={`activity-sidebar-row-status panel-status-indicator ${statusDotClass[statuses[panel.id]?.status ?? "idle"]}`} />
+                        </div>
+                      );
+                    })
+                  ) : null}
+                  {/* Active project with no panels: show empty state */}
+                  {isActive && panels.length === 0 ? (
+                    <div className="sidebar-empty text-muted text-sm">
+                      No panels open. <button className="chat-link-btn" type="button" title="Start a new chat" onClick={onCreateChat}>Start a chat</button>.
+                    </div>
+                  ) : null}
+                  {/* Inactive project: show its open chats from saved workspace */}
+                  {!isActive && chats.length > 0 ? (
+                    <div className="activity-sidebar-project-chats" aria-label={`${name} chats`}>
+                      {chats.map((session) => {
+                        const fullTs = new Date(session.updatedAt * 1000).toLocaleString();
+                        return (
+                          <div
+                            key={session.id}
+                            className="activity-sidebar-project-chat"
+                            title={`${session.title} - ${fullTs}`}
+                            onClick={() => onSelectProject(project.path)}
+                          >
+                            <MessageSquare size={10} className="activity-sidebar-row-icon" />
+                            <span className="activity-sidebar-project-chat-title">{session.title}</span>
+                            <span className="activity-sidebar-project-chat-time">{formatRelativeTime(session.updatedAt)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                 </div>
               );
             })
           )}
-          {/* Other projects below the panel list */}
-          {projects.filter((p) => p.path !== activeProjectPath).length > 0 ? (
-            <div className="activity-sidebar-other-projects">
-              {projects.filter((p) => p.path !== activeProjectPath).map((project) => {
-                const identity = repoIdentities.get(project.path);
-                const name = identity?.name ?? project.name;
-                const branch = identity?.branch ?? null;
-                const host = identity?.host ?? "folder";
-                const chats = otherProjectChats.get(project.path) ?? [];
-                return (
-                  <div key={project.path} className="activity-sidebar-project-row">
-                    <div
-                      className="activity-sidebar-project-main"
-                      title={project.path}
-                      onClick={() => onSelectProject(project.path)}
-                    >
-                      <RepoIcon host={host} size={11} />
-                      <span className="activity-sidebar-row-title">{name}</span>
-                      <span className="agent-status-dot agent-status-idle" title="Agent: idle" aria-label="Agent status: idle" />
-                    </div>
-                    {branch ? (
-                      <span className="activity-sidebar-project-branch" title={`Branch: ${branch}`} onClick={() => onSelectProject(project.path)}>
-                        {branch}
-                      </span>
-                    ) : null}
-                    {chats.length > 0 ? (
-                      <div className="activity-sidebar-project-chats" aria-label={`${name} chats`}>
-                        {chats.map((session) => {
-                          const fullTs = new Date(session.updatedAt * 1000).toLocaleString();
-                          return (
-                            <div
-                              key={session.id}
-                              className="activity-sidebar-project-chat"
-                              title={`${session.title} — ${fullTs}`}
-                              onClick={() => onSelectProject(project.path)}
-                            >
-                              <MessageSquare size={10} className="activity-sidebar-row-icon" />
-                              <span className="activity-sidebar-project-chat-title">{session.title}</span>
-                              <span className="activity-sidebar-project-chat-time">{formatRelativeTime(session.updatedAt)}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          ) : null}
         </div>
         <button
           className="activity-sidebar-history-btn"
