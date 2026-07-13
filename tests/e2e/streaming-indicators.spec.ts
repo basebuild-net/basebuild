@@ -232,7 +232,7 @@ test.describe("Streaming indicators", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    const inputRow = page.locator(".chat-input-row").first();
+    const inputRow = page.locator(".chat-composer-box").first();
     await expect(inputRow).toBeVisible({ timeout: 5_000 });
 
     // Should contain a textarea.

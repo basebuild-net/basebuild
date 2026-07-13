@@ -244,7 +244,7 @@ function UserMessageContent({
 const toolCardExpanded = new Map<string, boolean>();
 
 function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode }: { event: NativeToolEvent; onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void; debugMode?: boolean; onSetApprovalMode?: (mode: "safe" | "balanced" | "auto") => void; }) {
-  const [expanded, setExpanded] = useState(() => toolCardExpanded.get(event.id) ?? true);
+  const [expanded, setExpanded] = useState(() => toolCardExpanded.get(event.id) ?? false);
   const toggleExpanded = useCallback(() => {
     setExpanded((prev) => {
       const next = !prev;
@@ -328,7 +328,7 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
     <div data-tool-id={event.id} className={`tool-card tool-card-${statusClass}${isApproval ? " tool-card-approval" : ""}`} title={`${event.kind}: ${event.status}${timeStr ? ` at ${timeStr}` : ""}${provenance ? ` — ${provenance}` : ""}`}>
       <div className="tool-card-header" onClick={() => { if (!isApproval) toggleExpanded(); }} role={isApproval ? undefined : "button"} tabIndex={isApproval ? -1 : 0} aria-expanded={isApproval ? undefined : expanded}>
         <span className="tool-card-icon">{icon}</span>
-        <span className="tool-card-name">{event.kind.replace(/_/g, " ")}</span>
+        <span className={`tool-card-name is-${event.kind.replace(/_/g, "-")}`}>{event.kind.replace(/_/g, " ")}</span>
         {argDisplay ? <code className="tool-card-arg-value" title={`${argDisplay.label}: ${argDisplay.value}`}>{argDisplay.value}</code> : null}
         <span className={`tool-card-status tool-card-status-${statusClass}`}>{event.status}</span>
         {timeStr ? <span className="tool-card-time text-muted">{timeStr}</span> : null}
@@ -2683,69 +2683,6 @@ export function ChatPanel({
 
       {/* Composer footer: always visible, never clipped */}
       <div className="chat-input-area">
-        <ChatHeader
-          modelChip={modelName}
-          modelId={modelId}
-          effortChip={effortLevel}
-          effortOptions={(catalog?.effortLevels ?? [])
-            .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
-            .map((effort) => ({ id: effort.id, label: effort.label }))}
-          onPickModel={() => {
-            addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
-            setShowModelPicker(true);
-            setShowProviderPicker(false);
-          }}
-          onChangeEffort={(effort) => {
-            addLog("debug", "Chat effort selected", `sessionId=${nativeSessionId ?? "none"}; effort=${effort}`);
-            setEffortLevel(effort);
-            persistSelection(providerId, modelId, effort);
-          }}
-          permissionMode={approvalMode}
-          onChangePermission={(mode) => void handleSetApprovalMode(mode)}
-          runState={streaming ? "running" : loading ? "queued" : "idle"}
-          contextUsed={contextUsedTokens}
-          contextLimit={selectedModel?.contextWindow ?? null}
-          onOpenCommands={() => {
-            addLog("debug", "Command palette opened via header", `sessionId=${activeSessionId ?? "none"}`);
-            setShowCommandPalette(true);
-            setInput("/");
-            window.requestAnimationFrame(() => chatInputRef.current?.focus());
-          }}
-          debugMode={debugMode}
-          onToggleDebug={() => {
-            const next = !debugMode;
-            addLog("debug", "Chat debug mode toggled", `enabled=${next}`);
-            setDebugMode(next);
-            localStorage.setItem("basebuild.debug-mode", String(next));
-          }}
-          canCopyConversation={nativeMessages.length > 0}
-          onCopyConversation={() => {
-            addLog("debug", "Copy conversation selected", `sessionId=${nativeSessionId ?? "none"}`);
-            void handleCopyConversation();
-          }}
-          agentMode={agentMode}
-          onToggleAgentMode={() => setAgentMode((m) => (m === "build" ? "plan" : "build"))}
-          planBadge={planBadge}
-          onOpenPlan={() => { /* focus the plan in the side panel */ }}
-          branch={branch}
-          worktreePath={worktreePath}
-          branches={branches}
-          onSwitchBranch={handleSwitchBranch}
-          onCreateBranch={handleCreateBranch}
-          onToggleHistory={() => onOpenHistory?.()}
-          onStashAndSwitch={handleSwitchBranch}
-          onDiscardAndSwitch={handleSwitchBranch}
-          uncommittedCount={uncommittedCount}
-          onRenameAction={() => setRenameSignal((n) => n + 1)}
-          onAssignPlan={handleOpenAssignPlan}
-          onDuplicateChat={() => onDuplicateChat?.()}
-          onCloseChat={() => onCloseChat?.()}
-          onCloseAndDelete={() => onCloseAndDeleteChat?.()}
-          prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
-          onCreatePullRequest={handleCreatePullRequest}
-          projectPath={projectPath}
-          sessionId={nativeSessionId}
-        />
         {nativeMode ? (
           <>
             {showPlanningMenu ? (
@@ -3125,95 +3062,178 @@ export function ChatPanel({
             </div>
           );
         })()}
-        <div className="chat-input-row">
-          <textarea
-            ref={chatInputRef}
-            className="input chat-input"
-            aria-label="Chat message input"
-            placeholder={
-              nativeMode
-                ? "Type a message… (Enter to send, Shift+Enter for newline)"
-                : "Agent not connected. Click retry above to start."
-            }
-            value={input}
-            onChange={(e) => {
-              const val = e.target.value;
-              setInput(val);
-              // Open palette when input starts with `/` (command position).
-              if (nativeMode && val.trimStart().startsWith("/")) {
-                setShowCommandPalette(true);
-              } else if (showCommandPalette) {
-                setShowCommandPalette(false);
+        <div className="chat-composer-box">
+          <div className="chat-composer-textarea-wrap">
+            <textarea
+              ref={chatInputRef}
+              className="input chat-input"
+              aria-label="Chat message input"
+              placeholder={
+                nativeMode
+                  ? "Type a message… (Enter to send, Shift+Enter for newline)"
+                  : "Agent not connected. Click retry above to start."
               }
-              setPaletteActiveIndex(0);
-              const el = e.target;
-              el.style.setProperty("--chat-input-height", `${Math.min(el.scrollHeight, 360)}px`);
-            }}
-            onKeyDown={(e) => {
-              // Command palette keyboard navigation.
-              if (showCommandPalette && nativeMode) {
-                const query = input.trim().slice(1);
-                const ranked = filterAndRank(BUILTIN_COMMANDS, query, commandRecency);
-                if (e.key === "ArrowDown" && ranked.length > 0) {
-                  e.preventDefault();
-                  setPaletteActiveIndex((i) => (i + 1) % ranked.length);
-                  return;
-                }
-                if (e.key === "ArrowUp" && ranked.length > 0) {
-                  e.preventDefault();
-                  setPaletteActiveIndex((i) => (i - 1 + ranked.length) % ranked.length);
-                  return;
-                }
-                if (e.key === "Tab" && ranked.length > 0) {
-                  e.preventDefault();
-                  const cmd = ranked[paletteActiveIndex];
-                  if (cmd) {
-                    setInput(tabComplete(cmd));
-                    setShowCommandPalette(false);
-                  }
-                  return;
-                }
-                if (e.key === "Escape") {
-                  e.preventDefault();
+              value={input}
+              onChange={(e) => {
+                const val = e.target.value;
+                setInput(val);
+                if (nativeMode && val.trimStart().startsWith("/")) {
+                  setShowCommandPalette(true);
+                } else if (showCommandPalette) {
                   setShowCommandPalette(false);
-                  return;
                 }
-                // Enter: if palette is open and there's a match, submit the command.
-                if (e.key === "Enter" && !e.shiftKey && ranked.length > 0) {
+                setPaletteActiveIndex(0);
+                const el = e.target;
+                el.style.setProperty("--chat-input-height", `${Math.min(el.scrollHeight, 360)}px`);
+              }}
+              onKeyDown={(e) => {
+                if (showCommandPalette && nativeMode) {
+                  const query = input.trim().slice(1);
+                  const ranked = filterAndRank(BUILTIN_COMMANDS, query, commandRecency);
+                  if (e.key === "ArrowDown" && ranked.length > 0) {
+                    e.preventDefault();
+                    setPaletteActiveIndex((i) => (i + 1) % ranked.length);
+                    return;
+                  }
+                  if (e.key === "ArrowUp" && ranked.length > 0) {
+                    e.preventDefault();
+                    setPaletteActiveIndex((i) => (i - 1 + ranked.length) % ranked.length);
+                    return;
+                  }
+                  if (e.key === "Tab" && ranked.length > 0) {
+                    e.preventDefault();
+                    const cmd = ranked[paletteActiveIndex];
+                    if (cmd) {
+                      setInput(tabComplete(cmd));
+                      setShowCommandPalette(false);
+                    }
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setShowCommandPalette(false);
+                    return;
+                  }
+                  if (e.key === "Enter" && !e.shiftKey && ranked.length > 0) {
+                    e.preventDefault();
+                    void handleSend();
+                    return;
+                  }
+                }
+                if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   void handleSend();
-                  return;
                 }
-              }
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void handleSend();
-              }
-            }}
-            rows={2}
-            disabled={inputDisabled}
-            title={nativeMode ? "Chat input — type a message and press Enter to send" : "Chat input — start the agent to enable sending"}
-          />
-          {nativeMode && loading ? (
-            <button
-              className="btn chat-send-btn chat-stop-btn"
-              type="button"
-              title="Stop the agent and unlock the composer"
-              onClick={() => void handleStopNative()}
-            >
-              <Square size={13} />
-            </button>
-          ) : (
-            <button
-              className="btn btn-primary chat-send-btn"
-              type="button"
-              title="Send message"
-              disabled={sendDisabled}
-              onClick={() => void handleSend()}
-            >
-              <Send size={14} />
-            </button>
-          )}
+              }}
+              rows={2}
+              disabled={inputDisabled}
+              title={nativeMode ? "Chat input — type a message and press Enter to send" : "Chat input — start the agent to enable sending"}
+            />
+          </div>
+          <div className="chat-composer-controls">
+            <ChatHeader
+              modelChip={modelName}
+              modelId={modelId}
+              effortChip={effortLevel}
+              effortOptions={(catalog?.effortLevels ?? [])
+                .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
+                .map((effort) => ({ id: effort.id, label: effort.label }))}
+              onPickModel={() => {
+                addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
+                setShowModelPicker(true);
+                setShowProviderPicker(false);
+              }}
+              onChangeEffort={(effort) => {
+                addLog("debug", "Chat effort selected", `sessionId=${nativeSessionId ?? "none"}; effort=${effort}`);
+                setEffortLevel(effort);
+                persistSelection(providerId, modelId, effort);
+              }}
+              permissionMode={approvalMode}
+              onChangePermission={(mode) => void handleSetApprovalMode(mode)}
+              runState={streaming ? "running" : loading ? "queued" : "idle"}
+              contextUsed={contextUsedTokens}
+              contextLimit={selectedModel?.contextWindow ?? null}
+              onOpenCommands={() => {
+                addLog("debug", "Command palette opened via header", `sessionId=${activeSessionId ?? "none"}`);
+                setShowCommandPalette(true);
+                setInput("/");
+                window.requestAnimationFrame(() => chatInputRef.current?.focus());
+              }}
+              debugMode={debugMode}
+              onToggleDebug={() => {
+                const next = !debugMode;
+                addLog("debug", "Chat debug mode toggled", `enabled=${next}`);
+                setDebugMode(next);
+                localStorage.setItem("basebuild.debug-mode", String(next));
+              }}
+              canCopyConversation={nativeMessages.length > 0}
+              onCopyConversation={() => {
+                addLog("debug", "Copy conversation selected", `sessionId=${nativeSessionId ?? "none"}`);
+                void handleCopyConversation();
+              }}
+              agentMode={agentMode}
+              onToggleAgentMode={() => setAgentMode((m) => (m === "build" ? "plan" : "build"))}
+              planBadge={planBadge}
+              onOpenPlan={() => { /* focus the plan in the side panel */ }}
+              branch={branch}
+              worktreePath={worktreePath}
+              branches={branches}
+              onSwitchBranch={handleSwitchBranch}
+              onCreateBranch={handleCreateBranch}
+              onToggleHistory={() => onOpenHistory?.()}
+              onStashAndSwitch={handleSwitchBranch}
+              onDiscardAndSwitch={handleSwitchBranch}
+              uncommittedCount={uncommittedCount}
+              onRenameAction={() => setRenameSignal((n) => n + 1)}
+              onAssignPlan={handleOpenAssignPlan}
+              onDuplicateChat={() => onDuplicateChat?.()}
+              onCloseChat={() => onCloseChat?.()}
+              onCloseAndDelete={() => onCloseAndDeleteChat?.()}
+              prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
+              onCreatePullRequest={handleCreatePullRequest}
+              projectPath={projectPath}
+              sessionId={nativeSessionId}
+              hideBranch
+              onCopySessionId={() => {
+                if (nativeSessionId) {
+                  void navigator.clipboard.writeText(nativeSessionId);
+                  onShowToast?.("Chat ID copied", nativeSessionId, "info");
+                }
+              }}
+            />
+            {nativeMode && loading ? (
+              <button
+                className="btn chat-send-btn chat-stop-btn"
+                type="button"
+                title="Stop the agent and unlock the composer"
+                onClick={() => void handleStopNative()}
+              >
+                <Square size={13} />
+              </button>
+            ) : (
+              <button
+                className="btn btn-primary chat-send-btn"
+                type="button"
+                title="Send message"
+                disabled={sendDisabled}
+                onClick={() => void handleSend()}
+              >
+                <Send size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="chat-composer-meta">
+          <div className="chat-composer-meta-left">
+            {worktreePath ? (
+              <span title={`Worktree: ${worktreePath}`}>[worktree: {worktreePath.split("/").pop()}]</span>
+            ) : null}
+          </div>
+          <div className="chat-composer-meta-right">
+            {branch ? (
+              <span title={`Branch: ${branch}`}>{branch}</span>
+            ) : null}
+          </div>
         </div>
         {debugMode ? (
           <div className="chat-debug-panel" title="Raw event stream from the model and agent loop">

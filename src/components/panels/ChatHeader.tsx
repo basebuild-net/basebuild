@@ -71,6 +71,10 @@ type ChatHeaderProps = {
   projectPath: string;
   /** Chat session / run identifier. */
   sessionId?: string | null;
+  /** When true, branch/worktree are not rendered (rendered separately in composer meta row). */
+  hideBranch?: boolean;
+  /** Copy the chat session ID to clipboard. */
+  onCopySessionId?: () => void;
   onDragStart?: (e: React.MouseEvent) => void;
   onDragEnd?: () => void;
   onDragOver?: (e: React.DragEvent) => void;
@@ -251,7 +255,7 @@ export function ChatHeader(props: ChatHeaderProps) {
         ) : null}
       </div>
       <div className="chat-column-header-right">
-        {props.branch ? (
+        {props.branch && !props.hideBranch ? (
           <div className="chat-column-branch-group">
             {props.worktreePath ? (
               <span className="chat-column-worktree" title={`Worktree: ${props.worktreePath}`}>
@@ -320,6 +324,7 @@ export function ChatHeader(props: ChatHeaderProps) {
             onToggleDebug={() => { setMenuOpen(false); props.onToggleDebug(); }}
             canCopyConversation={props.canCopyConversation}
             onCopyConversation={() => { setMenuOpen(false); props.onCopyConversation(); }}
+            onCopySessionId={props.onCopySessionId ? () => { setMenuOpen(false); props.onCopySessionId?.(); } : undefined}
           />
         ) : null}
       </div>
@@ -406,13 +411,16 @@ function MoreActionsMenu(props: {
   onToggleDebug: () => void;
   canCopyConversation: boolean;
   onCopyConversation: () => void;
+  onCopySessionId?: () => void;
 }) {
   return (
     <div className="chat-more-menu" role="dialog" aria-label="Chat actions">
       <MenuItem icon={Pencil} label="Rename" title="Rename this chat" onClick={props.onRename} />
       <MenuItem icon={Sparkles} label="Assign plan" title="Assign a ready plan to this chat" onClick={props.onAssignPlan} />
-      <MenuItem icon={CopyIcon} label="Duplicate chat" title="Duplicate this chat's settings into a new column" onClick={props.onDuplicate} />
       <MenuItem icon={CopyIcon} label="Copy conversation" title="Copy the entire conversation as markdown" onClick={props.onCopyConversation} disabled={!props.canCopyConversation} />
+      {props.onCopySessionId ? (
+        <MenuItem icon={CopyIcon} label="Copy chat ID" title="Copy the chat session identifier to clipboard" onClick={props.onCopySessionId} />
+      ) : null}
       <MenuItem icon={Bug} label={props.debugMode ? "Hide debug events" : "Show debug events"} title={props.debugMode ? "Turn debug event rendering off" : "Show raw event data in tool cards"} onClick={props.onToggleDebug} />
       {props.prRecommendation ? (
         <MenuItem icon={GitPullRequest} label="Create pull request" title={`Open a PR for ${props.prRecommendation.branch} (${props.prRecommendation.changedFiles} files, +${props.prRecommendation.ahead}/-${props.prRecommendation.behind})`} onClick={props.onCreatePullRequest} />

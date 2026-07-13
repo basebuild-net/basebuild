@@ -105,7 +105,7 @@ test.describe("Chat composer (DESIGN.md §Chat composer)", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    await expect(page.locator(".chat-input-row").first()).toBeVisible();
+    await expect(page.locator(".chat-composer-box").first()).toBeVisible();
     await expect(page.locator(".chat-header-context").first()).toBeVisible({ timeout: 5_000 });
     await expect(page.locator(".chat-context-strip")).toHaveCount(0);
   });
