@@ -17,7 +17,7 @@ import {
   sourceLabel,
   tabComplete,
 } from "../../lib/chatCommands";
-import { ChatHeader, ChatTitleBar } from "./ChatHeader";
+import { ChatHeader, ChatTitleBar, BranchDropdown } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
 import { QuestionCard } from "./QuestionCard";
 import { MarkdownView } from "./MarkdownView";
@@ -28,6 +28,7 @@ import {
   ChevronUp,
   Copy,
   Edit2,
+  GitBranch as GitBranchIcon,
   FolderTree,
   Key,
   LayoutGrid,
@@ -87,6 +88,7 @@ import type { Idea } from "../../lib/ideas";
 import { inspectProjectSchematic, type SchematicReport } from "../../lib/schematic";
 import { schematicWizardAction } from "../../lib/planningActions";
 import { readSkill } from "../../lib/skills";
+import { renameSession as renameSessionApi } from "../../lib/sessions";
 import type { AgentMode } from "../../lib/sessions";
 import { readModelRecency, recordModelUse } from "../../lib/modelRecency";
 import { useLogs } from "../../state/log";
@@ -524,6 +526,10 @@ export function ChatPanel({
   branchRef.current = branch;
   const [branches, setBranches] = useState<GitBranch[]>([]);
   const [worktreePath, setWorktreePath] = useState<string | null>(null);
+  const [metaBranchOpen, setMetaBranchOpen] = useState(false);
+  const [metaNewBranch, setMetaNewBranch] = useState("");
+  const [metaCreatingBranch, setMetaCreatingBranch] = useState(false);
+  const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const [assignedPlanId, setAssignedPlanId] = useState<string | null>(null);
   const [planBadge, setPlanBadge] = useState<{ referenceId: string; title: string; status: string } | null>(null);
   const [agentMode, setAgentMode] = useState<AgentMode>("plan");
@@ -643,6 +649,16 @@ export function ChatPanel({
   useEffect(() => {
     setNativeSessionId(chatSessionId ?? null);
   }, [chatSessionId]);
+
+  // Load session title when the native session changes.
+  useEffect(() => {
+    if (!nativeSessionId) { setSessionTitle(null); return; }
+    let cancelled = false;
+    void nativeChatGet(nativeSessionId).then((s) => {
+      if (!cancelled && s) setSessionTitle(s.title);
+    });
+    return () => { cancelled = true; };
+  }, [nativeSessionId]);
 
   // Native mode: load or create session. Times out after 15s so the panel
   // never hangs forever in "initializing" — the user sees an actionable
@@ -1991,8 +2007,12 @@ export function ChatPanel({
   // ── Chat header handlers ──
   const handleRename = useCallback((title: string) => {
     setTitleLocked(true);
+    setSessionTitle(title);
+    if (nativeSessionId) {
+      void renameSessionApi(nativeSessionId, title);
+    }
     onRenameChat?.(title);
-  }, [onRenameChat]);
+  }, [onRenameChat, nativeSessionId]);
 
   const handleSwitchBranch = useCallback(async (name: string) => {
     if (!projectPath || !branch || name === branch) return;
@@ -2076,7 +2096,7 @@ export function ChatPanel({
         {streaming ? `Agent is responding${streamPhase === "tools" ? " — running tools" : streamPhase === "thinking" ? " — thinking" : ""}` : ""}
       </div>
       <ChatTitleBar
-        title={chatTitle ?? (nativeSessionId ? "Chat" : "New chat")}
+        title={chatTitle ?? sessionTitle ?? (nativeSessionId ? "Chat" : "New chat")}
         onRename={handleRename}
         titleLocked={titleLocked}
         renameSignal={renameSignal}
@@ -3231,7 +3251,29 @@ export function ChatPanel({
           </div>
           <div className="chat-composer-meta-right">
             {branch ? (
-              <span title={`Branch: ${branch}`}>{branch}</span>
+              <button
+                className="chat-composer-branch-btn"
+                type="button"
+                title={`Branch: ${branch}. Click to switch or create.`}
+                onClick={() => setMetaBranchOpen((v) => !v)}
+              >
+                <GitBranchIcon size={10} />
+                <span>{branch}</span>
+                <ChevronDown size={9} />
+              </button>
+            ) : null}
+            {metaBranchOpen ? (
+              <BranchDropdown
+                branches={branches}
+                current={branch ?? ""}
+                onPick={(name) => { setMetaBranchOpen(false); void handleSwitchBranch(name); }}
+                onCreate={() => { setMetaCreatingBranch(true); setMetaNewBranch(""); }}
+                creating={metaCreatingBranch}
+                newBranchName={metaNewBranch}
+                setNewBranchName={setMetaNewBranch}
+                onCreateBranch={() => { void handleCreateBranch(metaNewBranch.trim()); setMetaCreatingBranch(false); setMetaNewBranch(""); setMetaBranchOpen(false); }}
+                onCancelCreate={() => setMetaCreatingBranch(false)}
+              />
             ) : null}
           </div>
         </div>

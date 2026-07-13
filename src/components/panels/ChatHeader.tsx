@@ -340,7 +340,7 @@ export function ChatHeader(props: ChatHeaderProps) {
   );
 }
 
-function BranchDropdown(props: {
+export function BranchDropdown(props: {
   branches: GitBranchInfo[];
   current: string;
   onPick: (name: string) => void;

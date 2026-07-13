@@ -1314,11 +1314,11 @@ a { color: inherit; text-decoration: none; }
 /* Pending-question dock — flex-none slot between transcript and composer.
    Caps height and scrolls internally so a long question never buries the
    composer; the card keeps its own styling. */
-.chat-question-dock { flex: 0 0 auto; max-height: 45%; overflow-y: auto; border-top: 1px solid var(--bb-cta); background: var(--bb-bg); }
+.chat-question-dock { flex: 0 0 auto; max-height: 45%; overflow-y: auto; border-top: 1px solid var(--bb-border); background: var(--bb-bg); }
 .chat-message { padding: var(--bb-space-2) var(--bb-space-3); font-size: 12px; max-width: 85%; border-radius: var(--bb-radius-md); }
-.chat-message-user { background: var(--bb-surface); border-left: 2px solid var(--bb-border-strong); align-self: flex-end; }
+.chat-message-user { background: var(--bb-surface); align-self: flex-end; }
 .chat-message-assistant { background: var(--bb-surface-hover); align-self: flex-start; }
-.chat-message-reasoning { background: transparent; border-left: 2px solid var(--bb-border); opacity: 0.7; }
+.chat-message-reasoning { background: transparent; opacity: 0.7; }
 .chat-message-reasoning .chat-message-role { color: var(--bb-muted); }
 .chat-message-reasoning .chat-message-content { font-style: italic; color: var(--bb-muted); }
 .chat-message-system { background: transparent; color: var(--bb-muted); font-style: italic; align-self: center; font-size: 11px; }
@@ -1404,7 +1404,9 @@ a { color: inherit; text-decoration: none; }
 /* Branch/worktree row below composer box */
 .chat-composer-meta { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 0; font-size: 10px; color: var(--bb-muted); }
 .chat-composer-meta-left { display: flex; align-items: center; gap: 4px; }
-.chat-composer-meta-right { display: flex; align-items: center; gap: 4px; }
+.chat-composer-meta-right { display: flex; align-items: center; gap: 4px; position: relative; }
+.chat-composer-branch-btn { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; color: var(--bb-muted); background: none; border: 1px solid var(--bb-border); padding: 1px 6px; cursor: pointer; border-radius: var(--bb-radius-full); transition: border-color 0.08s, color 0.08s; }
+.chat-composer-branch-btn:hover { color: var(--bb-text); border-color: var(--bb-border-strong); }
 /* Keep old classes for backward compat */
 .chat-input-controls { display: flex; align-items: center; gap: var(--bb-space-1); flex-wrap: wrap; }
 .chat-input-row { display: flex; align-items: flex-end; gap: var(--bb-space-2); }
@@ -3400,7 +3402,7 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 /* ─── Chat UX overhaul (Worker B: ChatExperience) ─── */
 .chat-messages { scroll-padding-bottom: 12px; padding: 8px 16px 12px; }
 .chat-message { max-width: none; width: 100%; align-self: stretch; }
-.chat-message-user { background: var(--bb-surface); border-left: 2px solid var(--bb-border-strong); }
+.chat-message-user { background: var(--bb-surface); }
 .chat-message-assistant { background: transparent; }
 .chat-message-system { align-self: stretch; }
 .chat-message-role { display: flex; gap: 8px; align-items: baseline; }
