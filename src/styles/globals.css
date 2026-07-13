@@ -1369,6 +1369,15 @@ a { color: inherit; text-decoration: none; }
 /* When MarkdownView is inside .chat-message-content, override the pre-wrap from the base class */
 .chat-message-content.md-body { white-space: normal; }
 .chat-tool-events { display: flex; flex-direction: column; gap: 4px; padding: 0 4px; }
+.tool-card-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 2px 0; }
+.tool-card-grid .tool-card { margin: 0; }
+.tool-card-grid .tool-card-header { padding: 2px 6px; gap: 4px; }
+.tool-card-grid .tool-card-name { font-size: 9px; }
+.tool-card-grid .tool-card-arg-value { font-size: 9px; }
+.tool-card-grid .tool-card-status { font-size: 8px; }
+.tool-card-grid .tool-card-summary-truncated { display: none; }
+.tool-card-grid .tool-card-time { display: none; }
+@media (max-width: 600px) { .tool-card-grid { grid-template-columns: repeat(2, 1fr); } }
 .tool-card { border: 1px solid #1a1a1a; background: #000000; border-radius: 0; font-size: 11px; overflow: hidden; margin: 2px 0; font-family: var(--bb-mono, monospace); }
 .tool-card-error { border-color: var(--bb-danger); }
 .tool-card-running { border-color: var(--bb-cta); }
@@ -1598,12 +1607,17 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .tool-card-debug-label { font-size: 9px; font-weight: 600; text-transform: uppercase; color: #555; }
 .tool-card-debug-data { font-family: var(--bb-mono); font-size: 9px; white-space: pre-wrap; word-break: break-word; margin: 2px 0 0; max-height: 200px; overflow-y: auto; color: #666; }
 /* Tool type label colors — consistent per-kind */
-.tool-card-name.is-bash, .tool-card-name.is-command, .tool-card-name.is-run_command { color: #22c55e; }
-.tool-card-name.is-read, .tool-card-name.is-read_file, .tool-card-name.is-glob, .tool-card-name.is-grep { color: #38bdf8; }
-.tool-card-name.is-edit, .tool-card-name.is-edit_file, .tool-card-name.is-write, .tool-card-name.is-write_file { color: #f97316; }
-.tool-card-name.is-search, .tool-card-name.is-web_search, .tool-card-name.is-fetch { color: #8b5cf6; }
-.tool-card-name.is-approval, .tool-card-name.is-question { color: #f59e0b; }
-.tool-card-name.is-metrics, .tool-card-name.is-request_metrics { color: #ec4899; }
+.tool-card-name.is-bash, .tool-card-name.is-command, .tool-card-name.is-run_command, .tool-card-name.is-execute_bash { color: #22c55e; }
+.tool-card-name.is-read, .tool-card-name.is-read_file, .tool-card-name.is-glob, .tool-card-name.is-grep, .tool-card-name.is-list, .tool-card-name.is-ls { color: #38bdf8; }
+.tool-card-name.is-edit, .tool-card-name.is-edit_file, .tool-card-name.is-write, .tool-card-name.is-write_file, .tool-card-name.is-create_file, .tool-card-name.is-delete_file { color: #f97316; }
+.tool-card-name.is-search, .tool-card-name.is-web_search, .tool-card-name.is-fetch, .tool-card-name.is-web_fetch, .tool-card-name.is-browser { color: #8b5cf6; }
+.tool-card-name.is-approval, .tool-card-name.is-question, .tool-card-name.is-ask_user { color: #f59e0b; }
+.tool-card-name.is-metrics, .tool-card-name.is-request_metrics, .tool-card-name.is-usage { color: #ec4899; }
+.tool-card-name.is-plan, .tool-card-name.is-task, .tool-card-name.is-todo { color: #06b6d4; }
+.tool-card-name.is-git, .tool-card-name.is-git_status, .tool-card-name.is-git_diff, .tool-card-name.is-git_commit { color: #f43f5e; }
+.tool-card-name.is-skill, .tool-card-name.is-agent, .tool-card-name.is-delegate { color: #a78bfa; }
+.tool-card-name.is-test, .tool-card-name.is-test_run, .tool-card-name.is-build { color: #84cc16; }
+.tool-card-name.is-default { color: #94a3b8; }
 .tool-card-arg-value { font-family: var(--bb-mono); font-size: 10px; color: #888; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-card-arg-detail { margin-bottom: 4px; display: flex; gap: 4px; align-items: baseline; }
 .tool-card-arg-label { font-size: 9px; font-weight: 600; text-transform: uppercase; color: #555; flex-shrink: 0; }
@@ -1829,6 +1843,9 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .chat-branch-create { display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-top: 1px solid var(--bb-border); }
 .chat-branch-create-input { font-size: 11px; padding: 2px 4px; height: 20px; flex: 1; min-width: 0; }
 .chat-more-menu { position: absolute; top: 100%; right: 0; min-width: 180px; background: var(--bb-bg); border: 1px solid var(--bb-border); z-index: 100; box-shadow: var(--bb-shadow-lg); border-radius: var(--bb-radius-sm); }
+.chat-more-menu.is-above { top: auto; bottom: 100%; }
+.chat-branch-dropdown.is-above { top: auto; bottom: 100%; }
+.chat-switch-confirm.is-above { top: auto; bottom: 100%; }
 .chat-more-menu-item { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 11px; color: var(--bb-text); text-align: left; width: 100%; }
 .chat-more-menu-item:hover { background: var(--bb-surface-high); }
 .chat-more-menu-item.is-danger { color: var(--bb-danger); }

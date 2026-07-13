@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useDropdownPosition } from "../../state/useDropdownPosition";
 import {
   Bug,
   ChevronDown,
@@ -156,6 +157,8 @@ export function ChatHeader(props: ChatHeaderProps) {
   const [newBranchName, setNewBranchName] = useState("");
   const [creatingBranch, setCreatingBranch] = useState(false);
   const [switchTarget, setSwitchTarget] = useState<string | null>(null);
+  const menuPos = useDropdownPosition(300);
+  const branchPos = useDropdownPosition(200);
 
   function handleSwitch(name: string) {
     setBranchOpen(false);
@@ -262,10 +265,11 @@ export function ChatHeader(props: ChatHeaderProps) {
               </span>
             ) : null}
             <button
+              ref={branchPos.triggerRef}
               className="chat-column-branch"
               type="button"
               title={`Branch: ${props.branch}. Click to switch or create.`}
-              onClick={() => setBranchOpen((v) => !v)}
+              onClick={() => { branchPos.recompute(); setBranchOpen((v) => !v); }}
             >
               <GitBranch size={11} />
               <span className="chat-column-branch-name">{props.branch}</span>
@@ -282,6 +286,7 @@ export function ChatHeader(props: ChatHeaderProps) {
                 setNewBranchName={setNewBranchName}
                 onCreateBranch={handleCreateBranch}
                 onCancelCreate={() => setCreatingBranch(false)}
+                placement={branchPos.placement}
               />
             ) : null}
           </div>
@@ -303,15 +308,17 @@ export function ChatHeader(props: ChatHeaderProps) {
           <HistoryIcon />
         </button>
         <button
+          ref={menuPos.triggerRef}
           className="btn-icon btn-icon-sm"
           type="button"
           title="More actions"
-          onClick={() => setMenuOpen((v) => !v)}
+          onClick={() => { menuPos.recompute(); setMenuOpen((v) => !v); }}
         >
           <MoreHorizontal size={13} />
         </button>
         {menuOpen ? (
           <MoreActionsMenu
+            placement={menuPos.placement}
             onRename={() => { setMenuOpen(false); props.onRenameAction(); }}
             onAssignPlan={() => { setMenuOpen(false); props.onAssignPlan(); }}
             onDuplicate={() => { setMenuOpen(false); props.onDuplicateChat(); }}
@@ -350,9 +357,10 @@ export function BranchDropdown(props: {
   setNewBranchName: (v: string) => void;
   onCreateBranch: () => void;
   onCancelCreate: () => void;
+  placement?: "bottom" | "top";
 }) {
   return (
-    <div className="chat-branch-dropdown" role="dialog" aria-label="Switch branch">
+    <div className={`chat-branch-dropdown ${props.placement === "top" ? "is-above" : ""}`} role="dialog" aria-label="Switch branch">
       <div className="chat-branch-dropdown-list">
         {props.branches.map((b) => (
           <button
@@ -399,6 +407,7 @@ export function BranchDropdown(props: {
 }
 
 function MoreActionsMenu(props: {
+  placement?: "bottom" | "top";
   onRename: () => void;
   onAssignPlan: () => void;
   onDuplicate: () => void;
@@ -413,7 +422,7 @@ function MoreActionsMenu(props: {
   onCopySessionId?: () => void;
 }) {
   return (
-    <div className="chat-more-menu" role="dialog" aria-label="Chat actions">
+    <div className={`chat-more-menu ${props.placement === "top" ? "is-above" : ""}`} role="dialog" aria-label="Chat actions">
       <MenuItem icon={Pencil} label="Rename" title="Rename this chat" onClick={props.onRename} />
       <MenuItem icon={Sparkles} label="Assign plan" title="Assign a ready plan to this chat" onClick={props.onAssignPlan} />
       <MenuItem icon={CopyIcon} label="Copy conversation" title="Copy the entire conversation as markdown" onClick={props.onCopyConversation} disabled={!props.canCopyConversation} />

@@ -92,6 +92,7 @@ import { renameSession as renameSessionApi } from "../../lib/sessions";
 import type { AgentMode } from "../../lib/sessions";
 import { readModelRecency, recordModelUse } from "../../lib/modelRecency";
 import { useLogs } from "../../state/log";
+import { useDropdownPosition } from "../../state/useDropdownPosition";
 
 const SEND_TIMEOUT_MS = 45_000;
 const NATIVE_PROFILE_ID = "basebuild-native";
@@ -527,6 +528,7 @@ export function ChatPanel({
   const [branches, setBranches] = useState<GitBranch[]>([]);
   const [worktreePath, setWorktreePath] = useState<string | null>(null);
   const [metaBranchOpen, setMetaBranchOpen] = useState(false);
+  const metaBranchPos = useDropdownPosition(200);
   const [metaNewBranch, setMetaNewBranch] = useState("");
   const [metaCreatingBranch, setMetaCreatingBranch] = useState(false);
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
@@ -2155,13 +2157,14 @@ export function ChatPanel({
               }
 
 
-              // Render the flat chronological list — no grouping.
-              // Each tool event renders as its own row. Reasoning renders
-              // as a separate block before the message content.
+              // Render the flat chronological list — consecutive tool
+              // events are grouped into a compact grid.
               const rendered: React.ReactNode[] = [];
-              for (const ev of events) {
-                if (ev.kind === "tool") {
-                  // Each tool call is its own row — no grouping.
+              let toolBatch: Extract<(typeof events)[number], { kind: "tool" }>[] = [];
+              function flushToolBatch() {
+                if (toolBatch.length === 0) return;
+                if (toolBatch.length === 1) {
+                  const ev = toolBatch[0];
                   rendered.push(
                     <ToolEventCard
                       key={`tool-${ev.id}`}
@@ -2171,8 +2174,29 @@ export function ChatPanel({
                       onSetApprovalMode={handleSetApprovalMode}
                     />
                   );
+                } else {
+                  rendered.push(
+                    <div className="tool-card-grid" key={`grid-${toolBatch[0].id}`}>
+                      {toolBatch.map((ev) => (
+                        <ToolEventCard
+                          key={`tool-${ev.id}`}
+                          event={ev.event}
+                          debugMode={debugMode}
+                          onResolveApproval={ev.event.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined}
+                          onSetApprovalMode={handleSetApprovalMode}
+                        />
+                      ))}
+                    </div>
+                  );
+                }
+                toolBatch = [];
+              }
+              for (const ev of events) {
+                if (ev.kind === "tool") {
+                  toolBatch.push(ev);
                   continue;
                 }
+                flushToolBatch();
                 if (ev.kind === "interaction") {
                   // Pending questions render in the sticky dock above the
                   // composer (always visible); only answered/cancelled ones
@@ -2248,6 +2272,7 @@ export function ChatPanel({
                   </div>,
                 );
               }
+              flushToolBatch();
 
               // Loading row for streaming/thinking state.
               if (streaming) {
@@ -3252,10 +3277,11 @@ export function ChatPanel({
           <div className="chat-composer-meta-right">
             {branch ? (
               <button
+                ref={metaBranchPos.triggerRef}
                 className="chat-composer-branch-btn"
                 type="button"
                 title={`Branch: ${branch}. Click to switch or create.`}
-                onClick={() => setMetaBranchOpen((v) => !v)}
+                onClick={() => { metaBranchPos.recompute(); setMetaBranchOpen((v) => !v); }}
               >
                 <GitBranchIcon size={10} />
                 <span>{branch}</span>
@@ -3273,6 +3299,7 @@ export function ChatPanel({
                 setNewBranchName={setMetaNewBranch}
                 onCreateBranch={() => { void handleCreateBranch(metaNewBranch.trim()); setMetaCreatingBranch(false); setMetaNewBranch(""); setMetaBranchOpen(false); }}
                 onCancelCreate={() => setMetaCreatingBranch(false)}
+                placement={metaBranchPos.placement}
               />
             ) : null}
           </div>
