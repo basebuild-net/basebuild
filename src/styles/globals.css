@@ -1315,7 +1315,7 @@ a { color: inherit; text-decoration: none; }
    Caps height and scrolls internally so a long question never buries the
    composer; the card keeps its own styling. */
 .chat-question-dock { flex: 0 0 auto; max-height: 45%; overflow-y: auto; border-top: 1px solid var(--bb-border); background: var(--bb-bg); }
-.chat-message { padding: var(--bb-space-2) var(--bb-space-3); font-size: 12px; max-width: 85%; border-radius: var(--bb-radius-md); }
+.chat-message { padding: var(--bb-space-2) var(--bb-space-3); font-size: 12px; max-width: 85%; border-radius: 0; }
 .chat-message-user { background: var(--bb-surface); align-self: flex-end; }
 .chat-message-assistant { background: var(--bb-surface-hover); align-self: flex-start; }
 .chat-message-reasoning { background: transparent; opacity: 0.7; }
@@ -1384,7 +1384,7 @@ a { color: inherit; text-decoration: none; }
 .tool-card-header { display: flex; align-items: center; gap: 6px; padding: 3px 8px; cursor: pointer; user-select: none; background: #0a0a0a; }
 .tool-card-header:hover { background: #141414; }
 .tool-card-icon { font-size: 11px; line-height: 1; }
-.tool-card-name { font-weight: 600; font-size: 10px; text-transform: lowercase; font-family: var(--bb-mono, monospace); }
+.tool-card-name { font-weight: 600; font-size: 10px; text-transform: lowercase; font-family: var(--bb-mono, monospace); color: #94a3b8; }
 .tool-card-status { font-size: 9px; font-weight: 600; text-transform: uppercase; padding: 0 4px; font-family: var(--bb-mono, monospace); }
 .tool-card-status-success { color: var(--bb-success); }
 .tool-card-status-error { color: var(--bb-danger); }
@@ -1398,10 +1398,10 @@ a { color: inherit; text-decoration: none; }
 .chat-quick-replies { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 8px; }
 .chat-quick-reply-chip { font-size: 11px; color: var(--bb-text); border: 1px solid var(--bb-border); background: var(--bb-surface); padding: 3px 8px; cursor: pointer; border-radius: var(--bb-radius-full); transition: border-color 0.08s; }
 .chat-quick-reply-chip:hover { border-color: var(--bb-cta); color: var(--bb-cta); }
-.chat-input-area { display: flex; flex-direction: column; gap: 0; padding: var(--bb-space-2) 16px; border-top: 1px solid var(--bb-border); background: var(--bb-bg); flex-shrink: 0; min-height: 48px; }
+.chat-input-area { display: flex; flex-direction: column; gap: 0; padding: var(--bb-space-2) 16px; background: var(--bb-bg); flex-shrink: 0; min-height: 48px; }
 /* Composer box — single bordered rounded container */
 .chat-composer-box { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--bb-border); border-radius: var(--bb-radius-md); background: var(--bb-surface); overflow: visible; transition: border-color var(--bb-duration-fast) var(--bb-ease); }
-.chat-composer-box:focus-within { border-color: var(--bb-cta); }
+.chat-composer-box:focus-within { border-color: var(--bb-border-strong); }
 .chat-composer-textarea-wrap { padding: var(--bb-space-2) var(--bb-space-3); }
 .chat-input { flex: 1; resize: none; font-family: var(--bb-font); min-height: 42px; max-height: 360px; padding: 0; height: var(--chat-input-height, auto); border: 0; background: transparent; border-radius: 0; box-shadow: none !important; }
 .chat-input:focus { outline: none; }
@@ -1585,7 +1585,7 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .tool-card-header { display: flex; align-items: center; gap: 6px; padding: 3px 8px; cursor: pointer; user-select: none; background: #0a0a0a; }
 .tool-card-header:hover { background: #141414; }
 .tool-card-icon { font-size: 11px; line-height: 1; }
-.tool-card-name { font-weight: 600; font-size: 10px; text-transform: lowercase; font-family: var(--bb-mono, monospace); }
+.tool-card-name { font-weight: 600; font-size: 10px; text-transform: lowercase; font-family: var(--bb-mono, monospace); color: #94a3b8; }
 .tool-card-filepath { font-family: var(--bb-mono); font-size: 10px; color: #888; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-card-status { font-size: 9px; font-weight: 600; text-transform: uppercase; padding: 0 4px; font-family: var(--bb-mono, monospace); }
 .tool-card-status-running { color: var(--bb-cta); }
@@ -1606,17 +1606,33 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .tool-card-debug { margin-top: 6px; padding: 4px; border: 1px dashed #222; background: #000; }
 .tool-card-debug-label { font-size: 9px; font-weight: 600; text-transform: uppercase; color: #555; }
 .tool-card-debug-data { font-family: var(--bb-mono); font-size: 9px; white-space: pre-wrap; word-break: break-word; margin: 2px 0 0; max-height: 200px; overflow-y: auto; color: #666; }
-/* Tool type label colors — consistent per-kind */
-.tool-card-name.is-bash, .tool-card-name.is-command, .tool-card-name.is-run_command, .tool-card-name.is-execute_bash { color: #22c55e; }
-.tool-card-name.is-read, .tool-card-name.is-read_file, .tool-card-name.is-glob, .tool-card-name.is-grep, .tool-card-name.is-list, .tool-card-name.is-ls { color: #38bdf8; }
-.tool-card-name.is-edit, .tool-card-name.is-edit_file, .tool-card-name.is-write, .tool-card-name.is-write_file, .tool-card-name.is-create_file, .tool-card-name.is-delete_file { color: #f97316; }
-.tool-card-name.is-search, .tool-card-name.is-web_search, .tool-card-name.is-fetch, .tool-card-name.is-web_fetch, .tool-card-name.is-browser { color: #8b5cf6; }
-.tool-card-name.is-approval, .tool-card-name.is-question, .tool-card-name.is-ask_user { color: #f59e0b; }
-.tool-card-name.is-metrics, .tool-card-name.is-request_metrics, .tool-card-name.is-usage { color: #ec4899; }
-.tool-card-name.is-plan, .tool-card-name.is-task, .tool-card-name.is-todo { color: #06b6d4; }
-.tool-card-name.is-git, .tool-card-name.is-git_status, .tool-card-name.is-git_diff, .tool-card-name.is-git_commit { color: #f43f5e; }
-.tool-card-name.is-skill, .tool-card-name.is-agent, .tool-card-name.is-delegate { color: #a78bfa; }
-.tool-card-name.is-test, .tool-card-name.is-test_run, .tool-card-name.is-build { color: #84cc16; }
+/* Tool type label colors — consistent per-kind.
+   Component generates is-{kind} with underscores replaced by hyphens. */
+/* Reads/lookups — blue */
+.tool-card-name.is-read, .tool-card-name.is-read-file, .tool-card-name.is-glob, .tool-card-name.is-grep, .tool-card-name.is-list, .tool-card-name.is-ls, .tool-card-name.is-search, .tool-card-name.is-web-search, .tool-card-name.is-fetch, .tool-card-name.is-web-fetch, .tool-card-name.is-browser, .tool-card-name.is-goto-definition, .tool-card-name.is-references, .tool-card-name.is-hover, .tool-card-name.is-symbols, .tool-card-name.is-code-actions { color: #38bdf8; }
+/* Writes/edits — orange */
+.tool-card-name.is-edit, .tool-card-name.is-edit-file, .tool-card-name.is-write, .tool-card-name.is-write-file, .tool-card-name.is-create-file, .tool-card-name.is-delete-file, .tool-card-name.is-rename, .tool-card-name.is-move, .tool-card-name.is-apply, .tool-card-name.is-apply-edit, .tool-card-name.is-multi-edit, .tool-card-name.is-ast-edit, .tool-card-name.is-ast-grep { color: #f97316; }
+/* Run commands/scripts — green */
+.tool-card-name.is-bash, .tool-card-name.is-command, .tool-card-name.is-run-command, .tool-card-name.is-execute-bash, .tool-card-name.is-shell, .tool-card-name.is-exec, .tool-card-name.is-run, .tool-card-name.is-script, .tool-card-name.is-terminal, .tool-card-name.is-make, .tool-card-name.is-cargo, .tool-card-name.is-npm, .tool-card-name.is-pip, .tool-card-name.is-eval { color: #22c55e; }
+/* Approvals/questions — amber */
+.tool-card-name.is-approval, .tool-card-name.is-question, .tool-card-name.is-ask-user, .tool-card-name.is-confirm, .tool-card-name.is-permission { color: #f59e0b; }
+/* Metrics/usage — pink */
+.tool-card-name.is-metrics, .tool-card-name.is-request-metrics, .tool-card-name.is-usage, .tool-card-name.is-token-usage { color: #ec4899; }
+/* Plan/task/todo — cyan */
+.tool-card-name.is-plan, .tool-card-name.is-task, .tool-card-name.is-todo, .tool-card-name.is-todo-write, .tool-card-name.is-todo-read { color: #06b6d4; }
+/* Git — red */
+.tool-card-name.is-git, .tool-card-name.is-git-status, .tool-card-name.is-git-diff, .tool-card-name.is-git-commit, .tool-card-name.is-git-push, .tool-card-name.is-git-pull, .tool-card-name.is-git-branch, .tool-card-name.is-git-checkout, .tool-card-name.is-git-log { color: #f43f5e; }
+/* Skill/agent/delegate — violet */
+.tool-card-name.is-skill, .tool-card-name.is-agent, .tool-card-name.is-delegate, .tool-card-name.is-subagent, .tool-card-name.is-task-delegate { color: #a78bfa; }
+/* Test/build — lime */
+.tool-card-name.is-test, .tool-card-name.is-test-run, .tool-card-name.is-build, .tool-card-name.is-lint, .tool-card-name.is-check, .tool-card-name.is-typecheck, .tool-card-name.is-tsc, .tool-card-name.is-cargo-test, .tool-card-name.is-cargo-check { color: #84cc16; }
+/* Debug — rose */
+.tool-card-name.is-debug, .tool-card-name.is-debugger, .tool-card-name.is-breakpoint, .tool-card-name.is-stack-trace, .tool-card-name.is-variables, .tool-card-name.is-evaluate, .tool-card-name.is-disassemble { color: #fb7185; }
+/* Image/media — fuchsia */
+.tool-card-name.is-image, .tool-card-name.is-generate-image, .tool-card-name.is-screenshot, .tool-card-name.is-capture { color: #d946ef; }
+/* MCP/browser — indigo */
+.tool-card-name.is-mcp, .tool-card-name.is-mcp-tool, .tool-card-name.is-browser, .tool-card-name.is-navigate, .tool-card-name.is-click, .tool-card-name.is-fill, .tool-card-name.is-observe { color: #6366f1; }
+/* Default fallback — slate */
 .tool-card-name.is-default { color: #94a3b8; }
 .tool-card-arg-value { font-family: var(--bb-mono); font-size: 10px; color: #888; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-card-arg-detail { margin-bottom: 4px; display: flex; gap: 4px; align-items: baseline; }
