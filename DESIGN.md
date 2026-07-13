@@ -175,10 +175,11 @@ vibrant semantic colors for status/tool types, and square geometry** - but
 adapted for a dense, compact, instrument-like workspace. Colors are tokenized
 as CSS variables in `globals.css` so themes can be swapped in the future.
 
-The single orange accent (`#ff5606`) remains the primary CTA color, but
-plan statuses, tool call types, and context meters use vibrant semantic
-colors (green, blue, purple, amber, red) to make state visible at a glance.
-Color never acts alone — every state has a word and icon alongside it.
+The CTA accent is a light foreground tone (`#f4f4f5`), keeping the canvas
+monochrome while plan statuses, tool call types, and context meters use
+vibrant semantic colors (green, blue, purple, amber, red) to make state
+visible at a glance. Color never acts alone — every state has a word and
+icon alongside it.
 
 This is a desktop tool, not a marketing site. The UI is **extremely compact**:
 minimal padding, no wasted whitespace between elements, no large empty regions.
@@ -204,9 +205,9 @@ collapsible to icon-only) and the center chat surface (fills the rest).
      the older chats for that project. Pinned chats sit in their own section at
      the top of the list (across all projects) and do not count against the 5.
   3. **Bottom account row** — username / avatar and settings. The global update
-     indicator sits here too; when an update is detected it becomes a compact
-     blue (`#2563eb`) one-click install button beside the avatar. This is the
-     only non-orange CTA and is reserved for app updates.
+  indicator sits here too; when an update is detected it becomes a compact
+  one-click install button beside the avatar. This is the only non-CTA
+  button and is reserved for app updates.
 
   Collapsing the column to icon-only hides the list and labels; tooltips carry
   the full text.
@@ -270,7 +271,7 @@ of being repeated above and below the input.
   Commands have one header icon. Copy/debug/history and other rare actions live
   in the header menu or slash-command flows.
 - **Focused surface.** Focusing the textarea outlines the complete composer
-  area in orange so keyboard focus is unambiguous.
+  area in the CTA accent so keyboard focus is unambiguous.
 - **Pinned, never clipped.** The composer stays at the bottom of the chat panel
   at any window size; the conversation scrolls, the composer does not.
 - **Follow latest by default.** New turns and streamed output remain visible
@@ -311,7 +312,7 @@ model/project badges do not render.
 ### Selection controls
 
 Fixed, roomy settings choices use a **square option list**: a bordered row of
-buttons where the active option has an orange underline, `aria-pressed`, and a
+buttons where the active option has a CTA underline, `aria-pressed`, and a
 tooltip. Exception: the dense chat header uses square native dropdowns for
 effort and permission mode so all configuration fits on one 28px rail without
 duplicating controls in the composer. These dropdowns retain 0px geometry,
@@ -345,8 +346,8 @@ Color never acts alone — every state has text/icon redundancy:
 - **Warning** — amber (`#facc15`). Modified files, behind count, setup-required
   providers, stale schematic.
 - **Error** — red (`#f87171`). Destructive actions, failed runs, deleted files.
-- **Active selection** — orange (`#ff5606`). Selected provider card, active
-  project, current tab.
+- **Active selection** — foreground CTA (`#f4f4f5`). Selected provider card,
+  active project, current tab.
 
 ### Loading and errors
 
@@ -363,20 +364,21 @@ label.
 
 ## Colors
 
-Same two-tone + orange system as the web:
+Monochrome canvas with vibrant semantic accents for status and tool types:
 
-- **Background (#000000):** Pure black canvas. Sidebar, rail, workspace all share it.
-- **Surface ramp:** `#0a0a0a` (hover) → `#141414` (active/selected) → `#1c1c1c` (highest).
-- **On-surface (#ffffff):** Pure white primary text.
-- **Muted (rgba(255,255,255,0.55)):** Secondary text, labels, inactive icons.
-- **Outline (#1c1c1c) / outline-strong (#2a2a2a):** 1px hairlines for borders.
-- **CTA (#ff5606 → #ff7a3d hover):** Orange accent. Active tool bar, primary
+- **Background (#09090b):** Near-black canvas. Sidebar, rail, workspace all share it.
+- **Surface ramp:** transparent → `rgba(255,255,255,0.045)` (hover) → `rgba(255,255,255,0.07)` (highest).
+- **On-surface (#f4f4f5):** Primary text.
+- **Muted (#b4b4bb):** Secondary text, labels, inactive icons.
+- **Outline (#27272a) / outline-strong (#3f3f46):** 1px hairlines for borders.
+- **CTA (#f4f4f5 → #d4d4d8 hover):** Foreground accent. Active tool bar, primary
   buttons, active project icon, commit dots.
 - **Positive (#4ade80):** Success, staged files, ahead count.
 - **Negative (#f87171):** Destructive actions, deleted files, errors.
 - **Warning (#facc15):** Modified files, behind count.
 - **Info (#818cf8):** Untracked files, renamed files.
-- **Update blue (#2563eb → #3b82f6 hover):** App update availability and
+- **Context meter:** healthy `#4ade80`, warn `#f59e0b`, critical `#f87171`.
+- **Update (#f4f4f5 → #d4d4d8 hover):** App update availability and
   one-click install CTA only.
 
 ## Typography
@@ -394,8 +396,7 @@ all square-cornered. This is non-negotiable.
 
 Every interactive element has a hover state:
 - **Buttons:** Background lifts to `--bb-surface`, border to `--bb-border-strong`.
-- **List items:** Background lifts to `--bb-surface`.
-- **Active items:** Background lifts to `--bb-surface-high`, plus orange indicator bar.
+- **Active items:** Background lifts to `--bb-surface-high`, plus CTA indicator bar.
 - **Transitions:** 0.08s for snappy, responsive feel.
 
 ## Density Rules
@@ -412,7 +413,7 @@ Every interactive element has a hover state:
 New surfaces added by the `planning-cockpit` change:
 
 - **Command strip** — session header row with 5 stage icons + counts. Status
-  colors: active = CTA orange pulse, empty = muted, ok = positive green.
+  colors: active = CTA pulse, empty = muted, ok = positive green.
   Collapses to a badge; 0px radius on all elements.
 - **Destination picker** — managed modal dialog listing open chat panels +
   "New conversation". Uses the standard `.modal-overlay` / `.modal` pattern.
@@ -425,7 +426,7 @@ New surfaces added by the `planning-cockpit` change:
 - **Confirm dialog** — managed modal replacing `window.confirm`. Destructive
   variant uses negative red border.
 - **Quick-reply chips** — small clickable buttons below assistant messages
-  with enumerated options. 0px radius, CTA orange on hover.
+  with enumerated options. 0px radius, CTA accent on hover.
 - **Wide layouts** — container queries at ≥1100px switch planning and
   source surfaces to master–detail row layout; stacked below.
 
