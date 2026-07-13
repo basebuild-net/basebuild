@@ -954,6 +954,12 @@ impl StorageService {
             "UPDATE native_chat_sessions SET run_state = 'interrupted' WHERE run_state = 'running'",
             [],
         );
+        // Migration: rename default "Native Chat" titles to "New Chat" so
+        // the sidebar shows a cleaner name for existing sessions.
+        let _ = connection.execute(
+            "UPDATE native_chat_sessions SET title = 'New Chat' WHERE title = 'Native Chat'",
+            [],
+        );
 
         // Migration (idea-to-merge-autopilot): add finish_outcome to plan_runs
         // so the applied finish policy is persisted once at completion and

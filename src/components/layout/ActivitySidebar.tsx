@@ -138,38 +138,49 @@ export function ActivitySidebar({
 
   // Fetch chats OPEN in each non-active project's saved workspace grid —
   // never the full session history. Mirrors what the active project shows
-  // (its open panels), just unloaded.
+  // (its open panels), just unloaded. Polls every 5s so run state stays
+  // live while chats in other projects continue running in the background.
   useEffect(() => {
     let cancelled = false;
-    const otherProjects = projects.filter((p) => p.path !== activeProjectPath);
-    if (otherProjects.length === 0) return;
-    void Promise.all(
-      otherProjects.map(async (p) => {
-        try {
-          const [restore, sessions] = await Promise.all([
-            getWorkspaceRestoreState(p.path),
-            nativeChatList(p.path),
-          ]);
-          const grid = parsePanelGrid(restore.panelGrid);
-          const openChatIds = new Set(
-            flattenPanels(grid.root)
-              .filter((panel) => panel.type === "chat" && panel.chatSessionId)
-              .map((panel) => panel.chatSessionId as string),
-          );
-          return [p.path, sessions.filter((s) => openChatIds.has(s.id))] as [string, NativeChatSession[]];
-        } catch {
-          return [p.path, []] as [string, NativeChatSession[]];
-        }
-      }),
-    ).then((entries) => {
+    let timer: number | undefined;
+    async function fetchOtherChats() {
+      const otherProjects = projects.filter((p) => p.path !== activeProjectPath);
+      if (otherProjects.length === 0) {
+        setOtherProjectChats(new Map());
+        return;
+      }
+      const entries = await Promise.all(
+        otherProjects.map(async (p) => {
+          try {
+            const [restore, sessions] = await Promise.all([
+              getWorkspaceRestoreState(p.path),
+              nativeChatList(p.path),
+            ]);
+            const grid = parsePanelGrid(restore.panelGrid);
+            const openChatIds = new Set(
+              flattenPanels(grid.root)
+                .filter((panel) => panel.type === "chat" && panel.chatSessionId)
+                .map((panel) => panel.chatSessionId as string),
+            );
+            return [p.path, sessions.filter((s) => openChatIds.has(s.id))] as [string, NativeChatSession[]];
+          } catch {
+            return [p.path, []] as [string, NativeChatSession[]];
+          }
+        }),
+      );
       if (cancelled) return;
       const map = new Map<string, NativeChatSession[]>();
       for (const [path, sessions] of entries) {
         map.set(path, sessions);
       }
       setOtherProjectChats(map);
-    });
-    return () => { cancelled = true; };
+    }
+    void fetchOtherChats();
+    timer = window.setInterval(() => void fetchOtherChats(), 5000);
+    return () => {
+      cancelled = true;
+      if (timer) window.clearInterval(timer);
+    };
   }, [projects, activeProjectPath]);
 
   // Tick a clock every 15s so relative times refresh.
@@ -345,6 +356,9 @@ export function ActivitySidebar({
                           >
                             <MessageSquare size={10} className="activity-sidebar-row-icon" />
                             <span className="activity-sidebar-project-chat-title">{session.title}</span>
+                            {session.runState === "running" ? (
+                              <span className="activity-sidebar-project-chat-running" title="Chat is running" />
+                            ) : null}
                             <span className="activity-sidebar-project-chat-time">{formatRelativeTime(session.updatedAt)}</span>
                           </div>
                         );

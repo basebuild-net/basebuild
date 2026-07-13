@@ -2948,6 +2948,7 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .activity-sidebar-project-chat:hover { color: var(--bb-text); }
 .activity-sidebar-project-chat-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .activity-sidebar-project-chat-time { flex-shrink: 0; font-size: 9px; color: var(--bb-muted); font-family: var(--bb-mono); }
+.activity-sidebar-project-chat-running { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: var(--bb-cta); animation: bb-pulse 1.2s ease-in-out infinite; }
 /* ─── Agent status indicators ─── */
 .agent-status-dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 0; }
 .agent-status-running { background: var(--bb-cta); animation: bb-pulse 1.2s ease-in-out infinite; }
