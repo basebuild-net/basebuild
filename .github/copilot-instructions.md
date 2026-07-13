@@ -67,7 +67,7 @@ DESIGN.md            # Visual design contract (visual/non-technical only)
 ## Key conventions
 
 - One stylesheet only: `src/styles/globals.css`. No CSS modules, no inline styles.
-- 0px border radius. No exceptions.
+- Restrained border radius via tokens: `var(--bb-radius-sm)` (6px controls/inputs), `var(--bb-radius-md)` (10px cards/modals), `var(--bb-radius-lg)` (14px composer), `var(--bb-radius-full)` (circular). No hardcoded radius values.
 - Tooltips on every interactive element (`title=`).
 - `type` over `interface` for sidecar object shapes.
 - Lib files are thin Tauri invoke wrappers only — no React state logic.

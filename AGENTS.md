@@ -44,7 +44,7 @@ Non-negotiable and enforced in review. Rationale and how-to in
 [`docs/agents/workflow.md`](./docs/agents/workflow.md).
 
 1. **One stylesheet** — `src/styles/globals.css` only. No CSS modules, no inline styles.
-2. **0px border radius.** No exceptions.
+2. **Restrained border radius via tokens.** Use `var(--bb-radius-sm)` (6px) for controls/inputs/badges, `var(--bb-radius-md)` (10px) for cards/popovers/modals, `var(--bb-radius-lg)` (14px) for composer/major floating surfaces, `var(--bb-radius-full)` for circular elements (dots, pills, icon buttons). No hardcoded radius values — tokens only. The `check-ui-invariants` script enforces this.
 3. **Tooltips (`title=`) on every interactive element.** Blue (`#2563eb`) is reserved for app-update CTAs.
 4. **Local-first.** No data-uploading network calls unless explicitly specified.
 5. **No silent side effects.** Ask before destructive actions, commits, PRs, or installs.
@@ -65,6 +65,6 @@ Non-negotiable and enforced in review. Rationale and how-to in
 
 Run the full checklist in
 [`docs/agents/workflow.md`](./docs/agents/workflow.md#before-you-yield): checks
-actually run and passing, tooltips / 0px / styles-in-`globals.css`, behavior
+actually run and passing, tooltips / radius-tokens / styles-in-`globals.css`, behavior
 docs updated, local `openspec/` state ignored by Git, work on a feature branch
 with no silent commits.

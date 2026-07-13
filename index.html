@@ -10,6 +10,28 @@
       rel="stylesheet"
     />
     <title>Basebuild</title>
+    <script>
+      // Pre-React theme bootstrap: read localStorage, validate against an
+      // exact allowlist, and set the root theme attribute + color-scheme
+      // before the shell paints. Only "dark" and "light" are accepted;
+      // missing, malformed, or unsupported values fall back to "dark".
+      // The value is never interpolated into HTML, selectors, or URLs.
+      (function () {
+        var theme = "dark";
+        try {
+          var stored = localStorage.getItem("basebuild.theme");
+          if (stored === "dark" || stored === "light") theme = stored;
+        } catch (e) {
+          // Storage access may throw (private mode, security policy).
+          // Fall back to dark without crashing startup.
+        }
+        var root = document.documentElement;
+        root.dataset.bbTheme = theme;
+        root.style.colorScheme = theme;
+        // Suppress transitions during startup to prevent theme flash.
+        root.classList.add("bb-suppress-transitions");
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

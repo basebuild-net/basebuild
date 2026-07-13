@@ -5,21 +5,27 @@ change. This document links to it and adds agent-specific rules.
 
 ## Core principles
 
-- **Dark canvas** (`--bb-bg`), white text (`--bb-text`), orange CTA accent
-  (`--bb-cta`). Plan statuses, tool call types, and context meters use vibrant
-  semantic CSS-variable colors (green, blue, purple, amber, red). Color never
-  acts alone — every state has a word and icon. Exception: app update install
-  CTAs use blue (`#2563eb`) so releases are visually distinct from normal actions.
-- **0px border radius everywhere.** No exceptions.
+- **Theme system** (`data-bb-theme="dark|light"`): graphite-grey Dark (default)
+  `--bb-bg` / white text / orange CTA accent, or soft-neutral Light. Persisted
+  locally, applied before React paints via `index.html` bootstrap. Theme storage
+  is untrusted — `parseTheme()` exact-allowlists to `dark | light` before
+  applying. Token contract is extend-only for future themes.
+- **Restrained border radius via tokens.** `--bb-radius-sm` (6px) for
+  controls/inputs/badges, `--bb-radius-md` (10px) for cards/popovers/modals,
+  `--bb-radius-lg` (14px) for composer/major floating surfaces,
+  `--bb-radius-full` for circular elements (dots, pills, icon buttons). No
+  hardcoded radius values — tokens only.
 - **No decorative borders.** Layer on whitespace, hover lifts, and uppercase
   typography.
 - **Fonts:** Space Grotesk (UI), JetBrains Mono (numbers, paths, code, terminal).
-- **Compact and dense.** Minimal padding, no wasted space.
+- **Disciplined spacing.** 4px-based scale (`--bb-space-xs` through
+  `--bb-space-xl`) with more whitespace than the old dense contract. Compact
+  but not cramped.
 - **Tooltips on every interactive element** (`title` attribute). Verify with
   `title=`, not just `aria-label`.
 - **CSS variables only.** All colors, sizes, and scales are tokenized in
-  `globals.css` `:root` so themes can be swapped in the future. No hardcoded
-  color values in component files.
+  `globals.css` `:root` and theme blocks. No hardcoded color values in
+  component files.
 - **Panel-grid and chat-header patterns use Basebuild-owned split-tree and
   context-header primitives.** If external code is vendored in the future, add
   it as an explicit module with license notice; do not leave ad-hoc source
@@ -70,7 +76,7 @@ Current classes include `.btn`, `.btn-primary`, `.btn-update`, `.btn-ghost`,
 
 Ported from the [dream IDE](https://github.com/dreamide/dream) (MIT) — the
 split-tree layout logic and visual structure are ported into basebuild's
-`globals.css`-only stack (0px radius, no Radix, no CSS modules, no
+`globals.css`-only stack (radius tokens, no Radix, no CSS modules, no
 UI-primitive library). Only the math/structure is ported; dream's
 dependencies are NOT adopted.
 
@@ -224,11 +230,11 @@ below the plan list. It contains:
 - Enqueue buttons for ready plans (`.plan-queue-enqueue-btn`).
 - A queue list (`.plan-queue-list`) with per-entry status
   (`.plan-queue-run-status-*` classes for running/succeeded/failed/cancelled).
-  All interactive elements have `title=` tooltips and 0px radius.
+  All interactive elements have `title=` tooltips and radius tokens.
 
 Settings → Final Touches tab uses `.final-touch-list`, `.final-touch-step`,
 `.final-touch-toggle`, and `.final-touch-add` classes. All inputs, selects,
-and buttons use 0px radius and `var(--bb-surface)` backgrounds.
+and buttons use radius tokens and `var(--bb-surface)` backgrounds.
 
 ## Semantic visual states
 
@@ -294,7 +300,7 @@ Every UI change requires a screenshot. See
 
 ## Markdown rendering classes
 
-- `.md-code-block`: fenced code block container (0px radius, mono font).
+- `.md-code-block`: fenced code block container (radius tokens, mono font).
 - `.md-code-copy`: copy button in code block header.
 - `.md-inline-code`: inline code styling.
 - `.md-table`: markdown table rendering.

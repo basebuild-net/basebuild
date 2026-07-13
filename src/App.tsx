@@ -17,6 +17,18 @@ export default function App() {
       .catch(() => setLaunchMode("foreground"));
   }, []);
 
+  // Remove the startup transition suppression class once React has mounted
+  // and the shell is ready to paint. The bootstrap script in index.html
+  // adds this class to prevent theme flash during initial load.
+  useEffect(() => {
+    const root = document.documentElement;
+    // Use a microtask to ensure one paint cycle has occurred.
+    const timer = setTimeout(() => {
+      root.classList.remove("bb-suppress-transitions");
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
   const handleSplashComplete = useCallback(() => {
     setSplashDone(true);
   }, []);
