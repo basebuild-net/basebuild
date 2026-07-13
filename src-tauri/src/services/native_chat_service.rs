@@ -418,7 +418,7 @@ impl NativeChatService {
         let session = NativeChatSession {
             id: gen_id("nchat"),
             project_path: request.project_path,
-            title: request.title.unwrap_or_else(|| "Native Chat".to_string()),
+            title: request.title.unwrap_or_else(|| "New Chat".to_string()),
             profile_id: NATIVE_PROFILE_ID.to_string(),
             provider_id,
             model_id,

@@ -677,7 +677,7 @@ export function ChatPanel({
         const session = await Promise.race([
           nativeChatStart({
             projectPath,
-            title: "Native Chat",
+            title: "New Chat",
             providerId,
             modelId,
             effortLevel,
