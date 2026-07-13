@@ -5,7 +5,6 @@ import {
   Command,
   GitBranch,
   GitPullRequest,
-  Gauge,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -505,18 +504,19 @@ function TrashIcon({ size = 11 }: { size?: number }) {
 
 function ContextIndicator({ used, limit }: { used: number; limit: number | null }) {
   const percentage = limit && limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
-  const circumference = 31.42;
+  const r = 7;
+  const circumference = 2 * Math.PI * r;
   const filled = circumference * percentage / 100;
   const ratio = limit && limit > 0
     ? `${used.toLocaleString()} / ${limit.toLocaleString()} tokens (${percentage}%)`
     : `${used.toLocaleString()} tokens; model context limit unavailable`;
   return (
     <span className={`chat-header-context is-${percentage >= 85 ? "critical" : percentage >= 60 ? "warning" : "healthy"}`} title={`Context usage: ${ratio}`}>
-      <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden="true">
-        <circle className="chat-header-context-track" cx="6" cy="6" r="5" />
-        <circle className="chat-header-context-value" cx="6" cy="6" r="5" strokeDasharray={`${filled} ${circumference - filled}`} />
+      <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+        <circle className="chat-header-context-track" cx="10" cy="10" r={r} />
+        <circle className="chat-header-context-value" cx="10" cy="10" r={r} strokeDasharray={`${filled} ${circumference - filled}`} />
       </svg>
-      <Gauge className="chat-header-context-gauge" size={8} />
+      <span className="chat-header-context-pct">{percentage}</span>
     </span>
   );
 }
