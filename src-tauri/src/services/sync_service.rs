@@ -8,7 +8,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::events::{AUTH_CHANGED, USAGE_SYNC_STATUS};
 use crate::models::usage_envelope::{
-    build_envelope, sanitize_row, SourceKind, UsageBatch, UsageEnvelope, ENVELOPE_VERSION,
+    build_envelope, sanitize_row, SourceKind, UsageBatch, ENVELOPE_VERSION,
 };
 use crate::models::usage_sync::{
     AutoSyncStatus, LiveUsage, LiveUsageRow, PlanSummaries, PlanSummary, PlanTimeline,
@@ -838,6 +838,7 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
     };
     if !should_push {
         eprintln!("[SYNC] should_push=false — aborting");
+        SYNC_IN_FLIGHT.store(false, Ordering::SeqCst);
         return;
     }
     eprintln!("[SYNC] launching sync thread…");
