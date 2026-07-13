@@ -958,7 +958,7 @@ impl StorageService {
         // a real title derived from each session's first user message.
         // Sessions without messages keep the placeholder until the first
         // message is sent, which triggers auto_title_native.
-        let _ = crate::services::native_chat_service::NativeChatService::backfill_default_titles();
+        let _ = crate::services::native_chat_service::NativeChatService::backfill_default_titles(connection);
 
         // Migration (idea-to-merge-autopilot): add finish_outcome to plan_runs
         // so the applied finish policy is persisted once at completion and

@@ -3,6 +3,7 @@ import { usePromptDelivery } from "../../lib/promptDelivery";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { markStart, markEnd, formatRelativeTime } from "../../lib/timing";
 import { usePanelStatusPublisher, type PanelStatus } from "./PanelStatusContext";
+import { LogoPulse } from "../layout/LogoPulse";
 import { CommandPalette } from "./CommandPalette";
 import {
   BUILTIN_COMMANDS,
@@ -2319,7 +2320,7 @@ export function ChatPanel({
                   : `Executing: ${toolNames} (${activeTools.length} running, ${completedTools.length} done). Elapsed: ${formatElapsed(elapsed)}.`
               }
             >
-              <span className="chat-loading-spinner" />
+              <LogoPulse size={14} className="chat-loading-spinner" />
               <span className="chat-loading-label">
                 {isWaitingApproval
                   ? `Waiting for approval: ${pendingTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")}…`

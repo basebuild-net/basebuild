@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { appVersion } from "../../lib/app";
+import { LogoPulse } from "./LogoPulse";
 
 export type RestorePhase = "starting" | "detecting" | "restoring" | "resolving" | "ready";
 
@@ -42,7 +43,7 @@ export function WorkspaceSplash({ phase, onDismissed }: WorkspaceSplashProps) {
       <div className="splash-card">
         <div className="splash-brand">BASEBUILD</div>
         <div className="splash-version mono">v{version || "0.0.0"}</div>
-        <span className="is-spinning splash-spinner" aria-hidden="true" />
+        <LogoPulse size={28} className="splash-spinner" />
         <div className="splash-status">{PHASE_LABELS[phase]}</div>
       </div>
     </div>

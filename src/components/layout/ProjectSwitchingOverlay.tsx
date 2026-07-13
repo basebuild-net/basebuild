@@ -1,3 +1,5 @@
+import { LogoPulse } from "./LogoPulse";
+
 type ProjectSwitchingOverlayProps = {
   projectName: string;
 };
@@ -5,7 +7,7 @@ type ProjectSwitchingOverlayProps = {
 export function ProjectSwitchingOverlay({ projectName }: ProjectSwitchingOverlayProps) {
   return (
     <div className="project-switching-overlay" role="status" aria-live="polite">
-      <span className="is-spinning project-switching-spinner" aria-hidden="true" />
+      <LogoPulse size={28} />
       <span className="project-switching-label">Loading {projectName}…</span>
     </div>
   );

@@ -1670,6 +1670,19 @@ impl NativeChatService {
             return Ok(false);
         }
         let conn = StorageService::connect()?;
+        Self::auto_title_native_with_conn(&conn, session_id, suggested)
+    }
+
+    /// Connection-receiving variant for callers that already hold a
+    /// `Connection` — notably `backfill_default_titles`, which runs inside
+    /// `StorageService::initialize()` while `INITIALIZED_DBS` is locked.
+    /// Calling `StorageService::connect()` there would re-enter the lock and
+    /// deadlock (parking_lot::Mutex is not reentrant).
+    fn auto_title_native_with_conn(
+        conn: &Connection,
+        session_id: &str,
+        suggested: &str,
+    ) -> DbResult<bool> {
         let current: Option<String> = conn
             .query_row(
                 "SELECT title FROM native_chat_sessions WHERE id = ?1",
@@ -1696,8 +1709,7 @@ impl NativeChatService {
     /// Backfill titles for existing native chat sessions that still have a
     /// default placeholder title. Reads the first user message for each
     /// session and generates a title from it. Called during initialization.
-    pub fn backfill_default_titles() -> DbResult<()> {
-        let conn = StorageService::connect()?;
+    pub fn backfill_default_titles(conn: &Connection) -> DbResult<()> {
         let session_ids: Vec<(String, String)> = conn
             .prepare(
                 "SELECT s.id, COALESCE((
@@ -1715,7 +1727,7 @@ impl NativeChatService {
             .collect();
         for (session_id, first_msg) in session_ids {
             if !first_msg.is_empty() {
-                let _ = Self::auto_title_native(&session_id, &first_msg);
+                let _ = Self::auto_title_native_with_conn(conn, &session_id, &first_msg);
             }
         }
         Ok(())
