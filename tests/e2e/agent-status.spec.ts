@@ -23,7 +23,7 @@ test.describe("Agent status indicators", () => {
     await expect(page.locator(".workspace-splash")).not.toBeVisible({ timeout: 10_000 });
 
     // The active project header has a status dot.
-    const activeDot = page.locator(".activity-sidebar-project .agent-status-dot").first();
+    const activeDot = page.locator(".activity-sidebar-project-row.is-active .agent-status-dot").first();
     await expect(activeDot).toBeVisible({ timeout: 5_000 });
 
     // With panels present (fixture has tabs/sessions), the active project
@@ -32,7 +32,7 @@ test.describe("Agent status indicators", () => {
     expect(dotClass).toMatch(/agent-status-(standby|running|questioning|idle)/);
 
     // Other project rows show idle status dots.
-    const otherDots = page.locator(".activity-sidebar-project-row .agent-status-dot");
+    const otherDots = page.locator(".activity-sidebar-project-row:not(.is-active) .agent-status-dot");
     const count = await otherDots.count();
     expect(count).toBeGreaterThanOrEqual(2);
     for (let i = 0; i < count; i++) {
@@ -46,7 +46,7 @@ test.describe("Agent status indicators", () => {
     await waitForAppReady(page);
     await expect(page.locator(".workspace-splash")).not.toBeVisible({ timeout: 10_000 });
 
-    const activeDot = page.locator(".activity-sidebar-project .agent-status-dot").first();
+    const activeDot = page.locator(".activity-sidebar-project-row.is-active .agent-status-dot").first();
     await expect(activeDot).toBeVisible({ timeout: 5_000 });
     await expect(activeDot).toHaveAttribute("title", /Agent: (running|standby|questioning|idle)/);
   });
@@ -57,11 +57,11 @@ test.describe("Agent status indicators", () => {
     await ensureChatPanel(page);
 
     // Deterministic local provider (mock streams over ~2s).
-    await page.locator(".chat-provider-trigger").click();
+    await page.locator(".chat-column-model-chip").click();
     await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
     await page.getByTitle("Close provider and model catalog").click();
 
-    const activeDot = page.locator(".activity-sidebar-project .agent-status-dot").first();
+    const activeDot = page.locator(".activity-sidebar-project-row.is-active .agent-status-dot").first();
     await expect(activeDot).toBeVisible({ timeout: 5_000 });
 
     await page.getByTitle(/Chat input/).first().fill("stream-test");
@@ -81,7 +81,7 @@ test.describe("Agent status indicators", () => {
     await ensureChatPanel(page);
     const sessionId = await getNativeSessionId(page);
 
-    const activeDot = page.locator(".activity-sidebar-project .agent-status-dot").first();
+    const activeDot = page.locator(".activity-sidebar-project-row.is-active .agent-status-dot").first();
     await expect(activeDot).toBeVisible({ timeout: 5_000 });
 
     // Inject a pending ask_user interaction.

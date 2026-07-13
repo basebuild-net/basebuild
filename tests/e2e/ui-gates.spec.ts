@@ -85,7 +85,7 @@ test.describe("UI gates: routing, no-manual-plan, settings, header, activity", (
     await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
     // Open provider catalog — wait for the trigger to be ready (catalog loaded).
-    const providerTrigger = page.locator(".chat-provider-trigger").first();
+    const providerTrigger = page.locator(".chat-column-model-chip").first();
     await expect(providerTrigger).toBeVisible({ timeout: 10_000 });
     await providerTrigger.click();
     await expect(page.locator(".provider-catalog-overlay")).toBeVisible({ timeout: 5_000 });

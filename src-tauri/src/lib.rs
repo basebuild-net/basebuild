@@ -65,7 +65,7 @@ use commands::{
         native_provider_catalog_refresh, native_provider_login_cancel,
         native_provider_login_poll, native_provider_login_start,
         native_provider_omp_login_command, native_provider_refresh_omp_credentials,
-        native_request_metrics, native_request_metrics_summary,
+        native_request_metrics, native_request_metrics_summary, native_session_latest_metric,
         native_request_tool_approval, native_save_provider_credential,
     },
     plans::{
@@ -497,6 +497,7 @@ pub fn run() {
             native_chat_send,
             native_request_metrics,
             native_request_metrics_summary,
+            native_session_latest_metric,
             native_chat_cancel,
             native_chat_resolve_approval,
             native_chat_tool_events,

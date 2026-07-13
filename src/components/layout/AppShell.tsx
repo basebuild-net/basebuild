@@ -248,7 +248,7 @@ export function AppShell({ updates }: AppShellProps) {
   // Auto-select the explicitly focused project on startup. Recent ordering is
   // only a fallback; focusing a project is persisted separately from list order.
   useEffect(() => {
-    if (activeProjectPath || sidebar.projects.length === 0 || focusRestoreStartedRef.current) return;
+    if (!sidebar.projectsReady || activeProjectPath || sidebar.projects.length === 0 || focusRestoreStartedRef.current) return;
     focusRestoreStartedRef.current = true;
     void getLastFocusedProject()
       .then((project) => {
@@ -264,7 +264,7 @@ export function AppShell({ updates }: AppShellProps) {
         const fallback = sidebar.projects[0]?.path;
         if (fallback) setActiveProjectPath(fallback);
       });
-  }, [activeProjectPath, sidebar.projects, addLog]);
+  }, [activeProjectPath, sidebar.projects, sidebar.projectsReady, addLog]);
 
   // Workspace restore splash: tracks the initial restore pipeline phases.
   // Only runs once on startup — project switches use the switching overlay.
@@ -274,7 +274,7 @@ export function AppShell({ updates }: AppShellProps) {
       setRestorePhase("detecting");
     }
     // No projects after detection → dismiss splash to show empty state.
-    if (restorePhase === "detecting" && sidebar.projects.length === 0 && !sidebar.pickerInFlight) {
+    if (restorePhase === "detecting" && sidebar.projectsReady && sidebar.projects.length === 0 && !sidebar.pickerInFlight) {
       // Give the project list one tick to load before concluding empty.
       const timer = window.setTimeout(() => {
         if (sidebar.projects.length === 0 && !initialRestoreDoneRef.current) {
@@ -284,7 +284,7 @@ export function AppShell({ updates }: AppShellProps) {
       }, 500);
       return () => window.clearTimeout(timer);
     }
-  }, [restorePhase, sidebar.projects, sidebar.pickerInFlight]);
+  }, [restorePhase, sidebar.projects, sidebar.projectsReady, sidebar.pickerInFlight]);
 
   // Transition to "restoring" when the first project is activated.
   useEffect(() => {

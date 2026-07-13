@@ -418,7 +418,7 @@ impl NativeChatService {
         let session = NativeChatSession {
             id: gen_id("nchat"),
             project_path: request.project_path,
-            title: request.title.unwrap_or_else(|| "Native Chat".to_string()),
+            title: request.title.unwrap_or_else(|| "New Chat".to_string()),
             profile_id: NATIVE_PROFILE_ID.to_string(),
             provider_id,
             model_id,
@@ -709,7 +709,7 @@ impl NativeChatService {
         )?;
         Self::touch_session(&request.session_id)?;
         // Auto-title the session from the first user message (no-ops if already titled).
-        let _ = SessionService::auto_title(&request.session_id, content);
+        let _ = Self::auto_title_native(&request.session_id, content);
 
         let catalog = Self::provider_catalog();
         let provider_label = catalog
@@ -1247,6 +1247,23 @@ impl NativeChatService {
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
     }
 
+    pub fn latest_metric_for_session(session_id: &str) -> DbResult<Option<NativeRequestMetric>> {
+        let conn = StorageService::connect()?;
+        conn.query_row(
+            "SELECT id, session_id, provider_id, model_id, effort_level, started_at, completed_at, duration_ms, ttft_ms, ttlt_ms,
+                    input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at,
+                    subscription_tier, subscription_source, plan_name
+             FROM native_request_metrics
+             WHERE session_id = ?1
+             ORDER BY created_at DESC
+             LIMIT 1",
+            params![session_id],
+            map_metric,
+        )
+        .optional()
+        .map_err(|error| error.to_string())
+    }
+
     /// Metrics created strictly after `since_created_at` (epoch seconds),
     /// oldest-first, for the incremental app→basebuild.net message sync.
     pub fn metrics_since(since_created_at: i64, limit: u32) -> DbResult<Vec<NativeRequestMetric>> {
@@ -1642,6 +1659,65 @@ impl NativeChatService {
             params![now_seconds(), session_id],
         )
         .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Auto-title a native chat session from its first user message.
+    /// Only updates sessions still on a default title ("Native Chat" or "New Chat").
+    /// No-ops if the session has a custom title or doesn't exist.
+    fn auto_title_native(session_id: &str, suggested: &str) -> DbResult<bool> {
+        if suggested.trim().is_empty() {
+            return Ok(false);
+        }
+        let conn = StorageService::connect()?;
+        let current: Option<String> = conn
+            .query_row(
+                "SELECT title FROM native_chat_sessions WHERE id = ?1",
+                params![session_id],
+                |r| r.get::<_, String>(0),
+            )
+            .ok();
+        let Some(current_title) = current else {
+            return Ok(false);
+        };
+        // Only auto-title sessions still on a default placeholder title.
+        if current_title != "Native Chat" && current_title != "New Chat" {
+            return Ok(false);
+        }
+        let truncated = crate::services::session_service::truncate_title(suggested, 60);
+        conn.execute(
+            "UPDATE native_chat_sessions SET title = ?1 WHERE id = ?2",
+            params![truncated, session_id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+
+    /// Backfill titles for existing native chat sessions that still have a
+    /// default placeholder title. Reads the first user message for each
+    /// session and generates a title from it. Called during initialization.
+    pub fn backfill_default_titles() -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        let session_ids: Vec<(String, String)> = conn
+            .prepare(
+                "SELECT s.id, COALESCE((
+                    SELECT m.content FROM native_chat_messages m
+                    WHERE m.session_id = s.id AND m.role = 'user'
+                    ORDER BY m.sort_order ASC LIMIT 1
+                ), '') as first_msg
+                 FROM native_chat_sessions s
+                 WHERE s.title = 'Native Chat' OR s.title = 'New Chat'",
+            )
+            .map_err(|e| e.to_string())?
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+        for (session_id, first_msg) in session_ids {
+            if !first_msg.is_empty() {
+                let _ = Self::auto_title_native(&session_id, &first_msg);
+            }
+        }
         Ok(())
     }
 
@@ -2284,5 +2360,47 @@ mod tests {
             "umans credential should be visible after unblock (got {} creds)",
             creds.len()
         );
+    }
+
+    #[test]
+    fn latest_metric_is_scoped_to_the_requested_session() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        for session_id in ["session-a", "session-b"] {
+            conn.execute(
+                "INSERT INTO native_chat_sessions (
+                    id, project_path, title, profile_id, provider_id, model_id,
+                    effort_level, status, run_state, created_at, updated_at
+                 ) VALUES (?1, '/test/project', 'Chat', 'basebuild-native',
+                    'basebuild-local', 'basebuild-local-coordinator', 'medium',
+                    'ready', 'idle', 1, 1)",
+                params![session_id],
+            )
+            .unwrap();
+        }
+        for (id, session_id, created_at, input_tokens, output_tokens) in [
+            ("metric-a-old", "session-a", 10, 100, 20),
+            ("metric-b", "session-b", 30, 900, 90),
+            ("metric-a-new", "session-a", 40, 240, 60),
+        ] {
+            conn.execute(
+                "INSERT INTO native_request_metrics (
+                    id, session_id, provider_id, model_id, effort_level,
+                    started_at, input_tokens, output_tokens, outcome, created_at
+                 ) VALUES (?1, ?2, 'basebuild-local', 'basebuild-local-coordinator',
+                    'medium', ?3, ?4, ?5, 'success', ?3)",
+                params![id, session_id, created_at, input_tokens, output_tokens],
+            )
+            .unwrap();
+        }
+
+        let latest = NativeChatService::latest_metric_for_session("session-a")
+            .unwrap()
+            .expect("session metric");
+        assert_eq!(latest.id, "metric-a-new");
+        assert_eq!(latest.input_tokens, 240);
+        assert_eq!(latest.output_tokens, 60);
+        assert!(NativeChatService::latest_metric_for_session("missing").unwrap().is_none());
     }
 }

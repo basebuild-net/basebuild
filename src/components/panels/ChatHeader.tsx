@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Bug,
   ChevronDown,
+  Command,
   GitBranch,
   GitPullRequest,
+  Gauge,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -26,13 +29,22 @@ type PlanBadge = {
 } | null;
 
 type ChatHeaderProps = {
-  title: string;
-  onRename: (title: string) => void;
-  /** Locked titles are never auto-overwritten by titling. Set on user rename. */
-  titleLocked: boolean;
   modelChip: string;
   modelId: string;
   effortChip: string;
+  effortOptions: Array<{ id: string; label: string }>;
+  onPickModel: () => void;
+  onChangeEffort: (effort: string) => void;
+  permissionMode: "safe" | "balanced" | "auto";
+  onChangePermission: (mode: "safe" | "balanced" | "auto") => void;
+  runState: "idle" | "queued" | "running";
+  contextUsed: number;
+  contextLimit: number | null;
+  onOpenCommands: () => void;
+  debugMode: boolean;
+  onToggleDebug: () => void;
+  canCopyConversation: boolean;
+  onCopyConversation: () => void;
   agentMode: AgentMode;
   onToggleAgentMode: () => void;
   planBadge: PlanBadge;
@@ -65,14 +77,15 @@ type ChatHeaderProps = {
   onDrop?: (e: React.DragEvent) => void;
 };
 
-export function ChatHeader(props: ChatHeaderProps) {
+export function ChatTitleBar(props: {
+  title: string;
+  onRename: (title: string) => void;
+  titleLocked: boolean;
+  /** Increment this number to trigger edit mode externally (e.g. from the more-actions menu). */
+  renameSignal: number;
+}) {
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(props.title);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [branchOpen, setBranchOpen] = useState(false);
-  const [newBranchName, setNewBranchName] = useState("");
-  const [creatingBranch, setCreatingBranch] = useState(false);
-  const [switchTarget, setSwitchTarget] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -87,6 +100,11 @@ export function ChatHeader(props: ChatHeaderProps) {
     setDraftTitle(props.title);
   }, [props.title]);
 
+  // External rename trigger
+  useEffect(() => {
+    if (props.renameSignal > 0) setEditing(true);
+  }, [props.renameSignal]);
+
   function commitRename() {
     setEditing(false);
     const next = draftTitle.trim();
@@ -99,6 +117,42 @@ export function ChatHeader(props: ChatHeaderProps) {
     setEditing(false);
     setDraftTitle(props.title);
   }
+
+  return (
+    <div className="chat-title-bar">
+      {editing ? (
+        <input
+          ref={inputRef}
+          className="input chat-column-title-input"
+          value={draftTitle}
+          title="Rename chat - Enter to save, Esc to cancel"
+          onChange={(e) => setDraftTitle(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); commitRename(); }
+            if (e.key === "Escape") { e.preventDefault(); cancelRename(); }
+          }}
+          onBlur={commitRename}
+        />
+      ) : (
+        <button
+          className="chat-column-title"
+          type="button"
+          title={`${props.title}${props.titleLocked ? " (locked)" : ""} - double-click to rename`}
+          onDoubleClick={() => setEditing(true)}
+        >
+          <span className="chat-column-title-text">{props.title}</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function ChatHeader(props: ChatHeaderProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [branchOpen, setBranchOpen] = useState(false);
+  const [newBranchName, setNewBranchName] = useState("");
+  const [creatingBranch, setCreatingBranch] = useState(false);
+  const [switchTarget, setSwitchTarget] = useState<string | null>(null);
 
   function handleSwitch(name: string) {
     setBranchOpen(false);
@@ -133,37 +187,47 @@ export function ChatHeader(props: ChatHeaderProps) {
       onDrop={props.onDrop}
     >
       <div className="chat-column-header-left">
-        {editing ? (
-          <input
-            ref={inputRef}
-            className="input chat-column-title-input"
-            value={draftTitle}
-            title="Rename chat — Enter to save, Esc to cancel"
-            onChange={(e) => setDraftTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") { e.preventDefault(); commitRename(); }
-              if (e.key === "Escape") { e.preventDefault(); cancelRename(); }
-            }}
-            onBlur={commitRename}
-          />
+        <button
+          className="chat-column-model-chip"
+          type="button"
+          title={`Model: ${props.modelChip || props.modelId}. Click to change provider or model.`}
+          onClick={props.onPickModel}
+        >
+          {truncate(props.modelChip || props.modelId, 14)}
+          <ChevronDown size={9} />
+        </button>
+        {props.effortOptions.length > 1 ? (
+          <select
+            className="chat-header-select"
+            title={`Effort level: ${props.effortChip}`}
+            aria-label="Effort level"
+            value={props.effortChip}
+            onChange={(event) => props.onChangeEffort(event.target.value)}
+          >
+            {props.effortOptions.map((effort) => (
+              <option key={effort.id} value={effort.id}>{effort.label}</option>
+            ))}
+          </select>
         ) : (
-          <button
-            className="chat-column-title"
-            type="button"
-            title={`${props.title}${props.titleLocked ? " (locked)" : ""} — double-click to rename`}
-            onDoubleClick={() => setEditing(true)}
-          >
-            <span className="chat-column-title-text">{props.title}</span>
-          </button>
-        )}
-        {props.modelChip ? (
-          <span
-            className="chat-column-model-chip"
-            title={`Model: ${props.modelChip}`}
-          >
-            {truncate(props.modelChip, 16)}
+          <span className="chat-header-static" title={`Effort: ${props.effortChip || "Standard"}`}>
+            {props.effortOptions[0]?.label ?? "Standard"}
           </span>
-        ) : null}
+        )}
+        <select
+          className="chat-header-select chat-header-permission"
+          title={`Permission mode: ${permissionLabel(props.permissionMode)}`}
+          aria-label="Permission mode"
+          value={props.permissionMode}
+          onChange={(event) => props.onChangePermission(event.target.value as "safe" | "balanced" | "auto")}
+        >
+          <option value="balanced">Balanced</option>
+          <option value="safe">Always Ask</option>
+          <option value="auto">Run Everything</option>
+        </select>
+        <span className={`chat-header-run-state is-${props.runState}`} title={`Agent state: ${props.runState}`}>
+          {props.runState}
+        </span>
+        <ContextIndicator used={props.contextUsed} limit={props.contextLimit} />
         <button
           className={`chat-column-mode-pill${props.agentMode === "build" ? " is-build" : " is-plan"}`}
           type="button"
@@ -222,6 +286,14 @@ export function ChatHeader(props: ChatHeaderProps) {
         <button
           className="btn-icon btn-icon-sm"
           type="button"
+          title="Open command palette"
+          onClick={props.onOpenCommands}
+        >
+          <Command size={13} />
+        </button>
+        <button
+          className="btn-icon btn-icon-sm"
+          type="button"
           title="Toggle chat history"
           onClick={props.onToggleHistory}
         >
@@ -237,13 +309,17 @@ export function ChatHeader(props: ChatHeaderProps) {
         </button>
         {menuOpen ? (
           <MoreActionsMenu
-            onRename={() => { setMenuOpen(false); setEditing(true); }}
+            onRename={() => { setMenuOpen(false); props.onRenameAction(); }}
             onAssignPlan={() => { setMenuOpen(false); props.onAssignPlan(); }}
             onDuplicate={() => { setMenuOpen(false); props.onDuplicateChat(); }}
             onClose={() => { setMenuOpen(false); props.onCloseChat(); }}
             onCloseAndDelete={() => { setMenuOpen(false); props.onCloseAndDelete(); }}
             prRecommendation={props.prRecommendation}
             onCreatePullRequest={() => { setMenuOpen(false); props.onCreatePullRequest(); }}
+            debugMode={props.debugMode}
+            onToggleDebug={() => { setMenuOpen(false); props.onToggleDebug(); }}
+            canCopyConversation={props.canCopyConversation}
+            onCopyConversation={() => { setMenuOpen(false); props.onCopyConversation(); }}
           />
         ) : null}
       </div>
@@ -326,12 +402,18 @@ function MoreActionsMenu(props: {
   onCloseAndDelete: () => void;
   prRecommendation: { branch: string; ahead: number; behind: number; changedFiles: number } | null;
   onCreatePullRequest: () => void;
+  debugMode: boolean;
+  onToggleDebug: () => void;
+  canCopyConversation: boolean;
+  onCopyConversation: () => void;
 }) {
   return (
     <div className="chat-more-menu" role="dialog" aria-label="Chat actions">
       <MenuItem icon={Pencil} label="Rename" title="Rename this chat" onClick={props.onRename} />
       <MenuItem icon={Sparkles} label="Assign plan" title="Assign a ready plan to this chat" onClick={props.onAssignPlan} />
       <MenuItem icon={CopyIcon} label="Duplicate chat" title="Duplicate this chat's settings into a new column" onClick={props.onDuplicate} />
+      <MenuItem icon={CopyIcon} label="Copy conversation" title="Copy the entire conversation as markdown" onClick={props.onCopyConversation} disabled={!props.canCopyConversation} />
+      <MenuItem icon={Bug} label={props.debugMode ? "Hide debug events" : "Show debug events"} title={props.debugMode ? "Turn debug event rendering off" : "Show raw event data in tool cards"} onClick={props.onToggleDebug} />
       {props.prRecommendation ? (
         <MenuItem icon={GitPullRequest} label="Create pull request" title={`Open a PR for ${props.prRecommendation.branch} (${props.prRecommendation.changedFiles} files, +${props.prRecommendation.ahead}/-${props.prRecommendation.behind})`} onClick={props.onCreatePullRequest} />
       ) : null}
@@ -341,12 +423,13 @@ function MoreActionsMenu(props: {
   );
 }
 
-function MenuItem({ icon: Icon, label, title, onClick, danger }: { icon: React.ComponentType<{ size?: number }>; label: string; title: string; onClick: () => void; danger?: boolean }) {
+function MenuItem({ icon: Icon, label, title, onClick, danger, disabled }: { icon: React.ComponentType<{ size?: number }>; label: string; title: string; onClick: () => void; danger?: boolean; disabled?: boolean }) {
   return (
     <button
       className={`chat-more-menu-item${danger ? " is-danger" : ""}`}
       type="button"
       title={title}
+      disabled={disabled}
       onClick={onClick}
     >
       <Icon size={11} />
@@ -410,6 +493,30 @@ function TrashIcon({ size = 11 }: { size?: number }) {
       <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
     </svg>
   );
+}
+
+function ContextIndicator({ used, limit }: { used: number; limit: number | null }) {
+  const percentage = limit && limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+  const circumference = 31.42;
+  const filled = circumference * percentage / 100;
+  const ratio = limit && limit > 0
+    ? `${used.toLocaleString()} / ${limit.toLocaleString()} tokens (${percentage}%)`
+    : `${used.toLocaleString()} tokens; model context limit unavailable`;
+  return (
+    <span className={`chat-header-context is-${percentage >= 85 ? "critical" : percentage >= 60 ? "warning" : "healthy"}`} title={`Context usage: ${ratio}`}>
+      <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden="true">
+        <circle className="chat-header-context-track" cx="6" cy="6" r="5" />
+        <circle className="chat-header-context-value" cx="6" cy="6" r="5" strokeDasharray={`${filled} ${circumference - filled}`} />
+      </svg>
+      <Gauge className="chat-header-context-gauge" size={8} />
+    </span>
+  );
+}
+
+function permissionLabel(mode: "safe" | "balanced" | "auto") {
+  if (mode === "safe") return "Always Ask";
+  if (mode === "auto") return "Run Everything";
+  return "Balanced";
 }
 
 function truncate(s: string, n: number): string {

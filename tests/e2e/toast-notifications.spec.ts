@@ -214,7 +214,7 @@ test.describe("Toast notification system", () => {
     await ensureChatPanel(page);
 
     // Open provider picker.
-    await page.locator(".chat-provider-trigger").first().click();
+    await page.locator(".chat-column-model-chip").first().click();
     await expect(page.locator(".provider-catalog-overlay").first()).toBeVisible({ timeout: 5_000 });
 
     // Find umans disconnect button.

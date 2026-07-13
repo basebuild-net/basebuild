@@ -6,7 +6,6 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  FolderOpen,
   FolderPlus,
   MoreHorizontal,
   Pencil,
@@ -27,6 +26,14 @@ import {
 } from "../../lib/projects";
 import { listSessions, type Session } from "../../lib/sessions";
 import { useLogs } from "../../state/log";
+function ProjectMonogram({ name, active }: { name: string; active: boolean }) {
+  const letter = name.charAt(0).toUpperCase() || "?";
+  return (
+    <span className={`sidebar-project-monogram${active ? " is-active" : ""}`} aria-hidden="true">
+      {letter}
+    </span>
+  );
+}
 
 type ProjectSidebarProps = {
   activeProjectPath: string | null;
@@ -76,7 +83,11 @@ export function ProjectSidebar({
   const [editingSession, setEditingSession] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [sessionMenu, setSessionMenu] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const visibleProjects = projects.filter((p) => !hiddenPaths.has(p.path));
+  const searchFiltered = searchQuery.trim()
+    ? visibleProjects.filter((p) => p.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+    : visibleProjects;
 
   async function handleReveal(path: string) {
     try {
@@ -96,6 +107,9 @@ export function ProjectSidebar({
     <aside className="sidebar" aria-label="Projects">
       <div className="sidebar-header">
         <span className="sidebar-title">Projects</span>
+        <span className="sidebar-sort-indicator" title="Sorted alphabetically">
+          A-Z
+        </span>
         <button className="btn-icon" title="Open folder" aria-label="Open folder" type="button" onClick={onOpenFolder}>
           <FolderPlus size={15} />
         </button>
@@ -110,11 +124,21 @@ export function ProjectSidebar({
         </button>
       </div>
 
+      <div className="sidebar-search">
+        <input
+          type="search"
+          className="sidebar-search-input"
+          placeholder="Search projects..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+      </div>
+
       <div className="sidebar-list">
-        {visibleProjects.length === 0 ? (
+        {searchFiltered.length === 0 ? (
           <p className="text-muted text-sm pad sidebar-empty">No projects yet.</p>
         ) : (
-          visibleProjects.map((project) => {
+          searchFiltered.map((project) => {
             const isActive = project.path === activeProjectPath;
             const projectSessions = sessionsByProject.get(project.path) ?? [];
             const isCollapsed = collapsedProjects.has(project.path);
@@ -144,7 +168,7 @@ export function ProjectSidebar({
                     title={project.path}
                     onClick={() => onSelectProject(project.path)}
                   >
-                    <FolderOpen size={14} className="sidebar-item-icon" />
+                    <ProjectMonogram name={project.name} active={isActive} />
                     <span className="sidebar-item-label">{project.name}</span>
                     {projectSessions.length > 0 ? (
                       <span className="sidebar-session-count">{projectSessions.length}</span>
@@ -309,32 +333,84 @@ export function ProjectSidebar({
   }
 }
 
+const RECENT_PROJECT_CACHE_KEY = "basebuild.recent-projects.v1";
+
+function readRecentProjectCache(): RecentProject[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(RECENT_PROJECT_CACHE_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is RecentProject => {
+      if (!item || typeof item !== "object") return false;
+      const candidate = item as Partial<RecentProject>;
+      return typeof candidate.path === "string"
+        && typeof candidate.name === "string"
+        && typeof candidate.lastOpenedAt === "number"
+        && (candidate.lastActiveSessionId === null || typeof candidate.lastActiveSessionId === "string");
+    });
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentProjectCache(projects: RecentProject[]) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(RECENT_PROJECT_CACHE_KEY, JSON.stringify(projects));
+  } catch {
+    // SQLite remains authoritative when webview storage is unavailable.
+  }
+}
+
 export function useProjectSidebar(activeProjectPath: string | null) {
-  const [projects, setProjects] = useState<RecentProject[]>([]);
+  const [projects, setProjects] = useState<RecentProject[]>(readRecentProjectCache);
+  const [projectsReady, setProjectsReady] = useState(false);
   const [projectDetection, setProjectDetection] = useState<ProjectDetection | null>(null);
   const [sessionsByProject, setSessionsByProject] = useState<Map<string, Session[]>>(new Map());
   const [pickerInFlight, setPickerInFlight] = useState(false);
   const pickerPromiseRef = useRef<Promise<string | null> | null>(null);
+  const hydrationGenerationRef = useRef(0);
   const { addLog } = useLogs();
+
+  async function hydrateProjectSessions(list: RecentProject[], priorityPath: string | null) {
+    const generation = ++hydrationGenerationRef.current;
+    const ordered = priorityPath
+      ? [...list.filter((project) => project.path === priorityPath), ...list.filter((project) => project.path !== priorityPath)]
+      : list;
+    for (let index = 0; index < ordered.length; index += 1) {
+      if (generation !== hydrationGenerationRef.current) return;
+      const project = ordered[index];
+      try {
+        const sessions = await listSessions(project.path);
+        if (generation !== hydrationGenerationRef.current) return;
+        setSessionsByProject((current) => {
+          const next = new Map(current);
+          next.set(project.path, sessions);
+          return next;
+        });
+      } catch {
+        // A missing project or transient read does not block other projects.
+      }
+      // Prioritize the first (active) project, then yield between inactive
+      // histories so project selection and the first chat can paint.
+      if (index < ordered.length - 1) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      }
+    }
+  }
 
   async function refreshProjects() {
     try {
       const list = await listRecentProjects();
       setProjects(list);
-      // Fetch sessions for ALL projects in parallel
-      const entries = await Promise.all<[string, Session[]]>(
-        list.map(async (p) => {
-          try {
-            const sessions = await listSessions(p.path);
-            return [p.path, sessions] as [string, Session[]];
-          } catch {
-            return [p.path, [] as Session[]] as [string, Session[]];
-          }
-        }),
-      );
-      setSessionsByProject(new Map(entries));
+      writeRecentProjectCache(list);
+      void hydrateProjectSessions(list, activeProjectPath);
+      setProjectsReady(true);
     } catch {
-      // ignore
+      // Cached rows are orientation-only and must never activate a project
+      // when SQLite cannot confirm the authoritative recent-project list.
+      setProjects([]);
+      setProjectsReady(true);
     }
   }
 
@@ -421,5 +497,10 @@ export function useProjectSidebar(activeProjectPath: string | null) {
     }
   }, [activeProjectPath]);
 
-  return { projects, projectDetection, sessionsByProject, refreshProjects, refreshSessions, selectProject, removeProject, openFolder, pickerInFlight, isPickerInFlight: () => pickerPromiseRef.current !== null };
+  useEffect(() => {
+    if (!activeProjectPath || projects.length === 0) return;
+    void hydrateProjectSessions(projects, activeProjectPath);
+  }, [activeProjectPath]);
+
+  return { projects, projectsReady, projectDetection, sessionsByProject, refreshProjects, refreshSessions, selectProject, removeProject, openFolder, pickerInFlight, isPickerInFlight: () => pickerPromiseRef.current !== null };
 }

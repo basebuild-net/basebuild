@@ -25,85 +25,46 @@ async function openSettings(page: Page) {
   await expect(page.locator(".settings-modal")).toBeVisible({ timeout: 15_000 });
 }
 
-test.describe("OptionList: square selection control", () => {
-  test("permission mode renders as option list with all options visible", async ({ page }) => {
+test.describe("Compact chat header dropdowns", () => {
+  test("permission mode is a textual dropdown", async ({ page }) => {
     await openFixture(page);
     await ensureChatPanel(page);
 
-    const list = page.locator(".option-list[aria-label='Permission mode']").first();
-    await expect(list).toBeVisible({ timeout: 10_000 });
-
-    // All three options visible at once — no dropdown.
-    const buttons = list.locator(".option-list-btn");
-    await expect(buttons).toHaveCount(3);
-    await expect(buttons.nth(0)).toContainText("Balanced");
-    await expect(buttons.nth(1)).toContainText("Always Ask");
-    await expect(buttons.nth(2)).toContainText("Run Everything");
-
-    // Exactly one active with aria-pressed=true.
-    await expect(list.locator(".option-list-btn.is-active")).toHaveCount(1);
-    await expect(list.locator("[aria-pressed='true']")).toHaveCount(1);
-
-    // Every option has a tooltip.
-    for (let i = 0; i < 3; i++) {
-      const title = await buttons.nth(i).getAttribute("title");
-      expect(title, `option ${i} tooltip`).toBeTruthy();
-    }
+    const select = page.locator(".chat-header-select[aria-label='Permission mode']").first();
+    await expect(select).toBeVisible({ timeout: 10_000 });
+    await expect(select.locator("option")).toHaveCount(3);
+    await expect(select).toHaveValue("auto");
+    await expect(select).toHaveAttribute("title", /Permission mode:/);
   });
 
-  test("clicking a permission option changes the active selection", async ({ page }) => {
+  test("changing permission mode persists and confirms the selection", async ({ page }) => {
     await openFixture(page);
     await ensureChatPanel(page);
 
-    const list = page.locator(".option-list[aria-label='Permission mode']").first();
-    await expect(list).toBeVisible({ timeout: 10_000 });
-
-    const safeBtn = list.locator(".option-list-btn", { hasText: "Always Ask" });
-    await safeBtn.click();
-    await expect(safeBtn).toHaveClass(/is-active/);
-    await expect(safeBtn).toHaveAttribute("aria-pressed", "true");
-
-    // A toast confirms the change.
+    const select = page.locator(".chat-header-select[aria-label='Permission mode']").first();
+    await select.selectOption("safe");
+    await expect(select).toHaveValue("safe");
     await expect(page.locator(".toast").filter({ hasText: "Permission mode changed" })).toBeVisible({ timeout: 5_000 });
   });
 
-  test("arrow keys move focus between options", async ({ page }) => {
+  test("effort dropdown exposes only the selected model's supported efforts", async ({ page }) => {
     await openFixture(page);
     await ensureChatPanel(page);
 
-    const list = page.locator(".option-list[aria-label='Permission mode']").first();
-    await expect(list).toBeVisible({ timeout: 10_000 });
-
-    const buttons = list.locator(".option-list-btn");
-    await buttons.nth(0).focus();
-    await page.keyboard.press("ArrowRight");
-    const focusedText = await page.evaluate(() => (document.activeElement as HTMLElement)?.textContent ?? "");
-    expect(focusedText).toContain("Always Ask");
-
-    await page.keyboard.press("ArrowLeft");
-    const backText = await page.evaluate(() => (document.activeElement as HTMLElement)?.textContent ?? "");
-    expect(backText).toContain("Balanced");
+    const select = page.locator(".chat-header-select[aria-label='Effort level']").first();
+    await expect(select).toBeVisible({ timeout: 10_000 });
+    await expect(select.locator("option")).toHaveCount(4);
+    await expect(select).toHaveAttribute("title", /Effort level:/);
   });
 
-  test("effort option list renders the model's supported efforts", async ({ page }) => {
+  test("composer footer contains no duplicated configuration controls", async ({ page }) => {
     await openFixture(page);
     await ensureChatPanel(page);
 
-    const list = page.locator(".chat-composer-header .option-list[aria-label='Effort level']").first();
-    await expect(list).toBeVisible({ timeout: 10_000 });
-
-    // Mock default model supports 4 efforts.
-    await expect(list.locator(".option-list-btn")).toHaveCount(4);
-    await expect(list.locator(".option-list-btn.is-active")).toHaveCount(1);
-  });
-
-  test("no native select remains in the composer controls", async ({ page }) => {
-    await openFixture(page);
-    await ensureChatPanel(page);
-
-    await expect(page.locator(".chat-composer-header").first()).toBeVisible({ timeout: 10_000 });
-    expect(await page.locator(".chat-composer-header select").count()).toBe(0);
-    expect(await page.locator(".chat-input-controls select").count()).toBe(0);
+    await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator(".chat-composer-header")).toHaveCount(0);
+    await expect(page.locator(".chat-input-controls")).toHaveCount(0);
+    await expect(page.locator(".chat-context-strip")).toHaveCount(0);
   });
 });
 

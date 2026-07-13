@@ -289,6 +289,10 @@ export async function nativeRequestMetricsSummary(): Promise<NativeRequestMetric
   return invoke<NativeRequestMetricsSummary>("native_request_metrics_summary");
 }
 
+export async function nativeSessionLatestMetric(sessionId: string): Promise<NativeRequestMetric | null> {
+  return invoke<NativeRequestMetric | null>("native_session_latest_metric", { sessionId });
+}
+
 export async function nativeGenerateIdeas(input: {
   sessionId: string;
   schematic?: string | null;

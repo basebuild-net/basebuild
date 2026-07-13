@@ -10,6 +10,11 @@ use crate::{models::recent_project::RecentProject, services::storage_paths::Stor
 #[derive(Debug, Default)]
 pub struct StorageService;
 
+// Increment whenever `initialize` gains a schema-changing migration. Existing
+// databases run the idempotent initializer once per version; current databases
+// skip its ~50 table/column probes entirely on normal launches.
+const CURRENT_SCHEMA_VERSION: i64 = 1;
+
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
         let paths = StoragePathService::ensure_global_layout()?;
@@ -17,11 +22,9 @@ impl StorageService {
     }
 
     pub fn connect() -> Result<Connection, String> {
-        // Run schema init/migrations at most once per DB path per process.
-        // The CREATE TABLE / ALTER TABLE probes are idempotent but expensive
-        // (~50 tables + column-migration checks); re-running them on every
-        // connection made boot and chat-load slow. Keyed by path so
-        // test-isolated DBs each initialize exactly once.
+        // Serialize the first connection per database path. The persisted
+        // `user_version` is the cross-process fast path; this set avoids even
+        // that probe after the first connection in this process.
         static INITIALIZED_DBS: std::sync::LazyLock<
             parking_lot::Mutex<std::collections::HashSet<PathBuf>>,
         > = std::sync::LazyLock::new(|| parking_lot::Mutex::new(std::collections::HashSet::new()));
@@ -46,11 +49,8 @@ impl StorageService {
         connection
             .busy_timeout(std::time::Duration::from_millis(5000))
             .map_err(|e| format!("Failed to set busy_timeout: {e}"))?;
-        // WAL: readers don't block writers; sticky (set once at startup, but
-        // idempotent per-connect so every connection sees the right mode).
-        // Ignore "database is locked" here — WAL is already set by the first
-        // connection; a concurrent set just confirms the mode.
-        let _ = connection.pragma_update(None, "journal_mode", "WAL");
+        // WAL is sticky. Set it once per process below instead of asking
+        // SQLite to rewrite/confirm journal mode for every short-lived read.
         // Normal synchronous is safe with WAL and avoids the fsync-per-commit
         // cost of FULL.
         connection
@@ -58,11 +58,21 @@ impl StorageService {
             .map_err(|e| format!("Failed to set synchronous mode: {e}"))?;
 
         {
-            // Hold the lock across check+init so concurrent first-time connects
-            // block until the schema exists rather than racing a half-built DB.
+            // Hold the lock across journal setup, version check, migration,
+            // and version write so concurrent first-time connections cannot
+            // observe a half-prepared schema.
             let mut initialized = INITIALIZED_DBS.lock();
             if !initialized.contains(&db_path) {
-                Self::initialize(&connection)?;
+                let _ = connection.pragma_update(None, "journal_mode", "WAL");
+                let schema_version = connection
+                    .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                    .map_err(|error| format!("Failed to read schema version: {error}"))?;
+                if schema_version < CURRENT_SCHEMA_VERSION {
+                    Self::initialize(&connection)?;
+                    connection
+                        .pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)
+                        .map_err(|error| format!("Failed to persist schema version: {error}"))?;
+                }
                 initialized.insert(db_path.clone());
             }
         }
@@ -108,7 +118,7 @@ impl StorageService {
             .prepare(
                 "SELECT path, name, last_opened_at, last_active_session_id
                  FROM recent_projects
-                 ORDER BY last_opened_at DESC
+                 ORDER BY name ASC
                  LIMIT ?1",
             )
             .map_err(|error| format!("Failed to prepare recent projects query: {error}"))?;
@@ -148,8 +158,20 @@ impl StorageService {
     pub fn set_last_focused_project(path: impl AsRef<Path>) -> Result<RecentProject, String> {
         let path = path.as_ref();
         let path_string = path.to_string_lossy().to_string();
-        let _ = Self::remember_recent_project(path)?;
         let connection = Self::connect()?;
+        // Ensure the project row exists, but do NOT bump last_opened_at -
+        // selecting a project must not reorder the alphabetical list.
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("Project");
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO recent_projects(path, name, last_opened_at, last_active_session_id)
+                 VALUES (?1, ?2, ?3, NULL)",
+                params![path_string.as_str(), name, unix_timestamp()],
+            )
+            .map_err(|error| format!("Failed to ensure project row: {error}"))?;
         connection
             .execute(
                 "INSERT INTO app_defaults (key, value) VALUES ('last_focused_project_path', ?1)
@@ -932,6 +954,11 @@ impl StorageService {
             "UPDATE native_chat_sessions SET run_state = 'interrupted' WHERE run_state = 'running'",
             [],
         );
+        // Migration: backfill default "Native Chat"/"New Chat" titles with
+        // a real title derived from each session's first user message.
+        // Sessions without messages keep the placeholder until the first
+        // message is sent, which triggers auto_title_native.
+        let _ = crate::services::native_chat_service::NativeChatService::backfill_default_titles();
 
         // Migration (idea-to-merge-autopilot): add finish_outcome to plan_runs
         // so the applied finish policy is persisted once at completion and
@@ -1486,6 +1513,32 @@ mod tests {
             .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
             .unwrap();
         assert_eq!(timeout, 5000);
+        let schema_version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(schema_version, CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn connect_skips_initializer_for_current_schema_version() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let db_path = StorageService::state_db_path().unwrap();
+        let seeded = Connection::open(&db_path).unwrap();
+        seeded
+            .pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)
+            .unwrap();
+        drop(seeded);
+
+        let conn = StorageService::connect().unwrap();
+        let table_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'recent_projects'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(table_count, 0, "current databases must bypass the full initializer");
     }
 
     #[test]
@@ -1622,7 +1675,7 @@ mod tests {
     }
 
     #[test]
-    fn set_last_focused_project_preserves_last_active_session_id_and_bumps_timestamp() {
+    fn set_last_focused_project_preserves_last_active_session_id_and_timestamp() {
         let dir = tempfile::TempDir::new().unwrap();
         let _g = crate::test_util::test::lock_db(&dir);
         let conn = StorageService::connect().unwrap();
@@ -1638,9 +1691,9 @@ mod tests {
 
         let focused = StorageService::set_last_focused_project(path).unwrap();
         assert_eq!(focused.last_active_session_id.as_deref(), Some("sess-keep"));
-        assert!(
-            focused.last_opened_at > old_timestamp,
-            "set_last_focused_project must bump last_opened_at"
+        assert_eq!(
+            focused.last_opened_at, old_timestamp,
+            "set_last_focused_project must NOT bump last_opened_at - selection must not reorder the list"
         );
     }
 
@@ -1694,5 +1747,63 @@ mod tests {
         StorageService::remove_recent_project(path).unwrap();
 
         assert!(StorageService::get_last_focused_project().unwrap().is_none());
+    }
+
+    #[test]
+    fn list_recent_projects_returns_alphabetical_order() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+
+        // Insert projects in non-alphabetical order with different timestamps.
+        // If list_recent_projects sorted by last_opened_at DESC, "Zebra" (ts=300)
+        // would come first. Alphabetical order should return "Alpha" first.
+        conn.execute(
+            "INSERT INTO recent_projects(path, name, last_opened_at, last_active_session_id)
+             VALUES (?1, ?2, ?3, ?4), (?5, ?6, ?7, ?8), (?9, ?10, ?11, ?12)",
+            params![
+                "/test/zebra", "Zebra", 300i64, None::<&str>,
+                "/test/alpha", "Alpha", 100i64, None::<&str>,
+                "/test/mango", "Mango", 200i64, None::<&str>,
+            ],
+        )
+        .unwrap();
+
+        let list = StorageService::list_recent_projects(10).unwrap();
+        let names: Vec<&str> = list.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["Alpha", "Mango", "Zebra"],
+            "list_recent_projects must return alphabetical order by name, not recency");
+    }
+
+    #[test]
+    fn set_last_focused_project_does_not_reorder_list() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+
+        conn.execute(
+            "INSERT INTO recent_projects(path, name, last_opened_at, last_active_session_id)
+             VALUES (?1, ?2, ?3, ?4), (?5, ?6, ?7, ?8)",
+            params![
+                "/test/alpha", "Alpha", 100i64, None::<&str>,
+                "/test/zebra", "Zebra", 200i64, None::<&str>,
+            ],
+        )
+        .unwrap();
+
+        // Focus Zebra - this must NOT bump its last_opened_at or reorder the list.
+        StorageService::set_last_focused_project("/test/zebra").unwrap();
+
+        let list = StorageService::list_recent_projects(10).unwrap();
+        let names: Vec<&str> = list.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["Alpha", "Zebra"],
+            "Focusing a project must not reorder the list - alphabetical order must be stable");
+
+        // Verify last_opened_at was NOT bumped.
+        let zebra_ts: i64 = conn
+            .query_row("SELECT last_opened_at FROM recent_projects WHERE path = '/test/zebra'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(zebra_ts, 200i64,
+            "set_last_focused_project must NOT update last_opened_at");
     }
 }

@@ -211,6 +211,18 @@ and transitions through these states:
 The splash does not replace the in-app update controls. The taskbar
 update button and Settings → Updates tab remain functional after startup.
 
+Recent-project metadata is cache-first in the webview: a validated local cache
+can orient returning users on the first interactive render, then SQLite replaces
+it with authoritative results. Session lists hydrate active-project-first and
+yield between inactive projects so sidebar counts never block project restore.
+The cache does not activate, inspect, modify, or upload projects.
+
+SQLite records a code-owned `PRAGMA user_version`. Fresh or legacy databases
+run the idempotent schema initializer and persist that version; current databases
+skip the full table/column probe sequence on subsequent launches. Storage-heavy
+project/session reads run through blocking-worker tasks rather than the Tauri
+command thread.
+
 Basebuild does not create or focus a terminal process on launch, project
 selection, or session restore. The workspace shows a neutral empty state
 until the user explicitly creates a terminal or chat panel. Terminal

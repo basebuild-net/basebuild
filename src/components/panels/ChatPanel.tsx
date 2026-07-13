@@ -1,10 +1,8 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import { usePromptDelivery } from "../../lib/promptDelivery";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { markStart, markEnd, formatRelativeTime } from "../../lib/timing";
 import { usePanelStatusPublisher, type PanelStatus } from "./PanelStatusContext";
-import { ChatComposerRail } from "./ChatComposerRail";
-import { ChatContextStrip } from "./ChatContextStrip";
 import { CommandPalette } from "./CommandPalette";
 import {
   BUILTIN_COMMANDS,
@@ -18,16 +16,13 @@ import {
   sourceLabel,
   tabComplete,
 } from "../../lib/chatCommands";
-import { ChatHeader } from "./ChatHeader";
+import { ChatHeader, ChatTitleBar } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
 import { QuestionCard } from "./QuestionCard";
 import { MarkdownView } from "./MarkdownView";
-import { OptionList } from "../layout/OptionList";
 import {
   AlertCircle,
-  BarChart3,
   Brain,
-  Bug,
   ChevronDown,
   ChevronUp,
   Copy,
@@ -74,13 +69,12 @@ import {
   nativeProviderLoginCancel,
   nativeProviderLoginPoll,
   nativeProviderLoginStart,
-  nativeRequestMetricsSummary,
+  nativeSessionLatestMetric,
   nativeSaveProviderCredential,
   type ChatModelDefault,
   type NativeChatMessage,
   type NativeModel,
   type NativeProviderCatalog,
-  type NativeRequestMetricsSummary,
   type NativeSetupRequired,
   type NativeToolEvent,
 } from "../../lib/native-chat";
@@ -172,10 +166,6 @@ type ChatPanelProps = {
   onOpenHistory?: () => void;
 };
 
-function formatMetric(value: number | null | undefined, suffix = "") {
-  if (value === null || value === undefined || Number.isNaN(value)) return "-";
-  return `${Math.round(value * 10) / 10}${suffix}`;
-}
 
 function formatElapsed(seconds: number): string {
   if (seconds < 60) return seconds === 1 ? "1 second" : `${seconds} seconds`;
@@ -421,7 +411,7 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
-  const [metrics, setMetrics] = useState<NativeRequestMetricsSummary | null>(null);
+  const [contextUsedTokens, setContextUsedTokens] = useState(0);
   const [nativeSessionId, setNativeSessionId] = useState<string | null>(chatSessionId ?? null);
   const [nativeMessages, setNativeMessages] = useState<NativeChatMessage[]>([]);
   const [toolEvents, setToolEvents] = useState<NativeToolEvent[]>([]);
@@ -446,6 +436,7 @@ export function ChatPanel({
   const [reasoningText, setReasoningText] = useState("");
   const [streamPhase, setStreamPhase] = useState<"idle" | "thinking" | "streaming" | "tools">("idle");
   const [isScrolledUp, setIsScrolledUp] = useState(false);
+  const followLatestRef = useRef(true);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchMatchCount, setSearchMatchCount] = useState(0);
@@ -487,7 +478,7 @@ export function ChatPanel({
   // Idea generation.
   const [generatingIdeas, setGeneratingIdeas] = useState(false);
   // Grounding metadata is written to the shared store (src/state/grounding.ts).
-  const [catalogRefreshing, setCatalogRefreshing] = useState(false);
+  const [, setCatalogRefreshing] = useState(false);
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
   const [showPlanningMenu, setShowPlanningMenu] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
@@ -536,6 +527,7 @@ export function ChatPanel({
   const [planBadge, setPlanBadge] = useState<{ referenceId: string; title: string; status: string } | null>(null);
   const [agentMode, setAgentMode] = useState<AgentMode>("plan");
   const [titleLocked, setTitleLocked] = useState(false);
+  const [renameSignal, setRenameSignal] = useState(0);
   const [uncommittedCount, setUncommittedCount] = useState(0);
   const [prRec, setPrRec] = useState<PrRecommendation | null>(null);
   const [showPrCard, setShowPrCard] = useState(false);
@@ -593,8 +585,6 @@ export function ChatPanel({
     () => catalog?.models.filter((m) => m.providerId === providerId) ?? [],
     [catalog, providerId],
   );
-  // A non-local provider without a credential is a degraded active adapter.
-  const providerDegraded = !!(selectedProvider && !selectedProvider.configured);
 
   // Load config on mount
   useEffect(() => {
@@ -603,18 +593,15 @@ export function ChatPanel({
       try {
         markStart("provider-model-restore");
         addLog("debug", "Chat config loading", `projectPath=${projectPath}`);
-        const [defaults, cat, met, resolved, storedSession, mode] = await Promise.all([
+        const [defaults, cat, resolved, storedSession] = await Promise.all([
           getRuntimeDefaults(),
           nativeProviderCatalog(),
-          nativeRequestMetricsSummary(),
           nativeChatModelDefault(projectPath),
           nativeSessionId ? nativeChatGet(nativeSessionId) : Promise.resolve(null),
-          getApprovalMode(projectPath).catch(() => "auto" as ApprovalMode),
         ]);
+        if (cancelled) return;
         setProfileId(defaults.defaultChatProfileId ?? NATIVE_PROFILE_ID);
-        setApprovalMode(mode);
         setCatalog(cat);
-        setMetrics(met);
         const effectiveProviderId = storedSession?.providerId ?? resolved.providerId;
         const effectiveModelId = storedSession?.modelId ?? resolved.modelId;
         const effectiveEffortLevel = storedSession?.effortLevel ?? resolved.effortLevel;
@@ -624,6 +611,13 @@ export function ChatPanel({
         setModelNotice(storedSession ? null : resolved.notice);
         addLog("debug", "Chat config loaded", `source=${storedSession ? "session" : resolved.source} provider=${effectiveProviderId} model=${effectiveModelId} models=${cat.models.length}`);
         markEnd("provider-model-restore");
+        void getApprovalMode(projectPath)
+          .then((nextMode) => {
+            if (!cancelled) setApprovalMode(nextMode);
+          })
+          .catch(() => {
+            // Keep the conservative in-memory default when permission loading fails.
+          });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to load chat config", msg);
@@ -653,12 +647,14 @@ export function ChatPanel({
   // never hangs forever in "initializing" — the user sees an actionable
   // error and can retry or close the panel.
   useEffect(() => {
-    if (!nativeMode || !catalog) return;
+    if (!nativeMode || (!nativeSessionId && !catalog)) return;
     let cancelled = false;
     let timer: number | undefined;
     async function loadOrCreate() {
       try {
         if (nativeSessionId) {
+          setContextUsedTokens(0);
+          const latestMetric = nativeSessionLatestMetric(nativeSessionId).catch(() => null);
           addLog("debug", "Chat session loading", `Loading messages for ${nativeSessionId}`);
           const [msgs, events, intrs] = await Promise.all([
             nativeChatMessages(nativeSessionId),
@@ -669,6 +665,11 @@ export function ChatPanel({
           setNativeMessages(msgs);
           setToolEvents(events);
           setInteractions(intrs);
+          void latestMetric.then((metric) => {
+            if (!cancelled) {
+              setContextUsedTokens(metric ? metric.inputTokens + metric.outputTokens : 0);
+            }
+          });
           addLog("debug", "Chat session loaded", `${nativeSessionId}: ${msgs.length} messages`);
           return;
         }
@@ -676,7 +677,7 @@ export function ChatPanel({
         const session = await Promise.race([
           nativeChatStart({
             projectPath,
-            title: "Native Chat",
+            title: "New Chat",
             providerId,
             modelId,
             effortLevel,
@@ -714,6 +715,15 @@ export function ChatPanel({
 
   // Native mode: listen for streamed assistant chunks for this session
   useEffect(() => {
+    let renderFrame: number | null = null;
+    const scheduleStreamRender = () => {
+      if (renderFrame !== null) return;
+      renderFrame = window.requestAnimationFrame(() => {
+        renderFrame = null;
+        setStreamText(streamBufRef.current);
+        setReasoningText(reasoningBufRef.current);
+      });
+    };
     const unlisten = listen<{ sessionId: string; delta: string; channel?: string }>(
       "native-chat://chunk",
       (event) => {
@@ -727,6 +737,10 @@ export function ChatPanel({
           if (phase === "thinking" || phase === "next") {
             // Starting a new provider stream — clear previous iteration's
             // text so each iteration gets a fresh streaming block.
+            if (renderFrame !== null) {
+              window.cancelAnimationFrame(renderFrame);
+              renderFrame = null;
+            }
             streamBufRef.current = "";
             reasoningBufRef.current = "";
             setStreamText("");
@@ -743,7 +757,7 @@ export function ChatPanel({
         if (channel === "tool_call") return;
         if (channel === "reasoning") {
           reasoningBufRef.current += event.payload.delta;
-          setReasoningText(reasoningBufRef.current);
+          scheduleStreamRender();
           setStreamPhase((prev) => prev === "thinking" ? "streaming" : prev);
           return;
         }
@@ -753,11 +767,12 @@ export function ChatPanel({
         // every channel when debug mode is on.
         if (channel !== "content") return;
         streamBufRef.current += event.payload.delta;
-        setStreamText(streamBufRef.current);
+        scheduleStreamRender();
         setStreamPhase("streaming");
       },
     );
     return () => {
+      if (renderFrame !== null) window.cancelAnimationFrame(renderFrame);
       void unlisten.then((fn) => fn());
     };
   }, [nativeMode, nativeSessionId]);
@@ -971,6 +986,7 @@ export function ChatPanel({
 
   // Handle approval mode changes from the UI (Allow All button, settings toggle).
   const handleSetApprovalMode = useCallback(async (mode: ApprovalMode) => {
+    addLog("debug", "Permission mode selected", `projectPath=${projectPath}; mode=${mode}`);
     try {
       await setApprovalModeBackend(projectPath, mode);
       setApprovalMode(mode);
@@ -1085,6 +1101,7 @@ export function ChatPanel({
         streamStartRef.current = Date.now();
         setElapsed(0);
         setStreamPhase("thinking");
+        followLatestRef.current = true;
         // Claim this send. A stop or a newer send bumps activeSendRef so this
         // send's async resolution becomes a no-op instead of reviving the
         // spinner or duplicating the streamed reply.
@@ -1105,6 +1122,9 @@ export function ChatPanel({
         try {
           const result = await nativeChatSend({ sessionId: nativeSessionId, content: text, providerId, modelId, effortLevel });
           if (activeSendRef.current !== gen) return;
+          if (result.metrics) {
+            setContextUsedTokens(result.metrics.inputTokens + result.metrics.outputTokens);
+          }
           setModelRecency(recordModelUse(providerId, modelId));
           setNativeMessages((prev) => {
             const base = prev.filter((m) => m.id !== tempUserId);
@@ -1120,7 +1140,6 @@ export function ChatPanel({
             setSetupRequired(result.setupRequired);
             setShowLogin(true);
           }
-          setMetrics(await nativeRequestMetricsSummary());
         } catch (e) {
           if (activeSendRef.current !== gen) return;
           const msg = e instanceof Error ? e.message : String(e);
@@ -1215,33 +1234,24 @@ export function ChatPanel({
     void sendMessage(delivery.text.trim()).then(() => consume());
   }, [delivery, consume, nativeSessionId, catalog, loading, sendMessage]);
 
-  // Auto-scroll: follow the bottom whenever content grows IF the user was
-  // pinned to the bottom BEFORE the growth. The "was at bottom?" check MUST
-  // use the pre-growth height (`oldHeight`): measuring against the new,
-  // already-grown `scrollHeight` counts the just-added content as distance
-  // and wrongly concludes the user scrolled up — so the view stops following
-  // exactly when a new message/chunk lands. Also covers tool events /
-  // interactions / streaming deltas.
-  const scrollHeightRef = useRef(0);
-  useEffect(() => {
+  // Follow output explicitly instead of inferring pre-growth geometry from a
+  // stale scroll height. Layout timing keeps the latest chunk visible before
+  // paint; an intentional upward scroll opts out until the user returns.
+  useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    const newHeight = el.scrollHeight;
-    const oldHeight = scrollHeightRef.current;
-    scrollHeightRef.current = newHeight;
-    const wasAtBottom = oldHeight - el.scrollTop - el.clientHeight <= 80;
-    if (oldHeight === 0 || wasAtBottom) {
-      el.scrollTop = newHeight;
-    }
-  }, [nativeMessages, legacyMessages, streamText, reasoningText, streamPhase, toolEvents, interactions]);
+    if (!el || !followLatestRef.current) return;
+    el.scrollTop = el.scrollHeight;
+    setIsScrolledUp(false);
+  }, [nativeMessages, legacyMessages, streamText, reasoningText, streamPhase, toolEvents, interactions, loading, streaming]);
 
   // Track whether the user has scrolled up from the bottom.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const onScroll = () => {
-      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-      setIsScrolledUp(distanceFromBottom > 80);
+      const following = el.scrollHeight - el.scrollTop - el.clientHeight <= 80;
+      followLatestRef.current = following;
+      setIsScrolledUp(!following);
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
@@ -1250,6 +1260,7 @@ export function ChatPanel({
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    followLatestRef.current = true;
     el.scrollTop = el.scrollHeight;
     setIsScrolledUp(false);
   }, []);
@@ -1863,18 +1874,6 @@ export function ChatPanel({
       setLoginError(msg);
     });
   }, [addLog]);
-  const handleDisconnect = useCallback(async () => {
-    if (!selectedProvider) return;
-    try {
-      await nativeDeleteProviderCredential(selectedProvider.id);
-      await refreshCatalog();
-      onShowToast?.("Provider disconnected", `${selectedProvider.label} credential removed.`, "info");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      addLog("error", "Failed to disconnect provider", msg);
-      onShowToast?.("Failed to disconnect", msg, "error");
-    }
-  }, [selectedProvider, refreshCatalog, addLog, onShowToast]);
 
   // Persist provider/model/effort to both the session record (so it survives
   // restart) and the project default (so new sessions inherit it). The session
@@ -2063,7 +2062,6 @@ export function ChatPanel({
   const inputDisabled = nativeMode ? !nativeSessionId : agentId === null;
   const sendDisabled = loading || !input.trim() || (nativeMode ? !nativeSessionId : agentId === null);
 
-  const providerName = selectedProvider?.label ?? providerId;
   const modelName = selectedModel?.label ?? modelId;
 
   return (
@@ -2076,35 +2074,11 @@ export function ChatPanel({
       <div aria-live="polite" aria-atomic="true" className="sr-only" >
         {streaming ? `Agent is responding${streamPhase === "tools" ? " — running tools" : streamPhase === "thinking" ? " — thinking" : ""}` : ""}
       </div>
-      <ChatHeader
+      <ChatTitleBar
         title={chatTitle ?? (nativeSessionId ? "Chat" : "New chat")}
         onRename={handleRename}
         titleLocked={titleLocked}
-        modelChip={modelName}
-        modelId={modelId}
-        effortChip={effortLevel}
-        agentMode={agentMode}
-        onToggleAgentMode={() => setAgentMode((m) => (m === "build" ? "plan" : "build"))}
-        planBadge={planBadge}
-        onOpenPlan={() => { /* focus the plan in the side panel */ }}
-        branch={branch}
-        worktreePath={worktreePath}
-        branches={branches}
-        onSwitchBranch={handleSwitchBranch}
-        onCreateBranch={handleCreateBranch}
-        onToggleHistory={() => onOpenHistory?.()}
-        onStashAndSwitch={handleSwitchBranch}
-        onDiscardAndSwitch={handleSwitchBranch}
-        uncommittedCount={uncommittedCount}
-        onRenameAction={() => { /* handled by header internally */ }}
-        onAssignPlan={handleOpenAssignPlan}
-        onDuplicateChat={() => onDuplicateChat?.()}
-        onCloseChat={() => onCloseChat?.()}
-        onCloseAndDelete={() => onCloseAndDeleteChat?.()}
-        prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
-        onCreatePullRequest={handleCreatePullRequest}
-        projectPath={projectPath}
-        sessionId={nativeSessionId}
+        renameSignal={renameSignal}
       />
       {showPrCard && prRec ? (
         <PrRecommendationCard
@@ -2144,16 +2118,6 @@ export function ChatPanel({
       ) : null}
       {/* Messages area */}
       <div className="chat-messages" ref={scrollRef}>
-        {nativeMode && metrics ? (
-          <div className="chat-metrics" title="Local request metrics">
-            <BarChart3 size={11} />
-            <span>{metrics.totalRequests} req</span>
-            <span>{metrics.totalInputTokens + metrics.totalOutputTokens} tok</span>
-            <span>{formatMetric(metrics.avgTokensPerSecond, " tok/s")}</span>
-            <span>TTFT {formatMetric(metrics.avgTtftMs, "ms")}</span>
-            <span>TTLT {formatMetric(metrics.avgTtltMs, "ms")}</span>
-          </div>
-        ) : null}
         {nativeMode
           ? (() => {
               // Flat chronological timeline: merge messages + tool events +
@@ -2718,49 +2682,71 @@ export function ChatPanel({
 
       {/* Composer footer: always visible, never clipped */}
       <div className="chat-input-area">
+        <ChatHeader
+          modelChip={modelName}
+          modelId={modelId}
+          effortChip={effortLevel}
+          effortOptions={(catalog?.effortLevels ?? [])
+            .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
+            .map((effort) => ({ id: effort.id, label: effort.label }))}
+          onPickModel={() => {
+            addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
+            setShowModelPicker(true);
+            setShowProviderPicker(false);
+          }}
+          onChangeEffort={(effort) => {
+            addLog("debug", "Chat effort selected", `sessionId=${nativeSessionId ?? "none"}; effort=${effort}`);
+            setEffortLevel(effort);
+            persistSelection(providerId, modelId, effort);
+          }}
+          permissionMode={approvalMode}
+          onChangePermission={(mode) => void handleSetApprovalMode(mode)}
+          runState={streaming ? "running" : loading ? "queued" : "idle"}
+          contextUsed={contextUsedTokens}
+          contextLimit={selectedModel?.contextWindow ?? null}
+          onOpenCommands={() => {
+            addLog("debug", "Command palette opened via header", `sessionId=${activeSessionId ?? "none"}`);
+            setShowCommandPalette(true);
+            setInput("/");
+            window.requestAnimationFrame(() => chatInputRef.current?.focus());
+          }}
+          debugMode={debugMode}
+          onToggleDebug={() => {
+            const next = !debugMode;
+            addLog("debug", "Chat debug mode toggled", `enabled=${next}`);
+            setDebugMode(next);
+            localStorage.setItem("basebuild.debug-mode", String(next));
+          }}
+          canCopyConversation={nativeMessages.length > 0}
+          onCopyConversation={() => {
+            addLog("debug", "Copy conversation selected", `sessionId=${nativeSessionId ?? "none"}`);
+            void handleCopyConversation();
+          }}
+          agentMode={agentMode}
+          onToggleAgentMode={() => setAgentMode((m) => (m === "build" ? "plan" : "build"))}
+          planBadge={planBadge}
+          onOpenPlan={() => { /* focus the plan in the side panel */ }}
+          branch={branch}
+          worktreePath={worktreePath}
+          branches={branches}
+          onSwitchBranch={handleSwitchBranch}
+          onCreateBranch={handleCreateBranch}
+          onToggleHistory={() => onOpenHistory?.()}
+          onStashAndSwitch={handleSwitchBranch}
+          onDiscardAndSwitch={handleSwitchBranch}
+          uncommittedCount={uncommittedCount}
+          onRenameAction={() => setRenameSignal((n) => n + 1)}
+          onAssignPlan={handleOpenAssignPlan}
+          onDuplicateChat={() => onDuplicateChat?.()}
+          onCloseChat={() => onCloseChat?.()}
+          onCloseAndDelete={() => onCloseAndDeleteChat?.()}
+          prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
+          onCreatePullRequest={handleCreatePullRequest}
+          projectPath={projectPath}
+          sessionId={nativeSessionId}
+        />
         {nativeMode ? (
           <>
-            <ChatComposerRail
-              catalog={catalog}
-              providerId={providerId}
-              providerName={providerName}
-              providerDegraded={providerDegraded}
-              modelId={modelId}
-              modelName={modelName}
-              effortLevel={effortLevel}
-              supportedEfforts={selectedModel?.supportedEfforts ?? []}
-              catalogRefreshing={catalogRefreshing}
-              lastSyncedAt={selectedProvider?.lastSyncedAt ?? null}
-              localProviderId={LOCAL_PROVIDER_ID}
-              onPickProvider={() => {
-                addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}`);
-                setShowProviderPicker(true);
-                setShowModelPicker(false);
-                setShowPlanningMenu(false);
-              }}
-              onPickModel={() => {
-                addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
-                setShowModelPicker(true);
-                setShowProviderPicker(false);
-                setShowPlanningMenu(false);
-              }}
-              onChangeEffort={(effort) => {
-                setEffortLevel(effort);
-                persistSelection(providerId, modelId, effort);
-              }}
-              onRefresh={() => void refreshCatalog(true, selectedProvider?.id)}
-              onConnect={() => {
-                setLoginError(null);
-                setShowLogin(true);
-                setShowProviderPicker(false);
-              }}
-              onDisconnect={() => void handleDisconnect()}
-              onOpenCommands={() => {
-                addLog("debug", "Command palette opened via button", `sessionId=${activeSessionId ?? "none"}`);
-                setShowCommandPalette(true);
-                setInput("/");
-              }}
-            />
             {showPlanningMenu ? (
               <div className="modal-overlay" onClick={() => setShowPlanningMenu(false)} title="Close ideas menu">
                 <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Idea actions">
@@ -3203,7 +3189,7 @@ export function ChatPanel({
                 void handleSend();
               }
             }}
-            rows={3}
+            rows={2}
             disabled={inputDisabled}
             title={nativeMode ? "Chat input — type a message and press Enter to send" : "Chat input — start the agent to enable sending"}
           />
@@ -3227,40 +3213,6 @@ export function ChatPanel({
               <Send size={14} />
             </button>
           )}
-        </div>
-        <div className="chat-input-controls">
-          <OptionList<ApprovalMode>
-            value={approvalMode}
-            onChange={(mode) => void handleSetApprovalMode(mode)}
-            label="Permission mode"
-            compact
-            options={[
-              { id: "balanced", label: "Balanced", title: "Balanced — read-only tools auto-allowed, mutating tools ask" },
-              { id: "safe", label: "Always Ask", title: "Safe — every tool call prompts the user" },
-              { id: "auto", label: "Run Everything", title: "Auto — no prompts; everything auto-allowed within workspace" },
-            ]}
-          />
-          <button
-            type="button"
-            className={`btn btn-sm chat-debug-toggle ${debugMode ? "chat-debug-toggle-on" : ""}`}
-            title={debugMode ? "Debug mode ON — showing raw event data in tool cards. Click to turn off." : "Debug mode OFF — click to show raw event data in tool cards"}
-            onClick={() => {
-              const next = !debugMode;
-              setDebugMode(next);
-              localStorage.setItem("basebuild.debug-mode", String(next));
-            }}
-          >
-            <Bug size={12} /> Debug
-          </button>
-          <button
-            type="button"
-            className="btn btn-sm chat-copy-conversation-btn"
-            title="Copy entire conversation as markdown to clipboard"
-            disabled={nativeMessages.length === 0}
-            onClick={() => void handleCopyConversation()}
-          >
-            <Copy size={12} /> Copy All
-          </button>
         </div>
         {debugMode ? (
           <div className="chat-debug-panel" title="Raw event stream from the model and agent loop">
@@ -3337,20 +3289,10 @@ export function ChatPanel({
                   >Clear</button>
                 </div>
               </div>
-            ) : null}
-          </div>
-        ) : null}
-        <ChatContextStrip
-          projectPath={projectPath}
-          workspaceId={nativeSessionId}
-          branch={branch}
-          worktreePath={worktreePath}
-          plan={planBadge ? { referenceId: planBadge.referenceId, title: planBadge.title, status: planBadge.status } : null}
-          runState={streaming ? "running" : loading ? "queued" : "idle"}
-          modelLabel={modelName}
-          contextUsage={{ used: null, limit: null }}
-        />
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
-    </div>
   );
 }

@@ -15,35 +15,30 @@ async function ensureChatPanel(page: Page) {
   await page.waitForTimeout(500);
 }
 
-test.describe("Chat context strip", () => {
-  test("context strip renders under the composer with model and run state", async ({ page }) => {
+test.describe("Compact chat header context", () => {
+  test("header renders model, run state, permissions, and context usage", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    // Context strip should be visible under the input.
-    const strip = page.locator(".chat-context-strip").first();
-    await expect(strip).toBeVisible({ timeout: 5_000 });
-
-    // Run state should show "idle" (no active run).
-    await expect(strip.locator(".chat-context-run-state", { hasText: "idle" })).toBeVisible();
-
-    // Model chip should be present.
-    await expect(strip.locator(".chat-context-chip-label", { hasText: "model" })).toBeVisible();
+    await expect(page.locator(".chat-column-model-chip").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".chat-header-run-state").first()).toContainText("idle");
+    await expect(page.locator(".chat-header-select[aria-label='Permission mode']").first()).toBeVisible();
+    const context = page.locator(".chat-header-context").first();
+    await expect(context).toBeVisible();
+    await expect(context).toHaveAttribute("title", /Context usage: 0 .*tokens/);
   });
 
-  test("context strip chips have title tooltips", async ({ page }) => {
+  test("header context controls have title tooltips", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    const chips = page.locator(".chat-context-chip").first();
-    const count = await chips.count();
-    // At least the model chip should be present.
-    expect(count).toBeGreaterThan(0);
-
-    // Each chip must have a title attribute.
-    for (let i = 0; i < count; i++) {
-      const title = await chips.nth(i).getAttribute("title");
-      expect(title).toBeTruthy();
+    for (const control of [
+      page.locator(".chat-column-model-chip").first(),
+      page.locator(".chat-header-run-state").first(),
+      page.locator(".chat-header-context").first(),
+      page.locator(".chat-header-select[aria-label='Permission mode']").first(),
+    ]) {
+      await expect(control).toHaveAttribute("title", /.+/);
     }
   });
 });

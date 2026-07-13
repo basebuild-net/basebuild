@@ -195,16 +195,16 @@ their turn comes — stale specs are worse than none.
 ## Status
 
 <!-- status:begin -->
-_Last refreshed: 2026-07-10 (`node scripts/openspec-status.mjs --write`)_
+_Last refreshed: 2026-07-12 (`node scripts/openspec-status.mjs --write`)_
 
 |Change|Progress|Status|Next command|
 |---|---|---|---|
 |`chat-first-shell`|17/31|in progress|`/apply chat-first-shell`|
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
-|`idea-to-merge-autopilot`|30/31|in progress|`/apply idea-to-merge-autopilot`|
 |`plan-import`|11/13|in progress|`/apply plan-import`|
 |`provider-parity-workspace-fixes`|28/42|in progress|`/apply provider-parity-workspace-fixes`|
 |`chat-history-persistence`|0/21|not started|`/apply chat-history-persistence`|
+|`chat-ux-polish`|0/30|not started|`/apply chat-ux-polish`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
 |`file-viewer-editor`|0/22|not started|`/apply file-viewer-editor`|
 |`harness-context-files`|0/13|not started|`/apply harness-context-files`|
@@ -220,7 +220,9 @@ _Last refreshed: 2026-07-10 (`node scripts/openspec-status.mjs --write`)_
 |`chat-experience-completion`|53/53|complete — archive|`/archive chat-experience-completion`|
 |`chat-experience-review-fixes`|20/20|complete — archive|`/archive chat-experience-review-fixes`|
 |`global-shell-reliability`|28/28|complete — archive|`/archive global-shell-reliability`|
+|`idea-to-merge-autopilot`|31/31|complete — archive|`/archive idea-to-merge-autopilot`|
 |`openspec-chat-workbench`|71/71|complete — archive|`/archive openspec-chat-workbench`|
+|`ui-unification-polish`|23/23|complete — archive|`/archive ui-unification-polish`|
 <!-- status:end -->
 
 ## Archiving
@@ -229,6 +231,15 @@ Changes at `complete — archive` get archived (`/archive <name>`): delta specs
 merge into canonical `openspec/specs/` and the folder moves to
 `openspec/changes/archive/<date>-<name>/`. Archive history:
 
+- **2026-07-13** — `startup-chat-performance` archived: versioned SQLite
+  initialization fast path, worker-thread startup reads, cache-first
+  authoritative project discovery, active-project-priority session hydration,
+  transcript-first chat restore, animation-frame streaming, reliable
+  follow-latest behavior, compact single-location chat controls, and measured
+  per-session context usage. Added canonical `startup-loading-performance` and
+  `compact-chat-workbench` specs. Verified with 380 Rust tests, frontend
+  type/build, UI invariants, 446 passing browser tests (6 skipped), and 960×640
+  visual/focus smoke.
 - **2026-07-03** — first batch: 5 changes, 17 canonical specs (see archive/).
 - **2026-07-04a** — `native-agent-loop`, `stability-hardening`,
   `strong-testing-suite` archived in PR #13: 10 new canonical specs

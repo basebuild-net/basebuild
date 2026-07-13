@@ -64,13 +64,19 @@ pub fn remember_recent_project(path: String) -> Result<RecentProject, String> {
 }
 
 #[tauri::command]
-pub fn list_recent_projects(limit: Option<u32>) -> Result<Vec<RecentProject>, String> {
-    StorageService::list_recent_projects(limit.unwrap_or(10))
+pub async fn list_recent_projects(limit: Option<u32>) -> Result<Vec<RecentProject>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        StorageService::list_recent_projects(limit.unwrap_or(10))
+    })
+    .await
+    .map_err(|error| format!("Recent-project task panicked: {error}"))?
 }
 
 #[tauri::command]
-pub fn get_last_focused_project() -> Result<Option<RecentProject>, String> {
-    StorageService::get_last_focused_project()
+pub async fn get_last_focused_project() -> Result<Option<RecentProject>, String> {
+    tauri::async_runtime::spawn_blocking(StorageService::get_last_focused_project)
+        .await
+        .map_err(|error| format!("Focused-project task panicked: {error}"))?
 }
 
 #[tauri::command]
@@ -79,8 +85,10 @@ pub fn set_last_focused_project(path: String) -> Result<RecentProject, String> {
 }
 
 #[tauri::command]
-pub fn detect_project(path: String) -> ProjectDetection {
-    ProjectService::detect(path)
+pub async fn detect_project(path: String) -> Result<ProjectDetection, String> {
+    tauri::async_runtime::spawn_blocking(move || ProjectService::detect(path))
+        .await
+        .map_err(|error| format!("Project-detection task panicked: {error}"))
 }
 
 #[tauri::command]

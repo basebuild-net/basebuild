@@ -92,9 +92,13 @@ dependencies are NOT adopted.
   for the closed-panel count.
 - `.history-drawer` — overlay drawer listing closed panels
   (`.history-drawer-item` with Re-open / Delete permanently actions).
-- `.chat-column-header` — per-chat header inside a chat panel (title,
-  model/effort chips, agent-mode pill, plan badge, branch+worktree,
-  history, more-actions). Pinned at the top of the column.
+- `.chat-column-header` — sticky per-chat configuration rail: title, clickable
+  model chip, effort dropdown, textual permission dropdown, run state, circular
+  context usage, agent mode, plan badge, compact branch, commands, history, and
+  more-actions.
+- `.chat-header-select`, `.chat-header-run-state`, `.chat-header-context` —
+  compact header configuration/state primitives. The context circle exposes the
+  exact latest-request token ratio in its tooltip.
 - `.chat-branch-dropdown` — branch switch/create dropdown.
   `.chat-switch-confirm` — uncommitted-changes confirm prompt
   (stash/discard/cancel).
@@ -136,20 +140,22 @@ The composer must be structurally impossible to clip:
 - `.chat-panel` is a flex column; `.chat-messages { flex: 1 1 0; min-height: 0 }`
   absorbs all overflow so the composer never grows the panel.
 - `.chat-input-area` is a `flex-shrink: 0` footer and a **sibling** of the scroll
-  region (never inside it), with a `min-height` and a top border so it is always
-  visible even when empty.
-- The input is a `.chat-input` textarea inside `.chat-input-row`. It is
-  auto-growing: on each change its height is reset to `scrollHeight`, capped
-  (see `ChatPanel.tsx`) so it grows tall enough for long drafts before
-  scrolling internally. `.chat-messages` yields the space, so growth never
-  clips the composer.
-- The always-visible controls live in `.chat-composer-header`, a single-line
-  rail. Model picker and effort selector stay visible at all times (labels may
-  truncate; effort stays adjacent to model). Keep the rail minimal — prefer
-  slash-command accelerators (`/login`, `/model`, `/models refresh`) over
-  adding buttons; reserve `.chat-inline-menu` / `.chat-picker` surfaces for
-  genuinely secondary actions, not for the model/effort essentials. While the
-  catalog loads the rail renders `.chat-select-skeleton` placeholders.
+  region (never inside it). It contains only the input row and optional active
+  debug panel; configuration is not duplicated here. `:focus-within` outlines
+  the complete composer in `var(--bb-cta)`.
+- The input is a `.chat-input` textarea inside `.chat-input-row`. It starts at
+  two rows and auto-grows: on each change its height custom property is reset to
+  `scrollHeight`, capped (see `ChatPanel.tsx`) before internal scrolling.
+- Model/provider, effort, textual permission mode, run state, branch, context,
+  and secondary actions live once in `.chat-column-header`. Model opens the
+  provider catalog; effort and permission use `.chat-header-select` dropdowns;
+  context is a 16px SVG circle with exact numbers in `title=`.
+- Existing transcripts load independently from provider catalog, global metrics,
+  branch, and permission metadata. Streaming fragments accumulate immediately
+  but publish React state once per animation frame.
+- `.chat-messages` explicitly follows the latest output while the reader is at
+  the bottom. An upward scroll disables following; returning to the bottom or
+  activating `.chat-scroll-bottom-btn` resumes it.
 - Assistant streaming arrives on the `native-chat://chunk` Tauri event and is
   appended live; offline turns are flagged with `.chat-offline-tag`.
 - Reasoning/thinking tokens render in a `.reasoning-fold` collapsed section

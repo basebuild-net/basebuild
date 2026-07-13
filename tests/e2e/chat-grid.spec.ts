@@ -21,7 +21,7 @@ async function ensureChatPanel(page: Page) {
 }
 
 test.describe("panel grid", () => {
-  test("a chat panel renders with the composer rail visible", async ({ page }) => {
+  test("a chat panel renders with compact header controls", async ({ page }) => {
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
@@ -32,13 +32,11 @@ test.describe("panel grid", () => {
     await expect(page.locator(".panel-grid")).toBeVisible();
     await expect(page.locator(".panel-grid-leaf").first()).toBeVisible();
 
-    // The composer rail is visible inside the panel.
-    await expect(page.locator(".chat-composer-header").first()).toBeVisible();
-    await expect(page.locator(".chat-provider-trigger").first()).toBeVisible();
-    await expect(page.locator(".chat-model-trigger").first()).toBeVisible();
-
-    // The provider trigger has a tooltip (Invariant 3).
-    await expect(page.locator(".chat-provider-trigger").first()).toHaveAttribute("title");
+    // Configuration is consolidated in the sticky chat header.
+    await expect(page.locator(".chat-column-header").first()).toBeVisible();
+    await expect(page.locator(".chat-column-model-chip").first()).toBeVisible();
+    await expect(page.locator(".chat-header-select[aria-label='Permission mode']").first()).toBeVisible();
+    await expect(page.locator(".chat-column-model-chip").first()).toHaveAttribute("title");
 
     expect(pageErrors).toEqual([]);
   });
