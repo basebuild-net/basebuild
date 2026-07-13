@@ -709,7 +709,7 @@ impl NativeChatService {
         )?;
         Self::touch_session(&request.session_id)?;
         // Auto-title the session from the first user message (no-ops if already titled).
-        let _ = SessionService::auto_title(&request.session_id, content);
+        let _ = Self::auto_title_native(&request.session_id, content);
 
         let catalog = Self::provider_catalog();
         let provider_label = catalog
@@ -1659,6 +1659,65 @@ impl NativeChatService {
             params![now_seconds(), session_id],
         )
         .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Auto-title a native chat session from its first user message.
+    /// Only updates sessions still on a default title ("Native Chat" or "New Chat").
+    /// No-ops if the session has a custom title or doesn't exist.
+    fn auto_title_native(session_id: &str, suggested: &str) -> DbResult<bool> {
+        if suggested.trim().is_empty() {
+            return Ok(false);
+        }
+        let conn = StorageService::connect()?;
+        let current: Option<String> = conn
+            .query_row(
+                "SELECT title FROM native_chat_sessions WHERE id = ?1",
+                params![session_id],
+                |r| r.get::<_, String>(0),
+            )
+            .ok();
+        let Some(current_title) = current else {
+            return Ok(false);
+        };
+        // Only auto-title sessions still on a default placeholder title.
+        if current_title != "Native Chat" && current_title != "New Chat" {
+            return Ok(false);
+        }
+        let truncated = crate::services::session_service::truncate_title(suggested, 60);
+        conn.execute(
+            "UPDATE native_chat_sessions SET title = ?1 WHERE id = ?2",
+            params![truncated, session_id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+
+    /// Backfill titles for existing native chat sessions that still have a
+    /// default placeholder title. Reads the first user message for each
+    /// session and generates a title from it. Called during initialization.
+    pub fn backfill_default_titles() -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        let session_ids: Vec<(String, String)> = conn
+            .prepare(
+                "SELECT s.id, COALESCE((
+                    SELECT m.content FROM native_chat_messages m
+                    WHERE m.session_id = s.id AND m.role = 'user'
+                    ORDER BY m.sort_order ASC LIMIT 1
+                ), '') as first_msg
+                 FROM native_chat_sessions s
+                 WHERE s.title = 'Native Chat' OR s.title = 'New Chat'",
+            )
+            .map_err(|e| e.to_string())?
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+        for (session_id, first_msg) in session_ids {
+            if !first_msg.is_empty() {
+                let _ = Self::auto_title_native(&session_id, &first_msg);
+            }
+        }
         Ok(())
     }
 

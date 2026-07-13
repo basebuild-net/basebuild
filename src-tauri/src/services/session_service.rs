@@ -459,7 +459,7 @@ impl SessionService {
 
 /// Truncate a title to max_chars, breaking on a word boundary and adding an
 /// ellipsis when truncated. Used for auto-titling sessions from first message.
-fn truncate_title(s: &str, max_chars: usize) -> String {
+pub(crate) fn truncate_title(s: &str, max_chars: usize) -> String {
     let s = s.trim();
     if s.chars().count() <= max_chars {
         return s.to_string();

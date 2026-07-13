@@ -954,12 +954,11 @@ impl StorageService {
             "UPDATE native_chat_sessions SET run_state = 'interrupted' WHERE run_state = 'running'",
             [],
         );
-        // Migration: rename default "Native Chat" titles to "New Chat" so
-        // the sidebar shows a cleaner name for existing sessions.
-        let _ = connection.execute(
-            "UPDATE native_chat_sessions SET title = 'New Chat' WHERE title = 'Native Chat'",
-            [],
-        );
+        // Migration: backfill default "Native Chat"/"New Chat" titles with
+        // a real title derived from each session's first user message.
+        // Sessions without messages keep the placeholder until the first
+        // message is sent, which triggers auto_title_native.
+        let _ = crate::services::native_chat_service::NativeChatService::backfill_default_titles();
 
         // Migration (idea-to-merge-autopilot): add finish_outcome to plan_runs
         // so the applied finish policy is persisted once at completion and
