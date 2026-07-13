@@ -48,22 +48,22 @@ test.describe("Design system invariants (DESIGN.md)", () => {
     }
   });
 
-  test("background is pure black canvas", async ({ page }) => {
+  test("background is near-black canvas", async ({ page }) => {
     await openFixtureProject(page);
 
     const bg = await page.evaluate(() => {
       return getComputedStyle(document.documentElement).getPropertyValue("--bb-bg").trim();
     });
-    expect(bg).toBe("#000000");
+    expect(bg).toBe("#09090b");
   });
 
-  test("CTA color is the orange accent", async ({ page }) => {
+  test("CTA color is the foreground accent", async ({ page }) => {
     await openFixtureProject(page);
 
     const cta = await page.evaluate(() => {
       return getComputedStyle(document.documentElement).getPropertyValue("--bb-cta").trim();
     });
-    expect(cta.toLowerCase()).toBe("#ff5606");
+    expect(cta.toLowerCase()).toBe("#f4f4f5");
   });
 
   test("body uses Space Grotesk font", async ({ page }) => {
@@ -97,11 +97,11 @@ test.describe("Design system invariants (DESIGN.md)", () => {
       };
     });
 
-    // DESIGN.md: positive=#4ade80, negative=#f87171, warning=#facc15, info=#818cf8
-    expect(colors.positive).toBe("#4ade80");
-    expect(colors.negative).toBe("#f87171");
-    expect(colors.warning).toBe("#facc15");
-    expect(colors.info).toBe("#818cf8");
+    // DESIGN.md: positive=#d4d4d8, negative=#a1a1aa, warning=#d4d4d8, info=#b4b4bb
+    expect(colors.positive).toBe("#d4d4d8");
+    expect(colors.negative).toBe("#a1a1aa");
+    expect(colors.warning).toBe("#d4d4d8");
+    expect(colors.info).toBe("#b4b4bb");
   });
 
   test("all buttons have 0px border radius", async ({ page }) => {

@@ -231,7 +231,7 @@ test.describe("native chat workspace", () => {
     expect(userBox!.width).toBeGreaterThan(messagesBox!.width * 0.9);
     expect(assistantBox!.width).toBeGreaterThan(messagesBox!.width * 0.9);
     // User row has the distinctive left accent border.
-    await expect(userRow).toHaveCSS("border-left-color", "rgb(255, 86, 6)");
+    await expect(userRow).toHaveCSS("border-left-color", "rgb(244, 244, 245)");
   });
 
   test("elapsed badge reads in conversational units", async ({ page }) => {

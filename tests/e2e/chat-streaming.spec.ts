@@ -88,7 +88,7 @@ test.describe("chat streaming phases", () => {
 
     // The project status dot settles out of running.
     await expect(
-      page.locator(".activity-sidebar-project .agent-status-dot").first(),
+      page.locator(".activity-sidebar-project-row.is-active .agent-status-dot").first(),
     ).not.toHaveClass(/agent-status-running/, { timeout: 5_000 });
 
     // The composer accepts a new message after stop.

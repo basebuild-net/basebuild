@@ -35,7 +35,7 @@ test.describe("Left sidebar structure (DESIGN.md §Layout)", () => {
   test("sidebar shows project list", async ({ page }) => {
     await openFixtureProject(page);
 
-    const projectItems = page.locator(".activity-sidebar-project-name, .activity-sidebar-project");
+    const projectItems = page.locator(".activity-sidebar-project-name, .activity-sidebar-project-row");
     const count = await projectItems.count();
     expect(count).toBeGreaterThan(0);
   });

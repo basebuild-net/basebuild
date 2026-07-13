@@ -8,7 +8,7 @@ test.describe("Left column: repo identity and all projects visible", () => {
     await expect(page.locator(".workspace-splash")).not.toBeVisible({ timeout: 10_000 });
 
     // The active project header shows repo icon, name, and branch.
-    const activeProject = page.locator(".activity-sidebar-project").first();
+    const activeProject = page.locator(".activity-sidebar-project-row.is-active").first();
     await expect(activeProject).toBeVisible({ timeout: 5_000 });
     await expect(activeProject.locator(".repo-icon-svg")).toBeVisible();
     await expect(activeProject.locator(".activity-sidebar-project-name")).not.toBeEmpty();
@@ -38,6 +38,6 @@ test.describe("Left column: repo identity and all projects visible", () => {
     const targetRow = page.locator(".activity-sidebar-project-row").filter({ hasText: target.path.split(/[\\/]/).pop() ?? target.path }).first();
     await targetRow.click();
     // After switching, the new project becomes the active project header.
-    await expect(page.locator(".activity-sidebar-project")).toContainText(target.path.split(/[\\/]/).pop() ?? target.path);
+    await expect(page.locator(".activity-sidebar-project-row.is-active")).toContainText(target.path.split(/[\\/]/).pop() ?? target.path);
   });
 });

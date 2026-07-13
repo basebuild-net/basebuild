@@ -242,13 +242,13 @@ test.describe("Streaming indicators", () => {
     await expect(inputRow.locator(".chat-send-btn").first()).toBeVisible();
   });
 
-  test("focused composer receives the orange area highlight", async ({ page }) => {
+  test("focused composer receives the CTA area highlight", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
     const inputArea = page.locator(".chat-input-area").first();
     await inputArea.locator("textarea").focus();
-    await expect(inputArea).toHaveCSS("outline-color", "rgb(255, 86, 6)");
+    await expect(inputArea).toHaveCSS("outline-color", "rgb(244, 244, 245)");
     await expect(inputArea.locator(".chat-context-strip")).toHaveCount(0);
   });
 });
