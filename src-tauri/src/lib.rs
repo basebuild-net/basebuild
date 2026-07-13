@@ -151,6 +151,7 @@ use commands::{
         check_for_updates, clear_skipped_update, get_skipped_update_version,
         install_update, install_update_with_progress, skip_update_version,
     },
+    startup::{startup_disable, startup_enable, startup_get_status, startup_launch_mode, startup_reconcile},
 };
 
 pub struct CloseToTrayState {
@@ -209,7 +210,11 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build());
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--background"]),
+        ));
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
         use tauri::Manager;
@@ -263,6 +268,24 @@ pub fn run() {
             crate::services::sync_service::start_autosync_loop(app.handle().clone());
             // Start the freeze watchdog (heartbeat + freeze report + abort).
             crate::services::stability_service::start_watchdog(app.handle().clone());
+            // Reconcile Windows autostart registration with persisted intent
+            // (idempotent — only acts if intent and OS state disagree).
+            let _ = crate::services::startup_service::StartupService::reconcile(app.handle());
+            // Detect launch mode: if launched with --background (autostart),
+            // keep the main window hidden. The frontend can also query this
+            // via the startup_launch_mode command.
+            let launch_mode = crate::services::startup_service::detect_launch_mode();
+            eprintln!("[startup] launch mode: {:?}", launch_mode);
+            if matches!(launch_mode, crate::models::startup::LaunchMode::Background) {
+                eprintln!("[startup] background launch — main window stays hidden");
+            } else {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    eprintln!("[startup] foreground launch — main window shown");
+                }
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -279,6 +302,7 @@ pub fn run() {
                     if !should_exit {
                         api.prevent_close();
                         let _ = window.hide();
+                        eprintln!("[startup] window close → tray (hidden, process alive)");
                         // Opportunistic sync trigger: window hidden but process alive.
                         crate::services::sync_service::trigger_sync(
                             window.app_handle().clone(),
@@ -586,6 +610,11 @@ pub fn run() {
             notification_get_settings,
             notification_set_settings,
              get_skipped_update_version,
+            startup_get_status,
+            startup_enable,
+            startup_disable,
+            startup_reconcile,
+            startup_launch_mode,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Basebuild")

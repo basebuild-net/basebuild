@@ -214,6 +214,8 @@ type E2eState = {
   auth: { accessToken: string; expiresAt: string; scopes: string[]; user: { id: string; username: string; email: string; image: string | null; isAdmin: boolean; isEditor: boolean } | null } | null;
   updateInstallCount: number;
   autoSyncEnabled?: boolean;
+  startupDesired?: boolean;
+  startupPlatformSupported?: boolean;
   gitChangeStaged: boolean;
   terminals: { id: number; shell: string; cwd: string | null; pid: number; rows: number; cols: number; startedAt: number; alive: boolean }[];
   notifications: { id: string; kind: string; entityId: string; entityKind: string; projectPath: string; title: string; detail?: string; read: boolean; createdAt: number }[];
@@ -1605,6 +1607,17 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return [] as T;
     case "get_runtime_defaults":
       return { defaultChatProfileId: "basebuild-native", defaultTerminalProfileId: "default-terminal", defaultModel: "basebuild-local-coordinator", autoSendGeneratedPrompts: false, gitAiProviderId: null, gitAiModelId: null } as T;
+    case "list_runtime_profiles":
+      return [
+        { id: "basebuild-native", kind: "chat", label: "Basebuild Native", executable: "", args: [], env: {}, workingDirectoryMode: "project", workingDirectory: null, enabled: true },
+        { id: "default-terminal", kind: "terminal", label: "Default Terminal", executable: "cmd.exe", args: [], env: {}, workingDirectoryMode: "project", workingDirectory: null, enabled: true },
+      ] as T;
+    case "set_runtime_defaults":
+      return undefined as T;
+    case "get_analytics_consent":
+      return { collectionEnabled: false, uploadEnabled: false } as T;
+    case "set_analytics_consent":
+      return undefined as T;
     case "check_for_updates":
       return {
         available: true,
@@ -1782,6 +1795,38 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "provision_skill_dirs":
       return [] as T;
+    case "startup_get_status":
+      return {
+        desired: s.startupDesired ?? false,
+        effective: s.startupDesired ? "enabled" : "disabled",
+        platformSupported: s.startupPlatformSupported ?? true,
+        lastReconciliation: null,
+      } as T;
+    case "startup_enable":
+      s.startupDesired = true;
+      return {
+        desired: true,
+        effective: "enabled",
+        platformSupported: s.startupPlatformSupported ?? true,
+        lastReconciliation: { success: true, action: "repaired", error: null },
+      } as T;
+    case "startup_disable":
+      s.startupDesired = false;
+      return {
+        desired: false,
+        effective: "disabled",
+        platformSupported: s.startupPlatformSupported ?? true,
+        lastReconciliation: { success: true, action: "removed", error: null },
+      } as T;
+    case "startup_reconcile":
+      return {
+        desired: s.startupDesired ?? false,
+        effective: s.startupDesired ? "enabled" : "disabled",
+        platformSupported: s.startupPlatformSupported ?? true,
+        lastReconciliation: { success: true, action: "noop", error: null },
+      } as T;
+    case "startup_launch_mode":
+      return "foreground" as T;
     default:
       throw new Error(`Unhandled E2E Tauri command: ${command}`);
   }
