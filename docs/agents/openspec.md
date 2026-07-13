@@ -62,10 +62,10 @@ is polled every 5 seconds via `openspec_refresh_task_progress` which emits a
 Use the `/archive` skill when **all** tasks in `tasks.md` are `[x]`. This
 merges delta specs into `openspec/specs/` and moves the folder to
 `openspec/changes/archive/<date>-<name>/`. Do not leave completed changes in
-`openspec/changes/` — archive in the same session that completes the last
-task. The roadmap status table + narrative MUST reflect the archive in the
-same commit (run `node scripts/openspec-status.mjs --write` and update the
-"Merged — awaiting archive" / archive history sections).
+`openspec/changes/`; archive them in the same session that completes the last
+task. Refresh the local roadmap status table with
+`node scripts/openspec-status.mjs --write` and update its archive narrative so
+the local planning workspace remains coherent.
 
 ## Rules
 
@@ -77,25 +77,26 @@ same commit (run `node scripts/openspec-status.mjs --write` and update the
 - The `openspec/changes/` directory is the source of truth for in-progress work.
 - `openspec/config.yaml` has project context that is injected into all artifacts.
 
-## Tracking and remote sync
+## Local-only storage
 
-`openspec/` is committed and pushed — it is the source of truth for planned
-work, so plans survive machine changes and are reviewable in PRs.
+`openspec/` is local workspace state. The repository's `.gitignore` excludes
+the entire directory, so proposals, specs, tasks, archives, config, and
+`ROADMAP.md` MUST NOT be staged, committed, pushed, attached to a PR, or relied
+on as remote project history.
 
-- `openspec/ROADMAP.md` is the execution queue: what's in flight, what's next,
-  what needs re-scoping, and proposed plans that have no artifacts yet.
-- **MUST, same commit** (AGENTS.md Invariant 12): any edit under
-  `openspec/changes/**` — checkbox flip, new proposal, re-scope, or archive —
-  is accompanied by:
+- `openspec/ROADMAP.md` remains the local execution queue: what is in flight,
+  what is next, what needs re-scoping, and locally proposed plans.
+- After a local proposal, task update, re-scope, or archive, refresh the local
+  status table when useful:
 
 ```bash
 node scripts/openspec-status.mjs --write
 ```
 
-  plus a manual pass over the ROADMAP narrative sections (Now / Merged —
-  awaiting archive / Next / Proposed) so dependency gates and merge state match
-  reality. The script only refreshes the status table; the narrative is yours.
-- A PR that completes a change MUST move that change's roadmap entry and cite
-  the PR number.
+- Keep the local roadmap narrative consistent with the generated table, but do
+  not include either file in a commit.
+- Summarize user-visible behavior and durable engineering rules in tracked code
+  and tracked documentation; do not make repository correctness depend on a
+  developer's local OpenSpec files.
 - Do not pre-generate artifacts for proposed plans whose dependencies are still
   in flight; generate them with `/propose` when their turn comes.

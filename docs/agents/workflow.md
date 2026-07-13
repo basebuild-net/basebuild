@@ -39,8 +39,7 @@ When you change behavior, update its documentation in the **same change**:
 | Plan model, Project Schematic, or status semantics | `AGENTS.md` (Invariant 9) and `.basebuild/project-schematic.md` |
 | Build / dev / secrets | `docs/DEVELOPMENT.md` or `docs/SECRETS.md` |
 | High-level project pitch or contribution | `README.md` |
-| OpenSpec plan | `openspec/changes/<change-name>/` |
-| OpenSpec progress (checkbox, propose, re-scope, archive) | `openspec/ROADMAP.md` — refresh the table with `node scripts/openspec-status.mjs --write` and update the narrative in the same commit (Invariant 12; see [`openspec.md`](./openspec.md)) |
+| OpenSpec plan or progress | Local, gitignored `openspec/` workspace only — never stage, commit, push, or attach it to a PR (see [`openspec.md`](./openspec.md)) |
 | Skills | `skills/<name>/SKILL.md` |
 | Data collection / privacy behaviour | `docs/agents/agent-runtime.md` and `docs/SECRETS.md` |
 | Agent/chat/terminal/adapter behavior | `docs/agents/agent-runtime.md` |
@@ -59,7 +58,6 @@ Do not claim a change complete until every line holds:
 - [ ] UI changes have a screenshot from the running app (see
       [`testing.md`](./testing.md#visual-verification)).
 - [ ] Behavior docs updated per the [maintenance table](#documentation-maintenance).
-- [ ] If anything under `openspec/changes/**` changed: status table refreshed
-      (`node scripts/openspec-status.mjs --write`) and `ROADMAP.md` narrative
-      matches reality (Invariant 12).
+- [ ] Local `openspec/` proposals, specs, tasks, archives, and roadmap remain
+      ignored and absent from the Git index.
 - [ ] Work is on a feature branch; commit points reported, no silent commits.

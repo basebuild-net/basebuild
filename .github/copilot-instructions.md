@@ -40,7 +40,7 @@ planner may replace it in the future but is not worth building today.
 
 - **Frontend**: React 19 + TypeScript + Vite 7 (Tauri webview), Tailwind, xterm.js.
 - **Desktop core**: Rust + Tauri v2 (`src-tauri/`).
-- **State**: rusqlite for dynamic state; OpenSpec files for plans.
+- **State**: rusqlite for dynamic state; local gitignored OpenSpec files for plans.
 - **Privacy**: No phone-home. Analytics disabled by default.
 - **License**: Attribution-required.
 
