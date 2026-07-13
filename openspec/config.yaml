@@ -29,3 +29,8 @@ rules:
   tasks:
     - End with a verification phase (npx tsc --noEmit, npm run build, cargo check, cargo test, UI smoke where applicable) and a docs phase (DESIGN.md / docs/agents/*.md when behavior changes).
     - Include a final task to refresh openspec/ROADMAP.md via `node scripts/openspec-status.mjs --write`.
+_plugin_sync:
+  source: "github.com/Fission-AI/OpenSpec"
+  source_sha: "0a99f410457271aa773d8b106f03f637f7c6b3c0"
+  last_checked: "2026-07-14"
+  plugin_version: "1.0.0"

@@ -893,3 +893,52 @@ The task progress parser (`parse_task_progress`) counts nested/indented
 checkboxes and mixed markers (`-` and `*`) with arbitrary indentation
 depth. A single parser feeds plan cards, the context strip, and
 `plan_runner_service::evaluate_checklist_completion`.
+
+## Windows background startup
+
+Basebuild can launch automatically at Windows sign-in, minimized to the
+system tray. The autostart registration is owned by `tauri-plugin-autostart`
+(v2), which manages the Windows registry entry. The `--background` argument
+distinguishes autostart launches from explicit foreground launches.
+
+### Launch lifecycle
+
+1. **Window starts hidden** (`visible: false` in `tauri.conf.json`).
+2. The `.setup()` block in `lib.rs` calls `detect_launch_mode()` to check
+   for `--background`.
+3. Foreground launches: window is shown and focused immediately.
+4. Background launches: window stays hidden; services initialize without
+   spawning terminals or agents.
+5. Tray "Show" menu item and single-instance activation call `window.show()`
+   + `set_focus()` to reveal the window on demand.
+
+### Consent gates
+
+- **First-run default-on but explicit**: Launch-at-sign-in is selected by
+  default in the setup wizard, but OS registration is created only when the
+  user completes setup (not on skip/escape/dismiss).
+- **Settings control**: The Updates tab in Settings shows the desired and
+  effective registration states, with enable/disable and retry-reconciliation
+  controls.
+- **Enabling startup does NOT imply analytics consent**: The startup
+  preference and usage analytics upload are independent settings.
+
+### Usage sync scheduler
+
+Scheduling stays in Rust (`sync_service.rs`) because hidden webviews can be
+throttled. The scheduler:
+- Runs hourly (configurable) with a first-tick unconditional push on startup.
+- Uses a single-flight coordinator (`SYNC_IN_FLIGHT`) to coalesce concurrent
+  triggers into at most one in-flight sync.
+- Applies bounded exponential backoff (30s → 900s max) on transient failures,
+  reset to 30s on success.
+- Bounds shutdown sync to 10s so exit cannot hang.
+- Clears auth and stops remote scheduling on 401 while preserving local rows.
+
+### Privacy boundaries
+
+The versioned usage envelope (`usage_envelope.rs`) wraps native chat metrics
+in an allowlisted, validated payload. The validator rejects prompts,
+responses, reasoning, source code, terminal output, tool args/results,
+secrets, credentials, environment values, and raw paths before transport.
+OMP continues to use the existing `sync_raw_usage` path independently.

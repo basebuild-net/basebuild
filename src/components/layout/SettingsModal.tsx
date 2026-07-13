@@ -67,6 +67,7 @@ import {
   exportAnalyticsJson,
   type AnalyticsConsent,
 } from "../../lib/analytics";
+import { startupGetStatus, startupEnable, startupDisable, startupReconcile, type StartupRegistrationStatus } from "../../lib/startup";
 import {
   mcpReload,
   mcpListServers,
@@ -112,6 +113,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([]);
   const [profileValidations, setProfileValidations] = useState<Record<string, ProfileValidation>>({});
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
+  // Startup (launch at sign-in) state
+  const [startupStatus, setStartupStatus] = useState<StartupRegistrationStatus | null>(null);
+  const [startupToggling, setStartupToggling] = useState(false);
 
   // Permissions state
   const [permissions, setPermissions] = useState<PermissionRules | null>(null);
@@ -142,6 +146,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
     void refreshAnalytics();
     void refreshApproval(projectPath);
     if (projectPath) void refreshMcp();
+    void refreshStartupStatus();
   }, [open, projectPath]);
 
   async function refreshReq() {
@@ -225,6 +230,39 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
       setEventCount(count);
     } catch {
       // ignore
+    }
+  }
+
+  async function refreshStartupStatus() {
+    try {
+      const status = await startupGetStatus();
+      setStartupStatus(status);
+    } catch {
+      // ignore — startup status is non-blocking
+    }
+  }
+
+  async function toggleStartup(enable: boolean) {
+    setStartupToggling(true);
+    try {
+      const status = enable ? await startupEnable() : await startupDisable();
+      setStartupStatus(status);
+    } catch {
+      // ignore — user can retry
+    } finally {
+      setStartupToggling(false);
+    }
+  }
+
+  async function retryStartupReconcile() {
+    setStartupToggling(true);
+    try {
+      const status = await startupReconcile();
+      setStartupStatus(status);
+    } catch {
+      // ignore
+    } finally {
+      setStartupToggling(false);
     }
   }
 
@@ -407,6 +445,55 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                   </>
                 ) : (
                   <p className="text-muted text-sm">Checking for updates on startup and every 5 minutes.</p>
+                )}
+
+                <div className="settings-section-header settings-section-spacer">
+                  <h3>Windows Startup</h3>
+                </div>
+                {startupStatus ? (
+                  <div className="stack">
+                    {startupStatus.platformSupported ? (
+                      <>
+                        <label className="row gap-sm">
+                          <input
+                            type="checkbox"
+                            title="Launch Basebuild at Windows sign-in (minimized to tray)"
+                            checked={startupStatus.desired}
+                            disabled={startupToggling}
+                            onChange={(e) => void toggleStartup(e.target.checked)}
+                          />
+                          <span className="text-sm">
+                            Launch at Windows sign-in (minimized to tray)
+                          </span>
+                        </label>
+                        <p className="text-muted text-sm">
+                          Effective state: {startupStatus.effective}
+                          {startupStatus.desired && startupStatus.effective !== "enabled" ? (
+                            <span className="text-danger"> — registration may have failed</span>
+                          ) : null}
+                        </p>
+                        {startupStatus.lastReconciliation && !startupStatus.lastReconciliation.success ? (
+                          <div className="row gap-sm">
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              type="button"
+                              title="Retry autostart registration"
+                              disabled={startupToggling}
+                              onClick={() => void retryStartupReconcile()}
+                            >
+                              <RefreshCw size={12} /> Retry registration
+                            </button>
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <p className="text-muted text-sm">
+                        Automatic startup is not supported on this platform.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-muted text-sm">Loading startup status…</p>
                 )}
 
                 <div className="settings-section-header settings-section-spacer">

@@ -4,6 +4,7 @@ import { Check, ChevronRight, Sparkles, TerminalSquare, X } from "lucide-react";
 import { listRuntimeProfiles, getRuntimeDefaults, setRuntimeDefaults, type RuntimeProfile, type RuntimeDefaults } from "../../lib/settings";
 import { RuntimeDefaultsFields } from "./RuntimeDefaultsFields";
 import { getAnalyticsConsent, setAnalyticsConsent, type AnalyticsConsent } from "../../lib/analytics";
+import { startupEnable, startupDisable, startupGetStatus, type StartupRegistrationStatus } from "../../lib/startup";
 
 type FirstRunModalProps = {
   open: boolean;
@@ -11,7 +12,7 @@ type FirstRunModalProps = {
   onSkip: () => void;
 };
 
-type Step = "welcome" | "adapter" | "terminal" | "privacy" | "done";
+type Step = "welcome" | "adapter" | "terminal" | "startup" | "privacy" | "done";
 
 export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) {
   const [step, setStep] = useState<Step>("welcome");
@@ -19,15 +20,18 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
   const [defaults, setDefaults] = useState<RuntimeDefaults | null>(null);
   useEscapeKey(open, onSkip);
   const [consent, setConsent] = useState<AnalyticsConsent | null>(null);
+  const [launchAtSignin, setLaunchAtSignin] = useState(true);
+  const [startupStatus, setStartupStatus] = useState<StartupRegistrationStatus | null>(null);
 
   useEffect(() => {
     if (!open) return;
     void (async () => {
       try {
-        const [p, d, c] = await Promise.all([listRuntimeProfiles(), getRuntimeDefaults(), getAnalyticsConsent()]);
+        const [p, d, c, s] = await Promise.all([listRuntimeProfiles(), getRuntimeDefaults(), getAnalyticsConsent(), startupGetStatus().catch(() => null)]);
         setProfiles(p);
         setDefaults(d);
         setConsent(c);
+        setStartupStatus(s);
       } catch {
         // ignore
       }
@@ -55,6 +59,20 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
       setConsent(c);
     } catch {
       // ignore
+    }
+    // Apply the launch-at-sign-in preference only when the user finishes
+    // setup. Skip/Escape does NOT call this function, so no OS registration
+    // is created as a side effect of a dismissed setup.
+    try {
+      if (launchAtSignin) {
+        const status = await startupEnable();
+        setStartupStatus(status);
+      } else {
+        const status = await startupDisable();
+        setStartupStatus(status);
+      }
+    } catch {
+      // Registration failure is non-fatal — the user can retry in Settings.
     }
     setStep("done");
   }
@@ -118,7 +136,39 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
               />
               <div className="row">
                 <button className="btn" type="button" title="Go back" onClick={() => setStep("adapter")}>Back</button>
-                <button className="btn btn-primary" type="button" title="Continue to privacy setup" onClick={() => void saveDefaultsAndAdvance(defaults, "privacy")}>
+                <button className="btn btn-primary" type="button" title="Continue to Windows startup setup" onClick={() => void saveDefaultsAndAdvance(defaults, "startup")}>
+                  Next <ChevronRight size={12} />
+                </button>
+              </div>
+            </>
+          ) : null}
+
+          {step === "startup" ? (
+            <>
+              <h3>Windows startup</h3>
+              <p className="text-muted text-sm">
+                Launch Basebuild automatically when you sign in to Windows.
+                It starts minimized in the system tray — no window pops up.
+                You can change this anytime in Settings.
+              </p>
+              {startupStatus && !startupStatus.platformSupported ? (
+                <p className="text-muted text-sm">
+                  Automatic startup is not supported on this platform.
+                </p>
+              ) : (
+                <label className="row gap-sm">
+                  <input
+                    type="checkbox"
+                    title="Launch Basebuild at Windows sign-in (minimized to tray)"
+                    checked={launchAtSignin}
+                    onChange={(e) => setLaunchAtSignin(e.target.checked)}
+                  />
+                  <span className="text-sm">Launch at Windows sign-in (minimized to tray)</span>
+                </label>
+              )}
+              <div className="row">
+                <button className="btn" type="button" title="Go back" onClick={() => setStep("terminal")}>Back</button>
+                <button className="btn btn-primary" type="button" title="Continue to privacy setup" onClick={() => void setStep("privacy")}>
                   Next <ChevronRight size={12} />
                 </button>
               </div>
@@ -142,7 +192,7 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
                 <span className="text-sm">Enable local usage analytics (optional)</span>
               </label>
               <div className="row">
-                <button className="btn" type="button" title="Go back" onClick={() => setStep("terminal")}>Back</button>
+                <button className="btn" type="button" title="Go back" onClick={() => setStep("startup")}>Back</button>
                 <button className="btn btn-primary" type="button" title="Finish setup" onClick={() => void saveConsentAndFinish(consent)}>
                   Finish <Check size={12} />
                 </button>

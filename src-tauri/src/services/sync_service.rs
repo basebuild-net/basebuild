@@ -7,6 +7,9 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
 use crate::events::{AUTH_CHANGED, USAGE_SYNC_STATUS};
+use crate::models::usage_envelope::{
+    build_envelope, sanitize_row, SourceKind, UsageBatch, UsageEnvelope, ENVELOPE_VERSION,
+};
 use crate::models::usage_sync::{
     AutoSyncStatus, LiveUsage, LiveUsageRow, PlanSummaries, PlanSummary, PlanTimeline,
     PlanTimelineWindow, ProjectedUsage, SyncResult, UsageSnapshot, UsageSnapshotRow,
@@ -20,9 +23,19 @@ const MCP_URL: &str = "https://basebuild.net/api/mcp";
 const MIN_INTER_SYNC_GAP_SECS: i64 = 60;
 /// Default interval (minutes) when the setting is missing or zero.
 const DEFAULT_INTERVAL_MINUTES: i64 = 60;
+/// Maximum backoff in seconds (15 minutes).
+const MAX_BACKOFF_SECS: u64 = 900;
+/// Initial backoff in seconds.
+const INITIAL_BACKOFF_SECS: u64 = 30;
 
 /// Tracks whether the autosync loop is currently running.
 static AUTOSYNC_RUNNING: AtomicBool = AtomicBool::new(false);
+/// Single-flight guard: prevents concurrent trigger_sync invocations from
+/// launching overlapping sync threads.
+static SYNC_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+/// Current backoff in seconds. Reset to INITIAL_BACKOFF_SECS on success,
+/// doubled (capped at MAX_BACKOFF_SECS) on transient failure.
+static BACKOFF_SECS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(INITIAL_BACKOFF_SECS);
 /// The most recent status, shared between the loop and command reads.
 static AUTOSYNC_STATUS: Mutex<AutoSyncStatus> = parking_lot::const_mutex(AutoSyncStatus {
     enabled: false,
@@ -168,6 +181,115 @@ pub fn sync_messages_native() -> Result<String, String> {
     settings.last_message_sync_at = Some(window_end);
     let _ = SettingsService::set_usage_sync_settings(&settings);
     Ok(format!("{} rows: {result}", metrics.len()))
+}
+
+// ─── Versioned envelope sync for native chat metrics ──────────────────────
+//
+// The envelope carries native chat metrics in a versioned, allowlisted
+// structure. OMP continues to use the existing `sync_raw_usage` path
+// (task 5.5: preserve existing OMP upload path). If the server doesn't
+// recognize the envelope tool, we fall back to `sync_messages`.
+
+/// Collect native chat metrics as a sanitized, allowlisted batch.
+pub fn collect_native_batch() -> Result<UsageBatch, String> {
+    use crate::services::native_chat_service::NativeChatService;
+
+    let settings = SettingsService::get_usage_sync_settings()?;
+    let since = settings.last_message_sync_at.unwrap_or(0);
+    let metrics = NativeChatService::metrics_since(since, 5000)?;
+
+    let rows: Vec<Value> = metrics
+        .iter()
+        .map(|m| {
+            sanitize_row(&json!({
+                "id": m.id,
+                "ts": m.created_at,
+                "source": "native",
+                "provider": m.provider_id,
+                "model": m.model_id,
+                "effort": m.effort_level,
+                "subscriptionTier": m.subscription_tier,
+                "subscriptionSource": m.subscription_source,
+                "planName": m.plan_name,
+                "inputTokens": m.input_tokens,
+                "outputTokens": m.output_tokens,
+                "cacheReadTokens": m.cache_read_tokens,
+                "costTotal": m.cost_total.unwrap_or(0.0),
+                "durationMs": m.duration_ms,
+                "ttftMs": m.ttft_ms,
+                "outcome": m.outcome,
+            }))
+        })
+        .collect();
+
+    let window_start = metrics.iter().map(|m| m.created_at).min().unwrap_or(since);
+    let window_end = metrics.iter().map(|m| m.created_at).max().unwrap_or(since);
+
+    Ok(UsageBatch {
+        source: SourceKind::Native,
+        dedup_key: format!("native-{window_end}"),
+        window_start,
+        window_end,
+        rows,
+    })
+}
+
+/// Sync a versioned envelope carrying native chat metrics to basebuild.net
+/// via the `sync_usage_envelope` MCP tool. Falls back to `sync_messages`
+/// if the server doesn't recognize the envelope tool. OMP continues to use
+/// the existing `sync_raw_usage` path independently.
+pub fn sync_envelope_native() -> Result<String, String> {
+    let token = AuthService::get_access_token()?
+        .ok_or("Not signed in. Open Settings > Account to sign in.")?;
+
+    let batch = match collect_native_batch() {
+        Ok(b) if !b.rows.is_empty() => b,
+        Ok(_) => return Ok("no new native usage data".to_string()),
+        Err(e) => {
+            eprintln!("[SYNC] native batch collection failed: {e}");
+            return Err(e);
+        }
+    };
+
+    // Build and validate the envelope before transport.
+    let envelope = build_envelope(vec![batch], now_seconds())
+        .map_err(|e| format!("envelope validation failed: {e}"))?;
+
+    // Send the envelope to the server.
+    let rpc_body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "sync_usage_envelope",
+            "arguments": serde_json::to_value(&envelope).unwrap_or(Value::Null),
+        }
+    });
+
+    match post_mcp(&token, &rpc_body) {
+        Ok(result) => {
+            // Advance the native cursor only after the server accepted the batch.
+            for batch in &envelope.batches {
+                if batch.source == SourceKind::Native {
+                    if let Ok(mut settings) = SettingsService::get_usage_sync_settings() {
+                        settings.last_message_sync_at = Some(batch.window_end);
+                        let _ = SettingsService::set_usage_sync_settings(&settings);
+                    }
+                }
+            }
+            Ok(format!("envelope v{ENVELOPE_VERSION}: {result}"))
+        }
+        Err(e) => {
+            // If the server doesn't recognize the envelope tool, fall back to
+            // the existing sync_messages path. This preserves compatibility.
+            if e.contains("Unknown tool") || e.contains("not found") || e.contains("sync_usage_envelope") {
+                eprintln!("[SYNC] server doesn't support sync_usage_envelope — falling back to sync_messages");
+                sync_messages_native()
+            } else {
+                Err(e)
+            }
+        }
+    }
 }
 
 fn message_row_json(m: &crate::models::native_chat::NativeRequestMetric) -> Value {
@@ -632,6 +754,13 @@ pub fn autosync_status() -> AutoSyncStatus {
     status
 }
 
+/// Read the current backoff in seconds. Reset to `INITIAL_BACKOFF_SECS`
+/// after a successful sync, doubled (capped at `MAX_BACKOFF_SECS`) on
+/// transient failure.
+pub fn current_backoff_secs() -> u64 {
+    BACKOFF_SECS.load(Ordering::SeqCst)
+}
+
 /// Enable or disable auto-sync. Persisted to settings.
 pub fn set_autosync_enabled(enabled: bool) -> Result<(), String> {
     let mut settings = SettingsService::get_usage_sync_settings().unwrap_or_default();
@@ -665,6 +794,12 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
         eprintln!("[SYNC] gates_pass=false — aborting (need: signed in + upload permission + auto-sync enabled)");
         return;
     }
+    // Single-flight: if a sync is already in flight, coalesce this trigger
+    // into the pending one rather than launching a duplicate.
+    if SYNC_IN_FLIGHT.swap(true, Ordering::SeqCst) {
+        eprintln!("[SYNC] single-flight: a sync is already in flight — coalescing");
+        return;
+    }
     eprintln!("[SYNC] gates_pass=true");
     // Debounce: enforce a minimum gap between pushes.
     let now = now_seconds();
@@ -673,6 +808,7 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
         if let Some(last) = status.last_sync_at {
             if now - last < MIN_INTER_SYNC_GAP_SECS {
                 eprintln!("[SYNC] debounced — last sync was {}s ago, min gap is {}s", now - last, MIN_INTER_SYNC_GAP_SECS);
+                SYNC_IN_FLIGHT.store(false, Ordering::SeqCst);
                 return;
             }
         }
@@ -712,9 +848,9 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
         eprintln!("[SYNC] thread started — calling sync_raw_usage_native…");
         let result = sync_raw_usage_native();
         eprintln!("[SYNC] sync_raw_usage_native: {}", match &result { Ok(m) => format!("ok: {m}"), Err(e) => format!("ERR: {e}") });
-        eprintln!("[SYNC] calling sync_messages_native…");
-        let messages_result = sync_messages_native();
-        eprintln!("[SYNC] sync_messages_native: {}", match &messages_result { Ok(m) => format!("ok: {m}"), Err(e) => format!("ERR: {e}") });
+        eprintln!("[SYNC] calling sync_envelope_native…");
+        let messages_result = sync_envelope_native();
+        eprintln!("[SYNC] sync_envelope_native: {}", match &messages_result { Ok(m) => format!("ok: {m}"), Err(e) => format!("ERR: {e}") });
         eprintln!("[SYNC] calling sync_environment_native…");
         let env_result = sync_environment_native();
         eprintln!("[SYNC] sync_environment_native: {}", match &env_result { Ok(m) => format!("ok: {m}"), Err(e) => format!("ERR: {e}") });
@@ -724,6 +860,8 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
             Ok(msg) => {
                 status.last_sync_at = Some(now);
                 status.last_error = None;
+                // Reset backoff on success.
+                BACKOFF_SECS.store(INITIAL_BACKOFF_SECS, Ordering::SeqCst);
                 let extra = match &messages_result {
                     Ok(m) => format!(" | messages: {m}"),
                     Err(e) => format!(" | messages sync failed: {e}"),
@@ -740,7 +878,11 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
             }
             Err(e) => {
                 status.last_error = Some(e.clone());
-                eprintln!("[SYNC] ❌ raw usage sync failed: {e}");
+                // Increase backoff on transient failure (doubled, capped).
+                let current = BACKOFF_SECS.load(Ordering::SeqCst);
+                let next = (current * 2).min(MAX_BACKOFF_SECS);
+                BACKOFF_SECS.store(next, Ordering::SeqCst);
+                eprintln!("[SYNC] ❌ raw usage sync failed: {e} (backoff: {next}s)");
                 let _ = app2.emit(
                     USAGE_SYNC_STATUS,
                     &SyncResult { ok: false, message: format!("{reason_owned}: {e}"), completed_at: now },
@@ -752,6 +894,8 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
             }
         }
         *AUTOSYNC_STATUS.lock() = status;
+        // Release the single-flight guard.
+        SYNC_IN_FLIGHT.store(false, Ordering::SeqCst);
     });
 }
 
@@ -815,7 +959,7 @@ pub fn sync_on_exit() {
     let (tx, rx) = std::sync::mpsc::channel();
     thread::spawn(move || {
         let raw = sync_raw_usage_native();
-        let msgs = sync_messages_native();
+        let msgs = sync_envelope_native();
         eprintln!("[SYNC] sync_on_exit: raw={:?}, msgs={:?}", raw.is_ok(), msgs.is_ok());
         let _ = tx.send(());
     });

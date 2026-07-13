@@ -55,6 +55,22 @@ _None. Completed OpenSpec changes are archived into canonical specs._
 Ordered by owner priority. Gated items show their blocking dependency; the
 top **ungated** item is what can actually start now.
 
+1. `windows-background-reliability` — ★ **owner-prioritized (2026-07-14
+   ask); artifacts generated, implementation-ready after the basebuild.net
+   multi-source usage contract is confirmed.** Adds user-controlled Windows
+   launch-at-sign-in (default-on choice in completed first-run setup), hidden
+   tray startup with explicit-launch activation, presentation-aware startup
+   update checks, and a Rust-owned hourly single-flight usage scheduler across
+   external OMP ledgers + Basebuild Native metrics. Preserves explicit remote
+   upload consent and payload allowlisting. New cap
+   `windows-background-startup`; modifies `foundation-platform`,
+   `startup-update-gate`, and `omp-account-usage-sync` (0/50). This change
+   absorbs the remaining background/account-sync reliability scope from
+   `omp-terminal-usage-sync`; that change's conflicting default-on upload
+   permission must be re-scoped rather than weakening the canonical privacy
+   boundary. Reuses the account/auth substrate already present in the app and
+   requires an extend-only basebuild.net payload acknowledgement before native
+   checkpoints can advance.
 1. `idea-to-merge-autopilot` — ★ **owner-prioritized (2026-07-10 ask);
    ungated, ready now.** Orchestration layer over the merged golden-path
    capabilities: one-click zero-input idea rounds (schematic + decision
@@ -195,7 +211,7 @@ their turn comes — stale specs are worse than none.
 ## Status
 
 <!-- status:begin -->
-_Last refreshed: 2026-07-12 (`node scripts/openspec-status.mjs --write`)_
+_Last refreshed: 2026-07-13 (`node scripts/openspec-status.mjs --write`)_
 
 |Change|Progress|Status|Next command|
 |---|---|---|---|
@@ -203,6 +219,7 @@ _Last refreshed: 2026-07-12 (`node scripts/openspec-status.mjs --write`)_
 |`connector-permission-gateway`|9/29|in progress|`/apply connector-permission-gateway`|
 |`plan-import`|11/13|in progress|`/apply plan-import`|
 |`provider-parity-workspace-fixes`|28/42|in progress|`/apply provider-parity-workspace-fixes`|
+|`windows-background-reliability`|42/50|in progress|`/apply windows-background-reliability`|
 |`chat-history-persistence`|0/21|not started|`/apply chat-history-persistence`|
 |`chat-ux-polish`|0/30|not started|`/apply chat-ux-polish`|
 |`diff-review-workflow`|0/16|not started|`/apply diff-review-workflow`|
