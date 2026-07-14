@@ -8,11 +8,14 @@ import {
   EyeOff,
   FolderPlus,
   MoreHorizontal,
+  Palette,
   Pencil,
+  Pin,
   Plus,
   TerminalSquare,
   X,
 } from "lucide-react";
+
 
 import {
   detectProject,
@@ -26,11 +29,17 @@ import {
 } from "../../lib/projects";
 import { listSessions, type Session } from "../../lib/sessions";
 import { useLogs } from "../../state/log";
-function ProjectMonogram({ name, active }: { name: string; active: boolean }) {
+
+function ProjectMonogram({ name, active, color }: { name: string; active: boolean; color?: ProjectColor }) {
   const letter = name.charAt(0).toUpperCase() || "?";
   return (
-    <span className={`sidebar-project-monogram${active ? " is-active" : ""}`} aria-hidden="true">
-      {letter}
+    <span className="sidebar-project-monogram-wrap">
+      <span className={`sidebar-project-monogram${active ? " is-active" : ""}`} aria-hidden="true">
+        {letter}
+      </span>
+      {color && color !== "none" ? (
+        <span className={`project-color-dot is-${color}`} aria-hidden="true" />
+      ) : null}
     </span>
   );
 }
@@ -44,6 +53,7 @@ type ProjectSidebarProps = {
   onSelectProject: (path: string) => void;
   onOpenFolder: () => void;
   onRemoveProject: (path: string) => void;
+  onClearChats?: (path: string) => void;
   onSelectSession: (id: string) => void;
   onCreateSession: () => void;
   onRenameSession: (id: string, title: string) => void;
@@ -51,6 +61,69 @@ type ProjectSidebarProps = {
   collapsed: boolean;
   onToggleCollapse: () => void;
 };
+
+const PINNED_PROJECTS_KEY = "basebuild.pinned-projects.v1";
+const PROJECT_COLORS_KEY = "basebuild.project-colors.v1";
+const PROJECT_COLOR_PRESETS = [
+  { key: "none", label: "None" },
+  { key: "blue", label: "Blue" },
+  { key: "green", label: "Green" },
+  { key: "purple", label: "Purple" },
+  { key: "orange", label: "Orange" },
+  { key: "red", label: "Red" },
+] as const;
+
+type ProjectColor = (typeof PROJECT_COLOR_PRESETS)[number]["key"];
+
+function readPinnedProjects(): Set<string> {
+  if (typeof localStorage === "undefined") return new Set();
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(PINNED_PROJECTS_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((item): item is string => typeof item === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+function writePinnedProjects(pinned: Set<string>) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(PINNED_PROJECTS_KEY, JSON.stringify(Array.from(pinned)));
+  } catch {
+    // ignore
+  }
+}
+
+function readProjectColors(): Map<string, ProjectColor> {
+  if (typeof localStorage === "undefined") return new Map();
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(PROJECT_COLORS_KEY) ?? "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return new Map();
+    const map = new Map<string, ProjectColor>();
+    for (const [key, value] of Object.entries(parsed)) {
+      if (PROJECT_COLOR_PRESETS.some((p) => p.key === value)) {
+        map.set(key, value as ProjectColor);
+      }
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+function writeProjectColors(colors: Map<string, ProjectColor>) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const record: Record<string, ProjectColor> = {};
+    for (const [path, color] of colors) {
+      record[path] = color;
+    }
+    localStorage.setItem(PROJECT_COLORS_KEY, JSON.stringify(record));
+  } catch {
+    // ignore
+  }
+}
 
 function formatTime(ts: number): string {
   const date = new Date(ts * 1000);
@@ -61,6 +134,7 @@ function formatTime(ts: number): string {
   if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
   return date.toLocaleDateString();
 }
+
 export function ProjectSidebar({
   activeProjectPath,
   activeSessionId,
@@ -70,6 +144,7 @@ export function ProjectSidebar({
   onSelectProject,
   onOpenFolder,
   onRemoveProject,
+  onClearChats,
   onSelectSession,
   onCreateSession,
   onRenameSession,
@@ -84,14 +159,77 @@ export function ProjectSidebar({
   const [editValue, setEditValue] = useState("");
   const [sessionMenu, setSessionMenu] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [pinnedPaths, setPinnedPaths] = useState<Set<string>>(readPinnedProjects);
+  const [projectColors, setProjectColors] = useState<Map<string, ProjectColor>>(readProjectColors);
+  const { addLog } = useLogs();
+
+  function togglePin(path: string) {
+    setPinnedPaths((prev) => {
+      const next = new Set(prev);
+      const isPinned = next.has(path);
+      if (isPinned) {
+        next.delete(path);
+        addLog("debug", "Project unpinned", path);
+      } else {
+        next.add(path);
+        addLog("debug", "Project pinned", path);
+      }
+      return next;
+    });
+    setMenuPath(null);
+  }
+
+  function setColor(path: string, color: ProjectColor) {
+    setProjectColors((prev) => {
+      const next = new Map(prev);
+      if (color === "none") {
+        next.delete(path);
+      } else {
+        next.set(path, color);
+      }
+      addLog("debug", "Project color set", `${path} → ${color}`);
+      return next;
+    });
+    setMenuPath(null);
+  }
+
+  function handleClearChats(path: string) {
+    if (!onClearChats) return;
+    const sessions = sessionsByProject.get(path) ?? [];
+    const titles = sessions.map((s) => s.title).join(", ");
+    if (!confirm(`Clear ${sessions.length} chat${sessions.length === 1 ? "" : "s"} for this project? This cannot be undone.`)) {
+      addLog("debug", "Clear chats cancelled", path);
+      return;
+    }
+    addLog("debug", "Clear chats confirmed", `${path} (${sessions.length} sessions: ${titles})`);
+    onClearChats(path);
+    setMenuPath(null);
+  }
+
+  useEffect(() => {
+    writePinnedProjects(pinnedPaths);
+  }, [pinnedPaths]);
+
+  useEffect(() => {
+    writeProjectColors(projectColors);
+  }, [projectColors]);
+
   const visibleProjects = projects.filter((p) => !hiddenPaths.has(p.path));
   const searchFiltered = searchQuery.trim()
     ? visibleProjects.filter((p) => p.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
     : visibleProjects;
+  const sortedProjects = [...searchFiltered].sort((a, b) => {
+    const aPinned = pinnedPaths.has(a.path);
+    const bPinned = pinnedPaths.has(b.path);
+    if (aPinned && !bPinned) return -1;
+    if (!aPinned && bPinned) return 1;
+    return a.name.localeCompare(b.name);
+  });
 
   async function handleReveal(path: string) {
     try {
       await revealInExplorer(path);
+      addLog("debug", "Revealed project in explorer", path);
     } catch {
       // ignore
     }
@@ -99,7 +237,24 @@ export function ProjectSidebar({
   }
 
   function handleRemove(path: string) {
+    addLog("debug", "Remove project from list", path);
     onRemoveProject(path);
+    setMenuPath(null);
+  }
+
+  function toggleHide(path: string) {
+    setHiddenPaths((prev) => {
+      const next = new Set(prev);
+      const isHidden = next.has(path);
+      if (isHidden) {
+        next.delete(path);
+        addLog("debug", "Project shown in list", path);
+      } else {
+        next.add(path);
+        addLog("debug", "Project hidden from list", path);
+      }
+      return next;
+    });
     setMenuPath(null);
   }
 
@@ -107,10 +262,10 @@ export function ProjectSidebar({
     <aside className="sidebar" aria-label="Projects">
       <div className="sidebar-header">
         <span className="sidebar-title">Projects</span>
-        <span className="sidebar-sort-indicator" title="Sorted alphabetically">
-          A-Z
+        <span className="sidebar-sort-indicator" title={searchQuery.trim() ? "Filtered results" : pinnedPaths.size > 0 ? "Pinned first, then A-Z" : "Sorted alphabetically"}>
+          {pinnedPaths.size > 0 ? "★ A-Z" : "A-Z"}
         </span>
-        <button className="btn-icon" title="Open folder" aria-label="Open folder" type="button" onClick={onOpenFolder}>
+        <button className="btn-icon" title="Open folder" aria-label="Open folder" type="button" onClick={() => { addLog("debug", "Open folder clicked"); onOpenFolder(); }}>
           <FolderPlus size={15} />
         </button>
         <button
@@ -118,7 +273,7 @@ export function ProjectSidebar({
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           type="button"
-          onClick={onToggleCollapse}
+          onClick={() => { addLog("debug", collapsed ? "Expand sidebar" : "Collapse sidebar"); onToggleCollapse(); }}
         >
           {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
         </button>
@@ -135,16 +290,18 @@ export function ProjectSidebar({
       </div>
 
       <div className="sidebar-list">
-        {searchFiltered.length === 0 ? (
+        {sortedProjects.length === 0 ? (
           <p className="text-muted text-sm pad sidebar-empty">No projects yet.</p>
         ) : (
-          searchFiltered.map((project) => {
+          sortedProjects.map((project) => {
             const isActive = project.path === activeProjectPath;
             const projectSessions = sessionsByProject.get(project.path) ?? [];
             const isCollapsed = collapsedProjects.has(project.path);
+            const isPinned = pinnedPaths.has(project.path);
+            const color = projectColors.get(project.path);
             return (
               <div key={project.path} className="sidebar-project-group">
-                <div className={`sidebar-item${isActive ? " is-active" : ""}`} onContextMenu={(e) => { e.preventDefault(); setMenuPath(menuPath === project.path ? null : project.path); }}>
+                <div className={`sidebar-item${isActive ? " is-active" : ""}${isPinned ? " is-pinned" : ""}`} onContextMenu={(e) => { e.preventDefault(); setMenuPath(menuPath === project.path ? null : project.path); }}>
                   {/* Collapse chevron */}
                   <button
                     className="sidebar-chevron-btn"
@@ -152,6 +309,7 @@ export function ProjectSidebar({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
+                      addLog("debug", isCollapsed ? "Expand project" : "Collapse project", project.path);
                       setCollapsedProjects((prev) => {
                         const next = new Set(prev);
                         if (next.has(project.path)) next.delete(project.path);
@@ -166,9 +324,9 @@ export function ProjectSidebar({
                     className="sidebar-item-main"
                     type="button"
                     title={project.path}
-                    onClick={() => onSelectProject(project.path)}
+                    onClick={() => { addLog("debug", "Select project", project.path); onSelectProject(project.path); }}
                   >
-                    <ProjectMonogram name={project.name} active={isActive} />
+                    <ProjectMonogram name={project.name} active={isActive} color={color} />
                     <span className="sidebar-item-label">{project.name}</span>
                     {projectSessions.length > 0 ? (
                       <span className="sidebar-session-count">{projectSessions.length}</span>
@@ -180,7 +338,7 @@ export function ProjectSidebar({
                       title="New session"
                       aria-label="New session"
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); onCreateSession(); }}
+                      onClick={(e) => { e.stopPropagation(); addLog("debug", "New session clicked", project.path); onCreateSession(); }}
                     >
                       <Plus size={14} />
                     </button>
@@ -199,6 +357,31 @@ export function ProjectSidebar({
                   </button>
                   {menuPath === project.path ? (
                     <div className="context-menu" onMouseLeave={() => setMenuPath(null)}>
+                      <button className="menu-item" type="button" title={isPinned ? "Unpin project" : "Pin project"} onClick={() => togglePin(project.path)}>
+                        <Pin size={13} className={isPinned ? "icon-rotate-180" : ""} /> {isPinned ? "Unpin" : "Pin"}
+                      </button>
+                      <div className="menu-item has-submenu" title="Set project color">
+                        <Palette size={13} /> Set color
+                        <div className="menu-submenu">
+                          {PROJECT_COLOR_PRESETS.map((preset) => (
+                            <button
+                              key={preset.key}
+                              className={`menu-item menu-item-color${color === preset.key || (!color && preset.key === "none") ? " is-active" : ""}`}
+                              type="button"
+                              title={`Set color: ${preset.label}`}
+                              onClick={() => setColor(project.path, preset.key)}
+                            >
+                              <span className={`project-color-dot${preset.key === "none" ? "" : ` is-${preset.key}`}`} />
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {onClearChats ? (
+                        <button className="menu-item" type="button" title="Clear all chats for this project" onClick={() => handleClearChats(project.path)}>
+                          <TerminalSquare size={13} /> Clear chats
+                        </button>
+                      ) : null}
                       <button className="menu-item" type="button" title="Open project in file explorer" onClick={() => handleReveal(project.path)}>
                         <ExternalLink size={13} /> Open in explorer
                       </button>
@@ -321,16 +504,6 @@ export function ProjectSidebar({
       ) : null}
     </aside>
   );
-
-  function toggleHide(path: string) {
-    setHiddenPaths((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-    setMenuPath(null);
-  }
 }
 
 const RECENT_PROJECT_CACHE_KEY = "basebuild.recent-projects.v1";

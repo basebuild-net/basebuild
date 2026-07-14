@@ -31,6 +31,7 @@ export type PanelHeaderProps = {
   onFocus: () => void;
   onClose: () => void;
   onSplitRight: () => void;
+  onAddTab: () => void;
   onSplitDown: () => void;
   onDuplicate: () => void;
   onRename: (title: string) => void;
@@ -53,7 +54,7 @@ export type PanelHeaderProps = {
 const TAB_DRAG_THRESHOLD = 4;
 
 export function PanelHeader(props: PanelHeaderProps) {
-  const { panel, status, isActive, onFocus, onClose, onSplitRight, onSplitDown, onDuplicate, onRename, onSwitchTab, onCloseTab, onReorderTabs, onDragStart, onDragEnd, onDragMove, onDragCancel } = props;
+  const { panel, status, isActive, onFocus, onClose, onSplitRight, onAddTab, onSplitDown, onDuplicate, onRename, onSwitchTab, onCloseTab, onReorderTabs, onDragStart, onDragEnd, onDragMove, onDragCancel } = props;
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(panel.title);
@@ -199,8 +200,8 @@ export function PanelHeader(props: PanelHeaderProps) {
         <button
           className="btn-icon btn-icon-sm panel-header-add-tab"
           type="button"
-          title="New tab (split right)"
-          onClick={(e) => { e.stopPropagation(); onSplitRight(); }}
+          title="Add a new tab to this panel"
+          onClick={(e) => { e.stopPropagation(); onAddTab(); }}
         >
           <Plus size={11} />
         </button>

@@ -76,7 +76,6 @@ import { parseTabGridStates, serializeTabGridStates } from "../../lib/workspace"
 import { ompStatus } from "../../lib/omp";
 import { stabilityRendererHeartbeat } from "../../lib/stability";
 const OmpTerminalTab = lazy(() => import("../panels/OmpTerminalTab").then((m) => ({ default: m.OmpTerminalTab })));
-import { StatusBar } from "./StatusBar";
 import { ModalLoading } from "./ModalLoading";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { WindowControls } from "./WindowControls";
@@ -89,6 +88,7 @@ import type { UpdaterState } from "../../state/updater";
 import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
 import type { IdeaCategory } from "../../lib/ideas";
 import type { SessionTab, TabKind } from "../../lib/sessions";
+import { deleteSession } from "../../lib/sessions";
 import { assignPlanWithProfile, type LaunchProfile } from "../../lib/planDependencies";
 export type ToolId = "terminal";
 
@@ -320,6 +320,7 @@ export function AppShell({ updates }: AppShellProps) {
     const generation = ++restoreGenerationRef.current;
     markStart("project-activation");
     setProjectRestoreLoading(true);
+    setPanelGridState(emptyGrid());
     setProjectRestoreError(null);
     addLog("debug", "Project selected", `${activeProjectPath} (gen=${generation})`);
     let cancelled = false;
@@ -568,6 +569,27 @@ export function AppShell({ updates }: AppShellProps) {
       handleShowToast("Copied", path, "info");
     },
     [handleShowToast],
+  );
+
+  const handleClearChats = useCallback(
+    async (path: string) => {
+      const sessions = sidebar.sessionsByProject.get(path) ?? [];
+      addLog("debug", "Clearing project chats", `${path} (${sessions.length} sessions)`);
+      await Promise.all(
+        sessions.map(async (s) => {
+          try {
+            await deleteSession(s.id);
+            addLog("debug", "Deleted session", `${s.id} (${s.title})`);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            addLog("error", "Failed to delete session", `${s.id}: ${msg}`);
+          }
+        }),
+      );
+      await sidebar.refreshSessions();
+      handleShowToast("Chats cleared", `${sessions.length} chat${sessions.length === 1 ? "" : "s"} removed`, "info");
+    },
+    [sidebar, addLog, handleShowToast],
   );
 
   const handleCreateSession = useCallback(async () => {
@@ -1251,9 +1273,9 @@ export function AppShell({ updates }: AppShellProps) {
           pickerInFlight={sidebar.pickerInFlight}
           onFocusPanel={(panelId) => setPanelGridState((prev) => ({ ...prev, activePanelId: panelId }))}
           onCreateChat={() => handleCreateTypedPanel("chat")}
-          onCreateTerminal={() => handleCreateTypedPanel("terminal")}
+          onOpenLogPanel={() => setLogPanelOpen(true)}
+          onClearChats={handleClearChats}
           onOpenHistory={() => setHistoryDrawerOpen(true)}
-          onOpenPlans={() => openPlanningModal("plans")}
           onOpenSettings={() => setSettingsOpen(true)}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
@@ -1426,7 +1448,6 @@ export function AppShell({ updates }: AppShellProps) {
           </div>
         </div>
       ) : null}
-      <StatusBar onClick={() => setLogPanelOpen(true)} />
       <CrashReportNotice onViewReports={() => setDebugPanelOpen(true)} />
       <Suspense fallback={<ModalLoading />}><LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} /></Suspense>
       {debugPanelOpen ? (
