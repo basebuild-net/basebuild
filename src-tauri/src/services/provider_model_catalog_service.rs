@@ -298,8 +298,7 @@ impl ProviderModelCatalogService {
     /// (caller falls back to bundled) if OMP is not installed or the
     /// command fails or times out.
     fn discover_via_omp_cli(provider_id: &str) -> DbResult<Vec<NativeModel>> {
-        use std::process::Command;
-        let output = Command::new("omp")
+        let output = crate::services::process_helpers::hidden_command("omp")
             .args(["models", provider_id, "--json", "--no-extensions"])
             .output();
         let output = match output {

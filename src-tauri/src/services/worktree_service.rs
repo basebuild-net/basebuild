@@ -100,7 +100,7 @@ impl WorktreeService {
             (Self::detect_default_branch(project).unwrap_or_else(|| "HEAD".to_string()), false)
         };
         // git worktree add -b <branch> <path> <base-ref>
-        let output = std::process::Command::new("git")
+        let output = crate::services::process_helpers::hidden_command("git")
             .args(["worktree", "add", "-b", &branch, worktree_path.to_str().unwrap_or("."), &base_ref])
             .current_dir(project)
             .output()
@@ -186,7 +186,7 @@ impl WorktreeService {
             args.push("--force");
         }
         args.push(&workspace.path);
-        let output = std::process::Command::new("git")
+        let output = crate::services::process_helpers::hidden_command("git")
             .args(&args)
             .current_dir(project)
             .output()
@@ -214,7 +214,7 @@ impl WorktreeService {
     /// `base_may_be_stale` is true when the fetch failed and the local
     /// default branch tip is used instead of the fetched one.
     fn resolve_base_ref(project: &Path) -> DbResult<(String, bool)> {
-        let fetch_ok = std::process::Command::new("git")
+        let fetch_ok = crate::services::process_helpers::hidden_command("git")
             .args(["fetch", "--all"])
             .current_dir(project)
             .output()
@@ -230,7 +230,7 @@ impl WorktreeService {
     /// local `master` → current `HEAD`. Returns the ref to base new branches
     /// off (e.g. `origin/main`).
     fn detect_default_branch(project: &Path) -> Option<String> {
-        let sym = std::process::Command::new("git")
+        let sym = crate::services::process_helpers::hidden_command("git")
             .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
             .current_dir(project)
             .output()
@@ -244,7 +244,7 @@ impl WorktreeService {
             }
         }
         for candidate in ["origin/main", "origin/master", "main", "master"] {
-            let check = std::process::Command::new("git")
+            let check = crate::services::process_helpers::hidden_command("git")
                 .args(["rev-parse", "--verify", candidate])
                 .current_dir(project)
                 .output()
@@ -318,7 +318,7 @@ mod tests {
         // Init a repo with a main branch; no remote, so the chain reaches
         // the local `main` step.
         let dir = tempfile::TempDir::new().unwrap();
-        let out = std::process::Command::new("git")
+        let out = crate::services::process_helpers::hidden_command("git")
             .args(["init", "-b", "main"])
             .current_dir(dir.path())
             .output();
@@ -328,11 +328,11 @@ mod tests {
         }
         // Make an initial commit so main exists as a ref.
         let _ = std::fs::write(dir.path().join("README"), "test");
-        let _ = std::process::Command::new("git")
+        let _ = crate::services::process_helpers::hidden_command("git")
             .args(["add", "."])
             .current_dir(dir.path())
             .output();
-        let _ = std::process::Command::new("git")
+        let _ = crate::services::process_helpers::hidden_command("git")
             .args(["commit", "-m", "init", "--author", "test <test@test.com>"])
             .current_dir(dir.path())
             .output();

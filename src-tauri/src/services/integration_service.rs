@@ -86,7 +86,7 @@ impl IntegrationService {
 
     /// Detect the current branch in a worktree or repo path.
     fn detect_branch(path: &str) -> DbResult<String> {
-        let output = std::process::Command::new("git")
+        let output = crate::services::process_helpers::hidden_command("git")
             .args(["rev-parse", "--abbrev-ref", "HEAD"])
             .current_dir(path)
             .output()
@@ -104,7 +104,7 @@ impl IntegrationService {
     /// Check ahead/behind vs default branch.
     fn ahead_behind(project_path: &str, branch: &str) -> DbResult<String> {
         let default = Self::default_branch(project_path).unwrap_or_else(|_| "main".to_string());
-        let output = std::process::Command::new("git")
+        let output = crate::services::process_helpers::hidden_command("git")
             .args(["rev-list", "--left-right", "--count", &format!("{default}...{branch}")])
             .current_dir(project_path)
             .output()
@@ -118,7 +118,7 @@ impl IntegrationService {
     /// Check if a branch is merged into the default branch.
     fn is_merged(project_path: &str, branch: &str) -> DbResult<bool> {
         let default = Self::default_branch(project_path).unwrap_or_else(|_| "main".to_string());
-        let output = std::process::Command::new("git")
+        let output = crate::services::process_helpers::hidden_command("git")
             .args(["merge-base", "--is-ancestor", branch, &default])
             .current_dir(project_path)
             .output()
@@ -128,7 +128,7 @@ impl IntegrationService {
 
     /// Detect the default branch name.
     fn default_branch(project_path: &str) -> DbResult<String> {
-        let output = std::process::Command::new("git")
+        let output = crate::services::process_helpers::hidden_command("git")
             .args(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
             .current_dir(project_path)
             .output()
@@ -142,7 +142,7 @@ impl IntegrationService {
 
     /// Check PR state via `gh` CLI (hidden spawn, best-effort).
     fn pr_state(project_path: &str, branch: &str) -> DbResult<(Option<String>, Option<String>)> {
-        let output = std::process::Command::new("gh")
+        let output = crate::services::process_helpers::hidden_command("gh")
             .args(["pr", "view", branch, "--json", "state,url"])
             .current_dir(project_path)
             .output()
@@ -169,7 +169,7 @@ impl IntegrationService {
             // Caller is responsible for confirming force.
         }
         // Remove the worktree.
-        let _ = std::process::Command::new("git")
+        let _ = crate::services::process_helpers::hidden_command("git")
             .args(["worktree", "remove", &workspace_path])
             .current_dir(&workspace_path)
             .output();
@@ -181,7 +181,7 @@ impl IntegrationService {
             } else {
                 vec!["branch", "-d", &branch]
             };
-            let _ = std::process::Command::new("git")
+            let _ = crate::services::process_helpers::hidden_command("git")
                 .args(&args)
                 .current_dir(&workspace_path)
                 .output();

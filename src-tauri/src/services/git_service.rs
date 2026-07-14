@@ -122,7 +122,7 @@ impl GitService {
     pub fn log(path: impl AsRef<Path>, limit: usize) -> Result<Vec<GitCommit>, String> {
         // Pre-check: if HEAD is unborn (no commits yet), `git log` fails.
         // Return an empty history instead of an error.
-        let has_head = std::process::Command::new("git")
+        let has_head = crate::services::process_helpers::hidden_command("git")
             .args(["rev-parse", "--verify", "--quiet", "HEAD"])
             .current_dir(path.as_ref())
             .output()
@@ -174,7 +174,7 @@ impl GitService {
 
     /// Check if a path is inside a git repository.
     pub fn is_repo(path: impl AsRef<Path>) -> bool {
-        let output = std::process::Command::new("git")
+        let output = crate::services::process_helpers::hidden_command("git")
             .args(["rev-parse", "--is-inside-work-tree"])
             .current_dir(path.as_ref())
             .output();
@@ -204,7 +204,7 @@ impl GitService {
     /// `master` → current). Used by the worktree service + PR service.
     pub fn default_branch(path: impl AsRef<Path>) -> Option<String> {
         let project = path.as_ref();
-        let sym = std::process::Command::new("git")
+        let sym = crate::services::process_helpers::hidden_command("git")
             .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
             .current_dir(project)
             .output()
@@ -218,7 +218,7 @@ impl GitService {
             }
         }
         for candidate in ["main", "master"] {
-            let check = std::process::Command::new("git")
+            let check = crate::services::process_helpers::hidden_command("git")
                 .args(["rev-parse", "--verify", candidate])
                 .current_dir(project)
                 .output()

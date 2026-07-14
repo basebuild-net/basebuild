@@ -307,7 +307,7 @@ pub fn resolve_command_value(s: &str) -> String {
         if parts.is_empty() {
             return String::new();
         }
-        let output = std::process::Command::new(parts[0])
+        let output = crate::services::process_helpers::hidden_command(parts[0])
             .args(&parts[1..])
             .output();
         match output {
@@ -470,6 +470,10 @@ impl McpService {
         let command = server.entry.command.as_ref().unwrap().clone();
         let mut cmd = Command::new(&command);
         cmd.args(&server.entry.args);
+        // Stdio MCP servers are console-subsystem children of a windowless
+        // parent — suppress the console window they would otherwise allocate.
+        #[cfg(windows)]
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         // Resolve env (expansion + `!command`).
         let env = resolve_env_map(&server.entry.env);
         for (k, v) in &env {

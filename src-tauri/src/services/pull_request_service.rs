@@ -200,15 +200,15 @@ impl PullRequestService {
 fn open_url(url: &str) -> std::io::Result<()> {
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd").args(["/C", "start", url]).spawn()?;
+        crate::services::process_helpers::hidden_command("cmd").args(["/C", "start", url]).spawn()?;
     }
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open").arg(url).spawn()?;
+        crate::services::process_helpers::hidden_command("open").arg(url).spawn()?;
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        std::process::Command::new("xdg-open").arg(url).spawn()?;
+        crate::services::process_helpers::hidden_command("xdg-open").arg(url).spawn()?;
     }
     Ok(())
 }

@@ -268,7 +268,7 @@ impl FinalTouchesService {
             };
         }
         // Run the command in the project's working directory with a timeout.
-        let output = std::process::Command::new(
+        let output = crate::services::process_helpers::hidden_command(
             #[cfg(windows)]
             "cmd",
             #[cfg(not(windows))]
