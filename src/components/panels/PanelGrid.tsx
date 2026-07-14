@@ -455,7 +455,7 @@ export function PanelGrid(props: PanelGridProps) {
 
       // Calculate drag offset for reorder animation.
       let dragOffset = 0;
-      if (dragState?.moved && !dragState.dropTarget && parent === dragState.splitNode) {
+      if (dragState?.moved && !dragState.dropTarget && parent && dragState.splitNode && parent === dragState.splitNode) {
         const siblingIndex = parent!.children.indexOf(node);
         dragOffset = resolveDragOffset(
           {
