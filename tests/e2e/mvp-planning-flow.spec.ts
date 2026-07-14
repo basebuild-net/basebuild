@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady, collectLogs, attachLogs } from "./helpers";
+import { openMvpFixtureProject, waitForAppReady, collectLogs, attachLogs, openPlanningModal } from "./helpers";
 
 test.describe("Planning flow: schematic → categories → ideas → plans", () => {
   test.beforeEach(async ({ page }) => {
@@ -10,8 +10,7 @@ test.describe("Planning flow: schematic → categories → ideas → plans", () 
   test("schematic wizard opens destination picker with send mode", async ({ page }) => {
     const logs = collectLogs(page);
     // Open the planning modal.
-    await page.locator('[title="Plans & Ideas"]').first().click();
-    await expect(page.locator(".planning-inspector-modal, .planning-inspector")).toBeVisible({ timeout: 5000 });
+    await openPlanningModal(page);
 
     // Click "Generate categories from project" on the Categories tab.
     await page.locator('[title="Categories"]').first().click();
@@ -29,8 +28,7 @@ test.describe("Planning flow: schematic → categories → ideas → plans", () 
 
   test("category generation shows visible chat destination", async ({ page }) => {
     // Open planning modal and go to Categories tab.
-    await page.locator('[title="Plans & Ideas"]').first().click();
-    await expect(page.locator(".planning-inspector-modal, .planning-inspector")).toBeVisible({ timeout: 5000 });
+    await openPlanningModal(page);
     await page.locator('[title="Categories"]').first().click();
 
     // Click generate categories.
@@ -46,8 +44,7 @@ test.describe("Planning flow: schematic → categories → ideas → plans", () 
 
   test("ideas batch-select and promote to plans", async ({ page }) => {
     // Open planning modal and go to Ideas tab.
-    await page.locator('[title="Plans & Ideas"]').first().click();
-    await expect(page.locator(".planning-inspector-modal, .planning-inspector")).toBeVisible({ timeout: 5000 });
+    await openPlanningModal(page);
     await page.locator('[title="Ideas history"]').first().click();
 
     // Select concept ideas via checkboxes.
@@ -66,8 +63,7 @@ test.describe("Planning flow: schematic → categories → ideas → plans", () 
 
   test("Flow tab shows plan counts and launch button", async ({ page }) => {
     // Open planning modal and go to Flow tab.
-    await page.locator('[title="Plans & Ideas"]').first().click();
-    await expect(page.locator(".planning-inspector-modal, .planning-inspector")).toBeVisible({ timeout: 5000 });
+    await openPlanningModal(page);
     await page.locator('[title="Flow board — live stage counts across the planning pipeline"]').first().click();
 
     // Flow board should show stages.
@@ -87,8 +83,7 @@ test.describe("Planning flow: schematic → categories → ideas → plans", () 
   test("no dropped or prose-only question on category generation", async ({ page }) => {
     const logs = collectLogs(page);
     // Open planning modal.
-    await page.locator('[title="Plans & Ideas"]').first().click();
-    await expect(page.locator(".planning-inspector-modal, .planning-inspector")).toBeVisible({ timeout: 5000 });
+    await openPlanningModal(page);
 
     // Go to Categories and click generate.
     await page.locator('[title="Categories"]').first().click();

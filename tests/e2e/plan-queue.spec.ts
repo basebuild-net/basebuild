@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-
+import { openPlanningModal } from "./helpers";
 async function openFixtureProject(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem("basebuild:first-run-complete", "true");
@@ -7,8 +7,8 @@ async function openFixtureProject(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Open project" }).click();
   await expect(
-    page.locator(".activity-sidebar-project-name", { hasText: "project" }),
-  ).toBeVisible();
+    page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: "project" }),
+  ).toBeVisible({ timeout: 5_000 });
 }
 
 test.describe("Plan run queue", () => {
@@ -18,8 +18,7 @@ test.describe("Plan run queue", () => {
 
     await openFixtureProject(page);
     // Open the Plans & Ideas fold in the floating environment panel.
-    await page.getByTitle("Plans & Ideas").first().click();
-
+    await openPlanningModal(page);
 
     // The plan queue section is visible in the plans side panel.
     await expect(page.locator(".plan-queue-section")).toBeVisible();

@@ -171,6 +171,8 @@ export type NativeGenerateIdeasResult = {
   ideas: NativeGeneratedIdea[];
   setupRequired: NativeSetupRequired | null;
   grounding: GroundingMetadata | null;
+  userMessage?: NativeChatMessage | null;
+  assistantMessage?: NativeChatMessage | null;
 };
 
 export type ProviderLoginStart = {
@@ -216,6 +218,10 @@ export async function nativeChatStart(input: {
 
 export async function nativeChatGet(sessionId: string): Promise<NativeChatSession | null> {
   return invoke<NativeChatSession | null>("native_chat_get", { sessionId });
+}
+
+export async function renameNativeChatSession(sessionId: string, title: string): Promise<void> {
+  return invoke("native_chat_rename", { sessionId, title });
 }
 
 
@@ -300,6 +306,8 @@ export async function nativeGenerateIdeas(input: {
   modelId?: string | null;
   effortLevel?: string | null;
   categoryId?: string | null;
+  /** Extra steering appended to the idea-generation prompt. */
+  direction?: string | null;
 }): Promise<NativeGenerateIdeasResult> {
   return invoke<NativeGenerateIdeasResult>("native_generate_ideas", { request: input });
 }

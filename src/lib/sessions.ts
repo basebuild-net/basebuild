@@ -90,6 +90,10 @@ export async function updateTabChatSession(id: string, chatSessionId: string | n
   return invoke("update_tab_chat_session", { id, chatSessionId });
 }
 
+export async function updateTabTitle(id: string, title: string): Promise<void> {
+  return invoke("update_tab_title", { id, title });
+}
+
 export async function readFile(path: string): Promise<string> {
   return invoke<string>("read_file", { path });
 }

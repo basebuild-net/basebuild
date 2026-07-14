@@ -1,19 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
+import { ensureChatPanel, openFixtureProject } from "./helpers";
 
 test.describe("Chat composer (DESIGN.md §Chat composer)", () => {
   test("composer has a compact, growing textarea", async ({ page }) => {
@@ -30,7 +16,6 @@ test.describe("Chat composer (DESIGN.md §Chat composer)", () => {
     // Verify it grows when typing.
     const initialHeight = await textarea.evaluate((el) => (el as HTMLTextAreaElement).offsetHeight);
     await textarea.fill("line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8");
-    await page.waitForTimeout(200);
     const grownHeight = await textarea.evaluate((el) => (el as HTMLTextAreaElement).offsetHeight);
     expect(grownHeight).toBeGreaterThan(initialHeight);
   });
@@ -105,7 +90,7 @@ test.describe("Chat composer (DESIGN.md §Chat composer)", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    await expect(page.locator(".chat-input-row").first()).toBeVisible();
+    await expect(page.locator(".chat-composer-box").first()).toBeVisible();
     await expect(page.locator(".chat-header-context").first()).toBeVisible({ timeout: 5_000 });
     await expect(page.locator(".chat-context-strip")).toHaveCount(0);
   });

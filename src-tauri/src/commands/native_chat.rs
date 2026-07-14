@@ -54,6 +54,12 @@ pub async fn native_chat_get(session_id: String) -> Result<Option<NativeChatSess
         .await
         .map_err(|error| format!("Chat-session task panicked: {error}"))?
 }
+#[tauri::command]
+pub async fn native_chat_rename(session_id: String, title: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || NativeChatService::rename_session(&session_id, &title))
+        .await
+        .map_err(|error| format!("Chat-rename task panicked: {error}"))?
+}
 
 #[tauri::command]
 pub fn native_chat_update_session_model(

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
+import { openMvpFixtureProject, waitForAppReady, openPlanningModal } from "./helpers";
 
 type InvokeWindow = Window & {
   __basebuildInvoke?: (cmd: string, args: Record<string, unknown>) => Promise<unknown>;
@@ -37,9 +37,8 @@ async function getNativeSessionId(page: Page): Promise<string> {
 }
 
 async function openRunsTab(page: Page) {
-  await page.getByTitle("Plans & Ideas").first().click();
+  await openPlanningModal(page);
   const modal = page.locator(".modal-overlay").filter({ hasText: "Plans & Ideas" });
-  await expect(modal).toBeVisible({ timeout: 5_000 });
   await modal.getByTitle("Mission control — live run cards with progress and estimates").click();
   return modal;
 }
@@ -66,7 +65,7 @@ test.describe("Mission control", () => {
     await openMvpFixtureProject(page);
     await waitForAppReady(page);
 
-    await page.getByTitle("Plans & Ideas").first().click();
+    await openPlanningModal(page);
     const modal = page.locator(".modal-overlay").filter({ hasText: "Plans & Ideas" });
     await modal.locator(".inspector-tab", { hasText: "Flow" }).click();
     await modal.locator(".planning-stage-card", { hasText: "Running" }).click();

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle, Info, LayoutTemplate, Settings2, TerminalSquare, X, XCircle } from "lucide-react";
-import { deliverPrompt, type PromptMode } from "../../lib/promptDelivery";
+import { deliverPrompt, type DeliveryAction, type PromptMode } from "../../lib/promptDelivery";
 import { markStart, markEnd } from "../../lib/timing";
 import { generateCategoriesAction, generateFromFinishedPlansAction, generateIdeasAction, schematicWizardAction, type PlanningAction } from "../../lib/planningActions";
 import { DestinationPicker, type DestinationChoice } from "./DestinationPicker";
@@ -32,7 +32,7 @@ const FocusPlanModal = lazy(() => import("./FocusPlanModal").then((m) => ({ defa
 const SourcePanel = lazy(() => import("../panels/SourcePanel").then((m) => ({ default: m.SourcePanel })));
 const SettingsModal = lazy(() => import("./SettingsModal").then((m) => ({ default: m.SettingsModal })));
 const ProjectDescriptionModal = lazy(() => import("./ProjectDescriptionModal").then((m) => ({ default: m.ProjectDescriptionModal })));
-import { CommandStrip, type StageKey } from "./CommandStrip";
+import { PlanningIndicators, type StageKey } from "./PlanningIndicators";
 import { ToastStack } from "./ToastStack";
 import { useProjectSchematic } from "../../state/schematic";
 import { getLastFocusedProject, revealInExplorer, setLastFocusedProject } from "../../lib/projects";
@@ -76,7 +76,6 @@ import { parseTabGridStates, serializeTabGridStates } from "../../lib/workspace"
 import { ompStatus } from "../../lib/omp";
 import { stabilityRendererHeartbeat } from "../../lib/stability";
 const OmpTerminalTab = lazy(() => import("../panels/OmpTerminalTab").then((m) => ({ default: m.OmpTerminalTab })));
-import { StatusBar } from "./StatusBar";
 import { ModalLoading } from "./ModalLoading";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { WindowControls } from "./WindowControls";
@@ -88,7 +87,10 @@ import { useAccount } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
 import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
 import type { IdeaCategory } from "../../lib/ideas";
+import { useIdeaState } from "../../state/ideas";
 import type { SessionTab, TabKind } from "../../lib/sessions";
+import { deleteSession } from "../../lib/sessions";
+import { renameNativeChatSession } from "../../lib/native-chat";
 import { assignPlanWithProfile, type LaunchProfile } from "../../lib/planDependencies";
 export type ToolId = "terminal";
 
@@ -113,7 +115,6 @@ export function AppShell({ updates }: AppShellProps) {
   const [plansModalOpen, setPlansModalOpen] = useState(false);
   const [plansModalTab, setPlansModalTab] = useState<PlanningTab>("plans");
   const [schematicModalOpen, setSchematicModalOpen] = useState(false);
-  const [commandStripCollapsed, setCommandStripCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logPanelOpen, setLogPanelOpen] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
@@ -124,7 +125,7 @@ export function AppShell({ updates }: AppShellProps) {
   const firstRun = useFirstRun();
   // Prompts queued for new panels that don't have a chatSessionId yet.
   // Flushed in onChatSessionCreated once the native session is created.
-  const pendingNewPanelPrompts = useRef<Map<string, { text: string; mode: PromptMode }>>(new Map());
+  const pendingNewPanelPrompts = useRef<Map<string, { text: string; mode: PromptMode; action?: DeliveryAction }>>(new Map());
   // Destination picker state — when open, the pending prompt is held here
   // until the user picks a destination (or cancels).
   const [destinationPickerOpen, setDestinationPickerOpen] = useState(false);
@@ -138,7 +139,7 @@ export function AppShell({ updates }: AppShellProps) {
     setAppToast({ title, detail, kind });
     window.setTimeout(() => setAppToast(null), 4000);
   }, []);
-  const [pendingDelivery, setPendingDelivery] = useState<{ text: string; mode: PromptMode } | null>(null);
+  const [pendingDelivery, setPendingDelivery] = useState<{ text: string; mode: PromptMode; action?: DeliveryAction } | null>(null);
   // Idea round awaiting destination delivery — abandoned (finished) if the
   // user cancels the destination picker before the prompt is delivered.
   // A ref, not state: the picker fires onSelect and onClose synchronously in
@@ -169,7 +170,7 @@ export function AppShell({ updates }: AppShellProps) {
   const creatingInFlightRef = useRef<Set<string>>(new Set());
   // Ref indirection so openOrFocusChat (defined before handleCreateTypedPanel)
   // can call it without a forward-reference error.
-  const handleCreateTypedPanelRef = useRef<(type: "chat" | "terminal" | "omp" | "schematic", pendingPrompt?: { text: string; mode: PromptMode }) => void>(() => {});
+  const handleCreateTypedPanelRef = useRef<(type: "chat" | "terminal" | "omp" | "schematic", pendingPrompt?: { text: string; mode: PromptMode; action?: DeliveryAction }) => void>(() => {});
   const [workspaceRestore, setWorkspaceRestore] = useState<WorkspaceRestoreState | null>(null);
   const titlePendingRef = useRef(false);
   const focusRestoreStartedRef = useRef(false);
@@ -180,6 +181,7 @@ export function AppShell({ updates }: AppShellProps) {
   const session = useSessionState(activeProjectPath, activeProject?.lastActiveSessionId);
   const plans = usePlans(session.activeSessionId);
   const schematic = useProjectSchematic(activeProjectPath);
+  const ideaState = useIdeaState(session.activeSessionId);
   const account = useAccount();
   const [ompInstalled, setOmpInstalled] = useState(false);
   useEffect(() => {
@@ -304,6 +306,31 @@ export function AppShell({ updates }: AppShellProps) {
   }, [restorePhase, activeProjectPath, projectRestoreLoading]);
 
   useEffect(() => {
+    // Flush any pending workspace save for the previous project before
+    // clearing the grid. Without this, tab title changes made within the
+    // 250ms debounce window are lost when switching projects.
+    if (workspacePersistTimerRef.current) {
+      window.clearTimeout(workspacePersistTimerRef.current);
+      workspacePersistTimerRef.current = null;
+      const prevProject = restoredProjectRef.current;
+      if (prevProject && prevProject !== activeProjectPath) {
+        void saveWorkspaceRestoreState({
+          projectPath: prevProject,
+          lastSessionId: session.activeSessionId,
+          lastTabId: session.activeTabId,
+          sideSection: workspaceRestore?.sideSection ?? "plans",
+          sidebarCollapsed,
+          sideCollapsed: workspaceRestore?.sideCollapsed ?? false,
+          sideWidth: workspaceRestore?.sideWidth ?? 260,
+          tabGridStates: serializeTabGridStates(session.tabGridStates),
+          panelGrid: serializePanelGrid(panelGridState),
+          updatedAt: workspaceRestore?.updatedAt ?? 0,
+        }).catch((caught) => {
+          const message = caught instanceof Error ? caught.message : String(caught);
+          addLog("warn", "Failed to flush workspace state on project switch", message);
+        });
+      }
+    }
     if (!activeProjectPath) {
       addLog("debug", "Project deselected", "clearing workspace restore");
       setWorkspaceRestore(null);
@@ -320,6 +347,7 @@ export function AppShell({ updates }: AppShellProps) {
     const generation = ++restoreGenerationRef.current;
     markStart("project-activation");
     setProjectRestoreLoading(true);
+    setPanelGridState(emptyGrid());
     setProjectRestoreError(null);
     addLog("debug", "Project selected", `${activeProjectPath} (gen=${generation})`);
     let cancelled = false;
@@ -555,6 +583,42 @@ export function AppShell({ updates }: AppShellProps) {
     [sidebar, activeProjectPath, handleShowToast],
   );
 
+  const handleRevealProject = useCallback(
+    (path: string) => {
+      void revealInExplorer(path);
+    },
+    [],
+  );
+
+  const handleCopyProjectPath = useCallback(
+    (path: string) => {
+      void navigator.clipboard.writeText(path);
+      handleShowToast("Copied", path, "info");
+    },
+    [handleShowToast],
+  );
+
+  const handleClearChats = useCallback(
+    async (path: string) => {
+      const sessions = sidebar.sessionsByProject.get(path) ?? [];
+      addLog("debug", "Clearing project chats", `${path} (${sessions.length} sessions)`);
+      await Promise.all(
+        sessions.map(async (s) => {
+          try {
+            await deleteSession(s.id);
+            addLog("debug", "Deleted session", `${s.id} (${s.title})`);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            addLog("error", "Failed to delete session", `${s.id}: ${msg}`);
+          }
+        }),
+      );
+      await sidebar.refreshSessions();
+      handleShowToast("Chats cleared", `${sessions.length} chat${sessions.length === 1 ? "" : "s"} removed`, "info");
+    },
+    [sidebar, addLog, handleShowToast],
+  );
+
   const handleCreateSession = useCallback(async () => {
     await session.createSession();
     handleShowToast("Chat created", "New chat session started.", "success");
@@ -661,9 +725,9 @@ export function AppShell({ updates }: AppShellProps) {
   );
   const handleSuggestForCategory = useCallback(
     (category: IdeaCategory | null) => {
-      const action = generateIdeasAction(category?.name, category?.description ?? undefined);
+      const action = generateIdeasAction(category?.name, category?.description ?? undefined, category?.id);
       addLog("debug", "Planning action routed", action.context ?? action.type);
-      setPendingDelivery({ text: action.text, mode: action.mode });
+      setPendingDelivery({ text: action.text, mode: action.mode, action: action.action });
       setDestinationPickerOpen(true);
       // Demote the planning modal so the destination chat is visible.
       setPlansModalOpen(false);
@@ -709,7 +773,7 @@ export function AppShell({ updates }: AppShellProps) {
     if (!grounding || grounding.finishedPlanCount === 0) return;
     const action = generateFromFinishedPlansAction(grounding.finishedPlans, grounding.finishedPlanCount);
     addLog("debug", "Planning action routed", action.context ?? action.type);
-    setPendingDelivery({ text: action.text, mode: action.mode });
+    setPendingDelivery({ text: action.text, mode: action.mode, action: action.action });
     setDestinationPickerOpen(true);
     setPlansModalOpen(false);
     handleShowToast("Generating from finished plans", `${grounding.finishedPlanCount} finished plan${grounding.finishedPlanCount > 1 ? "s" : ""} since last schematic update.`, "info");
@@ -740,7 +804,7 @@ export function AppShell({ updates }: AppShellProps) {
     }
     pendingRoundRef.current = roundId;
     const action = generateIdeasAction();
-    setPendingDelivery({ text: action.text, mode: action.mode });
+    setPendingDelivery({ text: action.text, mode: action.mode, action: action.action });
     setDestinationPickerOpen(true);
     setPlansModalOpen(false);
     handleShowToast("Idea round started", "Pick a destination chat — captured ideas are collected into this round.", "info");
@@ -837,7 +901,7 @@ export function AppShell({ updates }: AppShellProps) {
    *  rolled back on failure. Rapid clicks are serialized by a per-type
    *  in-flight guard so one click creates exactly one panel + one resource. */
   const handleCreateTypedPanel = useCallback(
-    (type: "chat" | "terminal" | "omp" | "schematic", pendingPrompt?: { text: string; mode: PromptMode }): void => {
+    (type: "chat" | "terminal" | "omp" | "schematic", pendingPrompt?: { text: string; mode: PromptMode; action?: DeliveryAction }): void => {
       addLog("debug", "Panel create requested", `type=${type} pendingPrompt=${pendingPrompt ? "yes" : "no"} activeSession=${session.activeSessionId ?? "none"}`);
       if (!session.activeSessionId) {
         addLog("debug", "Panel create skipped", "no active session");
@@ -961,7 +1025,9 @@ export function AppShell({ updates }: AppShellProps) {
           <ChatPanel
             panelId={panel.id}
             projectPath={activeProjectPath ?? ""}
+            activeSessionId={session.activeSessionId}
             chatSessionId={panel.chatSessionId ?? tab?.chatSessionId ?? null}
+            chatTitle={panel.title}
             onChatSessionCreated={(chatSessionId) => {
               addLog("debug", "Chat session created", `panel=${panel.id} chatSessionId=${chatSessionId} tab=${tab?.id ?? "none"}`);
               if (tab) {
@@ -971,7 +1037,7 @@ export function AppShell({ updates }: AppShellProps) {
                 if (pending) {
                   addLog("debug", "Flushing pending prompt", `tab=${tab.id} mode=${pending.mode}`);
                   pendingNewPanelPrompts.current.delete(tab.id);
-                  deliverPrompt({ chatSessionId, text: pending.text, mode: pending.mode });
+                  deliverPrompt({ chatSessionId, text: pending.text, mode: pending.mode, action: pending.action });
                 }
               }
               // Also update the panel's chatSessionId in the grid so the link
@@ -980,6 +1046,15 @@ export function AppShell({ updates }: AppShellProps) {
                 ...prev,
                 root: updatePanelInTree(prev.root, panel.id, { chatSessionId, creating: false }),
               }));
+            }}
+            onRenameChat={(title) => {
+              setPanelGridState((prev) => ({
+                ...prev,
+                root: updatePanelInTree(prev.root, panel.id, { title }),
+              }));
+              if (tab) {
+                void session.setTabTitle(tab.id, title);
+              }
             }}
             onOpenPlanningInspector={handleOpenPlanningInspector}
             onOpenSchematic={handleOpenSchematic}
@@ -1093,9 +1168,38 @@ export function AppShell({ updates }: AppShellProps) {
   /** Handle panel grid state changes. */
   const handlePanelGridChange = useCallback(
     (newState: PanelGridState) => {
-      setPanelGridState(newState);
+      setPanelGridState(repairActivePanelId(newState));
     },
     [],
+  );
+
+  /** Persist a tab rename from the panel header tab strip to the DB.
+   *  The panel grid state is already updated by PanelGrid; this syncs the
+   *  title to session_tabs and (for chat tabs) the native chat session so
+   *  it survives project switches and restarts. */
+  const handleRenameTab = useCallback(
+    (panelId: string, title: string) => {
+      const allPanels = flattenPanels(panelGridState.root);
+      const panel = allPanels.find((p) => p.id === panelId);
+      if (!panel) return;
+      // Find the matching session tab — same lookup logic as renderPanel.
+      const tab = session.tabs.find(
+        (t) =>
+          (panel.chatSessionId && t.chatSessionId === panel.chatSessionId) ||
+          t.title === panel.title ||
+          t.id === panelId,
+      );
+      if (tab) {
+        void session.setTabTitle(tab.id, title);
+      }
+      // For chat tabs, also rename the native chat session so the
+      // ChatPanel title-sync effect doesn't overwrite it on remount.
+      const chatSessionId = panel.chatSessionId ?? tab?.chatSessionId ?? null;
+      if (chatSessionId) {
+        void renameNativeChatSession(chatSessionId, title);
+      }
+    },
+    [panelGridState.root, session.tabs, session.setTabTitle],
   );
 
   /** Handle closing a panel → moves to history. */
@@ -1216,12 +1320,18 @@ export function AppShell({ updates }: AppShellProps) {
           updates={updates}
           onSelectProject={handleSelectProject}
           onOpenFolder={handleOpenFolder}
+          onRemoveProject={handleRemoveProject}
+          onOpenInExplorer={handleRevealProject}
+          onCopyProjectPath={handleCopyProjectPath}
+          onNewChat={() => handleCreateTypedPanel("chat")}
+          onOpenFiles={() => setFileModalOpen(true)}
+          onOpenChanges={() => setChangesModalOpen(true)}
           pickerInFlight={sidebar.pickerInFlight}
           onFocusPanel={(panelId) => setPanelGridState((prev) => ({ ...prev, activePanelId: panelId }))}
           onCreateChat={() => handleCreateTypedPanel("chat")}
-          onCreateTerminal={() => handleCreateTypedPanel("terminal")}
+          onOpenLogPanel={() => setLogPanelOpen(true)}
+          onClearChats={handleClearChats}
           onOpenHistory={() => setHistoryDrawerOpen(true)}
-          onOpenPlans={() => openPlanningModal("plans")}
           onOpenSettings={() => setSettingsOpen(true)}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
@@ -1247,9 +1357,9 @@ export function AppShell({ updates }: AppShellProps) {
                 onOpenPlans={() => openPlanningModal("plans")}
                 onCreatePanel={handleCreateTypedPanel}
               />
-              <CommandStrip
+              <PlanningIndicators
                 plans={plans.plans}
-                ideaCount={0}
+                ideas={ideaState.ideas}
                 schematicHealth={schematic.report ? (schematic.report.health === "complete" ? "complete" : "incomplete") : "none"}
                 onOpenStage={(stage: StageKey) => {
                   addLog("debug", "Planning stage opened", stage);
@@ -1263,8 +1373,22 @@ export function AppShell({ updates }: AppShellProps) {
                     openPlanningModal("flow");
                   }
                 }}
-                collapsed={commandStripCollapsed}
-                onToggleCollapse={() => setCommandStripCollapsed((v) => !v)}
+                onOpenFullUI={(stage: StageKey) => {
+                  if (stage === "schematic") {
+                    handleOpenSchematic();
+                  } else if (stage === "ideas") {
+                    openPlanningModal("ideas");
+                  } else if (stage === "plans") {
+                    openPlanningModal("plans");
+                  } else if (stage === "running") {
+                    openPlanningModal("flow");
+                  } else {
+                    openPlanningModal("runs");
+                  }
+                }}
+                onMarkComplete={(planId: string) => {
+                  void plans.setPlanStatus(planId, "finished");
+                }}
               />
             </div>
           ) : null}
@@ -1295,6 +1419,7 @@ export function AppShell({ updates }: AppShellProps) {
                 <PanelGrid
                   state={panelGridState}
                   onStateChange={handlePanelGridChange}
+                  onRenameTab={handleRenameTab}
                   renderPanel={renderPanel}
                   onCreatePanel={handleCreatePanel}
                   viewportWidth={typeof window !== "undefined" ? window.innerWidth - 80 : 1200}
@@ -1394,7 +1519,6 @@ export function AppShell({ updates }: AppShellProps) {
           </div>
         </div>
       ) : null}
-      <StatusBar onClick={() => setLogPanelOpen(true)} />
       <CrashReportNotice onViewReports={() => setDebugPanelOpen(true)} />
       <Suspense fallback={<ModalLoading />}><LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} /></Suspense>
       {debugPanelOpen ? (
@@ -1529,13 +1653,14 @@ export function AppShell({ updates }: AppShellProps) {
               chatSessionId: choice.chatSessionId,
               text: pendingDelivery.text,
               mode: pendingDelivery.mode,
+              action: pendingDelivery.action,
             });
             // Focus the panel that hosts this chat.
             setPanelGridState((prev) => ({ ...prev, activePanelId: choice.panelId }));
           } else {
             addLog("debug", "DestinationPicker new", "creating new chat panel for wizard prompt");
             // New conversation — create a chat panel + backing tab, queue the prompt.
-            handleCreateTypedPanel("chat", { text: pendingDelivery.text, mode: pendingDelivery.mode });
+            handleCreateTypedPanel("chat", { text: pendingDelivery.text, mode: pendingDelivery.mode, action: pendingDelivery.action });
           }
           setPendingDelivery(null);
           // Prompt delivered — the round stays active so the turn's captures

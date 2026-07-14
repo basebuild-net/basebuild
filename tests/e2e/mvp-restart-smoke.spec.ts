@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady, collectLogs, attachLogs, attachScreenshot, attachTiming } from "./helpers";
+import { openMvpFixtureProject, waitForAppReady, collectLogs, attachLogs, attachScreenshot, attachTiming, openPlanningModal } from "./helpers";
 
 test.describe("MVP restart and responsiveness smoke", () => {
   test("restart focus restores last project and session", async ({ page }) => {
@@ -103,10 +103,9 @@ test.describe("MVP restart and responsiveness smoke", () => {
     await openMvpFixtureProject(page, { projectIndex: 2 });
     await waitForAppReady(page);
 
-    // Measure click-to-feedback for the Plans & Ideas button.
+    // Measure click-to-feedback for opening the planning modal.
     const start = Date.now();
-    await page.locator('[title="Plans & Ideas"]').first().click();
-    await expect(page.locator(".planning-inspector-modal, .planning-inspector")).toBeVisible({ timeout: 5000 });
+    await openPlanningModal(page);
     const elapsed = Date.now() - start;
 
     // Should paint within 100ms (generous — Playwright has overhead).

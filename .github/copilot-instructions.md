@@ -40,7 +40,7 @@ planner may replace it in the future but is not worth building today.
 
 - **Frontend**: React 19 + TypeScript + Vite 7 (Tauri webview), Tailwind, xterm.js.
 - **Desktop core**: Rust + Tauri v2 (`src-tauri/`).
-- **State**: rusqlite for dynamic state; OpenSpec files for plans.
+- **State**: rusqlite for dynamic state; local gitignored OpenSpec files for plans.
 - **Privacy**: No phone-home. Analytics disabled by default.
 - **License**: Attribution-required.
 
@@ -67,7 +67,7 @@ DESIGN.md            # Visual design contract (visual/non-technical only)
 ## Key conventions
 
 - One stylesheet only: `src/styles/globals.css`. No CSS modules, no inline styles.
-- 0px border radius. No exceptions.
+- Restrained border radius via tokens: `var(--bb-radius-sm)` (6px controls/inputs), `var(--bb-radius-md)` (10px cards/modals), `var(--bb-radius-lg)` (14px composer), `var(--bb-radius-full)` (circular). No hardcoded radius values.
 - Tooltips on every interactive element (`title=`).
 - `type` over `interface` for sidecar object shapes.
 - Lib files are thin Tauri invoke wrappers only — no React state logic.

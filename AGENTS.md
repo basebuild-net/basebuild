@@ -44,7 +44,7 @@ Non-negotiable and enforced in review. Rationale and how-to in
 [`docs/agents/workflow.md`](./docs/agents/workflow.md).
 
 1. **One stylesheet** — `src/styles/globals.css` only. No CSS modules, no inline styles.
-2. **0px border radius.** No exceptions.
+2. **Restrained border radius via tokens.** Use `var(--bb-radius-sm)` (6px) for controls/inputs/badges, `var(--bb-radius-md)` (10px) for cards/popovers/modals, `var(--bb-radius-lg)` (14px) for composer/major floating surfaces, `var(--bb-radius-full)` for circular elements (dots, pills, icon buttons). No hardcoded radius values — tokens only. The `check-ui-invariants` script enforces this.
 3. **Tooltips (`title=`) on every interactive element.** Blue (`#2563eb`) is reserved for app-update CTAs.
 4. **Local-first.** No data-uploading network calls unless explicitly specified.
 5. **No silent side effects.** Ask before destructive actions, commits, PRs, or installs.
@@ -54,8 +54,8 @@ Non-negotiable and enforced in review. Rationale and how-to in
 9. **Statuses are `snake_case`.** Plans: `draft → openspec → ready → running → finished` (`cancelled` reachable from any non-terminal). Ideas: `concept → picked → rejected → archived`.
 10. **Commit in verified milestones.** No silent commits — report commit points unless the user asked for commits ([workflow.md](./docs/agents/workflow.md#commit-milestones-invariant-10)).
 11. **Feature branches only.** Never build on or push to `main` ([workflow.md](./docs/agents/workflow.md#feature-branches-invariant-11)).
-12. **Roadmap tracks OpenSpec.** Any `openspec/changes/**` edit ships in the same commit with `node scripts/openspec-status.mjs --write` **and** a `openspec/ROADMAP.md` narrative pass ([openspec.md](./docs/agents/openspec.md)).
-13. **Archive when complete.** When all tasks in a change's `tasks.md` are `[x]`, run `/archive <name>` in the same session — do not leave completed changes in `openspec/changes/`. The roadmap status table + narrative MUST reflect the archive in the same commit ([openspec.md](./docs/agents/openspec.md#archiving-a-change)).
+12. **OpenSpec stays local.** The entire `openspec/` directory is gitignored workspace state. Never stage, commit, push, or attach its proposals, specs, tasks, archives, or roadmap to a PR ([openspec.md](./docs/agents/openspec.md)).
+13. **Archive when complete.** When all tasks in a local change's `tasks.md` are `[x]`, run `/archive <name>` in the same session so local canonical specs and the local roadmap remain coherent ([openspec.md](./docs/agents/openspec.md#archiving-a-change)).
 14. **Debug logging on every interaction.** Every button press, panel creation, session start, process spawn, and state transition MUST emit a `addLog("debug", ...)` entry with the action name and key parameters. This is the primary diagnostic surface — when something fails silently, the debug log must show the last action that ran. Use `addLog("debug", "Action name", "details")` at the entry point of every handler, and at every branch that skips or aborts the action. Debug entries are filtered out of the status bar by default but visible in the LogPanel filter.
 15. **Slash commands must act, not just notify.** Every builtin slash command in `BUILTIN_COMMANDS` (`src/lib/chatCommands.ts`) MUST have a `category` of `"in-chat"` or `"ui"` and must do something substantial when dispatched:
     - **`"in-chat"`** — does something in the conversation: injects a skill (e.g. `/schematic` injects the project-schematic skill and runs the wizard inline), generates ideas, shows command reference output, or sends a prompt to the provider. The command clears the composer input after dispatch.
@@ -65,6 +65,6 @@ Non-negotiable and enforced in review. Rationale and how-to in
 
 Run the full checklist in
 [`docs/agents/workflow.md`](./docs/agents/workflow.md#before-you-yield): checks
-actually run and passing, tooltips / 0px / styles-in-`globals.css`, behavior
-docs updated, roadmap synced if `openspec/changes/**` changed, work on a feature
-branch with no silent commits.
+actually run and passing, tooltips / radius-tokens / styles-in-`globals.css`, behavior
+docs updated, local `openspec/` state ignored by Git, work on a feature branch
+with no silent commits.

@@ -51,6 +51,10 @@ export async function revealInExplorer(path: string): Promise<void> {
   return invoke("reveal_in_explorer", { path });
 }
 
+export async function basebuildDataDir(): Promise<string> {
+  return invoke<string>("basebuild_data_dir");
+}
+
 export async function setLastActiveSession(projectPath: string, sessionId: string): Promise<void> {
   return invoke("set_last_active_session", { projectPath, sessionId });
 }

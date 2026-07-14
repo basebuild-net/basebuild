@@ -86,7 +86,7 @@ export function NotificationCenter({ onNavigate }: NotificationCenterProps) {
   const kinds = [...new Set(notifications.map((n) => n.kind))];
 
   return (
-    <>
+    <div className="notification-center-wrap">
       <button
         className="btn-icon notification-bell"
         title={unread > 0 ? `${unread} unread notification${unread === 1 ? "" : "s"}` : "Notifications"}
@@ -174,6 +174,6 @@ export function NotificationCenter({ onNavigate }: NotificationCenterProps) {
           </div>
         </>
       ) : null}
-    </>
+    </div>
   );
 }

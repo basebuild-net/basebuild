@@ -1,23 +1,30 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  Copy,
   Clock,
   FileText,
+  GitBranch,
   FolderPlus,
-  LayoutList,
   LayoutTemplate,
   Loader2,
   MessageSquare,
+  MoreVertical,
+  Palette,
+  Pin,
   Plus,
   Settings2,
   TerminalSquare,
+  Trash2,
   Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { flattenPanels, parsePanelGrid } from "../../lib/panelGrid";
+import { useDropdownPosition } from "../../state/useDropdownPosition";
 import { usePanelStatus, type PanelStatus } from "../panels/PanelStatusContext";
 import { AccountButton } from "./AccountButton";
+import { StatusBar } from "./StatusBar";
 import { UpdateButton } from "./UpdateButton";
 import { RepoIcon } from "./RepoIcon";
 import { getRepoIdentity, type RepoHost, type RepoIdentity } from "../../lib/repoIdentity";
@@ -30,6 +37,68 @@ import type { UpdaterState } from "../../state/updater";
 import type { Panel, PanelType, SplitNode } from "../../lib/panelGrid";
 import type { RecentProject } from "../../lib/projects";
 
+
+const PROJECT_COLOR_PRESETS = [
+  { key: "none", label: "None" },
+  { key: "blue", label: "Blue" },
+  { key: "green", label: "Green" },
+  { key: "purple", label: "Purple" },
+  { key: "orange", label: "Orange" },
+  { key: "red", label: "Red" },
+] as const;
+
+const PINNED_PROJECTS_KEY = "basebuild.pinned-projects.v1";
+const PROJECT_COLORS_KEY = "basebuild.project-colors.v1";
+
+function readPinnedProjects(): Set<string> {
+  if (typeof localStorage === "undefined") return new Set();
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(PINNED_PROJECTS_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((item): item is string => typeof item === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+function writePinnedProjects(pinned: Set<string>) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(PINNED_PROJECTS_KEY, JSON.stringify(Array.from(pinned)));
+  } catch {
+    // ignore
+  }
+}
+
+function readProjectColors(): Map<string, string> {
+  if (typeof localStorage === "undefined") return new Map();
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(PROJECT_COLORS_KEY) ?? "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return new Map();
+    const map = new Map<string, string>();
+    for (const [key, value] of Object.entries(parsed)) {
+      if (PROJECT_COLOR_PRESETS.some((p) => p.key === value)) {
+        map.set(key, value as string);
+      }
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+function writeProjectColors(colors: Map<string, string>) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const record: Record<string, string> = {};
+    for (const [path, color] of colors) {
+      record[path] = color;
+    }
+    localStorage.setItem(PROJECT_COLORS_KEY, JSON.stringify(record));
+  } catch {
+    // ignore
+  }
+}
 const typeIcons: Record<PanelType, LucideIcon> = {
   chat: MessageSquare,
   terminal: TerminalSquare,
@@ -78,16 +147,132 @@ export type ActivitySidebarProps = {
   updates: UpdaterState;
   onSelectProject: (path: string) => void;
   onOpenFolder: () => void;
+  onRemoveProject?: (path: string) => void;
+  onOpenInExplorer?: (path: string) => void;
+  onCopyProjectPath?: (path: string) => void;
+  onNewChat?: (path: string) => void;
+  onOpenFiles?: (path: string) => void;
+  onOpenChanges?: (path: string) => void;
   pickerInFlight: boolean;
   onFocusPanel: (panelId: string) => void;
   onCreateChat: () => void;
   onOpenHistory: () => void;
-  onOpenPlans: () => void;
   onOpenSettings: () => void;
-  onCreateTerminal: () => void;
+  onOpenLogPanel: () => void;
+  onClearChats?: (path: string) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
 };
+function ProjectMenuButton({ projectPath, projectName, onOpenInExplorer, onRemoveProject, onCopyPath, onNewChat, onOpenFiles, onOpenChanges, onClearChats, isPinned, onTogglePin, projectColor, onSetColor }: {
+  projectPath: string;
+  projectName: string;
+  onOpenInExplorer?: (path: string) => void;
+  onRemoveProject?: (path: string) => void;
+  onCopyPath?: (path: string) => void;
+  onNewChat?: (path: string) => void;
+  onOpenFiles?: (path: string) => void;
+  onOpenChanges?: (path: string) => void;
+  onClearChats?: (path: string) => void;
+  isPinned?: boolean;
+  onTogglePin?: (path: string) => void;
+  projectColor?: string;
+  onSetColor?: (path: string, color: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuPos = useDropdownPosition(160);
+  const closeRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (menuPos.triggerRef.current?.contains(target)) return;
+      const menu = document.querySelector(".project-menu-dropdown");
+      if (menu && !menu.contains(target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    closeRef.current = () => document.removeEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open, menuPos.triggerRef]);
+
+  if (!onOpenInExplorer && !onRemoveProject && !onCopyPath && !onNewChat && !onOpenFiles && !onOpenChanges && !onClearChats && !onTogglePin && !onSetColor) return null;
+
+  return (
+    <div className="project-menu-wrap">
+      <button
+        ref={menuPos.triggerRef}
+        className="project-menu-btn"
+        type="button"
+        title={`Manage ${projectName}`}
+        onClick={(e) => { e.stopPropagation(); menuPos.recompute(); setOpen((v) => !v); }}
+      >
+        <MoreVertical size={12} />
+      </button>
+      {open ? (
+        <div className={`project-menu-dropdown ${menuPos.placement === "top" ? "is-above" : ""}`} role="menu" aria-label={`Actions for ${projectName}`}>
+          {onNewChat ? (
+            <button className="project-menu-item" type="button" title="Start a new chat in this project" onClick={(e) => { e.stopPropagation(); setOpen(false); onNewChat(projectPath); }}>
+              <Plus size={11} /> New Chat
+            </button>
+          ) : null}
+          {onOpenFiles ? (
+            <button className="project-menu-item" type="button" title="Browse files in this project" onClick={(e) => { e.stopPropagation(); setOpen(false); onOpenFiles(projectPath); }}>
+              <FileText size={11} /> Files
+            </button>
+          ) : null}
+          {onOpenChanges ? (
+            <button className="project-menu-item" type="button" title="View git changes in this project" onClick={(e) => { e.stopPropagation(); setOpen(false); onOpenChanges(projectPath); }}>
+              <GitBranch size={11} /> Changes
+            </button>
+          ) : null}
+          {onCopyPath ? (
+            <button className="project-menu-item" type="button" title="Copy the project folder path to the clipboard" onClick={(e) => { e.stopPropagation(); setOpen(false); onCopyPath(projectPath); }}>
+              <Copy size={11} /> Copy project path
+            </button>
+          ) : null}
+          {onOpenInExplorer ? (
+            <button className="project-menu-item" type="button" title="Open this project folder in the file explorer" onClick={(e) => { e.stopPropagation(); setOpen(false); onOpenInExplorer(projectPath); }}>
+              <FolderPlus size={11} /> Open in Explorer
+            </button>
+          ) : null}
+          {onTogglePin ? (
+            <button className="project-menu-item" type="button" title={isPinned ? "Unpin project from top of list" : "Pin project to top of list"} onClick={(e) => { e.stopPropagation(); setOpen(false); onTogglePin(projectPath); }}>
+              <Pin size={11} /> {isPinned ? "Unpin" : "Pin"}
+            </button>
+          ) : null}
+          {onSetColor ? (
+            <div className="project-menu-item project-menu-color-row" title="Set project color label">
+              <Palette size={11} /> Color
+              <div className="project-menu-color-swatches">
+                {PROJECT_COLOR_PRESETS.map((preset) => (
+                  <button
+                    key={preset.key}
+                    className={`project-menu-color-swatch${projectColor === preset.key || (!projectColor && preset.key === "none") ? " is-active" : ""}`}
+                    type="button"
+                    title={preset.label}
+                    onClick={(e) => { e.stopPropagation(); setOpen(false); onSetColor(projectPath, preset.key); }}
+                  >
+                    <span className={`project-color-dot${preset.key === "none" ? "" : ` is-${preset.key}`}`} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {onClearChats ? (
+            <button className="project-menu-item is-danger" type="button" title="Clear all chats for this project" onClick={(e) => { e.stopPropagation(); setOpen(false); onClearChats(projectPath); }}>
+              <TerminalSquare size={11} /> Clear Chats
+            </button>
+          ) : null}
+          {onRemoveProject ? (
+            <button className="project-menu-item is-danger" type="button" title={`Remove ${projectName} from the sidebar (does not delete files)`} onClick={(e) => { e.stopPropagation(); setOpen(false); onRemoveProject(projectPath); }}>
+              <Trash2 size={11} /> Remove Project
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export function ActivitySidebar({
   activeProjectPath,
@@ -99,18 +284,47 @@ export function ActivitySidebar({
   updates,
   onSelectProject,
   onOpenFolder,
+  onRemoveProject,
+  onOpenInExplorer,
+  onCopyProjectPath,
+  onNewChat,
+  onOpenFiles,
+  onOpenChanges,
   pickerInFlight,
   onFocusPanel,
   onCreateChat,
-  onCreateTerminal,
+  onOpenLogPanel,
+  onClearChats,
   onOpenHistory,
-  onOpenPlans,
   onOpenSettings,
   collapsed,
   onToggleCollapse,
 }: ActivitySidebarProps) {
   const [repoIdentities, setRepoIdentities] = useState<Map<string, RepoIdentity>>(new Map());
   const [otherProjectChats, setOtherProjectChats] = useState<Map<string, NativeChatSession[]>>(new Map());
+  const [pinnedPaths, setPinnedPaths] = useState<Set<string>>(readPinnedProjects);
+  const [projectColors, setProjectColors] = useState<Map<string, string>>(readProjectColors);
+
+  useEffect(() => { writePinnedProjects(pinnedPaths); }, [pinnedPaths]);
+  useEffect(() => { writeProjectColors(projectColors); }, [projectColors]);
+
+  const togglePin = useCallback((path: string) => {
+    setPinnedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
+  const setProjectColor = useCallback((path: string, color: string) => {
+    setProjectColors((prev) => {
+      const next = new Map(prev);
+      if (color === "none") next.delete(path);
+      else next.set(path, color);
+      return next;
+    });
+  }, []);
   const [, setClock] = useState(0);
 
   // Fetch repo identity (host, name, branch) for all projects.
@@ -202,9 +416,6 @@ export function ActivitySidebar({
           <button className="btn-icon" type="button" title="History" onClick={onOpenHistory}>
             <Clock size={14} />
           </button>
-          <button className="btn-icon" type="button" title="Plans & Ideas" aria-label="Plans & Ideas" onClick={onOpenPlans} disabled={!activeProjectPath}>
-            <LayoutList size={14} />
-          </button>
           <button className="btn-icon" type="button" title={pickerInFlight ? "Opening folder picker…" : "Add project folder"} onClick={onOpenFolder} disabled={pickerInFlight}>
             <FolderPlus size={14} />
           </button>
@@ -266,12 +477,6 @@ export function ActivitySidebar({
         <button className="btn btn-ghost btn-sm" type="button" title="New chat" onClick={onCreateChat} disabled={!activeProjectPath}>
           <Plus size={12} /> New chat
         </button>
-        <button className="btn-icon" type="button" title="New terminal" onClick={onCreateTerminal} disabled={!activeProjectPath}>
-          <TerminalSquare size={14} />
-        </button>
-        <button className="btn-icon" type="button" title="Plans & Ideas" aria-label="Plans & Ideas" onClick={onOpenPlans} disabled={!activeProjectPath}>
-          <LayoutList size={14} />
-        </button>
         <button className="btn-icon" type="button" title={pickerInFlight ? "Opening folder picker…" : "Add project folder"} onClick={onOpenFolder} disabled={pickerInFlight}>
           <FolderPlus size={14} />
         </button>
@@ -288,7 +493,13 @@ export function ActivitySidebar({
               No projects yet. <button className="chat-link-btn" type="button" title="Add a project folder" onClick={onOpenFolder}>Add a folder</button>.
             </div>
           ) : (
-            projects.map((project) => {
+            [...projects].sort((a, b) => {
+              const aPinned = pinnedPaths.has(a.path);
+              const bPinned = pinnedPaths.has(b.path);
+              if (aPinned && !bPinned) return -1;
+              if (!aPinned && bPinned) return 1;
+              return a.name.localeCompare(b.name);
+            }).map((project) => {
               const isActive = project.path === activeProjectPath;
               const identity = repoIdentities.get(project.path);
               const name = identity?.name ?? project.name;
@@ -301,7 +512,7 @@ export function ActivitySidebar({
                 ? otherProjectChats.get(project.path) ?? []
                 : [];
               return (
-                <div key={project.path} className={`activity-sidebar-project-row${isActive ? " is-active" : ""}`}>
+                <div key={project.path} className={`activity-sidebar-project-row${isActive ? " is-active" : ""}${pinnedPaths.has(project.path) ? " is-pinned" : ""}`}>
                   <div
                     className="activity-sidebar-project-main"
                     title={project.path}
@@ -309,7 +520,25 @@ export function ActivitySidebar({
                   >
                     <RepoIcon host={host} size={isActive ? 14 : 11} />
                     <span className={isActive ? "activity-sidebar-project-name" : "activity-sidebar-row-title"}>{name}</span>
+                    {projectColors.get(project.path) ? (
+                      <span className={`project-color-dot is-${projectColors.get(project.path)}`} aria-hidden="true" />
+                    ) : null}
                     <span className={`agent-status-dot agent-status-${agentStatus}`} title={`Agent: ${agentStatus}`} aria-label={`Agent status: ${agentStatus}`} />
+                    <ProjectMenuButton
+                      projectPath={project.path}
+                      projectName={name}
+                      onOpenInExplorer={onOpenInExplorer}
+                      onRemoveProject={onRemoveProject}
+                      onCopyPath={onCopyProjectPath}
+                      onNewChat={onNewChat}
+                      onOpenFiles={onOpenFiles}
+                      onOpenChanges={onOpenChanges}
+                      onClearChats={onClearChats}
+                      isPinned={pinnedPaths.has(project.path)}
+                      onTogglePin={togglePin}
+                      projectColor={projectColors.get(project.path)}
+                      onSetColor={setProjectColor}
+                    />
                   </div>
                   {branch ? (
                     <span className="activity-sidebar-project-branch" title={`Branch: ${branch}`} onClick={() => onSelectProject(project.path)}>
@@ -320,11 +549,10 @@ export function ActivitySidebar({
                   {isActive && panels.length > 0 ? (
                     panels.map((panel) => {
                       const Icon = typeIcons[panel.type] ?? FileText;
-                      const isPanelActive = panel.id === activePanelId;
                       return (
                         <div
                           key={panel.id}
-                          className={`activity-sidebar-row${isPanelActive ? " is-active" : ""}`}
+                          className={`activity-sidebar-row${panel.id === activePanelId ? " is-active" : ""}`}
                           title={panel.title}
                           onClick={() => onFocusPanel(panel.id)}
                         >
@@ -335,6 +563,7 @@ export function ActivitySidebar({
                         </div>
                       );
                     })
+                    
                   ) : null}
                   {/* Active project with no panels: show empty state */}
                   {isActive && panels.length === 0 ? (
@@ -388,6 +617,7 @@ export function ActivitySidebar({
         <AccountButton account={account} onOpenSettings={onOpenSettings} />
         <UpdateButton updates={updates} onOpenSettings={onOpenSettings} />
       </div>
+      <StatusBar onClick={onOpenLogPanel} />
     </aside>
   );
 }

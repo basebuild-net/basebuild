@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-
+import { openPlanningModal } from "./helpers";
 async function openFixtureProject(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem("basebuild:first-run-complete", "true");
@@ -7,8 +7,8 @@ async function openFixtureProject(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Open project" }).click();
   await expect(
-    page.locator(".activity-sidebar-project-name", { hasText: "project" }),
-  ).toBeVisible();
+    page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: "project" }),
+  ).toBeVisible({ timeout: 5_000 });
   // Seed an awaiting_review run into the mock state. Attach to all sessions
   // for this project so the active session's run list includes it.
   await page.evaluate(() => {
@@ -29,8 +29,7 @@ async function openFixtureProject(page: Page) {
   });
 }
 async function openPlanningInspector(page: Page) {
-  await page.locator('button[title="Plans & Ideas"]').first().click();
-  await expect(page.locator('.modal-overlay[aria-label="Plans & Ideas"]')).toBeVisible({ timeout: 3_000 });
+  await openPlanningModal(page);
 }
 
 async function clickFlowTab(page: Page) {

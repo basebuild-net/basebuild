@@ -1,19 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
+import { ensureChatPanel, openFixtureProject } from "./helpers";
 
 async function openProviderPicker(page: Page) {
   await ensureChatPanel(page);

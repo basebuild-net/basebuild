@@ -1,4 +1,4 @@
-import type { PromptMode } from "./promptDelivery";
+import type { DeliveryAction, PromptMode } from "./promptDelivery";
 
 /**
  * Planning action types — each maps to a destination-aware delivery path.
@@ -22,6 +22,8 @@ export type PlanningAction = {
   mode: PromptMode;
   /** Optional context for logging/diagnostics. */
   context?: string;
+  /** Structured action — routed to the native command instead of chat prose. */
+  action?: DeliveryAction;
 };
 
 export type PlanningActionDestination =
@@ -71,7 +73,7 @@ export function generateCategoriesAction(): PlanningAction {
 /**
  * Build a planning action for generating ideas for a category (or all).
  */
-export function generateIdeasAction(categoryName?: string, categoryDescription?: string): PlanningAction {
+export function generateIdeasAction(categoryName?: string, categoryDescription?: string, categoryId?: string): PlanningAction {
   const text = categoryName
     ? `Generate new ideas for the "${categoryName}" category. ${categoryDescription ?? ""}`.trim()
     : "Generate ideas for this project.";
@@ -80,6 +82,7 @@ export function generateIdeasAction(categoryName?: string, categoryDescription?:
     text,
     mode: "send",
     context: categoryName ? `ideas for category: ${categoryName}` : "ideas for project",
+    action: { kind: "generate_ideas", categoryId: categoryId ?? null },
   };
 }
 
@@ -101,5 +104,6 @@ export function generateFromFinishedPlansAction(
     text,
     mode: "send",
     context: `generate from finished plans (${finishedPlanCount})`,
+    action: { kind: "generate_ideas", direction: text },
   };
 }

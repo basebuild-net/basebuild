@@ -1,19 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
+import { ensureChatPanel, openFixtureProject, openPlanningModal } from "./helpers";
 
 test.describe("plan-run → PR recommendation", () => {
   test("chat header renders with model chip, branch, and more-actions menu", async ({ page }) => {
@@ -34,7 +20,7 @@ test.describe("plan-run → PR recommendation", () => {
     await expect(page.locator(".chat-column-model-chip").first()).toBeVisible();
 
     // The branch indicator shows the current git branch (mocked as "main").
-    await expect(page.locator(".chat-column-branch-name").first()).toContainText("main");
+    await expect(page.locator(".chat-composer-branch-btn").first()).toContainText("main", { timeout: 10_000 });
 
     expect(pageErrors).toEqual([]);
   });
@@ -46,7 +32,6 @@ test.describe("plan-run → PR recommendation", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
-
 
     // Click the more-actions button via evaluate.
     await page.evaluate(() => {
@@ -67,7 +52,7 @@ test.describe("plan-run → PR recommendation", () => {
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
     // The branch indicator shows the current git branch (mocked as "main").
-    await expect(page.locator(".chat-column-branch-name").first()).toContainText("main");
+    await expect(page.locator(".chat-composer-branch-btn").first()).toContainText("main", { timeout: 10_000 });
 
     // Simulate a plan-run "succeeded" event. The ChatPanel listens for
     // plan_run://event and matches on chatSessionId === nativeSessionId.
@@ -107,7 +92,7 @@ test.describe("plan-run → PR recommendation", () => {
 
     await openFixtureProject(page);
     // Open the Plans & Ideas fold.
-    await page.getByTitle("Plans & Ideas").first().click();
+    await openPlanningModal(page);
 
     // The concurrency input is visible with a tooltip (effective-value display).
     const concurrencyInput = page.locator(".plan-queue-concurrency input");

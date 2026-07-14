@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   ChevronDown,
   Folder,
@@ -14,8 +14,6 @@ import { NotificationCenter } from "./NotificationCenter";
 import type { IdeaCategory } from "../../lib/ideas";
 import type { NewPlan, Plan, PlanFocusContext } from "../../lib/plans";
 import type { PlansState } from "../../state/plans";
-import { gitCurrentBranch } from "../../lib/git";
-import { listWorkspaces } from "../../lib/workspaces";
 import { useLogs } from "../../state/log";
 
 type ChatEnvironmentPanelProps = {
@@ -56,7 +54,7 @@ const NEW_PANEL_OPTIONS: { type: "chat" | "terminal" | "omp" | "schematic"; icon
 export function ChatEnvironmentPanel({
   projectPath,
   sessionId,
-  plans,
+  plans: _plans,
   planCallbacks,
   onOpenChatSession,
   onSuggestForCategory,
@@ -68,9 +66,6 @@ export function ChatEnvironmentPanel({
   openPlansFoldSignal,
 }: ChatEnvironmentPanelProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [branch, setBranch] = useState<string | null>(null);
-  const [worktreePath, setWorktreePath] = useState<string | null>(null);
-  const [gitAvailable, setGitAvailable] = useState<boolean | null>(null);
   const { addLog } = useLogs();
 
   // Auto-open the Plans modal when the chat-side inspector button fires.
@@ -79,37 +74,6 @@ export function ChatEnvironmentPanel({
     lastSignalRef.value = openPlansFoldSignal;
     onOpenPlans();
   }
-
-  // Load workspace/branch context for the header badges.
-  useEffect(() => {
-    if (!projectPath) {
-      setBranch(null);
-      setWorktreePath(null);
-      setGitAvailable(null);
-      return;
-    }
-    const path = projectPath;
-    let cancelled = false;
-    async function load() {
-      try {
-        const [br, workspaces] = await Promise.all([
-          gitCurrentBranch(path).catch(() => null),
-          listWorkspaces(path).catch(() => []),
-        ]);
-        if (cancelled) return;
-        setGitAvailable(br !== null);
-        setBranch(br);
-        const match = workspaces.find((w) => w.branch === br);
-        setWorktreePath(match?.path ?? null);
-      } catch {
-        if (!cancelled) {
-          setGitAvailable(false);
-        }
-      }
-    }
-    void load();
-    return () => { cancelled = true; };
-  }, [projectPath]);
 
   if (!projectPath) return null;
 
@@ -120,7 +84,7 @@ export function ChatEnvironmentPanel({
           {FOLDS.map(({ id, icon: Icon, label }) => (
             <button
               key={id}
-              className="chat-env-tab"
+              className="chat-env-tab chat-env-tab-icon"
               type="button"
               title={label}
               onClick={() => {
@@ -129,8 +93,7 @@ export function ChatEnvironmentPanel({
                 else onOpenChanges();
               }}
             >
-              <Icon size={11} />
-              <span>{label}</span>
+              <Icon size={12} />
             </button>
           ))}
           <div className="chat-env-add-wrapper">
@@ -140,9 +103,7 @@ export function ChatEnvironmentPanel({
               title="New panel"
               onClick={() => setMenuOpen((v) => !v)}
             >
-              <Plus size={11} />
-              <span>New</span>
-              <ChevronDown size={8} />
+              <Plus size={12} />
             </button>
             {menuOpen ? (
               <div className="chat-env-add-menu" onMouseLeave={() => setMenuOpen(false)}>
@@ -166,56 +127,6 @@ export function ChatEnvironmentPanel({
           </div>
         </div>
         <NotificationCenter />
-      </div>
-      <div className="chat-env-context">
-        {projectPath ? (
-          <span
-            className="chat-context-badge"
-            title={`Project: ${projectPath}`}
-          >
-            {projectPath.split(/[\\/]/).pop() ?? projectPath}
-          </span>
-        ) : null}
-        {gitAvailable ? (
-          <>
-            <span className="chat-context-badge" title={`Branch: ${branch ?? "unknown"}`}>
-              <GitBranch size={10} />
-              {branch ?? "unknown"}
-            </span>
-            {worktreePath ? (
-              <span className="chat-context-badge" title={`Worktree: ${worktreePath}`}>
-                worktree
-              </span>
-            ) : (
-              <span
-                className="chat-context-badge"
-                title="Primary workspace: this chat is using the open project checkout"
-              >
-                primary workspace
-              </span>
-            )}
-          </>
-        ) : (
-          <span
-            className="chat-context-badge chat-context-badge-warn"
-            title="Non-Git project: workspace isolation and branch switching are unavailable"
-          >
-            non-Git
-          </span>
-        )}
-        {(() => {
-          const runningPlan = plans.plans.find((p) => p.status === "running");
-          const readyPlan = plans.plans.find((p) => p.status === "ready");
-          const activePlan = runningPlan ?? readyPlan;
-          return activePlan ? (
-            <span
-              className="chat-context-badge"
-              title={`Plan reference: ${activePlan.referenceId} - ${activePlan.title}`}
-            >
-              #{activePlan.referenceId}
-            </span>
-          ) : null;
-        })()}
       </div>
     </div>
   );

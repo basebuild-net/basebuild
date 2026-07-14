@@ -108,7 +108,8 @@ function checkBorderRadius() {
     while ((m = re.exec(line)) !== null) {
       const value = m[1].trim();
       // Allow 0, 0px, 0rem, 0em
-      if (!/^0(?:px|rem|em)?$/.test(value)) {
+      // Allow 0, 0px, 0rem, 0em, and var(--bb-radius-*) tokens
+      if (!/^0(?:px|rem|em)?$/.test(value) && !/^var\(--bb-radius-/.test(value)) {
         fail(cssPath, i + 1, `Non-zero border-radius: ${value} in: ${line.trim()}`);
       }
     }

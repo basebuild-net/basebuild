@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openPlanningModal } from "./helpers";
 
 async function openFixtureProject(page: Page) {
   await page.addInitScript(() => {
@@ -7,16 +8,14 @@ async function openFixtureProject(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Open project" }).click();
   await expect(
-    page.locator(".activity-sidebar-project-name", { hasText: "project" }),
-  ).toBeVisible();
+    page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: "project" }),
+  ).toBeVisible({ timeout: 5_000 });
 }
 
 async function openPlanningInspector(page: Page) {
   await openFixtureProject(page);
-  // The planning inspector lives behind the "Plans & Ideas" button in the
-  // activity sidebar or the chat environment panel.
-  const plansBtn = page.getByRole("button", { name: "Plans & Ideas" }).first();
-  await plansBtn.click();
+  // The planning inspector lives behind the PlanningIndicators dropdown.
+  await openPlanningModal(page);
   // Wait for the inspector tabs to appear.
   await expect(page.locator(".inspector-tab").first()).toBeVisible({ timeout: 5_000 });
 }

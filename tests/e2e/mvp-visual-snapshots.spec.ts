@@ -1,12 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import {
-  openMvpFixtureProject,
-  waitForAppReady,
-  fixtureProject,
-  attachScreenshot,
-  collectLogs,
-  attachLogs,
-} from "./helpers";
+import { attachLogs, attachScreenshot, collectLogs, openMvpFixtureProject, waitForAppReady, openPlanningModal } from "./helpers";
 
 // Visual/interaction snapshots at 960×640 and 1280×800 for shell, account
 // menu, planning board, picker/dialogs, and 1/2/4 chat panels.
@@ -23,16 +16,16 @@ for (const vp of VIEWPORTS) {
   test.describe(`MVP visual snapshots @ ${vp.name}`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    test("shell renders with project, session, and command strip", async ({ page }) => {
+    test("shell renders with project, session, and planning indicators", async ({ page }) => {
       const logs = collectLogs(page);
       await openMvpFixtureProject(page);
       await waitForAppReady(page);
 
       // Core shell elements are visible.
       await expect(page.locator(".app-shell")).toBeVisible({ timeout: 10_000 });
-      await expect(page.locator(".activity-sidebar-project-name")).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title").first()).toBeVisible({ timeout: 10_000 });
       await expect(page.locator("h1.session-title")).toHaveCount(0);
-      await expect(page.locator(".chat-env-context").first()).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator(".chat-header-context").first()).toBeVisible({ timeout: 10_000 });
 
       // Command strip is reachable.
       await expect(page.getByTitle(/Schematic/i).first()).toBeVisible({ timeout: 5_000 });
@@ -74,20 +67,17 @@ for (const vp of VIEWPORTS) {
       await openMvpFixtureProject(page);
       await waitForAppReady(page);
 
-      // The command strip should show plan/idea counts.
-      await expect(page.getByTitle(/Plans/i).first()).toBeVisible({ timeout: 10_000 });
+      // The planning indicators should show plan/idea counts.
+      await expect(page.locator('.planning-indicator[data-stage="plans"]').first()).toBeVisible({ timeout: 10_000 });
 
       // Open the plans modal.
-      const plansBtn = page.getByTitle(/Plans & Ideas/i).first();
-      if (await plansBtn.count() > 0) {
-        await plansBtn.click();
-        // Plans modal should be visible.
-        await expect(page.locator(".plans-modal, [role='dialog']").first()).toBeVisible({ timeout: 5_000 });
-        await attachScreenshot(page, `planning-board-${vp.name}`);
-        await attachLogs(logs, `planning-board-${vp.name}-logs.txt`);
-        // Close modal.
-        await page.keyboard.press("Escape");
-      }
+      await openPlanningModal(page);
+      // Plans modal should be visible.
+      await expect(page.locator(".plans-modal, [role='dialog']").first()).toBeVisible({ timeout: 5_000 });
+      await attachScreenshot(page, `planning-board-${vp.name}`);
+      await attachLogs(logs, `planning-board-${vp.name}-logs.txt`);
+      // Close modal.
+      await page.keyboard.press("Escape");
     });
 
     test("folder picker dialog is reachable", async ({ page }) => {

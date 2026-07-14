@@ -1,23 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady, attachScreenshot } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
+import { attachScreenshot, ensureChatPanel, openFixtureProject } from "./helpers";
 
 async function selectLocalProvider(page: Page) {
   await page.locator(".chat-column-model-chip").click();
-  await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+  await page.locator(".provider-card").first().click();
   await page.getByTitle("Close provider and model catalog").click();
 }
 
@@ -85,16 +71,18 @@ test.describe("chat coherence: tool ordering, stop, approval, completion", () =>
     await expect(editCard).toBeVisible();
     await expect(cmdCard).toBeVisible();
 
-    // Cards should be expanded — the body (summary or diff) should be visible.
-    await expect(readCard.locator(".tool-card-body")).toBeVisible();
-    await expect(editCard.locator(".tool-card-body")).toBeVisible();
-    await expect(cmdCard.locator(".tool-card-body")).toBeVisible();
+    // Cards should be collapsed by default (issue #31: minimized by default).
+    await expect(readCard.locator(".tool-card-body")).toHaveCount(0);
+    await expect(editCard.locator(".tool-card-body")).toHaveCount(0);
+    await expect(cmdCard.locator(".tool-card-body")).toHaveCount(0);
 
-    // The edit card should show a diff.
+    // Expand the edit card to verify diff is present.
+    await editCard.locator(".tool-card-header").click();
     await expect(editCard.locator(".tool-card-diff")).toBeVisible();
     await expect(editCard.locator(".diff-add").first()).toContainText("bar");
 
-    // The run_command card should show the command summary.
+    // Expand the run_command card to verify summary.
+    await cmdCard.locator(".tool-card-header").click();
     await expect(cmdCard.locator(".tool-card-summary")).toContainText("all tests passed");
 
     await attachScreenshot(page, "multi-tool-completed-expanded.png");
@@ -210,7 +198,7 @@ test.describe("chat coherence: tool ordering, stop, approval, completion", () =>
     await attachScreenshot(page, "approval-denied.png");
   });
 
-  test("tool-card-default-expanded: completed cards start expanded and toggle persists", async ({ page }) => {
+  test("tool-card-default-collapsed: completed cards start collapsed and toggle persists", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
     await selectLocalProvider(page);
@@ -221,19 +209,20 @@ test.describe("chat coherence: tool ordering, stop, approval, completion", () =>
     const writeCard = page.locator(".tool-card").filter({ hasText: "write file" }).first();
     await expect(writeCard).toBeVisible({ timeout: 5_000 });
 
-    // Card starts expanded — diff visible immediately.
-    await expect(writeCard.locator(".tool-card-diff")).toBeVisible();
-    await expect(writeCard.locator(".tool-card-expand")).toContainText("▼");
-
-    // Collapse by clicking header.
-    await writeCard.locator(".tool-card-header").click();
+    // Card starts collapsed (issue #31: minimized by default).
     await expect(writeCard.locator(".tool-card-expand")).toContainText("▶");
     await expect(writeCard.locator(".tool-card-body")).toHaveCount(0);
 
-    // Expand again.
+    // Expand by clicking header.
     await writeCard.locator(".tool-card-header").click();
     await expect(writeCard.locator(".tool-card-expand")).toContainText("▼");
     await expect(writeCard.locator(".tool-card-body")).toBeVisible();
+    await expect(writeCard.locator(".tool-card-diff")).toBeVisible();
+
+    // Collapse again.
+    await writeCard.locator(".tool-card-header").click();
+    await expect(writeCard.locator(".tool-card-expand")).toContainText("▶");
+    await expect(writeCard.locator(".tool-card-body")).toHaveCount(0);
 
     await attachScreenshot(page, "tool-card-toggle.png");
   });
@@ -282,7 +271,6 @@ test.describe("chat coherence: tool ordering, stop, approval, completion", () =>
 
     await attachScreenshot(page, "multi-tool-reload-order.png");
   });
-
 
   test("streaming to completion: reasoning and text transition cleanly to persisted message", async ({ page }) => {
     await openFixtureProject(page);

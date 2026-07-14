@@ -1,21 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  // In the panel grid, chat panels have data-panel-id and a .panel-header.
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  // If no panel exists, click "New chat" in the sidebar.
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
+import { ensureChatPanel, openFixtureProject, selectLocalProvider } from "./helpers";
 
 async function collapseEnvPanel(page: Page) {
   const btn = page.locator("button[title='Collapse environment']");
@@ -35,10 +19,10 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
     // The branch indicator shows the mocked current branch "main".
-    await expect(page.locator(".chat-column-branch-name").first()).toContainText("main");
+    await expect(page.locator(".chat-composer-branch-btn").first()).toContainText("main", { timeout: 10_000 });
 
     // The branch button has a tooltip.
-    await expect(page.locator(".chat-column-branch").first()).toHaveAttribute("title");
+    await expect(page.locator(".chat-composer-branch-btn").first()).toHaveAttribute("title");
 
     expect(pageErrors).toEqual([]);
   });
@@ -53,12 +37,10 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
 
     // Establish a deterministic starting model; session restore may otherwise
     // legitimately retain the model chosen by a previous test.
-    await page.locator(".chat-column-model-chip").first().click();
-    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
-    await page.getByTitle("Close provider and model catalog").click();
+    await selectLocalProvider(page);
 
     // The compact header shows the selected model.
-    await expect(page.locator(".chat-column-model-chip").first()).toContainText("Local");
+    await expect(page.locator(".chat-column-model-chip").first()).toContainText("None");
 
     // Open the model picker and select a different model.
     await page.evaluate(() => {
@@ -101,7 +83,7 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     await expect(page.locator(".chat-picker[aria-label='Assign a ready plan']")).toHaveCount(0);
 
     // The branch indicator shows "main" (no auto-created worktree branch).
-    await expect(page.locator(".chat-column-branch-name").first()).toContainText("main");
+    await expect(page.locator(".chat-composer-branch-btn").first()).toContainText("main", { timeout: 10_000 });
 
     // No worktree indicator should show (no auto-created worktree on restore).
     await expect(page.locator(".chat-column-worktree")).toHaveCount(0);

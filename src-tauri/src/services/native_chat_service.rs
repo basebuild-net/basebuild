@@ -20,6 +20,7 @@ use crate::{
         plan::Plan,
     },
     services::{
+        agent_loop_service::{ToolEventRecord, TurnSegment},
         provider_client::{resolve_client_for_model, ChatMsg, ProviderRequest, OMP_CODEX_BASE_URL},
         session_service::SessionService,
         settings_service::SettingsService,
@@ -584,6 +585,19 @@ impl NativeChatService {
         .map_err(|e| e.to_string())
     }
 
+    /// Rename a native chat session. Called when the user renames a chat tab
+    /// so the title survives project switches and restarts.
+    pub fn rename_session(session_id: &str, title: &str) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        let now = now_seconds();
+        conn.execute(
+            "UPDATE native_chat_sessions SET title = ?2, updated_at = ?3 WHERE id = ?1",
+            params![session_id, title, now],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     /// Persist the provider/model/effort selection on an existing session.
     /// Called when the user changes the selection in the composer so the
     /// choice survives restart. Validates the provider/model pair first.
@@ -744,18 +758,11 @@ impl NativeChatService {
 
         // Build conversation context: prior turns are already persisted, and the
         // new user message was just inserted, so list_messages includes it.
+        // Assistant rows are persisted one per loop iteration, so merge
+        // consecutive assistant rows into a single message — providers must
+        // never see back-to-back assistant messages.
         let history = Self::list_messages(&request.session_id)?;
-        let messages: Vec<ChatMsg> = history
-            .iter()
-            .filter(|m| m.role == "user" || m.role == "assistant")
-            .map(|m| ChatMsg {
-                role: m.role.clone(),
-                content: m.content.clone(),
-                tool_calls: Vec::new(),
-                tool_call_id: None,
-                name: None,
-            })
-            .collect();
+        let messages = Self::history_to_provider_messages(&history);
         let system = Self::system_prompt(&session.project_path, None);
 
         // Resolve the provider-specific model API id (e.g. "umans-glm-5.2")
@@ -839,32 +846,18 @@ impl NativeChatService {
 
             let completed_at = now_millis();
             let duration_ms = completed_at.saturating_sub(started_at).max(1);
-            let assistant_message = Self::insert_message(
+            // Persist one assistant message per loop iteration and bind each
+            // iteration's tool events to the message that preceded them, so the
+            // transcript interleaves text and tool calls chronologically.
+            let (assistant_message, tool_events) = Self::persist_turn_segments(
                 &request.session_id,
-                "assistant",
-                &run_result.content,
-                run_result.reasoning.as_deref(),
-                Some(&provider_id),
-                Some(&model_id),
-                Some(&effort_level),
+                &user_message.id,
+                &run_result.segments,
+                &run_result.tool_events,
+                &provider_id,
+                &model_id,
+                &effort_level,
             )?;
-
-            // Record tool events from the loop.
-            let mut tool_events = Vec::new();
-            for te in &run_result.tool_events {
-                let event = Self::insert_tool_event(
-                    &request.session_id,
-                    Some(&assistant_message.id),
-                    &te.tool_name,
-                    &te.status,
-                    &te.summary,
-                    te.arguments.as_deref(),
-                    te.diff.as_deref(),
-                    Some(&te.decision),
-                    te.rule_source.as_deref(),
-                )?;
-                tool_events.push(event);
-            }
             // Post-turn: if the agent wrote to the schematic file via write_file,
             // emit a SchematicUpdated event so the schematic tab refreshes.
             let schematic_mtime_after = std::fs::metadata(&schematic_path)
@@ -916,7 +909,7 @@ impl NativeChatService {
 
             return Ok(NativeChatSendResult {
                 user_message,
-                assistant_message: Some(assistant_message),
+                assistant_message,
                 metrics: Some(metric),
                 tool_events,
                 setup_required: None,
@@ -1017,7 +1010,7 @@ impl NativeChatService {
         Self::insert_metric(&metric)?;
 
         let summary = if is_local {
-            "Handled offline by the local coordinator; no external model was contacted."
+            "No provider connected — select a provider to chat."
         } else {
             "Provider-backed turn: streamed assistant output with real timing/token metrics."
         };
@@ -1094,6 +1087,8 @@ impl NativeChatService {
                         .to_string(),
                 }),
                 grounding: None,
+                user_message: None,
+                assistant_message: None,
             });
         }
 
@@ -1124,18 +1119,46 @@ impl NativeChatService {
             )
         }).unwrap_or_default();
 
+        // Optional free-form steering from the request, appended after any
+        // category direction.
+        let extra_direction = request
+            .direction
+            .as_deref()
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+            .map(|d| format!("\n\nAdditional direction:\n{d}"))
+            .unwrap_or_default();
+
         let system = Self::system_prompt(&session.project_path, request.schematic.as_deref());
         let idea_template = crate::services::planning_prompt_service::PlanningPromptService::get(
             crate::models::planning_prompt::IDEA_GENERATION,
         )
         .unwrap_or_default();
-        let prompt = format!("{}{}", idea_template.replace("{conversation}", &convo), category_direction);
+        let prompt = format!(
+            "{}{}{}",
+            idea_template.replace("{conversation}", &convo),
+            category_direction,
+            extra_direction
+        );
+
+        // Persist the generation prompt as a user message so the turn is
+        // visible in the transcript and survives reloads — matching send_message.
+        let user_message = Self::insert_message(
+            &request.session_id,
+            "user",
+            &prompt,
+            None,
+            Some(&provider_id),
+            Some(&model_id),
+            Some(&effort_level),
+        )?;
+        Self::touch_session(&request.session_id)?;
 
         let (api_kind, model_base_url) = Self::resolve_model_routing(&provider_id, &model_id);
 
         let req = ProviderRequest {
-            model_id,
-            effort_level,
+            model_id: model_id.clone(),
+            effort_level: effort_level.clone(),
             system: Some(system),
             messages: vec![ChatMsg {
                 role: "user".to_string(),
@@ -1152,20 +1175,43 @@ impl NativeChatService {
         let client = resolve_client_for_model(&provider_id, &api_kind, req.base_url.as_deref(), &model_base_url);
         let session_id_for_emit = request.session_id.clone();
         let app_for_emit = app.clone();
-        // Emit on the main content channel so the generation turn is visible in
-        // the transcript (not a discarded "ideas" channel). Reasoning streams on
-        // its own channel via the provider client.
-        let emit = move |delta: &str, _channel: &str| {
+        // Forward the actual channel label from the provider client so
+        // reasoning tokens stream on "reasoning" and content on "content" —
+        // matching send_message's emit contract.
+        let emit = move |delta: &str, channel: &str| {
             let _ = app_for_emit.emit(
                 NATIVE_CHAT_CHUNK,
                 serde_json::json!({
                     "sessionId": session_id_for_emit,
                     "delta": delta,
-                    "channel": "content"
+                    "channel": channel
                 }),
             );
         };
-        let response = client.generate(&req, &emit)?;
+
+        // Signal the UI that the model is thinking before the first token.
+        emit("thinking", "status");
+
+        let response = match client.generate(&req, &emit) {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = Self::record_pipeline_run(&run_id, &request.session_id, &session.project_path, "generate_ideas", "failed", now_seconds());
+                return Err(e);
+            }
+        };
+
+        // Persist the assistant response so the generated ideas survive reloads.
+        let assistant_message = Self::insert_message(
+            &request.session_id,
+            "assistant",
+            &response.content,
+            response.reasoning.as_deref(),
+            Some(&provider_id),
+            Some(&model_id),
+            Some(&effort_level),
+        )?;
+        Self::touch_session(&request.session_id)?;
+
         let ideas = Self::parse_ideas(&response.content);
         let cat_id_ref = category_id.as_deref();
         let _ = Self::parse_and_capture_ideas(&response.content, &request.session_id, cat_id_ref, Some(&run_id));
@@ -1180,6 +1226,8 @@ impl NativeChatService {
             ideas,
             setup_required: None,
             grounding: Some(grounding),
+            user_message: Some(user_message),
+            assistant_message: Some(assistant_message),
         })
     }
 
@@ -1448,6 +1496,109 @@ impl NativeChatService {
             ));
         }
         Ok(())
+    }
+
+    /// Convert persisted history into provider messages. Assistant rows are
+    /// persisted one per loop iteration, so consecutive assistant rows are
+    /// merged into a single message (joined with blank lines) — providers must
+    /// never see back-to-back assistant messages.
+    fn history_to_provider_messages(history: &[NativeChatMessage]) -> Vec<ChatMsg> {
+        let mut messages: Vec<ChatMsg> = Vec::new();
+        for m in history.iter().filter(|m| m.role == "user" || m.role == "assistant") {
+            if m.role == "assistant" {
+                if let Some(last) = messages.last_mut().filter(|l| l.role == "assistant") {
+                    if !last.content.is_empty() && !m.content.is_empty() {
+                        last.content.push_str("\n\n");
+                    }
+                    last.content.push_str(&m.content);
+                    continue;
+                }
+            }
+            messages.push(ChatMsg {
+                role: m.role.clone(),
+                content: m.content.clone(),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
+                name: None,
+            });
+        }
+        messages
+    }
+
+    /// Persist a completed agent turn: one assistant message per loop
+    /// iteration that produced text or reasoning, with each iteration's tool
+    /// events bound to the message that preceded them. Tool events from an
+    /// iteration with no persisted segment bind to the most recently inserted
+    /// message of the turn, falling back to the user message when no assistant
+    /// row exists yet — turn tool events are never left unbound. Rows with
+    /// empty content and no reasoning are never inserted. Returns the last
+    /// inserted assistant message (None when no segment had text) and the
+    /// persisted tool events.
+    fn persist_turn_segments(
+        session_id: &str,
+        user_message_id: &str,
+        segments: &[TurnSegment],
+        event_records: &[ToolEventRecord],
+        provider_id: &str,
+        model_id: &str,
+        effort_level: &str,
+    ) -> DbResult<(Option<NativeChatMessage>, Vec<NativeToolEvent>)> {
+        let mut assistant_message: Option<NativeChatMessage> = None;
+        let mut tool_events = Vec::new();
+        let mut bind_message_id = user_message_id.to_string();
+        let mut pending_events = event_records.iter().peekable();
+
+        let persist_event = |te: &ToolEventRecord, message_id: &str| -> DbResult<NativeToolEvent> {
+            Self::insert_tool_event(
+                session_id,
+                Some(message_id),
+                &te.tool_name,
+                &te.status,
+                &te.summary,
+                te.arguments.as_deref(),
+                te.diff.as_deref(),
+                Some(&te.decision),
+                te.rule_source.as_deref(),
+            )
+        };
+
+        for segment in segments {
+            // Events from earlier iterations ran before this segment's text
+            // was produced: bind them to the most recent message.
+            while pending_events
+                .peek()
+                .map(|te| te.iteration < segment.iteration)
+                .unwrap_or(false)
+            {
+                let te = pending_events.next().expect("peeked event");
+                tool_events.push(persist_event(te, &bind_message_id)?);
+            }
+            let has_reasoning = segment
+                .reasoning
+                .as_deref()
+                .map(|r| !r.trim().is_empty())
+                .unwrap_or(false);
+            if segment.content.trim().is_empty() && !has_reasoning {
+                continue;
+            }
+            let message = Self::insert_message(
+                session_id,
+                "assistant",
+                &segment.content,
+                segment.reasoning.as_deref(),
+                Some(provider_id),
+                Some(model_id),
+                Some(effort_level),
+            )?;
+            bind_message_id = message.id.clone();
+            assistant_message = Some(message);
+        }
+        // Remaining events came from iterations at or after the last persisted
+        // segment: bind them to the last inserted message.
+        for te in pending_events {
+            tool_events.push(persist_event(te, &bind_message_id)?);
+        }
+        Ok((assistant_message, tool_events))
     }
 
     pub fn insert_message(
@@ -2414,5 +2565,175 @@ mod tests {
         assert_eq!(latest.input_tokens, 240);
         assert_eq!(latest.output_tokens, 60);
         assert!(NativeChatService::latest_metric_for_session("missing").unwrap().is_none());
+    }
+
+    fn segment(content: &str, reasoning: Option<&str>, iteration: usize) -> TurnSegment {
+        TurnSegment {
+            content: content.to_string(),
+            reasoning: reasoning.map(str::to_string),
+            iteration,
+        }
+    }
+
+    fn event_record(tool_name: &str, iteration: usize) -> ToolEventRecord {
+        ToolEventRecord {
+            tool_name: tool_name.to_string(),
+            status: "ok".to_string(),
+            summary: "ran".to_string(),
+            arguments: None,
+            duration_ms: 0,
+            decision: "approved".to_string(),
+            rule_source: None,
+            diff: None,
+            iteration,
+        }
+    }
+
+    fn start_persist_session(project_path: &str) -> (NativeChatSession, NativeChatMessage) {
+        let session = NativeChatService::start_session(NativeChatStartRequest {
+            project_path: project_path.to_string(),
+            title: Some("Persist Test".to_string()),
+            provider_id: Some(LOCAL_PROVIDER_ID.to_string()),
+            model_id: Some("basebuild-local-coordinator".to_string()),
+            effort_level: Some("medium".to_string()),
+        })
+        .unwrap();
+        let user = NativeChatService::insert_message(
+            &session.id, "user", "do the thing", None,
+            Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium"),
+        )
+        .unwrap();
+        (session, user)
+    }
+
+    #[test]
+    fn persist_turn_segments_interleaves_messages_and_binds_events_per_iteration() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+        let (session, user) = start_persist_session("/test/persist-interleave");
+
+        // Iteration 1 produced text then two tool calls; iteration 2 produced
+        // only tool calls (no segment); iteration 3 produced the final answer.
+        let segments = vec![
+            segment("Let me look at the files.", Some("planning"), 1),
+            segment("All done.", None, 3),
+        ];
+        let events = vec![
+            event_record("read_file", 1),
+            event_record("search", 1),
+            event_record("write_file", 2),
+        ];
+        let (last, tool_events) = NativeChatService::persist_turn_segments(
+            &session.id, &user.id, &segments, &events,
+            LOCAL_PROVIDER_ID, "basebuild-local-coordinator", "medium",
+        )
+        .unwrap();
+
+        let messages = NativeChatService::list_messages(&session.id).unwrap();
+        let assistants: Vec<_> = messages.iter().filter(|m| m.role == "assistant").collect();
+        assert_eq!(assistants.len(), 2, "one assistant row per text-producing iteration");
+        assert_eq!(assistants[0].content, "Let me look at the files.");
+        assert_eq!(assistants[0].reasoning.as_deref(), Some("planning"));
+        assert_eq!(assistants[1].content, "All done.");
+        let last = last.expect("last assistant message");
+        assert_eq!(last.id, assistants[1].id, "SendResult carries the LAST inserted message");
+
+        // Iteration 1 and 2 events all ran after the first segment's text and
+        // before the final answer: bound to the first assistant message.
+        assert_eq!(tool_events.len(), 3);
+        for event in &tool_events {
+            assert_eq!(event.message_id.as_deref(), Some(assistants[0].id.as_str()));
+        }
+        // No event is left unbound after the turn.
+        let persisted = NativeChatService::list_tool_events(&session.id).unwrap();
+        assert!(persisted.iter().all(|e| e.message_id.is_some()));
+    }
+
+    #[test]
+    fn persist_turn_segments_cancelled_run_keeps_prior_segments_without_empty_rows() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+        let (session, user) = start_persist_session("/test/persist-cancel");
+
+        // Cancelled mid-turn: iteration 1 text + events survived, iteration 2
+        // was cut off after its tool calls. An empty segment must not produce
+        // an assistant row.
+        let segments = vec![
+            segment("Working on it.", None, 1),
+            segment("", None, 2),
+        ];
+        let events = vec![event_record("read_file", 1), event_record("bash", 2)];
+        let (last, tool_events) = NativeChatService::persist_turn_segments(
+            &session.id, &user.id, &segments, &events,
+            LOCAL_PROVIDER_ID, "basebuild-local-coordinator", "medium",
+        )
+        .unwrap();
+
+        let messages = NativeChatService::list_messages(&session.id).unwrap();
+        let assistants: Vec<_> = messages.iter().filter(|m| m.role == "assistant").collect();
+        assert_eq!(assistants.len(), 1, "empty segment must not insert a row");
+        assert_eq!(assistants[0].content, "Working on it.");
+        assert_eq!(last.unwrap().id, assistants[0].id);
+        assert_eq!(tool_events.len(), 2);
+        for event in &tool_events {
+            assert_eq!(event.message_id.as_deref(), Some(assistants[0].id.as_str()));
+        }
+    }
+
+    #[test]
+    fn persist_turn_segments_without_segments_binds_events_to_user_message() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+        let (session, user) = start_persist_session("/test/persist-no-segments");
+
+        // Cancelled before any text streamed: no assistant rows at all, and
+        // the iteration's events fall back to the user message.
+        let (last, tool_events) = NativeChatService::persist_turn_segments(
+            &session.id, &user.id, &[], &[event_record("read_file", 1)],
+            LOCAL_PROVIDER_ID, "basebuild-local-coordinator", "medium",
+        )
+        .unwrap();
+
+        assert!(last.is_none(), "no assistant message without segments");
+        let messages = NativeChatService::list_messages(&session.id).unwrap();
+        assert!(messages.iter().all(|m| m.role != "assistant"), "no empty assistant row on cancel");
+        assert_eq!(tool_events.len(), 1);
+        assert_eq!(tool_events[0].message_id.as_deref(), Some(user.id.as_str()));
+    }
+
+    #[test]
+    fn history_to_provider_messages_merges_consecutive_assistant_rows() {
+        let row = |role: &str, content: &str, sort_order: i64| NativeChatMessage {
+            id: format!("m{sort_order}"),
+            session_id: "s".to_string(),
+            role: role.to_string(),
+            content: content.to_string(),
+            reasoning: None,
+            sort_order,
+            provider_id: None,
+            model_id: None,
+            effort_level: None,
+            created_at: 0,
+        };
+        let history = vec![
+            row("user", "question", 1),
+            row("assistant", "first pass", 2),
+            row("assistant", "second pass", 3),
+            row("system", "noise", 4),
+            row("user", "follow-up", 5),
+            row("assistant", "answer", 6),
+        ];
+        let messages = NativeChatService::history_to_provider_messages(&history);
+        let shape: Vec<(&str, &str)> = messages.iter().map(|m| (m.role.as_str(), m.content.as_str())).collect();
+        assert_eq!(
+            shape,
+            vec![
+                ("user", "question"),
+                ("assistant", "first pass\n\nsecond pass"),
+                ("user", "follow-up"),
+                ("assistant", "answer"),
+            ],
+            "consecutive assistant rows merge; providers never see back-to-back assistant messages"
+        );
     }
 }

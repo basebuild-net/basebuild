@@ -1,19 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
+import { ensureChatPanel, openFixtureProject } from "./helpers";
 
 test.describe("Streaming indicators", () => {
   test("chat input has send button with tooltip", async ({ page }) => {
@@ -232,7 +218,7 @@ test.describe("Streaming indicators", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    const inputRow = page.locator(".chat-input-row").first();
+    const inputRow = page.locator(".chat-composer-box").first();
     await expect(inputRow).toBeVisible({ timeout: 5_000 });
 
     // Should contain a textarea.

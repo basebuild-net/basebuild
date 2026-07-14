@@ -10,6 +10,7 @@ import {
   deleteTab as deleteTabApi,
   listTabs,
   updateTabChatSession,
+  updateTabTitle,
   renameSession as renameSessionApi,
 } from "../lib/sessions";
 import type { ChatGrid } from "../lib/gridMath";
@@ -144,6 +145,13 @@ export function useSessionState(projectPath: string | null, lastActiveSessionId?
     },
     [refreshTabs],
   );
+  const setTabTitle = useCallback(
+    async (id: string, title: string) => {
+      await updateTabTitle(id, title);
+      await refreshTabs();
+    },
+    [refreshTabs],
+  );
 
   /** Update a chat tab's grid layout in-memory. Does not round-trip the
    *  backend — AppShell persists `tabGridStates` via workspace restore. */
@@ -172,6 +180,7 @@ export function useSessionState(projectPath: string | null, lastActiveSessionId?
     createTab,
     removeTab,
     setTabChatSession,
+    setTabTitle,
     setActiveTabId,
     tabGridStates,
     setTabGrid,

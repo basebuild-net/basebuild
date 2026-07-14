@@ -1,61 +1,50 @@
-import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
+import { expect, test } from "@playwright/test";
+import { openFixtureProject, openPlanningModal } from "./helpers";
 
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-test.describe("Planning cockpit: command strip + layouts + idea browser", () => {
-  test("command strip is visible in session header", async ({ page }) => {
+test.describe("Planning cockpit: planning indicators + layouts + idea browser", () => {
+  test("planning indicators is visible in session header", async ({ page }) => {
     await openFixtureProject(page);
-    await expect(page.locator(".command-strip").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".planning-indicators").first()).toBeVisible({ timeout: 5_000 });
   });
 
-  test("command strip shows stage counts", async ({ page }) => {
+  test("planning indicators shows five stage buttons with data-stage attributes", async ({ page }) => {
     await openFixtureProject(page);
-    const strip = page.locator(".command-strip").first();
-    await expect(strip).toBeVisible({ timeout: 5_000 });
-    // Should have at least 5 stages.
-    const stages = strip.locator(".command-strip-stage");
-    expect(await stages.count()).toBeGreaterThanOrEqual(5);
+    const indicators = page.locator(".planning-indicators").first();
+    await expect(indicators).toBeVisible({ timeout: 5_000 });
+
+    const buttons = indicators.locator(".planning-indicator");
+    await expect(buttons).toHaveCount(5);
+
+    const stages = ["schematic", "ideas", "plans", "running", "finished"];
+    for (const stage of stages) {
+      await expect(
+        indicators.locator(`.planning-indicator[data-stage="${stage}"]`),
+      ).toHaveCount(1);
+    }
   });
 
-  test("command strip can be collapsed and expanded", async ({ page }) => {
+  test("clicking a stage opens the planning indicator dropdown", async ({ page }) => {
     await openFixtureProject(page);
-    const strip = page.locator(".command-strip").first();
-    await expect(strip).toBeVisible({ timeout: 5_000 });
-
-    // Click the toggle button to collapse.
-    const toggle = strip.locator(".command-strip-toggle").first();
-    await toggle.click();
-    await page.waitForTimeout(300);
-
-    // The collapsed version should appear.
-    await expect(page.locator(".command-strip-collapsed").first()).toBeVisible({ timeout: 3_000 });
-
-    // Click to expand again.
-    await page.locator(".command-strip-collapsed").first().click();
-    await page.waitForTimeout(300);
-    await expect(page.locator(".command-strip").first()).toBeVisible({ timeout: 3_000 });
+    const plansIndicator = page.locator('.planning-indicator[data-stage="plans"]').first();
+    await expect(plansIndicator).toBeVisible({ timeout: 5_000 });
+    await plansIndicator.click();
+    await expect(page.locator(".planning-notification-dropdown").first()).toBeVisible({ timeout: 5_000 });
   });
 
-  test("command strip routes schematic, ideas, and plans to their exact surfaces", async ({ page }) => {
+  test("dropdown has a Full UI button", async ({ page }) => {
     await openFixtureProject(page);
+    const plansIndicator = page.locator('.planning-indicator[data-stage="plans"]').first();
+    await plansIndicator.click();
+    const dropdown = page.locator(".planning-notification-dropdown").first();
+    await expect(dropdown).toBeVisible({ timeout: 5_000 });
+    await expect(dropdown.getByRole("button", { name: /full UI/i })).toBeVisible();
+  });
 
-    await page.getByTitle(/^Schematic:/).click();
-    await expect(page.locator('.modal-overlay[aria-label="Project Schematic"]')).toBeVisible({ timeout: 3_000 });
-    await page.getByTitle("Close project schematic").click();
-
-    await page.getByTitle(/^Ideas:/).click();
-    const planningModal = page.locator('.modal-overlay[aria-label="Plans & Ideas"]');
-    await expect(planningModal).toBeVisible({ timeout: 3_000 });
-    await expect(planningModal.getByRole("button", { name: "Ideas", exact: true })).toHaveClass(/is-active/);
-    await expect(planningModal.getByText(/No ideas/)).toBeVisible();
-    await page.getByTitle("Close (Esc)").click();
-
-    await page.getByTitle(/^Plans:/).click();
-    await expect(planningModal.getByRole("button", { name: "Plans", exact: true })).toHaveClass(/is-active/);
-    await expect(planningModal.getByRole("button", { name: "Create plan", exact: true })).toHaveCount(0);
+  test("plans indicator opens the planning inspector modal via Full UI", async ({ page }) => {
+    await openFixtureProject(page);
+    await openPlanningModal(page);
+    await expect(
+      page.locator('.planning-inspector-modal, .modal-overlay[aria-label="Plans & Ideas"]').first(),
+    ).toBeVisible({ timeout: 5_000 });
   });
 });

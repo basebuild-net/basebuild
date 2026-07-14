@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-
+import { openPlanningModal } from "./helpers";
 async function openFixtureProject(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem("basebuild:first-run-complete", "true");
@@ -7,17 +7,16 @@ async function openFixtureProject(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Open project" }).click();
   await expect(
-    page.locator(".activity-sidebar-project-name", { hasText: "project" }),
-  ).toBeVisible();
+    page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: "project" }),
+  ).toBeVisible({ timeout: 5_000 });
 }
 
 test.describe("Flow board + batch operations", () => {
   test("flow tab renders five stages with live counts", async ({ page }) => {
     await openFixtureProject(page);
 
-    // Open the Plans & Ideas modal via the command strip Plans stage.
-    await page.locator("button[title^='Plans:']").first().click();
-    await expect(page.locator(".modal-plans")).toBeVisible({ timeout: 5_000 });
+    // Open the Plans & Ideas modal via the planning indicators.
+    await openPlanningModal(page);
 
     // Click the Flow tab.
     const flowTab = page.locator(".inspector-tab", { hasText: "Flow" }).first();
@@ -36,9 +35,8 @@ test.describe("Flow board + batch operations", () => {
   test("ideas tab shows multi-select checkboxes for concept ideas", async ({ page }) => {
     await openFixtureProject(page);
 
-    // Open the Plans & Ideas modal via the command strip Ideas stage.
-    await page.locator("button[title^='Ideas:']").first().click();
-    await expect(page.locator(".modal-plans")).toBeVisible({ timeout: 5_000 });
+    // Open the Plans & Ideas modal via the planning indicators.
+    await openPlanningModal(page);
 
     const ideasTab = page.locator(".inspector-tab", { hasText: "Ideas" }).first();
     await ideasTab.click();
@@ -59,9 +57,8 @@ test.describe("Flow board + batch operations", () => {
   test("flow board shows launch button when ready plans exist", async ({ page }) => {
     await openFixtureProject(page);
 
-    // Open the Plans & Ideas modal via the command strip Plans stage.
-    await page.locator("button[title^='Plans:']").first().click();
-    await expect(page.locator(".modal-plans")).toBeVisible({ timeout: 5_000 });
+    // Open the Plans & Ideas modal via the planning indicators.
+    await openPlanningModal(page);
 
     const flowTab = page.locator(".inspector-tab", { hasText: "Flow" }).first();
     await flowTab.click();

@@ -1,17 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
+import { openFixtureProject, openPlanningModal } from "./helpers";
 
 async function openPlanningInspectorIdeas(page: Page) {
-  // Open the planning inspector modal via the "Plans & Ideas" button.
-  const plansBtn = page.locator('[title="Plans & Ideas"]').first();
-  await plansBtn.waitFor({ state: "visible", timeout: 10000 });
-  await plansBtn.click();
-  await expect(page.locator(".planning-inspector-modal, .planning-inspector")).toBeVisible({ timeout: 5000 });
+  // Open the planning inspector modal via the PlanningIndicators dropdown.
+  await openPlanningModal(page);
   // Click the Ideas tab.
   const ideasTab = page.locator('[title="Ideas history"]').first();
   await ideasTab.waitFor({ state: "visible", timeout: 5000 });

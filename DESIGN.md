@@ -1,26 +1,42 @@
 ---
 version: beta
 name: Basebuild Mono Desktop
-description: Desktop adaptation of the basebuild design system. Dark tokenized canvas, white type, vibrant semantic status colors for plan/tool/status types, square geometry (0px radius), and a borderless aesthetic adapted to a dense desktop tool. All colors are CSS variables for future theme support. Collapsible columns, icon-only collapse modes, tooltips on every interactive element.
+description: Desktop adaptation of the basebuild design system. Two tokenized themes (graphite-grey Dark default, soft-neutral Light), white/near-black type, vibrant semantic status colors for plan/tool/status types, restrained radius scale (6/10/14px + full), and a layered surface aesthetic adapted to a calm desktop tool. All colors are CSS variables, applied via data-bb-theme before React paints. Collapsible columns, icon-only collapse modes, tooltips on every interactive element.
 colors:
-  background: "#000000"
-  surface: "#0a0a0a"
-  surface-container: "#0a0a0a"
-  surface-container-high: "#141414"
-  surface-container-highest: "#1c1c1c"
-  on-surface: "#ffffff"
-  on-surface-muted: "rgba(255,255,255,0.55)"
-  outline: "#1c1c1c"
-  outline-strong: "#2a2a2a"
-  primary: "#ffffff"
-  on-primary: "#000000"
-  cta: "#ff5606"
-  on-cta: "#ffffff"
-  cta-hover: "#ff7a3d"
-  positive: "#4ade80"
-  negative: "#f87171"
-  warning: "#facc15"
-  info: "#818cf8"
+  dark:
+    background: "#18181b"
+    chrome: "#131316"
+    surface: "#1c1c21"
+    surface-high: "#26262c"
+    surface-highest: "#2e2e36"
+    on-surface: "#f4f4f5"
+    on-surface-muted: "rgba(244,244,245,0.55)"
+    outline: "#27272a"
+    outline-strong: "#3f3f46"
+    cta: "#ff5606"
+    on-cta: "#ffffff"
+    cta-hover: "#ff7a3d"
+    positive: "#4ade80"
+    negative: "#f87171"
+    warning: "#facc15"
+    info: "#818cf8"
+  light:
+    background: "#f4f4f5"
+    chrome: "#ececef"
+    surface: "#ffffff"
+    surface-high: "#f4f4f5"
+    surface-highest: "#e4e4e7"
+    on-surface: "#18181b"
+    on-surface-muted: "rgba(24,24,27,0.55)"
+    outline: "#d4d4d8"
+    outline-strong: "#a1a1aa"
+    cta: "#ff5606"
+    on-cta: "#ffffff"
+    cta-hover: "#ff7a3d"
+    positive: "#16a34a"
+    negative: "#dc2626"
+    warning: "#ca8a04"
+    info: "#4f46e5"
 typography:
   body-md:
     fontFamily: "Space Grotesk"
@@ -75,12 +91,10 @@ typography:
     fontWeight: 400
     lineHeight: 1.3
 rounded:
-  none: 0px
-  sm: 0px
-  md: 0px
-  lg: 0px
-  xl: 0px
-  full: 0px
+  sm: 6px
+  md: 10px
+  lg: 14px
+  full: 9999px
 spacing:
   xs: 4px
   sm: 8px
@@ -109,7 +123,7 @@ components:
   tool-button:
     textColor: "{colors.on-surface-muted}"
     padding: "7px 10px"
-    rounded: "{rounded.none}"
+    rounded: "{rounded.sm}"
   tool-button-active:
     textColor: "{colors.on-surface}"
     backgroundColor: "{colors.surface-container-high}"
@@ -120,7 +134,7 @@ components:
     border: "1px solid {colors.outline}"
     textColor: "{colors.on-surface}"
     padding: "5px 10px"
-    rounded: "{rounded.none}"
+    rounded: "{rounded.sm}"
   btn-primary:
     backgroundColor: "{colors.cta}"
     textColor: "{colors.on-cta}"
@@ -136,21 +150,21 @@ components:
     textColor: "{colors.on-surface}"
     border: "1px solid {colors.outline}"
     padding: "5px 8px"
-    rounded: "{rounded.none}"
+    rounded: "{rounded.sm}"
   input-field-focus:
     borderColor: "{colors.cta}"
   badge:
     backgroundColor: "{colors.surface-container-high}"
     textColor: "{colors.on-surface}"
     padding: "2px 6px"
-    rounded: "{rounded.none}"
+    rounded: "{rounded.sm}"
   option-list:
     border: "1px solid {colors.outline}"
-    rounded: "{rounded.none}"
+    rounded: "{rounded.sm}"
   option-list-item:
     textColor: "{colors.on-surface-muted}"
     padding: "4px 8px"
-    rounded: "{rounded.none}"
+    rounded: "{rounded.sm}"
   option-list-item-active:
     textColor: "{colors.on-surface}"
     backgroundColor: "{colors.surface-container-high}"
@@ -158,7 +172,7 @@ components:
   card:
     border: "1px solid {colors.outline}"
     padding: "8px 10px"
-    rounded: "{rounded.none}"
+    rounded: "{rounded.md}"
   top-bar:
     height: "36px"
     borderBottom: "1px solid {colors.outline}"
@@ -170,21 +184,21 @@ components:
 ## Overview
 
 Basebuild Mono Desktop adapts the basebuild web design system for a
-desktop tool. The personality is preserved - **dark canvas, white type,
-vibrant semantic colors for status/tool types, and square geometry** - but
-adapted for a dense, compact, instrument-like workspace. Colors are tokenized
-as CSS variables in `globals.css` so themes can be swapped in the future.
+desktop tool. The personality is **layered neutral surfaces, clear type,
+vibrant semantic colors for status/tool types, and restrained geometry** —
+adapted for a calm, focused workspace. Two tokenized themes (graphite-grey
+**Dark** default, soft-neutral **Light**) are applied via `data-bb-theme`
+before React paints; all colors are CSS variables in `globals.css`.
 
-The CTA accent is a light foreground tone (`#f4f4f5`), keeping the canvas
-monochrome while plan statuses, tool call types, and context meters use
-vibrant semantic colors (green, blue, purple, amber, red) to make state
-visible at a glance. Color never acts alone — every state has a word and
-icon alongside it.
+The CTA accent is Basebuild orange (`#ff5606`), providing a warm focus point
+while plan statuses, tool call types, and context meters use vibrant semantic
+colors (green, blue, purple, amber, red) to make state visible at a glance.
+Color never acts alone — every state has a word and icon alongside it.
 
-This is a desktop tool, not a marketing site. The UI is **extremely compact**:
-minimal padding, no wasted whitespace between elements, no large empty regions.
-Every pixel earns its place. Tooltips on every interactive element so density
-never costs clarity.
+This is a desktop tool, not a marketing site. The UI is **disciplined but
+spacious**: a 4px-based spacing scale with more whitespace than the old dense
+contract, restrained radius (6/10/14px + full for circular), and clear visual
+hierarchy. Tooltips on every interactive element so clarity never costs density.
 
 ## Layout
 
@@ -315,11 +329,11 @@ Fixed, roomy settings choices use a **square option list**: a bordered row of
 buttons where the active option has a CTA underline, `aria-pressed`, and a
 tooltip. Exception: the dense chat header uses square native dropdowns for
 effort and permission mode so all configuration fits on one 28px rail without
-duplicating controls in the composer. These dropdowns retain 0px geometry,
+duplicating controls in the composer. These dropdowns retain radius tokens,
 visible text, keyboard support, and `title=` tooltips.
 
 - **Option list** — 2-6 fixed options in forms and settings. All visible, one
-  active. Square, 0px radius, 1px outline border around the group.
+  active. Radius tokens, 1px outline border around the group.
 - **Compact header dropdown** — effort and permission mode in the chat header.
   Text remains visible; the menu opens only when the user changes configuration.
 - **Card catalog** — models and providers only. The searchable card grid
@@ -364,22 +378,40 @@ label.
 
 ## Colors
 
-Monochrome canvas with vibrant semantic accents for status and tool types:
+Two tokenized themes applied via `data-bb-theme` before React paints:
 
-- **Background (#09090b):** Near-black canvas. Sidebar, rail, workspace all share it.
-- **Surface ramp:** transparent → `rgba(255,255,255,0.045)` (hover) → `rgba(255,255,255,0.07)` (highest).
-- **On-surface (#f4f4f5):** Primary text.
-- **Muted (#b4b4bb):** Secondary text, labels, inactive icons.
-- **Outline (#27272a) / outline-strong (#3f3f46):** 1px hairlines for borders.
-- **CTA (#f4f4f5 → #d4d4d8 hover):** Foreground accent. Active tool bar, primary
+### Dark (default, `data-bb-theme="dark"`)
+
+Graphite-grey canvas with layered surfaces and orange CTA accent:
+
+- **Background (`#18181b`):** Graphite canvas. Sidebar, rail, workspace all share it.
+- **Chrome (`#131316`):** Shell-level surfaces (taskbar, sidebar, tool-rail, status-bar) for depth.
+- **Surface ramp:** `#1c1c21` → `#26262c` (high) → `#2e2e36` (highest).
+- **On-surface (`#f4f4f5`):** Primary text.
+- **Muted (`rgba(244,244,245,0.55)`):** Secondary text, labels, inactive icons.
+- **Outline (`#27272a`) / outline-strong (`#3f3f46`):** 1px hairlines for borders.
+- **CTA (`#ff5606` → `#ff7a3d` hover):** Orange accent. Active tool bar, primary
   buttons, active project icon, commit dots.
-- **Positive (#4ade80):** Success, staged files, ahead count.
-- **Negative (#f87171):** Destructive actions, deleted files, errors.
-- **Warning (#facc15):** Modified files, behind count.
-- **Info (#818cf8):** Untracked files, renamed files.
+- **Positive (`#4ade80`):** Success, staged files, ahead count.
+- **Negative (`#f87171`):** Destructive actions, deleted files, errors.
+- **Warning (`#facc15`):** Modified files, behind count.
+- **Info (`#818cf8`):** Untracked files, renamed files.
 - **Context meter:** healthy `#4ade80`, warn `#f59e0b`, critical `#f87171`.
-- **Update (#f4f4f5 → #d4d4d8 hover):** App update availability and
-  one-click install CTA only.
+- **Update (`#2563eb`):** App update availability and one-click install CTA only.
+
+### Light (`data-bb-theme="light"`)
+
+Soft-neutral canvas with white surfaces and deeper semantic colors:
+
+- **Background (`#f4f4f5`):** Soft neutral canvas.
+- **Chrome (`#ececef`):** Shell-level surfaces for subtle depth.
+- **Surface ramp:** `#ffffff` → `#f4f4f5` (high) → `#e4e4e7` (highest).
+- **On-surface (`#18181b`):** Primary text.
+- **Muted (`rgba(24,24,27,0.55)`):** Secondary text, labels, inactive icons.
+- **Outline (`#d4d4d8`) / outline-strong (`#a1a1aa`):** 1px hairlines for borders.
+- **CTA (`#ff5606` → `#ff7a3d` hover):** Same orange accent.
+- **Positive (`#16a34a`), Negative (`#dc2626`), Warning (`#ca8a04`), Info (`#4f46e5`):** Deeper
+  semantic colors for light-background contrast.
 
 ## Typography
 
@@ -389,8 +421,14 @@ Monochrome canvas with vibrant semantic accents for status and tool types:
 
 ## Shapes
 
-**0px radius everywhere.** No exceptions. Buttons, cards, inputs, badges, menus -
-all square-cornered. This is non-negotiable.
+**Restrained radius via tokens.** No hardcoded radius values — use CSS variable tokens:
+
+- **`--bb-radius-sm` (6px):** Controls, inputs, badges, option list items.
+- **`--bb-radius-md` (10px):** Cards, popovers, modals, context menus, notifications.
+- **`--bb-radius-lg` (14px):** Composer, major floating surfaces.
+- **`--bb-radius-full` (9999px):** Circular elements — dots, pills, icon buttons, context meter.
+
+The `check-ui-invariants` script enforces that all `border-radius` declarations use either `0` or a `var(--bb-radius-*)` token.
 
 ## Hover Effects
 
@@ -399,14 +437,18 @@ Every interactive element has a hover state:
 - **Active items:** Background lifts to `--bb-surface-high`, plus CTA indicator bar.
 - **Transitions:** 0.08s for snappy, responsive feel.
 
-## Density Rules
+## Spacing
 
-- No padding larger than 8px on list items.
-- No gap larger than 8px between elements.
-- Top bar height: 36px.
-- Sidebar header / rail header: 36px.
-- Font sizes: 12px body, 11px secondary, 10px micro/mono.
-- Compact icon sizes: 14px in lists, 18px in rail, 20px in headers.
+4px-based scale via `--bb-space-*` tokens:
+
+- **xs (4px):** Tight internal padding, icon gaps.
+- **sm (8px):** List item padding, small gaps.
+- **md (12px):** Card padding, standard gaps.
+- **lg (16px):** Section padding, large gaps.
+- **xl (24px):** Major section separation.
+- Top bar height: 36px. Sidebar/rail header: 36px.
+- Font sizes: 13px body, 12px secondary, 11px micro/mono.
+- Icon sizes: 14px in lists, 18px in rail, 20px in headers (`--bb-icon-sm/md/lg`).
 
 ## Planning cockpit surfaces
 
@@ -414,11 +456,11 @@ New surfaces added by the `planning-cockpit` change:
 
 - **Command strip** — session header row with 5 stage icons + counts. Status
   colors: active = CTA pulse, empty = muted, ok = positive green.
-  Collapses to a badge; 0px radius on all elements.
+  Collapses to a badge; radius tokens on all elements.
 - **Destination picker** — managed modal dialog listing open chat panels +
   "New conversation". Uses the standard `.modal-overlay` / `.modal` pattern.
 - **Changes panel** — OpenSpec change catalog with artifact chips (P/D/T/S),
-  progress bars, phase-grouped task checklists. 0px radius on all cards,
+  progress bars, phase-grouped task checklists. Radius tokens on all cards,
   chips, and checkboxes.
 - **Completion card** — rendered in the Flow board's Finished stage. Shows
   run status, source-control context, and confirm-gated Commit / Create PR
@@ -426,7 +468,7 @@ New surfaces added by the `planning-cockpit` change:
 - **Confirm dialog** — managed modal replacing `window.confirm`. Destructive
   variant uses negative red border.
 - **Quick-reply chips** — small clickable buttons below assistant messages
-  with enumerated options. 0px radius, CTA accent on hover.
+  with enumerated options. Radius tokens, CTA accent on hover.
 - **Wide layouts** — container queries at ≥1100px switch planning and
   source surfaces to master–detail row layout; stacked below.
 

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { ensureChatPanel } from "./helpers";
 
 async function openFixtureProject(page: Page) {
   await page.addInitScript(() => {
@@ -7,17 +8,8 @@ async function openFixtureProject(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Open project" }).click();
   await expect(
-    page.locator(".activity-sidebar-project-name", { hasText: "project" }),
-  ).toBeVisible();
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
+    page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: "project" }),
+  ).toBeVisible({ timeout: 5_000 });
 }
 
 test.describe("panel grid", () => {

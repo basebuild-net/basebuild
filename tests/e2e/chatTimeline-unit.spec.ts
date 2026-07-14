@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { buildChatTimeline } from "../../src/lib/chatTimeline";
+import { buildChatTimeline, type LiveSegment } from "../../src/lib/chatTimeline";
 import type { NativeChatMessage, NativeToolEvent } from "../../src/lib/native-chat";
 import type { PendingInteraction } from "../../src/lib/interactions";
 
@@ -349,5 +349,40 @@ test.describe("buildChatTimeline: chronological ordering", () => {
     ];
     const events = buildChatTimeline(msgs, tools, []);
     expect(ids(events)).toEqual(["u1", "t1", "t2"]);
+  });
+
+  test("live segment sorts after the user message and before the tools it preceded", () => {
+    // In-flight turn: iteration text is flushed as a live segment when the
+    // loop moves on to tools. The segment shares the arrival counter with
+    // live tool events, so on a same-second tie it must sort user → text →
+    // tools, not text after the tool batch.
+    const msgs = [
+      makeMessage({ role: "user", content: "go", id: "u1", createdAt: 1000 }),
+    ];
+    const seg: LiveSegment = { id: "live-seg-1", content: "Let me check the file.", reasoning: "planning", createdAt: 1000, order: 1 };
+    const tools = [
+      makeToolEvent({ id: "t1", kind: "read_file", messageId: null, createdAt: 1000, sequence: 2 }),
+      makeToolEvent({ id: "t2", kind: "run_command", messageId: null, createdAt: 1000, sequence: 3 }),
+    ];
+    const events = buildChatTimeline(msgs, tools, [], [seg]);
+    expect(ids(events)).toEqual(["u1", "live-seg-1", "t1", "t2"]);
+    expect(events[1].kind).toBe("assistant");
+  });
+
+  test("multiple live segments interleave with tool events by arrival order", () => {
+    // text → tools → text → tools within one in-flight turn.
+    const msgs = [
+      makeMessage({ role: "user", content: "go", id: "u1", createdAt: 1000 }),
+    ];
+    const segs: LiveSegment[] = [
+      { id: "s1", content: "First pass.", reasoning: null, createdAt: 1000, order: 1 },
+      { id: "s2", content: "Second pass.", reasoning: null, createdAt: 1001, order: 3 },
+    ];
+    const tools = [
+      makeToolEvent({ id: "t1", kind: "read_file", messageId: null, createdAt: 1000, sequence: 2 }),
+      makeToolEvent({ id: "t2", kind: "edit_file", messageId: null, createdAt: 1001, sequence: 4 }),
+    ];
+    const events = buildChatTimeline(msgs, tools, [], segs);
+    expect(ids(events)).toEqual(["u1", "s1", "t1", "s2", "t2"]);
   });
 });

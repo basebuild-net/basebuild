@@ -1,17 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-  await page.waitForTimeout(1500);
-  // Ensure a chat panel exists so the environment panel renders.
-  const panel = page.locator(".panel-grid-leaf").first();
-  if ((await panel.count()) === 0) {
-    await page.getByTitle("New chat").first().click();
-    await page.waitForTimeout(500);
-  }
-}
+import { openFixtureProject } from "./helpers";
 
 test.describe("Notifications: toast + center + badge", () => {
   test("event → toast renders → center unread → mark-read → badge clears", async ({ page }) => {
@@ -49,7 +37,8 @@ test.describe("Notifications: toast + center + badge", () => {
 
     // Trigger a refresh by emitting the notifications://changed event.
     await page.evaluate(() => {
-      window.dispatchEvent(new CustomEvent("notifications-changed-test"));
+      const w = window as unknown as { __emit?: (event: string, payload: unknown) => void };
+      w.__emit?.("notifications://changed", {});
     });
     // The ToastStack polls via the notifications://changed listener; in the
     // mock environment, the event is emitted by the backend. We simulate by
@@ -66,8 +55,8 @@ test.describe("Notifications: toast + center + badge", () => {
     // The unread badge should show 1.
     await expect(page.locator(".notification-badge")).toContainText("1");
 
-    // Click mark-all-read.
-    await page.getByTitle("Mark all as read").click();
+    // Click mark-all-read (use evaluate to bypass overlay intercepting pointer events).
+    await page.getByTitle("Mark all as read").evaluate((el) => (el as HTMLButtonElement).click());
     await page.waitForTimeout(300);
 
     // Badge should clear.

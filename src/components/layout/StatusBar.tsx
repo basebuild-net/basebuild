@@ -41,14 +41,17 @@ export function StatusBar({ onClick }: StatusBarProps) {
       onClick={onClick}
       title="Click to view all warnings and errors"
     >
-      <Icon size={12} />
-      <span className="status-bar-message">{lastEntry.message}</span>
+      <span className="status-bar-message">
+        <Icon size={10} />
+        {lastEntry.message}
+      </span>
       <span className="status-bar-meta">
         {hasErrors ? `${logs.filter((l) => l.level === "error").length} error(s)` : null}
         {hasErrors && hasWarnings ? " · " : null}
         {hasWarnings ? `${logs.filter((l) => l.level === "warn").length} warning(s)` : null}
+        {(hasErrors || hasWarnings) ? " · " : null}
+        {logs.length} events
       </span>
-      <span className="status-bar-count">{logs.length} events</span>
     </button>
   );
 }

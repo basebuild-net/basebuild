@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Lock, LogOut, Plug, RefreshCw, Settings2, Shield, Sparkles, Trash2, Unplug, User, Wrench, X } from "lucide-react";
+import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Lock, LogOut, Moon, Plug, RefreshCw, Settings2, Shield, Sparkles, Sun, Trash2, Unplug, User, Wrench, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { CopyButton } from "./CopyButton";
 import { FinalTouchesTab } from "./FinalTouchesTab";
@@ -88,6 +88,7 @@ import {
 } from "../../lib/runConcurrency";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { listResolvedSkills, readResolvedSkill, type ResolvedSkill } from "../../lib/skillRegistry";
+import { useTheme, type AppTheme } from "../../state/useTheme";
 
 type SettingsModalProps = {
   open: boolean;
@@ -97,7 +98,7 @@ type SettingsModalProps = {
   updates: UpdaterState;
 };
 
-type Tab = "updates" | "defaults" | "permissions" | "privacy" | "account" | "configs" | "mcp" | "planning" | "openspec" | "final_touches" | "concurrency" | "notifications" | "skills" | "about";
+type Tab = "updates" | "defaults" | "permissions" | "privacy" | "theme" | "account" | "configs" | "mcp" | "planning" | "openspec" | "final_touches" | "concurrency" | "notifications" | "skills" | "about";
 
 export function SettingsModal({ open, onClose, projectPath, account, updates }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
@@ -329,6 +330,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
     { id: "defaults", label: "Defaults", icon: Settings2 },
     { id: "permissions", label: "Permissions", icon: Lock },
     { id: "privacy", label: "Privacy", icon: Shield },
+    { id: "theme", label: "Theme", icon: Sun },
     { id: "account", label: "Account", icon: User },
     { id: "configs", label: "Config Packs", icon: Settings2 },
     { id: "mcp", label: "MCP Servers", icon: Plug },
@@ -927,6 +929,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
               </div>
             ) : null}
 
+            {/* ─── Theme ─── */}
+            {tab === "theme" ? <ThemeTab /> : null}
+
             {/* ─── Config Packs ─── */}
             {tab === "configs" ? <ConfigPanel projectPath={projectPath} /> : null}
 
@@ -1050,23 +1055,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                   Desktop application for managing OMP terminals, source control,
                   ideas, and plans.
                 </p>
-                <div className="row gap-sm mt-8">
-                  <a
-                    className="btn btn-sm"
-                    href="https://github.com/basebuild-net/basebuild/issues/new?labels=bug&template=bug_report.md&title=Bug:"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Report a bug
-                  </a>
-                  <a
-                    className="btn btn-sm"
-                    href="https://github.com/basebuild-net/basebuild"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    GitHub
-                  </a>
+                <div className="stack-sm mt-8">
+                  <a className="text-sm" href="https://basebuild.net" target="_blank" rel="noopener noreferrer" title="Visit basebuild.net">basebuild.net</a>
+                  <a className="text-sm" href="https://github.com/basebuild-net/basebuild" target="_blank" rel="noopener noreferrer" title="Visit GitHub repository">github.com/basebuild-net/basebuild</a>
                 </div>
               </div>
             ) : null}
@@ -1859,7 +1850,7 @@ function ConcurrencyTab({ projectPath }: { projectPath: string | null }) {
 
   const allProviders = providers.length > 0
     ? providers
-    : [{ id: "basebuild-local", label: "Basebuild Local" }, { id: "basebuild-native", label: "Basebuild Native" }];
+    : [{ id: "basebuild-local", label: "None" }, { id: "basebuild-native", label: "Basebuild Native" }];
 
   return (
     <div className="stack">
@@ -2131,6 +2122,39 @@ function SkillsTab() {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function ThemeTab() {
+  const { theme, setTheme } = useTheme();
+  const themes: { id: AppTheme; label: string; icon: typeof Sun; title: string }[] = [
+    { id: "dark", label: "Dark", icon: Moon, title: "Graphite canvas with orange accent — the default Basebuild theme." },
+    { id: "light", label: "Light", icon: Sun, title: "Soft neutral canvas with deeper accent for contrast." },
+  ];
+  return (
+    <div className="stack">
+      <h3>Theme</h3>
+      <p className="text-muted text-sm">Choose the color scheme for the Basebuild interface. The theme is stored locally and applied before the app paints to avoid flash.</p>
+      <div className="theme-picker">
+        {themes.map((t) => {
+          const Icon = t.icon;
+          return (
+            <button
+              key={t.id}
+              className={`btn theme-picker-card${theme === t.id ? " btn-primary" : ""}`}
+              type="button"
+              title={t.title}
+              aria-pressed={theme === t.id}
+              onClick={() => setTheme(t.id)}
+            >
+              <Icon size={24} />
+              <span>{t.label}</span>
+              {theme === t.id ? <Check size={12} /> : null}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

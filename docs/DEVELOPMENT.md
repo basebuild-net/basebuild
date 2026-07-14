@@ -163,5 +163,7 @@ is the [Releases](#releases) section above.
 
 ## Feature backlog pointer
 
-Planned and in-progress work lives in [`openspec/ROADMAP.md`](../openspec/ROADMAP.md)
-and `openspec/changes/`; see [`docs/agents/openspec.md`](./agents/openspec.md).
+Planned and in-progress OpenSpec work lives in each developer's local,
+gitignored `openspec/` workspace; see
+[`docs/agents/openspec.md`](./agents/openspec.md). Repository changes must
+remain understandable without access to those local planning files.

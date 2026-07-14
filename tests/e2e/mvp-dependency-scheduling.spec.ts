@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
+import { openMvpFixtureProject, waitForAppReady, openPlanningModal } from "./helpers";
 
 test.describe("Dependency-aware worker scheduling", () => {
   test.beforeEach(async ({ page }) => {
@@ -9,8 +9,7 @@ test.describe("Dependency-aware worker scheduling", () => {
 
   test("dependency graph shows ready plans as dispatchable", async ({ page }) => {
     // Open planning modal and go to Flow tab.
-    await page.locator('[title="Plans & Ideas"]').first().click();
-    await expect(page.locator(".planning-inspector-modal, .planning-inspector")).toBeVisible({ timeout: 5000 });
+    await openPlanningModal(page);
     await page.locator('[title="Flow board — live stage counts across the planning pipeline"]').first().click();
 
     // The flow board should show the 3 ready plans from the fixture.
@@ -25,8 +24,7 @@ test.describe("Dependency-aware worker scheduling", () => {
   test("collision detection shows overlapping plans", async ({ page }) => {
     // The fixture has mvp-plan-activation and mvp-plan-conflict both touching AppShell.tsx.
     // Open planning modal and go to Flow tab.
-    await page.locator('[title="Plans & Ideas"]').first().click();
-    await expect(page.locator(".planning-inspector-modal, .planning-inspector")).toBeVisible({ timeout: 5000 });
+    await openPlanningModal(page);
     await page.locator('[title="Flow board — live stage counts across the planning pipeline"]').first().click();
 
     // The flow board should render.
@@ -37,8 +35,7 @@ test.describe("Dependency-aware worker scheduling", () => {
 
   test("launch controls show worker count and workspace policy", async ({ page }) => {
     // Open planning modal and go to Flow tab.
-    await page.locator('[title="Plans & Ideas"]').first().click();
-    await expect(page.locator(".planning-inspector-modal, .planning-inspector")).toBeVisible({ timeout: 5000 });
+    await openPlanningModal(page);
     await page.locator('[title="Flow board — live stage counts across the planning pipeline"]').first().click();
 
     // The flow board should render.
@@ -53,8 +50,7 @@ test.describe("Dependency-aware worker scheduling", () => {
 
   test("safe serialization: launching ready plans creates runs", async ({ page }) => {
     // Open planning modal and go to Flow tab.
-    await page.locator('[title="Plans & Ideas"]').first().click();
-    await expect(page.locator(".planning-inspector-modal, .planning-inspector")).toBeVisible({ timeout: 5000 });
+    await openPlanningModal(page);
     await page.locator('[title="Flow board — live stage counts across the planning pipeline"]').first().click();
 
     // Find the Launch button.
@@ -71,8 +67,7 @@ test.describe("Dependency-aware worker scheduling", () => {
 
   test("merge-review queue renders for finished plans", async ({ page }) => {
     // Open planning modal and go to Flow tab.
-    await page.locator('[title="Plans & Ideas"]').first().click();
-    await expect(page.locator(".planning-inspector-modal, .planning-inspector")).toBeVisible({ timeout: 5000 });
+    await openPlanningModal(page);
     await page.locator('[title="Flow board — live stage counts across the planning pipeline"]').first().click();
 
     // The Finished stage should be visible.

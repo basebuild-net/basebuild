@@ -1,19 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
+import { ensureChatPanel, openFixtureProject } from "./helpers";
 
 test.describe("chat markdown rendering", () => {
   test("renders assistant markdown with fences, tables, lists, blockquotes; raw HTML is inert", async ({ page }) => {
@@ -30,7 +16,7 @@ test.describe("chat markdown rendering", () => {
 
     // Select the local provider (deterministic, no external calls).
     await page.locator(".chat-column-model-chip").click();
-    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.locator(".provider-card").first().click();
     await page.getByTitle("Close provider and model catalog").click();
 
     // Send the markdown-test trigger message.
@@ -67,7 +53,6 @@ test.describe("chat markdown rendering", () => {
     await expect(assistantContent.locator(".md-bold")).toContainText("markdown");
     await expect(assistantContent.locator(".md-inline-code")).toContainText("inline code");
 
-
     // Link renders as non-navigating text with URL in tooltip.
     const link = assistantContent.locator(".md-link");
     await expect(link).toContainText("Example");
@@ -92,7 +77,7 @@ test.describe("chat markdown rendering", () => {
     await ensureChatPanel(page);
 
     await page.locator(".chat-column-model-chip").click();
-    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.locator(".provider-card").first().click();
     await page.getByTitle("Close provider and model catalog").click();
 
     // Send a message with markdown syntax — it should stay as plain pre text.

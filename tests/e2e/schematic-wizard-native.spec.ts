@@ -1,19 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
+import { ensureChatPanel, openFixtureProject, selectLocalProvider } from "./helpers";
 
 async function sendSchematicWizardMessage(page: Page) {
   // Close any open dialogs first.
@@ -22,6 +8,9 @@ async function sendSchematicWizardMessage(page: Page) {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(200);
   }
+  // Select the local provider to ensure deterministic tool event generation.
+  await selectLocalProvider(page);
+  await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
   const input = page.getByTitle(/Chat input/).first();
   await input.waitFor({ state: "visible", timeout: 10000 });
   await input.fill("schematic-wizard-test");
@@ -45,7 +34,8 @@ test.describe("Schematic wizard: native agent writes schematic via tool call", (
     await expect(writeCard).toBeVisible();
     await expect(writeCard).toContainText("project-schematic.md");
 
-    // Cards start expanded — diff is visible immediately.
+    // Expand the card to reveal the diff (cards start collapsed).
+    await writeCard.locator(".tool-card-header").click();
     const writeDiff = writeCard.locator(".tool-card-diff");
     await expect(writeDiff.locator(".diff-add").first()).toContainText("Project Schematic");
 
@@ -72,11 +62,10 @@ test.describe("Schematic wizard: native agent writes schematic via tool call", (
   test("schematic wizard denial path: tool card shows denied status and provenance", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
-
-    // Send the denial trigger — the mock returns a write_file tool event
-    // with status "denied" and decision "denied".
+    // Select the local provider to ensure deterministic tool event generation.
+    await selectLocalProvider(page);
+    await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
     const input = page.getByTitle(/Chat input/).first();
-    await input.waitFor({ state: "visible", timeout: 10000 });
     await input.fill("schematic-wizard-deny-test");
     await page.getByTitle("Send message").click();
     await page.waitForSelector(".chat-message-assistant", { timeout: 10000 });
@@ -87,8 +76,8 @@ test.describe("Schematic wizard: native agent writes schematic via tool call", (
     await expect(deniedCard).toBeVisible();
     await expect(deniedCard).toHaveClass(/tool-card-error/);
     await expect(deniedCard.locator(".tool-card-status")).toContainText(/denied/i);
-
-    // Cards start expanded — provenance is visible immediately.
+    // Expand the card to reveal provenance (cards start collapsed).
+    await deniedCard.locator(".tool-card-header").click();
     await expect(deniedCard.locator(".tool-card-provenance")).toContainText("Denied by user");
 
     // A denied write must not render a diff — nothing was written.

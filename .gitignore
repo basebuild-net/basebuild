@@ -13,3 +13,6 @@ screenshots/test-results/
 playwright-report/
 test-results/
 artifacts/
+
+# OpenSpec plans are local workspace state, never repository content.
+/openspec/

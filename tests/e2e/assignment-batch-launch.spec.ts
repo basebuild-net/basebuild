@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openPlanningModal } from "./helpers";
 
 async function openFixtureProject(page: Page) {
   await page.addInitScript(() => {
@@ -7,8 +8,8 @@ async function openFixtureProject(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Open project" }).click();
   await expect(
-    page.locator(".activity-sidebar-project-name", { hasText: "project" }),
-  ).toBeVisible();
+    page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: "project" }),
+  ).toBeVisible({ timeout: 5_000 });
 }
 
 test.describe("Planning cockpit: assignment + batch launch", () => {
@@ -16,9 +17,8 @@ test.describe("Planning cockpit: assignment + batch launch", () => {
     await openFixtureProject(page);
     await expect(page.locator(".chat-panel")).toBeVisible({ timeout: 5_000 });
 
-    // Open the plans modal.
-    await page.getByRole("button", { name: /plans/i }).first().click();
-    await expect(page.locator(".modal", { hasText: "Plans" })).toBeVisible({ timeout: 3_000 });
+    await openPlanningModal(page);
+    await expect(page.locator(".modal", { hasText: "Plans" })).toBeVisible({ timeout: 5_000 });
 
     // The modal should not use window.confirm anywhere.
     // (If we got here without a native dialog blocking, we're good.)
@@ -28,8 +28,8 @@ test.describe("Planning cockpit: assignment + batch launch", () => {
     await openFixtureProject(page);
 
     // Open the flow board.
-    await page.getByRole("button", { name: /plans/i }).first().click();
-    await expect(page.locator(".modal", { hasText: "Plans" })).toBeVisible({ timeout: 3_000 });
+    await openPlanningModal(page);
+    await expect(page.locator(".modal", { hasText: "Plans" })).toBeVisible({ timeout: 5_000 });
 
     // Click the Flow tab if present.
     const flowTab = page.locator("[data-tab='flow'], button").filter({ hasText: "Flow" }).first();
@@ -57,7 +57,7 @@ test.describe("Planning cockpit: assignment + batch launch", () => {
     });
 
     // Navigate through planning surfaces.
-    await page.getByRole("button", { name: /plans/i }).first().click();
+    await openPlanningModal(page);
     await page.waitForTimeout(500);
 
     const flowTab = page.locator("[data-tab='flow'], button").filter({ hasText: "Flow" }).first();

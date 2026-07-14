@@ -17,7 +17,7 @@ import {
   sourceLabel,
   tabComplete,
 } from "../../lib/chatCommands";
-import { ChatHeader, ChatTitleBar } from "./ChatHeader";
+import { ChatHeader, BranchDropdown } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
 import { QuestionCard } from "./QuestionCard";
 import { MarkdownView } from "./MarkdownView";
@@ -28,6 +28,7 @@ import {
   ChevronUp,
   Copy,
   Edit2,
+  GitBranch as GitBranchIcon,
   FolderTree,
   Key,
   LayoutGrid,
@@ -72,6 +73,7 @@ import {
   nativeProviderLoginStart,
   nativeSessionLatestMetric,
   nativeSaveProviderCredential,
+  renameNativeChatSession,
   type ChatModelDefault,
   type NativeChatMessage,
   type NativeModel,
@@ -80,7 +82,7 @@ import {
   type NativeToolEvent,
 } from "../../lib/native-chat";
 import { resolveToolApproval } from "../../lib/native-chat";
-import { buildChatTimeline } from "../../lib/chatTimeline";
+import { buildChatTimeline, type LiveSegment } from "../../lib/chatTimeline";
 import { useIdeaState } from "../../state/ideas";
 import { setLastGrounding } from "../../state/grounding";
 import type { Idea } from "../../lib/ideas";
@@ -90,6 +92,7 @@ import { readSkill } from "../../lib/skills";
 import type { AgentMode } from "../../lib/sessions";
 import { readModelRecency, recordModelUse } from "../../lib/modelRecency";
 import { useLogs } from "../../state/log";
+import { useDropdownPosition } from "../../state/useDropdownPosition";
 
 const SEND_TIMEOUT_MS = 45_000;
 const NATIVE_PROFILE_ID = "basebuild-native";
@@ -244,7 +247,7 @@ function UserMessageContent({
 const toolCardExpanded = new Map<string, boolean>();
 
 function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode }: { event: NativeToolEvent; onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void; debugMode?: boolean; onSetApprovalMode?: (mode: "safe" | "balanced" | "auto") => void; }) {
-  const [expanded, setExpanded] = useState(() => toolCardExpanded.get(event.id) ?? true);
+  const [expanded, setExpanded] = useState(() => toolCardExpanded.get(event.id) ?? false);
   const toggleExpanded = useCallback(() => {
     setExpanded((prev) => {
       const next = !prev;
@@ -328,7 +331,7 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
     <div data-tool-id={event.id} className={`tool-card tool-card-${statusClass}${isApproval ? " tool-card-approval" : ""}`} title={`${event.kind}: ${event.status}${timeStr ? ` at ${timeStr}` : ""}${provenance ? ` — ${provenance}` : ""}`}>
       <div className="tool-card-header" onClick={() => { if (!isApproval) toggleExpanded(); }} role={isApproval ? undefined : "button"} tabIndex={isApproval ? -1 : 0} aria-expanded={isApproval ? undefined : expanded}>
         <span className="tool-card-icon">{icon}</span>
-        <span className="tool-card-name">{event.kind.replace(/_/g, " ")}</span>
+        <span className={`tool-card-name is-${event.kind.replace(/_/g, "-")}`}>{event.kind.replace(/_/g, " ")}</span>
         {argDisplay ? <code className="tool-card-arg-value" title={`${argDisplay.label}: ${argDisplay.value}`}>{argDisplay.value}</code> : null}
         <span className={`tool-card-status tool-card-status-${statusClass}`}>{event.status}</span>
         {timeStr ? <span className="tool-card-time text-muted">{timeStr}</span> : null}
@@ -416,6 +419,12 @@ export function ChatPanel({
   const [nativeSessionId, setNativeSessionId] = useState<string | null>(chatSessionId ?? null);
   const [nativeMessages, setNativeMessages] = useState<NativeChatMessage[]>([]);
   const [toolEvents, setToolEvents] = useState<NativeToolEvent[]>([]);
+  // Completed live-turn segments — text/reasoning of finished agent-loop
+  // iterations, kept in chronological position while the turn streams.
+  const [liveSegments, setLiveSegments] = useState<LiveSegment[]>([]);
+  // Monotonic arrival counter shared by live tool events and flushed
+  // segments; orders items within the in-flight turn.
+  const liveOrderRef = useRef(0);
   const [interactions, setInteractions] = useState<PendingInteraction[]>([]);
   const [legacyMessages, setLegacyMessages] = useState<LegacyChatMessage[]>([]);
   const [providerId, setProviderId] = useState(LOCAL_PROVIDER_ID);
@@ -524,6 +533,11 @@ export function ChatPanel({
   branchRef.current = branch;
   const [branches, setBranches] = useState<GitBranch[]>([]);
   const [worktreePath, setWorktreePath] = useState<string | null>(null);
+  const [metaBranchOpen, setMetaBranchOpen] = useState(false);
+  const metaBranchPos = useDropdownPosition(200);
+  const [metaNewBranch, setMetaNewBranch] = useState("");
+  const [metaCreatingBranch, setMetaCreatingBranch] = useState(false);
+  const [sessionTitle, setSessionTitle] = useState<{ sessionId: string; title: string } | null>(null);
   const [assignedPlanId, setAssignedPlanId] = useState<string | null>(null);
   const [planBadge, setPlanBadge] = useState<{ referenceId: string; title: string; status: string } | null>(null);
   const [agentMode, setAgentMode] = useState<AgentMode>("plan");
@@ -644,6 +658,28 @@ export function ChatPanel({
     setNativeSessionId(chatSessionId ?? null);
   }, [chatSessionId]);
 
+  // Load session title when the native session changes.
+  useEffect(() => {
+    if (!nativeSessionId) { setSessionTitle(null); return; }
+    let cancelled = false;
+    void nativeChatGet(nativeSessionId).then((s) => {
+      if (!cancelled && s) setSessionTitle({ sessionId: nativeSessionId, title: s.title });
+    });
+    return () => { cancelled = true; };
+  }, [nativeSessionId]);
+  // Sync session title to the panel/tab title so the sidebar shows the real
+  // chat title instead of the default "Chat N". Guarded to the session the
+  // title was loaded for and reading the callback through a ref: a project
+  // switch swaps chatSessionId (and the callback identity) before the new
+  // title loads, and re-firing with the stale title renamed the wrong tab.
+  const onRenameChatRef = useRef(onRenameChat);
+  onRenameChatRef.current = onRenameChat;
+  useEffect(() => {
+    if (sessionTitle && sessionTitle.sessionId === nativeSessionId) {
+      onRenameChatRef.current?.(sessionTitle.title);
+    }
+  }, [sessionTitle, nativeSessionId]);
+
   // Native mode: load or create session. Times out after 15s so the panel
   // never hangs forever in "initializing" — the user sees an actionable
   // error and can retry or close the panel.
@@ -657,21 +693,30 @@ export function ChatPanel({
           setContextUsedTokens(0);
           const latestMetric = nativeSessionLatestMetric(nativeSessionId).catch(() => null);
           addLog("debug", "Chat session loading", `Loading messages for ${nativeSessionId}`);
-          const [msgs, events, intrs] = await Promise.all([
+          const [msgs, events, intrs, sessionInfo] = await Promise.all([
             nativeChatMessages(nativeSessionId),
             nativeChatToolEvents(nativeSessionId),
             nativeInteractionListAll(nativeSessionId),
+            nativeChatGet(nativeSessionId),
           ]);
           if (cancelled) return;
           setNativeMessages(msgs);
           setToolEvents(events);
           setInteractions(intrs);
+          setLiveSegments([]);
+          // Restore streaming state if the chat is still running in the
+          // backend (e.g., user switched projects and switched back).
+          if (sessionInfo?.runState === "running") {
+            setStreaming(true);
+            setStreamPhase("thinking");
+            streamStartRef.current = Date.now();
+          }
           void latestMetric.then((metric) => {
             if (!cancelled) {
               setContextUsedTokens(metric ? metric.inputTokens + metric.outputTokens : 0);
             }
           });
-          addLog("debug", "Chat session loaded", `${nativeSessionId}: ${msgs.length} messages`);
+          addLog("debug", "Chat session loaded", `${nativeSessionId}: ${msgs.length} messages${sessionInfo?.runState === "running" ? " (running)" : ""}`);
           return;
         }
         addLog("debug", "Chat session creating", `projectPath=${projectPath} provider=${providerId} model=${modelId}`);
@@ -735,9 +780,23 @@ export function ChatPanel({
         // streaming text between agent-loop iterations.
         if (channel === "status") {
           const phase = event.payload.delta;
-          if (phase === "thinking" || phase === "next") {
-            // Starting a new provider stream — clear previous iteration's
-            // text so each iteration gets a fresh streaming block.
+          if (phase === "thinking" || phase === "next" || phase === "tools") {
+            // Iteration boundary — promote the streamed text/reasoning into
+            // a completed live segment so it stays in the transcript at its
+            // chronological position (before the tools that follow it)
+            // instead of being discarded when the next stream starts.
+            const content = streamBufRef.current;
+            const reasoning = reasoningBufRef.current;
+            if (content.trim().length > 0 || reasoning.trim().length > 0) {
+              const order = ++liveOrderRef.current;
+              setLiveSegments((prev) => [...prev, {
+                id: `live-seg-${order}`,
+                content,
+                reasoning: reasoning.trim().length > 0 ? reasoning : null,
+                createdAt: Math.floor(Date.now() / 1000),
+                order,
+              }]);
+            }
             if (renderFrame !== null) {
               window.cancelAnimationFrame(renderFrame);
               renderFrame = null;
@@ -746,9 +805,7 @@ export function ChatPanel({
             reasoningBufRef.current = "";
             setStreamText("");
             setReasoningText("");
-            setStreamPhase("thinking");
-          } else if (phase === "tools") {
-            setStreamPhase("tools");
+            setStreamPhase(phase === "tools" ? "tools" : "thinking");
           }
           return;
         }
@@ -828,6 +885,7 @@ export function ChatPanel({
       const diff = event.payload.diff ?? null;
       const decision = event.payload.decision ?? null;
       const ruleSource = event.payload.ruleSource ?? null;
+      const liveSeq = ++liveOrderRef.current;
       setToolEvents((prev) => {
         const existing = prev.find((e) => e.id === id);
         if (existing) {
@@ -853,7 +911,7 @@ export function ChatPanel({
           diff,
           decision,
           ruleSource,
-          sequence: prev.length + 1,
+          sequence: liveSeq,
           createdAt: Math.floor(Date.now() / 1000),
         }];
       });
@@ -881,6 +939,7 @@ export function ChatPanel({
       } else {
         summary = `${toolName} approval required`;
       }
+      const liveSeq = ++liveOrderRef.current;
       setToolEvents((prev) => {
         // Replace if already exists (e.g. from tool-event stream).
         const existingIdx = prev.findIndex((e) => e.id === event.payload.toolCallId);
@@ -900,7 +959,7 @@ export function ChatPanel({
           diff: null,
           decision: null,
           ruleSource: null,
-          sequence: prev.length + 1,
+          sequence: liveSeq,
           createdAt: Math.floor(Date.now() / 1000),
         }];
       });
@@ -1090,6 +1149,7 @@ export function ChatPanel({
           return;
         }
         setInput("");
+        if (chatInputRef.current) chatInputRef.current.style.setProperty("--chat-input-height", "auto");
         setError(null);
         setSetupRequired(null);
         setLoading(true);
@@ -1098,6 +1158,7 @@ export function ChatPanel({
         reasoningBufRef.current = "";
         setStreamText("");
         setReasoningText("");
+        setLiveSegments([]);
         setStreaming(true);
         streamStartRef.current = Date.now();
         setElapsed(0);
@@ -1127,16 +1188,20 @@ export function ChatPanel({
             setContextUsedTokens(result.metrics.inputTokens + result.metrics.outputTokens);
           }
           setModelRecency(recordModelUse(providerId, modelId));
-          setNativeMessages((prev) => {
-            const base = prev.filter((m) => m.id !== tempUserId);
-            const next = [...base, result.userMessage];
-            if (result.assistantMessage) next.push(result.assistantMessage);
-            return next;
+          // Reload the full persisted transcript — a turn may persist
+          // multiple assistant rows (one per agent-loop iteration) with
+          // their bound tool events, so an optimistic append is not enough.
+          const [msgs, events] = await Promise.all([
+            nativeChatMessages(nativeSessionId),
+            nativeChatToolEvents(nativeSessionId),
+          ]);
+          setNativeMessages(msgs);
+          setToolEvents(events);
+          setLiveSegments([]);
+          // Refresh session title (backend auto-titles from first message).
+          void nativeChatGet(nativeSessionId).then((s) => {
+            if (s) setSessionTitle({ sessionId: nativeSessionId, title: s.title });
           });
-          // Reload tool events from the result
-          if (result.toolEvents.length > 0 && nativeSessionId) {
-            setToolEvents(await nativeChatToolEvents(nativeSessionId));
-          }
           if (result.setupRequired) {
             setSetupRequired(result.setupRequired);
             setShowLogin(true);
@@ -1152,6 +1217,7 @@ export function ChatPanel({
             ]);
             setNativeMessages(msgs);
             setToolEvents(events);
+            setLiveSegments([]);
           } catch {
             /* ignore */
           }
@@ -1178,6 +1244,7 @@ export function ChatPanel({
               if (activeSendRef.current === gen + 1) {
                 setNativeMessages(msgs);
                 setToolEvents(events);
+                setLiveSegments([]);
               }
             } catch {
               /* best-effort */
@@ -1223,6 +1290,11 @@ export function ChatPanel({
   // composer left empty. Tool-incapable model + wizard prompt → insert +
   // inline notice (no send).
   const { delivery, consume } = usePromptDelivery(nativeSessionId);
+  // Exactly-once guard for send-mode deliveries. consume() only clears the
+  // queue after the async work settles, so without this ref a stop (which
+  // flips `loading` back to false while the delivered send is still in
+  // flight) re-runs the effect and re-sends the same prompt.
+  const attemptedDeliveryRef = useRef<string | null>(null);
   useEffect(() => {
     if (!delivery || !nativeSessionId) return;
     if (delivery.mode === "insert") {
@@ -1232,7 +1304,19 @@ export function ChatPanel({
     }
     // send mode — wait for catalog so the resolved provider/model is used.
     if (!catalog || loading) return;
-    void sendMessage(delivery.text.trim()).then(() => consume());
+    if (attemptedDeliveryRef.current === delivery.actionId) return;
+    attemptedDeliveryRef.current = delivery.actionId;
+    // Structured planning action — invoke the native command (persisted,
+    // selectable idea cards) instead of sending prose to the chat agent.
+    if (delivery.action?.kind === "generate_ideas") {
+      consume();
+      void generateIdeasRef.current?.({
+        categoryId: delivery.action.categoryId ?? undefined,
+        direction: delivery.action.direction ?? undefined,
+      });
+      return;
+    }
+    void sendMessage(delivery.text.trim()).finally(() => consume());
   }, [delivery, consume, nativeSessionId, catalog, loading, sendMessage]);
 
   // Follow output explicitly instead of inferring pre-growth geometry from a
@@ -1373,7 +1457,7 @@ export function ChatPanel({
   const persistSelectionRef = useRef<(providerId: string, modelId: string, effort: string) => void>(() => {});
   // Ref to handleGenerateIdeas so /idea generate can call it without a TDZ
   // issue (handleGenerateIdeas is defined after handleSend).
-  const generateIdeasRef = useRef<(() => Promise<void>) | null>(null);
+  const generateIdeasRef = useRef<((opts?: { categoryId?: string | null; direction?: string | null }) => Promise<void>) | null>(null);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
@@ -1642,8 +1726,8 @@ export function ChatPanel({
   // Memoized so it is rebuilt only when the underlying lists change — not on
   // every render or stream delta tick (streamText renders separately).
   const chatTimeline = useMemo(
-    () => buildChatTimeline(nativeMessages, toolEvents, interactions),
-    [nativeMessages, toolEvents, interactions],
+    () => buildChatTimeline(nativeMessages, toolEvents, interactions, liveSegments),
+    [nativeMessages, toolEvents, interactions, liveSegments],
   );
 
   // Message action rail handlers.
@@ -1753,6 +1837,7 @@ export function ChatPanel({
     if (!nativeSessionId) {
       setNativeMessages([]);
       setToolEvents([]);
+      setLiveSegments([]);
       setStreamText("");
       setReasoningText("");
       setStreamPhase("idle");
@@ -1764,6 +1849,7 @@ export function ChatPanel({
       const deleted = await nativeChatClearMessages(nativeSessionId);
       setNativeMessages([]);
       setToolEvents([]);
+      setLiveSegments([]);
       setStreamText("");
       setReasoningText("");
       setStreamPhase("idle");
@@ -1899,10 +1985,38 @@ export function ChatPanel({
   );
   persistSelectionRef.current = persistSelection;
 
-  const handleGenerateIdeas = useCallback(async () => {
+  const handleGenerateIdeas = useCallback(async (opts?: { categoryId?: string | null; direction?: string | null }) => {
     if (!nativeSessionId || generatingIdeas) return;
+    // Guard: non-local provider without a credential can't generate — show
+    // connect prompt instead of silently failing.
+    if (selectedProvider && !selectedProvider.configured && selectedProvider.id !== LOCAL_PROVIDER_ID) {
+      setSetupRequired({
+        providerId: selectedProvider.id,
+        providerLabel: selectedProvider.label,
+        message: `Connect ${selectedProvider.label} to generate ideas.`,
+      });
+      setShowLogin(true);
+      return;
+    }
     setGeneratingIdeas(true);
     setError(null);
+    setSetupRequired(null);
+    // Set up streaming UI state so the user sees the thinking indicator,
+    // elapsed timer, and streamed content — matching sendMessage.
+    streamBufRef.current = "";
+    reasoningBufRef.current = "";
+    setStreamText("");
+    setReasoningText("");
+    setLiveSegments([]);
+    setStreaming(true);
+    streamStartRef.current = Date.now();
+    setElapsed(0);
+    setStreamPhase("thinking");
+    followLatestRef.current = true;
+    // Claim this generation. A stop or a newer send bumps activeSendRef so
+    // this generation's async resolution becomes a no-op instead of reviving
+    // the spinner or duplicating the streamed reply.
+    const gen = ++activeSendRef.current;
     try {
       const result = await nativeGenerateIdeas({
         sessionId: nativeSessionId,
@@ -1910,11 +2024,12 @@ export function ChatPanel({
         providerId,
         modelId,
         effortLevel,
+        categoryId: opts?.categoryId ?? null,
+        direction: opts?.direction ?? null,
       });
+      if (activeSendRef.current !== gen) return;
       if (result.setupRequired) {
         setSetupRequired(result.setupRequired);
-        // Only the login form applies to a specific non-local provider; for the
-        // local coordinator, show the setup bar prompting to pick a provider.
         setShowLogin(!!selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID);
       }
       setLastGrounding(result.grounding ?? null);
@@ -1934,11 +2049,47 @@ export function ChatPanel({
       } else {
         setError("Open a project session to save generated ideas.");
       }
+      // Reload the full persisted transcript — the backend now persists both
+      // the user prompt and the assistant response as messages.
+      if (result.userMessage || result.assistantMessage) {
+        const [msgs, events] = await Promise.all([
+          nativeChatMessages(nativeSessionId),
+          nativeChatToolEvents(nativeSessionId),
+        ]);
+        if (activeSendRef.current !== gen) return;
+        setNativeMessages(msgs);
+        setToolEvents(events);
+        setLiveSegments([]);
+      }
     } catch (e) {
+      if (activeSendRef.current !== gen) return;
       const msg = e instanceof Error ? e.message : String(e);
       addLog("error", "Failed to generate ideas", msg);
       setError(msg);
+      // Reload whatever the backend persisted (user prompt may have been
+      // saved before the error).
+      try {
+        const [msgs, events] = await Promise.all([
+          nativeChatMessages(nativeSessionId),
+          nativeChatToolEvents(nativeSessionId),
+        ]);
+        if (activeSendRef.current !== gen) return;
+        setNativeMessages(msgs);
+        setToolEvents(events);
+        setLiveSegments([]);
+      } catch {
+        /* ignore */
+      }
     } finally {
+      if (activeSendRef.current === gen) {
+        setStreaming(false);
+        setStreamText("");
+        setReasoningText("");
+        setStreamPhase("idle");
+        streamStartRef.current = null;
+        streamBufRef.current = "";
+        reasoningBufRef.current = "";
+      }
       setGeneratingIdeas(false);
     }
   }, [nativeSessionId, generatingIdeas, schematicContent, providerId, modelId, effortLevel, activeSessionId, ideaState, addLog, selectedProvider]);
@@ -1949,32 +2100,8 @@ export function ChatPanel({
   const handleGenerateForCategory = useCallback(async (categoryId: string | undefined) => {
     if (!nativeSessionId || generatingIdeas) return;
     setShowCategoryPicker(false);
-    setGeneratingIdeas(true);
-    setError(null);
-    try {
-      const result = await nativeGenerateIdeas({
-        sessionId: nativeSessionId,
-        schematic: schematicContent ?? undefined,
-        providerId,
-        modelId,
-        effortLevel,
-        categoryId: categoryId ?? null,
-      });
-      if (result.setupRequired) {
-        setSetupRequired(result.setupRequired);
-        setShowLogin(!!selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID);
-        setLastGrounding(result.grounding ?? null);
-        return;
-      }
-      await ideaState.refresh();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      addLog("error", "Failed to generate ideas for category", msg);
-      setError(msg);
-    } finally {
-      setGeneratingIdeas(false);
-    }
-  }, [nativeSessionId, generatingIdeas, schematicContent, providerId, modelId, effortLevel, ideaState, addLog, selectedProvider]);
+    void generateIdeasRef.current?.({ categoryId: categoryId ?? null });
+  }, [nativeSessionId, generatingIdeas]);
 
 
   const handlePromoteIdea = useCallback(
@@ -1991,8 +2118,12 @@ export function ChatPanel({
   // ── Chat header handlers ──
   const handleRename = useCallback((title: string) => {
     setTitleLocked(true);
+    if (nativeSessionId) {
+      setSessionTitle({ sessionId: nativeSessionId, title });
+      void renameNativeChatSession(nativeSessionId, title);
+    }
     onRenameChat?.(title);
-  }, [onRenameChat]);
+  }, [onRenameChat, nativeSessionId]);
 
   const handleSwitchBranch = useCallback(async (name: string) => {
     if (!projectPath || !branch || name === branch) return;
@@ -2064,7 +2195,6 @@ export function ChatPanel({
   const sendDisabled = loading || !input.trim() || (nativeMode ? !nativeSessionId : agentId === null);
 
   const modelName = selectedModel?.label ?? modelId;
-
   return (
     <div className="chat-panel" ref={panelRef} tabIndex={-1} onKeyDown={(e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "f") {
@@ -2075,12 +2205,6 @@ export function ChatPanel({
       <div aria-live="polite" aria-atomic="true" className="sr-only" >
         {streaming ? `Agent is responding${streamPhase === "tools" ? " — running tools" : streamPhase === "thinking" ? " — thinking" : ""}` : ""}
       </div>
-      <ChatTitleBar
-        title={chatTitle ?? (nativeSessionId ? "Chat" : "New chat")}
-        onRename={handleRename}
-        titleLocked={titleLocked}
-        renameSignal={renameSignal}
-      />
       {showPrCard && prRec ? (
         <PrRecommendationCard
           projectPath={projectPath}
@@ -2135,13 +2259,14 @@ export function ChatPanel({
               }
 
 
-              // Render the flat chronological list — no grouping.
-              // Each tool event renders as its own row. Reasoning renders
-              // as a separate block before the message content.
+              // Render the flat chronological list — consecutive tool
+              // events are grouped into a compact grid.
               const rendered: React.ReactNode[] = [];
-              for (const ev of events) {
-                if (ev.kind === "tool") {
-                  // Each tool call is its own row — no grouping.
+              let toolBatch: Extract<(typeof events)[number], { kind: "tool" }>[] = [];
+              function flushToolBatch() {
+                if (toolBatch.length === 0) return;
+                if (toolBatch.length === 1) {
+                  const ev = toolBatch[0];
                   rendered.push(
                     <ToolEventCard
                       key={`tool-${ev.id}`}
@@ -2151,8 +2276,29 @@ export function ChatPanel({
                       onSetApprovalMode={handleSetApprovalMode}
                     />
                   );
+                } else {
+                  rendered.push(
+                    <div className="tool-card-grid" key={`grid-${toolBatch[0].id}`}>
+                      {toolBatch.map((ev) => (
+                        <ToolEventCard
+                          key={`tool-${ev.id}`}
+                          event={ev.event}
+                          debugMode={debugMode}
+                          onResolveApproval={ev.event.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined}
+                          onSetApprovalMode={handleSetApprovalMode}
+                        />
+                      ))}
+                    </div>
+                  );
+                }
+                toolBatch = [];
+              }
+              for (const ev of events) {
+                if (ev.kind === "tool") {
+                  toolBatch.push(ev);
                   continue;
                 }
+                flushToolBatch();
                 if (ev.kind === "interaction") {
                   // Pending questions render in the sticky dock above the
                   // composer (always visible); only answered/cancelled ones
@@ -2181,6 +2327,9 @@ export function ChatPanel({
                     <ThinkingBlock key={`thinking-${ev.id}`} text={ev.reasoning} />,
                   );
                 }
+                // Reasoning-only rows (no text in this iteration) get just
+                // the thinking block — skip the empty message bubble.
+                if (ev.kind === "assistant" && !ev.content.trim()) continue;
                 rendered.push(
                   <div key={ev.id} className={`chat-message chat-message-${ev.kind}`} aria-label={`${ev.kind === "user" ? "You" : ev.kind === "assistant" ? "Assistant" : "System"}: ${ev.content.slice(0, 100)}`}>
                     <span className="chat-message-role">
@@ -2228,6 +2377,7 @@ export function ChatPanel({
                   </div>,
                 );
               }
+              flushToolBatch();
 
               // Loading row for streaming/thinking state.
               if (streaming) {
@@ -2683,69 +2833,6 @@ export function ChatPanel({
 
       {/* Composer footer: always visible, never clipped */}
       <div className="chat-input-area">
-        <ChatHeader
-          modelChip={modelName}
-          modelId={modelId}
-          effortChip={effortLevel}
-          effortOptions={(catalog?.effortLevels ?? [])
-            .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
-            .map((effort) => ({ id: effort.id, label: effort.label }))}
-          onPickModel={() => {
-            addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
-            setShowModelPicker(true);
-            setShowProviderPicker(false);
-          }}
-          onChangeEffort={(effort) => {
-            addLog("debug", "Chat effort selected", `sessionId=${nativeSessionId ?? "none"}; effort=${effort}`);
-            setEffortLevel(effort);
-            persistSelection(providerId, modelId, effort);
-          }}
-          permissionMode={approvalMode}
-          onChangePermission={(mode) => void handleSetApprovalMode(mode)}
-          runState={streaming ? "running" : loading ? "queued" : "idle"}
-          contextUsed={contextUsedTokens}
-          contextLimit={selectedModel?.contextWindow ?? null}
-          onOpenCommands={() => {
-            addLog("debug", "Command palette opened via header", `sessionId=${activeSessionId ?? "none"}`);
-            setShowCommandPalette(true);
-            setInput("/");
-            window.requestAnimationFrame(() => chatInputRef.current?.focus());
-          }}
-          debugMode={debugMode}
-          onToggleDebug={() => {
-            const next = !debugMode;
-            addLog("debug", "Chat debug mode toggled", `enabled=${next}`);
-            setDebugMode(next);
-            localStorage.setItem("basebuild.debug-mode", String(next));
-          }}
-          canCopyConversation={nativeMessages.length > 0}
-          onCopyConversation={() => {
-            addLog("debug", "Copy conversation selected", `sessionId=${nativeSessionId ?? "none"}`);
-            void handleCopyConversation();
-          }}
-          agentMode={agentMode}
-          onToggleAgentMode={() => setAgentMode((m) => (m === "build" ? "plan" : "build"))}
-          planBadge={planBadge}
-          onOpenPlan={() => { /* focus the plan in the side panel */ }}
-          branch={branch}
-          worktreePath={worktreePath}
-          branches={branches}
-          onSwitchBranch={handleSwitchBranch}
-          onCreateBranch={handleCreateBranch}
-          onToggleHistory={() => onOpenHistory?.()}
-          onStashAndSwitch={handleSwitchBranch}
-          onDiscardAndSwitch={handleSwitchBranch}
-          uncommittedCount={uncommittedCount}
-          onRenameAction={() => setRenameSignal((n) => n + 1)}
-          onAssignPlan={handleOpenAssignPlan}
-          onDuplicateChat={() => onDuplicateChat?.()}
-          onCloseChat={() => onCloseChat?.()}
-          onCloseAndDelete={() => onCloseAndDeleteChat?.()}
-          prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
-          onCreatePullRequest={handleCreatePullRequest}
-          projectPath={projectPath}
-          sessionId={nativeSessionId}
-        />
         {nativeMode ? (
           <>
             {showPlanningMenu ? (
@@ -3125,95 +3212,214 @@ export function ChatPanel({
             </div>
           );
         })()}
-        <div className="chat-input-row">
-          <textarea
-            ref={chatInputRef}
-            className="input chat-input"
-            aria-label="Chat message input"
-            placeholder={
-              nativeMode
-                ? "Type a message… (Enter to send, Shift+Enter for newline)"
-                : "Agent not connected. Click retry above to start."
-            }
-            value={input}
-            onChange={(e) => {
-              const val = e.target.value;
-              setInput(val);
-              // Open palette when input starts with `/` (command position).
-              if (nativeMode && val.trimStart().startsWith("/")) {
-                setShowCommandPalette(true);
-              } else if (showCommandPalette) {
-                setShowCommandPalette(false);
+        <div className="chat-composer-box">
+          <div className="chat-composer-textarea-wrap">
+            <textarea
+              ref={chatInputRef}
+              className="input chat-input"
+              aria-label="Chat message input"
+              placeholder={
+                nativeMode
+                  ? "Type a message… (Enter to send, Shift+Enter for newline)"
+                  : "Agent not connected. Click retry above to start."
               }
-              setPaletteActiveIndex(0);
-              const el = e.target;
-              el.style.setProperty("--chat-input-height", `${Math.min(el.scrollHeight, 360)}px`);
-            }}
-            onKeyDown={(e) => {
-              // Command palette keyboard navigation.
-              if (showCommandPalette && nativeMode) {
-                const query = input.trim().slice(1);
-                const ranked = filterAndRank(BUILTIN_COMMANDS, query, commandRecency);
-                if (e.key === "ArrowDown" && ranked.length > 0) {
-                  e.preventDefault();
-                  setPaletteActiveIndex((i) => (i + 1) % ranked.length);
-                  return;
-                }
-                if (e.key === "ArrowUp" && ranked.length > 0) {
-                  e.preventDefault();
-                  setPaletteActiveIndex((i) => (i - 1 + ranked.length) % ranked.length);
-                  return;
-                }
-                if (e.key === "Tab" && ranked.length > 0) {
-                  e.preventDefault();
-                  const cmd = ranked[paletteActiveIndex];
-                  if (cmd) {
-                    setInput(tabComplete(cmd));
-                    setShowCommandPalette(false);
-                  }
-                  return;
-                }
-                if (e.key === "Escape") {
-                  e.preventDefault();
+              value={input}
+              onChange={(e) => {
+                const val = e.target.value;
+                setInput(val);
+                if (nativeMode && val.trimStart().startsWith("/")) {
+                  setShowCommandPalette(true);
+                } else if (showCommandPalette) {
                   setShowCommandPalette(false);
-                  return;
                 }
-                // Enter: if palette is open and there's a match, submit the command.
-                if (e.key === "Enter" && !e.shiftKey && ranked.length > 0) {
+                setPaletteActiveIndex(0);
+                const el = e.target;
+                el.style.setProperty("--chat-input-height", "auto");
+                el.style.setProperty("--chat-input-height", `${Math.min(el.scrollHeight, 360)}px`);
+              }}
+              onKeyDown={(e) => {
+                if (showCommandPalette && nativeMode) {
+                  const query = input.trim().slice(1);
+                  const ranked = filterAndRank(BUILTIN_COMMANDS, query, commandRecency);
+                  if (e.key === "ArrowDown" && ranked.length > 0) {
+                    e.preventDefault();
+                    setPaletteActiveIndex((i) => (i + 1) % ranked.length);
+                    return;
+                  }
+                  if (e.key === "ArrowUp" && ranked.length > 0) {
+                    e.preventDefault();
+                    setPaletteActiveIndex((i) => (i - 1 + ranked.length) % ranked.length);
+                    return;
+                  }
+                  if (e.key === "Tab" && ranked.length > 0) {
+                    e.preventDefault();
+                    const cmd = ranked[paletteActiveIndex];
+                    if (cmd) {
+                      setInput(tabComplete(cmd));
+                      setShowCommandPalette(false);
+                    }
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setShowCommandPalette(false);
+                    return;
+                  }
+                  if (e.key === "Enter" && !e.shiftKey && ranked.length > 0) {
+                    e.preventDefault();
+                    void handleSend();
+                    return;
+                  }
+                }
+                if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   void handleSend();
-                  return;
                 }
-              }
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void handleSend();
-              }
-            }}
-            rows={2}
-            disabled={inputDisabled}
-            title={nativeMode ? "Chat input — type a message and press Enter to send" : "Chat input — start the agent to enable sending"}
-          />
-          {nativeMode && loading ? (
-            <button
-              className="btn chat-send-btn chat-stop-btn"
-              type="button"
-              title="Stop the agent and unlock the composer"
-              onClick={() => void handleStopNative()}
-            >
-              <Square size={13} />
-            </button>
-          ) : (
-            <button
-              className="btn btn-primary chat-send-btn"
-              type="button"
-              title="Send message"
-              disabled={sendDisabled}
-              onClick={() => void handleSend()}
-            >
-              <Send size={14} />
-            </button>
-          )}
+              }}
+              rows={2}
+              disabled={inputDisabled}
+              title={nativeMode ? "Chat input — type a message and press Enter to send" : "Chat input — start the agent to enable sending"}
+            />
+          </div>
+          <div className="chat-composer-controls">
+            <ChatHeader
+              modelChip={modelName}
+              modelId={modelId}
+              effortChip={effortLevel}
+              effortOptions={(catalog?.effortLevels ?? [])
+                .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
+                .map((effort) => ({ id: effort.id, label: effort.label }))}
+              onPickModel={() => {
+                addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
+                setShowModelPicker(true);
+                setShowProviderPicker(false);
+              }}
+              onChangeEffort={(effort) => {
+                addLog("debug", "Chat effort selected", `sessionId=${nativeSessionId ?? "none"}; effort=${effort}`);
+                setEffortLevel(effort);
+                persistSelection(providerId, modelId, effort);
+              }}
+              permissionMode={approvalMode}
+              onChangePermission={(mode) => void handleSetApprovalMode(mode)}
+              runState={streaming ? "running" : loading ? "queued" : "idle"}
+              contextUsed={contextUsedTokens}
+              contextLimit={selectedModel?.contextWindow ?? null}
+              onOpenCommands={() => {
+                addLog("debug", "Command palette opened via header", `sessionId=${activeSessionId ?? "none"}`);
+                setShowCommandPalette(true);
+                setInput("/");
+                window.requestAnimationFrame(() => chatInputRef.current?.focus());
+              }}
+              debugMode={debugMode}
+              onToggleDebug={() => {
+                const next = !debugMode;
+                addLog("debug", "Chat debug mode toggled", `enabled=${next}`);
+                setDebugMode(next);
+                localStorage.setItem("basebuild.debug-mode", String(next));
+              }}
+              canCopyConversation={nativeMessages.length > 0}
+              onCopyConversation={() => {
+                addLog("debug", "Copy conversation selected", `sessionId=${nativeSessionId ?? "none"}`);
+                void handleCopyConversation();
+              }}
+              agentMode={agentMode}
+              onToggleAgentMode={() => setAgentMode((m) => (m === "build" ? "plan" : "build"))}
+              planBadge={planBadge}
+              onOpenPlan={() => { /* focus the plan in the side panel */ }}
+              branch={branch}
+              worktreePath={worktreePath}
+              branches={branches}
+              onSwitchBranch={handleSwitchBranch}
+              onCreateBranch={handleCreateBranch}
+              onToggleHistory={() => onOpenHistory?.()}
+              onStashAndSwitch={handleSwitchBranch}
+              onDiscardAndSwitch={handleSwitchBranch}
+              uncommittedCount={uncommittedCount}
+              onRenameAction={() => setRenameSignal((n) => n + 1)}
+              onAssignPlan={handleOpenAssignPlan}
+              onDuplicateChat={() => onDuplicateChat?.()}
+              onCloseChat={() => onCloseChat?.()}
+              onCloseAndDelete={() => onCloseAndDeleteChat?.()}
+              prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
+              onCreatePullRequest={handleCreatePullRequest}
+              projectPath={projectPath}
+              sessionId={nativeSessionId}
+              hideBranch
+              onCopySessionId={() => {
+                if (nativeSessionId) {
+                  void navigator.clipboard.writeText(nativeSessionId);
+                  onShowToast?.("Chat ID copied", nativeSessionId, "info");
+                }
+              }}
+            />
+            {nativeMode && loading ? (
+              <button
+                className="btn chat-send-btn chat-stop-btn"
+                type="button"
+                title="Stop the agent and unlock the composer"
+                onClick={() => void handleStopNative()}
+              >
+                <Square size={13} />
+              </button>
+            ) : (
+              <button
+                className="btn btn-primary chat-send-btn"
+                type="button"
+                title="Send message"
+                disabled={sendDisabled}
+                onClick={() => void handleSend()}
+              >
+                <Send size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="chat-composer-meta">
+          <div className="chat-composer-meta-left">
+            {projectPath ? (
+              <span title={`Project: ${projectPath}`}>{projectPath.split(/[\\/]/).pop() ?? projectPath}</span>
+            ) : null}
+            {worktreePath ? (
+              <span className="chat-worktree-badge" title={`Worktree: ${worktreePath}`}>
+                <span className="chat-worktree-dot" />
+                {worktreePath.split("/").pop()}
+              </span>
+            ) : branch ? (
+              <span className="chat-worktree-badge chat-worktree-primary" title="Primary workspace: using the open project checkout">
+                <span className="chat-worktree-dot" />
+                primary
+              </span>
+            ) : null}
+          </div>
+          <div className="chat-composer-meta-right">
+            {branch ? (
+              <button
+                ref={metaBranchPos.triggerRef}
+                className="chat-composer-branch-btn"
+                type="button"
+                title={`Branch: ${branch}. Click to switch or create.`}
+                onClick={() => { metaBranchPos.recompute(); setMetaBranchOpen((v) => !v); }}
+              >
+                <GitBranchIcon size={10} />
+                <span>{branch}</span>
+                <ChevronDown size={9} />
+              </button>
+            ) : null}
+            {metaBranchOpen ? (
+              <BranchDropdown
+                branches={branches}
+                current={branch ?? ""}
+                onPick={(name) => { setMetaBranchOpen(false); void handleSwitchBranch(name); }}
+                onCreate={() => { setMetaCreatingBranch(true); setMetaNewBranch(""); }}
+                creating={metaCreatingBranch}
+                newBranchName={metaNewBranch}
+                setNewBranchName={setMetaNewBranch}
+                onCreateBranch={() => { void handleCreateBranch(metaNewBranch.trim()); setMetaCreatingBranch(false); setMetaNewBranch(""); setMetaBranchOpen(false); }}
+                onCancelCreate={() => setMetaCreatingBranch(false)}
+                placement={metaBranchPos.placement}
+              />
+            ) : null}
+          </div>
         </div>
         {debugMode ? (
           <div className="chat-debug-panel" title="Raw event stream from the model and agent loop">

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { useDropdownPosition } from "../../state/useDropdownPosition";
 import {
   Bug,
   ChevronDown,
   Command,
   GitBranch,
   GitPullRequest,
-  Gauge,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -71,6 +71,10 @@ type ChatHeaderProps = {
   projectPath: string;
   /** Chat session / run identifier. */
   sessionId?: string | null;
+  /** When true, branch/worktree are not rendered (rendered separately in composer meta row). */
+  hideBranch?: boolean;
+  /** Copy the chat session ID to clipboard. */
+  onCopySessionId?: () => void;
   onDragStart?: (e: React.MouseEvent) => void;
   onDragEnd?: () => void;
   onDragOver?: (e: React.DragEvent) => void;
@@ -153,6 +157,8 @@ export function ChatHeader(props: ChatHeaderProps) {
   const [newBranchName, setNewBranchName] = useState("");
   const [creatingBranch, setCreatingBranch] = useState(false);
   const [switchTarget, setSwitchTarget] = useState<string | null>(null);
+  const menuPos = useDropdownPosition(300);
+  const branchPos = useDropdownPosition(200);
 
   function handleSwitch(name: string) {
     setBranchOpen(false);
@@ -251,7 +257,7 @@ export function ChatHeader(props: ChatHeaderProps) {
         ) : null}
       </div>
       <div className="chat-column-header-right">
-        {props.branch ? (
+        {props.branch && !props.hideBranch ? (
           <div className="chat-column-branch-group">
             {props.worktreePath ? (
               <span className="chat-column-worktree" title={`Worktree: ${props.worktreePath}`}>
@@ -259,10 +265,11 @@ export function ChatHeader(props: ChatHeaderProps) {
               </span>
             ) : null}
             <button
+              ref={branchPos.triggerRef}
               className="chat-column-branch"
               type="button"
               title={`Branch: ${props.branch}. Click to switch or create.`}
-              onClick={() => setBranchOpen((v) => !v)}
+              onClick={() => { branchPos.recompute(); setBranchOpen((v) => !v); }}
             >
               <GitBranch size={11} />
               <span className="chat-column-branch-name">{props.branch}</span>
@@ -279,6 +286,7 @@ export function ChatHeader(props: ChatHeaderProps) {
                 setNewBranchName={setNewBranchName}
                 onCreateBranch={handleCreateBranch}
                 onCancelCreate={() => setCreatingBranch(false)}
+                placement={branchPos.placement}
               />
             ) : null}
           </div>
@@ -300,15 +308,17 @@ export function ChatHeader(props: ChatHeaderProps) {
           <HistoryIcon />
         </button>
         <button
+          ref={menuPos.triggerRef}
           className="btn-icon btn-icon-sm"
           type="button"
           title="More actions"
-          onClick={() => setMenuOpen((v) => !v)}
+          onClick={() => { menuPos.recompute(); setMenuOpen((v) => !v); }}
         >
           <MoreHorizontal size={13} />
         </button>
         {menuOpen ? (
           <MoreActionsMenu
+            placement={menuPos.placement}
             onRename={() => { setMenuOpen(false); props.onRenameAction(); }}
             onAssignPlan={() => { setMenuOpen(false); props.onAssignPlan(); }}
             onDuplicate={() => { setMenuOpen(false); props.onDuplicateChat(); }}
@@ -320,6 +330,7 @@ export function ChatHeader(props: ChatHeaderProps) {
             onToggleDebug={() => { setMenuOpen(false); props.onToggleDebug(); }}
             canCopyConversation={props.canCopyConversation}
             onCopyConversation={() => { setMenuOpen(false); props.onCopyConversation(); }}
+            onCopySessionId={props.onCopySessionId ? () => { setMenuOpen(false); props.onCopySessionId?.(); } : undefined}
           />
         ) : null}
       </div>
@@ -336,7 +347,7 @@ export function ChatHeader(props: ChatHeaderProps) {
   );
 }
 
-function BranchDropdown(props: {
+export function BranchDropdown(props: {
   branches: GitBranchInfo[];
   current: string;
   onPick: (name: string) => void;
@@ -346,9 +357,10 @@ function BranchDropdown(props: {
   setNewBranchName: (v: string) => void;
   onCreateBranch: () => void;
   onCancelCreate: () => void;
+  placement?: "bottom" | "top";
 }) {
   return (
-    <div className="chat-branch-dropdown" role="dialog" aria-label="Switch branch">
+    <div className={`chat-branch-dropdown ${props.placement === "top" ? "is-above" : ""}`} role="dialog" aria-label="Switch branch">
       <div className="chat-branch-dropdown-list">
         {props.branches.map((b) => (
           <button
@@ -395,6 +407,7 @@ function BranchDropdown(props: {
 }
 
 function MoreActionsMenu(props: {
+  placement?: "bottom" | "top";
   onRename: () => void;
   onAssignPlan: () => void;
   onDuplicate: () => void;
@@ -406,13 +419,16 @@ function MoreActionsMenu(props: {
   onToggleDebug: () => void;
   canCopyConversation: boolean;
   onCopyConversation: () => void;
+  onCopySessionId?: () => void;
 }) {
   return (
-    <div className="chat-more-menu" role="dialog" aria-label="Chat actions">
+    <div className={`chat-more-menu ${props.placement === "top" ? "is-above" : ""}`} role="dialog" aria-label="Chat actions">
       <MenuItem icon={Pencil} label="Rename" title="Rename this chat" onClick={props.onRename} />
       <MenuItem icon={Sparkles} label="Assign plan" title="Assign a ready plan to this chat" onClick={props.onAssignPlan} />
-      <MenuItem icon={CopyIcon} label="Duplicate chat" title="Duplicate this chat's settings into a new column" onClick={props.onDuplicate} />
       <MenuItem icon={CopyIcon} label="Copy conversation" title="Copy the entire conversation as markdown" onClick={props.onCopyConversation} disabled={!props.canCopyConversation} />
+      {props.onCopySessionId ? (
+        <MenuItem icon={CopyIcon} label="Copy chat ID" title="Copy the chat session identifier to clipboard" onClick={props.onCopySessionId} />
+      ) : null}
       <MenuItem icon={Bug} label={props.debugMode ? "Hide debug events" : "Show debug events"} title={props.debugMode ? "Turn debug event rendering off" : "Show raw event data in tool cards"} onClick={props.onToggleDebug} />
       {props.prRecommendation ? (
         <MenuItem icon={GitPullRequest} label="Create pull request" title={`Open a PR for ${props.prRecommendation.branch} (${props.prRecommendation.changedFiles} files, +${props.prRecommendation.ahead}/-${props.prRecommendation.behind})`} onClick={props.onCreatePullRequest} />
@@ -497,18 +513,19 @@ function TrashIcon({ size = 11 }: { size?: number }) {
 
 function ContextIndicator({ used, limit }: { used: number; limit: number | null }) {
   const percentage = limit && limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
-  const circumference = 31.42;
+  const r = 7;
+  const circumference = 2 * Math.PI * r;
   const filled = circumference * percentage / 100;
   const ratio = limit && limit > 0
     ? `${used.toLocaleString()} / ${limit.toLocaleString()} tokens (${percentage}%)`
     : `${used.toLocaleString()} tokens; model context limit unavailable`;
   return (
     <span className={`chat-header-context is-${percentage >= 85 ? "critical" : percentage >= 60 ? "warning" : "healthy"}`} title={`Context usage: ${ratio}`}>
-      <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden="true">
-        <circle className="chat-header-context-track" cx="6" cy="6" r="5" />
-        <circle className="chat-header-context-value" cx="6" cy="6" r="5" strokeDasharray={`${filled} ${circumference - filled}`} />
+      <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+        <circle className="chat-header-context-track" cx="10" cy="10" r={r} />
+        <circle className="chat-header-context-value" cx="10" cy="10" r={r} strokeDasharray={`${filled} ${circumference - filled}`} />
       </svg>
-      <Gauge className="chat-header-context-gauge" size={8} />
+      <span className="chat-header-context-pct">{percentage}</span>
     </span>
   );
 }

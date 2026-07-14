@@ -1,27 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady, attachScreenshot } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
-
-async function selectLocalProvider(page: Page) {
-  await page.locator(".chat-column-model-chip").click();
-  await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
-  await page.getByTitle("Close provider and model catalog").click();
-}
+import { attachScreenshot, ensureChatPanel, openFixtureProject, selectLocalProvider } from "./helpers";
 
 async function sendMessage(page: Page, text: string) {
+  await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
   const input = page.getByTitle(/Chat input/).first();
   await input.waitFor({ state: "visible", timeout: 10_000 });
   await input.fill(text);
@@ -88,12 +69,12 @@ test.describe("chat edge cases: multi-turn, reasoning split, long chains, empty 
     await selectLocalProvider(page);
 
     await sendMessage(page, "reasoning-split-test");
-    await waitForCompletion(page, "fix is applied", 15_000);
+    await waitForCompletion(page, "fix is applied", 20_000);
     await page.waitForTimeout(500);
 
     // Should have 2 tool cards (read_file, edit_file).
     const toolCards = page.locator(".tool-card");
-    await expect(toolCards).toHaveCount(2);
+    await expect(toolCards).toHaveCount(2, { timeout: 10_000 });
 
     // The read_file card should come before edit_file card in DOM.
     const readCard = page.locator(".tool-card").filter({ hasText: "read file" }).first();
@@ -101,10 +82,16 @@ test.describe("chat edge cases: multi-turn, reasoning split, long chains, empty 
     await expect(readCard).toBeVisible();
     await expect(editCard).toBeVisible();
 
-    // Verify DOM order: read before edit.
-    const readBox = await readCard.boundingBox();
-    const editBox = await editCard.boundingBox();
-    expect(readBox?.y).toBeLessThan(editBox?.y!);
+    // Verify DOM order: read card appears before edit card.
+    const domOrder = await page.evaluate(() => {
+      const cards = Array.from(document.querySelectorAll('.tool-card'));
+      const readIdx = cards.findIndex(c => c.textContent?.includes('read file'));
+      const editIdx = cards.findIndex(c => c.textContent?.includes('edit file'));
+      return { readIdx, editIdx };
+    });
+    expect(domOrder.readIdx).toBeGreaterThanOrEqual(0);
+    expect(domOrder.editIdx).toBeGreaterThanOrEqual(0);
+    expect(domOrder.readIdx).toBeLessThan(domOrder.editIdx);
   });
 
   test("long sequential tool chain after completion", async ({ page }) => {
