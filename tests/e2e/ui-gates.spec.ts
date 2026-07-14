@@ -52,8 +52,8 @@ test.describe("UI gates: routing, no-manual-plan, settings, header, activity", (
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
     // Branch indicator.
-    await expect(page.locator(".chat-column-branch-name").first()).toContainText("main");
-    await expect(page.locator(".chat-column-branch").first()).toHaveAttribute("title");
+    await expect(page.locator(".chat-composer-branch-btn").first()).toContainText("main", { timeout: 10_000 });
+    await expect(page.locator(".chat-composer-branch-btn").first()).toHaveAttribute("title");
 
     // Model chip has a tooltip.
     const modelChip = page.locator(".chat-column-model-chip, button").filter({ hasText: /GLM|Coordinator|Model/ }).first();

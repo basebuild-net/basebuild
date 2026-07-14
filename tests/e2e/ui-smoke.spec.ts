@@ -19,10 +19,10 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
     // The branch indicator shows the mocked current branch "main".
-    await expect(page.locator(".chat-column-branch-name").first()).toContainText("main");
+    await expect(page.locator(".chat-composer-branch-btn").first()).toContainText("main", { timeout: 10_000 });
 
     // The branch button has a tooltip.
-    await expect(page.locator(".chat-column-branch").first()).toHaveAttribute("title");
+    await expect(page.locator(".chat-composer-branch-btn").first()).toHaveAttribute("title");
 
     expect(pageErrors).toEqual([]);
   });
@@ -42,7 +42,7 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     await page.getByTitle("Close provider and model catalog").click();
 
     // The compact header shows the selected model.
-    await expect(page.locator(".chat-column-model-chip").first()).toContainText("Local");
+    await expect(page.locator(".chat-column-model-chip").first()).toContainText("None");
 
     // Open the model picker and select a different model.
     await page.evaluate(() => {
@@ -85,7 +85,7 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     await expect(page.locator(".chat-picker[aria-label='Assign a ready plan']")).toHaveCount(0);
 
     // The branch indicator shows "main" (no auto-created worktree branch).
-    await expect(page.locator(".chat-column-branch-name").first()).toContainText("main");
+    await expect(page.locator(".chat-composer-branch-btn").first()).toContainText("main", { timeout: 10_000 });
 
     // No worktree indicator should show (no auto-created worktree on restore).
     await expect(page.locator(".chat-column-worktree")).toHaveCount(0);

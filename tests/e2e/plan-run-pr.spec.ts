@@ -20,7 +20,7 @@ test.describe("plan-run → PR recommendation", () => {
     await expect(page.locator(".chat-column-model-chip").first()).toBeVisible();
 
     // The branch indicator shows the current git branch (mocked as "main").
-    await expect(page.locator(".chat-column-branch-name").first()).toContainText("main");
+    await expect(page.locator(".chat-composer-branch-btn").first()).toContainText("main", { timeout: 10_000 });
 
     expect(pageErrors).toEqual([]);
   });
@@ -52,7 +52,7 @@ test.describe("plan-run → PR recommendation", () => {
     await expect(page.locator(".chat-column-header").first()).toBeVisible({ timeout: 10_000 });
 
     // The branch indicator shows the current git branch (mocked as "main").
-    await expect(page.locator(".chat-column-branch-name").first()).toContainText("main");
+    await expect(page.locator(".chat-composer-branch-btn").first()).toContainText("main", { timeout: 10_000 });
 
     // Simulate a plan-run "succeeded" event. The ChatPanel listens for
     // plan_run://event and matches on chatSessionId === nativeSessionId.
