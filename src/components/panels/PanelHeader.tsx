@@ -162,6 +162,7 @@ export function PanelHeader(props: PanelHeaderProps) {
               data-tab-index={index}
               onPointerDown={(e) => onTabPointerDown(e, index)}
               onClick={(e) => { e.stopPropagation(); onSwitchTab?.(tab.id); }}
+              onAuxClick={(e) => { if (e.button === 1) { e.stopPropagation(); e.preventDefault(); onCloseTab?.(tab.id); } }}
             >
               <TabIcon size={9} className="panel-header-tab-icon" />
               {editing && isActiveTab ? (

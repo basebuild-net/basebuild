@@ -32,7 +32,7 @@ const FocusPlanModal = lazy(() => import("./FocusPlanModal").then((m) => ({ defa
 const SourcePanel = lazy(() => import("../panels/SourcePanel").then((m) => ({ default: m.SourcePanel })));
 const SettingsModal = lazy(() => import("./SettingsModal").then((m) => ({ default: m.SettingsModal })));
 const ProjectDescriptionModal = lazy(() => import("./ProjectDescriptionModal").then((m) => ({ default: m.ProjectDescriptionModal })));
-import { CommandStrip, type StageKey } from "./CommandStrip";
+import { PlanningIndicators, type StageKey } from "./PlanningIndicators";
 import { ToastStack } from "./ToastStack";
 import { useProjectSchematic } from "../../state/schematic";
 import { getLastFocusedProject, revealInExplorer, setLastFocusedProject } from "../../lib/projects";
@@ -87,8 +87,10 @@ import { useAccount } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
 import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
 import type { IdeaCategory } from "../../lib/ideas";
+import { useIdeaState } from "../../state/ideas";
 import type { SessionTab, TabKind } from "../../lib/sessions";
 import { deleteSession } from "../../lib/sessions";
+import { renameNativeChatSession } from "../../lib/native-chat";
 import { assignPlanWithProfile, type LaunchProfile } from "../../lib/planDependencies";
 export type ToolId = "terminal";
 
@@ -113,7 +115,6 @@ export function AppShell({ updates }: AppShellProps) {
   const [plansModalOpen, setPlansModalOpen] = useState(false);
   const [plansModalTab, setPlansModalTab] = useState<PlanningTab>("plans");
   const [schematicModalOpen, setSchematicModalOpen] = useState(false);
-  const [commandStripCollapsed, setCommandStripCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logPanelOpen, setLogPanelOpen] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
@@ -180,6 +181,7 @@ export function AppShell({ updates }: AppShellProps) {
   const session = useSessionState(activeProjectPath, activeProject?.lastActiveSessionId);
   const plans = usePlans(session.activeSessionId);
   const schematic = useProjectSchematic(activeProjectPath);
+  const ideaState = useIdeaState(session.activeSessionId);
   const account = useAccount();
   const [ompInstalled, setOmpInstalled] = useState(false);
   useEffect(() => {
@@ -1166,9 +1168,38 @@ export function AppShell({ updates }: AppShellProps) {
   /** Handle panel grid state changes. */
   const handlePanelGridChange = useCallback(
     (newState: PanelGridState) => {
-      setPanelGridState(newState);
+      setPanelGridState(repairActivePanelId(newState));
     },
     [],
+  );
+
+  /** Persist a tab rename from the panel header tab strip to the DB.
+   *  The panel grid state is already updated by PanelGrid; this syncs the
+   *  title to session_tabs and (for chat tabs) the native chat session so
+   *  it survives project switches and restarts. */
+  const handleRenameTab = useCallback(
+    (panelId: string, title: string) => {
+      const allPanels = flattenPanels(panelGridState.root);
+      const panel = allPanels.find((p) => p.id === panelId);
+      if (!panel) return;
+      // Find the matching session tab — same lookup logic as renderPanel.
+      const tab = session.tabs.find(
+        (t) =>
+          (panel.chatSessionId && t.chatSessionId === panel.chatSessionId) ||
+          t.title === panel.title ||
+          t.id === panelId,
+      );
+      if (tab) {
+        void session.setTabTitle(tab.id, title);
+      }
+      // For chat tabs, also rename the native chat session so the
+      // ChatPanel title-sync effect doesn't overwrite it on remount.
+      const chatSessionId = panel.chatSessionId ?? tab?.chatSessionId ?? null;
+      if (chatSessionId) {
+        void renameNativeChatSession(chatSessionId, title);
+      }
+    },
+    [panelGridState.root, session.tabs, session.setTabTitle],
   );
 
   /** Handle closing a panel → moves to history. */
@@ -1326,9 +1357,9 @@ export function AppShell({ updates }: AppShellProps) {
                 onOpenPlans={() => openPlanningModal("plans")}
                 onCreatePanel={handleCreateTypedPanel}
               />
-              <CommandStrip
+              <PlanningIndicators
                 plans={plans.plans}
-                ideaCount={0}
+                ideas={ideaState.ideas}
                 schematicHealth={schematic.report ? (schematic.report.health === "complete" ? "complete" : "incomplete") : "none"}
                 onOpenStage={(stage: StageKey) => {
                   addLog("debug", "Planning stage opened", stage);
@@ -1342,8 +1373,22 @@ export function AppShell({ updates }: AppShellProps) {
                     openPlanningModal("flow");
                   }
                 }}
-                collapsed={commandStripCollapsed}
-                onToggleCollapse={() => setCommandStripCollapsed((v) => !v)}
+                onOpenFullUI={(stage: StageKey) => {
+                  if (stage === "schematic") {
+                    handleOpenSchematic();
+                  } else if (stage === "ideas") {
+                    openPlanningModal("ideas");
+                  } else if (stage === "plans") {
+                    openPlanningModal("plans");
+                  } else if (stage === "running") {
+                    openPlanningModal("flow");
+                  } else {
+                    openPlanningModal("runs");
+                  }
+                }}
+                onMarkComplete={(planId: string) => {
+                  void plans.setPlanStatus(planId, "finished");
+                }}
               />
             </div>
           ) : null}
@@ -1374,6 +1419,7 @@ export function AppShell({ updates }: AppShellProps) {
                 <PanelGrid
                   state={panelGridState}
                   onStateChange={handlePanelGridChange}
+                  onRenameTab={handleRenameTab}
                   renderPanel={renderPanel}
                   onCreatePanel={handleCreatePanel}
                   viewportWidth={typeof window !== "undefined" ? window.innerWidth - 80 : 1200}

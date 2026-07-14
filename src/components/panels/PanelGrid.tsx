@@ -46,6 +46,10 @@ const REPOSITION_SUPPRESSION_MS = 420;
 export type PanelGridProps = {
   state: PanelGridState;
   onStateChange: (state: PanelGridState) => void;
+  /** Called when a panel/tab is renamed so the caller can persist the new
+   *  title to the session_tabs table and (for chat tabs) the native chat
+   *  session. Without this, renames revert on project switch. */
+  onRenameTab?: (panelId: string, title: string) => void;
   /** Render a panel's content by panel id. The caller owns mounting. */
   renderPanel: (panel: Panel, isActive: boolean) => React.ReactNode;
   /** Called when a panel is created (split/duplicate). Returns the new panel. */
@@ -76,7 +80,7 @@ type DragState = {
 };
 
 export function PanelGrid(props: PanelGridProps) {
-  const { state, onStateChange, renderPanel, onCreatePanel, viewportWidth, viewportHeight } = props;
+  const { state, onStateChange, onRenameTab, renderPanel, onCreatePanel, viewportWidth, viewportHeight } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const panelRefs = useRef<Record<string, HTMLDivElement>>({});
   const dragRef = useRef<DragState | null>(null);
@@ -155,8 +159,9 @@ export function PanelGrid(props: PanelGridProps) {
       if (newRoot !== state.root) {
         onStateChange({ ...state, root: newRoot });
       }
+      onRenameTab?.(panelId, title);
     },
-    [state, onStateChange],
+    [state, onStateChange, onRenameTab],
   );
 
   const handleDuplicate = useCallback(
@@ -264,7 +269,26 @@ export function PanelGrid(props: PanelGridProps) {
         let dropTarget: DragState["dropTarget"] = null;
         if (moved) {
           const el = document.elementFromPoint(clientX, clientY);
-          const panelEl = el?.closest("[data-panel-id]") as HTMLElement | null;
+          let panelEl = el?.closest("[data-panel-id]") as HTMLElement | null;
+          // When the cursor is over a splitter (or any non-panel gap),
+          // elementFromPoint returns an element with no data-panel-id
+          // ancestor. Fall back to the nearest panel by bounding rect so
+          // drags over dividing lines don't lose their drop target.
+          if (!panelEl) {
+            let bestDist = Infinity;
+            for (const id of Object.keys(panelRefs.current)) {
+              const refEl = panelRefs.current[id];
+              if (!refEl) continue;
+              const r = refEl.getBoundingClientRect();
+              const dx = Math.max(r.left - clientX, 0, clientX - r.right);
+              const dy = Math.max(r.top - clientY, 0, clientY - r.bottom);
+              const dist = dx * dx + dy * dy;
+              if (dist < bestDist) {
+                bestDist = dist;
+                panelEl = refEl;
+              }
+            }
+          }
           if (panelEl) {
             const targetId = panelEl.dataset.panelId!;
             const rect = panelEl.getBoundingClientRect();
@@ -339,28 +363,24 @@ export function PanelGrid(props: PanelGridProps) {
           if (finalDrag.dropTarget) {
             const { panelId: targetId, side } = finalDrag.dropTarget;
             if (side === "center" && targetId !== finalDrag.draggedId) {
-              // Merge as tab into target panel.
+              // Merge as tab into target panel. The dragged panel is removed
+              // from the tree and added as a tab — set activePanelId to the
+              // surviving target leaf, not the dragged panel (whose id is
+              // now a tab id, not a leaf id).
+              const newRoot = movePanel(state.root, finalDrag.draggedId, targetId, side);
+              onStateChange({ ...state, root: newRoot, activePanelId: targetId });
+            } else if (side !== "center" && targetId !== finalDrag.draggedId) {
+              // Edge drop onto another panel: split beside it.
               const newRoot = movePanel(state.root, finalDrag.draggedId, targetId, side);
               onStateChange({ ...state, root: newRoot, activePanelId: finalDrag.draggedId });
-            } else if (side !== "center") {
-              // Edge drop: split (self or other). For self-split, use
-              // splitPanelAt directly (movePanel removes then re-adds,
-              // which fails for self).
-              if (targetId === finalDrag.draggedId) {
-                // Self-edge drop: tear off the active tab into a new panel
-                // beside. Falls back to creating a new blank panel if the
-                // panel has only one tab.
-                const torn = tearOffTab(state.root, finalDrag.draggedId, side);
-                if (torn) {
-                  onStateChange({ ...state, root: torn.root, activePanelId: torn.newPanelId });
-                } else {
-                  const newPanel = onCreatePanel(finalDrag.draggedId, side);
-                  const newRoot = splitPanelAt(state.root, finalDrag.draggedId, newPanel, side);
-                  onStateChange({ ...state, root: newRoot, activePanelId: newPanel.id });
-                }
-              } else {
-                const newRoot = movePanel(state.root, finalDrag.draggedId, targetId, side);
-                onStateChange({ ...state, root: newRoot, activePanelId: finalDrag.draggedId });
+            } else if (side !== "center" && targetId === finalDrag.draggedId) {
+              // Self-edge drop: tear off the active tab into a new panel
+              // beside the current one. Only works when the panel has 2+
+              // tabs — with a single tab there's nothing to tear off, so
+              // it's a no-op (no blank panel creation).
+              const torn = tearOffTab(state.root, finalDrag.draggedId, side);
+              if (torn) {
+                onStateChange({ ...state, root: torn.root, activePanelId: torn.newPanelId });
               }
             }
           } else if (finalDrag.initialIndex !== finalDrag.currentIndex && metrics.length >= 2) {
@@ -420,7 +440,7 @@ export function PanelGrid(props: PanelGridProps) {
       document.addEventListener("pointerup", handleUp, { once: true });
       document.addEventListener("pointercancel", handleCancel, { once: true });
     },
-    [state, onStateChange, onCreatePanel],
+    [state, onStateChange],
   );
 
   // ── Empty state ──
@@ -627,9 +647,18 @@ function DropZoneOverlay({ side }: { side: DropSide }) {
 function renamePanelInTree(root: SplitNode | null, panelId: string, title: string): SplitNode | null {
   if (!root) return null;
   if (root.kind === "leaf") {
-    return root.panel.id === panelId
-      ? { kind: "leaf", panel: { ...root.panel, title } }
-      : root;
+    if (root.panel.id !== panelId) return root;
+    const panel = root.panel;
+    // When the panel has tabs, rename the active tab (the one the user
+    // double-clicked) — not just the panel-level title.
+    if (panel.tabs && panel.tabs.length > 0) {
+      const activeId = panel.activeTabId ?? panel.tabs[0].id;
+      const tabs = panel.tabs.map((t) =>
+        t.id === activeId ? { ...t, title } : t,
+      );
+      return { kind: "leaf", panel: { ...panel, title, tabs } };
+    }
+    return { kind: "leaf", panel: { ...panel, title } };
   }
   return {
     ...root,

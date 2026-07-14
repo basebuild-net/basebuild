@@ -84,7 +84,7 @@ export function ChatEnvironmentPanel({
           {FOLDS.map(({ id, icon: Icon, label }) => (
             <button
               key={id}
-              className="chat-env-tab"
+              className="chat-env-tab chat-env-tab-icon"
               type="button"
               title={label}
               onClick={() => {
@@ -93,8 +93,7 @@ export function ChatEnvironmentPanel({
                 else onOpenChanges();
               }}
             >
-              <Icon size={11} />
-              <span>{label}</span>
+              <Icon size={12} />
             </button>
           ))}
           <div className="chat-env-add-wrapper">
@@ -104,9 +103,7 @@ export function ChatEnvironmentPanel({
               title="New panel"
               onClick={() => setMenuOpen((v) => !v)}
             >
-              <Plus size={11} />
-              <span>New</span>
-              <ChevronDown size={8} />
+              <Plus size={12} />
             </button>
             {menuOpen ? (
               <div className="chat-env-add-menu" onMouseLeave={() => setMenuOpen(false)}>

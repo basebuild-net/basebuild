@@ -73,6 +73,7 @@ import {
   nativeProviderLoginStart,
   nativeSessionLatestMetric,
   nativeSaveProviderCredential,
+  renameNativeChatSession,
   type ChatModelDefault,
   type NativeChatMessage,
   type NativeModel,
@@ -88,7 +89,6 @@ import type { Idea } from "../../lib/ideas";
 import { inspectProjectSchematic, type SchematicReport } from "../../lib/schematic";
 import { schematicWizardAction } from "../../lib/planningActions";
 import { readSkill } from "../../lib/skills";
-import { renameSession as renameSessionApi } from "../../lib/sessions";
 import type { AgentMode } from "../../lib/sessions";
 import { readModelRecency, recordModelUse } from "../../lib/modelRecency";
 import { useLogs } from "../../state/log";
@@ -2120,7 +2120,7 @@ export function ChatPanel({
     setTitleLocked(true);
     if (nativeSessionId) {
       setSessionTitle({ sessionId: nativeSessionId, title });
-      void renameSessionApi(nativeSessionId, title);
+      void renameNativeChatSession(nativeSessionId, title);
     }
     onRenameChat?.(title);
   }, [onRenameChat, nativeSessionId]);

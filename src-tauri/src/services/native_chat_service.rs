@@ -585,6 +585,19 @@ impl NativeChatService {
         .map_err(|e| e.to_string())
     }
 
+    /// Rename a native chat session. Called when the user renames a chat tab
+    /// so the title survives project switches and restarts.
+    pub fn rename_session(session_id: &str, title: &str) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        let now = now_seconds();
+        conn.execute(
+            "UPDATE native_chat_sessions SET title = ?2, updated_at = ?3 WHERE id = ?1",
+            params![session_id, title, now],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     /// Persist the provider/model/effort selection on an existing session.
     /// Called when the user changes the selection in the composer so the
     /// choice survives restart. Validates the provider/model pair first.

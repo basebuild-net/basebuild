@@ -220,6 +220,10 @@ export async function nativeChatGet(sessionId: string): Promise<NativeChatSessio
   return invoke<NativeChatSession | null>("native_chat_get", { sessionId });
 }
 
+export async function renameNativeChatSession(sessionId: string, title: string): Promise<void> {
+  return invoke("native_chat_rename", { sessionId, title });
+}
+
 
 export type NativeProviderCredential = {
   providerId: string;
