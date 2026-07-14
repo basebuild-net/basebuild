@@ -29,6 +29,8 @@ export function buildChatTimeline(
   // instead of scanning all tool events per message (O(m × t)).
   const toolsByMessage = new Map<string, NativeToolEvent[]>();
   for (const te of toolEvents) {
+    // request_metrics is an internal bookkeeping event, not chat content.
+    if (te.kind === "request_metrics") continue;
     if (te.messageId) {
       const bucket = toolsByMessage.get(te.messageId);
       if (bucket) bucket.push(te);
@@ -74,6 +76,7 @@ export function buildChatTimeline(
   // approval card emitted in the same second as the (possibly huge)
   // optimistic user message sorts above it and ends up off-screen.
   for (const te of toolEvents) {
+    if (te.kind === "request_metrics") continue;
     if (!te.messageId) {
       events.push({
         kind: "tool",
