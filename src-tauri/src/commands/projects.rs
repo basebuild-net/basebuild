@@ -130,3 +130,12 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Return the global basebuild data directory (~/.basebuild) where chat
+/// history, config packs, and other local state is stored. Used by the
+/// History modal's "Open folder" button so users can browse their data.
+#[tauri::command]
+pub fn basebuild_data_dir() -> Result<String, String> {
+    let paths = crate::services::storage_paths::StoragePathService::ensure_global_layout()?;
+    Ok(paths.global_dir.to_string_lossy().to_string())
+}

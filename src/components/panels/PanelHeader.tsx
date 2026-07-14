@@ -172,23 +172,23 @@ export function PanelHeader(props: PanelHeaderProps) {
         >
           <X size={11} />
         </button>
+        {menuOpen ? (
+          <div className="panel-header-menu" onMouseLeave={() => setMenuOpen(false)}>
+            <button type="button" title="Duplicate this panel's settings" onClick={() => { setMenuOpen(false); onDuplicate(); }}>
+              <PanelRightClose size={11} /> Duplicate
+            </button>
+            <button type="button" title="Split right (add panel beside)" onClick={() => { setMenuOpen(false); onSplitRight(); }}>
+              <SplitSquareHorizontal size={11} /> Split right
+            </button>
+            <button type="button" title="Split down (add panel below)" onClick={() => { setMenuOpen(false); onSplitDown(); }}>
+              <SplitSquareVertical size={11} /> Split down
+            </button>
+            <button type="button" title="Close and move to history" onClick={() => { setMenuOpen(false); onClose(); }}>
+              <X size={11} /> Close
+            </button>
+          </div>
+        ) : null}
       </div>
-      {menuOpen ? (
-        <div className="panel-header-menu" onMouseLeave={() => setMenuOpen(false)}>
-          <button type="button" title="Duplicate this panel's settings" onClick={() => { setMenuOpen(false); onDuplicate(); }}>
-            <PanelRightClose size={11} /> Duplicate
-          </button>
-          <button type="button" title="Split right (add panel beside)" onClick={() => { setMenuOpen(false); onSplitRight(); }}>
-            <SplitSquareHorizontal size={11} /> Split right
-          </button>
-          <button type="button" title="Split down (add panel below)" onClick={() => { setMenuOpen(false); onSplitDown(); }}>
-            <SplitSquareVertical size={11} /> Split down
-          </button>
-          <button type="button" title="Close and move to history" onClick={() => { setMenuOpen(false); onClose(); }}>
-            <X size={11} /> Close
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }

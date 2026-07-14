@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { FileText, LayoutTemplate, MessageSquare, TerminalSquare, Trash2, X, Zap } from "lucide-react";
+import { FileText, FolderOpen, LayoutTemplate, MessageSquare, TerminalSquare, Trash2, X, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Panel, PanelType } from "../../lib/panelGrid";
 import { ConfirmDialog } from "../layout/ConfirmDialog";
 import { nativeChatHistory, type NativeChatHistoryEntry } from "../../lib/native-chat";
 import { formatRelativeTime } from "../../lib/timing";
+import { basebuildDataDir, revealInExplorer } from "../../lib/projects";
 
 const typeIcons: Record<PanelType, LucideIcon> = {
   chat: MessageSquare,
@@ -74,9 +75,24 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
       <div className="modal history-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>History</h2>
-          <button className="btn-icon" type="button" title="Close (Esc)" onClick={onClose}>
-            <X size={14} />
-          </button>
+          <div className="row gap-sm">
+            <button
+              className="btn btn-sm"
+              type="button"
+              title="Open the basebuild data folder in your file manager"
+              onClick={() => void (async () => {
+                try {
+                  const dir = await basebuildDataDir();
+                  await revealInExplorer(dir);
+                } catch { /* best-effort */ }
+              })()}
+            >
+              <FolderOpen size={12} /> Open folder
+            </button>
+            <button className="btn-icon" type="button" title="Close (Esc)" onClick={onClose}>
+              <X size={14} />
+            </button>
+          </div>
         </div>
         <div className="modal-body history-modal-body">
           <section className="history-modal-section" aria-label="Closed panels">

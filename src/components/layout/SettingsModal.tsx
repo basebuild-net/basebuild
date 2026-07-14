@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Lock, LogOut, Moon, Plug, RefreshCw, Settings2, Shield, Sparkles, Sun, Trash2, Unplug, User, Wrench, X } from "lucide-react";
+import { AlertTriangle, Bell, Check, Download, GitFork, Globe, Key, Lightbulb, Lock, LogOut, Moon, Plug, RefreshCw, Settings2, Shield, Sparkles, Sun, Trash2, Unplug, User, Wrench, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { CopyButton } from "./CopyButton";
 import { FinalTouchesTab } from "./FinalTouchesTab";
@@ -9,6 +9,7 @@ import { OptionList } from "./OptionList";
 import { RuntimeDefaultsFields } from "./RuntimeDefaultsFields";
 import { listRequirements, type RequirementStatus } from "../../lib/requirements";
 import { appVersion } from "../../lib/app";
+import { openUrl } from "../../lib/app";
 import type { UpdaterState } from "../../state/updater";
 import { authStartDeviceFlow, authPollDeviceFlow, type PollResult } from "../../lib/auth";
 import { useAccount, type AccountState } from "../../state/account";
@@ -1056,22 +1057,30 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                   ideas, and plans.
                 </p>
                 <div className="row gap-sm mt-8">
-                  <a
+                  <button
                     className="btn btn-sm"
-                    href="https://github.com/basebuild-net/basebuild/issues/new?labels=bug&template=bug_report.md&title=Bug:"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    type="button"
+                    title="Open basebuild.net in your browser"
+                    onClick={() => void openUrl("https://basebuild.net")}
+                  >
+                    <Globe size={12} /> Website
+                  </button>
+                  <button
+                    className="btn btn-sm"
+                    type="button"
+                    title="Open the GitHub repository in your browser"
+                    onClick={() => void openUrl("https://github.com/basebuild-net/basebuild")}
+                  >
+                    <GitFork size={12} /> GitHub
+                  </button>
+                  <button
+                    className="btn btn-sm"
+                    type="button"
+                    title="Report a bug on GitHub"
+                    onClick={() => void openUrl("https://github.com/basebuild-net/basebuild/issues/new?labels=bug&template=bug_report.md&title=Bug:")}
                   >
                     Report a bug
-                  </a>
-                  <a
-                    className="btn btn-sm"
-                    href="https://github.com/basebuild-net/basebuild"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    GitHub
-                  </a>
+                  </button>
                 </div>
               </div>
             ) : null}
