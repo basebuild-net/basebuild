@@ -1689,9 +1689,9 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 /* Live reasoning text: grey, italic, streamed */
 .chat-reasoning-live { color: var(--bb-muted) !important; font-style: italic; }
 /* Reasoning fold (collapsed thinking on persisted messages) */
-.chat-reasoning-fold { margin: 2px 0; border-left: 2px solid var(--bb-border); }
+.chat-reasoning-fold { margin: 2px 0; }
 .chat-reasoning-toggle { background: none; border: none; color: var(--bb-muted); font-size: 10px; font-weight: 600; text-transform: uppercase; cursor: pointer; padding: 2px 0; display: flex; align-items: center; gap: 4px; }
-.chat-thinking-block { margin: 2px 0; border-left: 2px solid var(--bb-status-running, #38bdf8); }
+.chat-thinking-block { margin: 2px 0; }
 .chat-thinking-toggle { background: none; border: none; color: var(--bb-muted); font-size: 10px; font-weight: 600; text-transform: uppercase; cursor: pointer; padding: 2px 0; display: flex; align-items: center; gap: 4px; }
 .chat-thinking-content { font-family: var(--bb-font); font-size: 11px; font-style: italic; color: var(--bb-muted); white-space: pre-wrap; word-break: break-word; margin: 4px 6px; max-height: 200px; overflow-y: auto; }
 .chat-loading-row { display: flex; align-items: center; gap: 6px; padding: 4px 8px; }

@@ -17,7 +17,7 @@ import {
   sourceLabel,
   tabComplete,
 } from "../../lib/chatCommands";
-import { ChatHeader, ChatTitleBar, BranchDropdown } from "./ChatHeader";
+import { ChatHeader, BranchDropdown } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
 import { QuestionCard } from "./QuestionCard";
 import { MarkdownView } from "./MarkdownView";
@@ -662,10 +662,10 @@ export function ChatPanel({
     return () => { cancelled = true; };
   }, [nativeSessionId]);
   // Sync session title to the panel/tab title so the sidebar shows the real
-  // chat title instead of "Chat 1". Fires when the backend auto-titles or
-  // when a renamed title is loaded.
+  // chat title instead of the default "Chat N". Fires when the backend
+  // auto-titles or when a session is loaded.
   useEffect(() => {
-    if (sessionTitle && sessionTitle !== "New Chat" && sessionTitle !== "Native Chat") {
+    if (sessionTitle) {
       onRenameChat?.(sessionTitle);
     }
   }, [sessionTitle, onRenameChat]);
@@ -2109,12 +2109,6 @@ export function ChatPanel({
       <div aria-live="polite" aria-atomic="true" className="sr-only" >
         {streaming ? `Agent is responding${streamPhase === "tools" ? " — running tools" : streamPhase === "thinking" ? " — thinking" : ""}` : ""}
       </div>
-      <ChatTitleBar
-        title={sessionTitle ?? chatTitle ?? (nativeSessionId ? "Chat" : "New chat")}
-        onRename={handleRename}
-        titleLocked={titleLocked}
-        renameSignal={renameSignal}
-      />
       {showPrCard && prRec ? (
         <PrRecommendationCard
           projectPath={projectPath}
