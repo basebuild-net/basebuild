@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -12,10 +12,13 @@ import {
   Plus,
   Settings2,
   TerminalSquare,
+  MoreVertical,
+  Trash2,
   Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { flattenPanels, parsePanelGrid } from "../../lib/panelGrid";
+import { useDropdownPosition } from "../../state/useDropdownPosition";
 import { usePanelStatus, type PanelStatus } from "../panels/PanelStatusContext";
 import { AccountButton } from "./AccountButton";
 import { UpdateButton } from "./UpdateButton";
@@ -78,6 +81,8 @@ export type ActivitySidebarProps = {
   updates: UpdaterState;
   onSelectProject: (path: string) => void;
   onOpenFolder: () => void;
+  onRemoveProject?: (path: string) => void;
+  onOpenInExplorer?: (path: string) => void;
   pickerInFlight: boolean;
   onFocusPanel: (panelId: string) => void;
   onCreateChat: () => void;
@@ -89,6 +94,70 @@ export type ActivitySidebarProps = {
   onToggleCollapse: () => void;
 };
 
+function ProjectMenuButton({ projectPath, projectName, onOpenInExplorer, onRemoveProject }: {
+  projectPath: string;
+  projectName: string;
+  onOpenInExplorer?: (path: string) => void;
+  onRemoveProject?: (path: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuPos = useDropdownPosition(160);
+  const closeRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (menuPos.triggerRef.current?.contains(target)) return;
+      const menu = document.querySelector(".project-menu-dropdown");
+      if (menu && !menu.contains(target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    closeRef.current = () => document.removeEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open, menuPos.triggerRef]);
+
+  if (!onOpenInExplorer && !onRemoveProject) return null;
+
+  return (
+    <div className="project-menu-wrap">
+      <button
+        ref={menuPos.triggerRef}
+        className="project-menu-btn"
+        type="button"
+        title={`Manage ${projectName}`}
+        onClick={(e) => { e.stopPropagation(); menuPos.recompute(); setOpen((v) => !v); }}
+      >
+        <MoreVertical size={12} />
+      </button>
+      {open ? (
+        <div className={`project-menu-dropdown ${menuPos.placement === "top" ? "is-above" : ""}`} role="menu" aria-label={`Actions for ${projectName}`}>
+          {onOpenInExplorer ? (
+            <button
+              className="project-menu-item"
+              type="button"
+              title="Open this project folder in the file explorer"
+              onClick={(e) => { e.stopPropagation(); setOpen(false); onOpenInExplorer(projectPath); }}
+            >
+              <FolderPlus size={11} /> Open in Explorer
+            </button>
+          ) : null}
+          {onRemoveProject ? (
+            <button
+              className="project-menu-item is-danger"
+              type="button"
+              title={`Remove ${projectName} from the sidebar (does not delete files)`}
+              onClick={(e) => { e.stopPropagation(); setOpen(false); onRemoveProject(projectPath); }}
+            >
+              <Trash2 size={11} /> Remove Project
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ActivitySidebar({
   activeProjectPath,
   root,
@@ -99,6 +168,8 @@ export function ActivitySidebar({
   updates,
   onSelectProject,
   onOpenFolder,
+  onRemoveProject,
+  onOpenInExplorer,
   pickerInFlight,
   onFocusPanel,
   onCreateChat,
@@ -311,6 +382,12 @@ export function ActivitySidebar({
                     <span className={isActive ? "activity-sidebar-project-name" : "activity-sidebar-row-title"}>{name}</span>
                     <span className={`agent-status-dot agent-status-${agentStatus}`} title={`Agent: ${agentStatus}`} aria-label={`Agent status: ${agentStatus}`} />
                   </div>
+                  <ProjectMenuButton
+                    projectPath={project.path}
+                    projectName={name}
+                    onOpenInExplorer={onOpenInExplorer}
+                    onRemoveProject={onRemoveProject}
+                  />
                   {branch ? (
                     <span className="activity-sidebar-project-branch" title={`Branch: ${branch}`} onClick={() => onSelectProject(project.path)}>
                       {branch}

@@ -555,6 +555,13 @@ export function AppShell({ updates }: AppShellProps) {
     [sidebar, activeProjectPath, handleShowToast],
   );
 
+  const handleRevealProject = useCallback(
+    (path: string) => {
+      void revealInExplorer(path);
+    },
+    [],
+  );
+
   const handleCreateSession = useCallback(async () => {
     await session.createSession();
     handleShowToast("Chat created", "New chat session started.", "success");
@@ -1226,6 +1233,8 @@ export function AppShell({ updates }: AppShellProps) {
           updates={updates}
           onSelectProject={handleSelectProject}
           onOpenFolder={handleOpenFolder}
+          onRemoveProject={handleRemoveProject}
+          onOpenInExplorer={handleRevealProject}
           pickerInFlight={sidebar.pickerInFlight}
           onFocusPanel={(panelId) => setPanelGridState((prev) => ({ ...prev, activePanelId: panelId }))}
           onCreateChat={() => handleCreateTypedPanel("chat")}
