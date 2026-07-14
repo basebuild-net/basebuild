@@ -4,6 +4,7 @@ import {
   MessageSquare,
   MoreVertical,
   PanelRightClose,
+  Plus,
   SplitSquareHorizontal,
   SplitSquareVertical,
   TerminalSquare,
@@ -135,6 +136,14 @@ export function PanelHeader(props: PanelHeaderProps) {
           );
         })}
         <span className={`panel-status-indicator ${statusClass}`} title={`Status: ${status}`} />
+        <button
+          className="btn-icon btn-icon-sm panel-header-add-tab"
+          type="button"
+          title="New tab (split right)"
+          onClick={(e) => { e.stopPropagation(); onSplitRight(); }}
+        >
+          <Plus size={11} />
+        </button>
       </div>
       <div className="panel-header-actions">
         <button

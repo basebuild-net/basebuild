@@ -68,8 +68,8 @@ type DragState = {
   /** Metrics for the split the dragged panel is in. */
   splitMetrics: PanelMetric[];
   splitDirection: SplitDirection;
-  /** The split node the dragged panel belongs to. */
-  splitNode: SplitBranch;
+  /** The split node the dragged panel belongs in (null for standalone leaf). */
+  splitNode: SplitBranch | null;
   /** Drop target during a split-drag (null = reorder mode). */
   dropTarget: { panelId: string; side: DropSide } | null;
 };
@@ -177,39 +177,43 @@ export function PanelGrid(props: PanelGridProps) {
     [state, onStateChange],
   );
 
-  // ── Drag-to-reorder (ported from reference IDE) ──
+  // ── Drag-to-reorder / split / merge ──
+  // Works for single panels too: dragging onto an edge of the same panel
+  // creates a split. Dragging onto another panel's edge splits there.
+  // Center drop on another panel merges as a tab.
   const handleHeaderPointerDown = useCallback(
     (panelId: string, e: ReactPointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
       if (!state.root) return;
 
-      // Find the split containing this panel.
+      // Find the split containing this panel (may be null for a single
+      // standalone panel — drag still works for self-split and cross-panel drops).
       const parentSplit = findParentSplit(state.root, panelId);
-      if (!parentSplit || parentSplit.kind !== "split") return; // single panel, no reorder
 
-      // Get the siblings in the same split.
-      const siblings = parentSplit.children;
-      const panelIndex = siblings.findIndex(
-        (child) => child.kind === "leaf" && child.panel.id === panelId,
-      );
-      if (panelIndex === -1) return;
-      if (siblings.length < 2) return; // nothing to reorder
-
-      // Measure sibling positions.
-      const isRow = parentSplit.direction === "row";
-      const metrics: PanelMetric[] = [];
-      for (const sibling of siblings) {
-        if (sibling.kind !== "leaf") continue;
-        const el = panelRefs.current[sibling.panel.id];
-        if (!el) continue;
-        const rect = el.getBoundingClientRect();
-        metrics.push({
-          id: sibling.panel.id,
-          start: isRow ? rect.left : rect.top,
-          size: isRow ? rect.width : rect.height,
-        });
+      // Gather sibling metrics for reorder (only if we're in a split with 2+ siblings).
+      let metrics: PanelMetric[] = [];
+      let panelIndex = 0;
+      let isRow = true;
+      if (parentSplit && parentSplit.kind === "split") {
+        const siblings = parentSplit.children;
+        panelIndex = siblings.findIndex(
+          (child) => child.kind === "leaf" && child.panel.id === panelId,
+        );
+        if (panelIndex !== -1 && siblings.length >= 2) {
+          isRow = parentSplit.direction === "row";
+          for (const sibling of siblings) {
+            if (sibling.kind !== "leaf") continue;
+            const el = panelRefs.current[sibling.panel.id];
+            if (!el) continue;
+            const rect = el.getBoundingClientRect();
+            metrics.push({
+              id: sibling.panel.id,
+              start: isRow ? rect.left : rect.top,
+              size: isRow ? rect.width : rect.height,
+            });
+          }
+        }
       }
-      if (metrics.length !== siblings.filter((s) => s.kind === "leaf").length) return;
 
       e.preventDefault();
       dragCleanupRef.current?.();
@@ -226,8 +230,8 @@ export function PanelGrid(props: PanelGridProps) {
         moved: false,
         pointerId: e.pointerId,
         splitMetrics: metrics,
-        splitDirection: parentSplit.direction,
-        splitNode: parentSplit,
+        splitDirection: isRow ? "row" : "column",
+        splitNode: parentSplit as SplitBranch | null,
         dropTarget: null,
       };
 
@@ -246,48 +250,45 @@ export function PanelGrid(props: PanelGridProps) {
         const dragOffset = coord - startCoord;
         const moved = current.moved || Math.abs(dragOffset) >= DRAG_THRESHOLD_PX;
 
-        // Check for drop zones (split onto another panel).
+        // Check for drop zones (split onto another panel or self).
         let dropTarget: DragState["dropTarget"] = null;
         if (moved) {
           const el = document.elementFromPoint(clientX, clientY);
           const panelEl = el?.closest("[data-panel-id]") as HTMLElement | null;
           if (panelEl) {
             const targetId = panelEl.dataset.panelId!;
-            if (targetId !== current.draggedId) {
-              const rect = panelEl.getBoundingClientRect();
-              const relX = (clientX - rect.left) / rect.width;
-              const relY = (clientY - rect.top) / rect.height;
-              // Determine which edge the pointer is closest to. The center
-              // area (all distances > 0.25) triggers a "center" drop = add
-              // as a tab inside the target panel.
-              const distLeft = relX;
-              const distRight = 1 - relX;
-              const distTop = relY;
-              const distBottom = 1 - relY;
-              const minDist = Math.min(distLeft, distRight, distTop, distBottom);
-              if (minDist < 0.2) {
-                if (minDist === distLeft) dropTarget = { panelId: targetId, side: "left" };
-                else if (minDist === distRight) dropTarget = { panelId: targetId, side: "right" };
-                else if (minDist === distTop) dropTarget = { panelId: targetId, side: "top" };
-                else dropTarget = { panelId: targetId, side: "bottom" };
-              } else {
-                dropTarget = { panelId: targetId, side: "center" };
-              }
+            const rect = panelEl.getBoundingClientRect();
+            const relX = (clientX - rect.left) / rect.width;
+            const relY = (clientY - rect.top) / rect.height;
+            const distLeft = relX;
+            const distRight = 1 - relX;
+            const distTop = relY;
+            const distBottom = 1 - relY;
+            const minDist = Math.min(distLeft, distRight, distTop, distBottom);
+            if (minDist < 0.2) {
+              if (minDist === distLeft) dropTarget = { panelId: targetId, side: "left" };
+              else if (minDist === distRight) dropTarget = { panelId: targetId, side: "right" };
+              else if (minDist === distTop) dropTarget = { panelId: targetId, side: "top" };
+              else dropTarget = { panelId: targetId, side: "bottom" };
+            } else if (targetId !== current.draggedId) {
+              // Center drop = add as tab (only for other panels, not self).
+              dropTarget = { panelId: targetId, side: "center" };
             }
           }
         }
 
-        // For reorder, use the drag math.
-        const dragStateForReorder = {
-          draggedId: current.draggedId,
-          initialIndex: current.initialIndex,
-          currentIndex: current.currentIndex,
-          startX: startCoord,
-          currentX: coord,
-          moved,
-          metrics: current.splitMetrics,
-        };
-        const newIndex = moved && !dropTarget ? resolveDragIndex(dragStateForReorder) : current.initialIndex;
+        // For reorder, use the drag math (only if we have metrics).
+        const newIndex = moved && !dropTarget && metrics.length >= 2
+          ? resolveDragIndex({
+              draggedId: current.draggedId,
+              initialIndex: current.initialIndex,
+              currentIndex: current.currentIndex,
+              startX: startCoord,
+              currentX: coord,
+              moved,
+              metrics: current.splitMetrics,
+            })
+          : current.initialIndex;
 
         const updated: DragState = {
           ...current,
@@ -325,14 +326,26 @@ export function PanelGrid(props: PanelGridProps) {
         if (!finalDrag || finalDrag.pointerId !== e.pointerId) return;
 
         if (commit && finalDrag.moved) {
-          // If we have a drop target, do a split.
           if (finalDrag.dropTarget) {
             const { panelId: targetId, side } = finalDrag.dropTarget;
-            if (targetId !== finalDrag.draggedId) {
+            if (side === "center" && targetId !== finalDrag.draggedId) {
+              // Merge as tab into target panel.
               const newRoot = movePanel(state.root, finalDrag.draggedId, targetId, side);
               onStateChange({ ...state, root: newRoot, activePanelId: finalDrag.draggedId });
+            } else if (side !== "center") {
+              // Edge drop: split (self or other). For self-split, use
+              // splitPanelAt directly (movePanel removes then re-adds,
+              // which fails for self).
+              if (targetId === finalDrag.draggedId) {
+                const newPanel = onCreatePanel(finalDrag.draggedId, side);
+                const newRoot = splitPanelAt(state.root, finalDrag.draggedId, newPanel, side);
+                onStateChange({ ...state, root: newRoot, activePanelId: newPanel.id });
+              } else {
+                const newRoot = movePanel(state.root, finalDrag.draggedId, targetId, side);
+                onStateChange({ ...state, root: newRoot, activePanelId: finalDrag.draggedId });
+              }
             }
-          } else if (finalDrag.initialIndex !== finalDrag.currentIndex) {
+          } else if (finalDrag.initialIndex !== finalDrag.currentIndex && metrics.length >= 2) {
             // Reorder within the split.
             const affected = getDragAffectedIds({
               draggedId: finalDrag.draggedId,
@@ -346,7 +359,9 @@ export function PanelGrid(props: PanelGridProps) {
             flushSync(() => {
               setDragState(null);
               setSettlingIds(affected);
-              const newRoot = state.root ? reorderWithinSplit(state.root, finalDrag.splitNode, finalDrag.initialIndex, finalDrag.currentIndex) : null;
+              const newRoot = state.root && finalDrag.splitNode
+                ? reorderWithinSplit(state.root, finalDrag.splitNode, finalDrag.initialIndex, finalDrag.currentIndex)
+                : null;
               onStateChange({ ...state, root: newRoot, activePanelId: finalDrag.draggedId });
             });
             if (settlingTimerRef.current) window.clearTimeout(settlingTimerRef.current);
@@ -387,7 +402,7 @@ export function PanelGrid(props: PanelGridProps) {
       document.addEventListener("pointerup", handleUp, { once: true });
       document.addEventListener("pointercancel", handleCancel, { once: true });
     },
-    [state, onStateChange],
+    [state, onStateChange, onCreatePanel],
   );
 
   // ── Empty state ──

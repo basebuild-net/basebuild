@@ -3211,7 +3211,8 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .panel-header-tab-close { display: flex; align-items: center; justify-content: center; width: 12px; height: 12px; background: none; border: 0; cursor: pointer; color: var(--bb-muted); opacity: 0; transition: opacity 0.08s; }
 .panel-header-tab:hover .panel-header-tab-close { opacity: 0.5; }
 .panel-header-tab-close:hover { opacity: 1 !important; color: var(--bb-danger, #c53030); }
-
+.panel-header-add-tab { flex-shrink: 0; opacity: 0.4; transition: opacity 0.08s; align-self: center; }
+.panel-header-add-tab:hover { opacity: 1; }
 /* Panel status indicator */
 .panel-status-indicator { width: 6px; height: 6px; border-radius: var(--bb-radius-full); flex-shrink: 0; background: var(--bb-muted); }
 .panel-status-idle { background: var(--bb-muted); }
