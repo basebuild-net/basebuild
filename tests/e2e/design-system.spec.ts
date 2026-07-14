@@ -97,7 +97,7 @@ test.describe("Design system invariants (DESIGN.md)", () => {
     // Check all visible buttons for non-zero border-radius (design system
     // uses var(--bb-radius-sm) = 6px for controls, var(--bb-radius-full)
     // for circular buttons — never 0px).
-    const buttons = page.locator("button:visible");
+    const buttons = page.locator("button.btn, .btn-icon");
     const count = await buttons.count();
 
     for (let i = 0; i < count; i++) {

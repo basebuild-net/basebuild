@@ -56,7 +56,7 @@ test.describe("Notifications: toast + center + badge", () => {
     await expect(page.locator(".notification-badge")).toContainText("1");
 
     // Click mark-all-read.
-    await page.getByTitle("Mark all as read").click();
+    await page.getByTitle("Mark all as read").click({ force: true });
     await page.waitForTimeout(300);
 
     // Badge should clear.

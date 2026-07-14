@@ -34,7 +34,8 @@ test.describe("Schematic wizard: native agent writes schematic via tool call", (
     await expect(writeCard).toBeVisible();
     await expect(writeCard).toContainText("project-schematic.md");
 
-    // Cards start expanded — diff is visible immediately.
+    // Expand the card to reveal the diff (cards start collapsed).
+    await writeCard.locator(".tool-card-header").click();
     const writeDiff = writeCard.locator(".tool-card-diff");
     await expect(writeDiff.locator(".diff-add").first()).toContainText("Project Schematic");
 
@@ -75,8 +76,8 @@ test.describe("Schematic wizard: native agent writes schematic via tool call", (
     await expect(deniedCard).toBeVisible();
     await expect(deniedCard).toHaveClass(/tool-card-error/);
     await expect(deniedCard.locator(".tool-card-status")).toContainText(/denied/i);
-
-    // Cards start expanded — provenance is visible immediately.
+    // Expand the card to reveal provenance (cards start collapsed).
+    await deniedCard.locator(".tool-card-header").click();
     await expect(deniedCard.locator(".tool-card-provenance")).toContainText("Denied by user");
 
     // A denied write must not render a diff — nothing was written.

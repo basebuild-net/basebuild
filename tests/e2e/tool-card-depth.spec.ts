@@ -28,7 +28,8 @@ test.describe("Tool card depth: diff display, provenance, expansion", () => {
     // write_file card should show a diff with added lines.
     const writeCard = page.locator(".tool-card").filter({ hasText: "write file" }).first();
     await expect(writeCard).toBeVisible();
-    // Cards start expanded — diff is visible immediately.
+    // Cards start collapsed — click header to expand.
+    await writeCard.locator(".tool-card-header").click();
     const writeDiff = writeCard.locator(".tool-card-diff");
     await expect(writeDiff).toBeVisible();
     await expect(writeDiff.locator(".diff-add")).toContainText("console.log('hello');");
@@ -36,6 +37,7 @@ test.describe("Tool card depth: diff display, provenance, expansion", () => {
     // edit_file card should show a diff with both removed and added lines.
     const editCard = page.locator(".tool-card").filter({ hasText: "edit file" }).first();
     await expect(editCard).toBeVisible();
+    await editCard.locator(".tool-card-header").click();
     const editDiff = editCard.locator(".tool-card-diff");
     await expect(editDiff).toBeVisible();
     await expect(editDiff.locator(".diff-del")).toContainText("console.log('hello');");
@@ -60,21 +62,21 @@ test.describe("Tool card depth: diff display, provenance, expansion", () => {
     await ensureChatPanel(page);
     await sendToolCardMessage(page);
 
-    // The run_command card starts expanded (default).
+    // The run_command card starts collapsed (default).
     const cmdCard = page.locator(".tool-card").filter({ hasText: "run command" }).first();
     const expandIndicator = cmdCard.locator(".tool-card-expand");
+    await expect(expandIndicator).toContainText("▶");
+
+    // Click to expand.
+    await cmdCard.locator(".tool-card-header").click();
     await expect(expandIndicator).toContainText("▼");
 
     // The body should be visible with the summary.
     await expect(cmdCard.locator(".tool-card-summary")).toBeVisible();
 
-    // Click to collapse.
+    // Click again to collapse.
     await cmdCard.locator(".tool-card-header").click();
     await expect(expandIndicator).toContainText("▶");
-
-    // Click again to expand.
-    await cmdCard.locator(".tool-card-header").click();
-    await expect(expandIndicator).toContainText("▼");
   });
 
   test("tool card header shows file path argument for file tools", async ({ page }) => {

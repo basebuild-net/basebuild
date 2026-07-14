@@ -82,10 +82,16 @@ test.describe("chat edge cases: multi-turn, reasoning split, long chains, empty 
     await expect(readCard).toBeVisible();
     await expect(editCard).toBeVisible();
 
-    // Verify DOM order: read before edit.
-    const readBox = await readCard.boundingBox();
-    const editBox = await editCard.boundingBox();
-    expect(readBox?.y).toBeLessThan(editBox?.y!);
+    // Verify DOM order: read card appears before edit card.
+    const domOrder = await page.evaluate(() => {
+      const cards = Array.from(document.querySelectorAll('.tool-card'));
+      const readIdx = cards.findIndex(c => c.textContent?.includes('read file'));
+      const editIdx = cards.findIndex(c => c.textContent?.includes('edit file'));
+      return { readIdx, editIdx };
+    });
+    expect(domOrder.readIdx).toBeGreaterThanOrEqual(0);
+    expect(domOrder.editIdx).toBeGreaterThanOrEqual(0);
+    expect(domOrder.readIdx).toBeLessThan(domOrder.editIdx);
   });
 
   test("long sequential tool chain after completion", async ({ page }) => {
