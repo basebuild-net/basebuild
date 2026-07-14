@@ -341,6 +341,7 @@ pub fn run() {
             set_last_active_session,
             reveal_in_explorer,
             basebuild_data_dir,
+            omp_status,
             omp_config_list,
             omp_stats,
             omp_usage,

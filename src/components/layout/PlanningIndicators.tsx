@@ -112,7 +112,7 @@ export function PlanningIndicators({
             key={stage.key}
             type="button"
             className={`planning-indicator${isOpen ? " is-open" : ""}${isPulsing ? " is-pulsing" : ""}`}
-            style={{ ["--pi-color" as string]: meta.color }}
+            data-stage={stage.key}
             title={`${meta.label}: ${stage.count}${stage.key === "running" ? " running" : ""}${stage.key === "schematic" ? (schematicHealth === "complete" ? " (complete)" : schematicHealth === "incomplete" ? " (partial)" : " (missing)") : ""}`}
             onClick={(e) => toggleDropdown(stage.key, e)}
           >
@@ -170,10 +170,11 @@ function NotificationDropdown({
   return (
     <div
       className="planning-notification-dropdown"
-      style={{ top, left, ["--pi-color" as string]: meta.color }}
+      data-stage={stage}
+      style={{ top: `${top}px`, left: `${left}px` }}
     >
       <div className="planning-notification-header">
-        <Icon size={11} style={{ color: meta.color }} />
+        <Icon size={11} className="planning-notification-header-icon" />
         <span className="planning-notification-title">{meta.label}</span>
         <button
           type="button"
@@ -212,15 +213,15 @@ function SchematicItems({
   onOpen: (stage: StageKey) => void;
 }) {
   const label = health === "complete" ? "Schematic complete" : health === "incomplete" ? "Schematic partial" : "No schematic";
-  const color = health === "complete" ? "var(--bb-positive, #4ade80)" : health === "incomplete" ? "var(--bb-warning, #f59e0b)" : "var(--bb-muted)";
   return (
     <button
       type="button"
       className="planning-notification-item"
+      data-health={health}
       title="Open schematic editor"
       onClick={() => onOpen("schematic")}
     >
-      <span className="planning-notification-item-dot" style={{ background: color }} />
+      <span className="planning-notification-item-dot" />
       <span className="planning-notification-item-text">{label}</span>
     </button>
   );
@@ -237,7 +238,7 @@ function IdeaItems({ ideas }: { ideas: Idea[] }) {
     <>
       {active.slice(0, 12).map((idea) => (
         <div key={idea.id} className="planning-notification-item" title={idea.description}>
-          <span className="planning-notification-item-dot" style={{ background: "var(--bb-text)" }} />
+          <span className="planning-notification-item-dot planning-notification-item-dot--ideas" />
           <span className="planning-notification-item-text">{idea.title}</span>
           <span className="planning-notification-item-meta">{idea.status}</span>
         </div>
@@ -266,7 +267,7 @@ function PlanItems({
     <>
       {filtered.slice(0, 12).map((plan) => (
         <div key={plan.id} className="planning-notification-item" title={plan.description || plan.goal || ""}>
-          <span className="planning-notification-item-dot" style={{ background: "var(--bb-warning, #f59e0b)" }} />
+          <span className="planning-notification-item-dot planning-notification-item-dot--plans" />
           <span className="planning-notification-item-text">#{plan.referenceId} {plan.title}</span>
           <span className="planning-notification-item-meta">{plan.status}</span>
         </div>
@@ -296,7 +297,7 @@ function FinishedItems({
     <>
       {running.map((plan) => (
         <div key={plan.id} className="planning-notification-item planning-notification-item-running" title={plan.description || plan.goal || ""}>
-          <span className="planning-notification-item-dot" style={{ background: "var(--bb-status-running, #f97316)" }} />
+          <span className="planning-notification-item-dot" />
           <span className="planning-notification-item-text">#{plan.referenceId} {plan.title}</span>
           <button
             type="button"
@@ -310,7 +311,7 @@ function FinishedItems({
       ))}
       {finished.map((plan) => (
         <div key={plan.id} className="planning-notification-item planning-notification-item-done" title={plan.description || plan.goal || ""}>
-          <span className="planning-notification-item-dot" style={{ background: "var(--bb-positive, #4ade80)" }} />
+          <span className="planning-notification-item-dot" />
           <span className="planning-notification-item-text">#{plan.referenceId} {plan.title}</span>
           <span className="planning-notification-item-meta">done</span>
         </div>

@@ -2185,6 +2185,26 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .planning-notification-action:hover { color: var(--bb-positive, #4ade80); }
 .planning-notification-empty { padding: 12px 8px; text-align: center; font-size: 10px; color: var(--bb-muted); }
 .planning-notification-more { padding: 2px 6px; font-size: 9px; color: var(--bb-muted); text-align: center; }
+/* Stage colors via data-stage — replaces inline --pi-color */
+.planning-indicator[data-stage="schematic"] { --pi-color: var(--bb-cta); }
+.planning-indicator[data-stage="ideas"] { --pi-color: var(--bb-text); }
+.planning-indicator[data-stage="plans"] { --pi-color: var(--bb-warning, #f59e0b); }
+.planning-indicator[data-stage="running"] { --pi-color: var(--bb-status-running, #f97316); }
+.planning-indicator[data-stage="finished"] { --pi-color: var(--bb-positive, #4ade80); }
+.planning-notification-dropdown[data-stage="schematic"] { --pi-color: var(--bb-cta); }
+.planning-notification-dropdown[data-stage="ideas"] { --pi-color: var(--bb-text); }
+.planning-notification-dropdown[data-stage="plans"] { --pi-color: var(--bb-warning, #f59e0b); }
+.planning-notification-dropdown[data-stage="running"] { --pi-color: var(--bb-status-running, #f97316); }
+.planning-notification-dropdown[data-stage="finished"] { --pi-color: var(--bb-positive, #4ade80); }
+.planning-notification-header-icon { color: var(--pi-color, var(--bb-text)); flex-shrink: 0; }
+/* Dot colors by stage/health — replaces inline background */
+.planning-notification-item-dot--ideas { background: var(--bb-text); }
+.planning-notification-item-dot--plans { background: var(--bb-warning, #f59e0b); }
+.planning-notification-item-running .planning-notification-item-dot { background: var(--bb-status-running, #f97316); }
+.planning-notification-item-done .planning-notification-item-dot { background: var(--bb-positive, #4ade80); }
+.planning-notification-item[data-health="complete"] .planning-notification-item-dot { background: var(--bb-positive, #4ade80); }
+.planning-notification-item[data-health="incomplete"] .planning-notification-item-dot { background: var(--bb-warning, #f59e0b); }
+.planning-notification-item[data-health="none"] .planning-notification-item-dot { background: var(--bb-muted); }
 /* ─── Compact env tabs (icon-only) ─── */
 .chat-env-tab-icon { padding: 3px 4px; }
 .chat-env-tab-icon span { display: none; }
