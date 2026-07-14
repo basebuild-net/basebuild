@@ -1245,6 +1245,9 @@ export function AppShell({ updates }: AppShellProps) {
           onRemoveProject={handleRemoveProject}
           onOpenInExplorer={handleRevealProject}
           onCopyProjectPath={handleCopyProjectPath}
+          onNewChat={() => handleCreateTypedPanel("chat")}
+          onOpenFiles={() => setFileModalOpen(true)}
+          onOpenChanges={() => setChangesModalOpen(true)}
           pickerInFlight={sidebar.pickerInFlight}
           onFocusPanel={(panelId) => setPanelGridState((prev) => ({ ...prev, activePanelId: panelId }))}
           onCreateChat={() => handleCreateTypedPanel("chat")}

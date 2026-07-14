@@ -3117,9 +3117,9 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
   z-index: 100;
 }
 .file-modal {
-  width: 720px;
-  height: 540px;
-  max-width: 90vw; max-height: 85vh;
+  width: min(96vw, 1400px);
+  height: min(90vh, 900px);
+  max-width: 96vw; max-height: 90vh;
   background: var(--bb-bg);
   border: 1px solid var(--bb-border);
   display: flex; flex-direction: column;
@@ -3133,11 +3133,44 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 }
 .file-modal-search { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
 .file-modal-search-input { flex: 1; height: 26px; font-size: 12px; }
-.file-modal-path { font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+.file-modal-path { font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
 .file-modal-body { flex: 1; min-height: 0; display: flex; }
 .file-modal-tree { flex: 1; min-width: 0; overflow-y: auto; padding: 4px; border-right: 1px solid var(--bb-border); }
 .file-modal-detail { flex: 0 0 280px; padding: 8px; overflow-y: auto; }
 .files-item.is-selected { background: var(--bb-surface-high); border-left: 2px solid var(--bb-cta); padding-left: 6px; }
+/* Tree depth indentation (per-level padding, no inline styles) */
+.files-tree-depth-0 { padding-left: 6px; }
+.files-tree-depth-1 { padding-left: 22px; }
+.files-tree-depth-2 { padding-left: 38px; }
+.files-tree-depth-3 { padding-left: 54px; }
+.files-tree-depth-4 { padding-left: 70px; }
+.files-tree-depth-5 { padding-left: 86px; }
+.files-tree-chevron { flex-shrink: 0; color: var(--bb-muted); }
+.files-tree-chevron-placeholder { flex-shrink: 0; width: 12px; height: 12px; }
+/* Git status legend */
+.files-tree-legend {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 4px 6px 6px;
+  border-bottom: 1px solid var(--bb-border);
+  margin-bottom: 4px;
+  font-size: 10px; color: var(--bb-muted);
+}
+.files-tree-legend-item { display: inline-flex; align-items: center; gap: 3px; }
+/* Git status dot — 6px, 0px radius */
+.files-item-git-dot {
+  flex-shrink: 0;
+  width: 6px; height: 6px;
+  border-radius: 0;
+  display: inline-block;
+}
+.files-item-git-added { background: #22c55e; }
+.files-item-git-modified { background: #f59e0b; }
+.files-item-git-deleted { background: #ef4444; }
+.files-item-git-untracked { background: #3b82f6; }
+.files-item-git-renamed { background: #a78bfa; }
+.files-item-git-unmerged { background: #ef4444; }
+.files-item-git-other { background: var(--bb-muted); }
+.files-detail-git { display: flex; align-items: center; gap: 6px; }
 /* ─── Panel grid (project-grid-workspace) ─── */
 .panel-grid { display: flex; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
 .panel-grid-split { display: flex; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }

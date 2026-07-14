@@ -5,6 +5,7 @@ import {
   Copy,
   Clock,
   FileText,
+  GitBranch,
   FolderPlus,
   LayoutList,
   LayoutTemplate,
@@ -85,6 +86,9 @@ export type ActivitySidebarProps = {
   onRemoveProject?: (path: string) => void;
   onOpenInExplorer?: (path: string) => void;
   onCopyProjectPath?: (path: string) => void;
+  onNewChat?: (path: string) => void;
+  onOpenFiles?: (path: string) => void;
+  onOpenChanges?: (path: string) => void;
   pickerInFlight: boolean;
   onFocusPanel: (panelId: string) => void;
   onCreateChat: () => void;
@@ -95,12 +99,15 @@ export type ActivitySidebarProps = {
   collapsed: boolean;
   onToggleCollapse: () => void;
 };
-function ProjectMenuButton({ projectPath, projectName, onOpenInExplorer, onRemoveProject, onCopyPath }: {
+function ProjectMenuButton({ projectPath, projectName, onOpenInExplorer, onRemoveProject, onCopyPath, onNewChat, onOpenFiles, onOpenChanges }: {
   projectPath: string;
   projectName: string;
   onOpenInExplorer?: (path: string) => void;
   onRemoveProject?: (path: string) => void;
   onCopyPath?: (path: string) => void;
+  onNewChat?: (path: string) => void;
+  onOpenFiles?: (path: string) => void;
+  onOpenChanges?: (path: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const menuPos = useDropdownPosition(160);
@@ -119,7 +126,7 @@ function ProjectMenuButton({ projectPath, projectName, onOpenInExplorer, onRemov
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open, menuPos.triggerRef]);
 
-  if (!onOpenInExplorer && !onRemoveProject && !onCopyPath) return null;
+  if (!onOpenInExplorer && !onRemoveProject && !onCopyPath && !onNewChat && !onOpenFiles && !onOpenChanges) return null;
 
   return (
     <div className="project-menu-wrap">
@@ -134,33 +141,33 @@ function ProjectMenuButton({ projectPath, projectName, onOpenInExplorer, onRemov
       </button>
       {open ? (
         <div className={`project-menu-dropdown ${menuPos.placement === "top" ? "is-above" : ""}`} role="menu" aria-label={`Actions for ${projectName}`}>
+          {onNewChat ? (
+            <button className="project-menu-item" type="button" title="Start a new chat in this project" onClick={(e) => { e.stopPropagation(); setOpen(false); onNewChat(projectPath); }}>
+              <Plus size={11} /> New Chat
+            </button>
+          ) : null}
+          {onOpenFiles ? (
+            <button className="project-menu-item" type="button" title="Browse files in this project" onClick={(e) => { e.stopPropagation(); setOpen(false); onOpenFiles(projectPath); }}>
+              <FileText size={11} /> Files
+            </button>
+          ) : null}
+          {onOpenChanges ? (
+            <button className="project-menu-item" type="button" title="View git changes in this project" onClick={(e) => { e.stopPropagation(); setOpen(false); onOpenChanges(projectPath); }}>
+              <GitBranch size={11} /> Changes
+            </button>
+          ) : null}
           {onCopyPath ? (
-            <button
-              className="project-menu-item"
-              type="button"
-              title="Copy the project folder path to the clipboard"
-              onClick={(e) => { e.stopPropagation(); setOpen(false); onCopyPath(projectPath); }}
-            >
+            <button className="project-menu-item" type="button" title="Copy the project folder path to the clipboard" onClick={(e) => { e.stopPropagation(); setOpen(false); onCopyPath(projectPath); }}>
               <Copy size={11} /> Copy project path
             </button>
           ) : null}
           {onOpenInExplorer ? (
-            <button
-              className="project-menu-item"
-              type="button"
-              title="Open this project folder in the file explorer"
-              onClick={(e) => { e.stopPropagation(); setOpen(false); onOpenInExplorer(projectPath); }}
-            >
+            <button className="project-menu-item" type="button" title="Open this project folder in the file explorer" onClick={(e) => { e.stopPropagation(); setOpen(false); onOpenInExplorer(projectPath); }}>
               <FolderPlus size={11} /> Open in Explorer
             </button>
           ) : null}
           {onRemoveProject ? (
-            <button
-              className="project-menu-item is-danger"
-              type="button"
-              title={`Remove ${projectName} from the sidebar (does not delete files)`}
-              onClick={(e) => { e.stopPropagation(); setOpen(false); onRemoveProject(projectPath); }}
-            >
+            <button className="project-menu-item is-danger" type="button" title={`Remove ${projectName} from the sidebar (does not delete files)`} onClick={(e) => { e.stopPropagation(); setOpen(false); onRemoveProject(projectPath); }}>
               <Trash2 size={11} /> Remove Project
             </button>
           ) : null}
@@ -183,6 +190,9 @@ export function ActivitySidebar({
   onRemoveProject,
   onOpenInExplorer,
   onCopyProjectPath,
+  onNewChat,
+  onOpenFiles,
+  onOpenChanges,
   pickerInFlight,
   onFocusPanel,
   onCreateChat,
@@ -400,6 +410,9 @@ export function ActivitySidebar({
                       onOpenInExplorer={onOpenInExplorer}
                       onRemoveProject={onRemoveProject}
                       onCopyPath={onCopyProjectPath}
+                      onNewChat={onNewChat}
+                      onOpenFiles={onOpenFiles}
+                      onOpenChanges={onOpenChanges}
                     />
                   </div>
                   {branch ? (
