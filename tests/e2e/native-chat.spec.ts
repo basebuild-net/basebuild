@@ -218,7 +218,7 @@ test.describe("native chat workspace", () => {
     await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
     await expect(page.locator(".chat-column-model-chip")).toContainText("None");
     const input = page.getByTitle(/Chat input/).first();
-    await input.fill("elapsed-badge-test");
+    await input.fill("stream-test elapsed");
     await expect(page.getByTitle("Send message")).toBeEnabled();
     await page.getByTitle("Send message").click();
 

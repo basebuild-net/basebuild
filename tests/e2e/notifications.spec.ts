@@ -55,8 +55,8 @@ test.describe("Notifications: toast + center + badge", () => {
     // The unread badge should show 1.
     await expect(page.locator(".notification-badge")).toContainText("1");
 
-    // Click mark-all-read.
-    await page.getByTitle("Mark all as read").click({ force: true });
+    // Click mark-all-read (use evaluate to bypass overlay intercepting pointer events).
+    await page.getByTitle("Mark all as read").evaluate((el) => (el as HTMLButtonElement).click());
     await page.waitForTimeout(300);
 
     // Badge should clear.
