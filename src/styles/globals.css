@@ -3231,7 +3231,7 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .activity-sidebar-project-row.is-active { background: var(--bb-surface-high); color: var(--bb-text); }
 .activity-sidebar-project-row .activity-sidebar-project-main { cursor: pointer; }
 .activity-sidebar-project-main { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
-.project-menu-wrap { position: relative; flex-shrink: 0; opacity: 0; transition: opacity 0.08s; }
+.project-menu-wrap { position: relative; flex-shrink: 0; margin-left: auto; opacity: 0; transition: opacity 0.08s; }
 .activity-sidebar-project-row:hover .project-menu-wrap,
 .activity-sidebar-project-row.is-active .project-menu-wrap { opacity: 1; }
 .project-menu-btn { display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; background: none; border: 0; color: var(--bb-muted); cursor: pointer; border-radius: 0; padding: 0; }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  Copy,
   Clock,
   FileText,
   FolderPlus,
@@ -83,6 +84,7 @@ export type ActivitySidebarProps = {
   onOpenFolder: () => void;
   onRemoveProject?: (path: string) => void;
   onOpenInExplorer?: (path: string) => void;
+  onCopyProjectPath?: (path: string) => void;
   pickerInFlight: boolean;
   onFocusPanel: (panelId: string) => void;
   onCreateChat: () => void;
@@ -93,12 +95,12 @@ export type ActivitySidebarProps = {
   collapsed: boolean;
   onToggleCollapse: () => void;
 };
-
-function ProjectMenuButton({ projectPath, projectName, onOpenInExplorer, onRemoveProject }: {
+function ProjectMenuButton({ projectPath, projectName, onOpenInExplorer, onRemoveProject, onCopyPath }: {
   projectPath: string;
   projectName: string;
   onOpenInExplorer?: (path: string) => void;
   onRemoveProject?: (path: string) => void;
+  onCopyPath?: (path: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const menuPos = useDropdownPosition(160);
@@ -117,7 +119,7 @@ function ProjectMenuButton({ projectPath, projectName, onOpenInExplorer, onRemov
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open, menuPos.triggerRef]);
 
-  if (!onOpenInExplorer && !onRemoveProject) return null;
+  if (!onOpenInExplorer && !onRemoveProject && !onCopyPath) return null;
 
   return (
     <div className="project-menu-wrap">
@@ -132,6 +134,16 @@ function ProjectMenuButton({ projectPath, projectName, onOpenInExplorer, onRemov
       </button>
       {open ? (
         <div className={`project-menu-dropdown ${menuPos.placement === "top" ? "is-above" : ""}`} role="menu" aria-label={`Actions for ${projectName}`}>
+          {onCopyPath ? (
+            <button
+              className="project-menu-item"
+              type="button"
+              title="Copy the project folder path to the clipboard"
+              onClick={(e) => { e.stopPropagation(); setOpen(false); onCopyPath(projectPath); }}
+            >
+              <Copy size={11} /> Copy project path
+            </button>
+          ) : null}
           {onOpenInExplorer ? (
             <button
               className="project-menu-item"
@@ -170,6 +182,7 @@ export function ActivitySidebar({
   onOpenFolder,
   onRemoveProject,
   onOpenInExplorer,
+  onCopyProjectPath,
   pickerInFlight,
   onFocusPanel,
   onCreateChat,
@@ -381,13 +394,14 @@ export function ActivitySidebar({
                     <RepoIcon host={host} size={isActive ? 14 : 11} />
                     <span className={isActive ? "activity-sidebar-project-name" : "activity-sidebar-row-title"}>{name}</span>
                     <span className={`agent-status-dot agent-status-${agentStatus}`} title={`Agent: ${agentStatus}`} aria-label={`Agent status: ${agentStatus}`} />
+                    <ProjectMenuButton
+                      projectPath={project.path}
+                      projectName={name}
+                      onOpenInExplorer={onOpenInExplorer}
+                      onRemoveProject={onRemoveProject}
+                      onCopyPath={onCopyProjectPath}
+                    />
                   </div>
-                  <ProjectMenuButton
-                    projectPath={project.path}
-                    projectName={name}
-                    onOpenInExplorer={onOpenInExplorer}
-                    onRemoveProject={onRemoveProject}
-                  />
                   {branch ? (
                     <span className="activity-sidebar-project-branch" title={`Branch: ${branch}`} onClick={() => onSelectProject(project.path)}>
                       {branch}

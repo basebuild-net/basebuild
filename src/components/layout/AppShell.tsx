@@ -562,6 +562,14 @@ export function AppShell({ updates }: AppShellProps) {
     [],
   );
 
+  const handleCopyProjectPath = useCallback(
+    (path: string) => {
+      void navigator.clipboard.writeText(path);
+      handleShowToast("Copied", path, "info");
+    },
+    [handleShowToast],
+  );
+
   const handleCreateSession = useCallback(async () => {
     await session.createSession();
     handleShowToast("Chat created", "New chat session started.", "success");
@@ -1235,6 +1243,7 @@ export function AppShell({ updates }: AppShellProps) {
           onOpenFolder={handleOpenFolder}
           onRemoveProject={handleRemoveProject}
           onOpenInExplorer={handleRevealProject}
+          onCopyProjectPath={handleCopyProjectPath}
           pickerInFlight={sidebar.pickerInFlight}
           onFocusPanel={(panelId) => setPanelGridState((prev) => ({ ...prev, activePanelId: panelId }))}
           onCreateChat={() => handleCreateTypedPanel("chat")}
