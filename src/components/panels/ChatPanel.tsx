@@ -3376,6 +3376,9 @@ export function ChatPanel({
         </div>
         <div className="chat-composer-meta">
           <div className="chat-composer-meta-left">
+            {projectPath ? (
+              <span title={`Project: ${projectPath}`}>{projectPath.split(/[\\/]/).pop() ?? projectPath}</span>
+            ) : null}
             {worktreePath ? (
               <span title={`Worktree: ${worktreePath}`}>[worktree: {worktreePath.split("/").pop()}]</span>
             ) : null}
