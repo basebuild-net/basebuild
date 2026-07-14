@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { MessageSquare, Plus, X } from "lucide-react";
 import type { Panel } from "../../lib/panelGrid";
+import { ModalPortal } from "../ModalPortal";
 
 export type DestinationChoice =
   | { kind: "existing"; chatSessionId: string; panelId: string }
@@ -56,6 +57,7 @@ export function DestinationPicker({
   }
 
   return (
+    <ModalPortal>
     <div className="modal-overlay" role="dialog" aria-label={title} onClick={onClose}>
       <div className="modal destination-picker-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -118,5 +120,6 @@ export function DestinationPicker({
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

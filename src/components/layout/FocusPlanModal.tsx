@@ -4,6 +4,7 @@ import { CheckCircle, Clock, Copy, TerminalSquare, X } from "lucide-react";
 import type { Plan, PlanFocusContext, PlanStatus } from "../../lib/plans";
 import { PLAN_STATUS_LABEL } from "../../lib/plans";
 import { openspecTaskProgress } from "../../lib/openspec";
+import { ModalPortal } from "../ModalPortal";
 type FocusPlanModalProps = {
   plan: Plan | null;
   open: boolean;
@@ -68,6 +69,7 @@ export function FocusPlanModal({
   }
 
   return (
+    <ModalPortal>
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal plan-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -182,5 +184,6 @@ export function FocusPlanModal({
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

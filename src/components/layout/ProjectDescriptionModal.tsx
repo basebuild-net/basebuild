@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { FileText, Save, X } from "lucide-react";
 import { DEFAULT_SCHEMATIC } from "../../lib/schematic";
+import { ModalPortal } from "../ModalPortal";
 
 type ProjectDescriptionModalProps = {
   open: boolean;
@@ -20,6 +21,7 @@ export function ProjectDescriptionModal({ open, onClose, existingContent, onSave
   if (!open) return null;
 
   return (
+    <ModalPortal>
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal plan-modal project-desc-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -61,5 +63,6 @@ export function ProjectDescriptionModal({ open, onClose, existingContent, onSave
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

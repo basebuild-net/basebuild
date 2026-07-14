@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { AlertTriangle } from "lucide-react";
+import { ModalPortal } from "../ModalPortal";
 
 type ConfirmDialogProps = {
   open: boolean;
@@ -35,6 +36,7 @@ export function ConfirmDialog({
   if (!open) return null;
 
   return (
+    <ModalPortal>
     <div className="modal-overlay" role="dialog" aria-label={title} onClick={onCancel}>
       <div className="modal confirm-dialog-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -61,5 +63,6 @@ export function ConfirmDialog({
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

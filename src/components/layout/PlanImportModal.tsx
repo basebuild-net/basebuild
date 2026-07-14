@@ -4,6 +4,7 @@ import { Download, X } from "lucide-react";
 import type { PlanImportCandidate, PlanImportResult } from "../../lib/planImport";
 import { planImportApply, planImportDetect } from "../../lib/planImport";
 import { useLogs } from "../../state/log";
+import { ModalPortal } from "../ModalPortal";
 
 type PlanImportModalProps = {
   projectPath: string | null;
@@ -70,6 +71,7 @@ export function PlanImportModal({ projectPath, onClose }: PlanImportModalProps) 
   const skippedCount = results?.filter((r) => r.skipped).length ?? 0;
 
   return (
+    <ModalPortal>
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal modal-plan-import" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -194,5 +196,6 @@ export function PlanImportModal({ projectPath, onClose }: PlanImportModalProps) 
         ) : null}
       </div>
     </div>
+    </ModalPortal>
   );
 }

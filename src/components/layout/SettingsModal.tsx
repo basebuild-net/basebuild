@@ -89,6 +89,7 @@ import {
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { listResolvedSkills, readResolvedSkill, type ResolvedSkill } from "../../lib/skillRegistry";
 import { useTheme, type AppTheme } from "../../state/useTheme";
+import { ModalPortal } from "../ModalPortal";
 
 type SettingsModalProps = {
   open: boolean;
@@ -352,6 +353,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
     (updates.status === "up_to_date" ? (version || "—") : "—");
 
   return (
+    <ModalPortal>
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -1065,6 +1067,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }
 
@@ -2097,6 +2100,7 @@ function SkillsTab() {
       )}
 
       {previewSkill ? (
+        <ModalPortal>
         <div className="modal-overlay" onClick={() => setPreviewSkill(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
@@ -2121,6 +2125,7 @@ function SkillsTab() {
             </div>
           </div>
         </div>
+        </ModalPortal>
       ) : null}
     </div>
   );

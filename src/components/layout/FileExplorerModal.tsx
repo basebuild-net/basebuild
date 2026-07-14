@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, FileCode, Folder, RefreshCw, Search, X } from "lucide-react";
 import { listFiles, type DirEntry } from "../../lib/files";
 import { gitStatus, type FileChangeType, type GitStatus } from "../../lib/git";
+import { ModalPortal } from "../ModalPortal";
 
 type FileExplorerModalProps = {
   projectPath: string | null;
@@ -291,6 +292,7 @@ export function FileExplorerModal({ projectPath, open, onClose, onOpenFile }: Fi
   const selectedGit = selected ? gitForNode(selected) : null;
 
   return (
+    <ModalPortal>
     <div className="file-modal-overlay" role="dialog" aria-label="File explorer" onClick={onClose}>
       <div className="file-modal" onClick={(e) => e.stopPropagation()}>
         <div className="file-modal-header">
@@ -435,5 +437,6 @@ export function FileExplorerModal({ projectPath, open, onClose, onOpenFile }: Fi
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

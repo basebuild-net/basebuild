@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import type { NewPlan, Plan, PlanStatus } from "../../lib/plans";
 import { PLAN_STATUS_LABEL } from "../../lib/plans";
 import { OptionList, type OptionListOption } from "./OptionList";
+import { ModalPortal } from "../ModalPortal";
 const STATUS_OPTION_ITEMS: OptionListOption<PlanStatus>[] = [
   { id: "draft", label: PLAN_STATUS_LABEL.draft, title: "Plan is still being drafted" },
   { id: "openspec", label: PLAN_STATUS_LABEL.openspec, title: "Plan is being refined in OpenSpec" },
@@ -66,6 +67,7 @@ export function EditPlanModal({ plan, open, onClose, onSave }: EditPlanModalProp
   }
 
   return (
+    <ModalPortal>
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal plan-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -148,5 +150,6 @@ export function EditPlanModal({ plan, open, onClose, onSave }: EditPlanModalProp
         </form>
       </div>
     </div>
+    </ModalPortal>
   );
 }

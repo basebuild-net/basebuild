@@ -3,6 +3,7 @@ import { FileText, FolderOpen, LayoutTemplate, MessageSquare, TerminalSquare, Tr
 import type { LucideIcon } from "lucide-react";
 import type { Panel, PanelType } from "../../lib/panelGrid";
 import { ConfirmDialog } from "../layout/ConfirmDialog";
+import { ModalPortal } from "../ModalPortal";
 import { nativeChatHistory, type NativeChatHistoryEntry } from "../../lib/native-chat";
 import { formatRelativeTime } from "../../lib/timing";
 import { basebuildDataDir, revealInExplorer } from "../../lib/projects";
@@ -71,6 +72,7 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
   }
 
   return (
+    <ModalPortal>
     <div className="modal-overlay" role="dialog" aria-label="History" onClick={onClose}>
       <div className="modal history-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -186,5 +188,6 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
         onCancel={() => setPendingDelete(null)}
       />
     </div>
+    </ModalPortal>
   );
 }

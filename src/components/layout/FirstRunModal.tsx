@@ -5,6 +5,7 @@ import { listRuntimeProfiles, getRuntimeDefaults, setRuntimeDefaults, type Runti
 import { RuntimeDefaultsFields } from "./RuntimeDefaultsFields";
 import { getAnalyticsConsent, setAnalyticsConsent, type AnalyticsConsent } from "../../lib/analytics";
 import { startupEnable, startupDisable, startupGetStatus, type StartupRegistrationStatus } from "../../lib/startup";
+import { ModalPortal } from "../ModalPortal";
 
 type FirstRunModalProps = {
   open: boolean;
@@ -78,6 +79,7 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
   }
 
   return (
+    <ModalPortal>
     <div className="modal-overlay" onClick={onSkip}>
       <div className="modal modal-first-run" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -216,5 +218,6 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

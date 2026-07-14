@@ -4,6 +4,7 @@ import { useEscapeKey } from "../../lib/useEscapeKey";
 import { markStart, markEnd, formatRelativeTime } from "../../lib/timing";
 import { usePanelStatusPublisher, type PanelStatus } from "./PanelStatusContext";
 import { LogoPulse } from "../layout/LogoPulse";
+import { ModalPortal } from "../ModalPortal";
 import { CommandPalette } from "./CommandPalette";
 import {
   BUILTIN_COMMANDS,
@@ -2213,6 +2214,7 @@ export function ChatPanel({
         />
       ) : null}
       {showAssignPlanPicker ? (
+        <ModalPortal>
         <div className="modal-overlay" onClick={() => setShowAssignPlanPicker(false)} title="Close plan picker">
           <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Assign a ready plan">
             <div className="modal-header">
@@ -2240,6 +2242,7 @@ export function ChatPanel({
             </div>
           </div>
         </div>
+        </ModalPortal>
       ) : null}
       {/* Messages area */}
       <div className="chat-messages" ref={scrollRef}>
@@ -2759,6 +2762,7 @@ export function ChatPanel({
 
       {/* Provider login modal: API key entry as a modal, not inline */}
       {nativeMode && showLogin && selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID ? (
+        <ModalPortal>
         <div className="modal-overlay" onClick={() => { setShowLogin(false); cancelWebLogin(); }} title="Close login dialog">
           <div className="modal" onClick={(e) => e.stopPropagation()} title={`Connect ${selectedProvider.label}`}>
             <div className="modal-header">
@@ -2807,10 +2811,12 @@ export function ChatPanel({
             </div>
           </div>
         </div>
+        </ModalPortal>
       ) : null}
 
       {/* Command payload modal: shows the full injected skill/command body. */}
       {commandPayloadModal ? (
+        <ModalPortal>
         <div className="modal-overlay" onClick={() => setCommandPayloadModal(null)} title="Close command payload">
           <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title={`${commandPayloadModal.name} payload`}>
             <div className="modal-header">
@@ -2829,6 +2835,7 @@ export function ChatPanel({
             </div>
           </div>
         </div>
+        </ModalPortal>
       ) : null}
 
       {/* Composer footer: always visible, never clipped */}
@@ -2836,6 +2843,7 @@ export function ChatPanel({
         {nativeMode ? (
           <>
             {showPlanningMenu ? (
+              <ModalPortal>
               <div className="modal-overlay" onClick={() => setShowPlanningMenu(false)} title="Close ideas menu">
                 <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Idea actions">
                   <div className="modal-header">
@@ -2900,8 +2908,10 @@ export function ChatPanel({
                   </div>
                 </div>
               </div>
+              </ModalPortal>
             ) : null}
             {showCategoryPicker ? (
+              <ModalPortal>
               <div className="modal-overlay" onClick={() => setShowCategoryPicker(false)} title="Close category picker">
                 <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Pick a category">
                   <div className="modal-header">
@@ -2940,8 +2950,10 @@ export function ChatPanel({
                   </div>
                 </div>
               </div>
+              </ModalPortal>
             ) : null}
-            {(showProviderPicker || showModelPicker) && catalog ? (
+            {(showProviderPicker || showModelPicker) ? (
+              <ModalPortal>
               <div
                 className="modal-overlay provider-catalog-overlay"
                 role="dialog"
@@ -2956,7 +2968,7 @@ export function ChatPanel({
                   <div className="modal-header">
                     <div className="provider-catalog-title">
                       <h2>Provider &amp; model</h2>
-                      <span>{connectedProviders.length} connected · {catalog.providers.length} providers · {catalog.models.length} models</span>
+                      <span>{catalog ? `${connectedProviders.length} connected · ${catalog.providers.length} providers · ${catalog.models.length} models` : "Loading…"}</span>
                     </div>
                     <button
                       className="btn-icon"
@@ -2971,6 +2983,7 @@ export function ChatPanel({
                       <X size={14} />
                     </button>
                   </div>
+                  {catalog ? (
                   <div className="provider-catalog-body">
                     <section className="provider-catalog-providers" aria-label="Providers">
                       <div className="provider-catalog-section-heading">
@@ -3135,8 +3148,15 @@ export function ChatPanel({
                       </div>
                     </section>
                   </div>
+                  ) : (
+                    <div className="modal-loading" role="status" aria-live="polite">
+                      <LogoPulse size={20} />
+                      <span>Loading provider catalog…</span>
+                    </div>
+                  )}
                 </div>
               </div>
+              </ModalPortal>
             ) : null}
             {commandNotice ? (
               <div className="chat-command-notice">
@@ -3165,6 +3185,7 @@ export function ChatPanel({
               />
             ) : null}
             {showClearConfirm ? (
+              <ModalPortal>
               <div className="modal-overlay" onClick={() => setShowClearConfirm(false)} title="Cancel clear chat">
                 <div className="modal modal-sm" onClick={(e) => e.stopPropagation()} title="Confirm clear chat">
                   <div className="modal-header">
@@ -3196,6 +3217,7 @@ export function ChatPanel({
                   </div>
                 </div>
               </div>
+              </ModalPortal>
             ) : null}
           </>
         ) : null}

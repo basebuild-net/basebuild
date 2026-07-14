@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { Copy, Trash2, X } from "lucide-react";
 import { useLogs, type LogEntry, type LogLevel } from "../../state/log";
+import { ModalPortal } from "../ModalPortal";
 
 const levelBadge: Record<LogLevel, string> = {
   debug: "badge badge-debug",
@@ -26,6 +27,7 @@ export function LogPanel({ open, onClose }: LogPanelProps) {
   const filtered = filter === "all" ? logs : logs.filter((l) => l.level === filter);
 
   return (
+    <ModalPortal>
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal modal-log" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -74,6 +76,7 @@ export function LogPanel({ open, onClose }: LogPanelProps) {
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }
 

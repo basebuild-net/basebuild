@@ -1,4 +1,5 @@
 import { AlertTriangle } from "lucide-react";
+import { ModalPortal } from "../ModalPortal";
 
 type IdeaRoundGateProps = {
   open: boolean;
@@ -20,6 +21,7 @@ export function IdeaRoundGate({ open, health, onOpenWizard, onProceed, onCancel 
     ? "This project has no schematic yet — the round will run without focus grounding."
     : "The schematic is incomplete — the round will run with partial grounding.";
   return (
+    <ModalPortal>
     <div className="modal-overlay" role="dialog" aria-label="Schematic incomplete">
       <div className="idea-round-gate" title="Schematic incomplete warning">
         <div className="idea-round-gate-header">
@@ -44,5 +46,6 @@ export function IdeaRoundGate({ open, health, onOpenWizard, onProceed, onCancel 
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

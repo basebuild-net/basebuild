@@ -6,6 +6,7 @@ import { generateCategoriesAction, generateFromFinishedPlansAction, generateIdea
 import { DestinationPicker, type DestinationChoice } from "./DestinationPicker";
 import { WorkspaceSplash, type RestorePhase } from "./WorkspaceSplash";
 import { ProjectSwitchingOverlay } from "./ProjectSwitchingOverlay";
+import { ModalPortal } from "../ModalPortal";
 import { IdeaRoundGate } from "./IdeaRoundGate";
 import { startIdeaRound, finishIdeaRound } from "../../lib/ideaRounds";
 
@@ -1451,6 +1452,7 @@ export function AppShell({ updates }: AppShellProps) {
         />
       </Suspense>
       {changesModalOpen && activeProjectPath ? (
+        <ModalPortal>
         <div className="modal-overlay" role="dialog" aria-label="Changes" onClick={() => setChangesModalOpen(false)}>
           <div className="modal modal-changes" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
@@ -1462,8 +1464,10 @@ export function AppShell({ updates }: AppShellProps) {
             </div>
           </div>
         </div>
+        </ModalPortal>
       ) : null}
       {plansModalOpen && activeProjectPath ? (
+        <ModalPortal>
         <div className="modal-overlay" role="dialog" aria-label="Plans & Ideas" onClick={() => setPlansModalOpen(false)}>
           <div className="modal modal-plans" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
@@ -1501,8 +1505,10 @@ export function AppShell({ updates }: AppShellProps) {
             </div>
           </div>
         </div>
+        </ModalPortal>
       ) : null}
       {schematicModalOpen && activeProjectPath ? (
+        <ModalPortal>
         <div className="modal-overlay" role="dialog" aria-label="Project Schematic" onClick={() => setSchematicModalOpen(false)}>
           <div className="modal modal-schematic" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
@@ -1518,6 +1524,7 @@ export function AppShell({ updates }: AppShellProps) {
             </div>
           </div>
         </div>
+        </ModalPortal>
       ) : null}
       <CrashReportNotice onViewReports={() => setDebugPanelOpen(true)} />
       <Suspense fallback={<ModalLoading />}><LogPanel open={logPanelOpen} onClose={() => setLogPanelOpen(false)} /></Suspense>
