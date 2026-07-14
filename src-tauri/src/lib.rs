@@ -130,7 +130,7 @@ use commands::{
     },
     sessions::{
         create_session, create_tab, delete_session, delete_tab, list_sessions, list_tabs,
-        rename_session, update_tab_chat_session, update_tab_file_path, update_tab_terminal,
+        rename_session, update_tab_chat_session, update_tab_file_path, update_tab_terminal, update_tab_title,
     },
     skills::{read_skill, list_resolved_skills, read_resolved_skill, provision_skill_dirs},
     stability::{
@@ -491,6 +491,7 @@ pub fn run() {
             update_tab_terminal,
             update_tab_file_path,
             update_tab_chat_session,
+            update_tab_title,
             create_category,
             list_categories,
             delete_category,

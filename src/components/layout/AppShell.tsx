@@ -962,6 +962,7 @@ export function AppShell({ updates }: AppShellProps) {
             panelId={panel.id}
             projectPath={activeProjectPath ?? ""}
             chatSessionId={panel.chatSessionId ?? tab?.chatSessionId ?? null}
+            chatTitle={panel.title}
             onChatSessionCreated={(chatSessionId) => {
               addLog("debug", "Chat session created", `panel=${panel.id} chatSessionId=${chatSessionId} tab=${tab?.id ?? "none"}`);
               if (tab) {
@@ -980,6 +981,15 @@ export function AppShell({ updates }: AppShellProps) {
                 ...prev,
                 root: updatePanelInTree(prev.root, panel.id, { chatSessionId, creating: false }),
               }));
+            }}
+            onRenameChat={(title) => {
+              setPanelGridState((prev) => ({
+                ...prev,
+                root: updatePanelInTree(prev.root, panel.id, { title }),
+              }));
+              if (tab) {
+                void session.setTabTitle(tab.id, title);
+              }
             }}
             onOpenPlanningInspector={handleOpenPlanningInspector}
             onOpenSchematic={handleOpenSchematic}

@@ -661,6 +661,14 @@ export function ChatPanel({
     });
     return () => { cancelled = true; };
   }, [nativeSessionId]);
+  // Sync session title to the panel/tab title so the sidebar shows the real
+  // chat title instead of "Chat 1". Fires when the backend auto-titles or
+  // when a renamed title is loaded.
+  useEffect(() => {
+    if (sessionTitle && sessionTitle !== "New Chat" && sessionTitle !== "Native Chat") {
+      onRenameChat?.(sessionTitle);
+    }
+  }, [sessionTitle, onRenameChat]);
 
   // Native mode: load or create session. Times out after 15s so the panel
   // never hangs forever in "initializing" — the user sees an actionable
@@ -1151,6 +1159,10 @@ export function ChatPanel({
             if (result.assistantMessage) next.push(result.assistantMessage);
             return next;
           });
+          // Refresh session title (backend auto-titles from first message).
+          if (nativeSessionId) {
+            void nativeChatGet(nativeSessionId).then((s) => { if (s) setSessionTitle(s.title); });
+          }
           // Reload tool events from the result
           if (result.toolEvents.length > 0 && nativeSessionId) {
             setToolEvents(await nativeChatToolEvents(nativeSessionId));
@@ -2086,7 +2098,6 @@ export function ChatPanel({
   const sendDisabled = loading || !input.trim() || (nativeMode ? !nativeSessionId : agentId === null);
 
   const modelName = selectedModel?.label ?? modelId;
-
   return (
     <div className="chat-panel" ref={panelRef} tabIndex={-1} onKeyDown={(e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "f") {
@@ -2098,7 +2109,7 @@ export function ChatPanel({
         {streaming ? `Agent is responding${streamPhase === "tools" ? " — running tools" : streamPhase === "thinking" ? " — thinking" : ""}` : ""}
       </div>
       <ChatTitleBar
-        title={chatTitle ?? sessionTitle ?? (nativeSessionId ? "Chat" : "New chat")}
+        title={sessionTitle ?? chatTitle ?? (nativeSessionId ? "Chat" : "New chat")}
         onRename={handleRename}
         titleLocked={titleLocked}
         renameSignal={renameSignal}

@@ -1400,7 +1400,7 @@ a { color: inherit; text-decoration: none; }
 .chat-quick-reply-chip:hover { border-color: var(--bb-cta); color: var(--bb-cta); }
 .chat-input-area { display: flex; flex-direction: column; gap: 0; padding: var(--bb-space-2) 16px; background: var(--bb-bg); flex-shrink: 0; min-height: 48px; }
 /* Composer box — single bordered rounded container */
-.chat-composer-box { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--bb-border); border-radius: var(--bb-radius-md); background: var(--bb-surface); overflow: visible; transition: border-color var(--bb-duration-fast) var(--bb-ease); }
+.chat-composer-box { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--bb-border); border-radius: 0; background: var(--bb-surface); overflow: visible; transition: border-color var(--bb-duration-fast) var(--bb-ease); }
 .chat-composer-box:focus-within { border-color: var(--bb-border-strong); }
 .chat-composer-textarea-wrap { padding: var(--bb-space-2) var(--bb-space-3); }
 .chat-input { flex: 1; resize: none; font-family: var(--bb-font); min-height: 42px; max-height: 360px; padding: 0; height: var(--chat-input-height, auto); border: 0; background: transparent; border-radius: 0; box-shadow: none !important; }
@@ -3144,7 +3144,7 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .panel-grid-split.is-row { flex-direction: row; }
 .panel-grid-split.is-column { flex-direction: column; }
 .panel-grid-split-child { display: flex; min-width: 0; min-height: 0; overflow: hidden; }
-.panel-grid-leaf { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; position: relative; background: var(--bb-bg); border: 1px solid var(--bb-border); border-radius: var(--bb-radius-sm); transition: border-color var(--bb-duration-fast) var(--bb-ease), box-shadow var(--bb-duration-fast) var(--bb-ease); }
+.panel-grid-leaf { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; position: relative; background: var(--bb-bg); border: 1px solid var(--bb-border); border-radius: 0; transition: border-color var(--bb-duration-fast) var(--bb-ease), box-shadow var(--bb-duration-fast) var(--bb-ease); }
 .panel-grid-leaf.is-active { border-color: var(--bb-border-strong); box-shadow: 0 0 0 1px var(--bb-text); }
 .panel-grid-leaf.is-closing { opacity: 0; transition: opacity 0.18s ease-in; }
 .panel-grid-content { flex: 1; min-height: 0; min-width: 0; overflow: hidden; display: flex; flex-direction: column; }

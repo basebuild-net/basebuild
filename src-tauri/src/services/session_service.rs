@@ -277,6 +277,16 @@ impl SessionService {
         Ok(())
     }
 
+    pub fn update_tab_title(id: &str, title: &str) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "UPDATE session_tabs SET title = ?1 WHERE id = ?2",
+            params![title, id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     // ─── Ideas ───
 
     pub fn create_category(

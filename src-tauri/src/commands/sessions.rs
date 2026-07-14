@@ -70,3 +70,8 @@ pub fn update_tab_file_path(id: String, file_path: Option<String>) -> Result<(),
 pub fn update_tab_chat_session(id: String, chat_session_id: Option<String>) -> Result<(), String> {
     SessionService::update_tab_chat_session(&id, chat_session_id.as_deref())
 }
+
+#[tauri::command]
+pub fn update_tab_title(id: String, title: String) -> Result<(), String> {
+    SessionService::update_tab_title(&id, &title)
+}
