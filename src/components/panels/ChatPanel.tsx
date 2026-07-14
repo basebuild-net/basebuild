@@ -693,22 +693,30 @@ export function ChatPanel({
           setContextUsedTokens(0);
           const latestMetric = nativeSessionLatestMetric(nativeSessionId).catch(() => null);
           addLog("debug", "Chat session loading", `Loading messages for ${nativeSessionId}`);
-          const [msgs, events, intrs] = await Promise.all([
+          const [msgs, events, intrs, sessionInfo] = await Promise.all([
             nativeChatMessages(nativeSessionId),
             nativeChatToolEvents(nativeSessionId),
             nativeInteractionListAll(nativeSessionId),
+            nativeChatGet(nativeSessionId),
           ]);
           if (cancelled) return;
           setNativeMessages(msgs);
           setToolEvents(events);
           setInteractions(intrs);
           setLiveSegments([]);
+          // Restore streaming state if the chat is still running in the
+          // backend (e.g., user switched projects and switched back).
+          if (sessionInfo?.runState === "running") {
+            setStreaming(true);
+            setStreamPhase("thinking");
+            streamStartRef.current = Date.now();
+          }
           void latestMetric.then((metric) => {
             if (!cancelled) {
               setContextUsedTokens(metric ? metric.inputTokens + metric.outputTokens : 0);
             }
           });
-          addLog("debug", "Chat session loaded", `${nativeSessionId}: ${msgs.length} messages`);
+          addLog("debug", "Chat session loaded", `${nativeSessionId}: ${msgs.length} messages${sessionInfo?.runState === "running" ? " (running)" : ""}`);
           return;
         }
         addLog("debug", "Chat session creating", `projectPath=${projectPath} provider=${providerId} model=${modelId}`);
@@ -1979,8 +1987,36 @@ export function ChatPanel({
 
   const handleGenerateIdeas = useCallback(async (opts?: { categoryId?: string | null; direction?: string | null }) => {
     if (!nativeSessionId || generatingIdeas) return;
+    // Guard: non-local provider without a credential can't generate — show
+    // connect prompt instead of silently failing.
+    if (selectedProvider && !selectedProvider.configured && selectedProvider.id !== LOCAL_PROVIDER_ID) {
+      setSetupRequired({
+        providerId: selectedProvider.id,
+        providerLabel: selectedProvider.label,
+        message: `Connect ${selectedProvider.label} to generate ideas.`,
+      });
+      setShowLogin(true);
+      return;
+    }
     setGeneratingIdeas(true);
     setError(null);
+    setSetupRequired(null);
+    // Set up streaming UI state so the user sees the thinking indicator,
+    // elapsed timer, and streamed content — matching sendMessage.
+    streamBufRef.current = "";
+    reasoningBufRef.current = "";
+    setStreamText("");
+    setReasoningText("");
+    setLiveSegments([]);
+    setStreaming(true);
+    streamStartRef.current = Date.now();
+    setElapsed(0);
+    setStreamPhase("thinking");
+    followLatestRef.current = true;
+    // Claim this generation. A stop or a newer send bumps activeSendRef so
+    // this generation's async resolution becomes a no-op instead of reviving
+    // the spinner or duplicating the streamed reply.
+    const gen = ++activeSendRef.current;
     try {
       const result = await nativeGenerateIdeas({
         sessionId: nativeSessionId,
@@ -1991,10 +2027,9 @@ export function ChatPanel({
         categoryId: opts?.categoryId ?? null,
         direction: opts?.direction ?? null,
       });
+      if (activeSendRef.current !== gen) return;
       if (result.setupRequired) {
         setSetupRequired(result.setupRequired);
-        // Only the login form applies to a specific non-local provider; for the
-        // local coordinator, show the setup bar prompting to pick a provider.
         setShowLogin(!!selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID);
       }
       setLastGrounding(result.grounding ?? null);
@@ -2014,11 +2049,47 @@ export function ChatPanel({
       } else {
         setError("Open a project session to save generated ideas.");
       }
+      // Reload the full persisted transcript — the backend now persists both
+      // the user prompt and the assistant response as messages.
+      if (result.userMessage || result.assistantMessage) {
+        const [msgs, events] = await Promise.all([
+          nativeChatMessages(nativeSessionId),
+          nativeChatToolEvents(nativeSessionId),
+        ]);
+        if (activeSendRef.current !== gen) return;
+        setNativeMessages(msgs);
+        setToolEvents(events);
+        setLiveSegments([]);
+      }
     } catch (e) {
+      if (activeSendRef.current !== gen) return;
       const msg = e instanceof Error ? e.message : String(e);
       addLog("error", "Failed to generate ideas", msg);
       setError(msg);
+      // Reload whatever the backend persisted (user prompt may have been
+      // saved before the error).
+      try {
+        const [msgs, events] = await Promise.all([
+          nativeChatMessages(nativeSessionId),
+          nativeChatToolEvents(nativeSessionId),
+        ]);
+        if (activeSendRef.current !== gen) return;
+        setNativeMessages(msgs);
+        setToolEvents(events);
+        setLiveSegments([]);
+      } catch {
+        /* ignore */
+      }
     } finally {
+      if (activeSendRef.current === gen) {
+        setStreaming(false);
+        setStreamText("");
+        setReasoningText("");
+        setStreamPhase("idle");
+        streamStartRef.current = null;
+        streamBufRef.current = "";
+        reasoningBufRef.current = "";
+      }
       setGeneratingIdeas(false);
     }
   }, [nativeSessionId, generatingIdeas, schematicContent, providerId, modelId, effortLevel, activeSessionId, ideaState, addLog, selectedProvider]);
@@ -2029,32 +2100,8 @@ export function ChatPanel({
   const handleGenerateForCategory = useCallback(async (categoryId: string | undefined) => {
     if (!nativeSessionId || generatingIdeas) return;
     setShowCategoryPicker(false);
-    setGeneratingIdeas(true);
-    setError(null);
-    try {
-      const result = await nativeGenerateIdeas({
-        sessionId: nativeSessionId,
-        schematic: schematicContent ?? undefined,
-        providerId,
-        modelId,
-        effortLevel,
-        categoryId: categoryId ?? null,
-      });
-      if (result.setupRequired) {
-        setSetupRequired(result.setupRequired);
-        setShowLogin(!!selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID);
-        setLastGrounding(result.grounding ?? null);
-        return;
-      }
-      await ideaState.refresh();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      addLog("error", "Failed to generate ideas for category", msg);
-      setError(msg);
-    } finally {
-      setGeneratingIdeas(false);
-    }
-  }, [nativeSessionId, generatingIdeas, schematicContent, providerId, modelId, effortLevel, ideaState, addLog, selectedProvider]);
+    void generateIdeasRef.current?.({ categoryId: categoryId ?? null });
+  }, [nativeSessionId, generatingIdeas]);
 
 
   const handlePromoteIdea = useCallback(

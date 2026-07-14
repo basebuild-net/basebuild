@@ -304,6 +304,31 @@ export function AppShell({ updates }: AppShellProps) {
   }, [restorePhase, activeProjectPath, projectRestoreLoading]);
 
   useEffect(() => {
+    // Flush any pending workspace save for the previous project before
+    // clearing the grid. Without this, tab title changes made within the
+    // 250ms debounce window are lost when switching projects.
+    if (workspacePersistTimerRef.current) {
+      window.clearTimeout(workspacePersistTimerRef.current);
+      workspacePersistTimerRef.current = null;
+      const prevProject = restoredProjectRef.current;
+      if (prevProject && prevProject !== activeProjectPath) {
+        void saveWorkspaceRestoreState({
+          projectPath: prevProject,
+          lastSessionId: session.activeSessionId,
+          lastTabId: session.activeTabId,
+          sideSection: workspaceRestore?.sideSection ?? "plans",
+          sidebarCollapsed,
+          sideCollapsed: workspaceRestore?.sideCollapsed ?? false,
+          sideWidth: workspaceRestore?.sideWidth ?? 260,
+          tabGridStates: serializeTabGridStates(session.tabGridStates),
+          panelGrid: serializePanelGrid(panelGridState),
+          updatedAt: workspaceRestore?.updatedAt ?? 0,
+        }).catch((caught) => {
+          const message = caught instanceof Error ? caught.message : String(caught);
+          addLog("warn", "Failed to flush workspace state on project switch", message);
+        });
+      }
+    }
     if (!activeProjectPath) {
       addLog("debug", "Project deselected", "clearing workspace restore");
       setWorkspaceRestore(null);
