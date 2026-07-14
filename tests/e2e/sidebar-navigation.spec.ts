@@ -1,19 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
+import { ensureChatPanel, openFixtureProject } from "./helpers";
 
 test.describe("Left sidebar structure (DESIGN.md §Layout)", () => {
   test("sidebar is visible and has correct structure", async ({ page }) => {
@@ -104,37 +90,37 @@ test.describe("Left sidebar structure (DESIGN.md §Layout)", () => {
   });
 });
 
-test.describe("Command strip (DESIGN.md §Planning cockpit)", () => {
-  test("command strip is visible with stage buttons", async ({ page }) => {
+test.describe("Planning indicators (DESIGN.md §Planning cockpit)", () => {
+  test("planning indicators is visible with stage buttons", async ({ page }) => {
     await openFixtureProject(page);
 
-    const strip = page.locator(".command-strip").first();
+    const strip = page.locator(".planning-indicators").first();
     if (await strip.count() > 0) {
       await expect(strip).toBeVisible();
-      const buttons = strip.locator("button");
+      const buttons = strip.locator(".planning-indicator");
       const count = await buttons.count();
       expect(count).toBeGreaterThanOrEqual(5);
     }
   });
 
-  test("command strip buttons have tooltips", async ({ page }) => {
+  test("planning indicator buttons have tooltips", async ({ page }) => {
     await openFixtureProject(page);
 
-    const strip = page.locator(".command-strip").first();
+    const strip = page.locator(".planning-indicators").first();
     if (await strip.count() > 0) {
-      const buttons = strip.locator("button");
+      const buttons = strip.locator(".planning-indicator");
       const count = await buttons.count();
       for (let i = 0; i < count; i++) {
         const title = await buttons.nth(i).getAttribute("title");
-        expect(title, `Command strip button ${i} should have a tooltip`).toBeTruthy();
+        expect(title, `Planning indicator button ${i} should have a tooltip`).toBeTruthy();
       }
     }
   });
 
-  test("command strip shows counts for each stage", async ({ page }) => {
+  test("planning indicators shows counts for each stage", async ({ page }) => {
     await openFixtureProject(page);
 
-    const strip = page.locator(".command-strip").first();
+    const strip = page.locator(".planning-indicators").first();
     if (await strip.count() > 0) {
       const counts = strip.locator("[class*='count'], [class*='badge']");
       const count = await counts.count();

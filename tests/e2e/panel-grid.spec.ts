@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { ensureChatPanel } from "./helpers";
 
 async function openFixtureProject(page: Page) {
   await page.addInitScript(() => {
@@ -7,17 +8,8 @@ async function openFixtureProject(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Open project" }).click();
   await expect(
-    page.locator(".activity-sidebar-project-name", { hasText: "project" }),
-  ).toBeVisible();
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
+    page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: "project" }),
+  ).toBeVisible({ timeout: 5_000 });
 }
 
 /** Click a button by title using evaluate to bypass overlay interception. */
@@ -40,7 +32,7 @@ test.describe("panel grid", () => {
     await expect(page.locator(".panel-grid")).toBeVisible();
     await expect(page.locator(".panel-grid-leaf").first()).toBeVisible();
     await expect(page.locator(".panel-header").first()).toBeVisible();
-    await expect(page.locator(".panel-header-title").first()).toBeVisible();
+    await expect(page.locator(".panel-header-tab-title").first()).toBeVisible();
     await expect(page.locator(".activity-sidebar-row").first()).toBeVisible();
 
     expect(pageErrors).toEqual([]);
@@ -75,11 +67,12 @@ test.describe("panel grid", () => {
     await clickByTitle(page, "Split right");
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(2);
 
-    // Close the second panel via evaluate.
-    await page.evaluate(() => {
-      const buttons = document.querySelectorAll<HTMLButtonElement>("button[title='Close panel (session retained in history)']");
-      buttons[buttons.length - 1]?.click();
-    });
+    // Open the "More actions" menu on the second panel header, then click close.
+    const panelHeaders = page.locator(".panel-header");
+    const secondHeader = panelHeaders.nth(1);
+    await secondHeader.locator("button[title='More actions']").click();
+    await expect(page.locator(".panel-header-menu")).toBeVisible({ timeout: 2_000 });
+    await page.locator(".panel-header-menu button[title='Close and move to history']").click();
     await page.waitForTimeout(500);
 
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(1);
@@ -97,12 +90,11 @@ test.describe("panel grid", () => {
       await page.waitForTimeout(300);
     }
     await expect(page.locator(".modal-overlay[aria-label='History']")).toBeVisible();
-    // Scope to the closed-panels section — the modal also lists all chats.
-    await expect(page.locator("section[aria-label='Closed panels'] .history-modal-item")).toHaveCount(1);
+    // Scope to closed-panel items — the modal also lists all chats.
+    await expect(page.locator(".history-modal-item-closed")).toHaveCount(1);
 
     expect(pageErrors).toEqual([]);
   });
-
   test("reopen from history restores the panel to the grid", async ({ page }) => {
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -114,10 +106,11 @@ test.describe("panel grid", () => {
     await clickByTitle(page, "Split right");
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(2);
 
-    await page.evaluate(() => {
-      const buttons = document.querySelectorAll<HTMLButtonElement>("button[title='Close panel (session retained in history)']");
-      buttons[buttons.length - 1]?.click();
-    });
+    const panelHeaders = page.locator(".panel-header");
+    const secondHeader = panelHeaders.nth(1);
+    await secondHeader.locator("button[title='More actions']").click();
+    await expect(page.locator(".panel-header-menu")).toBeVisible({ timeout: 2_000 });
+    await page.locator(".panel-header-menu button[title='Close and move to history']").click();
     await page.waitForTimeout(500);
 
     // Open history and re-open.
@@ -151,7 +144,6 @@ test.describe("panel grid", () => {
 
     // Click the second row in the activity sidebar.
     await page.locator(".activity-sidebar-row").nth(1).click();
-    await page.waitForTimeout(200);
 
     const secondLeaf = page.locator(".panel-grid-leaf").nth(1);
     await expect(secondLeaf).toHaveClass(/is-active/);

@@ -1,11 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
+import { openMvpFixtureProject, waitForAppReady, openPlanningModal } from "./helpers";
 
 /** Open Plans & Ideas on the Flow tab and click the Generate ideas action. */
 async function startRoundFromFlowBoard(page: Page) {
-  await page.getByTitle("Plans & Ideas").first().click();
+  await openPlanningModal(page);
   const modal = page.locator(".modal-overlay").filter({ hasText: "Plans & Ideas" });
-  await expect(modal).toBeVisible({ timeout: 5_000 });
   await modal.locator(".inspector-tab", { hasText: "Flow" }).click();
   await modal.getByTitle("Generate more grounded ideas from the project schematic").click();
 }
@@ -37,9 +36,8 @@ async function startRoundDirect(page: Page) {
 
 /** Open the Plans & Ideas modal on the Ideas tab. */
 async function openIdeasTab(page: Page) {
-  await page.getByTitle("Plans & Ideas").first().click();
+  await openPlanningModal(page);
   const modal = page.locator(".modal-overlay").filter({ hasText: "Plans & Ideas" });
-  await expect(modal).toBeVisible({ timeout: 5_000 });
   await modal.locator(".inspector-tab", { hasText: "Ideas" }).click();
   return modal;
 }
@@ -100,9 +98,8 @@ test.describe("Idea rounds", () => {
     await seedIdea(page, "Round idea beta");
 
     // Open the round review.
-    await page.getByTitle("Plans & Ideas").first().click();
+    await openPlanningModal(page);
     const modal = page.locator(".modal-overlay").filter({ hasText: "Plans & Ideas" });
-    await expect(modal).toBeVisible({ timeout: 5_000 });
     await modal.locator(".inspector-tab", { hasText: "Ideas" }).click();
 
     const roundRow = modal.locator(".idea-round-row").first();
@@ -144,7 +141,7 @@ test.describe("Idea rounds", () => {
     await expect(picker).not.toBeVisible({ timeout: 5_000 });
 
     // The abandoned round is finished, not running.
-    await page.getByTitle("Plans & Ideas").first().click();
+    await openPlanningModal(page);
     const modal = page.locator(".modal-overlay").filter({ hasText: "Plans & Ideas" });
     await modal.locator(".inspector-tab", { hasText: "Ideas" }).click();
     const roundRow = modal.locator(".idea-round-row").first();

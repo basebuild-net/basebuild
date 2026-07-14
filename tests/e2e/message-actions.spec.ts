@@ -1,19 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
+import { ensureChatPanel, openFixtureProject } from "./helpers";
 
 test.describe("message action rail", () => {
   test("copy button is visible and clickable on user and assistant messages", async ({ page }) => {
@@ -27,7 +13,7 @@ test.describe("message action rail", () => {
 
     // Select the local provider and send a message.
     await page.locator(".chat-column-model-chip").click();
-    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.locator(".provider-card").first().click();
     await page.getByTitle("Close provider and model catalog").click();
 
     const usersBefore = await page.locator(".chat-message-user").count();
@@ -61,7 +47,7 @@ test.describe("message action rail", () => {
     await ensureChatPanel(page);
 
     await page.locator(".chat-column-model-chip").click();
-    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.locator(".provider-card").first().click();
     await page.getByTitle("Close provider and model catalog").click();
 
     const usersBefore = await page.locator(".chat-message-user").count();
@@ -95,7 +81,7 @@ test.describe("message action rail", () => {
     await ensureChatPanel(page);
 
     await page.locator(".chat-column-model-chip").click();
-    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.locator(".provider-card").first().click();
     await page.getByTitle("Close provider and model catalog").click();
 
     const usersBefore = await page.locator(".chat-message-user").count();

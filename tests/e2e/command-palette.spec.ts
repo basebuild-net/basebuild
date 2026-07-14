@@ -1,19 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
+import { ensureChatPanel, openFixtureProject } from "./helpers";
 
 test.describe("Command palette (chat-command-palette)", () => {
   test("typing / opens the command palette", async ({ page }) => {
@@ -23,7 +9,6 @@ test.describe("Command palette (chat-command-palette)", () => {
     const textarea = page.locator(".chat-input").first();
     await expect(textarea).toBeVisible({ timeout: 5_000 });
     await textarea.fill("/");
-    await page.waitForTimeout(200);
 
     const palette = page.locator(".command-palette").first();
     await expect(palette).toBeVisible({ timeout: 3_000 });
@@ -35,7 +20,6 @@ test.describe("Command palette (chat-command-palette)", () => {
 
     const textarea = page.locator(".chat-input").first();
     await textarea.fill("/");
-    await page.waitForTimeout(200);
 
     const palette = page.locator(".command-palette").first();
     await expect(palette).toBeVisible({ timeout: 3_000 });
@@ -52,7 +36,6 @@ test.describe("Command palette (chat-command-palette)", () => {
 
     const textarea = page.locator(".chat-input").first();
     await textarea.fill("/mo");
-    await page.waitForTimeout(200);
 
     const palette = page.locator(".command-palette").first();
     await expect(palette).toBeVisible({ timeout: 3_000 });
@@ -68,11 +51,9 @@ test.describe("Command palette (chat-command-palette)", () => {
 
     const textarea = page.locator(".chat-input").first();
     await textarea.fill("/");
-    await page.waitForTimeout(200);
     await expect(page.locator(".command-palette").first()).toBeVisible({ timeout: 3_000 });
 
     await textarea.press("Escape");
-    await page.waitForTimeout(200);
     await expect(page.locator(".command-palette")).toHaveCount(0);
   });
 
@@ -83,7 +64,6 @@ test.describe("Command palette (chat-command-palette)", () => {
     const commandsBtn = page.getByTitle("Open command palette").first();
     await expect(commandsBtn).toBeVisible({ timeout: 5_000 });
     await commandsBtn.click();
-    await page.waitForTimeout(200);
 
     const palette = page.locator(".command-palette").first();
     await expect(palette).toBeVisible({ timeout: 3_000 });
@@ -95,7 +75,6 @@ test.describe("Command palette (chat-command-palette)", () => {
 
     const textarea = page.locator(".chat-input").first();
     await textarea.fill("/");
-    await page.waitForTimeout(200);
 
     const palette = page.locator(".command-palette").first();
     await expect(palette).toBeVisible({ timeout: 3_000 });
@@ -117,7 +96,6 @@ test.describe("Command palette (chat-command-palette)", () => {
 
     const textarea = page.locator(".chat-input").first();
     await textarea.fill("/cl");
-    await page.waitForTimeout(200);
 
     const palette = page.locator(".command-palette").first();
     await expect(palette).toBeVisible({ timeout: 3_000 });
@@ -141,7 +119,6 @@ test.describe("Command palette (chat-command-palette)", () => {
 
     const textarea = page.locator(".chat-input").first();
     await textarea.fill("/model");
-    await page.waitForTimeout(200);
 
     const helper = page.locator(".command-palette-helper").first();
     await expect(helper).toBeVisible({ timeout: 3_000 });
@@ -154,7 +131,6 @@ test.describe("Command palette (chat-command-palette)", () => {
 
     const textarea = page.locator(".chat-input").first();
     await textarea.fill("/");
-    await page.waitForTimeout(200);
 
     const palette = page.locator(".command-palette").first();
     await expect(palette).toBeVisible({ timeout: 3_000 });
@@ -168,7 +144,6 @@ test.describe("Command palette (chat-command-palette)", () => {
 
     const textarea = page.locator(".chat-input").first();
     await textarea.fill("/");
-    await page.waitForTimeout(200);
 
     const palette = page.locator(".command-palette").first();
     await expect(palette).toBeVisible({ timeout: 3_000 });
@@ -183,7 +158,6 @@ test.describe("Command palette (chat-command-palette)", () => {
 
     const textarea = page.locator(".chat-input").first();
     await textarea.fill("/zzzzz");
-    await page.waitForTimeout(200);
 
     const palette = page.locator(".command-palette").first();
     await expect(palette).toBeVisible({ timeout: 3_000 });

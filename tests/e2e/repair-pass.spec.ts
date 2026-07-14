@@ -1,10 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
+import { openFixtureProject } from "./helpers";
 
 test.describe("Repair pass: schematic wizard + category/idea flows", () => {
   test("schematic wizard starts with ask_user prompt", async ({ page }) => {

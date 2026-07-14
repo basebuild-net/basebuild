@@ -54,6 +54,36 @@ export async function waitForAppReady(page: Page): Promise<void> {
   await page.locator(".app-shell").waitFor({ state: "attached", timeout: 10_000 });
 }
 
+/**
+ * Open the MVP fixture project and wait for the app shell to be ready.
+ * Convenience wrapper combining `openMvpFixtureProject` + `waitForAppReady`.
+ */
+export async function openFixtureProject(page: Page): Promise<void> {
+  await openMvpFixtureProject(page);
+  await waitForAppReady(page);
+}
+
+/**
+ * Ensure a chat panel exists and its input is ready. Wait for the fixture to
+ * restore a panel (up to 3s). If none appears, click "New chat" and wait for
+ * the chat input to become visible. All locator-based — no fixed sleeps.
+ */
+export async function ensureChatPanel(page: Page): Promise<void> {
+  const panel = page.locator(".panel-grid-leaf").first();
+  try {
+    // Wait for the fixture to restore a panel.
+    await panel.waitFor({ state: "attached", timeout: 3_000 });
+  } catch {
+    // No panel restored — create a new chat tab.
+    await page.getByTitle("New chat").first().click();
+  }
+  // Wait for the chat input to be visible in the (now-existing) panel.
+  await page
+    .getByTitle(/Chat input/)
+    .first()
+    .waitFor({ state: "visible", timeout: 5_000 });
+}
+
 export function fixtureProject(index: number): MvpFixtureProject {
   return MVP_FIXTURE_PROJECTS[index];
 }
@@ -110,4 +140,21 @@ export async function readE2eStateCounter(
     const value = w.__BASEBUILD_E2E_STATE__?.[k];
     return typeof value === "number" ? value : 0;
   }, key);
+}
+
+/**
+ * Open the planning inspector modal via the PlanningIndicators dropdown.
+ *
+ * Contract: clicks the `plans` stage indicator, waits for the dropdown,
+ * clicks the "Full UI" button, and waits for the planning inspector modal
+ * to be visible. Replaces the old "Plans & Ideas" button click flow.
+ */
+export async function openPlanningModal(page: Page): Promise<void> {
+  const indicator = page.locator('.planning-indicator[data-stage="plans"]').first();
+  await indicator.waitFor({ state: "visible", timeout: 10_000 });
+  await indicator.click();
+  const dropdown = page.locator('.planning-notification-dropdown').first();
+  await dropdown.waitFor({ state: "visible", timeout: 5_000 });
+  await dropdown.getByRole("button", { name: /full UI/i }).click();
+  await page.locator('.planning-inspector-modal, .modal-overlay[aria-label="Plans & Ideas"]').first().waitFor({ state: "visible", timeout: 5_000 });
 }

@@ -1,19 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
+import { ensureChatPanel, openFixtureProject } from "./helpers";
 
 test.describe("native chat workspace", () => {
   test("creates a native chat tab and records a structured turn", async ({ page }) => {
@@ -35,7 +21,7 @@ test.describe("native chat workspace", () => {
     const context = page.locator(".chat-header-context");
     await expect(context).toHaveAttribute("title", /Context usage: 0 .*tokens/);
     await page.locator(".chat-column-model-chip").click();
-    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.locator(".provider-card").first().click();
     await page.getByTitle("Close provider and model catalog").click();
 
     // Type and send a message.
@@ -75,7 +61,6 @@ test.describe("native chat workspace", () => {
     await expect(catalogModal.locator(".provider-status.is-connected").first()).toContainText("Connected");
     await catalogModal.locator(".provider-card", { hasText: "OpenAI" }).first().click();
     await page.getByTitle("Close provider and model catalog").click();
-
 
     // Attempting to send opens the connect prompt and keeps the draft; no turn is sent.
     const messageCountBefore = await page.locator(".chat-message-user").count();
@@ -145,7 +130,7 @@ test.describe("native chat workspace", () => {
     await ensureChatPanel(page);
 
     await page.locator(".chat-column-model-chip").click();
-    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.locator(".provider-card").first().click();
     await page.getByTitle("Close provider and model catalog").click();
     // Send is a silent no-op until the native session binds and the provider
     // switch settles — wait for both before clicking (fixture rows would
@@ -184,7 +169,7 @@ test.describe("native chat workspace", () => {
     await ensureChatPanel(page);
 
     await page.locator(".chat-column-model-chip").click();
-    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.locator(".provider-card").first().click();
     await page.getByTitle("Close provider and model catalog").click();
     await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
     await expect(page.locator(".chat-column-model-chip")).toContainText("Local");
@@ -206,7 +191,7 @@ test.describe("native chat workspace", () => {
     await ensureChatPanel(page);
 
     await page.locator(".chat-column-model-chip").click();
-    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.locator(".provider-card").first().click();
     await page.getByTitle("Close provider and model catalog").click();
     await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
     await expect(page.locator(".chat-column-model-chip")).toContainText("Local");
@@ -239,7 +224,7 @@ test.describe("native chat workspace", () => {
     await ensureChatPanel(page);
 
     await page.locator(".chat-column-model-chip").click();
-    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.locator(".provider-card").first().click();
     await page.getByTitle("Close provider and model catalog").click();
     await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
     await expect(page.locator(".chat-column-model-chip")).toContainText("Local");

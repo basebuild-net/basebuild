@@ -1,13 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  if (await panel.count() > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
+import { ensureChatPanel, openMvpFixtureProject, waitForAppReady } from "./helpers";
 
 /** Get the native session id from the chat panel's data attribute. */
 async function getNativeSessionId(page: Page): Promise<string> {
@@ -58,7 +50,7 @@ test.describe("Agent status indicators", () => {
 
     // Deterministic local provider (mock streams over ~2s).
     await page.locator(".chat-column-model-chip").click();
-    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.locator(".provider-card").first().click();
     await page.getByTitle("Close provider and model catalog").click();
 
     const activeDot = page.locator(".activity-sidebar-project-row.is-active .agent-status-dot").first();

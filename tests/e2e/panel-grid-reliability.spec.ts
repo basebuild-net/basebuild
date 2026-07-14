@@ -139,7 +139,7 @@ test.describe("panel-grid project isolation", () => {
     // we verify the steady-state: after restore, the grid has exactly the
     // repaired panels and no duplicates.
     await page.getByRole("button", { name: "Open project" }).click();
-    await expect(page.locator(".activity-sidebar-project-name", { hasText: "project" })).toBeVisible();
+    await expect(page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: "project" })).toBeVisible({ timeout: 5_000 });
     await page.waitForTimeout(1500);
 
     const panels = await page.locator(".panel-grid-leaf").count();

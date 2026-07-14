@@ -1,28 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-  await page.waitForTimeout(1500);
-}
-
-async function ensureChatPanel(page: Page) {
-  const panel = page.locator(".panel-grid-leaf").first();
-  if ((await panel.count()) === 0) {
-    await page.getByTitle("New chat").first().click();
-    await page.waitForTimeout(500);
-  }
-}
+import { ensureChatPanel, openFixtureProject, openPlanningModal } from "./helpers";
 
 test.describe("UI gates: routing, no-manual-plan, settings, header, activity", () => {
   test("no Create plan button exists anywhere in the app", async ({ page }) => {
     await openFixtureProject(page);
 
     // Open the planning modal and check for no Create plan button.
-    await page.getByTitle(/^Plans:/).click();
+    await openPlanningModal(page);
     const planningModal = page.locator('.modal-overlay[aria-label="Plans & Ideas"]');
-    await expect(planningModal).toBeVisible({ timeout: 5_000 });
     await expect(planningModal.getByRole("button", { name: "Create plan", exact: true })).toHaveCount(0);
     await page.keyboard.press("Escape");
   });

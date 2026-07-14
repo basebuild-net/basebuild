@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady, fixtureProject } from "./helpers";
+import { openMvpFixtureProject, waitForAppReady, fixtureProject, openPlanningModal } from "./helpers";
 
 test.describe("Project-scoped views", () => {
   test("history modal shows closed panels and all chats", async ({ page }) => {
@@ -55,9 +55,8 @@ test.describe("Project-scoped views", () => {
     await expect(page.locator(".workspace-splash")).not.toBeVisible({ timeout: 10_000 });
 
     // Open the planning inspector.
-    await page.getByTitle("Plans & Ideas").first().click();
+    await openPlanningModal(page);
     const modal = page.locator(".modal-plans");
-    await expect(modal).toBeVisible({ timeout: 5_000 });
 
     // The plans tab is active by default or click it within the modal.
     const plansTab = modal.locator("[title='Plans']").first();

@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady, collectLogs, attachLogs, attachScreenshot } from "./helpers";
+import { openMvpFixtureProject, waitForAppReady, collectLogs, attachLogs, attachScreenshot, openPlanningModal } from "./helpers";
 
 test.describe("MVP golden path: folder → schematic → categories → ideas → plans → launch → merge", () => {
   test("full golden path journey renders without errors", async ({ page }) => {
@@ -11,8 +11,7 @@ test.describe("MVP golden path: folder → schematic → categories → ideas �
     await expect(page.locator("text=charlie").first()).toBeVisible({ timeout: 5000 });
 
     // 2. Open planning modal and verify all tabs render without errors.
-    await page.locator('[title="Plans & Ideas"]').first().click();
-    await expect(page.locator(".planning-inspector-modal, .planning-inspector")).toBeVisible({ timeout: 5000 });
+    await openPlanningModal(page);
 
     // 3. Cycle through all tabs — each should render without throwing.
     for (const tabTitle of ["Plans", "Ideas history", "Categories", "Flow board — live stage counts across the planning pipeline", "OpenSpec change catalog — browse and toggle tasks"]) {
@@ -41,9 +40,7 @@ test.describe("MVP golden path: folder → schematic → categories → ideas �
     await waitForAppReady(page);
 
     // The schematic should be loaded from the fixture.
-    // Check the schematic health badge or content.
-    await page.locator('[title="Plans & Ideas"]').first().click();
-    await expect(page.locator(".planning-inspector-modal, .planning-inspector")).toBeVisible({ timeout: 5000 });
+    await openPlanningModal(page);
 
     // The schematic health badge should show "complete" or the flow tab should show schematic info.
     await page.locator('[title="Flow board — live stage counts across the planning pipeline"]').first().click();
@@ -57,8 +54,7 @@ test.describe("MVP golden path: folder → schematic → categories → ideas �
     await waitForAppReady(page);
 
     // Open planning modal.
-    await page.locator('[title="Plans & Ideas"]').first().click();
-    await expect(page.locator(".planning-inspector-modal, .planning-inspector")).toBeVisible({ timeout: 5000 });
+    await openPlanningModal(page);
 
     // Go to Categories and click generate.
     await page.locator('[title="Categories"]').first().click();
@@ -78,8 +74,7 @@ test.describe("MVP golden path: folder → schematic → categories → ideas �
     await waitForAppReady(page);
 
     // Open planning modal and trigger category generation.
-    await page.locator('[title="Plans & Ideas"]').first().click();
-    await expect(page.locator(".planning-inspector-modal, .planning-inspector")).toBeVisible({ timeout: 5000 });
+    await openPlanningModal(page);
     await page.locator('[title="Categories"]').first().click();
     await page.locator("text=Generate categories from project").click();
 

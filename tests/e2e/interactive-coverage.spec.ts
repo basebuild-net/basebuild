@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-
+import { openPlanningModal } from "./helpers";
 async function openFixtureProject(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem("basebuild:first-run-complete", "true");
@@ -7,8 +7,8 @@ async function openFixtureProject(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Open project" }).click();
   await expect(
-    page.locator(".activity-sidebar-project-name", { hasText: "project" }),
-  ).toBeVisible();
+    page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: "project" }),
+  ).toBeVisible({ timeout: 5_000 });
 }
 
 test.describe("Planning cockpit: interactive coverage", () => {
@@ -38,14 +38,11 @@ test.describe("Planning cockpit: interactive coverage", () => {
     page.on("dialog", () => { dialogHeard = true; });
 
     // Open and close the Plans & Ideas modal.
-    const plansBtn = page.getByRole("button", { name: "Plans & Ideas" }).first();
-    if (await plansBtn.count() > 0) {
-      await plansBtn.click();
-      await page.waitForTimeout(300);
-      // Close by clicking the close button in the modal header.
-      await page.locator('.modal-overlay[aria-label="Plans & Ideas"] .btn-icon[title*="Close"]').first().click();
-      await page.waitForTimeout(200);
-    }
+    await openPlanningModal(page);
+    await page.waitForTimeout(300);
+    // Close by clicking the close button in the modal header.
+    await page.locator('.modal-overlay[aria-label="Plans & Ideas"] .btn-icon[title*="Close"]').first().click();
+    await page.waitForTimeout(200);
 
     // Open and close the source-control Changes tab.
     const changesBtn = page.getByRole("button", { name: "Changes" }).first();
@@ -61,8 +58,7 @@ test.describe("Planning cockpit: interactive coverage", () => {
     await openFixtureProject(page);
 
     // Open Plans & Ideas modal.
-    const plansBtn = page.getByRole("button", { name: "Plans & Ideas" }).first();
-    await plansBtn.click();
+    await openPlanningModal(page);
     await page.waitForTimeout(500);
 
     // Click the Changes tab.

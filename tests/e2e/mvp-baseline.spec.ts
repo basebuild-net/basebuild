@@ -7,6 +7,7 @@ import {
   fixtureCategory,
   fixtureProject,
   openMvpFixtureProject,
+  openPlanningModal,
   readE2eStateCounter,
   waitForAppReady,
 } from "./helpers";
@@ -26,7 +27,7 @@ test.describe("MVP workflow baseline", () => {
 
     const projectC = fixtureProject(2);
     await expect(
-      page.locator(".activity-sidebar-project-name", { hasText: projectC.name }),
+      page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: projectC.name }).first(),
     ).toBeVisible({ timeout: 5_000 });
     await expect(page.locator(".panel-grid-leaf").first()).toBeVisible({ timeout: 5_000 });
     await expect(
@@ -83,7 +84,7 @@ test.describe("MVP workflow baseline", () => {
 
     // Wait for the delayed picker to resolve and the selected project to become active.
     const projectC = fixtureProject(2);
-    await expect(page.locator(".activity-sidebar-project-name", { hasText: projectC.name })).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: projectC.name }).first()).toBeVisible({ timeout: 5_000 });
     const pickerMs = Date.now() - start;
 
     await attachScreenshot(page, "folder-picker-single-flight-screenshot");
@@ -115,8 +116,7 @@ test.describe("MVP workflow baseline", () => {
       { timeout: 5_000 },
     );
 
-    await page.getByTitle("Plans & Ideas").first().click();
-    await page.locator(".modal-plans").waitFor({ state: "visible", timeout: 5_000 });
+    await openPlanningModal(page);
     await page.getByTitle("Categories").click();
     await page.locator(".inspector-tab.is-active", { hasText: "Categories" }).waitFor({ state: "visible", timeout: 5_000 });
 

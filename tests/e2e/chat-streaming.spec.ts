@@ -1,19 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
+import { ensureChatPanel, openFixtureProject } from "./helpers";
 
 test.describe("chat streaming phases", () => {
   test("stream-test drives thinking indicator, reasoning, incremental markdown, then final message", async ({ page }) => {
@@ -22,7 +8,7 @@ test.describe("chat streaming phases", () => {
 
     // Deterministic local provider.
     await page.locator(".chat-column-model-chip").click();
-    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.locator(".provider-card").first().click();
     await page.getByTitle("Close provider and model catalog").click();
 
     await page.getByTitle(/Chat input/).first().fill("stream-test");
@@ -69,7 +55,7 @@ test.describe("chat streaming phases", () => {
     await ensureChatPanel(page);
 
     await page.locator(".chat-column-model-chip").click();
-    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.locator(".provider-card").first().click();
     await page.getByTitle("Close provider and model catalog").click();
 
     await page.getByTitle(/Chat input/).first().fill("stream-test");

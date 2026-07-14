@@ -1,17 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-  await page.waitForTimeout(1500);
-  // Ensure a chat panel exists so the environment panel renders.
-  const panel = page.locator(".panel-grid-leaf").first();
-  if ((await panel.count()) === 0) {
-    await page.getByTitle("New chat").first().click();
-    await page.waitForTimeout(500);
-  }
-}
+import { openFixtureProject } from "./helpers";
 
 test.describe("Notifications: toast + center + badge", () => {
   test("event → toast renders → center unread → mark-read → badge clears", async ({ page }) => {

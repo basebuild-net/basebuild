@@ -1,21 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  // In the panel grid, chat panels have data-panel-id and a .panel-header.
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  // If no panel exists, click "New chat" in the sidebar.
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
+import { ensureChatPanel, openFixtureProject } from "./helpers";
 
 async function collapseEnvPanel(page: Page) {
   const btn = page.locator("button[title='Collapse environment']");
@@ -54,7 +38,7 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
     // Establish a deterministic starting model; session restore may otherwise
     // legitimately retain the model chosen by a previous test.
     await page.locator(".chat-column-model-chip").first().click();
-    await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+    await page.locator(".provider-card").first().click();
     await page.getByTitle("Close provider and model catalog").click();
 
     // The compact header shows the selected model.

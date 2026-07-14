@@ -24,7 +24,7 @@ test.describe("MVP atomic project activation", () => {
 
     const projectC = fixtureProject(2);
     await expect(
-      page.locator(".activity-sidebar-project-name", { hasText: projectC.name }),
+      page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: projectC.name }).first(),
     ).toBeVisible({ timeout: 5_000 });
     await expect(page.locator(".panel-grid-leaf").first()).toBeVisible({
       timeout: 5_000,
@@ -57,7 +57,7 @@ test.describe("MVP atomic project activation", () => {
       .click();
 
     await expect(
-      page.locator(".activity-sidebar-project-name", { hasText: projectC.name }),
+      page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: projectC.name }).first(),
     ).toBeVisible({ timeout: 5_000 });
 
     const settleMs = Date.now() - start;
@@ -79,7 +79,7 @@ test.describe("MVP atomic project activation", () => {
     // The active project is charlie (already verified on line 54-56).
     // Verify the chat panel is visible and the project name is correct.
     await expect(page.locator(".panel-grid-leaf").first()).toBeVisible({ timeout: 5_000 });
-    await expect(page.locator(".activity-sidebar-project-name").first()).toContainText(projectC.name);
+    await expect(page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: projectC.name }).first()).toContainText(projectC.name);
   });
 
   test.skip("partial failure shows error boundary, no old content", async () => {
@@ -113,7 +113,7 @@ test.describe("MVP atomic project activation", () => {
     await expect(inFlightBtn).toBeDisabled();
 
     await expect(
-      page.locator(".activity-sidebar-project-name", { hasText: fixtureProject(2).name }),
+      page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: fixtureProject(2).name }).first(),
     ).toBeVisible({ timeout: 5_000 });
 
     const pickerMs = Date.now() - start;
@@ -146,7 +146,7 @@ test.describe("MVP atomic project activation", () => {
       .locator(".activity-sidebar-project-row", { hasText: projectA.name })
       .click();
     await expect(
-      page.locator(".activity-sidebar-project-name", { hasText: projectA.name }),
+      page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: projectA.name }).first(),
     ).toBeVisible({ timeout: 5_000 });
     await page.waitForTimeout(500);
 
@@ -161,7 +161,7 @@ test.describe("MVP atomic project activation", () => {
       .locator(".activity-sidebar-project-row", { hasText: projectC.name })
       .click();
     await expect(
-      page.locator(".activity-sidebar-project-name", { hasText: projectC.name }),
+      page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: projectC.name }).first(),
     ).toBeVisible({ timeout: 5_000 });
     await page.waitForTimeout(500);
 

@@ -1,11 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-  await page.waitForTimeout(1500);
-}
+import { openFixtureProject } from "./helpers";
 
 test.describe("OMP <-> Basebuild IDE sync", () => {
   test.skip("shows detection-gated Oh My Pi tab and live telemetry HUD", async ({ page }) => {

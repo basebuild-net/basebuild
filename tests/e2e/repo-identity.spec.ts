@@ -11,7 +11,7 @@ test.describe("Left column: repo identity and all projects visible", () => {
     const activeProject = page.locator(".activity-sidebar-project-row.is-active").first();
     await expect(activeProject).toBeVisible({ timeout: 5_000 });
     await expect(activeProject.locator(".repo-icon-svg")).toBeVisible();
-    await expect(activeProject.locator(".activity-sidebar-project-name")).not.toBeEmpty();
+    await expect(activeProject.locator(".activity-sidebar-project-name, .activity-sidebar-row-title")).not.toBeEmpty();
     await expect(activeProject.locator(".activity-sidebar-project-branch")).toContainText("main");
   });
 

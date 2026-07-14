@@ -671,6 +671,16 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       if (tab) tab.chatSessionId = args.chatSessionId as string | null;
       return undefined as T;
     }
+    case "update_tab_title": {
+      const tab = s.tabs.find((item) => item.id === args.id);
+      if (tab) tab.title = args.title as string;
+      return undefined as T;
+    }
+    case "native_chat_rename": {
+      const session = s.nativeChatSessions.find((item) => item.id === args.sessionId);
+      if (session) session.title = args.title as string;
+      return undefined as T;
+    }
     case "has_project_schematic":
       return true as T;
     case "get_project_schematic":

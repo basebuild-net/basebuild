@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-
+import { openPlanningModal } from "./helpers";
 async function openFixtureProject(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem("basebuild:first-run-complete", "true");
@@ -7,17 +7,16 @@ async function openFixtureProject(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Open project" }).click();
   await expect(
-    page.locator(".activity-sidebar-project-name", { hasText: "project" }),
-  ).toBeVisible();
+    page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: "project" }),
+  ).toBeVisible({ timeout: 5_000 });
 }
 
 test.describe("Visual planning command center", () => {
   test("command center renders stage cards with counts", async ({ page }) => {
     await openFixtureProject(page);
 
-    // Open the Plans & Ideas modal via the command strip Plans stage.
-    await page.locator("button[title^='Plans:']").first().click();
-    await expect(page.locator(".modal-plans")).toBeVisible({ timeout: 5_000 });
+    // Open the Plans & Ideas modal via the planning indicators.
+    await openPlanningModal(page);
 
     // Click the Flow tab.
     const flowTab = page.locator(".inspector-tab", { hasText: "Flow" }).first();
@@ -42,9 +41,7 @@ test.describe("Visual planning command center", () => {
 
   test("command center shows primary action buttons", async ({ page }) => {
     await openFixtureProject(page);
-
-    await page.locator("button[title^='Plans:']").first().click();
-    await expect(page.locator(".modal-plans")).toBeVisible({ timeout: 5_000 });
+    await openPlanningModal(page);
 
     const flowTab = page.locator(".inspector-tab", { hasText: "Flow" }).first();
     await flowTab.click();
@@ -58,9 +55,7 @@ test.describe("Visual planning command center", () => {
 
   test("stage cards have title tooltips with count and action", async ({ page }) => {
     await openFixtureProject(page);
-
-    await page.locator("button[title^='Plans:']").first().click();
-    await expect(page.locator(".modal-plans")).toBeVisible({ timeout: 5_000 });
+    await openPlanningModal(page);
 
     const flowTab = page.locator(".inspector-tab", { hasText: "Flow" }).first();
     await flowTab.click();

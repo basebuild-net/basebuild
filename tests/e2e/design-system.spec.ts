@@ -1,19 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
+import { ensureChatPanel, openFixtureProject } from "./helpers";
 
 test.describe("Design system invariants (DESIGN.md)", () => {
   test("CSS variables are defined for all design tokens", async ({ page }) => {
@@ -215,13 +201,13 @@ test.describe("Design system invariants (DESIGN.md)", () => {
     await expect(context).toHaveAttribute("title", /Context usage:/);
   });
 
-  test("command strip stage buttons have status colors", async ({ page }) => {
+  test("planning indicators stage buttons have status colors", async ({ page }) => {
     await openFixtureProject(page);
 
-    // DESIGN.md: command strip has 5 stage icons (Schematic, Ideas, Plans, Running, Done).
-    const strip = page.locator(".command-strip").first();
+    // DESIGN.md: planning indicators has 5 stage icons (Schematic, Ideas, Plans, Running, Done).
+    const strip = page.locator(".planning-indicators").first();
     if (await strip.count() > 0) {
-      const buttons = strip.locator("button");
+      const buttons = strip.locator(".planning-indicator");
       const count = await buttons.count();
       expect(count).toBeGreaterThanOrEqual(5);
 

@@ -6,7 +6,7 @@ async function openFixtureProject(page: Page) {
   });
   await page.goto("/");
   await page.getByRole("button", { name: "Open project" }).click();
-  await expect(page.locator(".activity-sidebar-project-name", { hasText: "project" })).toBeVisible();
+  await expect(page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: "project" })).toBeVisible({ timeout: 5_000 });
 }
 
 test.describe("plan context generation", () => {

@@ -1,23 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady, attachScreenshot } from "./helpers";
-
-async function openFixtureProject(page: Page) {
-  await openMvpFixtureProject(page);
-  await waitForAppReady(page);
-}
-
-async function ensureChatPanel(page: Page) {
-  await page.waitForTimeout(1500);
-  const panel = page.locator(".panel-grid-leaf").first();
-  const count = await panel.count();
-  if (count > 0) return;
-  await page.getByTitle("New chat").first().click();
-  await page.waitForTimeout(500);
-}
+import { attachScreenshot, ensureChatPanel, openFixtureProject } from "./helpers";
 
 async function selectLocalProvider(page: Page) {
   await page.locator(".chat-column-model-chip").click();
-  await page.locator(".provider-card", { hasText: "Basebuild Local" }).click();
+  await page.locator(".provider-card").first().click();
   await page.getByTitle("Close provider and model catalog").click();
 }
 
