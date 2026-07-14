@@ -1,4 +1,4 @@
-import { useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   FileText,
   MessageSquare,
@@ -38,6 +38,8 @@ export type PanelHeaderProps = {
   onSwitchTab?: (tabId: string) => void;
   /** Close a specific tab within this panel. */
   onCloseTab?: (tabId: string) => void;
+  /** Reorder tabs within this panel's tab strip. */
+  onReorderTabs?: (fromIndex: number, toIndex: number) => void;
   /**
    * Start a panel-level drag (reorder / split / merge). Called when the user
    * drags from a tab or the empty area of the tab strip.
@@ -48,14 +50,18 @@ export type PanelHeaderProps = {
   onDragCancel: () => void;
 };
 
+const TAB_DRAG_THRESHOLD = 4;
+
 export function PanelHeader(props: PanelHeaderProps) {
-  const { panel, status, isActive, onFocus, onClose, onSplitRight, onSplitDown, onDuplicate, onRename, onSwitchTab, onCloseTab, onDragStart, onDragEnd, onDragMove, onDragCancel } = props;
+  const { panel, status, isActive, onFocus, onClose, onSplitRight, onSplitDown, onDuplicate, onRename, onSwitchTab, onCloseTab, onReorderTabs, onDragStart, onDragEnd, onDragMove, onDragCancel } = props;
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(panel.title);
+  const [tabDragOver, setTabDragOver] = useState<number | null>(null);
   void onDragEnd; void onDragMove; void onDragCancel;
+  void status;
 
-  const statusClass = `panel-status-${status}`;
+  const tabDragData = useRef<{ fromIndex: number; startX: number; pointerId: number } | null>(null);
 
   const commitRename = () => {
     if (editValue.trim()) onRename(editValue.trim());
@@ -64,7 +70,7 @@ export function PanelHeader(props: PanelHeaderProps) {
 
   const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
-    // Don't start drag from buttons, inputs, or close buttons.
+    // Don't start drag from buttons or inputs.
     const target = e.target;
     if (target instanceof Element && target.closest("button, input")) return;
     onDragStart(e);
@@ -82,6 +88,53 @@ export function PanelHeader(props: PanelHeaderProps) {
   }];
   const activeTabId = panel.activeTabId ?? tabs[0].id;
 
+  // ── Tab reordering within the strip ──
+  // Pointer-down on a tab starts tracking. If the pointer moves beyond the
+  // threshold horizontally, we begin a tab reorder drag (swapping tabs within
+  // the strip). If the pointer leaves the tab strip, we hand off to the
+  // panel-level drag (split / merge / cross-panel reorder).
+  const onTabPointerDown = (e: ReactPointerEvent<HTMLDivElement>, index: number) => {
+    if (e.button !== 0) return;
+    const target = e.target;
+    if (target instanceof Element && target.closest("button, input")) return;
+    tabDragData.current = { fromIndex: index, startX: e.clientX, pointerId: e.pointerId };
+  };
+
+  const onTabPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const data = tabDragData.current;
+    if (!data || data.pointerId !== e.pointerId) return;
+    const dx = e.clientX - data.startX;
+    if (Math.abs(dx) < TAB_DRAG_THRESHOLD) return;
+    // Determine which tab we're hovering over.
+    const tabStrip = e.currentTarget;
+    const children = Array.from(tabStrip.querySelectorAll<HTMLElement>("[data-tab-index]"));
+    for (let i = 0; i < children.length; i++) {
+      const rect = children[i].getBoundingClientRect();
+      if (e.clientX >= rect.left && e.clientX <= rect.right) {
+        const toIndex = parseInt(children[i].dataset.tabIndex!, 10);
+        if (toIndex !== data.fromIndex) {
+          setTabDragOver(toIndex);
+        } else {
+          setTabDragOver(null);
+        }
+        return;
+      }
+    }
+    // Pointer left the tab strip — start panel-level drag instead.
+    tabDragData.current = null;
+    setTabDragOver(null);
+    onDragStart(e);
+  };
+
+  const onTabPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const data = tabDragData.current;
+    tabDragData.current = null;
+    if (data && data.pointerId === e.pointerId && tabDragOver !== null && onReorderTabs) {
+      onReorderTabs(data.fromIndex, tabDragOver);
+    }
+    setTabDragOver(null);
+  };
+
   return (
     <div
       className={`panel-header${isActive ? " is-active" : ""}`}
@@ -90,15 +143,23 @@ export function PanelHeader(props: PanelHeaderProps) {
       data-panel-id={panel.id}
       data-panel-status={status}
     >
-      <div className="panel-header-tabs">
-        {tabs.map((tab) => {
+      <div
+        className="panel-header-tabs"
+        onPointerMove={onTabPointerMove}
+        onPointerUp={onTabPointerUp}
+        onPointerCancel={() => { tabDragData.current = null; setTabDragOver(null); }}
+      >
+        {tabs.map((tab, index) => {
           const TabIcon = typeIcons[tab.type] ?? FileText;
           const isActiveTab = tab.id === activeTabId;
+          const isDragOverTarget = tabDragOver === index;
           return (
             <div
               key={tab.id}
-              className={`panel-header-tab${isActiveTab ? " is-active" : ""}`}
+              className={`panel-header-tab${isActiveTab ? " is-active" : ""}${isDragOverTarget ? " is-drop-target" : ""}`}
               title={tab.title}
+              data-tab-index={index}
+              onPointerDown={(e) => onTabPointerDown(e, index)}
               onClick={(e) => { e.stopPropagation(); onSwitchTab?.(tab.id); }}
             >
               <TabIcon size={9} className="panel-header-tab-icon" />
@@ -135,7 +196,6 @@ export function PanelHeader(props: PanelHeaderProps) {
             </div>
           );
         })}
-        <span className={`panel-status-indicator ${statusClass}`} title={`Status: ${status}`} />
         <button
           className="btn-icon btn-icon-sm panel-header-add-tab"
           type="button"
@@ -162,30 +222,32 @@ export function PanelHeader(props: PanelHeaderProps) {
         >
           <SplitSquareVertical size={11} />
         </button>
-        <button
-          className="btn-icon btn-icon-sm"
-          type="button"
-          title="More actions"
-          onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
-        >
-          <MoreVertical size={11} />
-        </button>
-        {menuOpen ? (
-          <div className="panel-header-menu" onMouseLeave={() => setMenuOpen(false)}>
-            <button type="button" title="Duplicate this panel's settings" onClick={() => { setMenuOpen(false); onDuplicate(); }}>
-              <PanelRightClose size={11} /> Duplicate
-            </button>
-            <button type="button" title="Split right (add panel beside)" onClick={() => { setMenuOpen(false); onSplitRight(); }}>
-              <SplitSquareHorizontal size={11} /> Split right
-            </button>
-            <button type="button" title="Split down (add panel below)" onClick={() => { setMenuOpen(false); onSplitDown(); }}>
-              <SplitSquareVertical size={11} /> Split down
-            </button>
-            <button type="button" title="Close and move to history" onClick={() => { setMenuOpen(false); onClose(); }}>
-              <X size={11} /> Close
-            </button>
-          </div>
-        ) : null}
+        <div className="panel-header-more-wrap">
+          <button
+            className="btn-icon btn-icon-sm"
+            type="button"
+            title="More actions"
+            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+          >
+            <MoreVertical size={11} />
+          </button>
+          {menuOpen ? (
+            <div className="panel-header-menu" onMouseLeave={() => setMenuOpen(false)}>
+              <button type="button" title="Duplicate this panel's settings" onClick={() => { setMenuOpen(false); onDuplicate(); }}>
+                <PanelRightClose size={11} /> Duplicate
+              </button>
+              <button type="button" title="Split right (add panel beside)" onClick={() => { setMenuOpen(false); onSplitRight(); }}>
+                <SplitSquareHorizontal size={11} /> Split right
+              </button>
+              <button type="button" title="Split down (add panel below)" onClick={() => { setMenuOpen(false); onSplitDown(); }}>
+                <SplitSquareVertical size={11} /> Split down
+              </button>
+              <button type="button" title="Close and move to history" onClick={() => { setMenuOpen(false); onClose(); }}>
+                <X size={11} /> Close
+              </button>
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   );

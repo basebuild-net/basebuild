@@ -3193,9 +3193,10 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .panel-header { display: flex; align-items: center; gap: 4px; padding: 0 4px 0 0; border-bottom: 1px solid var(--bb-border); background: var(--bb-surface); flex-shrink: 0; min-height: 30px; user-select: none; cursor: grab; position: relative; }
 .panel-header.is-active { background: var(--bb-surface-high); border-bottom-color: var(--bb-border-strong); }
 .panel-header:active { cursor: grabbing; }
-.panel-header-actions { display: flex; align-items: center; gap: 1px; flex-shrink: 0; opacity: 0.6; transition: opacity 0.08s; position: relative; }
+.panel-header-actions { display: flex; align-items: center; gap: 1px; flex-shrink: 0; opacity: 0.6; transition: opacity 0.08s; }
 .panel-header:hover .panel-header-actions { opacity: 1; }
-.panel-header-menu { position: absolute; top: 100%; right: 0; z-index: 200; min-width: 140px; background: var(--bb-surface-high); border: 1px solid var(--bb-border-strong); box-shadow: var(--bb-shadow-md); }
+.panel-header-more-wrap { position: relative; display: flex; align-items: center; }
+.panel-header-menu { position: absolute; top: 100%; right: 0; z-index: 200; min-width: 140px; background: var(--bb-surface-high); border: 1px solid var(--bb-border-strong); box-shadow: var(--bb-shadow-md); border-radius: var(--bb-radius-sm); }
 .panel-header-menu button { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 11px; color: var(--bb-text); width: 100%; text-align: left; background: none; border: 0; cursor: pointer; }
 .panel-header-menu button:hover { background: var(--bb-surface); }
 
@@ -3213,6 +3214,7 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .panel-header-tab-close:hover { opacity: 1 !important; color: var(--bb-danger, #c53030); }
 .panel-header-add-tab { flex-shrink: 0; opacity: 0.4; transition: opacity 0.08s; align-self: center; }
 .panel-header-add-tab:hover { opacity: 1; }
+.panel-header-tab.is-drop-target { border-left: 2px solid var(--bb-text); }
 /* Panel status indicator */
 .panel-status-indicator { width: 6px; height: 6px; border-radius: var(--bb-radius-full); flex-shrink: 0; background: var(--bb-muted); }
 .panel-status-idle { background: var(--bb-muted); }
