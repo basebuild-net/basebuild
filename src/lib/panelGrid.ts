@@ -967,7 +967,7 @@ export function removeTabFromPanel(
   tabId: string,
 ): PanelGridState {
   const panel = findPanel(state.root, panelId);
-  if (!panel?.tabs) return state;
+  if (!panel?.tabs) return closePanel(state, panelId);
   const newTabs = panel.tabs.filter((t) => t.id !== tabId);
   if (newTabs.length === 0) {
     return closePanel(state, panelId);

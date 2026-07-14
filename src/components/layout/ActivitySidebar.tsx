@@ -422,12 +422,12 @@ export function ActivitySidebar({
                   ) : null}
                   {/* Active project: show open panels (chats) underneath */}
                   {isActive && panels.length > 0 ? (
-                    panels.filter((p) => !(p.id === activePanelId && (p.tabs?.length ?? 0) > 1)).map((panel) => {
+                    panels.map((panel) => {
                       const Icon = typeIcons[panel.type] ?? FileText;
                       return (
                         <div
                           key={panel.id}
-                          className="activity-sidebar-row"
+                          className={`activity-sidebar-row${panel.id === activePanelId ? " is-active" : ""}`}
                           title={panel.title}
                           onClick={() => onFocusPanel(panel.id)}
                         >

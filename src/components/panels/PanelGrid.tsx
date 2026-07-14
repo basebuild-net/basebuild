@@ -431,9 +431,10 @@ export function PanelGrid(props: PanelGridProps) {
       const isDropTarget = dragState?.dropTarget?.panelId === panel.id;
       const isSettling = settlingIds.includes(panel.id);
 
-      // For multi-tab panels, compute the effective panel from the active tab.
+      // Compute the effective panel from the active tab — always, since
+      // the header now always renders a tab strip.
       const tab = activeTab(panel);
-      const effectivePanel: Panel = panel.tabs && panel.tabs.length > 1
+      const effectivePanel: Panel = panel.tabs && panel.tabs.length > 0
         ? { ...panel, type: tab.type, title: tab.title, chatSessionId: tab.chatSessionId, terminalId: tab.terminalId, filePath: tab.filePath }
         : panel;
 

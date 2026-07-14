@@ -1,7 +1,6 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   FileText,
-  GripVertical,
   MessageSquare,
   MoreVertical,
   PanelRightClose,
@@ -34,14 +33,17 @@ export type PanelHeaderProps = {
   onSplitDown: () => void;
   onDuplicate: () => void;
   onRename: (title: string) => void;
-  /** Switch to a tab within this panel (multi-tab only). */
+  /** Switch to a tab within this panel. */
   onSwitchTab?: (tabId: string) => void;
-  /** Close a specific tab within this panel (multi-tab only). */
+  /** Close a specific tab within this panel. */
   onCloseTab?: (tabId: string) => void;
-  /** Drag handle props for reorder/split. */
+  /**
+   * Start a panel-level drag (reorder / split / merge). Called when the user
+   * drags from a tab or the empty area of the tab strip.
+   */
   onDragStart: (e: ReactPointerEvent<HTMLDivElement>) => void;
   onDragEnd: () => void;
-  onDragMove: (e: PointerEvent) => void;
+  onDragMove: () => void;
   onDragCancel: () => void;
 };
 
@@ -50,9 +52,8 @@ export function PanelHeader(props: PanelHeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(panel.title);
-  const dragHandleRef = useRef<HTMLDivElement>(null);
+  void onDragEnd; void onDragMove; void onDragCancel;
 
-  const Icon = typeIcons[panel.type] ?? FileText;
   const statusClass = `panel-status-${status}`;
 
   const commitRename = () => {
@@ -62,19 +63,23 @@ export function PanelHeader(props: PanelHeaderProps) {
 
   const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
-    // Don't start drag from buttons or the input.
+    // Don't start drag from buttons, inputs, or close buttons.
     const target = e.target;
     if (target instanceof Element && target.closest("button, input")) return;
     onDragStart(e);
   };
 
-  const hasTabs = panel.tabs && panel.tabs.length > 1;
-  const activeTabData = panel.tabs && panel.tabs.length > 0
-    ? panel.tabs.find((t) => t.id === panel.activeTabId) ?? panel.tabs[0]
-    : null;
-  const displayTitle = activeTabData?.title ?? panel.title;
-  const displayType = activeTabData?.type ?? panel.type;
-  const DisplayIcon = typeIcons[displayType] ?? FileText;
+  // Always show the tab strip — even with one tab. The tabs are the drag
+  // handle (reorder / split / merge). No separate left-side label.
+  const tabs = panel.tabs ?? [{
+    id: panel.id,
+    type: panel.type,
+    title: panel.title,
+    chatSessionId: panel.chatSessionId,
+    terminalId: panel.terminalId,
+    filePath: panel.filePath,
+  }];
+  const activeTabId = panel.activeTabId ?? tabs[0].id;
 
   return (
     <div
@@ -84,61 +89,53 @@ export function PanelHeader(props: PanelHeaderProps) {
       data-panel-id={panel.id}
       data-panel-status={status}
     >
-      <div className="panel-header-drag-handle" ref={dragHandleRef} data-panel-header-drag-handle="true">
-        <GripVertical size={11} className="panel-header-grip" />
-        <DisplayIcon size={11} className="panel-header-icon" />
-        {editing ? (
-          <input
-            className="input panel-header-title-input"
-            type="text"
-            value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
-            onBlur={commitRename}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commitRename();
-              if (e.key === "Escape") { setEditValue(displayTitle); setEditing(false); }
-            }}
-            title="Rename panel (Enter to save, Esc to cancel)"
-            autoFocus
-          />
-        ) : (
-          <span
-            className="panel-header-title"
-            title={displayTitle}
-            onDoubleClick={(e) => { e.stopPropagation(); setEditValue(displayTitle); setEditing(true); }}
-          >
-            {displayTitle}
-          </span>
-        )}
+      <div className="panel-header-tabs">
+        {tabs.map((tab) => {
+          const TabIcon = typeIcons[tab.type] ?? FileText;
+          const isActiveTab = tab.id === activeTabId;
+          return (
+            <div
+              key={tab.id}
+              className={`panel-header-tab${isActiveTab ? " is-active" : ""}`}
+              title={tab.title}
+              onClick={(e) => { e.stopPropagation(); onSwitchTab?.(tab.id); }}
+            >
+              <TabIcon size={9} className="panel-header-tab-icon" />
+              {editing && isActiveTab ? (
+                <input
+                  className="input panel-header-tab-title-input"
+                  type="text"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onBlur={commitRename}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitRename();
+                    if (e.key === "Escape") { setEditValue(tab.title); setEditing(false); }
+                  }}
+                  title="Rename tab (Enter to save, Esc to cancel)"
+                  autoFocus
+                />
+              ) : (
+                <span
+                  className="panel-header-tab-title"
+                  onDoubleClick={(e) => { e.stopPropagation(); setEditValue(tab.title); setEditing(true); }}
+                >
+                  {tab.title}
+                </span>
+              )}
+              <button
+                className="panel-header-tab-close"
+                type="button"
+                title="Close tab"
+                onClick={(e) => { e.stopPropagation(); onCloseTab?.(tab.id); }}
+              >
+                <X size={8} />
+              </button>
+            </div>
+          );
+        })}
         <span className={`panel-status-indicator ${statusClass}`} title={`Status: ${status}`} />
       </div>
-      {hasTabs ? (
-        <div className="panel-header-tabs">
-          {panel.tabs!.map((tab) => {
-            const TabIcon = typeIcons[tab.type] ?? FileText;
-            const isActiveTab = tab.id === panel.activeTabId;
-            return (
-              <div
-                key={tab.id}
-                className={`panel-header-tab${isActiveTab ? " is-active" : ""}`}
-                title={tab.title}
-                onClick={(e) => { e.stopPropagation(); onSwitchTab?.(tab.id); }}
-              >
-                <TabIcon size={9} className="panel-header-tab-icon" />
-                <span className="panel-header-tab-title">{tab.title}</span>
-                <button
-                  className="panel-header-tab-close"
-                  type="button"
-                  title="Close tab"
-                  onClick={(e) => { e.stopPropagation(); onCloseTab?.(tab.id); }}
-                >
-                  <X size={8} />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
       <div className="panel-header-actions">
         <button
           className="btn-icon btn-icon-sm"
@@ -163,14 +160,6 @@ export function PanelHeader(props: PanelHeaderProps) {
           onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
         >
           <MoreVertical size={11} />
-        </button>
-        <button
-          className="btn-icon btn-icon-sm"
-          type="button"
-          title="Close panel (session retained in history)"
-          onClick={(e) => { e.stopPropagation(); onClose(); }}
-        >
-          <X size={11} />
         </button>
         {menuOpen ? (
           <div className="panel-header-menu" onMouseLeave={() => setMenuOpen(false)}>

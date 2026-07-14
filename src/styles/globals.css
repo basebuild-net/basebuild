@@ -3190,29 +3190,24 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .panel-grid-splitter:hover, .panel-grid-splitter.is-active { background: var(--bb-cta); }
 
 /* Panel header */
-.panel-header { display: flex; align-items: center; gap: 4px; padding: 0 6px 0 4px; border-bottom: 1px solid var(--bb-border); background: var(--bb-surface); flex-shrink: 0; min-height: 30px; user-select: none; cursor: grab; position: relative; }
+.panel-header { display: flex; align-items: center; gap: 4px; padding: 0 4px 0 0; border-bottom: 1px solid var(--bb-border); background: var(--bb-surface); flex-shrink: 0; min-height: 30px; user-select: none; cursor: grab; position: relative; }
 .panel-header.is-active { background: var(--bb-surface-high); border-bottom-color: var(--bb-border-strong); }
 .panel-header:active { cursor: grabbing; }
-.panel-header-drag-handle { display: flex; align-items: center; gap: 4px; flex-shrink: 0; min-width: 0; cursor: grab; padding: 0 4px; }
-.panel-header-grip { color: var(--bb-muted); flex-shrink: 0; opacity: 0.4; }
-.panel-header-drag-handle:hover .panel-header-grip { opacity: 1; }
-.panel-header-icon { color: var(--bb-muted); flex-shrink: 0; }
-.panel-header-title { font-size: 11px; font-weight: 600; color: var(--bb-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; max-width: 120px; }
-.panel-header-title-input { font-size: 11px; font-weight: 600; height: 18px; padding: 0 2px; flex: 1; min-width: 0; }
 .panel-header-actions { display: flex; align-items: center; gap: 1px; flex-shrink: 0; opacity: 0.6; transition: opacity 0.08s; position: relative; }
 .panel-header:hover .panel-header-actions { opacity: 1; }
 .panel-header-menu { position: absolute; top: 100%; right: 0; z-index: 200; min-width: 140px; background: var(--bb-surface-high); border: 1px solid var(--bb-border-strong); box-shadow: var(--bb-shadow-md); }
 .panel-header-menu button { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 11px; color: var(--bb-text); width: 100%; text-align: left; background: none; border: 0; cursor: pointer; }
 .panel-header-menu button:hover { background: var(--bb-surface); }
 
-/* Tab strip — icon-only, left-to-right, with hover tooltip for title */
+/* Tab strip — always visible, draggable. Tabs are the drag handle. */
 .panel-header-tabs { display: flex; align-items: stretch; gap: 0; flex: 1; min-width: 0; overflow: hidden; height: 100%; }
-.panel-header-tab { display: flex; align-items: center; gap: 4px; padding: 0 6px; font-size: 10px; color: var(--bb-muted); cursor: pointer; white-space: nowrap; border-right: 1px solid var(--bb-border); transition: background 0.06s; }
-.panel-header-tab:last-child { border-right: none; }
+.panel-header-tab { display: flex; align-items: center; gap: 4px; padding: 0 6px; font-size: 10px; color: var(--bb-muted); cursor: grab; white-space: nowrap; border-right: 1px solid var(--bb-border); transition: background 0.06s; }
+.panel-header-tab:active { cursor: grabbing; }
 .panel-header-tab:hover { background: var(--bb-surface); color: var(--bb-text); }
 .panel-header-tab.is-active { color: var(--bb-text); background: var(--bb-bg); border-bottom: 2px solid var(--bb-text); }
 .panel-header-tab-icon { flex-shrink: 0; }
-.panel-header-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60px; }
+.panel-header-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
+.panel-header-tab-title-input { font-size: 10px; font-weight: 600; height: 16px; padding: 0 2px; min-width: 60px; max-width: 120px; }
 .panel-header-tab-close { display: flex; align-items: center; justify-content: center; width: 12px; height: 12px; background: none; border: 0; cursor: pointer; color: var(--bb-muted); opacity: 0; transition: opacity 0.08s; }
 .panel-header-tab:hover .panel-header-tab-close { opacity: 0.5; }
 .panel-header-tab-close:hover { opacity: 1 !important; color: var(--bb-danger, #c53030); }
