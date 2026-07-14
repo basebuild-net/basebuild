@@ -1017,7 +1017,7 @@ impl NativeChatService {
         Self::insert_metric(&metric)?;
 
         let summary = if is_local {
-            "Handled offline by the local coordinator; no external model was contacted."
+            "No provider connected — select a provider to chat."
         } else {
             "Provider-backed turn: streamed assistant output with real timing/token metrics."
         };

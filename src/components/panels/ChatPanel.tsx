@@ -1116,6 +1116,7 @@ export function ChatPanel({
           return;
         }
         setInput("");
+        if (chatInputRef.current) chatInputRef.current.style.setProperty("--chat-input-height", "auto");
         setError(null);
         setSetupRequired(null);
         setLoading(true);
@@ -3140,6 +3141,7 @@ export function ChatPanel({
                 }
                 setPaletteActiveIndex(0);
                 const el = e.target;
+                el.style.setProperty("--chat-input-height", "auto");
                 el.style.setProperty("--chat-input-height", `${Math.min(el.scrollHeight, 360)}px`);
               }}
               onKeyDown={(e) => {

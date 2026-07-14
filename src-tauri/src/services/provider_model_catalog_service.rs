@@ -710,12 +710,12 @@ fn provider_specs() -> Vec<ProviderSpec> {
     // Synthetic local provider (not in the OMP catalog).
     specs.push(ProviderSpec {
         id: LOCAL_PROVIDER_ID.to_string(),
-        label: "Basebuild Local".to_string(),
+        label: "None".to_string(),
         credential_owner: "basebuild".to_string(),
         local_only: true,
         auth_method: "local".to_string(),
         api_key_url: None,
-        detail: "Runs locally without a network provider.".to_string(),
+        detail: "No provider connected — select a provider to chat.".to_string(),
         default_base_url: None,
     });
 
@@ -799,7 +799,7 @@ fn bundled_models(provider_id: &str) -> Vec<NativeModel> {
         LOCAL_PROVIDER_ID => vec![model_with_source(NativeModel {
             id: LOCAL_MODEL_ID.to_string(),
             provider_id: LOCAL_PROVIDER_ID.to_string(),
-            label: "Local Coordinator".to_string(),
+            label: "None".to_string(),
             supports_effort: true,
             supports_streaming: false,
             supports_tools: false,

@@ -1864,7 +1864,7 @@ function ConcurrencyTab({ projectPath }: { projectPath: string | null }) {
 
   const allProviders = providers.length > 0
     ? providers
-    : [{ id: "basebuild-local", label: "Basebuild Local" }, { id: "basebuild-native", label: "Basebuild Native" }];
+    : [{ id: "basebuild-local", label: "None" }, { id: "basebuild-native", label: "Basebuild Native" }];
 
   return (
     <div className="stack">

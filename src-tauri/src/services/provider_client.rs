@@ -693,23 +693,9 @@ fn http_client() -> Result<reqwest::blocking::Client, String> {
 pub struct LocalCoordinator;
 
 impl LocalCoordinator {
-    /// The canned offline response, explicitly labeled as local-coordinator output.
-    pub fn compose(system: Option<&str>, messages: &[ChatMsg], model_id: &str, effort_level: &str) -> String {
-        let last_user = messages
-            .iter()
-            .rev()
-            .find(|m| m.role == "user")
-            .map(|m| m.content.lines().next().unwrap_or(&m.content).trim().to_string())
-            .unwrap_or_default();
-        let ctx = system.unwrap_or("").lines().next().unwrap_or("").trim();
-        format!(
-            "[Offline local coordinator — no external model was contacted]\n\n\
-             Model: {model_id} · Effort: {effort_level}\n\
-             {ctx}\n\
-             Request: {last_user}\n\n\
-             This turn was handled locally and persisted as structured chat with real timing \
-             metrics. Connect a provider (OpenAI, Anthropic, or Umans) to get model-backed answers."
-        )
+    /// The canned offline response — tells the user to connect a provider.
+    pub fn compose(_system: Option<&str>, _messages: &[ChatMsg], _model_id: &str, _effort_level: &str) -> String {
+        "No provider connected. Select a provider (OpenAI, Anthropic, or Umans) from the model dropdown above to start chatting.".to_string()
     }
 }
 
@@ -1338,7 +1324,7 @@ mod tests {
         let resp = client
             .generate(&req, &|delta, _channel| streamed.borrow_mut().push_str(delta))
             .expect("local coordinator generate");
-        assert!(resp.content.contains("Offline local coordinator"));
+        assert!(resp.content.contains("No provider connected"));
         assert_eq!(streamed.into_inner(), resp.content);
         assert!(resp.output_tokens.unwrap_or(0) > 0);
     }
