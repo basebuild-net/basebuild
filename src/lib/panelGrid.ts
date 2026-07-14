@@ -94,6 +94,51 @@ function addTabToPanelLeaf(target: Panel, newPanel: Panel): Panel {
   };
 }
 
+/** Tear off the active tab from a panel into a new standalone panel.
+ *  Returns the new tree and the new panel's id, or null if the panel
+ *  has only one tab (or no tabs) and can't be torn. */
+export function tearOffTab(
+  root: SplitNode | null,
+  panelId: string,
+  side: DropSide,
+): { root: SplitNode | null; newPanelId: string } | null {
+  const panel = findPanel(root, panelId);
+  if (!panel?.tabs || panel.tabs.length < 2) return null;
+  const activeId = panel.activeTabId ?? panel.tabs[0].id;
+  const tabIndex = panel.tabs.findIndex((t) => t.id === activeId);
+  if (tabIndex === -1) return null;
+  const tornTab = panel.tabs[tabIndex];
+  const remainingTabs = panel.tabs.filter((t) => t.id !== activeId);
+
+  // The new standalone panel gets the torn tab's content.
+  const newPanel: Panel = {
+    id: `${panelId}-tear-${Date.now()}`,
+    type: tornTab.type,
+    title: tornTab.title,
+    chatSessionId: tornTab.chatSessionId,
+    terminalId: tornTab.terminalId,
+    filePath: tornTab.filePath,
+  };
+
+  // Update the original panel: remove the torn tab.
+  const newRoot = updatePanelInTree(root, panelId, {
+    tabs: remainingTabs.length === 1 ? undefined : remainingTabs,
+    activeTabId: remainingTabs.length === 1 ? undefined : remainingTabs[0].id,
+    // If only one tab left, adopt its identity.
+    ...(remainingTabs.length === 1 ? {
+      type: remainingTabs[0].type,
+      title: remainingTabs[0].title,
+      chatSessionId: remainingTabs[0].chatSessionId,
+      terminalId: remainingTabs[0].terminalId,
+      filePath: remainingTabs[0].filePath,
+    } : {}),
+  });
+
+  // Insert the new panel beside the original.
+  const finalRoot = splitPanelAt(newRoot, panelId, newPanel, side);
+  return { root: finalRoot, newPanelId: newPanel.id };
+}
+
 // ── Grid constructors ──────────────────────────────────────────────────────
 
 /** An empty grid: no panels, no active panel, empty history. */
@@ -990,6 +1035,29 @@ export function removeTabFromPanel(
     activeTabId: newActive,
   });
   return { ...state, root: newRoot };
+}
+
+/** Reorder tabs within a panel. Moves the tab at `fromIndex` to `toIndex`. */
+export function reorderTabs(
+  root: SplitNode | null,
+  panelId: string,
+  fromIndex: number,
+  toIndex: number,
+): SplitNode | null {
+  if (!root) return null;
+  if (root.kind === "leaf") {
+    if (root.panel.id !== panelId) return root;
+    const tabs = root.panel.tabs;
+    if (!tabs || fromIndex === toIndex) return root;
+    const newTabs = [...tabs];
+    const [moved] = newTabs.splice(fromIndex, 1);
+    if (!moved) return root;
+    newTabs.splice(toIndex, 0, moved);
+    return { kind: "leaf", panel: { ...root.panel, tabs: newTabs } };
+  }
+  const newChildren = root.children.map((c) => reorderTabs(c, panelId, fromIndex, toIndex)!);
+  const changed = newChildren.some((c, i) => c !== root.children[i]);
+  return changed ? { ...root, children: newChildren } : root;
 }
 
 /** Set the active tab of a panel. No-op if the tab doesn't exist. */

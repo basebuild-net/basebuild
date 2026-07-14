@@ -171,6 +171,8 @@ export type NativeGenerateIdeasResult = {
   ideas: NativeGeneratedIdea[];
   setupRequired: NativeSetupRequired | null;
   grounding: GroundingMetadata | null;
+  userMessage?: NativeChatMessage | null;
+  assistantMessage?: NativeChatMessage | null;
 };
 
 export type ProviderLoginStart = {

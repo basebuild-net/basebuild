@@ -268,6 +268,13 @@ pub struct NativeGenerateIdeasResult {
     /// Grounding metadata describing what decision context was injected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grounding: Option<GroundingMetadata>,
+    /// The persisted user message (the generation prompt). Absent when no
+    /// credential is configured (setup_required path) or persisting failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_message: Option<NativeChatMessage>,
+    /// The persisted assistant response. Absent on setup_required or error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assistant_message: Option<NativeChatMessage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

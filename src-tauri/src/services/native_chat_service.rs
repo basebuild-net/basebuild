@@ -1074,6 +1074,8 @@ impl NativeChatService {
                         .to_string(),
                 }),
                 grounding: None,
+                user_message: None,
+                assistant_message: None,
             });
         }
 
@@ -1126,11 +1128,24 @@ impl NativeChatService {
             extra_direction
         );
 
+        // Persist the generation prompt as a user message so the turn is
+        // visible in the transcript and survives reloads — matching send_message.
+        let user_message = Self::insert_message(
+            &request.session_id,
+            "user",
+            &prompt,
+            None,
+            Some(&provider_id),
+            Some(&model_id),
+            Some(&effort_level),
+        )?;
+        Self::touch_session(&request.session_id)?;
+
         let (api_kind, model_base_url) = Self::resolve_model_routing(&provider_id, &model_id);
 
         let req = ProviderRequest {
-            model_id,
-            effort_level,
+            model_id: model_id.clone(),
+            effort_level: effort_level.clone(),
             system: Some(system),
             messages: vec![ChatMsg {
                 role: "user".to_string(),
@@ -1147,20 +1162,43 @@ impl NativeChatService {
         let client = resolve_client_for_model(&provider_id, &api_kind, req.base_url.as_deref(), &model_base_url);
         let session_id_for_emit = request.session_id.clone();
         let app_for_emit = app.clone();
-        // Emit on the main content channel so the generation turn is visible in
-        // the transcript (not a discarded "ideas" channel). Reasoning streams on
-        // its own channel via the provider client.
-        let emit = move |delta: &str, _channel: &str| {
+        // Forward the actual channel label from the provider client so
+        // reasoning tokens stream on "reasoning" and content on "content" —
+        // matching send_message's emit contract.
+        let emit = move |delta: &str, channel: &str| {
             let _ = app_for_emit.emit(
                 NATIVE_CHAT_CHUNK,
                 serde_json::json!({
                     "sessionId": session_id_for_emit,
                     "delta": delta,
-                    "channel": "content"
+                    "channel": channel
                 }),
             );
         };
-        let response = client.generate(&req, &emit)?;
+
+        // Signal the UI that the model is thinking before the first token.
+        emit("thinking", "status");
+
+        let response = match client.generate(&req, &emit) {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = Self::record_pipeline_run(&run_id, &request.session_id, &session.project_path, "generate_ideas", "failed", now_seconds());
+                return Err(e);
+            }
+        };
+
+        // Persist the assistant response so the generated ideas survive reloads.
+        let assistant_message = Self::insert_message(
+            &request.session_id,
+            "assistant",
+            &response.content,
+            response.reasoning.as_deref(),
+            Some(&provider_id),
+            Some(&model_id),
+            Some(&effort_level),
+        )?;
+        Self::touch_session(&request.session_id)?;
+
         let ideas = Self::parse_ideas(&response.content);
         let cat_id_ref = category_id.as_deref();
         let _ = Self::parse_and_capture_ideas(&response.content, &request.session_id, cat_id_ref, Some(&run_id));
@@ -1175,6 +1213,8 @@ impl NativeChatService {
             ideas,
             setup_required: None,
             grounding: Some(grounding),
+            user_message: Some(user_message),
+            assistant_message: Some(assistant_message),
         })
     }
 
