@@ -219,12 +219,18 @@ struct RunHandle {
 #[derive(Debug, Clone)]
 pub struct RunResult {
     /// Final assistant content (may be empty if the loop ended on a tool call
-    /// that hit the iteration cap).
+    /// that hit the iteration cap). Kept for compatibility; persistence should
+    /// use `segments`, which covers every iteration including the final one.
     pub content: String,
     /// Final reasoning/thinking content from the last assistant turn, if any.
     /// Stored separately so it is never replayed to providers nor folded into
     /// the persisted assistant message content.
     pub reasoning: Option<String>,
+    /// Per-iteration assistant output, in chronological order. One entry per
+    /// provider response that produced content or reasoning, so the caller can
+    /// persist a transcript that interleaves text and tool calls. Preserved on
+    /// cancellation and iteration-cap exits.
+    pub segments: Vec<TurnSegment>,
     /// Whether the loop completed normally (no tool calls in the last response).
     pub completed: bool,
     /// Whether the run was cancelled.
@@ -235,6 +241,18 @@ pub struct RunResult {
     pub truncated: bool,
     /// Tool events recorded during the run.
     pub tool_events: Vec<ToolEventRecord>,
+}
+
+/// One provider iteration's assistant output within a run. Persisted as its
+/// own assistant message so intermediate text between tool batches survives.
+#[derive(Debug, Clone)]
+pub struct TurnSegment {
+    /// Assistant text content from this iteration.
+    pub content: String,
+    /// Reasoning/thinking content from this iteration, if any.
+    pub reasoning: Option<String>,
+    /// 1-based loop iteration this segment came from.
+    pub iteration: usize,
 }
 
 /// A tool event recorded during a run (persisted to native_tool_events by the caller).
@@ -250,6 +268,9 @@ pub struct ToolEventRecord {
     pub rule_source: Option<String>,
     /// Unified line diff for file tools, if any.
     pub diff: Option<String>,
+    /// 1-based loop iteration this event was executed in, so the caller can
+    /// bind it to the assistant message that preceded it.
+    pub iteration: usize,
 }
 
 /// Run an agentic loop for a session. This is the entry point for both
@@ -376,6 +397,7 @@ fn run_loop_inner(
     let workspace_root = PathBuf::from(project_path);
     let mut session_rules: Vec<SessionRule> = Vec::new();
     let mut tool_events: Vec<ToolEventRecord> = Vec::new();
+    let mut segments: Vec<TurnSegment> = Vec::new();
     let mut truncated = false;
     let mut iteration = 0;
 
@@ -385,6 +407,7 @@ fn run_loop_inner(
             return RunResult {
                 content: String::new(),
                 reasoning: None,
+                segments,
                 completed: false,
                 cancelled: true,
                 hit_cap: false,
@@ -396,6 +419,7 @@ fn run_loop_inner(
             return RunResult {
                 content: String::new(),
                 reasoning: None,
+                segments,
                 completed: false,
                 cancelled: false,
                 hit_cap: true,
@@ -444,9 +468,17 @@ fn run_loop_inner(
         let response = match client.generate(&req, &emit) {
             Ok(r) => r,
             Err(e) => {
+                // Surface the error as a segment so it persists like any other
+                // iteration text; earlier segments are preserved alongside it.
+                segments.push(TurnSegment {
+                    content: format!("Error: {e}"),
+                    reasoning: None,
+                    iteration,
+                });
                 return RunResult {
                     content: format!("Error: {e}"),
                     reasoning: None,
+                    segments,
                     completed: false,
                     cancelled: false,
                     hit_cap: false,
@@ -455,6 +487,22 @@ fn run_loop_inner(
                 };
             }
         };
+
+        // Record this iteration's assistant output as a segment so the caller
+        // can persist one message per iteration. Iterations that produced only
+        // tool calls (no text, no reasoning) get no segment.
+        let has_reasoning = response
+            .reasoning
+            .as_deref()
+            .map(|r| !r.trim().is_empty())
+            .unwrap_or(false);
+        if !response.content.trim().is_empty() || has_reasoning {
+            segments.push(TurnSegment {
+                content: response.content.clone(),
+                reasoning: response.reasoning.clone(),
+                iteration,
+            });
+        }
 
         // Append the assistant message to history.
         let mut assistant_msg = ChatMsg::text("assistant", response.content.clone());
@@ -466,6 +514,7 @@ fn run_loop_inner(
             return RunResult {
                 content: response.content,
                 reasoning: response.reasoning,
+                segments,
                 completed: true,
                 cancelled: false,
                 hit_cap: false,
@@ -487,6 +536,7 @@ fn run_loop_inner(
             token,
             app,
             session_id,
+            iteration,
             &mut tool_events,
         );
 
@@ -514,6 +564,7 @@ fn process_tool_calls(
     token: &CancellationToken,
     app: &AppHandle,
     session_id: &str,
+    iteration: usize,
     tool_events: &mut Vec<ToolEventRecord>,
 ) -> Vec<(ToolCallRequest, ToolResult)> {
     let mut results: Vec<(ToolCallRequest, ToolResult)> = Vec::with_capacity(calls.len());
@@ -525,7 +576,7 @@ fn process_tool_calls(
     for (idx, call) in calls.iter().enumerate() {
         if call.name == "propose_ideas" {
             let result = execute_propose_ideas(session_id, call);
-            record_tool_event(app, session_id, call, &result, tool_events);
+            record_tool_event(app, session_id, call, &result, iteration, tool_events);
             results.push((calls[idx].clone(), result));
         }
     }
@@ -535,7 +586,7 @@ fn process_tool_calls(
     for (idx, call) in calls.iter().enumerate() {
         if call.name == "ask_user" {
             let result = execute_ask_user(app, session_id, call);
-            record_tool_event(app, session_id, call, &result, tool_events);
+            record_tool_event(app, session_id, call, &result, iteration, tool_events);
             results.push((calls[idx].clone(), result));
         }
     }
@@ -618,7 +669,7 @@ fn process_tool_calls(
     read_results.sort_by_key(|(i, _)| *i);
     for (idx, result) in read_results {
         let call = &calls[idx];
-        record_tool_event(app, session_id, call, &result, tool_events);
+        record_tool_event(app, session_id, call, &result, iteration, tool_events);
         results.push((calls[idx].clone(), result));
     }
 
@@ -652,7 +703,7 @@ fn process_tool_calls(
                 sensitive: false,
             }
         };
-        record_tool_event(app, session_id, call, &result, tool_events);
+        record_tool_event(app, session_id, call, &result, iteration, tool_events);
         results.push((calls[*idx].clone(), result));
     }
 
@@ -929,6 +980,7 @@ fn record_tool_event(
     _session_id: &str,
     call: &ToolCallRequest,
     result: &ToolResult,
+    iteration: usize,
     tool_events: &mut Vec<ToolEventRecord>,
 ) {
     tool_events.push(ToolEventRecord {
@@ -944,6 +996,7 @@ fn record_tool_event(
         decision: result.decision.clone().unwrap_or_else(|| "approved".to_string()),
         rule_source: result.rule_source.clone(),
         diff: result.diff.clone(),
+        iteration,
     });
 }
 

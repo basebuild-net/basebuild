@@ -2,11 +2,26 @@ import { useCallback, useEffect, useState } from "react";
 
 export type PromptMode = "insert" | "send";
 
+/**
+ * Structured planning action carried alongside (or instead of) prose text.
+ * When present, the target ChatPanel invokes the corresponding native
+ * command (e.g. structured idea generation) instead of sending `text` as a
+ * plain chat message.
+ */
+export type DeliveryAction = {
+  kind: "generate_ideas";
+  /** Ground generation in a specific idea category. */
+  categoryId?: string | null;
+  /** Extra steering appended to the idea-generation prompt. */
+  direction?: string | null;
+};
+
 export type PromptDelivery = {
   actionId: string;
   chatSessionId: string;
   text: string;
   mode: PromptMode;
+  action?: DeliveryAction;
 };
 
 type DeliverOpts = {
@@ -14,6 +29,7 @@ type DeliverOpts = {
   text: string;
   mode: PromptMode;
   actionId?: string;
+  action?: DeliveryAction;
 };
 
 // Module-level state — survives panel remounts and React re-renders.
@@ -33,7 +49,7 @@ const consumedActionIds = new Set<string>();
 export function deliverPrompt(opts: DeliverOpts): string {
   const actionId = opts.actionId ?? `pd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   if (consumedActionIds.has(actionId)) return actionId;
-  const delivery: PromptDelivery = { actionId, chatSessionId: opts.chatSessionId, text: opts.text, mode: opts.mode };
+  const delivery: PromptDelivery = { actionId, chatSessionId: opts.chatSessionId, text: opts.text, mode: opts.mode, action: opts.action };
   pendingDeliveries.set(opts.chatSessionId, delivery);
   deliveryListeners.get(opts.chatSessionId)?.forEach((fn) => fn(delivery));
   return actionId;

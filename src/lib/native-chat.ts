@@ -300,6 +300,8 @@ export async function nativeGenerateIdeas(input: {
   modelId?: string | null;
   effortLevel?: string | null;
   categoryId?: string | null;
+  /** Extra steering appended to the idea-generation prompt. */
+  direction?: string | null;
 }): Promise<NativeGenerateIdeasResult> {
   return invoke<NativeGenerateIdeasResult>("native_generate_ideas", { request: input });
 }

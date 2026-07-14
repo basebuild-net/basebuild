@@ -81,7 +81,7 @@ import {
   type NativeToolEvent,
 } from "../../lib/native-chat";
 import { resolveToolApproval } from "../../lib/native-chat";
-import { buildChatTimeline } from "../../lib/chatTimeline";
+import { buildChatTimeline, type LiveSegment } from "../../lib/chatTimeline";
 import { useIdeaState } from "../../state/ideas";
 import { setLastGrounding } from "../../state/grounding";
 import type { Idea } from "../../lib/ideas";
@@ -419,6 +419,12 @@ export function ChatPanel({
   const [nativeSessionId, setNativeSessionId] = useState<string | null>(chatSessionId ?? null);
   const [nativeMessages, setNativeMessages] = useState<NativeChatMessage[]>([]);
   const [toolEvents, setToolEvents] = useState<NativeToolEvent[]>([]);
+  // Completed live-turn segments — text/reasoning of finished agent-loop
+  // iterations, kept in chronological position while the turn streams.
+  const [liveSegments, setLiveSegments] = useState<LiveSegment[]>([]);
+  // Monotonic arrival counter shared by live tool events and flushed
+  // segments; orders items within the in-flight turn.
+  const liveOrderRef = useRef(0);
   const [interactions, setInteractions] = useState<PendingInteraction[]>([]);
   const [legacyMessages, setLegacyMessages] = useState<LegacyChatMessage[]>([]);
   const [providerId, setProviderId] = useState(LOCAL_PROVIDER_ID);
@@ -531,7 +537,7 @@ export function ChatPanel({
   const metaBranchPos = useDropdownPosition(200);
   const [metaNewBranch, setMetaNewBranch] = useState("");
   const [metaCreatingBranch, setMetaCreatingBranch] = useState(false);
-  const [sessionTitle, setSessionTitle] = useState<string | null>(null);
+  const [sessionTitle, setSessionTitle] = useState<{ sessionId: string; title: string } | null>(null);
   const [assignedPlanId, setAssignedPlanId] = useState<string | null>(null);
   const [planBadge, setPlanBadge] = useState<{ referenceId: string; title: string; status: string } | null>(null);
   const [agentMode, setAgentMode] = useState<AgentMode>("plan");
@@ -657,18 +663,22 @@ export function ChatPanel({
     if (!nativeSessionId) { setSessionTitle(null); return; }
     let cancelled = false;
     void nativeChatGet(nativeSessionId).then((s) => {
-      if (!cancelled && s) setSessionTitle(s.title);
+      if (!cancelled && s) setSessionTitle({ sessionId: nativeSessionId, title: s.title });
     });
     return () => { cancelled = true; };
   }, [nativeSessionId]);
   // Sync session title to the panel/tab title so the sidebar shows the real
-  // chat title instead of the default "Chat N". Fires when the backend
-  // auto-titles or when a session is loaded.
+  // chat title instead of the default "Chat N". Guarded to the session the
+  // title was loaded for and reading the callback through a ref: a project
+  // switch swaps chatSessionId (and the callback identity) before the new
+  // title loads, and re-firing with the stale title renamed the wrong tab.
+  const onRenameChatRef = useRef(onRenameChat);
+  onRenameChatRef.current = onRenameChat;
   useEffect(() => {
-    if (sessionTitle) {
-      onRenameChat?.(sessionTitle);
+    if (sessionTitle && sessionTitle.sessionId === nativeSessionId) {
+      onRenameChatRef.current?.(sessionTitle.title);
     }
-  }, [sessionTitle, onRenameChat]);
+  }, [sessionTitle, nativeSessionId]);
 
   // Native mode: load or create session. Times out after 15s so the panel
   // never hangs forever in "initializing" — the user sees an actionable
@@ -692,6 +702,7 @@ export function ChatPanel({
           setNativeMessages(msgs);
           setToolEvents(events);
           setInteractions(intrs);
+          setLiveSegments([]);
           void latestMetric.then((metric) => {
             if (!cancelled) {
               setContextUsedTokens(metric ? metric.inputTokens + metric.outputTokens : 0);
@@ -761,9 +772,23 @@ export function ChatPanel({
         // streaming text between agent-loop iterations.
         if (channel === "status") {
           const phase = event.payload.delta;
-          if (phase === "thinking" || phase === "next") {
-            // Starting a new provider stream — clear previous iteration's
-            // text so each iteration gets a fresh streaming block.
+          if (phase === "thinking" || phase === "next" || phase === "tools") {
+            // Iteration boundary — promote the streamed text/reasoning into
+            // a completed live segment so it stays in the transcript at its
+            // chronological position (before the tools that follow it)
+            // instead of being discarded when the next stream starts.
+            const content = streamBufRef.current;
+            const reasoning = reasoningBufRef.current;
+            if (content.trim().length > 0 || reasoning.trim().length > 0) {
+              const order = ++liveOrderRef.current;
+              setLiveSegments((prev) => [...prev, {
+                id: `live-seg-${order}`,
+                content,
+                reasoning: reasoning.trim().length > 0 ? reasoning : null,
+                createdAt: Math.floor(Date.now() / 1000),
+                order,
+              }]);
+            }
             if (renderFrame !== null) {
               window.cancelAnimationFrame(renderFrame);
               renderFrame = null;
@@ -772,9 +797,7 @@ export function ChatPanel({
             reasoningBufRef.current = "";
             setStreamText("");
             setReasoningText("");
-            setStreamPhase("thinking");
-          } else if (phase === "tools") {
-            setStreamPhase("tools");
+            setStreamPhase(phase === "tools" ? "tools" : "thinking");
           }
           return;
         }
@@ -854,6 +877,7 @@ export function ChatPanel({
       const diff = event.payload.diff ?? null;
       const decision = event.payload.decision ?? null;
       const ruleSource = event.payload.ruleSource ?? null;
+      const liveSeq = ++liveOrderRef.current;
       setToolEvents((prev) => {
         const existing = prev.find((e) => e.id === id);
         if (existing) {
@@ -879,7 +903,7 @@ export function ChatPanel({
           diff,
           decision,
           ruleSource,
-          sequence: prev.length + 1,
+          sequence: liveSeq,
           createdAt: Math.floor(Date.now() / 1000),
         }];
       });
@@ -907,6 +931,7 @@ export function ChatPanel({
       } else {
         summary = `${toolName} approval required`;
       }
+      const liveSeq = ++liveOrderRef.current;
       setToolEvents((prev) => {
         // Replace if already exists (e.g. from tool-event stream).
         const existingIdx = prev.findIndex((e) => e.id === event.payload.toolCallId);
@@ -926,7 +951,7 @@ export function ChatPanel({
           diff: null,
           decision: null,
           ruleSource: null,
-          sequence: prev.length + 1,
+          sequence: liveSeq,
           createdAt: Math.floor(Date.now() / 1000),
         }];
       });
@@ -1125,6 +1150,7 @@ export function ChatPanel({
         reasoningBufRef.current = "";
         setStreamText("");
         setReasoningText("");
+        setLiveSegments([]);
         setStreaming(true);
         streamStartRef.current = Date.now();
         setElapsed(0);
@@ -1154,20 +1180,20 @@ export function ChatPanel({
             setContextUsedTokens(result.metrics.inputTokens + result.metrics.outputTokens);
           }
           setModelRecency(recordModelUse(providerId, modelId));
-          setNativeMessages((prev) => {
-            const base = prev.filter((m) => m.id !== tempUserId);
-            const next = [...base, result.userMessage];
-            if (result.assistantMessage) next.push(result.assistantMessage);
-            return next;
-          });
+          // Reload the full persisted transcript — a turn may persist
+          // multiple assistant rows (one per agent-loop iteration) with
+          // their bound tool events, so an optimistic append is not enough.
+          const [msgs, events] = await Promise.all([
+            nativeChatMessages(nativeSessionId),
+            nativeChatToolEvents(nativeSessionId),
+          ]);
+          setNativeMessages(msgs);
+          setToolEvents(events);
+          setLiveSegments([]);
           // Refresh session title (backend auto-titles from first message).
-          if (nativeSessionId) {
-            void nativeChatGet(nativeSessionId).then((s) => { if (s) setSessionTitle(s.title); });
-          }
-          // Reload tool events from the result
-          if (result.toolEvents.length > 0 && nativeSessionId) {
-            setToolEvents(await nativeChatToolEvents(nativeSessionId));
-          }
+          void nativeChatGet(nativeSessionId).then((s) => {
+            if (s) setSessionTitle({ sessionId: nativeSessionId, title: s.title });
+          });
           if (result.setupRequired) {
             setSetupRequired(result.setupRequired);
             setShowLogin(true);
@@ -1183,6 +1209,7 @@ export function ChatPanel({
             ]);
             setNativeMessages(msgs);
             setToolEvents(events);
+            setLiveSegments([]);
           } catch {
             /* ignore */
           }
@@ -1209,6 +1236,7 @@ export function ChatPanel({
               if (activeSendRef.current === gen + 1) {
                 setNativeMessages(msgs);
                 setToolEvents(events);
+                setLiveSegments([]);
               }
             } catch {
               /* best-effort */
@@ -1254,6 +1282,11 @@ export function ChatPanel({
   // composer left empty. Tool-incapable model + wizard prompt → insert +
   // inline notice (no send).
   const { delivery, consume } = usePromptDelivery(nativeSessionId);
+  // Exactly-once guard for send-mode deliveries. consume() only clears the
+  // queue after the async work settles, so without this ref a stop (which
+  // flips `loading` back to false while the delivered send is still in
+  // flight) re-runs the effect and re-sends the same prompt.
+  const attemptedDeliveryRef = useRef<string | null>(null);
   useEffect(() => {
     if (!delivery || !nativeSessionId) return;
     if (delivery.mode === "insert") {
@@ -1263,7 +1296,19 @@ export function ChatPanel({
     }
     // send mode — wait for catalog so the resolved provider/model is used.
     if (!catalog || loading) return;
-    void sendMessage(delivery.text.trim()).then(() => consume());
+    if (attemptedDeliveryRef.current === delivery.actionId) return;
+    attemptedDeliveryRef.current = delivery.actionId;
+    // Structured planning action — invoke the native command (persisted,
+    // selectable idea cards) instead of sending prose to the chat agent.
+    if (delivery.action?.kind === "generate_ideas") {
+      consume();
+      void generateIdeasRef.current?.({
+        categoryId: delivery.action.categoryId ?? undefined,
+        direction: delivery.action.direction ?? undefined,
+      });
+      return;
+    }
+    void sendMessage(delivery.text.trim()).finally(() => consume());
   }, [delivery, consume, nativeSessionId, catalog, loading, sendMessage]);
 
   // Follow output explicitly instead of inferring pre-growth geometry from a
@@ -1404,7 +1449,7 @@ export function ChatPanel({
   const persistSelectionRef = useRef<(providerId: string, modelId: string, effort: string) => void>(() => {});
   // Ref to handleGenerateIdeas so /idea generate can call it without a TDZ
   // issue (handleGenerateIdeas is defined after handleSend).
-  const generateIdeasRef = useRef<(() => Promise<void>) | null>(null);
+  const generateIdeasRef = useRef<((opts?: { categoryId?: string | null; direction?: string | null }) => Promise<void>) | null>(null);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
@@ -1673,8 +1718,8 @@ export function ChatPanel({
   // Memoized so it is rebuilt only when the underlying lists change — not on
   // every render or stream delta tick (streamText renders separately).
   const chatTimeline = useMemo(
-    () => buildChatTimeline(nativeMessages, toolEvents, interactions),
-    [nativeMessages, toolEvents, interactions],
+    () => buildChatTimeline(nativeMessages, toolEvents, interactions, liveSegments),
+    [nativeMessages, toolEvents, interactions, liveSegments],
   );
 
   // Message action rail handlers.
@@ -1784,6 +1829,7 @@ export function ChatPanel({
     if (!nativeSessionId) {
       setNativeMessages([]);
       setToolEvents([]);
+      setLiveSegments([]);
       setStreamText("");
       setReasoningText("");
       setStreamPhase("idle");
@@ -1795,6 +1841,7 @@ export function ChatPanel({
       const deleted = await nativeChatClearMessages(nativeSessionId);
       setNativeMessages([]);
       setToolEvents([]);
+      setLiveSegments([]);
       setStreamText("");
       setReasoningText("");
       setStreamPhase("idle");
@@ -1930,7 +1977,7 @@ export function ChatPanel({
   );
   persistSelectionRef.current = persistSelection;
 
-  const handleGenerateIdeas = useCallback(async () => {
+  const handleGenerateIdeas = useCallback(async (opts?: { categoryId?: string | null; direction?: string | null }) => {
     if (!nativeSessionId || generatingIdeas) return;
     setGeneratingIdeas(true);
     setError(null);
@@ -1941,6 +1988,8 @@ export function ChatPanel({
         providerId,
         modelId,
         effortLevel,
+        categoryId: opts?.categoryId ?? null,
+        direction: opts?.direction ?? null,
       });
       if (result.setupRequired) {
         setSetupRequired(result.setupRequired);
@@ -2022,8 +2071,8 @@ export function ChatPanel({
   // ── Chat header handlers ──
   const handleRename = useCallback((title: string) => {
     setTitleLocked(true);
-    setSessionTitle(title);
     if (nativeSessionId) {
+      setSessionTitle({ sessionId: nativeSessionId, title });
       void renameSessionApi(nativeSessionId, title);
     }
     onRenameChat?.(title);
@@ -2231,6 +2280,9 @@ export function ChatPanel({
                     <ThinkingBlock key={`thinking-${ev.id}`} text={ev.reasoning} />,
                   );
                 }
+                // Reasoning-only rows (no text in this iteration) get just
+                // the thinking block — skip the empty message bubble.
+                if (ev.kind === "assistant" && !ev.content.trim()) continue;
                 rendered.push(
                   <div key={ev.id} className={`chat-message chat-message-${ev.kind}`} aria-label={`${ev.kind === "user" ? "You" : ev.kind === "assistant" ? "Assistant" : "System"}: ${ev.content.slice(0, 100)}`}>
                     <span className="chat-message-role">

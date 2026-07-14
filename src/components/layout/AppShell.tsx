@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle, Info, LayoutTemplate, Settings2, TerminalSquare, X, XCircle } from "lucide-react";
-import { deliverPrompt, type PromptMode } from "../../lib/promptDelivery";
+import { deliverPrompt, type DeliveryAction, type PromptMode } from "../../lib/promptDelivery";
 import { markStart, markEnd } from "../../lib/timing";
 import { generateCategoriesAction, generateFromFinishedPlansAction, generateIdeasAction, schematicWizardAction, type PlanningAction } from "../../lib/planningActions";
 import { DestinationPicker, type DestinationChoice } from "./DestinationPicker";
@@ -124,7 +124,7 @@ export function AppShell({ updates }: AppShellProps) {
   const firstRun = useFirstRun();
   // Prompts queued for new panels that don't have a chatSessionId yet.
   // Flushed in onChatSessionCreated once the native session is created.
-  const pendingNewPanelPrompts = useRef<Map<string, { text: string; mode: PromptMode }>>(new Map());
+  const pendingNewPanelPrompts = useRef<Map<string, { text: string; mode: PromptMode; action?: DeliveryAction }>>(new Map());
   // Destination picker state — when open, the pending prompt is held here
   // until the user picks a destination (or cancels).
   const [destinationPickerOpen, setDestinationPickerOpen] = useState(false);
@@ -138,7 +138,7 @@ export function AppShell({ updates }: AppShellProps) {
     setAppToast({ title, detail, kind });
     window.setTimeout(() => setAppToast(null), 4000);
   }, []);
-  const [pendingDelivery, setPendingDelivery] = useState<{ text: string; mode: PromptMode } | null>(null);
+  const [pendingDelivery, setPendingDelivery] = useState<{ text: string; mode: PromptMode; action?: DeliveryAction } | null>(null);
   // Idea round awaiting destination delivery — abandoned (finished) if the
   // user cancels the destination picker before the prompt is delivered.
   // A ref, not state: the picker fires onSelect and onClose synchronously in
@@ -169,7 +169,7 @@ export function AppShell({ updates }: AppShellProps) {
   const creatingInFlightRef = useRef<Set<string>>(new Set());
   // Ref indirection so openOrFocusChat (defined before handleCreateTypedPanel)
   // can call it without a forward-reference error.
-  const handleCreateTypedPanelRef = useRef<(type: "chat" | "terminal" | "omp" | "schematic", pendingPrompt?: { text: string; mode: PromptMode }) => void>(() => {});
+  const handleCreateTypedPanelRef = useRef<(type: "chat" | "terminal" | "omp" | "schematic", pendingPrompt?: { text: string; mode: PromptMode; action?: DeliveryAction }) => void>(() => {});
   const [workspaceRestore, setWorkspaceRestore] = useState<WorkspaceRestoreState | null>(null);
   const titlePendingRef = useRef(false);
   const focusRestoreStartedRef = useRef(false);
@@ -676,9 +676,9 @@ export function AppShell({ updates }: AppShellProps) {
   );
   const handleSuggestForCategory = useCallback(
     (category: IdeaCategory | null) => {
-      const action = generateIdeasAction(category?.name, category?.description ?? undefined);
+      const action = generateIdeasAction(category?.name, category?.description ?? undefined, category?.id);
       addLog("debug", "Planning action routed", action.context ?? action.type);
-      setPendingDelivery({ text: action.text, mode: action.mode });
+      setPendingDelivery({ text: action.text, mode: action.mode, action: action.action });
       setDestinationPickerOpen(true);
       // Demote the planning modal so the destination chat is visible.
       setPlansModalOpen(false);
@@ -724,7 +724,7 @@ export function AppShell({ updates }: AppShellProps) {
     if (!grounding || grounding.finishedPlanCount === 0) return;
     const action = generateFromFinishedPlansAction(grounding.finishedPlans, grounding.finishedPlanCount);
     addLog("debug", "Planning action routed", action.context ?? action.type);
-    setPendingDelivery({ text: action.text, mode: action.mode });
+    setPendingDelivery({ text: action.text, mode: action.mode, action: action.action });
     setDestinationPickerOpen(true);
     setPlansModalOpen(false);
     handleShowToast("Generating from finished plans", `${grounding.finishedPlanCount} finished plan${grounding.finishedPlanCount > 1 ? "s" : ""} since last schematic update.`, "info");
@@ -755,7 +755,7 @@ export function AppShell({ updates }: AppShellProps) {
     }
     pendingRoundRef.current = roundId;
     const action = generateIdeasAction();
-    setPendingDelivery({ text: action.text, mode: action.mode });
+    setPendingDelivery({ text: action.text, mode: action.mode, action: action.action });
     setDestinationPickerOpen(true);
     setPlansModalOpen(false);
     handleShowToast("Idea round started", "Pick a destination chat — captured ideas are collected into this round.", "info");
@@ -852,7 +852,7 @@ export function AppShell({ updates }: AppShellProps) {
    *  rolled back on failure. Rapid clicks are serialized by a per-type
    *  in-flight guard so one click creates exactly one panel + one resource. */
   const handleCreateTypedPanel = useCallback(
-    (type: "chat" | "terminal" | "omp" | "schematic", pendingPrompt?: { text: string; mode: PromptMode }): void => {
+    (type: "chat" | "terminal" | "omp" | "schematic", pendingPrompt?: { text: string; mode: PromptMode; action?: DeliveryAction }): void => {
       addLog("debug", "Panel create requested", `type=${type} pendingPrompt=${pendingPrompt ? "yes" : "no"} activeSession=${session.activeSessionId ?? "none"}`);
       if (!session.activeSessionId) {
         addLog("debug", "Panel create skipped", "no active session");
@@ -988,7 +988,7 @@ export function AppShell({ updates }: AppShellProps) {
                 if (pending) {
                   addLog("debug", "Flushing pending prompt", `tab=${tab.id} mode=${pending.mode}`);
                   pendingNewPanelPrompts.current.delete(tab.id);
-                  deliverPrompt({ chatSessionId, text: pending.text, mode: pending.mode });
+                  deliverPrompt({ chatSessionId, text: pending.text, mode: pending.mode, action: pending.action });
                 }
               }
               // Also update the panel's chatSessionId in the grid so the link
@@ -1561,13 +1561,14 @@ export function AppShell({ updates }: AppShellProps) {
               chatSessionId: choice.chatSessionId,
               text: pendingDelivery.text,
               mode: pendingDelivery.mode,
+              action: pendingDelivery.action,
             });
             // Focus the panel that hosts this chat.
             setPanelGridState((prev) => ({ ...prev, activePanelId: choice.panelId }));
           } else {
             addLog("debug", "DestinationPicker new", "creating new chat panel for wizard prompt");
             // New conversation — create a chat panel + backing tab, queue the prompt.
-            handleCreateTypedPanel("chat", { text: pendingDelivery.text, mode: pendingDelivery.mode });
+            handleCreateTypedPanel("chat", { text: pendingDelivery.text, mode: pendingDelivery.mode, action: pendingDelivery.action });
           }
           setPendingDelivery(null);
           // Prompt delivered — the round stays active so the turn's captures

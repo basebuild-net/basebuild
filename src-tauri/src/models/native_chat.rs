@@ -223,6 +223,9 @@ pub struct NativeGenerateIdeasRequest {
     /// the prompt is grounded in the category's name/description and captured
     /// ideas are tagged with this id.
     pub category_id: Option<String>,
+    /// Optional free-form steering text appended to the generation prompt.
+    #[serde(default)]
+    pub direction: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

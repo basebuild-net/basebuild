@@ -8,6 +8,21 @@ export type ChatEvent =
   | { kind: "interaction"; id: string; interaction: PendingInteraction; createdAt: number | null; index: number };
 
 /**
+ * A completed live-turn segment: text/reasoning of a finished agent-loop
+ * iteration, flushed by the stream listener when the loop moves on to tool
+ * execution or the next iteration. `order` shares a monotonic arrival
+ * counter with live tool events so items within the in-flight turn sort in
+ * the order they happened.
+ */
+export type LiveSegment = {
+  id: string;
+  content: string;
+  reasoning: string | null;
+  createdAt: number;
+  order: number;
+};
+
+/**
  * Build the merged chronological event list from messages, tool events,
  * and interactions. Each tool call is its own row — no grouping. Thinking
  * blocks render as separate rows, split around tool calls/questions.
@@ -22,6 +37,7 @@ export function buildChatTimeline(
   messages: readonly NativeChatMessage[],
   toolEvents: readonly NativeToolEvent[],
   interactions: readonly PendingInteraction[],
+  liveSegments: readonly LiveSegment[] = [],
 ): ChatEvent[] {
   const events: ChatEvent[] = [];
 
@@ -86,6 +102,22 @@ export function buildChatTimeline(
         index: messages.length + te.sequence,
       });
     }
+  }
+
+  // Live segments — completed iterations of the in-flight turn. `order`
+  // shares the arrival counter with live tool events, so within the turn
+  // a segment sorts before the tools it preceded.
+  for (const seg of liveSegments) {
+    events.push({
+      kind: "assistant",
+      id: seg.id,
+      content: seg.content,
+      reasoning: seg.reasoning,
+      createdAt: seg.createdAt,
+      providerId: null,
+      modelId: null,
+      index: messages.length + seg.order,
+    });
   }
 
   // Live interactions (no messageId binding yet). Interactions persist
