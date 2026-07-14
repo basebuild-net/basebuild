@@ -95,18 +95,27 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
           </div>
         </div>
         <div className="modal-body history-modal-body">
-          <section className="history-modal-section" aria-label="Closed panels">
-            <span className="history-modal-section-title">Closed panels</span>
-            {closedPanels.length === 0 ? (
-              <div className="history-modal-empty">No closed panels.</div>
+          <section className="history-modal-section" aria-label="History">
+            <span className="history-modal-section-title">History</span>
+            {closedPanels.length === 0 && (chatsError || allChats.length === 0) ? (
+              <div className="history-modal-empty">
+                {chatsError ? `Failed to load chats: ${chatsError}` : "No history yet."}
+              </div>
             ) : (
               <div className="history-modal-list">
+                {/* Closed panels first — these can be re-opened directly */}
                 {closedPanels.map((panel) => {
                   const Icon = typeIcons[panel.type] ?? FileText;
                   return (
-                    <div key={panel.id} className="history-modal-item">
+                    <div key={`closed-${panel.id}`} className="history-modal-item history-modal-item-closed">
                       <Icon size={11} className="history-modal-item-icon" />
-                      <span className="history-modal-item-title" title={panel.title}>{panel.title}</span>
+                      <div className="history-modal-item-main">
+                        <span className="history-modal-item-title" title={panel.title}>{panel.title}</span>
+                        <span className="history-modal-item-meta">
+                          <span className="history-modal-item-tag">closed</span>
+                          <span>{panel.type}</span>
+                        </span>
+                      </div>
                       <div className="history-modal-closed-actions">
                         <button
                           className="btn btn-sm"
@@ -128,23 +137,14 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
                     </div>
                   );
                 })}
-              </div>
-            )}
-          </section>
-          <section className="history-modal-section" aria-label="All chats">
-            <span className="history-modal-section-title">All chats</span>
-            {chatsError ? (
-              <div className="history-modal-empty">Failed to load chats: {chatsError}</div>
-            ) : allChats.length === 0 ? (
-              <div className="history-modal-empty">No chats yet.</div>
-            ) : (
-              <div className="history-modal-list">
+                {/* All chat sessions — merged into the same list */}
                 {allChats.map((entry) => {
                   const fullTs = new Date(entry.updatedAt * 1000).toLocaleString();
                   const messageLabel = entry.messageCount === 1 ? "1 message" : `${entry.messageCount} messages`;
+                  const isClosed = closedPanels.some((p) => p.chatSessionId === entry.id && entry.projectPath === activeProjectPath);
                   return (
                     <div
-                      key={entry.id}
+                      key={`chat-${entry.id}`}
                       className="history-modal-item"
                       title={`${entry.title} — ${projectDisplayName(entry.projectPath)} — ${fullTs}`}
                       onClick={() => handleChatClick(entry)}
@@ -157,6 +157,7 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
                           <span>{entry.modelId}</span>
                           <span>{formatRelativeTime(entry.updatedAt)}</span>
                           <span>{messageLabel}</span>
+                          {isClosed ? <span className="history-modal-item-tag">closed</span> : null}
                         </span>
                       </div>
                     </div>

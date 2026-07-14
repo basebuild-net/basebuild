@@ -1442,6 +1442,9 @@ a { color: inherit; text-decoration: none; }
 .chat-composer-meta-right { display: flex; align-items: center; gap: 4px; position: relative; }
 .chat-composer-branch-btn { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; color: var(--bb-muted); background: none; border: 1px solid var(--bb-border); padding: 1px 6px; cursor: pointer; border-radius: var(--bb-radius-full); transition: border-color 0.08s, color 0.08s; }
 .chat-composer-branch-btn:hover { color: var(--bb-text); border-color: var(--bb-border-strong); }
+.chat-worktree-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; color: var(--bb-muted); background: var(--bb-surface); border: 1px solid var(--bb-border); padding: 1px 6px; border-radius: var(--bb-radius-full); }
+.chat-worktree-dot { width: 6px; height: 6px; border-radius: var(--bb-radius-full); background: var(--bb-cta); flex-shrink: 0; }
+.chat-worktree-primary .chat-worktree-dot { background: var(--bb-muted); }
 /* Keep old classes for backward compat */
 .chat-input-controls { display: flex; align-items: center; gap: var(--bb-space-1); flex-wrap: wrap; }
 .chat-input-row { display: flex; align-items: flex-end; gap: var(--bb-space-2); }
@@ -3547,3 +3550,5 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .history-modal-item-meta { display: flex; align-items: center; gap: 8px; font-size: 9px; color: var(--bb-muted); font-family: var(--bb-mono); }
 .history-modal-item-project { color: var(--bb-cta); }
 .history-modal-closed-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
+.history-modal-item-tag { font-size: 8px; font-weight: 700; text-transform: uppercase; color: var(--bb-muted); background: var(--bb-surface-high); padding: 1px 4px; border-radius: var(--bb-radius-sm); }
+.history-modal-item-closed { opacity: 0.8; }

@@ -3380,7 +3380,15 @@ export function ChatPanel({
               <span title={`Project: ${projectPath}`}>{projectPath.split(/[\\/]/).pop() ?? projectPath}</span>
             ) : null}
             {worktreePath ? (
-              <span title={`Worktree: ${worktreePath}`}>[worktree: {worktreePath.split("/").pop()}]</span>
+              <span className="chat-worktree-badge" title={`Worktree: ${worktreePath}`}>
+                <span className="chat-worktree-dot" />
+                {worktreePath.split("/").pop()}
+              </span>
+            ) : branch ? (
+              <span className="chat-worktree-badge chat-worktree-primary" title="Primary workspace: using the open project checkout">
+                <span className="chat-worktree-dot" />
+                primary
+              </span>
             ) : null}
           </div>
           <div className="chat-composer-meta-right">
