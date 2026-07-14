@@ -224,7 +224,7 @@ type E2eState = {
   notificationSettings: { overrides: Record<string, string> };
 };
 
-const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState; __BASEBUILD_E2E_FIXTURE__?: string; __BASEBUILD_E2E_PICK_PROJECT_PATH__?: string; __BASEBUILD_E2E_PICKER_DELAY_MS__?: number; __BASEBUILD_E2E_RESTORE_DELAY_MS__?: number };
+const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState; __BASEBUILD_E2E_FIXTURE__?: string; __BASEBUILD_E2E_PICK_PROJECT_PATH__?: string; __BASEBUILD_E2E_PICKER_DELAY_MS__?: number; __BASEBUILD_E2E_RESTORE_DELAY_MS__?: number; __BASEBUILD_E2E_BOOTSTRAP_DELAY_MS__?: number };
 
 
 function panelGridFor(panelId: string, chatSessionId: string | null = null): string {
@@ -725,11 +725,27 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       }
       return { created, errors } as T;
     }
-    case "update_plan":
-    case "set_plan_status":
+    case "update_plan": {
+      const plan = s.plans.find((item) => item.id === args.id);
+      if (!plan) throw new Error(`Plan not found: ${String(args.id)}`);
+      Object.assign(plan, args.input as Partial<Plan>, { updatedAt: Math.floor(Date.now() / 1000) });
+      return plan as T;
+    }
+    case "set_plan_status": {
+      const plan = s.plans.find((item) => item.id === args.id);
+      if (!plan) throw new Error(`Plan not found: ${String(args.id)}`);
+      plan.status = args.status as Plan["status"];
+      if (plan.status === "openspec" && !plan.changeName) {
+        plan.changeName = plan.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      }
+      plan.updatedAt = Math.floor(Date.now() / 1000);
+      return plan as T;
+    }
     case "set_plan_context": {
       const plan = s.plans.find((item) => item.id === args.id);
       if (!plan) throw new Error(`Plan not found: ${String(args.id)}`);
+      plan.context = args.context as Plan["context"];
+      plan.updatedAt = Math.floor(Date.now() / 1000);
       return plan as T;
     }
     case "delete_plan":
@@ -993,6 +1009,17 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return s.terminals as T;
     case "agent_start":
       return 1 as T;
+    case "native_chat_bootstrap": {
+      const delayMs = globalState.__BASEBUILD_E2E_BOOTSTRAP_DELAY_MS__ ?? 0;
+      if (delayMs > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      }
+      const catalog = await invoke<Record<string, unknown>>("native_provider_catalog");
+      const resolved = await invoke<Record<string, unknown>>("native_chat_model_default", {
+        projectPath: args.projectPath,
+      });
+      return { catalog, resolved } as T;
+    }
     case "native_provider_catalog":
     case "native_provider_catalog_refresh": {
       // Build provider list dynamically — check credentials/blocked state
@@ -1512,6 +1539,15 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       s.ideas.push(idea);
       return idea as T;
     }
+    case "update_idea": {
+      const idea = s.ideas.find((item) => item.id === args.id);
+      if (!idea) throw new Error(`Idea not found: ${String(args.id)}`);
+      idea.title = args.title as string;
+      idea.description = args.description as string;
+      idea.categoryId = (args.categoryId as string | null) ?? null;
+      idea.updatedAt = Math.floor(Date.now() / 1000);
+      return idea as T;
+    }
     case "start_idea_round": {
       const sessionId = args.sessionId as string;
       const ts = Math.floor(Date.now() / 1000);
@@ -1565,22 +1601,130 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "delete_idea":
       s.ideas = s.ideas.filter((idea) => idea.id !== args.id);
       return undefined as T;
+    case "promote_ideas": {
+      const input = args.input as { sessionId: string; ideaIds: string[] };
+      const promoted: Plan[] = [];
+      for (const ideaId of input.ideaIds) {
+        const idea = s.ideas.find((item) => item.id === ideaId);
+        if (!idea) throw new Error(`Idea not found: ${ideaId}`);
+        const plan = makePlan(input.sessionId, {
+          title: idea.title,
+          description: idea.description,
+        });
+        s.plans.push(plan);
+        idea.status = "picked";
+        idea.updatedAt = Math.floor(Date.now() / 1000);
+        promoted.push(plan);
+      }
+      return promoted as T;
+    }
     case "native_generate_ideas": {
-      const req = args.request as { providerId?: string };
+      const req = args.request as {
+        sessionId: string;
+        planningSessionId: string;
+        providerId?: string;
+        modelId?: string;
+        effortLevel?: string;
+        categoryIds?: string[];
+        ideaCount?: number;
+        displayMessage?: string;
+        direction?: string | null;
+      };
       const providerId = req.providerId ?? "basebuild-local";
+      const ts = Math.floor(Date.now() / 1000);
+      const displayMessage = req.displayMessage
+        ?? `Idea Studio · basebuild-planning\n\nAuto-generate ${req.ideaCount ?? 8} project-wide ideas.`;
+      const userMessage: NativeChatMessage = {
+        id: `nmsg-${s.nextNativeMessageId++}`,
+        sessionId: req.sessionId,
+        role: "user",
+        content: displayMessage,
+        sortOrder: s.nativeChatMessages.filter((message) => message.sessionId === req.sessionId).length,
+        providerId,
+        modelId: req.modelId ?? "claude-sonnet-4",
+        effortLevel: req.effortLevel ?? "medium",
+        createdAt: ts,
+      };
+      s.nativeChatMessages.push(userMessage);
+
       // Only configured, non-local providers generate ideas in the fixture.
       if (providerId === "basebuild-local" || providerId === "openai") {
         return {
           ideas: [],
-          setupRequired: { providerId, providerLabel: providerId === "openai" ? "OpenAI" : "Basebuild Local", message: "Connect a model provider to generate ideas from this chat." },
+          setupRequired: { providerId, providerLabel: providerId === "openai" ? "OpenAI" : "Basebuild Local", message: "Choose a connected provider to run the native Idea Studio skill." },
           grounding: null,
+          userMessage,
+          assistantMessage: null,
         } as T;
       }
+
+      const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+      __emit("native-chat://chunk", { sessionId: req.sessionId, delta: "thinking", channel: "status" });
+      await sleep(350);
+      __emit("native-chat://chunk", { sessionId: req.sessionId, delta: "I’ll inspect the project and ground the ideas.", channel: "content" });
+      __emit("native-chat://chunk", { sessionId: req.sessionId, delta: "tools", channel: "status" });
+      const toolEvent: NativeToolEvent = {
+        id: `ntool-idea-studio-${ts}-${s.nativeToolEvents.length}`,
+        sessionId: req.sessionId,
+        messageId: null,
+        kind: "read_file",
+        status: "succeeded",
+        summary: "Read the project schematic.",
+        arguments: JSON.stringify({ path: ".basebuild/project-schematic.md" }),
+        diff: null,
+        decision: "auto",
+        ruleSource: null,
+        sequence: s.nativeToolEvents.filter((event) => event.sessionId === req.sessionId).length + 1,
+        createdAt: ts,
+      };
+      __emit("native-chat://tool-event", {
+        sessionId: req.sessionId,
+        toolCallId: toolEvent.id,
+        toolName: toolEvent.kind,
+        status: toolEvent.status,
+        summary: toolEvent.summary,
+        arguments: toolEvent.arguments,
+        decision: toolEvent.decision,
+        sequence: toolEvent.sequence,
+      });
+      await sleep(250);
+
+      const generated = [
+        { title: "Improve onboarding", description: "Add a guided first-run tour." },
+        { title: "Cache provider catalog", description: "Avoid refetching on every mount." },
+      ];
+      for (const generatedIdea of generated) {
+        const idea: Idea = {
+          id: `idea-${s.nextIdeaId++}`,
+          sessionId: req.planningSessionId,
+          categoryId: req.categoryIds?.[0] ?? null,
+          title: generatedIdea.title,
+          description: generatedIdea.description,
+          status: "concept",
+          grounding: "Grounded by the native Idea Studio skill.",
+          anchor: null,
+          batchId: s.activeRoundBySession.get(req.planningSessionId) ?? null,
+          createdAt: ts,
+          updatedAt: ts,
+        };
+        s.ideas.push(idea);
+      }
+      const assistantMessage: NativeChatMessage = {
+        id: `nmsg-${s.nextNativeMessageId++}`,
+        sessionId: req.sessionId,
+        role: "assistant",
+        content: `Captured ${generated.length} grounded ideas in Idea Studio.`,
+        sortOrder: userMessage.sortOrder + 1,
+        providerId,
+        modelId: req.modelId ?? "claude-sonnet-4",
+        effortLevel: req.effortLevel ?? "medium",
+        createdAt: ts,
+      };
+      toolEvent.messageId = assistantMessage.id;
+      s.nativeChatMessages.push(assistantMessage);
+      s.nativeToolEvents.push(toolEvent);
       return {
-        ideas: [
-          { title: "Improve onboarding", description: "Add a guided first-run tour." },
-          { title: "Cache provider catalog", description: "Avoid refetching on every mount." },
-        ],
+        ideas: generated,
         setupRequired: null,
         grounding: {
           schematicSections: ["Project Schematic", "Goals", "Vision"],
@@ -1590,6 +1734,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
           rejectedCount: 0,
           digestEmpty: false,
         },
+        userMessage,
+        assistantMessage,
       } as T;
     }
     case "native_provider_login_start":
@@ -1598,6 +1744,15 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return { status: "success", message: null } as T;
     case "native_provider_login_cancel":
       return undefined as T;
+    case "openspec_runtime_status":
+      return {
+        state: "ready",
+        version: "1.0.0-e2e",
+        executablePath: "C:\\basebuild-e2e\\openspec.exe",
+        schema: "spec-driven",
+        projectReady: true,
+        message: null,
+      } as T;
     case "omp_status":
       return { installed: true, version: "omp 1.2.3", configPath: "C:\\basebuild-e2e\\.omp\\config.yml", message: null } as T;
     case "omp_debug_context":

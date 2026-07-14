@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openMvpFixtureProject, waitForAppReady, openPlanningModal } from "./helpers";
+import { ensureChatPanel, openMvpFixtureProject, waitForAppReady, openPlanningModal } from "./helpers";
 
 /** Open Plans & Ideas on the Flow tab and click the Generate ideas action. */
 async function startRoundFromFlowBoard(page: Page) {
@@ -7,6 +7,29 @@ async function startRoundFromFlowBoard(page: Page) {
   const modal = page.locator(".modal-overlay").filter({ hasText: "Plans & Ideas" });
   await modal.locator(".inspector-tab", { hasText: "Flow" }).click();
   await modal.getByTitle("Generate more grounded ideas from the project schematic").click();
+}
+async function chooseGuidedSetup(page: Page) {
+  const setup = page.getByRole("dialog", { name: "Configure idea round" });
+  await expect(setup).toBeVisible({ timeout: 5_000 });
+  await setup.getByRole("button", { name: /Give direction/ }).click();
+  await expect(setup.getByRole("heading", { name: "Give the studio direction" })).toBeVisible();
+  await setup.getByRole("textbox", { name: /What should the ideas focus on/ }).fill("Improve reliability without adding setup burden.");
+  await setup.getByRole("button", { name: "Customize" }).click();
+  const categories = setup.locator(".idea-round-category-option");
+  const count = await categories.count();
+  for (let index = 0; index < Math.min(count, 2); index += 1) {
+    await categories.nth(index).click();
+  }
+  await expect(setup.getByTitle("Current round scope")).toContainText(count > 1 ? "2 categories" : count === 1 ? "1 category" : "Project-wide");
+  await setup.getByRole("button", { name: "Choose chat" }).click();
+}
+
+async function chooseAutoGenerate(page: Page) {
+  const setup = page.getByRole("dialog", { name: "Configure idea round" });
+  await expect(setup).toBeVisible({ timeout: 5_000 });
+  await expect(setup.getByRole("button", { name: /Auto-generate ideas/ })).toBeVisible();
+  await expect(setup.getByRole("button", { name: /Give direction/ })).toBeVisible();
+  await setup.getByRole("button", { name: /Auto-generate ideas/ }).click();
 }
 
 /** Seed an idea through the mocked backend (tagged with the active round). */
@@ -55,6 +78,7 @@ test.describe("Idea rounds", () => {
     await expect(gate).toBeVisible({ timeout: 5_000 });
     await expect(gate).toContainText(/no schematic|missing/i);
     await gate.getByTitle("Run the round with whatever grounding exists").click();
+    await chooseAutoGenerate(page);
 
     // Round started: destination picker opens to deliver the prompt.
     await expect(page.locator(".destination-picker, .modal-overlay").filter({ hasText: "Send to" })).toBeVisible({ timeout: 5_000 });
@@ -76,28 +100,39 @@ test.describe("Idea rounds", () => {
     await expect(modal.locator(".idea-rounds-empty")).toBeVisible({ timeout: 5_000 });
   });
 
-  test("round captures are tagged, reviewable, and deploy creates plans", async ({ page }) => {
+  test("native skill captures a grounded round and approval creates draft plans", async ({ page }) => {
     await openMvpFixtureProject(page);
     await waitForAppReady(page);
+    await ensureChatPanel(page);
+
+    // Route the round through a connected native provider so the model can
+    // inspect project context and call the propose_ideas tool.
+    await page.locator(".chat-column-model-chip").first().click();
+    await page.locator(".provider-card", { hasText: "Umans" }).first().click();
+    await page.locator(".provider-model-row", { hasText: "Umans GLM 5.2" }).first().click();
 
     await startRoundFromFlowBoard(page);
     const gate = page.locator(".idea-round-gate");
     await expect(gate).toBeVisible({ timeout: 5_000 });
     await gate.getByTitle("Run the round with whatever grounding exists").click();
+    await chooseGuidedSetup(page);
 
-    // Deliver the round prompt into a new conversation.
+    // Deliver to the configured chat. The transcript must show the compact
+    // skill invocation immediately, not the internal system prompt.
     const picker = page.locator(".modal-overlay").filter({ hasText: "Send to" });
     await expect(picker).toBeVisible({ timeout: 5_000 });
-    await picker.getByTitle("Create a new chat panel for this prompt").click();
+    await picker.locator('.destination-picker-item[title^="Send to"]').first().click();
     await picker.getByTitle("Deliver prompt to the selected destination").click();
     await expect(picker).not.toBeVisible({ timeout: 5_000 });
 
-    // Ideas captured while the round is active get its batch id (mock mirrors
-    // the backend active-round tagging).
-    await seedIdea(page, "Round idea alpha");
-    await seedIdea(page, "Round idea beta");
+    const skillInvocation = page.locator(".chat-message-user").filter({ has: page.locator(".chat-command-chip") }).first();
+    await expect(skillInvocation.locator(".chat-command-chip")).toContainText("/skill:basebuild-planning");
+    await expect(skillInvocation).not.toContainText("You are Basebuild");
+    await expect(page.locator(".chat-thinking-indicator")).toBeVisible({ timeout: 3_000 });
+    await expect(page.locator(".tool-card", { hasText: "read file" }).last()).toBeVisible({ timeout: 3_000 });
+    await expect(page.locator(".chat-message-assistant").last()).toContainText("Captured 2 grounded ideas", { timeout: 5_000 });
 
-    // Open the round review.
+    // Open the round review after the native propose_ideas capture finishes.
     await openPlanningModal(page);
     const modal = page.locator(".modal-overlay").filter({ hasText: "Plans & Ideas" });
     await modal.locator(".inspector-tab", { hasText: "Ideas" }).click();
@@ -107,23 +142,32 @@ test.describe("Idea rounds", () => {
     await expect(roundRow).toContainText("2 captured");
     await roundRow.click();
 
-    // Select both ideas and deploy behind the enumerated confirmation.
+    // Select both ideas and approve them behind the enumerated confirmation.
     const review = modal.locator(".idea-round-review");
     await expect(review.locator(".idea-round-idea")).toHaveCount(2);
     for (const box of await review.locator("input[type=checkbox]").all()) {
       await box.check();
     }
-    await review.getByTitle(/Deploy 2 idea/).click();
+    await review.getByTitle(/Approve 2 idea/).click();
     const confirm = modal.locator(".idea-round-confirm");
     await expect(confirm).toBeVisible();
-    await expect(confirm).toContainText("Round idea alpha");
-    await expect(confirm).toContainText("Round idea beta");
-    await confirm.getByTitle("Create the plans").click();
+    await expect(confirm).toContainText("Improve onboarding");
+    await expect(confirm).toContainText("Cache provider catalog");
+    await confirm.getByTitle("Approve ideas and create plans").click();
 
-    // Deploy lands on the Plans tab with two new draft plans.
+    // Approval lands on the Plans tab with two independent draft plans.
     await expect(modal.locator(".inspector-tab.is-active", { hasText: "Plans" })).toBeVisible({ timeout: 5_000 });
-    await expect(modal.locator(".plan-card, .plan-row").filter({ hasText: "Round idea alpha" })).toBeVisible({ timeout: 5_000 });
-    await expect(modal.locator(".plan-card, .plan-row").filter({ hasText: "Round idea beta" })).toBeVisible();
+    await expect(modal.locator(".plan-card, .plan-row").filter({ hasText: "Improve onboarding" })).toBeVisible({ timeout: 5_000 });
+    await expect(modal.locator(".plan-card, .plan-row").filter({ hasText: "Cache provider catalog" })).toBeVisible();
+
+    // OpenSpec generation and queue approval are separate user decisions.
+    const alphaPlan = modal.locator(".plan-card").filter({ hasText: "Improve onboarding" });
+    await alphaPlan.getByRole("button", { name: "Generate OpenSpec" }).click();
+    await expect(alphaPlan.getByRole("button", { name: "Approve plan" })).toBeVisible({ timeout: 5_000 });
+    await alphaPlan.getByRole("button", { name: "Approve plan" }).click();
+    await expect(
+      modal.locator(".plan-lane").filter({ hasText: "Ready" }).filter({ hasText: "Improve onboarding" }),
+    ).toBeVisible({ timeout: 5_000 });
   });
 
   test("cancelling the destination picker abandons the round", async ({ page }) => {
@@ -134,6 +178,7 @@ test.describe("Idea rounds", () => {
     const gate = page.locator(".idea-round-gate");
     await expect(gate).toBeVisible({ timeout: 5_000 });
     await gate.getByTitle("Run the round with whatever grounding exists").click();
+    await chooseGuidedSetup(page);
 
     const picker = page.locator(".modal-overlay").filter({ hasText: "Send to" });
     await expect(picker).toBeVisible({ timeout: 5_000 });
@@ -174,7 +219,7 @@ test.describe("Idea rounds", () => {
     await expect(roundRow).toContainText("1 captured", { timeout: 5_000 });
   });
 
-  test("deploy isolates per-idea failures and still creates the rest", async ({ page }) => {
+  test("approval isolates per-idea failures and still creates the rest", async ({ page }) => {
     await openMvpFixtureProject(page);
     await waitForAppReady(page);
 
@@ -201,8 +246,8 @@ test.describe("Idea rounds", () => {
     for (const box of await review.locator("input[type=checkbox]").all()) {
       await box.check();
     }
-    await review.getByTitle(/Deploy 2 idea/).click();
-    await modal.locator(".idea-round-confirm").getByTitle("Create the plans").click();
+    await review.getByTitle(/Approve 2 idea/).click();
+    await modal.locator(".idea-round-confirm").getByTitle("Approve ideas and create plans").click();
 
     // Partial failure is reported, not swallowed; navigation still happens.
     await expect(page.locator(".toast-title", { hasText: "1 plan(s) created, 1 failed" })).toBeVisible({ timeout: 5_000 });

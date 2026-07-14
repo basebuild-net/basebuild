@@ -1,4 +1,4 @@
-use rusqlite::{params, OptionalExtension, OpenFlags, Connection};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde_json::Value;
 use std::env;
 use tauri::{AppHandle, Emitter};
@@ -7,13 +7,13 @@ use crate::{
     events::NATIVE_CHAT_CHUNK,
     models::{
         native_chat::{
-            ChatModelDefault, NativeChatHistoryEntry, NativeChatMessage,
-            NativeChatSendRequest, NativeChatSendResult, NativeChatSession,
-            NativeChatStartRequest, NativeGenerateIdeasRequest,
-            NativeGenerateIdeasResult, NativeGeneratedIdea, NativeProviderCatalog,
-            NativeProviderCredential, NativeProviderCredentialInput, NativeRequestMetric,
-            NativeRequestMetricsSummary, NativeSetupRequired, NativeToolApprovalRequest,
-            NativeToolApprovalResult, NativeToolEvent, ResolvedChatModelDefault,
+            ChatModelDefault, NativeChatBootstrap, NativeChatHistoryEntry, NativeChatMessage,
+            NativeChatSendRequest, NativeChatSendResult, NativeChatSession, NativeChatStartRequest,
+            NativeGenerateIdeasRequest, NativeGenerateIdeasResult, NativeGeneratedIdea,
+            NativeProviderCatalog, NativeProviderCredential, NativeProviderCredentialInput,
+            NativeRequestMetric, NativeRequestMetricsSummary, NativeSetupRequired,
+            NativeToolApprovalRequest, NativeToolApprovalResult, NativeToolEvent,
+            ResolvedChatModelDefault,
         },
         omp_catalog,
         permission::PermissionDecision,
@@ -112,8 +112,7 @@ impl NativeChatService {
             .flatten();
         match value {
             Some(v) => {
-                let d: ChatModelDefault =
-                    serde_json::from_str(&v).map_err(|e| e.to_string())?;
+                let d: ChatModelDefault = serde_json::from_str(&v).map_err(|e| e.to_string())?;
                 Ok(Some(d))
             }
             None => Ok(None),
@@ -123,8 +122,7 @@ impl NativeChatService {
     /// Persist the global chat model default.
     pub fn set_global_model_default(default: &ChatModelDefault) -> DbResult<()> {
         let conn = StorageService::connect()?;
-        let value =
-            serde_json::to_string(default).map_err(|e| e.to_string())?;
+        let value = serde_json::to_string(default).map_err(|e| e.to_string())?;
         conn.execute(
             "INSERT INTO app_defaults (key, value) VALUES ('chat.defaultModel', ?1)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -139,14 +137,29 @@ impl NativeChatService {
     /// model. Returns a notice when the stored default was unavailable.
     pub fn resolve_model_default(project_path: &str) -> DbResult<ResolvedChatModelDefault> {
         let catalog = Self::provider_catalog();
+        Self::resolve_model_default_from_catalog(project_path, &catalog)
+    }
 
+    /// Resolve cache-first startup metadata from one catalog snapshot. This
+    /// avoids reading OMP credentials and cached models once for the catalog
+    /// and again for the effective project default.
+    pub fn bootstrap(project_path: &str) -> DbResult<NativeChatBootstrap> {
+        let catalog = Self::provider_catalog();
+        let resolved = Self::resolve_model_default_from_catalog(project_path, &catalog)?;
+        Ok(NativeChatBootstrap { catalog, resolved })
+    }
+
+    fn resolve_model_default_from_catalog(
+        project_path: &str,
+        catalog: &NativeProviderCatalog,
+    ) -> DbResult<ResolvedChatModelDefault> {
         // 1. Per-project default.
         if let Some(project_default) = Self::get_project_model_default(project_path)? {
-            if let Some(resolved) = Self::try_resolve(&catalog, &project_default, "project") {
+            if let Some(resolved) = Self::try_resolve(catalog, &project_default, "project") {
                 return Ok(resolved);
             }
             // Stored project default is unavailable — fall through with a notice.
-            let fallback = Self::first_connected_default(&catalog);
+            let fallback = Self::first_connected_default(catalog);
             let notice = format!(
                 "Project default provider '{}' or model '{}' is unavailable; using {}.",
                 project_default.provider_id, project_default.model_id, fallback.provider_id
@@ -162,13 +175,13 @@ impl NativeChatService {
 
         // 2. Global default.
         if let Some(global_default) = Self::get_global_model_default()? {
-            if let Some(resolved) = Self::try_resolve(&catalog, &global_default, "global") {
+            if let Some(resolved) = Self::try_resolve(catalog, &global_default, "global") {
                 return Ok(resolved);
             }
         }
 
         // 3. First connected provider's default model.
-        let fallback = Self::first_connected_default(&catalog);
+        let fallback = Self::first_connected_default(catalog);
         Ok(ResolvedChatModelDefault {
             provider_id: fallback.provider_id,
             model_id: fallback.model_id,
@@ -202,7 +215,11 @@ impl NativeChatService {
         // model's first supported effort as the default).
         let clamped_effort = if model.supported_efforts.is_empty() {
             default.effort_level.clone()
-        } else if model.supported_efforts.iter().any(|e| e == &default.effort_level) {
+        } else if model
+            .supported_efforts
+            .iter()
+            .any(|e| e == &default.effort_level)
+        {
             default.effort_level.clone()
         } else {
             // Stored effort is unsupported — clamp to the first supported.
@@ -245,7 +262,9 @@ impl NativeChatService {
             effort_level: catalog.default_effort_level.clone(),
         }
     }
-    pub fn save_credential(input: NativeProviderCredentialInput) -> DbResult<NativeProviderCredential> {
+    pub fn save_credential(
+        input: NativeProviderCredentialInput,
+    ) -> DbResult<NativeProviderCredential> {
         let now = now_seconds();
         let cred = NativeProviderCredential {
             provider_id: input.provider_id.clone(),
@@ -277,16 +296,20 @@ impl NativeChatService {
         let mut stmt = conn
             .prepare("SELECT provider_id, label, api_key, base_url, updated_at FROM native_provider_credentials ORDER BY updated_at DESC")
             .map_err(|e| e.to_string())?;
-        let rows = stmt.query_map([], |row| {
-            Ok(NativeProviderCredential {
-                provider_id: row.get(0)?,
-                label: row.get(1)?,
-                api_key: row.get(2)?,
-                base_url: row.get(3)?,
-                updated_at: row.get(4)?,
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(NativeProviderCredential {
+                    provider_id: row.get(0)?,
+                    label: row.get(1)?,
+                    api_key: row.get(2)?,
+                    base_url: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
             })
-        }).map_err(|e| e.to_string())?;
-        let mut creds = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?;
+        let mut creds = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
 
         // Load the set of providers the user has explicitly disconnected.
         // This blocks OMP-imported credentials from re-appearing after disconnect.
@@ -364,26 +387,34 @@ impl NativeChatService {
         });
         let Ok(rows) = rows else { return Vec::new() };
         let mut creds = Vec::new();
-        for credential in rows.filter_map(|r| r.ok()).filter_map(|(omp_id, cred_type, data, updated_at)| {
-            let basebuild_id = omp_to_basebuild_provider(&omp_id)?;
-            let key = match cred_type.as_str() {
-                "api_key" => serde_json::from_str::<Value>(&data)
-                    .ok()
-                    .and_then(|v| v.get("key").and_then(|k| k.as_str()).map(String::from))?,
-                "oauth" => omp_oauth_token(&omp_id)?,
-                _ => return None,
-            };
-            if key.is_empty() { return None; }
-            let is_omp_codex_oauth = omp_id == "openai-codex" && cred_type == "oauth";
-            Some(NativeProviderCredential {
-                provider_id: basebuild_id,
-                label: omp_id,
-                api_key: key,
-                base_url: is_omp_codex_oauth.then(|| OMP_CODEX_BASE_URL.to_string()),
-                updated_at,
-            })
-        }) {
-            if !creds.iter().any(|c: &NativeProviderCredential| c.provider_id == credential.provider_id) {
+        for credential in
+            rows.filter_map(|r| r.ok())
+                .filter_map(|(omp_id, cred_type, data, updated_at)| {
+                    let basebuild_id = omp_to_basebuild_provider(&omp_id)?;
+                    let key = match cred_type.as_str() {
+                        "api_key" => serde_json::from_str::<Value>(&data).ok().and_then(|v| {
+                            v.get("key").and_then(|k| k.as_str()).map(String::from)
+                        })?,
+                        "oauth" => omp_oauth_token(&omp_id)?,
+                        _ => return None,
+                    };
+                    if key.is_empty() {
+                        return None;
+                    }
+                    let is_omp_codex_oauth = omp_id == "openai-codex" && cred_type == "oauth";
+                    Some(NativeProviderCredential {
+                        provider_id: basebuild_id,
+                        label: omp_id,
+                        api_key: key,
+                        base_url: is_omp_codex_oauth.then(|| OMP_CODEX_BASE_URL.to_string()),
+                        updated_at,
+                    })
+                })
+        {
+            if !creds
+                .iter()
+                .any(|c: &NativeProviderCredential| c.provider_id == credential.provider_id)
+            {
                 creds.push(credential);
             }
         }
@@ -392,8 +423,11 @@ impl NativeChatService {
 
     pub fn delete_credential(provider_id: &str) -> DbResult<()> {
         let conn = StorageService::connect()?;
-        conn.execute("DELETE FROM native_provider_credentials WHERE provider_id = ?1", params![provider_id])
-            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM native_provider_credentials WHERE provider_id = ?1",
+            params![provider_id],
+        )
+        .map_err(|e| e.to_string())?;
         // Block the provider so OMP-imported credentials don't reappear.
         conn.execute(
             "INSERT OR IGNORE INTO native_blocked_providers (provider_id, blocked_at) VALUES (?1, ?2)",
@@ -620,8 +654,7 @@ impl NativeChatService {
         if conn.changes() == 0 {
             return Err("Session not found.".to_string());
         }
-        Self::get_session(session_id)?
-            .ok_or_else(|| "Session not found after update.".to_string())
+        Self::get_session(session_id)?.ok_or_else(|| "Session not found after update.".to_string())
     }
 
     pub fn list_sessions(project_path: &str) -> DbResult<Vec<NativeChatSession>> {
@@ -635,7 +668,8 @@ impl NativeChatService {
         let rows = stmt
             .query_map(params![project_path], map_session)
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     pub fn chat_history(limit: Option<i64>) -> DbResult<Vec<NativeChatHistoryEntry>> {
@@ -646,13 +680,21 @@ impl NativeChatService {
                         GROUP BY s.id
                         ORDER BY s.updated_at DESC";
         if let Some(l) = limit {
-            let mut stmt = conn.prepare(&format!("{} LIMIT ?1", base_sql)).map_err(|e| e.to_string())?;
-            let rows = stmt.query_map(params![l], map_history_entry).map_err(|e| e.to_string())?;
-            rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+            let mut stmt = conn
+                .prepare(&format!("{} LIMIT ?1", base_sql))
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(params![l], map_history_entry)
+                .map_err(|e| e.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())
         } else {
             let mut stmt = conn.prepare(base_sql).map_err(|e| e.to_string())?;
-            let rows = stmt.query_map([], map_history_entry).map_err(|e| e.to_string())?;
-            rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+            let rows = stmt
+                .query_map([], map_history_entry)
+                .map_err(|e| e.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())
         }
     }
 
@@ -667,7 +709,8 @@ impl NativeChatService {
         let rows = stmt
             .query_map(params![session_id], map_message)
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     /// Delete all persisted messages and tool events for a session.
@@ -767,8 +810,8 @@ impl NativeChatService {
 
         // Resolve the provider-specific model API id (e.g. "umans-glm-5.2")
         // from the cache; fall back to the canonical model_id when null.
-        let resolved_model_id = Self::resolve_model_api_id(&provider_id, &model_id)
-            .unwrap_or_else(|| model_id.clone());
+        let resolved_model_id =
+            Self::resolve_model_api_id(&provider_id, &model_id).unwrap_or_else(|| model_id.clone());
 
         // Look up the model's api_kind and base_url for routing.
         let (api_kind, model_base_url) = Self::resolve_model_routing(&provider_id, &model_id);
@@ -821,8 +864,8 @@ impl NativeChatService {
         let supports_tools = !is_local && Self::model_supports_tools(&provider_id, &model_id);
 
         // Capture schematic mtime before the turn to detect agent-driven writes.
-        let schematic_path = std::path::Path::new(&session.project_path)
-            .join(".basebuild/project-schematic.md");
+        let schematic_path =
+            std::path::Path::new(&session.project_path).join(".basebuild/project-schematic.md");
         let schematic_mtime_before = std::fs::metadata(&schematic_path)
             .ok()
             .and_then(|m| m.modified().ok())
@@ -842,6 +885,7 @@ impl NativeChatService {
                 messages,
                 app.clone(),
                 true,
+                None,
             );
 
             let completed_at = now_millis();
@@ -874,7 +918,10 @@ impl NativeChatService {
                         &session.project_path,
                         Some(request.session_id.clone()),
                         "Schematic updated by agent",
-                        Some("The agent wrote to the project schematic during this turn.".to_string()),
+                        Some(
+                            "The agent wrote to the project schematic during this turn."
+                                .to_string(),
+                        ),
                     );
                 }
             }
@@ -897,7 +944,12 @@ impl NativeChatService {
                 cache_write_tokens: 0,
                 tokens_per_second: None,
                 cost_total: Some(0.0),
-                outcome: if run_result.cancelled { "cancelled" } else { "success" }.to_string(),
+                outcome: if run_result.cancelled {
+                    "cancelled"
+                } else {
+                    "success"
+                }
+                .to_string(),
                 error_class: None,
                 subscription_tier: subscription.0.clone(),
                 subscription_source: subscription.1.clone(),
@@ -917,7 +969,12 @@ impl NativeChatService {
             });
         }
 
-        let client = resolve_client_for_model(&provider_id, &api_kind, req.base_url.as_deref(), &model_base_url);
+        let client = resolve_client_for_model(
+            &provider_id,
+            &api_kind,
+            req.base_url.as_deref(),
+            &model_base_url,
+        );
         let session_id_for_emit = request.session_id.clone();
         let app_for_emit = app.clone();
         let emit = move |delta: &str, channel: &str| {
@@ -978,7 +1035,9 @@ impl NativeChatService {
         let output_tokens = response
             .output_tokens
             .unwrap_or_else(|| estimate_tokens(&response.content));
-        let input_tokens = response.input_tokens.unwrap_or_else(|| estimate_tokens(content));
+        let input_tokens = response
+            .input_tokens
+            .unwrap_or_else(|| estimate_tokens(content));
         let tokens_per_second =
             Some((output_tokens as f64) / ((duration_ms as f64) / 1000.0).max(0.001));
 
@@ -1046,107 +1105,95 @@ impl NativeChatService {
         app: &AppHandle,
         request: NativeGenerateIdeasRequest,
     ) -> DbResult<NativeGenerateIdeasResult> {
-        // Record this as a pipeline_runs row (generate_ideas stage).
-        let session = Self::get_session(&request.session_id)?
+        let chat_session = Self::get_session(&request.session_id)?
             .ok_or_else(|| format!("Native chat session '{}' not found", request.session_id))?;
-        let run_id = format!("run-{:x}", std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0));
-        let now = now_seconds();
-        let _ = Self::record_pipeline_run(&run_id, &request.session_id, &session.project_path, "generate_ideas", "running", now);
-        let provider_id = request
-            .provider_id
-            .unwrap_or_else(|| session.provider_id.clone());
-        let model_id = request.model_id.unwrap_or_else(|| session.model_id.clone());
-        let effort_level = request
-            .effort_level
-            .unwrap_or_else(|| session.effort_level.clone());
-        Self::validate_provider_model(&provider_id, &model_id, true)?;
-
-        let catalog = Self::provider_catalog();
-        let provider_label = catalog
-            .providers
-            .iter()
-            .find(|p| p.id == provider_id)
-            .map(|p| p.label.clone())
-            .unwrap_or_else(|| provider_id.clone());
-
-        // Idea generation requires a configured, network-backed provider. The
-        // local coordinator has no credential row, so this covers both cases.
-        let credential = Self::list_credentials()?
+        let planning_session_exists =
+            crate::services::session_service::SessionService::list_sessions(
+                &chat_session.project_path,
+            )?
             .into_iter()
-            .find(|c| c.provider_id == provider_id);
-        if credential.is_none() {
-            return Ok(NativeGenerateIdeasResult {
-                ideas: vec![],
-                setup_required: Some(NativeSetupRequired {
-                    provider_id: provider_id.clone(),
-                    provider_label: provider_label.clone(),
-                    message: "Connect a model provider to generate ideas from this chat."
-                        .to_string(),
-                }),
-                grounding: None,
-                user_message: None,
-                assistant_message: None,
-            });
+            .any(|session| session.id == request.planning_session_id);
+        if !planning_session_exists {
+            return Err("The active planning session does not belong to this project.".to_string());
         }
 
-        let history = Self::list_messages(&request.session_id)?;
-        let convo: String = history
-            .iter()
-            .filter(|m| m.role == "user" || m.role == "assistant")
-            .map(|m| format!("{}: {}", m.role, m.content))
-            .collect::<Vec<_>>()
-            .join("\n\n");
-
-        // Category-directed generation: ground the prompt in the category and
-        // tag captured ideas. Seed defaults if the session has no categories.
-        let category_id = request.category_id.clone();
-        if category_id.is_some() {
-            let _ = crate::services::session_service::SessionService::ensure_default_categories(&request.session_id);
+        let idea_count = request.idea_count.clamp(5, 8);
+        let direction = request.direction.as_deref().map(str::trim).unwrap_or("");
+        if direction.chars().count() > 4_000 {
+            return Err("Idea Studio direction must be 4,000 characters or fewer.".to_string());
         }
-        let category = category_id.as_ref().and_then(|id| {
-            crate::services::session_service::SessionService::list_categories(&request.session_id)
-                .ok()?
-                .into_iter()
-                .find(|c| c.id == *id)
-        });
-        let category_direction = category.as_ref().map(|c| {
-            format!(
-                "\n\nDirect idea generation within this category:\nName: {}\nDescription: {}\nStay on-theme. Tag every idea with this category.",
-                c.name, c.description
-            )
-        }).unwrap_or_default();
+        if request.category_ids.len() > 16 {
+            return Err("Idea Studio accepts at most 16 focus areas per round.".to_string());
+        }
 
-        // Optional free-form steering from the request, appended after any
-        // category direction.
-        let extra_direction = request
-            .direction
+        let available_categories =
+            crate::services::session_service::SessionService::list_categories(
+                &request.planning_session_id,
+            )?;
+        let mut selected_categories = Vec::with_capacity(request.category_ids.len());
+        for category_id in &request.category_ids {
+            let category = available_categories
+                .iter()
+                .find(|category| category.id == *category_id)
+                .ok_or_else(|| {
+                    format!("Idea category '{category_id}' does not belong to this session.")
+                })?;
+            if !selected_categories
+                .iter()
+                .any(|selected: &crate::models::idea::IdeaCategory| selected.id == category.id)
+            {
+                selected_categories.push(category.clone());
+            }
+        }
+
+        let scope_label = if selected_categories.is_empty() {
+            "project-wide".to_string()
+        } else {
+            selected_categories
+                .iter()
+                .map(|category| category.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let invocation_summary = if direction.is_empty() {
+            format!("Auto-generate {idea_count} {scope_label} ideas.")
+        } else {
+            format!("{direction}\n\n{idea_count} ideas · {scope_label}")
+        };
+        let default_display_message = format!(
+            "<command name=\"/skill:basebuild-planning\">\n{invocation_summary}\n</command>"
+        );
+        let display_message = request
+            .display_message
             .as_deref()
             .map(str::trim)
-            .filter(|d| !d.is_empty())
-            .map(|d| format!("\n\nAdditional direction:\n{d}"))
-            .unwrap_or_default();
+            .filter(|message| !message.is_empty())
+            .unwrap_or(&default_display_message);
+        if display_message.chars().count() > 5_000 {
+            return Err("Idea Studio message must be 5,000 characters or fewer.".to_string());
+        }
 
-        let system = Self::system_prompt(&session.project_path, request.schematic.as_deref());
-        let idea_template = crate::services::planning_prompt_service::PlanningPromptService::get(
-            crate::models::planning_prompt::IDEA_GENERATION,
-        )
-        .unwrap_or_default();
-        let prompt = format!(
-            "{}{}{}",
-            idea_template.replace("{conversation}", &convo),
-            category_direction,
-            extra_direction
-        );
+        let provider_id = request
+            .provider_id
+            .clone()
+            .unwrap_or_else(|| chat_session.provider_id.clone());
+        let model_id = request
+            .model_id
+            .clone()
+            .unwrap_or_else(|| chat_session.model_id.clone());
+        let effort_level = request
+            .effort_level
+            .clone()
+            .unwrap_or_else(|| chat_session.effort_level.clone());
+        Self::validate_provider_model(&provider_id, &model_id, true)?;
 
-        // Persist the generation prompt as a user message so the turn is
-        // visible in the transcript and survives reloads — matching send_message.
+        // Persist the compact invocation before provider work begins. The
+        // frontend mirrors this optimistically, so the instruction always
+        // appears before thinking/progress state.
         let user_message = Self::insert_message(
             &request.session_id,
             "user",
-            &prompt,
+            display_message,
             None,
             Some(&provider_id),
             Some(&model_id),
@@ -1154,85 +1201,249 @@ impl NativeChatService {
         )?;
         Self::touch_session(&request.session_id)?;
 
-        let (api_kind, model_base_url) = Self::resolve_model_routing(&provider_id, &model_id);
+        let run_id = format!(
+            "run-{:x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        );
+        let _ = Self::record_pipeline_run(
+            &run_id,
+            &request.planning_session_id,
+            &chat_session.project_path,
+            "generate_ideas",
+            "running",
+            now_seconds(),
+        );
 
-        let req = ProviderRequest {
-            model_id: model_id.clone(),
-            effort_level: effort_level.clone(),
-            system: Some(system),
-            messages: vec![ChatMsg {
-                role: "user".to_string(),
-                content: prompt,
-                tool_calls: Vec::new(),
-                tool_call_id: None,
-                name: None,
-            }],
-            api_key: credential.as_ref().map(|c| c.api_key.clone()),
-            base_url: credential.as_ref().and_then(|c| c.base_url.clone()),
-            tools: Vec::new(),
+        let catalog = Self::provider_catalog();
+        let provider_label = catalog
+            .providers
+            .iter()
+            .find(|provider| provider.id == provider_id)
+            .map(|provider| provider.label.clone())
+            .unwrap_or_else(|| provider_id.clone());
+        let credential = Self::list_credentials()?
+            .into_iter()
+            .find(|credential| credential.provider_id == provider_id);
+
+        let blocked_result = |message: String| NativeGenerateIdeasResult {
+            ideas: vec![],
+            setup_required: Some(NativeSetupRequired {
+                provider_id: provider_id.clone(),
+                provider_label: provider_label.clone(),
+                message,
+            }),
+            grounding: None,
+            user_message: Some(user_message.clone()),
+            assistant_message: None,
         };
 
-        let client = resolve_client_for_model(&provider_id, &api_kind, req.base_url.as_deref(), &model_base_url);
-        let session_id_for_emit = request.session_id.clone();
-        let app_for_emit = app.clone();
-        // Forward the actual channel label from the provider client so
-        // reasoning tokens stream on "reasoning" and content on "content" —
-        // matching send_message's emit contract.
-        let emit = move |delta: &str, channel: &str| {
-            let _ = app_for_emit.emit(
-                NATIVE_CHAT_CHUNK,
-                serde_json::json!({
-                    "sessionId": session_id_for_emit,
-                    "delta": delta,
-                    "channel": channel
-                }),
+        let Some(credential) = credential else {
+            let _ = Self::record_pipeline_run(
+                &run_id,
+                &request.planning_session_id,
+                &chat_session.project_path,
+                "generate_ideas",
+                "failed",
+                now_seconds(),
             );
+            return Ok(blocked_result(
+                "Choose a connected provider to run the native Idea Studio skill.".to_string(),
+            ));
         };
 
-        // Signal the UI that the model is thinking before the first token.
-        emit("thinking", "status");
+        let resolved_model_id =
+            Self::resolve_model_api_id(&provider_id, &model_id).unwrap_or_else(|| model_id.clone());
+        let (api_kind, _) = Self::resolve_model_routing(&provider_id, &model_id);
+        if Self::route_requires_omp(&api_kind, credential.base_url.as_deref(), false) {
+            let _ = Self::record_pipeline_run(
+                &run_id,
+                &request.planning_session_id,
+                &chat_session.project_path,
+                "generate_ideas",
+                "failed",
+                now_seconds(),
+            );
+            return Ok(blocked_result(
+                "Idea Studio needs a native model with direct tool access. Choose a native-supported model instead of an OMP-only transport.".to_string(),
+            ));
+        }
+        if !Self::model_supports_tools(&provider_id, &model_id) {
+            let _ = Self::record_pipeline_run(
+                &run_id,
+                &request.planning_session_id,
+                &chat_session.project_path,
+                "generate_ideas",
+                "failed",
+                now_seconds(),
+            );
+            return Ok(blocked_result(
+                "Idea Studio needs a model that supports native file and idea tools.".to_string(),
+            ));
+        }
 
-        let response = match client.generate(&req, &emit) {
-            Ok(r) => r,
-            Err(e) => {
-                let _ = Self::record_pipeline_run(&run_id, &request.session_id, &session.project_path, "generate_ideas", "failed", now_seconds());
-                return Err(e);
-            }
+        let category_arguments = if selected_categories.is_empty() {
+            "- Project-wide. Inspect the repository and schematic before choosing focus areas."
+                .to_string()
+        } else {
+            selected_categories
+                .iter()
+                .map(|category| {
+                    format!(
+                        "- {} [{}]: {}",
+                        category.name, category.id, category.description
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
         };
+        let direction_argument = if direction.is_empty() {
+            "No user direction. Find the strongest grounded opportunities.".to_string()
+        } else {
+            direction.to_string()
+        };
+        let skill = crate::services::skill_registry_service::SkillRegistryService::read_content(
+            "basebuild-planning",
+        )
+        .unwrap_or_else(|| {
+            "Inspect the repository, then capture concrete grounded ideas with propose_ideas. Do not return the idea list as prose.".to_string()
+        });
+        let invocation = format!(
+            "Native skill invocation: basebuild-planning\n\
+             Arguments:\n\
+             - idea_count: {idea_count}\n\
+             - planning_session_id: {}\n\
+             - focus_areas:\n{category_arguments}\n\
+             - direction: {direction_argument}\n\n\
+             Invocation rules:\n\
+             - Start by using native read/list/search tools on the project. Never say you will read files without making the tool calls in that same turn.\n\
+             - Capture exactly {idea_count} distinct ideas through propose_ideas. Use the matching category id when a focus area is selected.\n\
+             - Every idea needs concrete grounding and, when possible, a repository anchor.\n\
+             - Do not print the generated idea catalog as a wall of prose; the native tool renders it in Idea Studio.\n\
+             - After capture, reply with one short completion sentence.",
+            request.planning_session_id
+        );
+        let system = format!(
+            "{}\n\n<skill name=\"basebuild-planning\" runtime=\"native\">\n{}\n</skill>\n\n{}",
+            Self::system_prompt(&chat_session.project_path, request.schematic.as_deref()),
+            skill,
+            invocation
+        );
 
-        // Persist the assistant response so the generated ideas survive reloads.
-        let assistant_message = Self::insert_message(
+        // Keep normal conversational context, but remove legacy turns that
+        // exposed the entire planning skill as a user message.
+        let history = Self::list_messages(&request.session_id)?;
+        let visible_history = history
+            .into_iter()
+            .filter(|message| {
+                !(message.role == "user"
+                    && message
+                        .content
+                        .trim_start()
+                        .starts_with("---\nname: basebuild-planning"))
+            })
+            .collect::<Vec<_>>();
+        let messages = Self::history_to_provider_messages(&visible_history);
+        let existing_idea_ids = crate::services::session_service::SessionService::list_ideas(
+            &request.planning_session_id,
+        )?
+        .into_iter()
+        .map(|idea| idea.id)
+        .collect::<std::collections::HashSet<_>>();
+
+        let run_result = crate::services::agent_loop_service::run_agent_turn(
             &request.session_id,
-            "assistant",
-            &response.content,
-            response.reasoning.as_deref(),
-            Some(&provider_id),
-            Some(&model_id),
-            Some(&effort_level),
+            &chat_session.project_path,
+            &provider_id,
+            &resolved_model_id,
+            &effort_level,
+            Some(credential.api_key),
+            credential.base_url,
+            system,
+            messages,
+            app.clone(),
+            true,
+            Some(&request.planning_session_id),
+        );
+        let (assistant_message, _) = Self::persist_turn_segments(
+            &request.session_id,
+            &user_message.id,
+            &run_result.segments,
+            &run_result.tool_events,
+            &provider_id,
+            &model_id,
+            &effort_level,
         )?;
         Self::touch_session(&request.session_id)?;
 
-        let ideas = Self::parse_ideas(&response.content);
-        let cat_id_ref = category_id.as_deref();
-        let _ = Self::parse_and_capture_ideas(&response.content, &request.session_id, cat_id_ref, Some(&run_id));
-        // Mark the pipeline run as succeeded.
-        let stage_kind = if category_id.is_some() { "generate_ideas_category" } else { "generate_ideas" };
-        let _ = Self::record_pipeline_run(&run_id, &request.session_id, &session.project_path, stage_kind, "succeeded", now_seconds());
-        let grounding = crate::services::planning_prompt_service::PlanningPromptService::grounding_metadata(
-            &request.session_id,
-            &session.project_path,
+        let ideas = crate::services::session_service::SessionService::list_ideas(
+            &request.planning_session_id,
+        )?
+        .into_iter()
+        .filter(|idea| !existing_idea_ids.contains(&idea.id))
+        .map(|idea| NativeGeneratedIdea {
+            title: idea.title,
+            description: idea.description,
+        })
+        .collect::<Vec<_>>();
+
+        if ideas.is_empty() && !run_result.cancelled {
+            let _ = Self::record_pipeline_run(
+                &run_id,
+                &request.planning_session_id,
+                &chat_session.project_path,
+                "generate_ideas",
+                "failed",
+                now_seconds(),
+            );
+            return Err(
+                "The model finished without capturing any ideas. Try a different native tool-capable model."
+                    .to_string(),
+            );
+        }
+
+        let stage_kind = if selected_categories.is_empty() {
+            "generate_ideas"
+        } else {
+            "generate_ideas_category"
+        };
+        let _ = Self::record_pipeline_run(
+            &run_id,
+            &request.planning_session_id,
+            &chat_session.project_path,
+            stage_kind,
+            if run_result.cancelled {
+                "failed"
+            } else {
+                "succeeded"
+            },
+            now_seconds(),
         );
+        let grounding =
+            crate::services::planning_prompt_service::PlanningPromptService::grounding_metadata(
+                &request.planning_session_id,
+                &chat_session.project_path,
+            );
         Ok(NativeGenerateIdeasResult {
             ideas,
             setup_required: None,
             grounding: Some(grounding),
             user_message: Some(user_message),
-            assistant_message: Some(assistant_message),
+            assistant_message,
         })
     }
 
     /// Record a pipeline_runs row for a generate-ideas/generate-plans stage.
-    pub fn record_pipeline_run(run_id: &str, session_id: &str, project_path: &str, kind: &str, status: &str, ts: i64) -> DbResult<()> {
+    pub fn record_pipeline_run(
+        run_id: &str,
+        session_id: &str,
+        project_path: &str,
+        kind: &str,
+        status: &str,
+        ts: i64,
+    ) -> DbResult<()> {
         let conn = StorageService::connect()?;
         conn.execute(
             "INSERT INTO pipeline_runs (id, session_id, project_path, kind, input_summary, status, output_refs, started_at, completed_at, created_at)
@@ -1242,42 +1453,6 @@ impl NativeChatService {
         )
         .map_err(|e| e.to_string())?;
         Ok(())
-    }
-
-    /// Parse idea-shaped JSON from a model response and capture each as a
-    /// concept idea in the ideas catalog. Fallback for models that emit ideas
-    /// as prose/JSON instead of calling the propose_ideas tool.
-    fn parse_and_capture_ideas(content: &str, session_id: &str, category_id: Option<&str>, batch_id: Option<&str>) {
-        let text = content.trim();
-        let (start, end) = match (text.find('['), text.rfind(']')) {
-            (Some(s), Some(e)) if e > s => (s, e),
-            _ => return,
-        };
-        let parsed: serde_json::Value = match serde_json::from_str(&text[start..=end]) {
-            Ok(v) => v,
-            Err(_) => return,
-        };
-        let Some(arr) = parsed.as_array() else { return };
-        for item in arr {
-            let title = item.get("title").and_then(serde_json::Value::as_str).unwrap_or("");
-            if title.trim().is_empty() {
-                continue;
-            }
-            let description = item
-                .get("description")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            let _ = crate::services::session_service::SessionService::create_idea(
-                session_id,
-                title,
-                &description,
-                category_id,
-                "",
-                None,
-                batch_id,
-            );
-        }
     }
 
     pub fn list_metrics(limit: u32) -> DbResult<Vec<NativeRequestMetric>> {
@@ -1291,8 +1466,11 @@ impl NativeChatService {
                  FROM native_request_metrics ORDER BY created_at DESC LIMIT ?1",
             )
             .map_err(|e| e.to_string())?;
-        let rows = stmt.query_map(params![limit], map_metric).map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        let rows = stmt
+            .query_map(params![limit], map_metric)
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     pub fn latest_metric_for_session(session_id: &str) -> DbResult<Option<NativeRequestMetric>> {
@@ -1325,8 +1503,11 @@ impl NativeChatService {
                  FROM native_request_metrics WHERE created_at > ?1 ORDER BY created_at ASC LIMIT ?2",
             )
             .map_err(|e| e.to_string())?;
-        let rows = stmt.query_map(params![since_created_at, limit], map_metric).map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        let rows = stmt
+            .query_map(params![since_created_at, limit], map_metric)
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     pub fn metrics_summary() -> DbResult<NativeRequestMetricsSummary> {
@@ -1385,7 +1566,11 @@ impl NativeChatService {
         let (decision_text, requires_prompt, reason) = match decision {
             PermissionDecision::Allow => ("allow", false, "Allowed by existing permission rule."),
             PermissionDecision::Deny => ("deny", false, "Denied by existing permission rule."),
-            PermissionDecision::Ask => ("ask", true, "User approval is required before this native harness action can run."),
+            PermissionDecision::Ask => (
+                "ask",
+                true,
+                "User approval is required before this native harness action can run.",
+            ),
         };
 
         SettingsService::record_audit(
@@ -1421,10 +1606,7 @@ impl NativeChatService {
     /// Look up a model's `api_kind` and `base_url` from the cache for
     /// provider routing. Falls back to the bundled OMP catalog if the
     /// model is not in the cache or has no `api_kind` set.
-    pub fn resolve_model_routing(
-        provider_id: &str,
-        model_id: &str,
-    ) -> (String, String) {
+    pub fn resolve_model_routing(provider_id: &str, model_id: &str) -> (String, String) {
         // Try the DB cache first.
         if let Ok(conn) = StorageService::connect() {
             if let Ok(row) = conn.query_row(
@@ -1473,7 +1655,11 @@ impl NativeChatService {
                 && credential_base_url.is_none())
     }
 
-    fn validate_provider_model(provider_id: &str, model_id: &str, allow_unconfigured: bool) -> DbResult<()> {
+    fn validate_provider_model(
+        provider_id: &str,
+        model_id: &str,
+        allow_unconfigured: bool,
+    ) -> DbResult<()> {
         let catalog = Self::provider_catalog();
         let provider = catalog
             .providers
@@ -1504,7 +1690,10 @@ impl NativeChatService {
     /// never see back-to-back assistant messages.
     fn history_to_provider_messages(history: &[NativeChatMessage]) -> Vec<ChatMsg> {
         let mut messages: Vec<ChatMsg> = Vec::new();
-        for m in history.iter().filter(|m| m.role == "user" || m.role == "assistant") {
+        for m in history
+            .iter()
+            .filter(|m| m.role == "user" || m.role == "assistant")
+        {
             if m.role == "assistant" {
                 if let Some(last) = messages.last_mut().filter(|l| l.role == "assistant") {
                     if !last.content.is_empty() && !m.content.is_empty() {
@@ -1697,7 +1886,10 @@ impl NativeChatService {
                 |row| row.get(0),
             )
             .map_err(|e| format!("Failed to read back tool event sequence: {e}"))?;
-        Ok(NativeToolEvent { sequence: persisted_seq, ..event })
+        Ok(NativeToolEvent {
+            sequence: persisted_seq,
+            ..event
+        })
     }
 
     pub fn list_tool_events(session_id: &str) -> DbResult<Vec<NativeToolEvent>> {
@@ -1755,8 +1947,10 @@ impl NativeChatService {
                             .filter(|s| !s.is_empty())
                             .map(str::to_string);
                         if tier.is_some() {
-                            let plan_name =
-                                entry.get("planName").and_then(|v| v.as_str()).map(str::to_string);
+                            let plan_name = entry
+                                .get("planName")
+                                .and_then(|v| v.as_str())
+                                .map(str::to_string);
                             return (tier, Some("declared".to_string()), plan_name);
                         }
                     }
@@ -1896,7 +2090,11 @@ impl NativeChatService {
         let schematic_text = schematic
             .map(|s| {
                 let s = s.trim();
-                if s.is_empty() { String::new() } else { s.chars().take(4000).collect::<String>() }
+                if s.is_empty() {
+                    String::new()
+                } else {
+                    s.chars().take(4000).collect::<String>()
+                }
             })
             .unwrap_or_default();
         template
@@ -1924,7 +2122,11 @@ impl NativeChatService {
         };
         arr.iter()
             .filter_map(|item| {
-                let title = item.get("title").and_then(Value::as_str)?.trim().to_string();
+                let title = item
+                    .get("title")
+                    .and_then(Value::as_str)?
+                    .trim()
+                    .to_string();
                 if title.is_empty() {
                     return None;
                 }
@@ -1950,7 +2152,9 @@ fn map_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<NativeChatSession> {
         model_id: row.get(5)?,
         effort_level: row.get(6)?,
         status: row.get(7)?,
-        run_state: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "idle".to_string()),
+        run_state: row
+            .get::<_, Option<String>>(8)?
+            .unwrap_or_else(|| "idle".to_string()),
         created_at: row.get(9)?,
         updated_at: row.get(10)?,
     })
@@ -1966,7 +2170,9 @@ fn map_history_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<NativeChatHist
         model_id: row.get(5)?,
         effort_level: row.get(6)?,
         status: row.get(7)?,
-        run_state: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "idle".to_string()),
+        run_state: row
+            .get::<_, Option<String>>(8)?
+            .unwrap_or_else(|| "idle".to_string()),
         created_at: row.get(9)?,
         updated_at: row.get(10)?,
         message_count: row.get(11)?,
@@ -2051,7 +2257,11 @@ static OMP_AGENT_DIR: std::sync::LazyLock<std::path::PathBuf> = std::sync::LazyL
     match output {
         Ok(o) if o.status.success() => {
             let p = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if p.is_empty() { default } else { std::path::PathBuf::from(p) }
+            if p.is_empty() {
+                default
+            } else {
+                std::path::PathBuf::from(p)
+            }
         }
         _ => default,
     }
@@ -2074,8 +2284,9 @@ fn omp_to_basebuild_provider(omp_id: &str) -> Option<String> {
 
 /// OAuth token cache: (token, fetched_at). TTL prevents per-send CLI spawns.
 /// ponytail: 5-min TTL; OAuth tokens typically last 1h, refresh handled by omp.
-static OAUTH_TOKEN_CACHE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, (String, std::time::Instant)>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+static OAUTH_TOKEN_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, (String, std::time::Instant)>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 const OAUTH_TOKEN_TTL_SECS: u64 = 300;
 
 /// Get a live OAuth token for an OMP provider via `omp token <provider>`.
@@ -2100,9 +2311,14 @@ fn omp_oauth_token(omp_provider: &str) -> Option<String> {
         return None;
     }
     let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if token.is_empty() { return None; }
+    if token.is_empty() {
+        return None;
+    }
     if let Ok(mut cache) = OAUTH_TOKEN_CACHE.lock() {
-        cache.insert(omp_provider.to_string(), (token.clone(), std::time::Instant::now()));
+        cache.insert(
+            omp_provider.to_string(),
+            (token.clone(), std::time::Instant::now()),
+        );
     }
     Some(token)
 }
@@ -2129,8 +2345,14 @@ mod tests {
         let catalog = NativeChatService::provider_catalog();
         assert_eq!(catalog.default_provider_id, LOCAL_PROVIDER_ID);
         assert_eq!(catalog.default_model_id, "basebuild-local-coordinator");
-        assert!(catalog.providers.iter().any(|provider| provider.id == LOCAL_PROVIDER_ID && provider.configured));
-        assert!(catalog.effort_levels.iter().any(|effort| effort.id == "xhigh"));
+        assert!(catalog
+            .providers
+            .iter()
+            .any(|provider| provider.id == LOCAL_PROVIDER_ID && provider.configured));
+        assert!(catalog
+            .effort_levels
+            .iter()
+            .any(|effort| effort.id == "xhigh"));
     }
     #[test]
     fn route_requires_omp_refuses_codex_oauth_sentinel() {
@@ -2144,8 +2366,16 @@ mod tests {
 
     #[test]
     fn route_requires_omp_refuses_bespoke_kind_without_endpoint() {
-        assert!(NativeChatService::route_requires_omp("devin-agent", None, false));
-        assert!(NativeChatService::route_requires_omp("openai-codex-responses", None, false));
+        assert!(NativeChatService::route_requires_omp(
+            "devin-agent",
+            None,
+            false
+        ));
+        assert!(NativeChatService::route_requires_omp(
+            "openai-codex-responses",
+            None,
+            false
+        ));
     }
 
     #[test]
@@ -2158,10 +2388,17 @@ mod tests {
             "openrouter",
             "ollama-chat",
         ] {
-            assert!(!NativeChatService::route_requires_omp(kind, None, false), "{kind} is native");
+            assert!(
+                !NativeChatService::route_requires_omp(kind, None, false),
+                "{kind} is native"
+            );
         }
         // Custom base_url is the OpenAI-compatible escape hatch for bespoke kinds.
-        assert!(!NativeChatService::route_requires_omp("devin-agent", Some("https://server.codeium.com"), false));
+        assert!(!NativeChatService::route_requires_omp(
+            "devin-agent",
+            Some("https://server.codeium.com"),
+            false
+        ));
         // Local coordinator never routes through OMP.
         assert!(!NativeChatService::route_requires_omp("", None, true));
     }
@@ -2209,13 +2446,20 @@ mod tests {
         let resolved = NativeChatService::resolve_model_default(project_path).unwrap();
         assert_eq!(resolved.source, "fallback");
         assert!(resolved.notice.is_some());
-        assert!(resolved.notice.as_ref().unwrap().contains("nonexistent-provider"));
+        assert!(resolved
+            .notice
+            .as_ref()
+            .unwrap()
+            .contains("nonexistent-provider"));
     }
 
     /// Builds an OMP-shaped `agent.db` fixture in a temp dir so the credential
     /// reader can be exercised deterministically on any machine, with or
     /// without OMP installed.
-    fn write_omp_fixture_db(db_path: &std::path::Path, rows: &[(&str, &str, &str, Option<&str>, i64)]) {
+    fn write_omp_fixture_db(
+        db_path: &std::path::Path,
+        rows: &[(&str, &str, &str, Option<&str>, i64)],
+    ) {
         let conn = Connection::open(db_path).unwrap();
         conn.execute_batch(
             "CREATE TABLE auth_credentials (
@@ -2248,19 +2492,43 @@ mod tests {
                 ("umans", "api_key", r#"{"key":"sk-old"}"#, None, 100),
                 ("umans", "api_key", r#"{"key":"sk-new"}"#, None, 200),
                 ("anthropic", "api_key", r#"{"key":"sk-ant"}"#, None, 150),
-                ("anthropic", "api_key", r#"{"key":"sk-revoked"}"#, Some("revoked"), 300),
-                ("mystery-provider", "api_key", r#"{"key":"sk-x"}"#, None, 100),
+                (
+                    "anthropic",
+                    "api_key",
+                    r#"{"key":"sk-revoked"}"#,
+                    Some("revoked"),
+                    300,
+                ),
+                (
+                    "mystery-provider",
+                    "api_key",
+                    r#"{"key":"sk-x"}"#,
+                    None,
+                    100,
+                ),
                 ("openai", "api_key", r#"{"key":""}"#, None, 100),
             ],
         );
 
         let creds = NativeChatService::omp_credentials_from(&db_path);
         assert_eq!(creds.len(), 2, "expected only umans + anthropic: {creds:?}");
-        let umans = creds.iter().find(|c| c.provider_id == "umans").expect("umans mapped");
+        let umans = creds
+            .iter()
+            .find(|c| c.provider_id == "umans")
+            .expect("umans mapped");
         assert_eq!(umans.api_key, "sk-new", "newest active row should win");
-        assert!(umans.base_url.is_none(), "api_key rows must not get the OMP Codex base_url tag");
-        let anthropic = creds.iter().find(|c| c.provider_id == "anthropic").expect("anthropic mapped");
-        assert_eq!(anthropic.api_key, "sk-ant", "disabled row must not shadow the active one");
+        assert!(
+            umans.base_url.is_none(),
+            "api_key rows must not get the OMP Codex base_url tag"
+        );
+        let anthropic = creds
+            .iter()
+            .find(|c| c.provider_id == "anthropic")
+            .expect("anthropic mapped");
+        assert_eq!(
+            anthropic.api_key, "sk-ant",
+            "disabled row must not shadow the active one"
+        );
     }
 
     #[test]
@@ -2271,11 +2539,26 @@ mod tests {
 
     #[test]
     fn omp_provider_ids_map_to_basebuild_ids() {
-        assert_eq!(omp_to_basebuild_provider("openai-codex"), Some("openai".to_string()));
-        assert_eq!(omp_to_basebuild_provider("openai"), Some("openai".to_string()));
-        assert_eq!(omp_to_basebuild_provider("anthropic"), Some("anthropic".to_string()));
-        assert_eq!(omp_to_basebuild_provider("umans"), Some("umans".to_string()));
-        assert_eq!(omp_to_basebuild_provider("devin"), Some("devin".to_string()));
+        assert_eq!(
+            omp_to_basebuild_provider("openai-codex"),
+            Some("openai".to_string())
+        );
+        assert_eq!(
+            omp_to_basebuild_provider("openai"),
+            Some("openai".to_string())
+        );
+        assert_eq!(
+            omp_to_basebuild_provider("anthropic"),
+            Some("anthropic".to_string())
+        );
+        assert_eq!(
+            omp_to_basebuild_provider("umans"),
+            Some("umans".to_string())
+        );
+        assert_eq!(
+            omp_to_basebuild_provider("devin"),
+            Some("devin".to_string())
+        );
         assert_eq!(omp_to_basebuild_provider("groq"), Some("groq".to_string()));
         assert_eq!(omp_to_basebuild_provider("something-else"), None);
     }
@@ -2332,7 +2615,9 @@ mod tests {
         assert_eq!(updated.effort_level, "high");
 
         // Re-read to confirm persistence.
-        let reread = NativeChatService::get_session(&session.id).unwrap().unwrap();
+        let reread = NativeChatService::get_session(&session.id)
+            .unwrap()
+            .unwrap();
         assert_eq!(reread.effort_level, "high");
 
         // Invalid provider/model pair should be rejected.
@@ -2367,22 +2652,68 @@ mod tests {
         .unwrap();
 
         // Insert two messages and a tool event.
-        NativeChatService::insert_message(&session.id, "user", "hello", None, Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium")).unwrap();
-        NativeChatService::insert_message(&session.id, "assistant", "hi there", None, Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium")).unwrap();
-        NativeChatService::insert_tool_event(&session.id, None, "test_tool", "ok", "ran", None, None, None, None);
+        NativeChatService::insert_message(
+            &session.id,
+            "user",
+            "hello",
+            None,
+            Some(LOCAL_PROVIDER_ID),
+            Some("basebuild-local-coordinator"),
+            Some("medium"),
+        )
+        .unwrap();
+        NativeChatService::insert_message(
+            &session.id,
+            "assistant",
+            "hi there",
+            None,
+            Some(LOCAL_PROVIDER_ID),
+            Some("basebuild-local-coordinator"),
+            Some("medium"),
+        )
+        .unwrap();
+        NativeChatService::insert_tool_event(
+            &session.id,
+            None,
+            "test_tool",
+            "ok",
+            "ran",
+            None,
+            None,
+            None,
+            None,
+        );
 
         // Verify they exist.
-        assert_eq!(NativeChatService::list_messages(&session.id).unwrap().len(), 2);
-        assert_eq!(NativeChatService::list_tool_events(&session.id).unwrap().len(), 1);
+        assert_eq!(
+            NativeChatService::list_messages(&session.id).unwrap().len(),
+            2
+        );
+        assert_eq!(
+            NativeChatService::list_tool_events(&session.id)
+                .unwrap()
+                .len(),
+            1
+        );
 
         // Clear and verify deletion count.
         let deleted = NativeChatService::clear_session_messages(&session.id).unwrap();
         assert_eq!(deleted, 2, "should delete 2 messages");
-        assert_eq!(NativeChatService::list_messages(&session.id).unwrap().len(), 0);
-        assert_eq!(NativeChatService::list_tool_events(&session.id).unwrap().len(), 0);
+        assert_eq!(
+            NativeChatService::list_messages(&session.id).unwrap().len(),
+            0
+        );
+        assert_eq!(
+            NativeChatService::list_tool_events(&session.id)
+                .unwrap()
+                .len(),
+            0
+        );
 
         // Session record itself should still exist (provider/model/effort preserved).
-        let reread = NativeChatService::get_session(&session.id).unwrap().unwrap();
+        let reread = NativeChatService::get_session(&session.id)
+            .unwrap()
+            .unwrap();
         assert_eq!(reread.provider_id, LOCAL_PROVIDER_ID);
         assert_eq!(reread.model_id, "basebuild-local-coordinator");
         assert_eq!(reread.effort_level, "medium");
@@ -2407,8 +2738,26 @@ mod tests {
         .unwrap();
         // Ensure distinct updated_at values so ORDER BY is deterministic.
         std::thread::sleep(std::time::Duration::from_millis(1100));
-        NativeChatService::insert_message(&older.id, "user", "hello", None, Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium")).unwrap();
-        NativeChatService::insert_message(&older.id, "assistant", "hi", None, Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium")).unwrap();
+        NativeChatService::insert_message(
+            &older.id,
+            "user",
+            "hello",
+            None,
+            Some(LOCAL_PROVIDER_ID),
+            Some("basebuild-local-coordinator"),
+            Some("medium"),
+        )
+        .unwrap();
+        NativeChatService::insert_message(
+            &older.id,
+            "assistant",
+            "hi",
+            None,
+            Some(LOCAL_PROVIDER_ID),
+            Some("basebuild-local-coordinator"),
+            Some("medium"),
+        )
+        .unwrap();
 
         let newer = NativeChatService::start_session(NativeChatStartRequest {
             project_path: "/test/history-b".to_string(),
@@ -2418,11 +2767,23 @@ mod tests {
             effort_level: Some("medium".to_string()),
         })
         .unwrap();
-        NativeChatService::insert_message(&newer.id, "user", "only one", None, Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium")).unwrap();
+        NativeChatService::insert_message(
+            &newer.id,
+            "user",
+            "only one",
+            None,
+            Some(LOCAL_PROVIDER_ID),
+            Some("basebuild-local-coordinator"),
+            Some("medium"),
+        )
+        .unwrap();
         // Force deterministic ordering: newer must sort before older.
         StorageService::connect()
             .unwrap()
-            .execute("UPDATE native_chat_sessions SET updated_at = ?1 WHERE id = ?2", params![older.updated_at + 10, newer.id])
+            .execute(
+                "UPDATE native_chat_sessions SET updated_at = ?1 WHERE id = ?2",
+                params![older.updated_at + 10, newer.id],
+            )
             .unwrap();
 
         let all = NativeChatService::chat_history(None).unwrap();
@@ -2497,12 +2858,14 @@ mod tests {
         .unwrap();
 
         // Save a new credential (should unblock).
-        NativeChatService::save_credential(crate::models::native_chat::NativeProviderCredentialInput {
-            provider_id: "umans".to_string(),
-            label: "test".to_string(),
-            api_key: "sk-new".to_string(),
-            base_url: None,
-        })
+        NativeChatService::save_credential(
+            crate::models::native_chat::NativeProviderCredentialInput {
+                provider_id: "umans".to_string(),
+                label: "test".to_string(),
+                api_key: "sk-new".to_string(),
+                base_url: None,
+            },
+        )
         .unwrap();
 
         // The block should be gone.
@@ -2513,7 +2876,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(blocked, 0, "umans should be unblocked after saving a new credential");
+        assert_eq!(
+            blocked, 0,
+            "umans should be unblocked after saving a new credential"
+        );
 
         // The credential should be present (either the Basebuild one or the
         // OMP-imported one — what matters is the provider is no longer blocked).
@@ -2564,7 +2930,9 @@ mod tests {
         assert_eq!(latest.id, "metric-a-new");
         assert_eq!(latest.input_tokens, 240);
         assert_eq!(latest.output_tokens, 60);
-        assert!(NativeChatService::latest_metric_for_session("missing").unwrap().is_none());
+        assert!(NativeChatService::latest_metric_for_session("missing")
+            .unwrap()
+            .is_none());
     }
 
     fn segment(content: &str, reasoning: Option<&str>, iteration: usize) -> TurnSegment {
@@ -2599,8 +2967,13 @@ mod tests {
         })
         .unwrap();
         let user = NativeChatService::insert_message(
-            &session.id, "user", "do the thing", None,
-            Some(LOCAL_PROVIDER_ID), Some("basebuild-local-coordinator"), Some("medium"),
+            &session.id,
+            "user",
+            "do the thing",
+            None,
+            Some(LOCAL_PROVIDER_ID),
+            Some("basebuild-local-coordinator"),
+            Some("medium"),
         )
         .unwrap();
         (session, user)
@@ -2624,19 +2997,31 @@ mod tests {
             event_record("write_file", 2),
         ];
         let (last, tool_events) = NativeChatService::persist_turn_segments(
-            &session.id, &user.id, &segments, &events,
-            LOCAL_PROVIDER_ID, "basebuild-local-coordinator", "medium",
+            &session.id,
+            &user.id,
+            &segments,
+            &events,
+            LOCAL_PROVIDER_ID,
+            "basebuild-local-coordinator",
+            "medium",
         )
         .unwrap();
 
         let messages = NativeChatService::list_messages(&session.id).unwrap();
         let assistants: Vec<_> = messages.iter().filter(|m| m.role == "assistant").collect();
-        assert_eq!(assistants.len(), 2, "one assistant row per text-producing iteration");
+        assert_eq!(
+            assistants.len(),
+            2,
+            "one assistant row per text-producing iteration"
+        );
         assert_eq!(assistants[0].content, "Let me look at the files.");
         assert_eq!(assistants[0].reasoning.as_deref(), Some("planning"));
         assert_eq!(assistants[1].content, "All done.");
         let last = last.expect("last assistant message");
-        assert_eq!(last.id, assistants[1].id, "SendResult carries the LAST inserted message");
+        assert_eq!(
+            last.id, assistants[1].id,
+            "SendResult carries the LAST inserted message"
+        );
 
         // Iteration 1 and 2 events all ran after the first segment's text and
         // before the final answer: bound to the first assistant message.
@@ -2658,14 +3043,16 @@ mod tests {
         // Cancelled mid-turn: iteration 1 text + events survived, iteration 2
         // was cut off after its tool calls. An empty segment must not produce
         // an assistant row.
-        let segments = vec![
-            segment("Working on it.", None, 1),
-            segment("", None, 2),
-        ];
+        let segments = vec![segment("Working on it.", None, 1), segment("", None, 2)];
         let events = vec![event_record("read_file", 1), event_record("bash", 2)];
         let (last, tool_events) = NativeChatService::persist_turn_segments(
-            &session.id, &user.id, &segments, &events,
-            LOCAL_PROVIDER_ID, "basebuild-local-coordinator", "medium",
+            &session.id,
+            &user.id,
+            &segments,
+            &events,
+            LOCAL_PROVIDER_ID,
+            "basebuild-local-coordinator",
+            "medium",
         )
         .unwrap();
 
@@ -2689,14 +3076,22 @@ mod tests {
         // Cancelled before any text streamed: no assistant rows at all, and
         // the iteration's events fall back to the user message.
         let (last, tool_events) = NativeChatService::persist_turn_segments(
-            &session.id, &user.id, &[], &[event_record("read_file", 1)],
-            LOCAL_PROVIDER_ID, "basebuild-local-coordinator", "medium",
+            &session.id,
+            &user.id,
+            &[],
+            &[event_record("read_file", 1)],
+            LOCAL_PROVIDER_ID,
+            "basebuild-local-coordinator",
+            "medium",
         )
         .unwrap();
 
         assert!(last.is_none(), "no assistant message without segments");
         let messages = NativeChatService::list_messages(&session.id).unwrap();
-        assert!(messages.iter().all(|m| m.role != "assistant"), "no empty assistant row on cancel");
+        assert!(
+            messages.iter().all(|m| m.role != "assistant"),
+            "no empty assistant row on cancel"
+        );
         assert_eq!(tool_events.len(), 1);
         assert_eq!(tool_events[0].message_id.as_deref(), Some(user.id.as_str()));
     }
@@ -2724,7 +3119,10 @@ mod tests {
             row("assistant", "answer", 6),
         ];
         let messages = NativeChatService::history_to_provider_messages(&history);
-        let shape: Vec<(&str, &str)> = messages.iter().map(|m| (m.role.as_str(), m.content.as_str())).collect();
+        let shape: Vec<(&str, &str)> = messages
+            .iter()
+            .map(|m| (m.role.as_str(), m.content.as_str()))
+            .collect();
         assert_eq!(
             shape,
             vec![

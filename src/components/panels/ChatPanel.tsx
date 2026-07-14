@@ -55,11 +55,11 @@ import { nativeInteractionListAll, nativeInteractionResolve } from "../../lib/in
 import type { PendingInteraction } from "../../lib/interactions";
 import { getApprovalMode, getRuntimeDefaults, setApprovalMode as setApprovalModeBackend, type ApprovalMode } from "../../lib/settings";
 import {
+  nativeChatBootstrap,
   nativeChatCancel,
   nativeChatClearMessages,
   nativeChatGet,
   nativeChatMessages,
-  nativeChatModelDefault,
   nativeChatSend,
   nativeChatSetProjectModelDefault,
   nativeChatUpdateSessionModel,
@@ -416,6 +416,8 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
+  const [catalogStatus, setCatalogStatus] = useState<"loading" | "refreshing" | "ready" | "stale" | "error">("loading");
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [contextUsedTokens, setContextUsedTokens] = useState(0);
   const [nativeSessionId, setNativeSessionId] = useState<string | null>(chatSessionId ?? null);
   const [nativeMessages, setNativeMessages] = useState<NativeChatMessage[]>([]);
@@ -489,7 +491,6 @@ export function ChatPanel({
   // Idea generation.
   const [generatingIdeas, setGeneratingIdeas] = useState(false);
   // Grounding metadata is written to the shared store (src/state/grounding.ts).
-  const [, setCatalogRefreshing] = useState(false);
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
   const [showPlanningMenu, setShowPlanningMenu] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
@@ -602,30 +603,49 @@ export function ChatPanel({
     [catalog, providerId],
   );
 
-  // Load config on mount
+  // Restore persisted session identity immediately, then hydrate catalog
+  // metadata and the effective project default from one backend snapshot.
   useEffect(() => {
     let cancelled = false;
+    setCatalogStatus("loading");
+    setCatalogError(null);
+
+    const storedSessionPromise = nativeSessionId
+      ? nativeChatGet(nativeSessionId)
+      : Promise.resolve(null);
+    void storedSessionPromise
+      .then((storedSession) => {
+        if (cancelled || !storedSession) return;
+        setProviderId(storedSession.providerId);
+        setModelId(storedSession.modelId);
+        setEffortLevel(storedSession.effortLevel);
+        setModelNotice(null);
+      })
+      .catch(() => {
+        // The full bootstrap below reports a single actionable error.
+      });
+
     async function load() {
       try {
         markStart("provider-model-restore");
         addLog("debug", "Chat config loading", `projectPath=${projectPath}`);
-        const [defaults, cat, resolved, storedSession] = await Promise.all([
+        const [defaults, bootstrap, storedSession] = await Promise.all([
           getRuntimeDefaults(),
-          nativeProviderCatalog(),
-          nativeChatModelDefault(projectPath),
-          nativeSessionId ? nativeChatGet(nativeSessionId) : Promise.resolve(null),
+          nativeChatBootstrap(projectPath),
+          storedSessionPromise,
         ]);
         if (cancelled) return;
         setProfileId(defaults.defaultChatProfileId ?? NATIVE_PROFILE_ID);
-        setCatalog(cat);
-        const effectiveProviderId = storedSession?.providerId ?? resolved.providerId;
-        const effectiveModelId = storedSession?.modelId ?? resolved.modelId;
-        const effectiveEffortLevel = storedSession?.effortLevel ?? resolved.effortLevel;
+        setCatalog(bootstrap.catalog);
+        setCatalogStatus("ready");
+        const effectiveProviderId = storedSession?.providerId ?? bootstrap.resolved.providerId;
+        const effectiveModelId = storedSession?.modelId ?? bootstrap.resolved.modelId;
+        const effectiveEffortLevel = storedSession?.effortLevel ?? bootstrap.resolved.effortLevel;
         setProviderId(effectiveProviderId);
         setModelId(effectiveModelId);
         setEffortLevel(effectiveEffortLevel);
-        setModelNotice(storedSession ? null : resolved.notice);
-        addLog("debug", "Chat config loaded", `source=${storedSession ? "session" : resolved.source} provider=${effectiveProviderId} model=${effectiveModelId} models=${cat.models.length}`);
+        setModelNotice(storedSession ? null : bootstrap.resolved.notice);
+        addLog("debug", "Chat config loaded", `source=${storedSession ? "session" : bootstrap.resolved.source} provider=${effectiveProviderId} model=${effectiveModelId} models=${bootstrap.catalog.models.length}`);
         markEnd("provider-model-restore");
         void getApprovalMode(projectPath)
           .then((nextMode) => {
@@ -637,7 +657,8 @@ export function ChatPanel({
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to load chat config", msg);
-        setError(msg);
+        setCatalogStatus("error");
+        setCatalogError(msg);
       }
     }
     void load();
@@ -1312,7 +1333,8 @@ export function ChatPanel({
     if (delivery.action?.kind === "generate_ideas") {
       consume();
       void generateIdeasRef.current?.({
-        categoryId: delivery.action.categoryId ?? undefined,
+        categoryIds: delivery.action.categoryIds ?? [],
+        ideaCount: delivery.action.ideaCount ?? 8,
         direction: delivery.action.direction ?? undefined,
       });
       return;
@@ -1458,7 +1480,7 @@ export function ChatPanel({
   const persistSelectionRef = useRef<(providerId: string, modelId: string, effort: string) => void>(() => {});
   // Ref to handleGenerateIdeas so /idea generate can call it without a TDZ
   // issue (handleGenerateIdeas is defined after handleSend).
-  const generateIdeasRef = useRef<((opts?: { categoryId?: string | null; direction?: string | null }) => Promise<void>) | null>(null);
+  const generateIdeasRef = useRef<((opts?: { categoryIds?: string[]; ideaCount?: number; direction?: string | null }) => Promise<void>) | null>(null);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
@@ -1625,19 +1647,21 @@ export function ChatPanel({
 
       // /models refresh — special-cased because it's async.
       if (command === "models" && rest.toLowerCase() === "refresh") {
-        setCatalogRefreshing(true);
+        setCatalogStatus(catalog ? "refreshing" : "loading");
+        setCatalogError(null);
         try {
           const refreshed = await nativeProviderCatalogRefresh({ force: true });
           setCatalog(refreshed);
+          setCatalogStatus("ready");
           setCommandNotice("Model catalog refreshed.");
           setCommandRecency(recordCommandUse("models refresh"));
           setInput("");
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
+          setCatalogStatus(catalog ? "stale" : "error");
+          setCatalogError(msg);
           setCommandNotice(`Model refresh failed: ${msg}`);
           addLog("error", "Failed to refresh model catalog", msg);
-        } finally {
-          setCatalogRefreshing(false);
         }
         return;
       }
@@ -1865,20 +1889,23 @@ export function ChatPanel({
   }, [nativeSessionId, addLog]);
 
   const refreshCatalog = useCallback(async (force = false, targetProviderId?: string) => {
-    setCatalogRefreshing(true);
+    setCatalogStatus(catalog ? "refreshing" : "loading");
+    setCatalogError(null);
     try {
       const refreshed = force
         ? await nativeProviderCatalogRefresh({ providerId: targetProviderId ?? null, force: true })
         : await nativeProviderCatalog();
       setCatalog(refreshed);
+      setCatalogStatus("ready");
       return refreshed;
     } catch (e) {
-      addLog("error", "Failed to refresh provider catalog", e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      setCatalogStatus(catalog ? "stale" : "error");
+      setCatalogError(message);
+      addLog("error", "Failed to refresh provider catalog", message);
       return null;
-    } finally {
-      setCatalogRefreshing(false);
     }
-  }, [addLog]);
+  }, [addLog, catalog]);
 
   const handleSaveCredential = useCallback(async () => {
     if (!apiKey.trim() || !providerId) return;
@@ -1986,8 +2013,12 @@ export function ChatPanel({
   );
   persistSelectionRef.current = persistSelection;
 
-  const handleGenerateIdeas = useCallback(async (opts?: { categoryId?: string | null; direction?: string | null }) => {
+  const handleGenerateIdeas = useCallback(async (opts?: { categoryIds?: string[]; ideaCount?: number; direction?: string | null }) => {
     if (!nativeSessionId || generatingIdeas) return;
+    if (!activeSessionId) {
+      setError("Open a project session to save generated ideas.");
+      return;
+    }
     // Guard: non-local provider without a credential can't generate — show
     // connect prompt instead of silently failing.
     if (selectedProvider && !selectedProvider.configured && selectedProvider.id !== LOCAL_PROVIDER_ID) {
@@ -1999,11 +2030,36 @@ export function ChatPanel({
       setShowLogin(true);
       return;
     }
+
+    const ideaCount = Math.min(8, Math.max(5, opts?.ideaCount ?? 8));
+    const categoryIds = opts?.categoryIds ?? [];
+    const direction = opts?.direction?.trim() ?? "";
+    const categoryNames = categoryIds
+      .map((id) => ideaState.categories.find((category) => category.id === id)?.name)
+      .filter((name): name is string => !!name);
+    const scope = categoryNames.length > 0 ? categoryNames.join(", ") : "project-wide";
+    const invocationSummary = direction
+      ? `${direction}\n\n${ideaCount} ideas · ${scope}`
+      : `Auto-generate ${ideaCount} ${scope} ideas.`;
+    const displayMessage = `<command name="/skill:basebuild-planning">\n${invocationSummary}\n</command>`;
+
     setGeneratingIdeas(true);
     setError(null);
     setSetupRequired(null);
-    // Set up streaming UI state so the user sees the thinking indicator,
-    // elapsed timer, and streamed content — matching sendMessage.
+    // Render the compact skill invocation before starting provider work. The
+    // persisted transcript replaces this optimistic row when the turn settles.
+    const tempUser: NativeChatMessage = {
+      id: `temp-idea-${Date.now()}`,
+      sessionId: nativeSessionId,
+      role: "user",
+      content: displayMessage,
+      sortOrder: Number.MAX_SAFE_INTEGER,
+      providerId,
+      modelId,
+      effortLevel,
+      createdAt: Math.floor(Date.now() / 1000),
+    };
+    setNativeMessages((current) => [...current, tempUser]);
     streamBufRef.current = "";
     reasoningBufRef.current = "";
     setStreamText("");
@@ -2021,54 +2077,40 @@ export function ChatPanel({
     try {
       const result = await nativeGenerateIdeas({
         sessionId: nativeSessionId,
+        planningSessionId: activeSessionId,
         schematic: schematicContent ?? null,
         providerId,
         modelId,
         effortLevel,
-        categoryId: opts?.categoryId ?? null,
-        direction: opts?.direction ?? null,
+        categoryIds,
+        ideaCount,
+        displayMessage,
+        direction: direction || null,
       });
       if (activeSendRef.current !== gen) return;
       if (result.setupRequired) {
         setSetupRequired(result.setupRequired);
-        setShowLogin(!!selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID);
+        setShowLogin(result.setupRequired.message.startsWith("Connect "));
       }
       setLastGrounding(result.grounding ?? null);
-      // The unified backend captures ideas via the propose_ideas tool during
-      // the chat turn. Some code paths (and tests) still return ideas
-      // directly in the result — create them locally if the backend didn't.
-      if (result.ideas && result.ideas.length > 0 && activeSessionId) {
-        for (const idea of result.ideas) {
-          try {
-            await ideaState.createIdea(idea.title, idea.description ?? "", undefined);
-          } catch {
-            // ignore duplicate or creation errors
-          }
-        }
-      } else if (activeSessionId) {
-        await ideaState.refresh();
-      } else {
-        setError("Open a project session to save generated ideas.");
-      }
-      // Reload the full persisted transcript — the backend now persists both
-      // the user prompt and the assistant response as messages.
-      if (result.userMessage || result.assistantMessage) {
-        const [msgs, events] = await Promise.all([
-          nativeChatMessages(nativeSessionId),
-          nativeChatToolEvents(nativeSessionId),
-        ]);
-        if (activeSendRef.current !== gen) return;
-        setNativeMessages(msgs);
-        setToolEvents(events);
-        setLiveSegments([]);
-      }
+      await ideaState.refresh();
+      // Reload the persisted compact invocation, assistant segments, and
+      // expandable native-tool arguments.
+      const [msgs, events] = await Promise.all([
+        nativeChatMessages(nativeSessionId),
+        nativeChatToolEvents(nativeSessionId),
+      ]);
+      if (activeSendRef.current !== gen) return;
+      setNativeMessages(msgs);
+      setToolEvents(events);
+      setLiveSegments([]);
     } catch (e) {
       if (activeSendRef.current !== gen) return;
       const msg = e instanceof Error ? e.message : String(e);
       addLog("error", "Failed to generate ideas", msg);
       setError(msg);
-      // Reload whatever the backend persisted (user prompt may have been
-      // saved before the error).
+      // Reload whatever the backend persisted (the compact skill invocation
+      // is saved before provider work begins).
       try {
         const [msgs, events] = await Promise.all([
           nativeChatMessages(nativeSessionId),
@@ -2093,7 +2135,7 @@ export function ChatPanel({
       }
       setGeneratingIdeas(false);
     }
-  }, [nativeSessionId, generatingIdeas, schematicContent, providerId, modelId, effortLevel, activeSessionId, ideaState, addLog, selectedProvider]);
+  }, [nativeSessionId, generatingIdeas, activeSessionId, selectedProvider, ideaState, providerId, modelId, effortLevel, schematicContent, addLog]);
   useEffect(() => {
     generateIdeasRef.current = handleGenerateIdeas;
   }, [handleGenerateIdeas]);
@@ -2101,7 +2143,7 @@ export function ChatPanel({
   const handleGenerateForCategory = useCallback(async (categoryId: string | undefined) => {
     if (!nativeSessionId || generatingIdeas) return;
     setShowCategoryPicker(false);
-    void generateIdeasRef.current?.({ categoryId: categoryId ?? null });
+    void generateIdeasRef.current?.({ categoryIds: categoryId ? [categoryId] : [], ideaCount: 8 });
   }, [nativeSessionId, generatingIdeas]);
 
 
@@ -2968,7 +3010,15 @@ export function ChatPanel({
                   <div className="modal-header">
                     <div className="provider-catalog-title">
                       <h2>Provider &amp; model</h2>
-                      <span>{catalog ? `${connectedProviders.length} connected · ${catalog.providers.length} providers · ${catalog.models.length} models` : "Loading…"}</span>
+                      <span>
+                        {catalogStatus === "loading" || catalogStatus === "refreshing"
+                          ? `${catalog ? "Refreshing" : "Loading"} provider catalog…`
+                          : catalogStatus === "error"
+                            ? "Catalog unavailable"
+                            : catalogStatus === "stale"
+                              ? `Refresh failed · showing ${catalog?.models.length ?? 0} cached models`
+                              : `${connectedProviders.length} connected · ${catalog?.providers.length ?? 0} providers · ${catalog?.models.length ?? 0} models`}
+                      </span>
                     </div>
                     <button
                       className="btn-icon"
@@ -3148,9 +3198,23 @@ export function ChatPanel({
                       </div>
                     </section>
                   </div>
+                  ) : catalogStatus === "error" ? (
+                    <div className="modal-loading" role="alert">
+                      <AlertCircle size={20} />
+                      <span>Provider catalog could not load.</span>
+                      <span className="text-muted text-sm">{catalogError ?? "Unknown catalog error"}</span>
+                      <button
+                        className="btn btn-sm btn-primary"
+                        type="button"
+                        title="Retry loading the provider catalog"
+                        onClick={() => void refreshCatalog()}
+                      >
+                        <RefreshCw size={12} /> Retry
+                      </button>
+                    </div>
                   ) : (
                     <div className="modal-loading" role="status" aria-live="polite">
-                      <LogoPulse size={20} />
+                      <Loader2 size={20} className="spin" />
                       <span>Loading provider catalog…</span>
                     </div>
                   )}
@@ -3307,6 +3371,8 @@ export function ChatPanel({
             <ChatHeader
               modelChip={modelName}
               modelId={modelId}
+              modelCatalogStatus={catalogStatus}
+              modelCatalogError={catalogError}
               effortChip={effortLevel}
               effortOptions={(catalog?.effortLevels ?? [])
                 .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)

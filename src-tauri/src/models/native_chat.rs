@@ -70,6 +70,16 @@ pub struct NativeProviderCatalog {
     pub stale: bool,
 }
 
+/// Cache-first chat startup metadata resolved from one provider-catalog
+/// snapshot. Existing sessions are loaded separately so their persisted model
+/// identity can render before this bootstrap finishes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeChatBootstrap {
+    pub catalog: NativeProviderCatalog,
+    pub resolved: ResolvedChatModelDefault,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeProvider {
@@ -214,18 +224,30 @@ pub struct NativeSetupRequired {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeGenerateIdeasRequest {
+    /// Native chat receiving the visible skill invocation and progress.
     pub session_id: String,
+    /// Planning session that owns categories, rounds, and captured ideas.
+    pub planning_session_id: String,
     pub schematic: Option<String>,
     pub provider_id: Option<String>,
     pub model_id: Option<String>,
     pub effort_level: Option<String>,
-    /// Optional category id for category-directed generation. When present,
-    /// the prompt is grounded in the category's name/description and captured
-    /// ideas are tagged with this id.
-    pub category_id: Option<String>,
-    /// Optional free-form steering text appended to the generation prompt.
+    /// Planning-session category ids selected for this round.
+    #[serde(default)]
+    pub category_ids: Vec<String>,
+    /// Requested idea count; clamped to the consumer flow's 5-8 range.
+    #[serde(default = "default_idea_count")]
+    pub idea_count: usize,
+    /// Compact transcript row shown instead of the full skill instructions.
+    #[serde(default)]
+    pub display_message: Option<String>,
+    /// Optional user-authored steering passed as native skill arguments.
     #[serde(default)]
     pub direction: Option<String>,
+}
+
+fn default_idea_count() -> usize {
+    8
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

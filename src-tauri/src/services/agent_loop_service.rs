@@ -18,11 +18,12 @@ use tauri::{AppHandle, Emitter};
 
 use crate::models::permission::{PermissionDecision, SessionRule};
 use crate::services::provider_client::{
-    resolve_client_for_model, ChatMsg, ProviderRequest, ToolCallRequest,
-    ToolSchema,
+    resolve_client_for_model, ChatMsg, ProviderRequest, ToolCallRequest, ToolSchema,
 };
 use crate::services::settings_service::SettingsService;
-use crate::services::tool_runtime_service::{redact_tool_arguments, registry, ToolDef, ToolKind, ToolResult};
+use crate::services::tool_runtime_service::{
+    redact_tool_arguments, registry, ToolDef, ToolKind, ToolResult,
+};
 
 /// Maximum loop iterations before stopping.
 const MAX_ITERATIONS: usize = 25;
@@ -62,8 +63,9 @@ static PENDING_APPROVALS: LazyLock<Mutex<std::collections::HashMap<String, Pendi
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
 /// `native_interaction_resolve` command removes and resolves.
-pub(crate) static PENDING_INTERACTIONS: LazyLock<Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<InteractionResolution>>>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+pub(crate) static PENDING_INTERACTIONS: LazyLock<
+    Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<InteractionResolution>>>,
+> = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
 /// The UI's resolution of a pending ask_user interaction.
 #[derive(Debug, Clone)]
@@ -88,7 +90,10 @@ pub fn resolve_interaction(
     let Some(tx) = tx else {
         return Err(format!("No pending interaction for id: {interaction_id}"));
     };
-    let _ = tx.send(InteractionResolution { answers, cancelled: false });
+    let _ = tx.send(InteractionResolution {
+        answers,
+        cancelled: false,
+    });
     Ok(())
 }
 
@@ -100,12 +105,15 @@ pub fn cancel_interaction(interaction_id: &str) -> Result<(), String> {
         pending.remove(interaction_id)
     };
     if let Some(tx) = tx {
-        let _ = tx.send(InteractionResolution { answers: vec![], cancelled: true });
+        let _ = tx.send(InteractionResolution {
+            answers: vec![],
+            cancelled: true,
+        });
     }
     Ok(())
 }
 
- /// Register a pending approval and block until the UI resolves it (or timeout).
+/// Register a pending approval and block until the UI resolves it (or timeout).
 /// Register a pending approval and block until the UI resolves it (or timeout).
 /// Returns the resolution, or a timeout denial if no response within 10 minutes.
 fn await_approval(
@@ -115,7 +123,10 @@ fn await_approval(
     session_id: &str,
 ) -> ApprovalResolution {
     let (tx, rx) = std::sync::mpsc::channel::<ApprovalResolution>();
-    let command = args.get("command").and_then(Value::as_str).map(str::to_string);
+    let command = args
+        .get("command")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     {
         let mut pending = PENDING_APPROVALS.lock();
         pending.insert(
@@ -284,6 +295,8 @@ pub struct ToolEventRecord {
 /// `messages` is the full conversation history (user + assistant + tool turns).
 /// `app` is the Tauri handle for emitting streaming events.
 /// `supports_tools` gates whether tools are offered (false = plain chat).
+/// `planning_session_id` redirects structured planning captures while keeping
+/// chat events and cancellation scoped to `session_id`.
 ///
 /// Returns the final `RunResult`. The loop runs on the calling thread (blocking).
 pub fn run_agent_turn(
@@ -298,6 +311,7 @@ pub fn run_agent_turn(
     messages: Vec<ChatMsg>,
     app: AppHandle,
     supports_tools: bool,
+    planning_session_id: Option<&str>,
 ) -> RunResult {
     let handle = Arc::new(RunHandle {
         token: CancellationToken::new(),
@@ -322,6 +336,7 @@ pub fn run_agent_turn(
         messages,
         &app,
         supports_tools,
+        planning_session_id,
         &handle.token,
     );
 
@@ -330,7 +345,11 @@ pub fn run_agent_turn(
         let mut active = ACTIVE_RUNS.lock();
         active.remove(session_id);
     }
-    let final_state = if result.cancelled { "cancelled" } else { "idle" };
+    let final_state = if result.cancelled {
+        "cancelled"
+    } else {
+        "idle"
+    };
     set_run_state(session_id, final_state);
 
     result
@@ -382,6 +401,7 @@ fn run_loop_inner(
     mut messages: Vec<ChatMsg>,
     app: &AppHandle,
     supports_tools: bool,
+    planning_session_id: Option<&str>,
     token: &CancellationToken,
 ) -> RunResult {
     let tools: Vec<ToolSchema> = if supports_tools {
@@ -430,8 +450,7 @@ fn run_loop_inner(
 
         // Context budget guard: trim old turns if over budget.
         let budget = context_budget(model_id);
-        let (trimmed_messages, did_truncate) =
-            trim_to_budget(&messages, system, &tools, budget);
+        let (trimmed_messages, did_truncate) = trim_to_budget(&messages, system, &tools, budget);
         if did_truncate {
             truncated = true;
             emit_system_row(app, session_id, "truncated", 0);
@@ -449,8 +468,13 @@ fn run_loop_inner(
             tools: tools.clone(),
         };
 
-        let (api_kind, model_base_url) = crate::services::native_chat_service::NativeChatService::resolve_model_routing(provider_id, model_id);
-        let client = resolve_client_for_model(provider_id, &api_kind, base_url.as_deref(), &model_base_url);
+        let (api_kind, model_base_url) =
+            crate::services::native_chat_service::NativeChatService::resolve_model_routing(
+                provider_id,
+                model_id,
+            );
+        let client =
+            resolve_client_for_model(provider_id, &api_kind, base_url.as_deref(), &model_base_url);
         let session_id_for_emit = session_id.to_string();
         let app_for_emit = app.clone();
         let emit = move |delta: &str, channel: &str| {
@@ -536,6 +560,7 @@ fn run_loop_inner(
             token,
             app,
             session_id,
+            planning_session_id,
             iteration,
             &mut tool_events,
         );
@@ -564,6 +589,7 @@ fn process_tool_calls(
     token: &CancellationToken,
     app: &AppHandle,
     session_id: &str,
+    planning_session_id: Option<&str>,
     iteration: usize,
     tool_events: &mut Vec<ToolEventRecord>,
 ) -> Vec<(ToolCallRequest, ToolResult)> {
@@ -575,7 +601,7 @@ fn process_tool_calls(
     // for generate-ideas runs. One tool event per capture so cards stream in.
     for (idx, call) in calls.iter().enumerate() {
         if call.name == "propose_ideas" {
-            let result = execute_propose_ideas(session_id, call);
+            let result = execute_propose_ideas(planning_session_id.unwrap_or(session_id), call);
             record_tool_event(app, session_id, call, &result, iteration, tool_events);
             results.push((calls[idx].clone(), result));
         }
@@ -599,12 +625,20 @@ fn process_tool_calls(
 
     let read_only: Vec<(usize, &ToolCallRequest)> = remaining
         .iter()
-        .filter(|(_, c)| tool_def_for(&c.name, tool_defs).map(|d| d.kind == ToolKind::ReadOnly).unwrap_or(false))
+        .filter(|(_, c)| {
+            tool_def_for(&c.name, tool_defs)
+                .map(|d| d.kind == ToolKind::ReadOnly)
+                .unwrap_or(false)
+        })
         .cloned()
         .collect();
     let mutating: Vec<(usize, &ToolCallRequest)> = remaining
         .iter()
-        .filter(|(_, c)| tool_def_for(&c.name, tool_defs).map(|d| d.kind == ToolKind::Mutating).unwrap_or(false))
+        .filter(|(_, c)| {
+            tool_def_for(&c.name, tool_defs)
+                .map(|d| d.kind == ToolKind::Mutating)
+                .unwrap_or(false)
+        })
         .cloned()
         .collect();
     // Read-only: spawn threads for concurrency. Each thread gets its own
@@ -640,13 +674,7 @@ fn process_tool_calls(
                 }
             } else if let Some(def) = def {
                 execute_with_gateway(
-                    &def,
-                    &call,
-                    &workspace,
-                    &project,
-                    &mut rules,
-                    &app,
-                    &session,
+                    &def, &call, &workspace, &project, &mut rules, &app, &session,
                 )
             } else {
                 ToolResult {
@@ -691,7 +719,15 @@ fn process_tool_calls(
         }
         let def = tool_def_for(&call.name, tool_defs);
         let result = if let Some(def) = def {
-            execute_with_gateway(def, call, workspace_root, project_path, session_rules, app, session_id)
+            execute_with_gateway(
+                def,
+                call,
+                workspace_root,
+                project_path,
+                session_rules,
+                app,
+                session_id,
+            )
         } else {
             ToolResult {
                 content: format!("Unknown tool: {}", call.name),
@@ -769,7 +805,9 @@ fn execute_propose_ideas(session_id: &str, call: &ToolCallRequest) -> ToolResult
         }
     }
     if rejected > 0 {
-        ToolResult::success(format!("Captured {captured} idea(s); rejected {rejected} without grounding."))
+        ToolResult::success(format!(
+            "Captured {captured} idea(s); rejected {rejected} without grounding."
+        ))
     } else {
         ToolResult::success(format!("Captured {captured} idea(s)."))
     }
@@ -791,8 +829,16 @@ fn execute_ask_user(app: &AppHandle, session_id: &str, call: &ToolCallRequest) -
     // Parse questions into the interaction model.
     let mut parsed: Vec<crate::models::interaction::Question> = Vec::with_capacity(questions.len());
     for q in questions {
-        let id = q.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-        let prompt = q.get("prompt").and_then(Value::as_str).unwrap_or("").to_string();
+        let id = q
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let prompt = q
+            .get("prompt")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         let kind_str = q.get("kind").and_then(Value::as_str).unwrap_or("text");
         let kind = crate::models::interaction::QuestionKind::from_str(kind_str);
         let options: Vec<crate::models::interaction::QuestionOption> = q
@@ -801,16 +847,31 @@ fn execute_ask_user(app: &AppHandle, session_id: &str, call: &ToolCallRequest) -
             .map(|arr| {
                 arr.iter()
                     .filter_map(|o| {
-                        let label = o.get("label").and_then(Value::as_str).unwrap_or("").to_string();
-                        if label.is_empty() { return None; }
-                        let description = o.get("description").and_then(Value::as_str).map(str::to_string);
+                        let label = o
+                            .get("label")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        if label.is_empty() {
+                            return None;
+                        }
+                        let description = o
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .map(str::to_string);
                         Some(crate::models::interaction::QuestionOption { label, description })
                     })
                     .collect()
             })
             .unwrap_or_default();
-        let recommended = q.get("recommended").and_then(Value::as_i64).map(|i| i as usize);
-        let allow_free_text = q.get("allowFreeText").and_then(Value::as_bool).unwrap_or(false);
+        let recommended = q
+            .get("recommended")
+            .and_then(Value::as_i64)
+            .map(|i| i as usize);
+        let allow_free_text = q
+            .get("allowFreeText")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let detail = q.get("detail").and_then(Value::as_str).map(str::to_string);
         parsed.push(crate::models::interaction::Question {
             id,
@@ -839,6 +900,19 @@ fn execute_ask_user(app: &AppHandle, session_id: &str, call: &ToolCallRequest) -
             "toolCallId": call.id,
         }),
     );
+    if let Ok(Some(session)) =
+        crate::services::native_chat_service::NativeChatService::get_session(session_id)
+    {
+        let _ = crate::services::notification_service::NotificationService::deliver(
+            app,
+            crate::models::notification::NotificationKind::PendingQuestion,
+            &interaction.id,
+            "interaction",
+            &session.project_path,
+            "Agent needs your input",
+            Some("Open the chat to answer the pending question."),
+        );
+    }
     // Park the iteration on a channel until the UI resolves or cancels.
     let (tx, rx) = std::sync::mpsc::channel::<InteractionResolution>();
     {
@@ -851,13 +925,15 @@ fn execute_ask_user(app: &AppHandle, session_id: &str, call: &ToolCallRequest) -
                 ToolResult::success("User cancelled the interaction.".to_string())
             } else {
                 // Serialize answers as a JSON string the model can consume.
-                let answers_json = serde_json::to_string(&resolution.answers).unwrap_or_else(|_| "[]".to_string());
+                let answers_json =
+                    serde_json::to_string(&resolution.answers).unwrap_or_else(|_| "[]".to_string());
                 ToolResult::success(answers_json)
             }
         }
         Err(_) => {
             // Timeout: clean up and return a notice.
-            let _ = crate::services::interaction_service::InteractionService::cancel(&interaction.id);
+            let _ =
+                crate::services::interaction_service::InteractionService::cancel(&interaction.id);
             ToolResult::failure("ask_user timed out waiting for user response (600s).".to_string())
         }
     }
@@ -877,12 +953,8 @@ fn execute_with_gateway(
     let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
     let command = args.get("command").and_then(Value::as_str);
 
-    let mut decision = SettingsService::resolve_tool_call(
-        project_path,
-        &call.name,
-        command,
-        session_rules,
-    );
+    let mut decision =
+        SettingsService::resolve_tool_call(project_path, &call.name, command, session_rules);
 
     // If the gateway requires a prompt, block on the UI's approval decision.
     if decision.requires_prompt {
@@ -959,17 +1031,15 @@ fn execute_with_gateway(
                 sensitive: false,
             }
         }
-        PermissionDecision::Ask => {
-            ToolResult {
-                content: "Approval required but not handled.".to_string(),
-                status: "denied".to_string(),
-                full_content: None,
-                diff: None,
-                decision: None,
-                rule_source: None,
-                sensitive: false,
-            }
-        }
+        PermissionDecision::Ask => ToolResult {
+            content: "Approval required but not handled.".to_string(),
+            status: "denied".to_string(),
+            full_content: None,
+            diff: None,
+            decision: None,
+            rule_source: None,
+            sensitive: false,
+        },
     };
     result
 }
@@ -993,7 +1063,10 @@ fn record_tool_event(
             call.arguments.clone()
         }),
         duration_ms: 0,
-        decision: result.decision.clone().unwrap_or_else(|| "approved".to_string()),
+        decision: result
+            .decision
+            .clone()
+            .unwrap_or_else(|| "approved".to_string()),
         rule_source: result.rule_source.clone(),
         diff: result.diff.clone(),
         iteration,
@@ -1090,7 +1163,10 @@ mod tests {
         let (trimmed, did_truncate) = trim_to_budget(&messages, system, &[], 500);
         assert!(did_truncate);
         assert!(trimmed.len() < messages.len());
-        assert!(trimmed.last().map(|m| m.content.contains("latest")).unwrap_or(false));
+        assert!(trimmed
+            .last()
+            .map(|m| m.content.contains("latest"))
+            .unwrap_or(false));
     }
 
     #[test]
@@ -1129,14 +1205,19 @@ mod tests {
         let result = resolve_interaction(&interaction_id, answers.clone());
         assert!(result.is_ok(), "resolve_interaction should succeed");
         // The parked channel should receive the resolution.
-        let resolution = rx.recv_timeout(std::time::Duration::from_secs(1)).expect("should receive resolution");
+        let resolution = rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("should receive resolution");
         assert!(!resolution.cancelled, "should not be cancelled");
         assert_eq!(resolution.answers.len(), 1);
         assert_eq!(resolution.answers[0].question_id, "q1");
         assert_eq!(resolution.answers[0].text.as_deref(), Some("yes"));
         // The pending entry should be removed.
         let pending = PENDING_INTERACTIONS.lock();
-        assert!(!pending.contains_key(&interaction_id), "pending entry should be removed");
+        assert!(
+            !pending.contains_key(&interaction_id),
+            "pending entry should be removed"
+        );
     }
 
     #[test]
@@ -1155,8 +1236,13 @@ mod tests {
         }
         let result = cancel_interaction(&interaction_id);
         assert!(result.is_ok(), "cancel_interaction should succeed");
-        let resolution = rx.recv_timeout(std::time::Duration::from_secs(1)).expect("should receive resolution");
+        let resolution = rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("should receive resolution");
         assert!(resolution.cancelled, "should be cancelled");
-        assert!(resolution.answers.is_empty(), "cancelled resolution should have no answers");
+        assert!(
+            resolution.answers.is_empty(),
+            "cancelled resolution should have no answers"
+        );
     }
 }
