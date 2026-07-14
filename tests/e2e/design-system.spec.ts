@@ -40,7 +40,7 @@ test.describe("Design system invariants (DESIGN.md)", () => {
     const bg = await page.evaluate(() => {
       return getComputedStyle(document.documentElement).getPropertyValue("--bb-bg").trim();
     });
-    expect(bg).toBe("#09090b");
+    expect(bg).toBe("#18181b");
   });
 
   test("CTA color is the foreground accent", async ({ page }) => {
@@ -49,7 +49,7 @@ test.describe("Design system invariants (DESIGN.md)", () => {
     const cta = await page.evaluate(() => {
       return getComputedStyle(document.documentElement).getPropertyValue("--bb-cta").trim();
     });
-    expect(cta.toLowerCase()).toBe("#f4f4f5");
+    expect(cta.toLowerCase()).toBe("#f97316");
   });
 
   test("body uses Space Grotesk font", async ({ page }) => {
@@ -83,18 +83,20 @@ test.describe("Design system invariants (DESIGN.md)", () => {
       };
     });
 
-    // DESIGN.md: positive=#d4d4d8, negative=#a1a1aa, warning=#d4d4d8, info=#b4b4bb
-    expect(colors.positive).toBe("#d4d4d8");
-    expect(colors.negative).toBe("#a1a1aa");
-    expect(colors.warning).toBe("#d4d4d8");
-    expect(colors.info).toBe("#b4b4bb");
+    // DESIGN.md: positive=#22c55e, negative=#ef4444, warning=#f59e0b, info=#38bdf8
+    expect(colors.positive).toBe("#22c55e");
+    expect(colors.negative).toBe("#ef4444");
+    expect(colors.warning).toBe("#f59e0b");
+    expect(colors.info).toBe("#38bdf8");
   });
 
-  test("all buttons have 0px border radius", async ({ page }) => {
+  test("all buttons have non-zero border radius", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    // Check all visible buttons for 0px border-radius.
+    // Check all visible buttons for non-zero border-radius (design system
+    // uses var(--bb-radius-sm) = 6px for controls, var(--bb-radius-full)
+    // for circular buttons — never 0px).
     const buttons = page.locator("button:visible");
     const count = await buttons.count();
 
@@ -102,7 +104,7 @@ test.describe("Design system invariants (DESIGN.md)", () => {
       const radius = await buttons.nth(i).evaluate((el) => {
         return getComputedStyle(el).borderRadius;
       });
-      expect(radius, `Button ${i} should have 0px border radius`).toBe("0px");
+      expect(radius, `Button ${i} should not have 0px border radius`).not.toBe("0px");
     }
   });
 

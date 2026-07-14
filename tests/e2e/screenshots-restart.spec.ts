@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ensureChatPanel, openFixtureProject } from "./helpers";
+import { ensureChatPanel, openFixtureProject, waitForAppReady } from "./helpers";
 
 test.describe("Responsive screenshots + restart smoke", () => {
   test("960x640: all controls visible, no blank modal, no layout shuffle", async ({ browser }) => {

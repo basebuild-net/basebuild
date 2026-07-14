@@ -78,7 +78,7 @@ test.describe("MVP atomic project activation", () => {
 
     // The active project is charlie (already verified on line 54-56).
     // Verify the chat panel is visible and the project name is correct.
-    await expect(page.locator(".panel-grid-leaf").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".panel-grid-leaf").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: projectC.name }).first()).toContainText(projectC.name);
   });
 

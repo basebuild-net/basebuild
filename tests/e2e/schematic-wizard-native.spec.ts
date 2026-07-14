@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ensureChatPanel, openFixtureProject } from "./helpers";
+import { ensureChatPanel, openFixtureProject, selectLocalProvider } from "./helpers";
 
 async function sendSchematicWizardMessage(page: Page) {
   // Close any open dialogs first.
@@ -8,6 +8,9 @@ async function sendSchematicWizardMessage(page: Page) {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(200);
   }
+  // Select the local provider to ensure deterministic tool event generation.
+  await selectLocalProvider(page);
+  await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
   const input = page.getByTitle(/Chat input/).first();
   await input.waitFor({ state: "visible", timeout: 10000 });
   await input.fill("schematic-wizard-test");
@@ -58,11 +61,10 @@ test.describe("Schematic wizard: native agent writes schematic via tool call", (
   test("schematic wizard denial path: tool card shows denied status and provenance", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
-
-    // Send the denial trigger — the mock returns a write_file tool event
-    // with status "denied" and decision "denied".
+    // Select the local provider to ensure deterministic tool event generation.
+    await selectLocalProvider(page);
+    await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
     const input = page.getByTitle(/Chat input/).first();
-    await input.waitFor({ state: "visible", timeout: 10000 });
     await input.fill("schematic-wizard-deny-test");
     await page.getByTitle("Send message").click();
     await page.waitForSelector(".chat-message-assistant", { timeout: 10000 });

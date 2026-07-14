@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ensureChatPanel, openFixtureProject } from "./helpers";
+import { ensureChatPanel, openFixtureProject, selectLocalProvider } from "./helpers";
 
 async function collapseEnvPanel(page: Page) {
   const btn = page.locator("button[title='Collapse environment']");
@@ -37,9 +37,7 @@ test.describe("UI smoke: branch, model independence, no side effects", () => {
 
     // Establish a deterministic starting model; session restore may otherwise
     // legitimately retain the model chosen by a previous test.
-    await page.locator(".chat-column-model-chip").first().click();
-    await page.locator(".provider-card").first().click();
-    await page.getByTitle("Close provider and model catalog").click();
+    await selectLocalProvider(page);
 
     // The compact header shows the selected model.
     await expect(page.locator(".chat-column-model-chip").first()).toContainText("None");

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ensureChatPanel, openFixtureProject } from "./helpers";
+import { ensureChatPanel, openFixtureProject, selectLocalProvider } from "./helpers";
 
 async function sendToolCardMessage(page: Page) {
   // Close any open dialogs first.
@@ -8,6 +8,9 @@ async function sendToolCardMessage(page: Page) {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(200);
   }
+  // Select the local provider to ensure deterministic tool event generation.
+  await selectLocalProvider(page);
+  await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
   const input = page.getByTitle(/Chat input/).first();
   await input.waitFor({ state: "visible", timeout: 10000 });
   await input.fill("tool-card-test");

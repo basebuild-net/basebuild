@@ -37,7 +37,8 @@ test.describe("Notifications: toast + center + badge", () => {
 
     // Trigger a refresh by emitting the notifications://changed event.
     await page.evaluate(() => {
-      window.dispatchEvent(new CustomEvent("notifications-changed-test"));
+      const w = window as unknown as { __emit?: (event: string, payload: unknown) => void };
+      w.__emit?.("notifications://changed", {});
     });
     // The ToastStack polls via the notifications://changed listener; in the
     // mock environment, the event is emitted by the backend. We simulate by

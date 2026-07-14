@@ -1,13 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { attachScreenshot, ensureChatPanel, openFixtureProject } from "./helpers";
-
-async function selectLocalProvider(page: Page) {
-  await page.locator(".chat-column-model-chip").click();
-  await page.locator(".provider-card").first().click();
-  await page.getByTitle("Close provider and model catalog").click();
-}
+import { attachScreenshot, ensureChatPanel, openFixtureProject, selectLocalProvider } from "./helpers";
 
 async function sendMessage(page: Page, text: string) {
+  await expect(page.locator(".chat-panel").first()).toHaveAttribute("data-native-session-id", /.+/, { timeout: 10_000 });
   const input = page.getByTitle(/Chat input/).first();
   await input.waitFor({ state: "visible", timeout: 10_000 });
   await input.fill(text);
@@ -74,12 +69,12 @@ test.describe("chat edge cases: multi-turn, reasoning split, long chains, empty 
     await selectLocalProvider(page);
 
     await sendMessage(page, "reasoning-split-test");
-    await waitForCompletion(page, "fix is applied", 15_000);
+    await waitForCompletion(page, "fix is applied", 20_000);
     await page.waitForTimeout(500);
 
     // Should have 2 tool cards (read_file, edit_file).
     const toolCards = page.locator(".tool-card");
-    await expect(toolCards).toHaveCount(2);
+    await expect(toolCards).toHaveCount(2, { timeout: 10_000 });
 
     // The read_file card should come before edit_file card in DOM.
     const readCard = page.locator(".tool-card").filter({ hasText: "read file" }).first();

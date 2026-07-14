@@ -16,14 +16,14 @@ for (const vp of VIEWPORTS) {
   test.describe(`MVP visual snapshots @ ${vp.name}`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    test("shell renders with project, session, and command strip", async ({ page }) => {
+    test("shell renders with project, session, and planning indicators", async ({ page }) => {
       const logs = collectLogs(page);
       await openMvpFixtureProject(page);
       await waitForAppReady(page);
 
       // Core shell elements are visible.
       await expect(page.locator(".app-shell")).toBeVisible({ timeout: 10_000 });
-      await expect(page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title")).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title").first()).toBeVisible({ timeout: 10_000 });
       await expect(page.locator("h1.session-title")).toHaveCount(0);
       await expect(page.locator(".chat-env-context").first()).toBeVisible({ timeout: 10_000 });
 

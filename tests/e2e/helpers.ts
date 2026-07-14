@@ -1,4 +1,4 @@
-import { test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import {
   MVP_FIXTURE_CATEGORIES,
   MVP_FIXTURE_PROJECTS,
@@ -157,4 +157,28 @@ export async function openPlanningModal(page: Page): Promise<void> {
   await dropdown.waitFor({ state: "visible", timeout: 5_000 });
   await dropdown.getByRole("button", { name: /full UI/i }).click();
   await page.locator('.planning-inspector-modal, .modal-overlay[aria-label="Plans & Ideas"]').first().waitFor({ state: "visible", timeout: 5_000 });
+}
+
+/**
+ * Select the local (basebuild-local) provider and its first model in the
+ * provider/model catalog. The mock labels the local provider as "None" with
+ * model "basebuild-local-coordinator" (also labeled "None").
+ *
+ * Contract: opens the catalog via the model chip, clicks the "None" provider
+ * card, then clicks the first model row — which both selects the model and
+ * closes the catalog. Replaces the old flow of clicking `.provider-card` first()
+ * followed by the close button, which did not actually select a model.
+ */
+export async function selectLocalProvider(page: Page): Promise<void> {
+  await page.locator(".chat-column-model-chip").first().click();
+  const overlay = page.locator(".provider-catalog-overlay");
+  await expect(overlay).toBeVisible({ timeout: 10_000 });
+  // The local provider card has label "None" in the e2e mock.
+  const localCard = page.locator(".provider-card", { hasText: "None" }).first();
+  await expect(localCard).toBeVisible({ timeout: 10_000 });
+  await localCard.click();
+  // Click the first model row to select the model (also closes the catalog).
+  const modelRow = page.locator(".provider-model-row").first();
+  await expect(modelRow).toBeVisible({ timeout: 5_000 });
+  await modelRow.click();
 }
