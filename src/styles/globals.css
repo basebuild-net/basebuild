@@ -1547,6 +1547,12 @@ a { color: inherit; text-decoration: none; }
 .chat-loading-approval { border-left: 2px solid var(--bb-warning); padding-left: 6px; }
 .chat-loading-approval .chat-loading-spinner { animation-duration: 2s; }
 .chat-loading-approval .chat-loading-label { color: var(--bb-warning); }
+.chat-tool-stalled { display: inline-flex; align-items: center; gap: 3px; padding: 1px 5px; background: var(--bb-negative, #f87171); color: #fff; font-size: 9px; font-weight: 700; text-transform: uppercase; border-radius: var(--bb-radius-sm); animation: pulse-stalled 1s ease-in-out infinite; }
+.chat-tool-stalled-cancel { background: rgba(255, 255, 255, 0.25); border: none; color: #fff; font-size: 8px; font-weight: 700; padding: 0 4px; border-radius: var(--bb-radius-sm); cursor: pointer; text-transform: uppercase; line-height: 14px; }
+.chat-tool-stalled-cancel:hover { background: rgba(255, 255, 255, 0.4); }
+@keyframes pulse-stalled { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+.chat-tool-scope { font-size: 9px; color: var(--bb-muted); font-family: var(--bb-mono); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 4px; }
+.chat-tool-elapsed { font-size: 9px; color: var(--bb-muted); font-variant-numeric: tabular-nums; margin-left: 4px; }
 /* ─── Scroll-to-bottom button ─── */
 .chat-scroll-bottom-btn { position: absolute; bottom: 8px; right: 8px; z-index: 10; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--bb-surface-high); border: 1px solid var(--bb-border-strong); border-radius: var(--bb-radius-full); cursor: pointer; color: var(--bb-text); box-shadow: var(--bb-shadow-md); transition: background 0.08s; }
 .chat-scroll-bottom-btn:hover { background: var(--bb-bg); border-color: var(--bb-cta); }
@@ -1940,6 +1946,12 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .settings-table-row .input { width: 100%; padding: 2px 4px; height: 22px; font-size: 11px; }
 .settings-checkbox { display: flex; align-items: center; gap: 4px; cursor: pointer; }
 .settings-checkbox input { margin: 0; }
+.settings-concurrency-limits { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; margin-bottom: 8px; border-bottom: 1px solid var(--bb-border); }
+.settings-concurrency-limits-heading { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--bb-text); margin: 0; }
+.settings-concurrency-limits-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.settings-concurrency-limit-field { display: flex; align-items: center; gap: 6px; }
+.settings-concurrency-limit-label { font-size: 11px; font-weight: 600; color: var(--bb-muted); white-space: nowrap; }
+.settings-concurrency-limit-field input { width: 50px; padding: 2px 4px; height: 22px; font-size: 11px; text-align: center; }
 /* Side panel resizer */
 .side-resizer {
   width: 4px; cursor: col-resize; background: transparent;
@@ -3694,18 +3706,180 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .history-modal-item-actions { display: flex; gap: 4px; }
 .history-modal-closed-actions { display: flex; gap: 4px; margin-left: auto; }
 
-/* ─── Toast stack (app-notifications) ─── */
-.toast-stack { position: fixed; bottom: var(--bb-space-3); right: var(--bb-space-3); display: flex; flex-direction: column; gap: var(--bb-space-2); z-index: 500; max-width: 320px; pointer-events: auto; align-items: flex-end; }
-.toast { display: flex; align-items: flex-start; gap: var(--bb-space-2); padding: var(--bb-space-2) var(--bb-space-3); background: var(--bb-surface-high); border: 1px solid var(--bb-border-strong); border-radius: var(--bb-radius-md); box-shadow: var(--bb-shadow-md); animation: toast-slide-in var(--bb-duration-normal) var(--bb-ease); }
-.toast-dismissed { opacity: 0; transition: opacity 0.18s ease-out; }
-.toast-content { flex: 1; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
-.toast-title { font-size: 12px; font-weight: 600; color: var(--bb-text); }
-.toast-detail { font-size: 11px; color: var(--bb-muted); }
-.toast-dismiss { padding: 2px; flex-shrink: 0; }
-.toast-dismiss:hover { background: var(--bb-surface); color: var(--bb-text); }
-@keyframes toast-slide-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-.toast-dismiss-all { flex-shrink: 0; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: var(--bb-radius-full); border: 1px solid var(--bb-border-strong); background: var(--bb-surface-high); color: var(--bb-muted); cursor: pointer; box-shadow: var(--bb-shadow-sm); transition: color var(--bb-duration-fast) var(--bb-ease), border-color var(--bb-duration-fast) var(--bb-ease); margin-top: 2px; }
-.toast-dismiss-all:hover { color: var(--bb-text); border-color: var(--bb-text); }
+/* ─── Taskbar notifications (unified inline feed + bell dropdown) ─── */
+.taskbar-notif-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--bb-space-2);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+.taskbar-notif-feed {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.taskbar-notif-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: var(--bb-surface-high);
+  border: 1px solid var(--bb-border);
+  border-left: 2px solid var(--bb-cta);
+  border-radius: var(--bb-radius-sm);
+  font-size: 11px;
+  max-width: 220px;
+  min-width: 0;
+  animation: taskbar-notif-bar-in var(--bb-duration-normal) var(--bb-ease);
+}
+.taskbar-notif-bar-dismissed { opacity: 0; transition: opacity 0.18s ease-out; }
+.taskbar-notif-bar-title {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--bb-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.taskbar-notif-bar-detail { display: none; }
+.taskbar-notif-bar-x { padding: 1px; flex-shrink: 0; }
+.taskbar-notif-bar-x:hover { background: var(--bb-surface); color: var(--bb-text); }
+.taskbar-notif-bar-icon { flex-shrink: 0; }
+.taskbar-notif-bar-icon-success { color: var(--bb-positive); }
+.taskbar-notif-bar-icon-error { color: var(--bb-negative); }
+.taskbar-notif-bar-icon-warning { color: var(--bb-warning); }
+.taskbar-notif-bar-icon-info { color: var(--bb-info); }
+.taskbar-notif-bar-success { border-left-color: var(--bb-positive); }
+.taskbar-notif-bar-error { border-left-color: var(--bb-negative); }
+.taskbar-notif-bar-warning { border-left-color: var(--bb-warning); }
+.taskbar-notif-bar-info { border-left-color: var(--bb-info); }
+.taskbar-notif-bar-notification { border-left-color: var(--bb-cta); }
+@keyframes taskbar-notif-bar-in { from { transform: translateY(4px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.taskbar-notif-count {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: var(--bb-radius-full);
+  background: var(--bb-surface);
+  color: var(--bb-muted);
+  font-size: 9px;
+  font-weight: 600;
+}
+.taskbar-notif-close-all {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--bb-radius-full);
+  border: 1px solid var(--bb-border-strong);
+  background: var(--bb-surface-high);
+  color: var(--bb-muted);
+  cursor: pointer;
+  transition: color var(--bb-duration-fast) var(--bb-ease), border-color var(--bb-duration-fast) var(--bb-ease);
+}
+.taskbar-notif-close-all:hover { color: var(--bb-text); border-color: var(--bb-text); }
+.taskbar-notif-bell {
+  position: relative;
+  width: 28px;
+  height: 28px;
+}
+.taskbar-notif-bell[aria-expanded="true"] { color: var(--bb-text); background: var(--bb-surface); }
+.taskbar-notif-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--bb-chrome);
+  border-radius: var(--bb-radius-full);
+  background: var(--bb-cta);
+  color: var(--bb-on-cta);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+}
+.taskbar-notif-dropdown-overlay { position: fixed; inset: 28px 0 0; z-index: 400; }
+.taskbar-notif-dropdown {
+  position: absolute;
+  top: calc(100% + 1px);
+  right: 0;
+  z-index: 401;
+  width: min(380px, calc(100vw - 16px));
+  max-height: min(520px, calc(100vh - 44px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--bb-border);
+  border-radius: 0;
+  background: var(--bb-bg);
+  box-shadow: var(--bb-shadow-lg);
+  color: var(--bb-text);
+}
+.taskbar-notif-dropdown-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--bb-border);
+  background: var(--bb-surface);
+}
+.taskbar-notif-dropdown-heading { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.taskbar-notif-dropdown-heading > div { display: flex; flex-direction: column; gap: 1px; }
+.taskbar-notif-dropdown-icon { flex-shrink: 0; color: var(--bb-cta); }
+.taskbar-notif-dropdown-title { color: var(--bb-text); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.taskbar-notif-dropdown-summary { color: var(--bb-muted); font-size: 9px; }
+.taskbar-notif-dropdown-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.taskbar-notif-filters {
+  display: flex;
+  gap: 4px;
+  padding: 5px 8px;
+  overflow-x: auto;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--bb-border);
+  scrollbar-width: none;
+}
+.taskbar-notif-filters::-webkit-scrollbar { display: none; }
+.taskbar-notif-filters .chip { flex-shrink: 0; }
+.taskbar-notif-dropdown-list { min-height: 0; flex: 1; overflow-y: auto; }
+.taskbar-notif-dropdown-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 9px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--bb-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--bb-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.taskbar-notif-dropdown-item:hover { background: var(--bb-surface); }
+.taskbar-notif-dropdown-item:focus-visible { outline: 1px solid var(--bb-cta); outline-offset: -1px; }
+.taskbar-notif-dropdown-item.taskbar-notif-read { opacity: 0.58; }
+.taskbar-notif-dropdown-item-heading { display: flex; align-items: center; gap: 5px; width: 100%; min-width: 0; }
+.taskbar-notif-dropdown-item-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: var(--bb-radius-full); background: var(--bb-muted); }
+.taskbar-notif-dropdown-item-dot-unread { background: var(--bb-cta); box-shadow: 0 0 0 2px color-mix(in srgb, var(--bb-cta) 14%, transparent); }
+.taskbar-notif-dropdown-item-kind { min-width: 0; overflow: hidden; color: var(--bb-muted); font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.taskbar-notif-dropdown-item-title { color: var(--bb-text); font-size: 12px; font-weight: 600; line-height: 1.3; }
+.taskbar-notif-dropdown-item-detail { display: -webkit-box; overflow: hidden; color: var(--bb-muted); font-size: 10px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.taskbar-notif-dropdown-item-time { margin-left: auto; flex-shrink: 0; color: var(--bb-muted); font-family: var(--bb-mono); font-size: 9px; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.taskbar-notif-dropdown-empty { min-height: 120px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 6px; padding: 20px 8px; color: var(--bb-muted); font-size: 10px; text-align: center; }
 
 /* ─── Background agents (taskbar pipeline-run indicator) ─── */
 .bg-agents-wrap {
@@ -3718,6 +3892,20 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .bg-agents-btn { position: relative; width: 28px; height: 28px; }
 .bg-agents-btn[aria-expanded="true"] { color: var(--bb-text); background: var(--bb-surface); }
 .bg-agents-btn.is-active { color: var(--bb-status-running, #f97316); }
+.bg-agents-btn.is-active .bg-agents-icon-pulse { animation: bg-agents-pulse 1.4s ease-in-out infinite; }
+@keyframes bg-agents-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.bg-agents-counter {
+  position: absolute;
+  bottom: 0;
+  left: -1px;
+  transform: translateX(-100%);
+  font-size: 9px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--bb-muted);
+  white-space: nowrap;
+  padding-right: 3px;
+}
 .bg-agents-badge {
   position: absolute;
   top: 1px;
@@ -3802,124 +3990,6 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .bg-agents-cancel:hover { color: var(--bb-negative, #f87171); }
-
-/* ─── Notification center (app-notifications) ─── */
-.notification-center-wrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
-}
-.notification-bell {
-  position: relative;
-  width: 28px;
-  height: 28px;
-}
-.notification-bell[aria-expanded="true"] { color: var(--bb-text); background: var(--bb-surface); }
-.notification-badge {
-  position: absolute;
-  top: 1px;
-  right: 1px;
-  min-width: 13px;
-  height: 13px;
-  padding: 0 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--bb-chrome);
-  border-radius: var(--bb-radius-full);
-  background: var(--bb-cta);
-  color: var(--bb-on-cta);
-  font-size: 8px;
-  font-weight: 700;
-  line-height: 1;
-}
-.notification-center-overlay { position: fixed; inset: 28px 0 0; z-index: 400; }
-.notification-center {
-  position: absolute;
-  top: calc(100% + 1px);
-  right: 0;
-  z-index: 401;
-  width: min(380px, calc(100vw - 16px));
-  max-height: min(520px, calc(100vh - 44px));
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--bb-border);
-  border-radius: 0;
-  background: var(--bb-bg);
-  box-shadow: var(--bb-shadow-lg);
-  color: var(--bb-text);
-}
-.notification-attention {
-  position: fixed; top: 36px; right: 12px; z-index: 900;
-  display: flex; align-items: flex-start; gap: 4px;
-  width: min(340px, calc(100vw - 24px)); padding: 6px;
-  background: var(--bb-surface-elevated); border: 1px solid var(--bb-cta);
-  border-radius: var(--bb-radius-md); box-shadow: var(--bb-shadow-lg);
-}
-.notification-attention-body {
-  display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; padding: 4px;
-  color: var(--bb-text); text-align: left; background: transparent; border: 0; cursor: pointer;
-}
-.notification-attention-body strong { font-size: 12px; font-weight: 600; }
-.notification-attention-body > span:last-child { color: var(--bb-muted); font-size: 11px; line-height: 1.35; }
-.notification-attention-kind { color: var(--bb-cta); font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
-.notification-center-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 7px 8px;
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--bb-border);
-  background: var(--bb-surface);
-}
-.notification-center-heading { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.notification-center-heading > div { display: flex; flex-direction: column; gap: 1px; }
-.notification-center-header-icon { flex-shrink: 0; color: var(--bb-cta); }
-.notification-center-title { color: var(--bb-text); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
-.notification-center-summary { color: var(--bb-muted); font-size: 9px; }
-.notification-center-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
-.notification-filters {
-  display: flex;
-  gap: 4px;
-  padding: 5px 8px;
-  overflow-x: auto;
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--bb-border);
-  scrollbar-width: none;
-}
-.notification-filters::-webkit-scrollbar { display: none; }
-.notification-filters .chip { flex-shrink: 0; }
-.notification-list { min-height: 0; flex: 1; overflow-y: auto; }
-.notification-item {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 7px 9px 8px;
-  border: 0;
-  border-bottom: 1px solid var(--bb-border);
-  border-radius: 0;
-  background: transparent;
-  color: var(--bb-text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.notification-item:hover { background: var(--bb-surface); }
-.notification-item:focus-visible { outline: 1px solid var(--bb-cta); outline-offset: -1px; }
-.notification-item.notification-read { opacity: 0.58; }
-.notification-item-heading { display: flex; align-items: center; gap: 5px; width: 100%; min-width: 0; }
-.notification-item-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: var(--bb-radius-full); background: var(--bb-muted); }
-.notification-item-dot-unread { background: var(--bb-cta); box-shadow: 0 0 0 2px color-mix(in srgb, var(--bb-cta) 14%, transparent); }
-.notification-item-kind { min-width: 0; overflow: hidden; color: var(--bb-muted); font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
-.notification-item-title { color: var(--bb-text); font-size: 12px; font-weight: 600; line-height: 1.3; }
-.notification-item-detail { display: -webkit-box; overflow: hidden; color: var(--bb-muted); font-size: 10px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.notification-item-time { margin-left: auto; flex-shrink: 0; color: var(--bb-muted); font-family: var(--bb-mono); font-size: 9px; font-weight: 400; letter-spacing: 0; text-transform: none; }
-.notification-empty { min-height: 120px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 6px; padding: 20px 8px; color: var(--bb-muted); font-size: 10px; text-align: center; }
 
 /* ─── Settings list (notifications tab) ─── */
 .settings-list { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--bb-border); }
@@ -4044,15 +4114,6 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .plan-assign-btn { display: inline-flex; align-items: center; gap: 4px; }
 .plan-runtime-blocked { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid rgba(250, 204, 21, 0.35); background: color-mix(in srgb, var(--bb-warning) 6%, transparent); color: var(--bb-warning); }
 .flow-runtime-blocked { padding: 4px 8px; border: 1px solid rgba(250, 204, 21, 0.35); background: color-mix(in srgb, var(--bb-warning) 6%, transparent); }
-.toast-success { border-color: rgba(74, 222, 128, 0.4); background: color-mix(in srgb, var(--bb-positive) 8%, var(--bb-surface-high)); }
-.toast-error { border-color: rgba(248, 113, 113, 0.4); background: color-mix(in srgb, var(--bb-negative) 8%, var(--bb-surface-high)); }
-.toast-warning { border-color: rgba(250, 204, 21, 0.4); background: color-mix(in srgb, var(--bb-warning) 8%, var(--bb-surface-high)); }
-.toast-info { border-color: rgba(129, 140, 248, 0.4); background: color-mix(in srgb, var(--bb-info) 8%, var(--bb-surface-high)); }
-.toast-icon { flex-shrink: 0; margin-top: 1px; }
-.toast-icon-success { color: var(--bb-positive); }
-.toast-icon-error { color: var(--bb-negative); }
-.toast-icon-warning { color: var(--bb-warning); }
-.toast-icon-info { color: var(--bb-info); }
 .text-warn { color: var(--bb-warning); }
 /* ─── Run board (dependency graph nodes) ─── */
 .run-board { border: 1px solid var(--bb-border); background: var(--bb-surface); display: flex; flex-direction: column; gap: 1px; overflow-x: auto; }

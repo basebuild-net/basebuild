@@ -1,6 +1,6 @@
 use crate::models::{
     permission::{ApprovalMode, ApprovalRule, AuditEntry, PermissionRules},
-    run_concurrency::{RunConcurrencyEntry, RunConcurrencyLimits},
+    run_concurrency::{ConcurrencyLimits, RunConcurrencyEntry, RunConcurrencyLimits},
     runtime::RuntimeProfile,
 };
 use crate::services::settings_service::{ProfileValidation, SettingsService};
@@ -137,6 +137,18 @@ pub fn effective_run_concurrency(
     provider_id: String,
 ) -> Result<RunConcurrencyEntry, String> {
     SettingsService::effective_run_concurrency(&project_path, &provider_id)
+}
+
+// ─── Cross-Provider Concurrency Caps (planning_max / global_max) ───
+
+#[tauri::command]
+pub fn get_concurrency_limits() -> Result<ConcurrencyLimits, String> {
+    SettingsService::get_concurrency_limits()
+}
+
+#[tauri::command]
+pub fn set_concurrency_limits(limits: ConcurrencyLimits) -> Result<(), String> {
+    SettingsService::set_concurrency_limits(&limits)
 }
 
 #[tauri::command]

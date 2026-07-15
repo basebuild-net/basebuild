@@ -623,6 +623,10 @@ export function ChatPanel({
   const [streamText, setStreamText] = useState("");
   const [reasoningText, setReasoningText] = useState("");
   const [streamPhase, setStreamPhase] = useState<"idle" | "thinking" | "streaming" | "tools">("idle");
+  const [lastToolEventTime, setLastToolEventTime] = useState(0);
+  const [lastToolKind, setLastToolKind] = useState("");
+  const [stalled, setStalled] = useState(false);
+  const [toolAgoSeconds, setToolAgoSeconds] = useState(0);
   const [isScrolledUp, setIsScrolledUp] = useState(false);
   const followLatestRef = useRef(true);
   const [showSearch, setShowSearch] = useState(false);
@@ -633,6 +637,7 @@ export function ChatPanel({
   const streamStartRef = useRef<number | null>(null);
   const [phaseElapsed, setPhaseElapsed] = useState(0);
   const phaseStartRef = useRef<number | null>(null);
+  const lastToolEventTimeRef = useRef(0);
   const streamBufRef = useRef("");
   const reasoningBufRef = useRef("");
   // Publish live panel status to the activity sidebar (project status dot).
@@ -1083,6 +1088,9 @@ export function ChatPanel({
       ruleSource?: string;
     }>("native-chat://tool-event", (event) => {
       if (event.payload.sessionId !== nativeSessionId) return;
+      lastToolEventTimeRef.current = Date.now();
+      setLastToolEventTime(Date.now());
+      setLastToolKind(event.payload.toolName);
       if (firstActivityRef.current) {
         firstActivityRef.current = false;
         markEnd("first-activity-event");
@@ -1374,6 +1382,10 @@ export function ChatPanel({
         setStreamText("");
         setReasoningText("");
         setLiveSegments([]);
+        setStalled(false);
+        setLastToolEventTime(0);
+        setLastToolKind("");
+        lastToolEventTimeRef.current = 0;
         setStreaming(true);
         streamStartRef.current = Date.now();
         setElapsed(0);
@@ -1666,6 +1678,29 @@ export function ChatPanel({
     const interval = window.setInterval(() => {
       if (phaseStartRef.current) {
         setPhaseElapsed(Math.floor((Date.now() - phaseStartRef.current) / 1000));
+      }
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [streaming, streamPhase]);
+
+  // Stalled detection: if streaming in the tools phase and no tool event has
+  // arrived for 60s, flag the turn as stalled. Also ticks the "Xs ago"
+  // elapsed counter shown next to the tool names.
+  useEffect(() => {
+    if (!streaming) {
+      setStalled(false);
+      setToolAgoSeconds(0);
+      return;
+    }
+    const interval = window.setInterval(() => {
+      const lastTime = lastToolEventTimeRef.current;
+      if (streamPhase === "tools" && lastTime > 0) {
+        const agoMs = Date.now() - lastTime;
+        setToolAgoSeconds(Math.floor(agoMs / 1000));
+        setStalled(agoMs > 60_000);
+      } else {
+        setStalled(false);
+        setToolAgoSeconds(0);
       }
     }, 1000);
     return () => window.clearInterval(interval);
@@ -2276,6 +2311,10 @@ export function ChatPanel({
     setStreamText("");
     setReasoningText("");
     setLiveSegments([]);
+    setStalled(false);
+    setLastToolEventTime(0);
+    setLastToolKind("");
+    lastToolEventTimeRef.current = 0;
     setStreaming(true);
     streamStartRef.current = Date.now();
     setElapsed(0);
@@ -2749,6 +2788,31 @@ export function ChatPanel({
             ? activeTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")
             : "tools";
           const isWaitingApproval = pendingTools.length > 0;
+          // Search scope: extract query/pattern from the latest running search tool.
+          const searchToolKinds = ["search_files", "search_files_in_workspace", "grep", "search"];
+          const searchTool = runningTools.find((e) =>
+            searchToolKinds.some((k) => e.kind.toLowerCase().includes(k))
+          );
+          const searchScope = (() => {
+            if (!searchTool || !searchTool.arguments) return null;
+            try {
+              const parsed = JSON.parse(searchTool.arguments);
+              if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+                const q = (parsed as Record<string, unknown>).query
+                  ?? (parsed as Record<string, unknown>).pattern
+                  ?? (parsed as Record<string, unknown>).search
+                  ?? null;
+                return q ? String(q) : null;
+              }
+            } catch { /* ignore malformed JSON */ }
+            return null;
+          })();
+          // "Xs ago" elapsed since the last tool event.
+          const toolAgoText = toolAgoSeconds > 0
+            ? toolAgoSeconds < 60
+              ? `${toolAgoSeconds}s ago`
+              : `${Math.floor(toolAgoSeconds / 60)}m ${toolAgoSeconds % 60}s ago`
+            : null;
           return (
             <div
               className={`chat-loading chat-loading-active chat-loading-tools${isWaitingApproval ? " chat-loading-approval" : ""}`}
@@ -2766,6 +2830,29 @@ export function ChatPanel({
                     ? `${toolNames}…`
                     : "Running tools…"}
               </span>
+              {stalled ? (
+                <span className="chat-tool-stalled" title={`Stalled: no tool events for ${toolAgoSeconds}s. Last tool: ${lastToolKind.replace(/_/g, " ")}. Click Cancel to stop.`}>
+                  Stalled · {lastToolKind.replace(/_/g, " ")}
+                  <button
+                    className="chat-tool-stalled-cancel"
+                    type="button"
+                    title="Cancel the stalled agent run"
+                    onClick={() => void handleStopNative()}
+                  >
+                    Cancel
+                  </button>
+                </span>
+              ) : null}
+              {searchScope ? (
+                <span className="chat-tool-scope" title={`Searching: ${searchScope}`}>
+                  Searching: {searchScope}
+                </span>
+              ) : null}
+              {toolAgoText ? (
+                <span className="chat-tool-elapsed" title={`Last tool event ${toolAgoText}`}>
+                  {toolAgoText}
+                </span>
+              ) : null}
               {activeTools.length > 0 || completedTools.length > 0 ? (
                 <span className="chat-loading-count" title={`${pendingTools.length} pending, ${runningTools.length} running, ${completedTools.length} completed`}>
                   {pendingTools.length > 0 ? `${pendingTools.length} pending` : ""}

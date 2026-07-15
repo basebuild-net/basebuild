@@ -35,7 +35,7 @@ test.describe("Compact chat header dropdowns", () => {
     const select = page.locator(".chat-header-select[aria-label='Permission mode']").first();
     await select.selectOption("safe");
     await expect(select).toHaveValue("safe");
-    await expect(page.locator(".toast").filter({ hasText: "Permission mode changed" })).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".taskbar-notif-bar").filter({ hasText: "Permission mode changed" })).toBeVisible({ timeout: 5_000 });
   });
 
   test("effort dropdown exposes only the selected model's supported efforts", async ({ page }) => {

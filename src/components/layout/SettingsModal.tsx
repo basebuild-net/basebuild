@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Lock, LogOut, Moon, Plug, RefreshCw, Settings2, Shield, Sparkles, Sun, Trash2, Unplug, User, Wrench, X } from "lucide-react";
+import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Loader2, Lock, LogOut, Moon, Plug, RefreshCw, Settings2, Shield, Sparkles, Sun, Trash2, Unplug, User, Wrench, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { CopyButton } from "./CopyButton";
 import { FinalTouchesTab } from "./FinalTouchesTab";
@@ -83,8 +83,12 @@ import {
   setRunConcurrencyDefaults,
   getRunConcurrencyOverrides,
   setRunConcurrencyOverride,
+  getConcurrencyLimits,
+  setConcurrencyLimits,
+  DEFAULT_CONCURRENCY_LIMITS,
   DEFAULT_RUN_CONCURRENCY_ENTRY,
   type RunConcurrencyEntry,
+  type ConcurrencyLimits,
 } from "../../lib/runConcurrency";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { listResolvedSkills, readResolvedSkill, type ResolvedSkill } from "../../lib/skillRegistry";
@@ -1794,26 +1798,29 @@ function ModelProvidersPanel() {
 
 function ConcurrencyTab({ projectPath }: { projectPath: string | null }) {
   const projectPathNonNull = projectPath ?? "";
+  const [concurrencyLimits, setConcurrencyLimitsState] = useState<ConcurrencyLimits>(DEFAULT_CONCURRENCY_LIMITS);
+  const [savingLimits, setSavingLimits] = useState(false);
   const [globalLimits, setGlobalLimits] = useState<Record<string, RunConcurrencyEntry>>({});
   const [projectLimits, setProjectLimits] = useState<Record<string, RunConcurrencyEntry>>({});
-  const [providers, setProviders] = useState<{ id: string; label: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
-
+  const [providers, setProviders] = useState<{ id: string; label: string }[]>([]);
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
       try {
-        const [global, project, catalog] = await Promise.all([
+        const [global, project, catalog, limits] = await Promise.all([
           getRunConcurrencyDefaults(),
           getRunConcurrencyOverrides(projectPathNonNull),
           nativeProviderCatalog(),
+          getConcurrencyLimits(),
         ]);
         if (cancelled) return;
         setGlobalLimits(global.providers);
         setProjectLimits(project.providers);
         setProviders(catalog.providers.map((p) => ({ id: p.id, label: p.label })));
+        setConcurrencyLimitsState(limits);
       } catch {
         // ignore — empty state shows
       } finally {
@@ -1842,6 +1849,18 @@ function ConcurrencyTab({ projectPath }: { projectPath: string | null }) {
     }
   }
 
+  async function saveConcurrencyLimits(limits: ConcurrencyLimits) {
+    setSavingLimits(true);
+    try {
+      await setConcurrencyLimits(limits);
+      setConcurrencyLimitsState(limits);
+    } catch {
+      // ignore
+    } finally {
+      setSavingLimits(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="stack">
@@ -1858,6 +1877,48 @@ function ConcurrencyTab({ projectPath }: { projectPath: string | null }) {
   return (
     <div className="stack">
       <h3>Run Concurrency</h3>
+      <div className="settings-concurrency-limits">
+        <h4 className="settings-concurrency-limits-heading">Category Limits</h4>
+        <p className="text-muted text-sm" title="Global caps across all providers; planning cap reserves slots for non-planning work">
+          Global caps across all providers. Planning cap reserves slots for non-planning work (background agents, etc.).
+        </p>
+        <div className="settings-concurrency-limits-row">
+          <label className="settings-concurrency-limit-field" title="Max concurrent runs across all providers (plan + pipeline). Default 4.">
+            <span className="settings-concurrency-limit-label">Global max</span>
+            <input
+              type="number"
+              min={1}
+              max={16}
+              value={concurrencyLimits.globalMax}
+              disabled={savingLimits}
+              title="Max concurrent runs across all providers (plan + pipeline). Default 4."
+              onChange={(e) => {
+                const v = Math.max(1, Math.min(16, Number(e.target.value) || 4));
+                setConcurrencyLimitsState((prev) => ({ ...prev, globalMax: v }));
+              }}
+              onBlur={() => void saveConcurrencyLimits(concurrencyLimits)}
+            />
+          </label>
+          <label className="settings-concurrency-limit-field" title="Max concurrent planning runs. Default 3 (reserves 1 slot for non-planning).">
+            <span className="settings-concurrency-limit-label">Planning max</span>
+            <input
+              type="number"
+              min={1}
+              max={16}
+              value={concurrencyLimits.planningMax}
+              disabled={savingLimits}
+              title="Max concurrent planning runs. Default 3 (reserves 1 slot for non-planning)."
+              onChange={(e) => {
+                const v = Math.max(1, Math.min(16, Number(e.target.value) || 3));
+                setConcurrencyLimitsState((prev) => ({ ...prev, planningMax: v }));
+              }}
+              onBlur={() => void saveConcurrencyLimits(concurrencyLimits)}
+            />
+          </label>
+          {savingLimits ? <Loader2 size={12} className="is-spinning" /> : null}
+        </div>
+      </div>
+      <h4 className="settings-concurrency-limits-heading">Per-Provider Limits</h4>
       <p className="text-muted text-sm">
         Per-provider max concurrency for plan runs + subagents. Default is 1 (most providers meter concurrency).
         Project overrides take precedence over global defaults. Subagents are off by default.

@@ -30,7 +30,7 @@ const SourcePanel = lazy(() => import("../panels/SourcePanel").then((m) => ({ de
 const SettingsModal = lazy(() => import("./SettingsModal").then((m) => ({ default: m.SettingsModal })));
 const ProjectDescriptionModal = lazy(() => import("./ProjectDescriptionModal").then((m) => ({ default: m.ProjectDescriptionModal })));
 import { PlanningIndicators, type StageKey } from "./PlanningIndicators";
-import { ToastStack } from "./ToastStack";
+import { TaskbarNotifications } from "./TaskbarNotifications";
 import { useProjectSchematic } from "../../state/schematic";
 import { getLastFocusedProject, revealInExplorer, setLastFocusedProject } from "../../lib/projects";
 import { listPlanRuns, listPlanRunsByPlan, onPlanRunEvent } from "../../lib/planRuns";
@@ -77,7 +77,6 @@ const OmpTerminalTab = lazy(() => import("../panels/OmpTerminalTab").then((m) =>
 import { ModalLoading } from "./ModalLoading";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { WindowControls } from "./WindowControls";
-import { NotificationCenter } from "./NotificationCenter";
 import { type Notification } from "../../lib/notifications";
 import { QuestionCard } from "../panels/QuestionCard";
 import { nativeInteractionListPending, type PendingInteraction } from "../../lib/interactions";
@@ -1570,7 +1569,7 @@ export function AppShell({ updates }: AppShellProps) {
             plans={plans.plans}
             onOpenChatSession={handleOpenChatSession}
           />
-          <NotificationCenter onNavigate={handleNotificationNavigate} />
+          <TaskbarNotifications onNavigate={handleNotificationNavigate} appToasts={appToasts} onDismissAppToast={dismissAppToast} />
           <WindowControls />
         </div>
       </div>
@@ -1893,11 +1892,6 @@ export function AppShell({ updates }: AppShellProps) {
         open={!firstRun.completed && !firstRun.loading}
         onComplete={() => firstRun.complete()}
         onSkip={() => firstRun.skip()}
-      />
-      <ToastStack
-        appToasts={appToasts}
-        onDismissAppToast={dismissAppToast}
-        onNavigate={handleNotificationNavigate}
       />
       <DestinationPicker
         open={destinationPickerOpen}

@@ -961,6 +961,15 @@ impl PlanRunnerService {
                     effort_level: None,
                 });
 
+            // Concurrency pre-check: when the planning or global cap is
+            // saturated, wait for a running slot to free instead of pulling
+            // a permit and queueing the run. Counts only `running` runs so a
+            // queued (`pending`) run can start the moment capacity frees.
+            if !Self::plan_start_capacity_available().unwrap_or(false) {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                continue;
+            }
+
             let session_permit = match runtime.block_on(session_semaphore.clone().acquire_owned()) {
                 Ok(permit) => permit,
                 Err(_) => break,
@@ -1044,23 +1053,63 @@ impl PlanRunnerService {
         entry: &PlanQueueEntry,
         profile: &ExecutionProfile,
     ) -> DbResult<PlanRun> {
-        let run_id = gen_id();
-        let created = now();
-
-        // Insert the plan_run row as pending.
+        // Reuse an existing pending (queued) plan_run for this plan+session,
+        // or insert a fresh one. Reuse avoids duplicate rows when the
+        // dispatcher re-pulls a run that was queued by a prior capacity check.
         let conn = StorageService::connect()?;
-        conn.execute(
-            "INSERT INTO plan_runs (id, plan_id, session_id, chat_session_id, workspace_path,
-             status, runner_kind, error, steps_output, started_at, finished_at, created_at)
-             VALUES (?1, ?2, ?3, NULL, NULL, 'pending', 'native', NULL, '[]', NULL, NULL, ?4)",
-            params![run_id, entry.plan_id, session_id, created],
-        )
-        .map_err(|e| format!("Failed to insert plan run: {e}"))?;
+        let run_id: String = {
+            let existing: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM plan_runs
+                     WHERE plan_id = ?1 AND session_id = ?2 AND status = 'pending'
+                     ORDER BY created_at DESC LIMIT 1",
+                    params![entry.plan_id, session_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(|e| format!("Failed to look up queued plan run: {e}"))?;
+            match existing {
+                Some(id) => id,
+                None => {
+                    let id = gen_id();
+                    conn.execute(
+                        "INSERT INTO plan_runs (id, plan_id, session_id, chat_session_id, workspace_path,
+                         status, runner_kind, error, steps_output, started_at, finished_at, created_at)
+                         VALUES (?1, ?2, ?3, NULL, NULL, 'pending', 'native', NULL, '[]', NULL, NULL, ?4)",
+                        params![id, entry.plan_id, session_id, now()],
+                    )
+                    .map_err(|e| format!("Failed to insert plan run: {e}"))?;
+                    id
+                }
+            }
+        };
 
-        // Register the cancellation token.
+        // Concurrency gate: count active runs (running + pending) excluding
+        // this run. When planning_max or global_max is reached, leave the run
+        // queued as `pending` — the dispatcher re-pulls it once capacity
+        // frees (queued runs stay selectable in `pending_entries`).
+        if !Self::plan_run_can_start(Some(&run_id))? {
+            return Self::get_run(&run_id)?
+                .ok_or_else(|| "Queued plan run not found".to_string());
+        }
+
+        // Guard against double-start: the dispatcher may re-pull a queued
+        // run before it transitions to running. The RUNNING_RUNS token
+        // insert is atomic — a racing caller sees the token and returns the
+        // run as-is instead of starting it twice.
         let token = RunCancellationToken::new();
-        if let Ok(mut map) = RUNNING_RUNS.lock() {
-            map.insert(run_id.clone(), token.clone());
+        let already_starting = {
+            let mut map = RUNNING_RUNS.lock().map_err(|e| e.to_string())?;
+            if map.contains_key(&run_id) {
+                true
+            } else {
+                map.insert(run_id.clone(), token.clone());
+                false
+            }
+        };
+        if already_starting {
+            return Self::get_run(&run_id)?
+                .ok_or_else(|| "Plan run already starting".to_string());
         }
 
         // Mark running.
@@ -1306,10 +1355,117 @@ impl PlanRunnerService {
         }
     }
 
+    // ── Concurrency Caps (planning_max / global_max) ───────────────────
+
+    /// Count plan runs in an active state (`running` or `pending`). When
+    /// `exclude_run_id` is given, the run being evaluated is omitted so it
+    /// does not count against its own start decision.
+    pub fn count_active_plan_runs(exclude_run_id: Option<&str>) -> DbResult<i64> {
+        let conn = StorageService::connect()?;
+        match exclude_run_id {
+            Some(id) => conn
+                .query_row(
+                    "SELECT COUNT(*) FROM plan_runs
+                     WHERE status IN ('running', 'pending') AND id <> ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string()),
+            None => conn
+                .query_row(
+                    "SELECT COUNT(*) FROM plan_runs WHERE status IN ('running', 'pending')",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string()),
+        }
+    }
+
+    /// Count pipeline runs in an active state (`running` or `pending`).
+    pub fn count_active_pipeline_runs() -> DbResult<i64> {
+        let conn = StorageService::connect()?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM pipeline_runs WHERE status IN ('running', 'pending')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    /// Count plan runs currently `running` (excludes queued `pending`).
+    pub fn count_running_plan_runs() -> DbResult<i64> {
+        let conn = StorageService::connect()?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM plan_runs WHERE status = 'running'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    /// Count pipeline runs currently `running`.
+    pub fn count_running_pipeline_runs() -> DbResult<i64> {
+        let conn = StorageService::connect()?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM pipeline_runs WHERE status = 'running'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    /// Total active runs (plan + pipeline) in `running` or `pending` state.
+    /// `exclude_plan_run` omits a plan run being evaluated from the plan count.
+    pub fn count_active_runs(exclude_plan_run: Option<&str>) -> DbResult<i64> {
+        Ok(Self::count_active_plan_runs(exclude_plan_run)? + Self::count_active_pipeline_runs()?)
+    }
+
+    /// Total runs currently `running` (plan + pipeline).
+    pub fn count_running_runs() -> DbResult<i64> {
+        Ok(Self::count_running_plan_runs()? + Self::count_running_pipeline_runs()?)
+    }
+
+    /// Dispatcher pre-check: is there running capacity for a new plan run?
+    /// Counts only `running` runs so a queued (`pending`) run can be started
+    /// the moment a running slot frees. Returns `false` when either the
+    /// planning cap or the global cap is saturated.
+    fn plan_start_capacity_available() -> DbResult<bool> {
+        let planning_max =
+            crate::services::settings_service::SettingsService::effective_planning_max() as i64;
+        if Self::count_running_plan_runs()? >= planning_max {
+            return Ok(false);
+        }
+        let global_max =
+            crate::services::settings_service::SettingsService::effective_global_max() as i64;
+        if Self::count_running_runs()? >= global_max {
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
+    /// Authoritative start gate used by `execute_run`: counts active runs
+    /// (`running` + `pending`) excluding the run being evaluated. Returns
+    /// `false` (queue as pending) when the planning or global cap is reached.
+    fn plan_run_can_start(exclude_run_id: Option<&str>) -> DbResult<bool> {
+        let planning_max =
+            crate::services::settings_service::SettingsService::effective_planning_max() as i64;
+        let active_plan = Self::count_active_plan_runs(exclude_run_id)?;
+        if active_plan >= planning_max {
+            return Ok(false);
+        }
+        let global_max =
+            crate::services::settings_service::SettingsService::effective_global_max() as i64;
+        if active_plan + Self::count_active_pipeline_runs()? >= global_max {
+            return Ok(false);
+        }
+        Ok(true)
+    }
     // ── Helpers ─────────────────────────────────────────────────────────
 
-    /// Find the next queue entry whose plan has no run yet (or only
-    /// cancelled runs). Returns None when the queue is exhausted.
+    /// Find the next queue entry whose plan has no active run yet, or whose
+    /// only run is `pending` (queued by the concurrency gate — eligible for
+    /// re-dispatch once capacity frees). Returns None when the queue is
+    /// exhausted.
     fn next_pending_entry(session_id: &str) -> DbResult<Option<PlanQueueEntry>> {
         let pending = Self::pending_entries(session_id)?;
         if pending.is_empty() {
@@ -1342,7 +1498,7 @@ impl PlanRunnerService {
                      SELECT 1 FROM plan_runs r
                      WHERE r.plan_id = q.plan_id
                        AND r.session_id = q.session_id
-                       AND r.status IN ('running', 'succeeded', 'pending')
+                       AND r.status IN ('running', 'succeeded')
                  )
                  ORDER BY q.sort_order ASC",
             )
@@ -1756,5 +1912,197 @@ mod tests {
             crate::services::worktree_service::WorktreeService::slugify("a-b_c"),
             "a-b-c"
         );
+    }
+    // ── Concurrency cap helpers (tests) ────────────────────────────────
+
+    fn seed_session_and_plans(conn: &rusqlite::Connection) {
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+             VALUES ('s1', '/test', 'Test', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plans (id, session_id, reference_id, title, description, status, priority, tags, ai_enhanced, created_at, updated_at)
+             VALUES ('p1', 's1', 'bb-1', 'P1', 'd', 'ready', 50, '[]', 0, 0, 0),
+                    ('p2', 's1', 'bb-2', 'P2', 'd', 'ready', 50, '[]', 0, 0, 0),
+                    ('p3', 's1', 'bb-3', 'P3', 'd', 'ready', 50, '[]', 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+    }
+
+    fn insert_plan_run(conn: &rusqlite::Connection, id: &str, plan_id: &str, status: &str) {
+        conn.execute(
+            "INSERT INTO plan_runs (id, plan_id, session_id, status, runner_kind, steps_output, created_at)
+             VALUES (?1, ?2, 's1', ?3, 'native', '[]', 0)",
+            params![id, plan_id, status],
+        )
+        .unwrap();
+    }
+
+    fn insert_pipeline_run(conn: &rusqlite::Connection, id: &str, status: &str) {
+        conn.execute(
+            "INSERT INTO pipeline_runs (id, session_id, project_path, kind, status, created_at)
+             VALUES (?1, 's1', '/test', 'generate_categories', ?2, 0)",
+            params![id, status],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn concurrency_defaults_are_planning_3_global_4() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        // No run_concurrency config → defaults apply.
+        assert_eq!(
+            crate::services::settings_service::SettingsService::effective_planning_max(),
+            3
+        );
+        assert_eq!(
+            crate::services::settings_service::SettingsService::effective_global_max(),
+            4
+        );
+    }
+
+    #[test]
+    fn get_set_concurrency_limits_round_trip() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        use crate::models::run_concurrency::ConcurrencyLimits;
+        let limits = ConcurrencyLimits {
+            planning_max: Some(5),
+            global_max: Some(7),
+        };
+        crate::services::settings_service::SettingsService::set_concurrency_limits(&limits)
+            .unwrap();
+        let got =
+            crate::services::settings_service::SettingsService::get_concurrency_limits().unwrap();
+        assert_eq!(got.planning_max, Some(5));
+        assert_eq!(got.global_max, Some(7));
+        assert_eq!(
+            crate::services::settings_service::SettingsService::effective_planning_max(),
+            5
+        );
+        assert_eq!(
+            crate::services::settings_service::SettingsService::effective_global_max(),
+            7
+        );
+    }
+
+    #[test]
+    fn count_active_runs_counts_plan_and_pipeline() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        seed_session_and_plans(&conn);
+        insert_plan_run(&conn, "r1", "p1", "running");
+        insert_plan_run(&conn, "r2", "p2", "pending");
+        insert_pipeline_run(&conn, "pr1", "running");
+        insert_pipeline_run(&conn, "pr2", "succeeded"); // terminal — not active
+        assert_eq!(PlanRunnerService::count_active_plan_runs(None).unwrap(), 2);
+        assert_eq!(PlanRunnerService::count_active_pipeline_runs().unwrap(), 1);
+        assert_eq!(PlanRunnerService::count_active_runs(None).unwrap(), 3);
+        // Excluding r1 leaves one active plan run (r2).
+        assert_eq!(PlanRunnerService::count_active_plan_runs(Some("r1")).unwrap(), 1);
+        assert_eq!(PlanRunnerService::count_running_plan_runs().unwrap(), 1);
+        assert_eq!(PlanRunnerService::count_running_runs().unwrap(), 2);
+    }
+
+    #[test]
+    fn plan_run_can_start_queues_at_planning_max() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        seed_session_and_plans(&conn);
+        // 2 running plan runs → a 3rd can start (planning_max default 3).
+        insert_plan_run(&conn, "r1", "p1", "running");
+        insert_plan_run(&conn, "r2", "p2", "running");
+        assert!(PlanRunnerService::plan_run_can_start(Some("r-new")).unwrap());
+        // 3 running → a 4th is queued.
+        insert_plan_run(&conn, "r3", "p3", "running");
+        assert!(!PlanRunnerService::plan_run_can_start(Some("r-new")).unwrap());
+    }
+
+    #[test]
+    fn plan_run_can_start_queues_at_global_max_with_pipeline() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        use crate::models::run_concurrency::ConcurrencyLimits;
+        // Raise planning_max so only the global cap can block.
+        crate::services::settings_service::SettingsService::set_concurrency_limits(&ConcurrencyLimits {
+            planning_max: Some(10),
+            global_max: Some(2),
+        })
+        .unwrap();
+        let conn = StorageService::connect().unwrap();
+        seed_session_and_plans(&conn);
+        insert_plan_run(&conn, "r1", "p1", "running");
+        insert_pipeline_run(&conn, "pr1", "running");
+        // 1 plan + 1 pipeline = 2 active >= global_max 2 → queue.
+        assert!(!PlanRunnerService::plan_run_can_start(Some("r-new")).unwrap());
+        // Free the pipeline slot → 1 active < 2 → can start.
+        conn.execute("DELETE FROM pipeline_runs WHERE id = 'pr1'", [])
+            .unwrap();
+        assert!(PlanRunnerService::plan_run_can_start(Some("r-new")).unwrap());
+    }
+
+    #[test]
+    fn pending_entries_re_selects_queued_pending_runs() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        seed_session_and_plans(&conn);
+        PlanRunnerService::enqueue(EnqueuePlanRequest {
+            session_id: "s1".into(),
+            plan_id: "p1".into(),
+        })
+        .unwrap();
+        // A queued (pending) plan_run must NOT exclude the entry — it stays
+        // selectable for re-dispatch once capacity frees.
+        insert_plan_run(&conn, "r1", "p1", "pending");
+        let pending = PlanRunnerService::pending_entries("s1").unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].plan_id, "p1");
+        // A running plan_run excludes the entry.
+        conn.execute(
+            "UPDATE plan_runs SET status = 'running' WHERE id = 'r1'",
+            [],
+        )
+        .unwrap();
+        assert!(PlanRunnerService::pending_entries("s1").unwrap().is_empty());
+    }
+
+    #[test]
+    fn pipeline_start_refuses_at_global_max() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        use crate::models::pipeline::PipelineStartRequest;
+        use crate::models::run_concurrency::ConcurrencyLimits;
+        crate::services::settings_service::SettingsService::set_concurrency_limits(&ConcurrencyLimits {
+            planning_max: Some(10),
+            global_max: Some(1),
+        })
+        .unwrap();
+        let conn = StorageService::connect().unwrap();
+        seed_session_and_plans(&conn);
+        insert_plan_run(&conn, "r1", "p1", "running");
+        drop(conn);
+        #[cfg(not(target_os = "windows"))]
+        {
+            let app = tauri::test::mock_app().app_handle().clone();
+            let req = PipelineStartRequest {
+                session_id: "s1".into(),
+                project_path: "/test".into(),
+                kind: "generate_categories".into(),
+                idea_id: None,
+                plan_id: None,
+                input: None,
+                chat_session_id: None,
+            };
+            let result = crate::services::pipeline_service::PipelineService::start_stage(&app, req);
+            assert!(result.is_err());
+            assert!(result.unwrap_err().contains("Global concurrency limit"));
+        }
     }
 }

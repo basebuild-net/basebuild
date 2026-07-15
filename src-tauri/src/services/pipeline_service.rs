@@ -77,6 +77,19 @@ impl PipelineService {
         let kind = PipelineStageKind::from_str(&request.kind)
             .ok_or_else(|| format!("Unknown pipeline stage kind: {}", request.kind))?;
 
+        // Global concurrency cap: refuse to start a pipeline stage when the
+        // total active run count (plan + pipeline, running + pending) has
+        // reached `global_max`. The caller can retry once a slot frees.
+        let global_max =
+            crate::services::settings_service::SettingsService::effective_global_max() as i64;
+        let active = crate::services::plan_runner_service::PlanRunnerService::count_active_runs(None)?;
+        if active >= global_max {
+            return Err(format!(
+                "Global concurrency limit reached ({active}/{global_max} active runs). \
+                 Wait for a run to finish or raise the global limit."
+            ));
+        }
+
         // Record the run row as pending.
         let run_id = gen_id();
         let created = now();

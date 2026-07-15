@@ -9,6 +9,7 @@ import {
 } from "../../lib/pipeline";
 import { cancelPlanRun, listPlanRuns, type PlanRun } from "../../lib/planRuns";
 import { usePlanningEvents } from "../../state/planningEvents";
+import { getConcurrencyLimits } from "../../lib/runConcurrency";
 import type { Plan } from "../../lib/plans";
 
 const KIND_LABELS: Record<string, string> = {
@@ -47,6 +48,7 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [planRuns, setPlanRuns] = useState<PlanRun[]>([]);
   const [open, setOpen] = useState(false);
+  const [maxConcurrent, setMaxConcurrent] = useState(0);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
 
   const refresh = useCallback(async () => {
@@ -61,12 +63,14 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
     const pipelineQuery = projectPath
       ? pipelineListRunsByProject(projectPath).catch(() => [] as PipelineRun[])
       : pipelineListRuns(sessionId).catch(() => [] as PipelineRun[]);
-    const [pipeline, plan] = await Promise.all([
+    const [pipeline, plan, limits] = await Promise.all([
       pipelineQuery,
       listPlanRuns(sessionId).catch(() => [] as PlanRun[]),
+      getConcurrencyLimits().catch(() => null),
     ]);
     setRuns(pipeline);
     setPlanRuns(plan);
+    if (limits) setMaxConcurrent(limits.globalMax);
   }, [sessionId, projectPath]);
 
   useEffect(() => {
@@ -162,8 +166,13 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
           if (!open) void refresh();
         }}
       >
-        <Bot size={14} />
-        {activeCount > 0 ? <span className="bg-agents-badge">{activeCount}</span> : null}
+        <Bot size={14} className={activeCount > 0 ? "bg-agents-icon-pulse" : undefined} />
+        {activeCount > 0 ? (
+          <>
+            <span className="bg-agents-badge">{activeCount}</span>
+            {maxConcurrent > 0 ? <span className="bg-agents-counter" title={`${activeCount} of ${maxConcurrent} concurrent slots in use`}>{activeCount}/{maxConcurrent}</span> : null}
+          </>
+        ) : null}
       </button>
       {open ? (
         <>

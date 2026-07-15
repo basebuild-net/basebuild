@@ -74,3 +74,28 @@ export function resolveEffective(
   if (globalEntry) return globalEntry;
   return DEFAULT_RUN_CONCURRENCY_ENTRY;
 }
+
+/** Global + planning concurrency caps (across all providers). */
+export type ConcurrencyLimits = {
+  /** Max concurrent runs across all providers (plan + pipeline). Default 4. */
+  globalMax: number;
+  /** Max concurrent planning runs. Default 3 (reserves 1 slot for non-planning). */
+  planningMax: number;
+};
+
+export const DEFAULT_CONCURRENCY_LIMITS: ConcurrencyLimits = {
+  globalMax: 4,
+  planningMax: 3,
+};
+
+export async function getConcurrencyLimits(): Promise<ConcurrencyLimits> {
+  const raw = await invoke<{ globalMax: number | null; planningMax: number | null }>("get_concurrency_limits");
+  return {
+    globalMax: raw.globalMax ?? DEFAULT_CONCURRENCY_LIMITS.globalMax,
+    planningMax: raw.planningMax ?? DEFAULT_CONCURRENCY_LIMITS.planningMax,
+  };
+}
+
+export async function setConcurrencyLimits(limits: ConcurrencyLimits): Promise<void> {
+  return invoke("set_concurrency_limits", { limits });
+}

@@ -72,7 +72,7 @@ test.describe("Finish policy", () => {
     await finishList.getByRole("button", { name: "Auto-commit", exact: true }).click();
     // Save the profile.
     await modal.getByTitle("Save launch profile for this project").click();
-    await expect(modal.locator(".toast", { hasText: "saved" })).toBeVisible({ timeout: 5_000 }).catch(() => {
+    await expect(modal.locator(".taskbar-notif-bar", { hasText: "saved" })).toBeVisible({ timeout: 5_000 }).catch(() => {
       // Toast may be ephemeral; check the option list retained the value.
     });
     await expect(finishList.getByRole("button", { name: "Auto-commit", exact: true })).toHaveAttribute("aria-pressed", "true");

@@ -115,7 +115,7 @@ test.describe("chat UX polish: scroll-to-bottom, search, copy, thinking default,
     await expect(copyAction).toBeVisible();
     await expect(copyAction).not.toBeDisabled();
     await copyAction.click();
-    await expect(page.locator(".toast").filter({ hasText: "Copied conversation" })).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".taskbar-notif-bar").filter({ hasText: "Copied conversation" })).toBeVisible({ timeout: 5_000 });
   });
 
   test("copy conversation action is enabled for pre-seeded history", async ({ page }) => {

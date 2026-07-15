@@ -6,7 +6,7 @@ use crate::{
             ApprovalMode, ApprovalRule, AuditEntry, GatewayDecision, PermissionDecision,
             PermissionRules, SessionRule, UsageSyncSettings,
         },
-        run_concurrency::{RunConcurrencyEntry, RunConcurrencyLimits},
+        run_concurrency::{ConcurrencyLimits, RunConcurrencyEntry, RunConcurrencyLimits},
         runtime::{RuntimeDefaults, RuntimeProfile, RuntimeProfileKind, WorkingDirectoryMode},
     },
     services::process_helpers::hidden_command,
@@ -602,7 +602,7 @@ impl SettingsService {
             let (provider_id, entry) = row.map_err(|e| e.to_string())?;
             providers.insert(provider_id, entry);
         }
-        Ok(RunConcurrencyLimits { providers })
+        Ok(RunConcurrencyLimits { providers, ..Default::default() })
     }
 
     /// Upsert a single provider's override for a project. Replaces the
@@ -655,6 +655,39 @@ impl SettingsService {
         let global = Self::get_run_concurrency_defaults()?;
         let project = Self::get_run_concurrency_overrides(project_path)?;
         Ok(project.effective_for(provider_id, &global))
+    }
+
+    // ─── Cross-Provider Concurrency Caps (planning_max / global_max) ───
+
+    /// Read the cross-provider caps (`planning_max`, `global_max`) from the
+    /// `run_concurrency` blob. Absent → `None` (reads as the defaults).
+    pub fn get_concurrency_limits() -> DbResult<ConcurrencyLimits> {
+        Ok((&Self::get_run_concurrency_defaults()?).into())
+    }
+
+    /// Write the cross-provider caps into the `run_concurrency` blob,
+    /// preserving the per-provider `providers` map.
+    pub fn set_concurrency_limits(limits: &ConcurrencyLimits) -> DbResult<()> {
+        let mut existing = Self::get_run_concurrency_defaults()?;
+        existing.planning_max = limits.planning_max;
+        existing.global_max = limits.global_max;
+        Self::set_run_concurrency_defaults(&existing)
+    }
+
+    /// Effective planning concurrency cap across all providers: the
+    /// configured value or `DEFAULT_PLANNING_MAX` (3) when unset.
+    pub fn effective_planning_max() -> u32 {
+        Self::get_run_concurrency_defaults()
+            .map(|l| l.effective_planning_max())
+            .unwrap_or(crate::models::run_concurrency::DEFAULT_PLANNING_MAX)
+    }
+
+    /// Effective global concurrency cap across all providers: the
+    /// configured value or `DEFAULT_GLOBAL_MAX` (4) when unset.
+    pub fn effective_global_max() -> u32 {
+        Self::get_run_concurrency_defaults()
+            .map(|l| l.effective_global_max())
+            .unwrap_or(crate::models::run_concurrency::DEFAULT_GLOBAL_MAX)
     }
 }
 

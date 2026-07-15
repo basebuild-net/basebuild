@@ -1,16 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openFixtureProject } from "./helpers";
 
-test.describe("Notifications: toast + center + badge", () => {
-  test("event → toast renders → center unread → mark-read → badge clears", async ({ page }) => {
+test.describe("Notifications: bar feed + dropdown + badge", () => {
+  test("event → bar renders → dropdown unread → mark-read → badge clears", async ({ page }) => {
     await openFixtureProject(page);
 
     // The bell is always available in the global title bar.
-    const bell = page.locator(".window-taskbar .notification-bell");
+    const bell = page.locator(".window-taskbar .taskbar-notif-bell");
     await expect(bell).toBeVisible({ timeout: 10_000 });
 
     // Initially no unread badge (no notifications).
-    await expect(page.locator(".notification-badge")).toHaveCount(0);
+    await expect(page.locator(".taskbar-notif-badge")).toHaveCount(0);
 
     // Inject a notification via the mocked state by calling notification_mark_read
     // then adding one through the mock. We simulate by invoking a plan status
@@ -40,33 +40,33 @@ test.describe("Notifications: toast + center + badge", () => {
       const w = window as unknown as { __emit?: (event: string, payload: unknown) => void };
       w.__emit?.("notifications://changed", {});
     });
-    // The ToastStack polls via the notifications://changed listener; in the
-    // mock environment, the event is emitted by the backend. We simulate by
-    // calling the notification list to refresh the UI.
+    // The TaskbarNotifications polls via the notifications://changed listener;
+    // in the mock environment, the event is emitted by the backend. We simulate
+    // by calling the notification list to refresh the UI.
     await page.waitForTimeout(500);
 
-    // Open the notification center.
+    // Open the notification dropdown.
     await bell.click();
-    await expect(page.locator(".notification-center")).toBeVisible();
+    await expect(page.locator(".taskbar-notif-dropdown")).toBeVisible();
 
     // The notification should be listed.
-    await expect(page.locator(".notification-item-title").filter({ hasText: "Run finished: Add dark mode" })).toBeVisible();
+    await expect(page.locator(".taskbar-notif-dropdown-item-title").filter({ hasText: "Run finished: Add dark mode" })).toBeVisible();
 
     // The unread badge should show 1.
-    await expect(page.locator(".notification-badge")).toContainText("1");
+    await expect(page.locator(".taskbar-notif-badge")).toContainText("1");
 
     // Click mark-all-read (use evaluate to bypass overlay intercepting pointer events).
     await page.getByTitle("Mark all as read").evaluate((el) => (el as HTMLButtonElement).click());
     await page.waitForTimeout(300);
 
     // Badge should clear.
-    await expect(page.locator(".notification-badge")).toHaveCount(0);
+    await expect(page.locator(".taskbar-notif-badge")).toHaveCount(0);
 
     // The notification should be marked read (dimmed).
-    await expect(page.locator(".notification-item.notification-read")).toBeVisible();
+    await expect(page.locator(".taskbar-notif-dropdown-item.taskbar-notif-read")).toBeVisible();
   });
 
-  test("per-kind mute suppresses toast", async ({ page }) => {
+  test("per-kind mute suppresses bar", async ({ page }) => {
     await openFixtureProject(page);
 
     // Open settings via the account menu.
@@ -105,17 +105,17 @@ test.describe("Notifications: toast + center + badge", () => {
     });
     await page.waitForTimeout(500);
 
-    // No toast should appear (center-only delivery).
-    await expect(page.locator(".toast-stack")).toHaveCount(0);
+    // No bar feed should appear (center-only delivery, no changed event emitted).
+    await expect(page.locator(".taskbar-notif-feed")).toHaveCount(0);
 
-    // But the notification center should still list it.
-    const bell = page.locator(".notification-bell");
+    // But the notification dropdown should still list it.
+    const bell = page.locator(".taskbar-notif-bell");
     await bell.click();
-    await expect(page.locator(".notification-center")).toBeVisible();
-    await expect(page.locator(".notification-item-title").filter({ hasText: "Muted run" })).toBeVisible();
+    await expect(page.locator(".taskbar-notif-dropdown")).toBeVisible();
+    await expect(page.locator(".taskbar-notif-dropdown-item-title").filter({ hasText: "Muted run" })).toBeVisible();
   });
 
-  test("high-signal events surface a dismissible in-app attention notice", async ({ page }) => {
+  test("high-signal events surface a dismissible inline attention bar", async ({ page }) => {
     await openFixtureProject(page);
     await page.evaluate(() => {
       const w = window as unknown as { __emit?: (event: string, payload: unknown) => void };
@@ -132,10 +132,12 @@ test.describe("Notifications: toast + center + badge", () => {
       });
     });
 
-    const notice = page.locator(".notification-attention");
-    await expect(notice).toContainText("Plan needs your input");
-    await expect(notice).toContainText("Choose a deployment target");
-    await notice.getByTitle("Dismiss notification").click();
-    await expect(notice).toHaveCount(0);
+    // The attention notification should appear as an inline bar in the taskbar.
+    const bar = page.locator(".taskbar-notif-bar").filter({ hasText: "Plan needs your input" });
+    await expect(bar).toBeVisible({ timeout: 3_000 });
+    await expect(bar).toContainText("Plan needs your input");
+    await expect(bar).toContainText("Choose a deployment target");
+    await bar.getByTitle("Dismiss").click();
+    await expect(bar).toHaveCount(0);
   });
 });
