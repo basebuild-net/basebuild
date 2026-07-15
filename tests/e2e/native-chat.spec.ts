@@ -92,7 +92,7 @@ test.describe("native chat workspace", () => {
     expect(consoleErrors).toEqual([]);
   });
 
-  test.fixme("generates ideas with a connected provider and promotes one to a plan", async ({ page }) => {
+  test("keeps idea generation live in the selected chat", async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on("console", (message) => {
       if (message.type() === "error") consoleErrors.push(message.text());
@@ -104,17 +104,73 @@ test.describe("native chat workspace", () => {
     // Select the connected Umans provider and generate ideas from the overflow menu.
     await page.locator(".chat-column-model-chip").click();
     await page.locator(".provider-card", { hasText: "Umans" }).click();
-    await page.getByTitle("Idea generation actions").click();
-    await page.getByTitle("Quick freeform idea generation in the chat").click();
-    // Two idea cards render with promote actions.
-    await expect(page.locator(".chat-idea-card")).toHaveCount(2);
-    await expect(page.locator(".chat-idea-title").first()).toHaveText("Improve onboarding");
+    await page.locator(".provider-model-row", { hasText: "Umans GLM 5.2" }).first().click();
+    await page.getByTitle(/Chat input/).first().fill("/idea generate");
+    await page.getByTitle("Send message").click();
 
-    // Promote the first idea → it becomes planned and appears in the plan pipeline.
-    await page.locator(".chat-idea-card button", { hasText: "Promote" }).first().click();
-    await expect(page.locator(".chat-idea-status", { hasText: "Planned" })).toBeVisible();
+    // The first synchronous backend status event must be visible in this chat,
+    // and chat-owned generation must not consume a background-agent slot.
+    await expect(page.locator(".chat-thinking-indicator")).toBeVisible();
+    await expect(page.locator(".bg-agents-badge")).toHaveCount(0);
+    await expect(page.locator(".chat-message-assistant", { hasText: "inspect the project" })).toBeVisible();
+    await expect(page.locator(".tool-card", { hasText: "Read the project schematic" })).toBeVisible();
+
 
     expect(consoleErrors).toEqual([]);
+  });
+
+  test("opens a chat-bound background run from the full run row", async ({ page }) => {
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+
+    const backgroundChatId = await page.evaluate(async () => {
+      const w = window as typeof window & {
+        __basebuildInvoke?: (cmd: string, args: Record<string, unknown>) => Promise<unknown>;
+        __emit?: (event: string, payload: unknown) => void;
+      };
+      const invoke = w.__basebuildInvoke;
+      if (!invoke) throw new Error("E2E fixture unavailable");
+      const sessionId = "session-1";
+      const projectPath = "C:\\basebuild-e2e\\project";
+
+      const chat = await invoke("native_chat_start", {
+        request: {
+          projectPath,
+          title: "Background plan chat",
+          providerId: "umans",
+          modelId: "umans-glm-5.2",
+          effortLevel: "medium",
+        },
+      }) as { id: string };
+      const plan = await invoke("create_plan", {
+        input: {
+          sessionId,
+          title: "Background plan",
+          description: "Inspect this run from the taskbar.",
+        },
+      }) as { id: string };
+      await invoke("plan_assign_to_chat", {
+        planId: plan.id,
+        chatSessionId: chat.id,
+      });
+      w.__emit?.("planning://event", {
+        kind: "plan_updated",
+        entityId: plan.id,
+        projectPath,
+        sessionId,
+        title: "Background plan",
+        seq: 1,
+        ts: Math.floor(Date.now() / 1000),
+      });
+      return chat.id;
+    });
+
+    const taskbarButton = page.getByTitle(/1 background agent running/);
+    await expect(taskbarButton).toBeVisible();
+    await taskbarButton.click();
+    await page.getByTitle("Open the chat where this agent is working").click();
+
+    await expect(page.locator(`.chat-panel[data-native-session-id="${backgroundChatId}"]`)).toBeVisible();
   });
 
   test.fixme("handles slash commands locally", async ({ page }) => {

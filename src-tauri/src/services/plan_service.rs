@@ -108,7 +108,7 @@ impl PlanService {
                    AND NOT EXISTS (
                        SELECT 1 FROM plan_archives WHERE plan_archives.plan_id = plans.id
                    )
-                 ORDER BY priority DESC, updated_at DESC",
+                 ORDER BY created_at DESC, rowid DESC",
             )
             .map_err(|e| e.to_string())?;
 
@@ -136,7 +136,7 @@ impl PlanService {
                  AND NOT EXISTS (
                    SELECT 1 FROM plan_archives WHERE plan_archives.plan_id = plans.id
                  )
-                 ORDER BY priority DESC, updated_at DESC",
+                 ORDER BY created_at DESC, rowid DESC",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
@@ -336,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn project_list_keeps_plans_across_sessions_and_excludes_archived() {
+    fn project_list_keeps_newest_plans_first_and_excludes_archived() {
         let directory = tempfile::TempDir::new().unwrap();
         let _guard = crate::test_util::test::lock_db(&directory);
         let first = SessionService::create_session("/shared-project", "First").unwrap();
@@ -355,8 +355,12 @@ mod tests {
         .unwrap();
 
         let plans = PlanService::list_for_project("/shared-project").unwrap();
-        assert_eq!(plans.len(), 2);
-        assert!(plans.iter().any(|plan| plan.title == "First plan"));
-        assert!(plans.iter().any(|plan| plan.title == "Second plan"));
+        assert_eq!(
+            plans
+                .iter()
+                .map(|plan| plan.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Second plan", "First plan"]
+        );
     }
 }

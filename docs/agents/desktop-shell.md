@@ -39,6 +39,9 @@ Approving ideas creates one draft plan per idea. **Generate OpenSpec** performs
 the local artifact-generation transition; **Approve plan** is a separate
 validation decision before the plan becomes ready.
 
+Planning catalogs use creation-recency order: newly added ideas, categories,
+and plans appear first, with older records naturally moving toward the bottom.
+
 The compact planning indicators above the chat are working quick menus, not
 read-only counters. The Ideas lightbulb puts **Generate more ideas** first and
 supports manual creation, status/category filtering, inline title/description/

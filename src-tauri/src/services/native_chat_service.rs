@@ -1296,21 +1296,6 @@ impl NativeChatService {
         )?;
         Self::touch_session(&request.session_id)?;
 
-        let run_id = format!(
-            "run-{:x}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|duration| duration.as_nanos())
-                .unwrap_or(0)
-        );
-        let _ = Self::record_pipeline_run(
-            &run_id,
-            &request.planning_session_id,
-            &chat_session.project_path,
-            "generate_ideas",
-            "running",
-            now_seconds(),
-        );
 
         let catalog = Self::provider_catalog();
         let provider_label = catalog
@@ -1336,14 +1321,6 @@ impl NativeChatService {
         };
 
         let Some(credential) = credential else {
-            let _ = Self::record_pipeline_run(
-                &run_id,
-                &request.planning_session_id,
-                &chat_session.project_path,
-                "generate_ideas",
-                "failed",
-                now_seconds(),
-            );
             return Ok(blocked_result(
                 "Choose a connected provider to run the native Idea Studio skill.".to_string(),
             ));
@@ -1358,27 +1335,11 @@ impl NativeChatService {
             &model_base_url,
             false,
         ) {
-            let _ = Self::record_pipeline_run(
-                &run_id,
-                &request.planning_session_id,
-                &chat_session.project_path,
-                "generate_ideas",
-                "failed",
-                now_seconds(),
-            );
             return Ok(blocked_result(
                 "Idea Studio needs a native model with direct tool access. Choose a native-supported model instead of an OMP-only transport.".to_string(),
             ));
         }
         if !Self::model_supports_tools(&provider_id, &model_id) {
-            let _ = Self::record_pipeline_run(
-                &run_id,
-                &request.planning_session_id,
-                &chat_session.project_path,
-                "generate_ideas",
-                "failed",
-                now_seconds(),
-            );
             return Ok(blocked_result(
                 "Idea Studio needs a model that supports native file and idea tools.".to_string(),
             ));
@@ -1492,37 +1453,12 @@ impl NativeChatService {
         .collect::<Vec<_>>();
 
         if ideas.is_empty() && !run_result.cancelled {
-            let _ = Self::record_pipeline_run(
-                &run_id,
-                &request.planning_session_id,
-                &chat_session.project_path,
-                "generate_ideas",
-                "failed",
-                now_seconds(),
-            );
             return Err(
                 "The model finished without capturing any ideas. Try a different native tool-capable model."
                     .to_string(),
             );
         }
 
-        let stage_kind = if selected_categories.is_empty() {
-            "generate_ideas"
-        } else {
-            "generate_ideas_category"
-        };
-        let _ = Self::record_pipeline_run(
-            &run_id,
-            &request.planning_session_id,
-            &chat_session.project_path,
-            stage_kind,
-            if run_result.cancelled {
-                "failed"
-            } else {
-                "succeeded"
-            },
-            now_seconds(),
-        );
         let grounding =
             crate::services::planning_prompt_service::PlanningPromptService::grounding_metadata(
                 &request.planning_session_id,

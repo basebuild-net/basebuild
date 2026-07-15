@@ -312,7 +312,7 @@ impl SessionService {
     pub fn list_categories(session_id: &str) -> DbResult<Vec<IdeaCategory>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, name, description, created_at FROM idea_categories WHERE session_id = ?1 ORDER BY created_at ASC",
+            "SELECT id, session_id, name, description, created_at FROM idea_categories WHERE session_id = ?1 ORDER BY created_at DESC, rowid DESC",
         ).map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map(params![session_id], |row| {
@@ -340,7 +340,7 @@ impl SessionService {
                    UNION
                    SELECT id FROM native_chat_sessions WHERE project_path = ?1
                  )
-                 ORDER BY created_at ASC",
+                 ORDER BY created_at DESC, rowid DESC",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
@@ -406,7 +406,7 @@ impl SessionService {
     pub fn list_ideas(session_id: &str) -> DbResult<Vec<Idea>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, category_id, title, description, status, grounding, anchor, batch_id, created_at, updated_at FROM ideas WHERE session_id = ?1 ORDER BY created_at ASC",
+            "SELECT id, session_id, category_id, title, description, status, grounding, anchor, batch_id, created_at, updated_at FROM ideas WHERE session_id = ?1 ORDER BY created_at DESC, rowid DESC",
         ).map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map(params![session_id], |row| {
@@ -442,7 +442,7 @@ impl SessionService {
                    UNION
                    SELECT id FROM native_chat_sessions WHERE project_path = ?1
                  )
-                 ORDER BY created_at ASC",
+                 ORDER BY created_at DESC, rowid DESC",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
@@ -653,7 +653,7 @@ mod tests {
     }
 
     #[test]
-    fn project_lists_keep_ideas_and_categories_across_sessions() {
+    fn project_lists_keep_newest_ideas_and_categories_first_across_sessions() {
         let directory = tempfile::TempDir::new().unwrap();
         let _guard = crate::test_util::test::lock_db(&directory);
         let first = SessionService::create_session("/shared-project", "First").unwrap();
@@ -672,11 +672,18 @@ mod tests {
         assert_eq!(categories.len(), 2);
         assert_eq!(ideas.len(), 2);
         assert_eq!(
+            categories
+                .iter()
+                .map(|category| category.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Runtime", "UX"]
+        );
+        assert_eq!(
             ideas
                 .iter()
                 .map(|idea| idea.title.as_str())
                 .collect::<Vec<_>>(),
-            vec!["First idea", "Second idea"]
+            vec!["Second idea", "First idea"]
         );
     }
 }

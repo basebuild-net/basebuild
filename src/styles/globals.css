@@ -3962,6 +3962,9 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
   border: 1px solid var(--bb-border);
   background: var(--bb-surface);
 }
+.bg-agents-item-open { flex: 1; display: flex; align-items: flex-start; gap: 6px; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.bg-agents-item-open:hover .bg-agents-item-kind, .bg-agents-item-open:focus-visible .bg-agents-item-kind { color: var(--bb-cta); }
+.bg-agents-open-icon { flex-shrink: 0; margin-top: 1px; color: var(--bb-muted); }
 .bg-agents-item.is-running { border-color: color-mix(in srgb, var(--bb-status-running, #f97316) 45%, transparent); }
 .bg-agents-item-icon { flex-shrink: 0; margin-top: 1px; color: var(--bb-status-running, #f97316); }
 .bg-agents-item-icon.is-ok { color: var(--bb-positive, #4ade80); }

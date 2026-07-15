@@ -11,6 +11,7 @@ import { cancelPlanRun, listPlanRuns, type PlanRun } from "../../lib/planRuns";
 import { usePlanningEvents } from "../../state/planningEvents";
 import { getConcurrencyLimits } from "../../lib/runConcurrency";
 import type { Plan } from "../../lib/plans";
+import { useLogs } from "../../state/log";
 
 const KIND_LABELS: Record<string, string> = {
   generate_categories: "Generating categories",
@@ -50,6 +51,7 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
   const [open, setOpen] = useState(false);
   const [maxConcurrent, setMaxConcurrent] = useState(0);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  const { addLog } = useLogs();
 
   const refresh = useCallback(async () => {
     if (!sessionId) {
@@ -119,13 +121,14 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
   );
 
   const handleCancelPlanRun = useCallback(async (runId: string) => {
+    addLog("debug", "Background plan run cancellation requested", `run=${runId}`);
     try {
       await cancelPlanRun(runId, false);
     } catch {
       // Run already finished — refresh reflects the final state.
     }
     void refresh();
-  }, [refresh]);
+  }, [refresh, addLog]);
 
   const targetTitle = useCallback(
     (run: PipelineRun): string => {
@@ -139,13 +142,19 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
   );
 
   const handleCancel = useCallback(async (runId: string) => {
+    addLog("debug", "Background pipeline cancellation requested", `run=${runId}`);
     try {
       await pipelineCancel(runId);
     } catch {
       // Run already finished — the refresh below reflects the final state.
     }
     void refresh();
-  }, [refresh]);
+  }, [refresh, addLog]);
+  const handleOpenChat = useCallback((chatSessionId: string, runId: string) => {
+    addLog("debug", "Background agent chat opened", `run=${runId} chat=${chatSessionId}`);
+    setOpen(false);
+    onOpenChatSession?.(chatSessionId);
+  }, [addLog, onOpenChatSession]);
 
   if (!sessionId) return null;
 
@@ -162,6 +171,7 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
             : "Background agents"
         }
         onClick={() => {
+          addLog("debug", open ? "Background agents closed" : "Background agents opened", `active=${activeCount}`);
           setOpen((v) => !v);
           if (!open) void refresh();
         }}
@@ -209,36 +219,44 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
                     e.dataTransfer.setData("text/plain", run.chatSessionId);
                     e.dataTransfer.effectAllowed = "move";
                   }}
-                  title={run.chatSessionId ? "Drag into the panel grid to open the chat" : undefined}
                 >
-                  <Loader2 size={12} className="bg-agents-item-icon is-spinning" />
-                  <div className="bg-agents-item-body">
-                    <span className="bg-agents-item-kind">Working on plan</span>
-                    {planTitle(run.planId) ? (
-                      <span className="bg-agents-item-target" title={planTitle(run.planId)}>
-                        {planTitle(run.planId)}
-                      </span>
-                    ) : null}
-                    <span className="bg-agents-item-meta">
-                      <span className="bg-agents-model" title={`Runner: ${run.runnerKind}`}>{run.runnerKind}</span>
-                      <span className="bg-agents-elapsed">
-                        {formatDuration(run.startedAt ?? Math.floor(run.createdAt), now)}
-                      </span>
-                    </span>
-                  </div>
                   {run.chatSessionId && onOpenChatSession ? (
                     <button
-                      className="btn-icon btn-icon-sm"
+                      className="bg-agents-item-open"
                       type="button"
-                      title="Open the chat where this agent works the plan"
-                      onClick={() => {
-                        setOpen(false);
-                        onOpenChatSession(run.chatSessionId!);
-                      }}
+                      title="Open the chat where this agent is working"
+                      onClick={() => handleOpenChat(run.chatSessionId!, run.id)}
                     >
-                      <ExternalLink size={11} />
+                      <Loader2 size={12} className="bg-agents-item-icon is-spinning" />
+                      <span className="bg-agents-item-body">
+                        <span className="bg-agents-item-kind">Working on plan</span>
+                        {planTitle(run.planId) ? (
+                          <span className="bg-agents-item-target" title={planTitle(run.planId)}>
+                            {planTitle(run.planId)}
+                          </span>
+                        ) : null}
+                        <span className="bg-agents-item-meta">
+                          <span className="bg-agents-model" title={`Runner: ${run.runnerKind}`}>{run.runnerKind}</span>
+                          <span className="bg-agents-elapsed">
+                            {formatDuration(run.startedAt ?? Math.floor(run.createdAt), now)}
+                          </span>
+                        </span>
+                      </span>
+                      <ExternalLink size={11} className="bg-agents-open-icon" />
                     </button>
-                  ) : null}
+                  ) : (
+                    <>
+                      <Loader2 size={12} className="bg-agents-item-icon is-spinning" />
+                      <div className="bg-agents-item-body">
+                        <span className="bg-agents-item-kind">Working on plan</span>
+                        {planTitle(run.planId) ? (
+                          <span className="bg-agents-item-target" title={planTitle(run.planId)}>
+                            {planTitle(run.planId)}
+                          </span>
+                        ) : null}
+                      </div>
+                    </>
+                  )}
                   <button
                     className="btn-icon btn-icon-sm bg-agents-cancel"
                     type="button"
@@ -259,40 +277,48 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
                     e.dataTransfer.setData("text/plain", run.sessionChatId);
                     e.dataTransfer.effectAllowed = "move";
                   }}
-                  title={run.sessionChatId ? "Drag into the panel grid to open the chat" : undefined}
                 >
-                  <Loader2 size={12} className="bg-agents-item-icon is-spinning" />
-                  <div className="bg-agents-item-body">
-                    <span className="bg-agents-item-kind">{kindLabel(run.kind)}</span>
-                    {targetTitle(run) ? (
-                      <span className="bg-agents-item-target" title={targetTitle(run)}>
-                        {targetTitle(run)}
-                      </span>
-                    ) : null}
-                    <span className="bg-agents-item-meta">
-                      {run.modelId ? (
-                        <span className="bg-agents-model" title={`Provider: ${run.providerId ?? "unknown"}`}>
-                          {run.modelId}
-                        </span>
-                      ) : null}
-                      <span className="bg-agents-elapsed">
-                        {formatDuration(run.startedAt ?? run.createdAt, now)}
-                      </span>
-                    </span>
-                  </div>
                   {run.sessionChatId && onOpenChatSession ? (
                     <button
-                      className="btn-icon btn-icon-sm"
+                      className="bg-agents-item-open"
                       type="button"
-                      title="Open the chat this agent streams into"
-                      onClick={() => {
-                        setOpen(false);
-                        onOpenChatSession(run.sessionChatId!);
-                      }}
+                      title="Open the chat where this agent is working"
+                      onClick={() => handleOpenChat(run.sessionChatId!, run.id)}
                     >
-                      <ExternalLink size={11} />
+                      <Loader2 size={12} className="bg-agents-item-icon is-spinning" />
+                      <span className="bg-agents-item-body">
+                        <span className="bg-agents-item-kind">{kindLabel(run.kind)}</span>
+                        {targetTitle(run) ? (
+                          <span className="bg-agents-item-target" title={targetTitle(run)}>
+                            {targetTitle(run)}
+                          </span>
+                        ) : null}
+                        <span className="bg-agents-item-meta">
+                          {run.modelId ? (
+                            <span className="bg-agents-model" title={`Provider: ${run.providerId ?? "unknown"}`}>
+                              {run.modelId}
+                            </span>
+                          ) : null}
+                          <span className="bg-agents-elapsed">
+                            {formatDuration(run.startedAt ?? run.createdAt, now)}
+                          </span>
+                        </span>
+                      </span>
+                      <ExternalLink size={11} className="bg-agents-open-icon" />
                     </button>
-                  ) : null}
+                  ) : (
+                    <>
+                      <Loader2 size={12} className="bg-agents-item-icon is-spinning" />
+                      <div className="bg-agents-item-body">
+                        <span className="bg-agents-item-kind">{kindLabel(run.kind)}</span>
+                        {targetTitle(run) ? (
+                          <span className="bg-agents-item-target" title={targetTitle(run)}>
+                            {targetTitle(run)}
+                          </span>
+                        ) : null}
+                      </div>
+                    </>
+                  )}
                   <button
                     className="btn-icon btn-icon-sm bg-agents-cancel"
                     type="button"
@@ -308,44 +334,56 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
               ) : null}
               {recent.map((run) => (
                 <div key={run.id} className={`bg-agents-item is-${run.status}`}>
-                  {run.status === "succeeded" ? (
-                    <Check size={12} className="bg-agents-item-icon is-ok" />
-                  ) : (
-                    <XCircle size={12} className="bg-agents-item-icon is-bad" />
-                  )}
-                  <div className="bg-agents-item-body">
-                    <span className="bg-agents-item-kind">{kindLabel(run.kind)}</span>
-                    {targetTitle(run) ? (
-                      <span className="bg-agents-item-target" title={targetTitle(run)}>
-                        {targetTitle(run)}
-                      </span>
-                    ) : null}
-                    <span className="bg-agents-item-meta">
-                      {run.modelId ? <span className="bg-agents-model">{run.modelId}</span> : null}
-                      {run.startedAt && run.completedAt ? (
-                        <span className="bg-agents-elapsed">
-                          {formatDuration(run.startedAt, run.completedAt)}
-                        </span>
-                      ) : null}
-                      <span className={`bg-agents-status is-${run.status}`}>{run.status}</span>
-                    </span>
-                    {run.error ? (
-                      <span className="bg-agents-item-error" title={run.error}>{run.error}</span>
-                    ) : null}
-                  </div>
                   {run.sessionChatId && onOpenChatSession ? (
                     <button
-                      className="btn-icon btn-icon-sm"
+                      className="bg-agents-item-open"
                       type="button"
-                      title="Open the chat this agent streamed into"
-                      onClick={() => {
-                        setOpen(false);
-                        onOpenChatSession(run.sessionChatId!);
-                      }}
+                      title="Open the chat where this agent worked"
+                      onClick={() => handleOpenChat(run.sessionChatId!, run.id)}
                     >
-                      <ExternalLink size={11} />
+                      {run.status === "succeeded" ? (
+                        <Check size={12} className="bg-agents-item-icon is-ok" />
+                      ) : (
+                        <XCircle size={12} className="bg-agents-item-icon is-bad" />
+                      )}
+                      <span className="bg-agents-item-body">
+                        <span className="bg-agents-item-kind">{kindLabel(run.kind)}</span>
+                        {targetTitle(run) ? (
+                          <span className="bg-agents-item-target" title={targetTitle(run)}>
+                            {targetTitle(run)}
+                          </span>
+                        ) : null}
+                        <span className="bg-agents-item-meta">
+                          {run.modelId ? <span className="bg-agents-model">{run.modelId}</span> : null}
+                          {run.startedAt && run.completedAt ? (
+                            <span className="bg-agents-elapsed">
+                              {formatDuration(run.startedAt, run.completedAt)}
+                            </span>
+                          ) : null}
+                          <span className={`bg-agents-status is-${run.status}`}>{run.status}</span>
+                        </span>
+                        {run.error ? (
+                          <span className="bg-agents-item-error" title={run.error}>{run.error}</span>
+                        ) : null}
+                      </span>
+                      <ExternalLink size={11} className="bg-agents-open-icon" />
                     </button>
-                  ) : null}
+                  ) : (
+                    <>
+                      {run.status === "succeeded" ? (
+                        <Check size={12} className="bg-agents-item-icon is-ok" />
+                      ) : (
+                        <XCircle size={12} className="bg-agents-item-icon is-bad" />
+                      )}
+                      <div className="bg-agents-item-body">
+                        <span className="bg-agents-item-kind">{kindLabel(run.kind)}</span>
+                        <span className={`bg-agents-status is-${run.status}`}>{run.status}</span>
+                        {run.error ? (
+                          <span className="bg-agents-item-error" title={run.error}>{run.error}</span>
+                        ) : null}
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>

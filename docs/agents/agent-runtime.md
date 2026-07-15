@@ -164,9 +164,13 @@ the effort selector.
 ## In-chat idea generation
 
 `native_generate_ideas` runs the bundled `basebuild-planning` skill through the
-native agent loop. The destination chat owns cancellation, streaming, messages,
-and tool-event cards; the planning session separately owns categories, rounds,
-and captured ideas. The visible user turn is a compact
+native agent loop. The destination chat exclusively owns cancellation,
+streaming, messages, and tool-event cards; chat-native idea turns do not create
+pipeline-run or Background agents entries. The planning session separately owns
+categories, rounds, and captured ideas. Before invoking the backend, the chat
+waits for its chunk and tool-event subscriptions so immediate provider activity
+cannot race ahead of the transcript; remounts recover persisted running
+messages and tool events. The visible user turn is a compact
 `/skill:basebuild-planning` invocation. The model receives conversation,
 schematic, category, and direction context in the internal system prompt, then
 must call `propose_ideas` to persist structured output. Disconnected, OMP-only,

@@ -640,6 +640,11 @@ export function ChatPanel({
   const lastToolEventTimeRef = useRef(0);
   const streamBufRef = useRef("");
   const reasoningBufRef = useRef("");
+  // Idea turns can start immediately after a new chat binds. Await both
+  // subscriptions before invoking the backend so the first thinking/tool
+  // events cannot race ahead of the webview listeners.
+  const chunkListenerReadyRef = useRef<Promise<void>>(Promise.resolve());
+  const toolListenerReadyRef = useRef<Promise<void>>(Promise.resolve());
   // Publish live panel status to the activity sidebar (project status dot).
   const publishPanelStatus = usePanelStatusPublisher(panelId ?? "");
   const lastPublishedStatusRef = useRef<PanelStatus | null>(null);
@@ -742,6 +747,10 @@ export function ChatPanel({
   const ideaState = useIdeaState(activeSessionId ?? null, projectPath);
   const ideaRefreshRef = useRef(ideaState.refresh);
   ideaRefreshRef.current = ideaState.refresh;
+  const sessionCategories = useMemo(
+    () => ideaState.categories.filter((cat) => cat.sessionId === activeSessionId),
+    [ideaState.categories, activeSessionId],
+  );
 
   const filteredModels = useMemo(() => {
     const models = catalog?.models.filter((m) => m.providerId === providerId) ?? [];
@@ -1041,6 +1050,7 @@ export function ChatPanel({
         setStreamPhase("streaming");
       },
     );
+    chunkListenerReadyRef.current = unlisten.then(() => undefined);
     return () => {
       if (renderFrame !== null) window.cancelAnimationFrame(renderFrame);
       void unlisten.then((fn) => fn());
@@ -1138,6 +1148,7 @@ export function ChatPanel({
         void ideaRefreshRef.current();
       }
     });
+    toolListenerReadyRef.current = unlistenTool.then(() => undefined);
     const unlistenApproval = listen<{
       sessionId: string;
       toolCallId: string;
@@ -2260,8 +2271,13 @@ export function ChatPanel({
   persistSelectionRef.current = persistSelection;
 
   const handleGenerateIdeas = useCallback(async (opts?: { categoryIds?: string[]; ideaCount?: number; direction?: string | null }) => {
-    if (!nativeSessionId || generatingIdeas) return;
+    addLog("debug", "Idea generation requested", `chat=${nativeSessionId ?? "none"} planningSession=${activeSessionId ?? "none"}`);
+    if (!nativeSessionId || generatingIdeas) {
+      addLog("debug", "Idea generation skipped", !nativeSessionId ? "chat session unavailable" : "generation already running");
+      return;
+    }
     if (!activeSessionId) {
+      addLog("debug", "Idea generation skipped", "planning session unavailable");
       setError("Open a project session to save generated ideas.");
       return;
     }
@@ -2278,7 +2294,9 @@ export function ChatPanel({
     }
 
     const ideaCount = Math.min(8, Math.max(5, opts?.ideaCount ?? 8));
-    const categoryIds = opts?.categoryIds ?? [];
+    const categoryIds = (opts?.categoryIds ?? []).filter(
+      (id) => ideaState.categories.find((c) => c.id === id)?.sessionId === activeSessionId,
+    );
     const direction = opts?.direction?.trim() ?? "";
     const categoryNames = categoryIds
       .map((id) => ideaState.categories.find((category) => category.id === id)?.name)
@@ -2289,6 +2307,14 @@ export function ChatPanel({
       : `Auto-generate ${ideaCount} ${scope} ideas.`;
     const displayMessage = `<command name="/skill:basebuild-planning">\n${invocationSummary}\n</command>`;
 
+    try {
+      await Promise.all([chunkListenerReadyRef.current, toolListenerReadyRef.current]);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      addLog("error", "Idea activity listeners unavailable", message);
+      setError("Chat activity streaming is unavailable. Reopen the chat and try again.");
+      return;
+    }
     setGeneratingIdeas(true);
     setError(null);
     setSetupRequired(null);
@@ -2386,9 +2412,7 @@ export function ChatPanel({
       setGeneratingIdeas(false);
     }
   }, [nativeSessionId, generatingIdeas, activeSessionId, selectedProvider, ideaState, providerId, modelId, effortLevel, schematicContent, addLog]);
-  useEffect(() => {
-    generateIdeasRef.current = handleGenerateIdeas;
-  }, [handleGenerateIdeas]);
+  generateIdeasRef.current = handleGenerateIdeas;
 
   const handleGenerateForCategory = useCallback(async (categoryId: string | undefined) => {
     if (!nativeSessionId || generatingIdeas) return;
@@ -3271,10 +3295,10 @@ export function ChatPanel({
                     </button>
                   </div>
                   <div className="modal-body stack">
-                    {ideaState.categories.length === 0 ? (
+                    {sessionCategories.length === 0 ? (
                       <p className="text-muted text-sm">No categories yet.</p>
                     ) : null}
-                    {ideaState.categories.map((cat) => (
+                    {sessionCategories.map((cat) => (
                       <button
                         key={cat.id}
                         className="btn"

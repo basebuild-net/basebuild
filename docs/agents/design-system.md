@@ -98,6 +98,9 @@ dependencies are NOT adopted.
   for the closed-panel count.
 - `.history-drawer` — overlay drawer listing closed panels
   (`.history-drawer-item` with Re-open / Delete permanently actions).
+- `.bg-agents-item-open` — full content target for a chat-bound background run;
+  clicking it opens the owning chat transcript, while cancellation remains a
+  separate sibling button.
 - `.chat-column-header` — sticky per-chat configuration rail: title, clickable
   model chip, effort dropdown, textual permission dropdown, run state, circular
   context usage, agent mode, plan badge, compact branch, commands, history, and
