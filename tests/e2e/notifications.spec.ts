@@ -5,8 +5,8 @@ test.describe("Notifications: toast + center + badge", () => {
   test("event → toast renders → center unread → mark-read → badge clears", async ({ page }) => {
     await openFixtureProject(page);
 
-    // The notification bell is in the chat-env-panel header.
-    const bell = page.locator(".notification-bell");
+    // The bell is always available in the global title bar.
+    const bell = page.locator(".window-taskbar .notification-bell");
     await expect(bell).toBeVisible({ timeout: 10_000 });
 
     // Initially no unread badge (no notifications).

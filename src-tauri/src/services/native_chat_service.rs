@@ -347,6 +347,53 @@ impl NativeChatService {
         Ok(creds)
     }
 
+    /// Return configured provider ids without materializing credential
+    /// payloads or resolving the active OMP profile through a subprocess.
+    /// This is the startup-safe path used to render the model catalog.
+    pub fn configured_provider_ids() -> DbResult<std::collections::HashSet<String>> {
+        let conn = StorageService::connect()?;
+        let blocked: std::collections::HashSet<String> = conn
+            .prepare("SELECT provider_id FROM native_blocked_providers")
+            .map_err(|e| e.to_string())?
+            .query_map([], |row| row.get::<_, String>(0))
+            .map(|rows| rows.filter_map(Result::ok).collect())
+            .unwrap_or_default();
+        let mut providers: std::collections::HashSet<String> = conn
+            .prepare("SELECT provider_id FROM native_provider_credentials")
+            .map_err(|e| e.to_string())?
+            .query_map([], |row| row.get::<_, String>(0))
+            .map(|rows| rows.filter_map(Result::ok).collect())
+            .unwrap_or_default();
+        providers.retain(|provider_id| !blocked.contains(provider_id));
+
+        // The default OMP profile covers the common shared-credential case
+        // without invoking `omp config path`, which can stall app startup.
+        let home = env::var_os("USERPROFILE").or_else(|| env::var_os("HOME"));
+        let omp_db_path = home
+            .map(std::path::PathBuf::from)
+            .map(|path| path.join(".omp").join("agent").join("agent.db"));
+        if let Some(path) = omp_db_path.filter(|path| path.exists()) {
+            if let Ok(omp_conn) =
+                Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            {
+                if let Ok(mut stmt) = omp_conn.prepare(
+                    "SELECT DISTINCT provider FROM auth_credentials WHERE disabled_cause IS NULL",
+                ) {
+                    if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
+                        for omp_id in rows.filter_map(Result::ok) {
+                            if let Some(provider_id) = omp_to_basebuild_provider(&omp_id) {
+                                if !blocked.contains(&provider_id) {
+                                    providers.insert(provider_id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(providers)
+    }
+
     /// Read credentials from the OMP agent database (`<agent_dir>/agent.db` →
     /// `auth_credentials`). The agent dir is the active OMP profile's, resolved
     /// via `omp config path` (handles per-profile DBs); falls back to

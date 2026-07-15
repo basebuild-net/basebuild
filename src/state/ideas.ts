@@ -5,37 +5,44 @@ import {
   rejectIdea as rejectIdeaApi,
   ensureDefaultCategories as ensureDefaultCategoriesApi,
   listIdeas,
+  listProjectIdeas,
   promoteIdeas as promoteIdeasApi,
   updateIdea as updateIdeaApi,
   updateIdeaStatus as updateIdeaStatusApi,
   createCategory as createCategoryApi,
   deleteCategory as deleteCategoryApi,
   listCategories,
+  listProjectCategories,
   type Idea,
   type IdeaCategory,
   type IdeaStatus,
 } from "../lib/ideas";
 import { usePlanningEvents } from "./planningEvents";
 
-export function useIdeaState(sessionId: string | null) {
+export function useIdeaState(sessionId: string | null, projectPath?: string | null) {
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [categories, setCategories] = useState<IdeaCategory[]>([]);
 
   const refresh = useCallback(async () => {
-    if (!sessionId) {
+    if (!projectPath && !sessionId) {
       setIdeas([]);
       setCategories([]);
       return;
     }
     try {
-      const [ideaList, catList] = await Promise.all([listIdeas(sessionId), listCategories(sessionId)]);
+      const [ideaList, catList] = projectPath
+        ? await Promise.all([
+            listProjectIdeas(projectPath),
+            listProjectCategories(projectPath),
+          ])
+        : await Promise.all([listIdeas(sessionId!), listCategories(sessionId!)]);
       setIdeas(ideaList);
       setCategories(catList);
     } catch {
       setIdeas([]);
       setCategories([]);
     }
-  }, [sessionId]);
+  }, [projectPath, sessionId]);
 
   useEffect(() => {
     void refresh();

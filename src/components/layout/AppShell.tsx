@@ -26,6 +26,7 @@ import { usePlans } from "../../state/plans";
 import { ProjectSidebar, useProjectSidebar } from "./ProjectSidebar";
 import { ActivitySidebar } from "./ActivitySidebar";
 import { ChatEnvironmentPanel } from "./ChatEnvironmentPanel";
+import { BackgroundAgents } from "./BackgroundAgents";
 const FileExplorerModal = lazy(() => import("./FileExplorerModal").then((m) => ({ default: m.FileExplorerModal })));
 import { PlanningInspector } from "./PlanningInspector";
 import type { PlanningTab } from "./PlanningInspector";
@@ -81,6 +82,7 @@ const OmpTerminalTab = lazy(() => import("../panels/OmpTerminalTab").then((m) =>
 import { ModalLoading } from "./ModalLoading";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { WindowControls } from "./WindowControls";
+import { NotificationCenter } from "./NotificationCenter";
 const LogPanel = lazy(() => import("./LogPanel").then((m) => ({ default: m.LogPanel })));
 import { CrashReportNotice } from "./CrashReportNotice";
 const DebugPanel = lazy(() => import("../panels/DebugPanel").then((m) => ({ default: m.DebugPanel })));
@@ -92,8 +94,8 @@ import type { Idea, IdeaCategory } from "../../lib/ideas";
 import { useIdeaState } from "../../state/ideas";
 import type { SessionTab, TabKind } from "../../lib/sessions";
 import { deleteSession } from "../../lib/sessions";
-import { renameNativeChatSession } from "../../lib/native-chat";
-import { assignPlanWithProfile, type LaunchProfile } from "../../lib/planDependencies";
+import { nativeChatStart, nativeChatUpdateSessionModel, renameNativeChatSession } from "../../lib/native-chat";
+import { assignPlanWithProfile, getLaunchProfile, validateReadiness, type LaunchProfile } from "../../lib/planDependencies";
 export type ToolId = "terminal";
 
 
@@ -183,9 +185,9 @@ export function AppShell({ updates }: AppShellProps) {
   const sidebar = useProjectSidebar(activeProjectPath);
   const activeProject = sidebar.projects.find((p) => p.path === activeProjectPath);
   const session = useSessionState(activeProjectPath, activeProject?.lastActiveSessionId);
-  const plans = usePlans(session.activeSessionId);
+  const plans = usePlans(session.activeSessionId, activeProjectPath);
   const schematic = useProjectSchematic(activeProjectPath);
-  const ideaState = useIdeaState(session.activeSessionId);
+  const ideaState = useIdeaState(session.activeSessionId, activeProjectPath);
   const account = useAccount();
   const [ompInstalled, setOmpInstalled] = useState(false);
   useEffect(() => {
@@ -379,37 +381,45 @@ export function AppShell({ updates }: AppShellProps) {
     };
   }, [activeProjectPath, addLog, restoreRetryToken]);
   // Plan-run event listener: when a run starts with a chat session, surface
-  // it as a new panel in the panel grid (per `panel-grid`).
+  // it as a new panel in the panel grid (per `panel-grid`) and focus it.
+  // Subscribed once; the existing-panel check runs inside the state updater
+  // so re-emits or overlapping subscriptions can never double-insert.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
+    let disposed = false;
     void onPlanRunEvent((event) => {
-      if (event.status !== "running" || !event.chatSessionId) return;
-      // If the chat session is already a panel in the grid, just focus it.
-      const existingPanel = flattenPanels(panelGridState.root).find((p) => p.chatSessionId === event.chatSessionId);
-      if (existingPanel) {
-        setPanelGridState((prev) => ({ ...prev, activePanelId: existingPanel.id }));
-        return;
-      }
-      // Add as a new panel through the checked insertion contract.
-      const newPanel: Panel = {
-        id: event.chatSessionId ?? newPanelId(),
-        type: "chat",
-        title: event.chatSessionId ? `Run ${event.chatSessionId.slice(-6)}` : "Plan Run",
-        chatSessionId: event.chatSessionId ?? null,
-        terminalId: null,
-        filePath: null,
-      };
+      const chatSessionId = event.chatSessionId;
+      if (event.status !== "running" || !chatSessionId) return;
       setPanelGridState((prev) => {
+        // Already surfaced — just focus it (idempotent under duplicate events).
+        const existingPanel = flattenPanels(prev.root).find((p) => p.chatSessionId === chatSessionId);
+        if (existingPanel) {
+          return prev.activePanelId === existingPanel.id ? prev : { ...prev, activePanelId: existingPanel.id };
+        }
+        const newPanel: Panel = {
+          id: chatSessionId,
+          type: "chat",
+          title: `Run ${chatSessionId.slice(-6)}`,
+          chatSessionId,
+          terminalId: null,
+          filePath: null,
+        };
         const result = insertPanel(prev, newPanel, { side: "right", anchorId: prev.activePanelId });
         if (!result.ok) {
           addLog("error", "Plan-run panel creation failed", result.reason);
           return prev;
         }
-        return result.state;
+        return { ...result.state, activePanelId: newPanel.id };
       });
-    }).then((fn) => { unlisten = fn; });
-    return () => { if (unlisten) unlisten(); };
-  }, [panelGridState.root]);
+    }).then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      if (unlisten) unlisten();
+    };
+  }, [addLog]);
   // Hydrate per-tab grid states from the workspace restore snapshot.
   useEffect(() => {
     if (!workspaceRestore?.tabGridStates) return;
@@ -887,6 +897,70 @@ export function AppShell({ updates }: AppShellProps) {
     setDestinationPickerOpen(true);
   }, []);
 
+  /** Quick-assign from the indicators dropdown: load the saved launch profile
+   *  (or a sane default) and open the destination picker. */
+  const handleQuickAssignPlan = useCallback((plan: Plan) => {
+    if (!activeProjectPath) return;
+    void (async () => {
+      let profile: LaunchProfile | null = null;
+      try {
+        profile = await getLaunchProfile(activeProjectPath);
+      } catch {
+        // fall through to defaults
+      }
+      handleAssignPlan(plan, profile ?? {
+        projectPath: activeProjectPath,
+        engine: "openspec",
+        providerId: "",
+        modelId: "",
+        workerCount: 1,
+        workspacePolicy: "isolated_worktrees",
+        schedulingMode: "safe",
+        finishPolicy: "hold",
+        updatedAt: Date.now(),
+      });
+    })();
+  }, [activeProjectPath, handleAssignPlan]);
+
+  /** Approve an openspec plan from the indicators dropdown: validate readiness,
+   *  then mark it ready so it can be applied to a chat. */
+  const handleApprovePlan = useCallback((plan: Plan) => {
+    return (async () => {
+      try {
+        const result = await validateReadiness(plan.id);
+        if (result.errors.length > 0) {
+          handleShowToast("Plan is not ready", result.errors[0], "error");
+          return;
+        }
+        await plans.setPlanStatus(plan.id, "ready");
+        handleShowToast("Plan approved", `#${plan.referenceId} is ready — apply it to a chat.`, "success");
+      } catch (e) {
+        handleShowToast("Approve failed", e instanceof Error ? e.message : String(e), "error");
+      }
+    })();
+  }, [plans, handleShowToast]);
+
+  /** Generate (draft) or regenerate (openspec) a plan's OpenSpec artifacts.
+   *  The backend only runs the generate stage on a non-openspec → openspec
+   *  transition, so a redo drops the plan back to draft first. */
+  const handleRedoPlan = useCallback((plan: Plan) => {
+    return (async () => {
+      try {
+        if (plan.status !== "draft") {
+          await plans.setPlanStatus(plan.id, "draft");
+        }
+        await plans.setPlanStatus(plan.id, "openspec");
+        handleShowToast(
+          plan.status === "draft" ? "Generating plan" : "Redoing plan",
+          "OpenSpec is generating the proposal, specs, design, and tasks.",
+          "info",
+        );
+      } catch (e) {
+        handleShowToast("Plan generation failed", e instanceof Error ? e.message : String(e), "error");
+      }
+    })();
+  }, [plans, handleShowToast]);
+
 
   const activeTab = session.tabs.find((t) => t.id === session.activeTabId) ?? null;
   const handleCreateTab = useCallback(
@@ -1337,6 +1411,12 @@ export function AppShell({ updates }: AppShellProps) {
       <div className="window-taskbar" role="banner">
         <span className="window-taskbar-title" title="Basebuild">Basebuild</span>
         <div className="window-taskbar-right">
+          <BackgroundAgents
+            sessionId={session.activeSessionId}
+            plans={plans.plans}
+            onOpenChatSession={handleOpenChatSession}
+          />
+          <NotificationCenter />
           <WindowControls />
         </div>
       </div>
@@ -1448,6 +1528,17 @@ export function AppShell({ updates }: AppShellProps) {
                 }}
                 onMarkComplete={(planId: string) => {
                   void plans.setPlanStatus(planId, "finished");
+                }}
+                onOpenPlan={handleFocusPlan}
+                onAssignPlan={handleQuickAssignPlan}
+                onApprovePlan={handleApprovePlan}
+                onRedoPlan={handleRedoPlan}
+                onDeletePlan={(planId: string) => {
+                  return plans.deletePlan(planId).then(() => {
+                    handleShowToast("Plan deleted", "The plan was removed.", "info");
+                  }).catch((e: unknown) => {
+                    handleShowToast("Delete failed", e instanceof Error ? e.message : String(e), "error");
+                  });
                 }}
               />
             </div>
@@ -1683,22 +1774,57 @@ export function AppShell({ updates }: AppShellProps) {
         }}
         panels={flattenPanels(panelGridState.root)}
         title={pendingAssign ? "Assign plan to chat" : "Send to…"}
+        projectPath={activeProjectPath}
+        mode={pendingAssign ? "assign" : "deliver"}
         onSelect={(choice: DestinationChoice) => {
           if (pendingAssign) {
-            if (choice.kind !== "existing" || !choice.chatSessionId) {
-              addLog("warn", "Assign plan", "Select an existing chat to assign a plan");
-              setAppToast({ title: "Select an existing chat", detail: "New chats cannot be assigned directly.", kind: "error" });
-              return;
-            }
-            void (async () => {
+            const assign = pendingAssign;
+            // Returned to the picker so it shows a busy state until done.
+            return (async () => {
               try {
+                // Model confirmation: an explicit pick overrides both the
+                // launch profile and the destination chat's session model.
+                const profile = choice.model
+                  ? { ...assign.profile, providerId: choice.model.providerId, modelId: choice.model.modelId, effortLevel: choice.model.effortLevel, updatedAt: Date.now() }
+                  : assign.profile;
+                let chatSessionId: string;
+                let focusPanelId: string | null = null;
+                if (choice.kind === "existing") {
+                  chatSessionId = choice.chatSessionId;
+                  focusPanelId = choice.panelId;
+                  if (choice.model) {
+                    await nativeChatUpdateSessionModel({
+                      sessionId: chatSessionId,
+                      providerId: choice.model.providerId,
+                      modelId: choice.model.modelId,
+                      effortLevel: choice.model.effortLevel,
+                    });
+                  }
+                } else {
+                  // New conversation — create a chat session for the plan
+                  // (with the confirmed model), then assign and open it.
+                  if (!activeProjectPath) throw new Error("No active project");
+                  const chat = await nativeChatStart({
+                    projectPath: activeProjectPath,
+                    title: `Plan ${assign.plan.referenceId}`,
+                    providerId: choice.model?.providerId ?? null,
+                    modelId: choice.model?.modelId ?? null,
+                    effortLevel: choice.model?.effortLevel ?? null,
+                  });
+                  chatSessionId = chat.id;
+                }
                 await assignPlanWithProfile({
-                  planId: pendingAssign.plan.id,
-                  chatSessionId: choice.chatSessionId,
-                  profile: pendingAssign.profile,
+                  planId: assign.plan.id,
+                  chatSessionId,
+                  profile,
                 });
-                handleShowToast("Plan assigned to chat", `${pendingAssign.plan.referenceId} ${pendingAssign.plan.title}`, "success");
-                setPanelGridState((prev) => ({ ...prev, activePanelId: choice.panelId }));
+                handleShowToast("Plan assigned to chat", `${assign.plan.referenceId} ${assign.plan.title}`, "success");
+                if (focusPanelId) {
+                  setPanelGridState((prev) => ({ ...prev, activePanelId: focusPanelId }));
+                }
+                // New conversation: the plan-run "running" event inserts and
+                // focuses the run panel — no extra tab here (a second surface
+                // caused duplicate-panel errors and orphaned tabs).
               } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
                 handleShowToast("Failed to assign plan", msg, "error");
@@ -1707,7 +1833,6 @@ export function AppShell({ updates }: AppShellProps) {
                 setDestinationPickerOpen(false);
               }
             })();
-            return;
           }
           if (!pendingDelivery) {
             addLog("debug", "DestinationPicker onSelect", "no pending delivery — skipping");
@@ -1715,12 +1840,30 @@ export function AppShell({ updates }: AppShellProps) {
           }
           if (choice.kind === "existing") {
             addLog("debug", "DestinationPicker existing", `chatSessionId=${choice.chatSessionId} panel=${choice.panelId}`);
-            deliverPrompt({
-              chatSessionId: choice.chatSessionId,
-              text: pendingDelivery.text,
-              mode: pendingDelivery.mode,
-              action: pendingDelivery.action,
-            });
+            const delivery = pendingDelivery;
+            void (async () => {
+              // Model confirmation for existing chats: persist the pick on the
+              // session before the prompt lands. Best-effort — a failure still
+              // delivers on the chat's current model.
+              if (choice.model) {
+                try {
+                  await nativeChatUpdateSessionModel({
+                    sessionId: choice.chatSessionId,
+                    providerId: choice.model.providerId,
+                    modelId: choice.model.modelId,
+                    effortLevel: choice.model.effortLevel,
+                  });
+                } catch (e) {
+                  addLog("warn", "Model override failed", e instanceof Error ? e.message : String(e));
+                }
+              }
+              deliverPrompt({
+                chatSessionId: choice.chatSessionId,
+                text: delivery.text,
+                mode: delivery.mode,
+                action: delivery.action,
+              });
+            })();
             // Focus the panel that hosts this chat.
             setPanelGridState((prev) => ({ ...prev, activePanelId: choice.panelId }));
           } else {

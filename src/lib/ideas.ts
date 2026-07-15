@@ -32,6 +32,10 @@ export async function listCategories(sessionId: string): Promise<IdeaCategory[]>
   return invoke<IdeaCategory[]>("list_categories", { sessionId });
 }
 
+export async function listProjectCategories(projectPath: string): Promise<IdeaCategory[]> {
+  return invoke<IdeaCategory[]>("list_project_categories", { projectPath });
+}
+
 export async function deleteCategory(id: string): Promise<void> {
   return invoke("delete_category", { id });
 }
@@ -56,6 +60,10 @@ export async function createIdea(
 
 export async function listIdeas(sessionId: string): Promise<Idea[]> {
   return invoke<Idea[]>("list_ideas", { sessionId });
+}
+
+export async function listProjectIdeas(projectPath: string): Promise<Idea[]> {
+  return invoke<Idea[]>("list_project_ideas", { projectPath });
 }
 
 export async function updateIdea(

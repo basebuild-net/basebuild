@@ -95,7 +95,7 @@ type PlanningInspectorProps = {
 };
 
 const STATUS_FILTERS: { value: IdeaStatus | "all"; label: string }[] = [
-  { value: "all", label: "All" },
+  { value: "all", label: "Active" },
   { value: "concept", label: "Concept" },
   { value: "picked", label: "Picked" },
   { value: "rejected", label: "Rejected" },
@@ -187,7 +187,7 @@ export function PlanningInspector({
     total: number;
     results: { entryId: string; action: "merged" | "skipped" | "conflicted"; detail?: string }[];
   }>({ active: false, currentEntryId: null, total: 0, results: [] });
-  const ideaState = useIdeaState(sessionId);
+  const ideaState = useIdeaState(sessionId, projectPath);
   const schematic = useProjectSchematic(projectPath);
   const { addLog } = useLogs();
   // Categories tab: no auto-seeding (schematic-grounded-planning). The empty
@@ -817,8 +817,10 @@ export function PlanningInspector({
       </div>
     );
   }
+  // "Active" hides picked ideas — they have been promoted to the plan stage —
+  // and archived ones. Explicit status chips still surface them.
   const filteredIdeas = statusFilter === "all"
-    ? ideaState.ideas
+    ? ideaState.ideas.filter((i) => i.status !== "picked" && i.status !== "archived")
     : ideaState.ideas.filter((i) => i.status === statusFilter);
 
   const categoryIdeas = selectedCategory

@@ -16,7 +16,10 @@ pub fn plan_assign_to_chat(
     plan_id: String,
     chat_session_id: String,
 ) -> Result<PlanRun, String> {
-    PlanRunnerService::assign_to_chat(&app, &plan_id, &chat_session_id)
+    let run = PlanRunnerService::assign_to_chat(&app, &plan_id, &chat_session_id)?;
+    // Start the agent turn — assignment alone only seeds context.
+    PlanRunnerService::kickoff_assigned_run(&app, &chat_session_id);
+    Ok(run)
 }
 
 #[tauri::command]

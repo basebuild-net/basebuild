@@ -28,6 +28,10 @@ export type PipelineRun = {
   startedAt: number | null;
   completedAt: number | null;
   createdAt: number;
+  /** Provider the stage runs with; null for legacy rows. */
+  providerId: string | null;
+  /** Model the stage runs with; null for legacy rows. */
+  modelId: string | null;
 };
 
 export type PipelineStartRequest = {

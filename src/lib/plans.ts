@@ -59,6 +59,10 @@ export async function listPlans(sessionId: string): Promise<Plan[]> {
   return invoke<Plan[]>("list_plans", { sessionId });
 }
 
+export async function listProjectPlans(projectPath: string): Promise<Plan[]> {
+  return invoke<Plan[]>("list_project_plans", { projectPath });
+}
+
 export async function getPlan(id: string): Promise<Plan | null> {
   return invoke<Plan | null>("get_plan", { id });
 }
@@ -107,6 +111,17 @@ export async function batchPromoteIdeas(
   return invoke<BatchPromoteResult>("batch_promote_ideas", { sessionId, ideaIds });
 }
 export const PLAN_STATUSES: PlanStatus[] = ["draft", "openspec", "ready", "running", "finished", "cancelled"];
+
+/** Display order for plan lanes/lists — active work first (running, ready,
+ *  openspec), drafts next, terminal statuses last. */
+export const PLAN_STATUS_DISPLAY_ORDER: PlanStatus[] = ["running", "ready", "openspec", "draft", "finished", "cancelled"];
+
+/** Sort plans by display priority (running/ready/openspec first), stable within a status. */
+export function sortPlansForDisplay(plans: Plan[]): Plan[] {
+  return [...plans].sort(
+    (a, b) => PLAN_STATUS_DISPLAY_ORDER.indexOf(a.status) - PLAN_STATUS_DISPLAY_ORDER.indexOf(b.status),
+  );
+}
 
 export const PLAN_STATUS_LABEL: Record<PlanStatus, string> = {
   draft: "Draft",

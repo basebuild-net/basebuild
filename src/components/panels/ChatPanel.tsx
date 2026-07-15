@@ -734,7 +734,7 @@ export function ChatPanel({
     }
   }, [showPlanningMenu, projectPath]);
   const { addLog } = useLogs();
-  const ideaState = useIdeaState(activeSessionId ?? null);
+  const ideaState = useIdeaState(activeSessionId ?? null, projectPath);
   const ideaRefreshRef = useRef(ideaState.refresh);
   ideaRefreshRef.current = ideaState.refresh;
 

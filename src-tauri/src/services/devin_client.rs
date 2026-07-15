@@ -9,7 +9,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::io::{ErrorKind, Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::LazyLock;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use flate2::read::GzDecoder;
@@ -40,13 +40,11 @@ const DEFAULT_STOP_PATTERNS: [&str; 5] = [
     "<|end_of_turn|>",
 ];
 
-static HTTP_CLIENT: LazyLock<Result<Client, String>> = LazyLock::new(|| {
-    Client::builder()
-        .connect_timeout(Duration::from_secs(20))
-        .timeout(Duration::from_secs(300))
-        .build()
-        .map_err(|error| format!("Failed to initialize Devin HTTP transport: {error}"))
-});
+/// Shared blocking HTTP client. Built lazily via [`http_client`] rather than
+/// a `LazyLock` so a failed or panicking initialization (e.g. constructed in
+/// a forbidden runtime context) is retried instead of poisoning the cell for
+/// the rest of the process lifetime.
+static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
 static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub struct DevinClient {
@@ -220,7 +218,15 @@ impl ProviderClient for DevinClient {
 }
 
 fn http_client() -> Result<&'static Client, String> {
-    HTTP_CLIENT.as_ref().map_err(Clone::clone)
+    if let Some(client) = HTTP_CLIENT.get() {
+        return Ok(client);
+    }
+    let client = Client::builder()
+        .connect_timeout(Duration::from_secs(20))
+        .timeout(Duration::from_secs(300))
+        .build()
+        .map_err(|error| format!("Failed to initialize Devin HTTP transport: {error}"))?;
+    Ok(HTTP_CLIENT.get_or_init(|| client))
 }
 
 fn normalize_session_token(api_key: &str) -> String {

@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-import { NotificationCenter } from "./NotificationCenter";
 import type { IdeaCategory } from "../../lib/ideas";
 import type { NewPlan, Plan, PlanFocusContext } from "../../lib/plans";
 import type { PlansState } from "../../state/plans";
@@ -126,7 +125,6 @@ export function ChatEnvironmentPanel({
             ) : null}
           </div>
         </div>
-        <NotificationCenter />
       </div>
     </div>
   );

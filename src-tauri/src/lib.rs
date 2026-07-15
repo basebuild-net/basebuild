@@ -41,7 +41,8 @@ use commands::{
     idea_rounds::{finish_idea_round, list_idea_rounds, start_idea_round},
     ideas::{
         create_category, create_idea, delete_category, delete_idea, ensure_default_categories,
-        list_categories, list_ideas, promote_ideas, reject_idea, update_idea, update_idea_status,
+        list_categories, list_ideas, list_project_categories, list_project_ideas, promote_ideas,
+        reject_idea, update_idea, update_idea_status,
     },
     integration::{integration_cleanup, integration_list},
     interactions::{
@@ -101,8 +102,8 @@ use commands::{
     },
     planning_prompts::{planning_prompt_list, planning_prompt_reset, planning_prompt_set},
     plans::{
-        batch_promote_ideas, create_plan, delete_plan, get_plan, list_plans, set_plan_context,
-        set_plan_status, update_plan,
+        batch_promote_ideas, create_plan, delete_plan, get_plan, list_plans, list_project_plans,
+        set_plan_context, set_plan_status, update_plan,
     },
     projects::{
         basebuild_data_dir, create_project_basebuild_config, detect_project,
@@ -366,6 +367,7 @@ pub fn run() {
             create_plan,
             batch_promote_ideas,
             list_plans,
+            list_project_plans,
             get_plan,
             update_plan,
             delete_plan,
@@ -504,10 +506,12 @@ pub fn run() {
             update_tab_title,
             create_category,
             list_categories,
+            list_project_categories,
             delete_category,
             create_idea,
             update_idea,
             list_ideas,
+            list_project_ideas,
             update_idea_status,
             delete_idea,
             promote_ideas,
@@ -630,6 +634,12 @@ pub fn run() {
             startup_disable,
             startup_reconcile,
             startup_launch_mode,
+            notification_mark_read,
+            git_commit,
+            expand_slash_command,
+            stability_list_reports,
+            final_touch_create_step,
+            remove_run_concurrency_override,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Basebuild")

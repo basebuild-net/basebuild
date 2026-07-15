@@ -45,9 +45,13 @@ pub async fn native_provider_catalog_refresh(
 #[tauri::command]
 pub async fn native_catalog_sync(
 ) -> Result<crate::services::catalog_sync_service::CatalogSyncResult, String> {
-    tauri::async_runtime::spawn_blocking(|| crate::services::catalog_sync_service::sync_catalog())
-        .await
-        .map_err(|e| format!("Catalog sync task panicked: {e}"))
+    tauri::async_runtime::spawn_blocking(|| {
+        let result = crate::services::catalog_sync_service::sync_catalog();
+        crate::services::provider_model_catalog_service::ProviderModelCatalogService::invalidate();
+        result
+    })
+    .await
+    .map_err(|e| format!("Catalog sync task panicked: {e}"))
 }
 #[tauri::command]
 pub fn native_chat_start(request: NativeChatStartRequest) -> Result<NativeChatSession, String> {

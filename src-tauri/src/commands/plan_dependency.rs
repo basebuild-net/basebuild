@@ -94,8 +94,8 @@ pub async fn plan_merge_queue_review(
 }
 
 #[tauri::command]
-pub async fn plan_assign_with_profile<R: Runtime>(
-    app: tauri::AppHandle<R>,
+pub async fn plan_assign_with_profile(
+    app: tauri::AppHandle,
     request: AssignWithProfileRequest,
 ) -> AppResult<crate::models::plan_run::PlanRun> {
     // Save the profile as project defaults.
@@ -113,9 +113,15 @@ pub async fn plan_assign_with_profile<R: Runtime>(
 
     // Assign the plan to the chat session using the existing assign path,
     // which creates a real run (not just a status flip).
-    crate::services::plan_runner_service::PlanRunnerService::assign_to_chat(
+    let run = crate::services::plan_runner_service::PlanRunnerService::assign_to_chat(
         &app,
         &request.plan_id,
         &request.chat_session_id,
-    )
+    )?;
+    // Start the agent turn — assignment alone only seeds context.
+    crate::services::plan_runner_service::PlanRunnerService::kickoff_assigned_run(
+        &app,
+        &request.chat_session_id,
+    );
+    Ok(run)
 }

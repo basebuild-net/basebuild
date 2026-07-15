@@ -120,6 +120,32 @@ impl PlanService {
             .map_err(|e| e.to_string())
     }
 
+    pub fn list_for_project(project_path: &str) -> DbResult<Vec<Plan>> {
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, session_id, reference_id, title, description, goal, status,
+                        priority, tags, ai_enhanced, context, idea_id, change_name,
+                        created_at, updated_at, finished_at
+                 FROM plans
+                 WHERE session_id IN (
+                   SELECT id FROM sessions WHERE project_path = ?1
+                   UNION
+                   SELECT id FROM native_chat_sessions WHERE project_path = ?1
+                 )
+                 AND NOT EXISTS (
+                   SELECT 1 FROM plan_archives WHERE plan_archives.plan_id = plans.id
+                 )
+                 ORDER BY priority DESC, updated_at DESC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![project_path], row_to_plan)
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
+    }
+
     pub fn get(id: &str) -> DbResult<Option<Plan>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn
@@ -290,4 +316,47 @@ fn row_to_plan(row: &rusqlite::Row<'_>) -> rusqlite::Result<Plan> {
         updated_at: row.get(14)?,
         finished_at: row.get(15)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::session_service::SessionService;
+
+    fn draft(title: &str) -> NewPlan {
+        NewPlan {
+            title: title.to_string(),
+            description: String::new(),
+            goal: None,
+            status: PlanStatus::Draft,
+            priority: None,
+            tags: Vec::new(),
+            idea_id: None,
+        }
+    }
+
+    #[test]
+    fn project_list_keeps_plans_across_sessions_and_excludes_archived() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        let first = SessionService::create_session("/shared-project", "First").unwrap();
+        let second = SessionService::create_session("/shared-project", "Second").unwrap();
+        let other = SessionService::create_session("/other-project", "Other").unwrap();
+
+        PlanService::create(&first.id, &draft("First plan")).unwrap();
+        let archived = PlanService::create(&second.id, &draft("Archived plan")).unwrap();
+        PlanService::create(&second.id, &draft("Second plan")).unwrap();
+        PlanService::create(&other.id, &draft("Other plan")).unwrap();
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO plan_archives (plan_id, archived_at) VALUES (?1, 1)",
+            params![archived.id],
+        )
+        .unwrap();
+
+        let plans = PlanService::list_for_project("/shared-project").unwrap();
+        assert_eq!(plans.len(), 2);
+        assert!(plans.iter().any(|plan| plan.title == "First plan"));
+        assert!(plans.iter().any(|plan| plan.title == "Second plan"));
+    }
 }

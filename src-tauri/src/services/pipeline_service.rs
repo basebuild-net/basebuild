@@ -205,7 +205,8 @@ impl PipelineService {
         let mut stmt = conn
             .prepare(
                 "SELECT id, session_id, project_path, kind, idea_id, plan_id, input_summary,
-                        session_chat_id, status, error, output_refs, started_at, completed_at, created_at
+                        session_chat_id, status, error, output_refs, started_at, completed_at, created_at,
+                        provider_id, model_id
                  FROM pipeline_runs WHERE session_id = ?1 ORDER BY created_at DESC",
             )
             .map_err(|e| e.to_string())?;
@@ -221,7 +222,8 @@ impl PipelineService {
         let conn = StorageService::connect()?;
         conn.query_row(
             "SELECT id, session_id, project_path, kind, idea_id, plan_id, input_summary,
-                    session_chat_id, status, error, output_refs, started_at, completed_at, created_at
+                    session_chat_id, status, error, output_refs, started_at, completed_at, created_at,
+                    provider_id, model_id
              FROM pipeline_runs WHERE id = ?1",
             params![run_id],
             row_to_run,
@@ -241,6 +243,7 @@ impl PipelineService {
         token: &CancellationToken,
     ) -> DbResult<Vec<String>> {
         let (provider_id, model_id, effort_level) = Self::resolve_stage_model(request)?;
+        Self::record_run_model(run_id, &provider_id, &model_id);
         let schematic = Self::load_schematic(&request.project_path);
         let convo = Self::load_conversation(&request.session_id);
 
@@ -317,6 +320,7 @@ impl PipelineService {
         token: &CancellationToken,
     ) -> DbResult<Vec<String>> {
         let (provider_id, model_id, effort_level) = Self::resolve_stage_model(request)?;
+        Self::record_run_model(run_id, &provider_id, &model_id);
         let schematic = Self::load_schematic(&request.project_path);
         let convo = Self::load_conversation(&request.session_id);
         let category_hint = request.input.as_deref().unwrap_or("");
@@ -469,6 +473,7 @@ impl PipelineService {
             .ok_or_else(|| format!("Idea '{}' not found", idea_id))?;
 
         let (provider_id, model_id, effort_level) = Self::resolve_stage_model(request)?;
+        Self::record_run_model(run_id, &provider_id, &model_id);
         let schematic = Self::load_schematic(&request.project_path);
 
         let system = crate::services::planning_prompt_service::PlanningPromptService::get(
@@ -562,6 +567,7 @@ impl PipelineService {
             .ok_or_else(|| format!("Plan '{}' not found", plan_id))?;
 
         let (provider_id, model_id, effort_level) = Self::resolve_stage_model(request)?;
+        Self::record_run_model(run_id, &provider_id, &model_id);
         let schematic = Self::load_schematic(&request.project_path);
         let system = NativeChatService::system_prompt(&request.project_path, schematic.as_deref());
 
@@ -1097,6 +1103,18 @@ impl PipelineService {
         Ok(())
     }
 
+    /// Record the resolved provider/model on a run row so the UI can show
+    /// which model a background stage runs with. Best-effort: a failure here
+    /// never aborts the stage.
+    fn record_run_model(run_id: &str, provider_id: &str, model_id: &str) {
+        if let Ok(conn) = StorageService::connect() {
+            let _ = conn.execute(
+                "UPDATE pipeline_runs SET provider_id = ?1, model_id = ?2 WHERE id = ?3",
+                params![provider_id, model_id, run_id],
+            );
+        }
+    }
+
     fn update_run_status<R: Runtime>(
         app: &AppHandle<R>,
         id: &str,
@@ -1169,6 +1187,8 @@ fn row_to_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<PipelineRun> {
         started_at: row.get(11)?,
         completed_at: row.get(12)?,
         created_at: row.get(13)?,
+        provider_id: row.get(14)?,
+        model_id: row.get(15)?,
     })
 }
 

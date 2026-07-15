@@ -94,6 +94,11 @@ pub struct PipelineRun {
     pub started_at: Option<i64>,
     pub completed_at: Option<i64>,
     pub created_at: i64,
+    /// Provider the stage runs with (resolved from the project chat default).
+    /// None for legacy rows and stages that fail before model resolution.
+    pub provider_id: Option<String>,
+    /// Model the stage runs with. None as above.
+    pub model_id: Option<String>,
 }
 
 /// Request to start a pipeline stage. The `kind` field selects which stage

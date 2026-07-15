@@ -1230,6 +1230,33 @@ impl PlanRunnerService {
         Self::get_run(&run_id)?.ok_or_else(|| "Plan run not found after assignment".to_string())
     }
 
+    /// Kick the agent loop for a chat session that just had a plan assigned.
+    /// The assign path only seeds a *system* context message; without a user
+    /// turn the agent never starts. This sends the kickoff turn on a detached
+    /// thread (the loop is blocking and can run for minutes) so the assign
+    /// command returns immediately. Concrete `AppHandle` because the agent
+    /// loop's event surface is wry-specific; commands own that type.
+    pub fn kickoff_assigned_run(app: &tauri::AppHandle, chat_session_id: &str) {
+        let app = app.clone();
+        let session_id = chat_session_id.to_string();
+        std::thread::spawn(move || {
+            let request = crate::models::native_chat::NativeChatSendRequest {
+                session_id,
+                content: "Begin working on the assigned plan now. Use the opening context \
+                          above: if an OpenSpec change is referenced, read its proposal, \
+                          design, specs, and tasks.md, then work tasks.md top to bottom and \
+                          check off each task as you complete it. Report what you finished."
+                    .to_string(),
+                provider_id: None,
+                model_id: None,
+                effort_level: None,
+            };
+            if let Err(error) = NativeChatService::send_message(&app, request) {
+                eprintln!("[plan-run] kickoff turn failed: {error}");
+            }
+        });
+    }
+
     /// Worktrees are enabled when the project is a git repo. Called by
     /// the dispatcher to decide whether to cap concurrency at 1.
     fn worktrees_enabled_for(project_path: &str) -> bool {

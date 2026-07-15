@@ -1,4 +1,8 @@
-use std::{env, time::Duration};
+use std::{
+    env,
+    sync::{LazyLock, RwLock},
+    time::Duration,
+};
 
 use rusqlite::{params, OptionalExtension};
 use serde_json::Value;
@@ -23,6 +27,8 @@ const LOCAL_PROVIDER_ID: &str = "basebuild-local";
 const LOCAL_MODEL_ID: &str = "basebuild-local-coordinator";
 const DEFAULT_EFFORT: &str = "medium";
 const CACHE_MAX_AGE_SECONDS: i64 = 24 * 60 * 60;
+static CATALOG_CACHE: LazyLock<RwLock<Option<NativeProviderCatalog>>> =
+    LazyLock::new(|| RwLock::new(None));
 
 /// Provider-level metadata overlaid on the OMP catalog. OMP carries the
 /// model list and wire-protocol kind; Basebuild adds the auth/UI metadata.
@@ -61,19 +67,27 @@ pub struct ProviderModelCatalogService;
 
 impl ProviderModelCatalogService {
     pub fn catalog() -> NativeProviderCatalog {
-        let credentials = NativeChatService::list_credentials().unwrap_or_default();
+        if let Ok(cache) = CATALOG_CACHE.read() {
+            if let Some(catalog) = cache.as_ref() {
+                return catalog.clone();
+            }
+        }
+
+        let configured_provider_ids =
+            NativeChatService::configured_provider_ids().unwrap_or_default();
         let now = now_seconds();
         let cached = Self::cached_models().unwrap_or_default();
+        let specs = provider_specs();
         let mut models = Vec::new();
         let mut stale = false;
-        for spec in provider_specs() {
+        for spec in &specs {
             let provider_cached: Vec<&CachedModel> = cached
                 .iter()
                 .filter(|m| m.model.provider_id == spec.id)
                 .collect();
             if provider_cached.is_empty() {
                 models.extend(bundled_models(&spec.id));
-                if !spec.local_only && is_configured(&spec.id, &credentials) {
+                if !spec.local_only && configured_provider_ids.contains(&spec.id) {
                     stale = true;
                 }
                 continue;
@@ -82,8 +96,7 @@ impl ProviderModelCatalogService {
             // Stamp-mismatch check: if cached rows are bundled-source and
             // their catalog version doesn't match the current vendored
             // catalog, replace them with current bundled models. This
-            // self-heals stale bundled rows (e.g. an old `devin-2.0` row
-            // from a prior catalog version) without manual DB surgery.
+            // self-heals stale bundled rows without manual DB surgery.
             let current_version = omp_catalog::CATALOG_VERSION.trim();
             let bundled_stale = provider_cached.iter().any(|item| {
                 item.model.source == "bundled"
@@ -91,14 +104,14 @@ impl ProviderModelCatalogService {
             });
             if bundled_stale {
                 let fresh = bundled_models(&spec.id);
-                let _ = Self::replace_provider_cache(&spec.id, fresh, "bundled", None);
-                models.extend(bundled_models(&spec.id));
+                let _ = Self::replace_provider_cache(&spec.id, fresh.clone(), "bundled", None);
+                models.extend(fresh);
                 continue;
             }
 
             for item in &provider_cached {
                 if !spec.local_only
-                    && is_configured(&spec.id, &credentials)
+                    && configured_provider_ids.contains(&spec.id)
                     && now - item.synced_at > CACHE_MAX_AGE_SECONDS
                 {
                     stale = true;
@@ -107,7 +120,7 @@ impl ProviderModelCatalogService {
             }
         }
 
-        let providers = provider_specs()
+        let providers = specs
             .iter()
             .map(|spec| {
                 let provider_models: Vec<&NativeModel> =
@@ -116,11 +129,7 @@ impl ProviderModelCatalogService {
                     .iter()
                     .filter(|m| m.model.provider_id == spec.id)
                     .collect();
-                let configured = spec.local_only || is_configured(&spec.id, &credentials);
-                // Compute transport_unavailable: a configured non-local provider
-                // whose models all use bespoke api_kinds (not native HTTP) and
-                // none have a custom base_url. These can only use OMP RPC, not
-                // the native agent loop transport.
+                let configured = spec.local_only || configured_provider_ids.contains(&spec.id);
                 let all_bespoke = !spec.local_only
                     && !provider_models.is_empty()
                     && provider_models
@@ -136,8 +145,8 @@ impl ProviderModelCatalogService {
                     .map(|m| m.source.clone())
                     .unwrap_or_else(|| "bundled".to_string());
                 NativeProvider {
-                    id: spec.id.to_string(),
-                    label: spec.label.to_string(),
+                    id: spec.id.clone(),
+                    label: spec.label.clone(),
                     status: if !configured {
                         "setup_required".to_string()
                     } else if transport_unavailable {
@@ -145,11 +154,11 @@ impl ProviderModelCatalogService {
                     } else {
                         "ready".to_string()
                     },
-                    credential_owner: spec.credential_owner.to_string(),
+                    credential_owner: spec.credential_owner.clone(),
                     configured,
                     local_only: spec.local_only,
-                    detail: spec.detail.to_string(),
-                    auth_method: spec.auth_method.to_string(),
+                    detail: spec.detail.clone(),
+                    auth_method: spec.auth_method.clone(),
                     api_key_url: spec.api_key_url.clone(),
                     model_count: provider_models.len() as i64,
                     last_synced_at,
@@ -159,7 +168,7 @@ impl ProviderModelCatalogService {
             })
             .collect();
 
-        NativeProviderCatalog {
+        let catalog = NativeProviderCatalog {
             providers,
             models,
             effort_levels: effort_levels(),
@@ -168,7 +177,11 @@ impl ProviderModelCatalogService {
             default_effort_level: DEFAULT_EFFORT.to_string(),
             fetched_at: now,
             stale,
+        };
+        if let Ok(mut cache) = CATALOG_CACHE.write() {
+            *cache = Some(catalog.clone());
         }
+        catalog
     }
 
     pub fn refresh(provider_id: Option<String>, force: bool) -> DbResult<NativeProviderCatalog> {
@@ -185,11 +198,18 @@ impl ProviderModelCatalogService {
             Self::refresh_provider_spec(spec, &credentials, force)?;
         }
 
+        Self::invalidate();
         Ok(Self::catalog())
     }
 
     pub fn refresh_provider(provider_id: &str, force: bool) -> DbResult<NativeProviderCatalog> {
         Self::refresh(Some(provider_id.to_string()), force)
+    }
+
+    pub fn invalidate() {
+        if let Ok(mut cache) = CATALOG_CACHE.write() {
+            *cache = None;
+        }
     }
 
     fn refresh_provider_spec(
@@ -1138,10 +1158,6 @@ fn model_with_source(mut model: NativeModel, source: &str) -> NativeModel {
     model
 }
 
-fn is_configured(provider_id: &str, credentials: &[NativeProviderCredential]) -> bool {
-    credentials.iter().any(|c| c.provider_id == provider_id)
-}
-
 fn effort_levels() -> Vec<NativeEffortLevel> {
     vec![
         NativeEffortLevel {
@@ -1466,6 +1482,33 @@ mod tests {
         assert!(
             is_bespoke_api_kind("cursor-agent"),
             "cursor-agent is bespoke"
+        );
+    }
+
+    #[test]
+    fn cached_catalog_is_startup_safe_and_reused() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        ProviderModelCatalogService::invalidate();
+
+        let started = std::time::Instant::now();
+        let first = ProviderModelCatalogService::catalog();
+        let first_elapsed = started.elapsed();
+        assert!(!first.providers.is_empty());
+        assert!(!first.models.is_empty());
+        assert!(
+            first_elapsed < Duration::from_secs(5),
+            "cached startup catalog took {first_elapsed:?}"
+        );
+
+        let started = std::time::Instant::now();
+        let second = ProviderModelCatalogService::catalog();
+        let second_elapsed = started.elapsed();
+        assert_eq!(second.fetched_at, first.fetched_at);
+        assert_eq!(second.models.len(), first.models.len());
+        assert!(
+            second_elapsed < Duration::from_secs(1),
+            "in-process catalog reuse took {second_elapsed:?}"
         );
     }
 }

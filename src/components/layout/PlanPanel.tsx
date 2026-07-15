@@ -16,7 +16,7 @@ import {
   Wrench,
 } from "lucide-react";
 import type { Plan, PlanStatus } from "../../lib/plans";
-import { PLAN_STATUSES, PLAN_STATUS_LABEL, isTerminalStatus } from "../../lib/plans";
+import { PLAN_STATUS_DISPLAY_ORDER, PLAN_STATUSES, PLAN_STATUS_LABEL, isTerminalStatus } from "../../lib/plans";
 import type {
   EngineKind,
   FinishPolicy,
@@ -200,14 +200,14 @@ export function PlanPanel({
             <p className="text-muted text-sm">Generate ideas with AI, then promote the ones worth building.</p>
           </div>
         ) : (
-          PLAN_STATUSES.map((status) => {
+          PLAN_STATUS_DISPLAY_ORDER.map((status) => {
             const list = plansByStatus.get(status) ?? [];
             if (isTerminalStatus(status)) {
               if (status !== "finished") return null;
               const finishedCount = list.length + (plansByStatus.get("cancelled")?.length ?? 0);
               if (finishedCount === 0) return null;
               return (
-                <div key={status} className="plan-lane">
+                <div key={status} className="plan-lane" data-status="finished">
                   <button
                     className="plan-lane-header"
                     type="button"
@@ -242,7 +242,7 @@ export function PlanPanel({
             }
             if (list.length === 0) return null;
             return (
-              <div key={status} className="plan-lane">
+              <div key={status} className="plan-lane" data-status={status}>
                 <div className="plan-lane-header">
                   <span className="plan-lane-label">{PLAN_STATUS_LABEL[status]}</span>
                   <span className="plan-lane-count">{list.length}</span>
@@ -342,7 +342,7 @@ function PlanCard({
   }), [projectPath, defaults]);
 
   return (
-    <div className={`plan-card${plan.status === "running" ? " is-active" : ""}`}>
+    <div className={`plan-card${plan.status === "running" ? " is-active" : ""}`} data-status={plan.status}>
       <button
         className="plan-card-main"
         type="button"

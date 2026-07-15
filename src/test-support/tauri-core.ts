@@ -687,6 +687,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return { content: s.fixtureName === "mvp-baseline" ? MVP_FIXTURE_SCHEMATIC : "# Project Schematic: E2E Fixture\n\n## Purpose\nExercise plan context generation." } as T;
     case "list_plans":
       return s.plans.filter((plan) => plan.sessionId === args.sessionId) as T;
+    case "list_project_plans":
+      return (args.projectPath === s.projectPath ? s.plans : []) as T;
     case "create_plan": {
       const input = args.input as { sessionId: string; title: string; description: string };
       const plan = makePlan(input.sessionId, input);
@@ -867,6 +869,12 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "plan_run_check_completion":
       return [0, 0] as T;
+    case "pipeline_list_runs":
+      return [] as T;
+    case "pipeline_get_run":
+      return null as T;
+    case "pipeline_cancel":
+      return undefined as T;
     case "plan_run_list":
       return s.planRuns.filter((r) => r.sessionId === args.sessionId) as T;
     case "plan_run_get":
@@ -1511,6 +1519,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "list_categories":
       return s.categories.filter((category) => category.sessionId === args.sessionId) as T;
+    case "list_project_categories":
+      return (args.projectPath === s.projectPath ? s.categories : []) as T;
     case "create_category": {
       const category: Category = { id: `cat-${s.nextCategoryId++}`, sessionId: args.sessionId as string, name: args.name as string, description: args.description as string, createdAt: Math.floor(Date.now() / 1000) };
       s.categories.push(category);
@@ -1521,6 +1531,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return undefined as T;
     case "list_ideas":
       return s.ideas.filter((idea) => idea.sessionId === args.sessionId) as T;
+    case "list_project_ideas":
+      return (args.projectPath === s.projectPath ? s.ideas : []) as T;
     case "create_idea": {
       const ts = Math.floor(Date.now() / 1000);
       const idea: Idea = {

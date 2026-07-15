@@ -46,6 +46,11 @@ pub fn list_categories(session_id: String) -> Result<Vec<IdeaCategory>, String> 
 }
 
 #[tauri::command]
+pub fn list_project_categories(project_path: String) -> Result<Vec<IdeaCategory>, String> {
+    SessionService::list_categories_for_project(&project_path)
+}
+
+#[tauri::command]
 pub fn delete_category(id: String) -> Result<(), String> {
     SessionService::delete_category(&id)
 }
@@ -89,6 +94,11 @@ pub fn create_idea(
 #[tauri::command]
 pub fn list_ideas(session_id: String) -> Result<Vec<Idea>, String> {
     SessionService::list_ideas(&session_id)
+}
+
+#[tauri::command]
+pub fn list_project_ideas(project_path: String) -> Result<Vec<Idea>, String> {
+    SessionService::list_ideas_for_project(&project_path)
 }
 
 #[tauri::command]

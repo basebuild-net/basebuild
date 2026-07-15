@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Rocket,
   Save,
+  Send,
   Trash2,
   X,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import type { LucideIcon } from "lucide-react";
 
 import type { Idea, IdeaCategory, IdeaStatus } from "../../lib/ideas";
 import type { Plan } from "../../lib/plans";
+import { PLAN_STATUS_LABEL, sortPlansForDisplay } from "../../lib/plans";
 
 export type StageKey = "schematic" | "ideas" | "plans" | "running" | "finished";
 
@@ -56,6 +58,16 @@ type PlanningIndicatorsProps = {
   onSetIdeaStatus: (id: string, status: IdeaStatus) => Promise<void>;
   onDeleteIdea: (id: string) => Promise<void>;
   onPromoteIdeas: (ids: string[]) => Promise<void>;
+  /** Open a plan's focus/detail view. */
+  onOpenPlan: (plan: Plan) => void;
+  /** Apply a ready plan to a chat session. */
+  onAssignPlan: (plan: Plan) => void;
+  /** Approve an openspec plan (validate, then mark ready). May return a
+   *  promise — the item shows a busy spinner until it settles. */
+  onApprovePlan: (plan: Plan) => void | Promise<unknown>;
+  /** Generate (draft) or regenerate (openspec) the plan's OpenSpec artifacts. */
+  onRedoPlan: (plan: Plan) => void | Promise<unknown>;
+  onDeletePlan: (planId: string) => void | Promise<unknown>;
 };
 
 type DropdownState = { stage: StageKey; rect: DOMRect } | null;
@@ -74,6 +86,11 @@ export function PlanningIndicators({
   onSetIdeaStatus,
   onDeleteIdea,
   onPromoteIdeas,
+  onOpenPlan,
+  onAssignPlan,
+  onApprovePlan,
+  onRedoPlan,
+  onDeletePlan,
 }: PlanningIndicatorsProps) {
   const [dropdown, setDropdown] = useState<DropdownState>(null);
   const [pulse, setPulse] = useState(false);
@@ -82,7 +99,7 @@ export function PlanningIndicators({
 
   const runningCount = plans.filter((p) => p.status === "running").length;
   const finishedCount = plans.filter((p) => p.status === "finished").length;
-  const ideaCount = ideas.filter((i) => i.status === "concept" || i.status === "picked").length;
+  const ideaCount = ideas.filter((i) => i.status === "concept").length;
 
   useEffect(() => {
     if (runningCount !== prevRunningRef.current) {
@@ -161,6 +178,11 @@ export function PlanningIndicators({
           onSetIdeaStatus={onSetIdeaStatus}
           onDeleteIdea={onDeleteIdea}
           onPromoteIdeas={onPromoteIdeas}
+          onOpenPlan={(plan) => { onOpenPlan(plan); closeDropdown(); }}
+          onAssignPlan={(plan) => { onAssignPlan(plan); closeDropdown(); }}
+          onApprovePlan={onApprovePlan}
+          onRedoPlan={onRedoPlan}
+          onDeletePlan={onDeletePlan}
           onOpenFullUI={() => { onOpenFullUI(dropdown.stage); closeDropdown(); }}
           onMarkComplete={(planId) => { onMarkComplete(planId); }}
           onOpenStage={(stage) => { onOpenStage(stage); closeDropdown(); }}
@@ -193,6 +215,11 @@ type DropdownProps = {
   onSetIdeaStatus: (id: string, status: IdeaStatus) => Promise<void>;
   onDeleteIdea: (id: string) => Promise<void>;
   onPromoteIdeas: (ids: string[]) => Promise<void>;
+  onOpenPlan: (plan: Plan) => void;
+  onAssignPlan: (plan: Plan) => void;
+  onApprovePlan: (plan: Plan) => void | Promise<unknown>;
+  onRedoPlan: (plan: Plan) => void | Promise<unknown>;
+  onDeletePlan: (planId: string) => void | Promise<unknown>;
 };
 
 function NotificationDropdown({
@@ -211,6 +238,11 @@ function NotificationDropdown({
   onSetIdeaStatus,
   onDeleteIdea,
   onPromoteIdeas,
+  onOpenPlan,
+  onAssignPlan,
+  onApprovePlan,
+  onRedoPlan,
+  onDeletePlan,
 }: DropdownProps) {
   const meta = STAGE_META[stage];
   const Icon = meta.icon;
@@ -254,9 +286,25 @@ function NotificationDropdown({
             onPromote={onPromoteIdeas}
           />
         ) : stage === "plans" ? (
-          <PlanItems plans={plans} filter={(p) => p.status !== "running" && p.status !== "finished"} />
+          <PlanItems
+            plans={plans}
+            filter={(p) => p.status !== "running" && p.status !== "finished" && p.status !== "cancelled"}
+            onOpenPlan={onOpenPlan}
+            onAssignPlan={onAssignPlan}
+            onApprovePlan={onApprovePlan}
+            onRedoPlan={onRedoPlan}
+            onDeletePlan={onDeletePlan}
+          />
         ) : stage === "running" ? (
-          <PlanItems plans={plans} filter={(p) => p.status === "running"} />
+          <PlanItems
+            plans={plans}
+            filter={(p) => p.status === "running"}
+            onOpenPlan={onOpenPlan}
+            onAssignPlan={onAssignPlan}
+            onApprovePlan={onApprovePlan}
+            onRedoPlan={onRedoPlan}
+            onDeletePlan={onDeletePlan}
+          />
         ) : stage === "finished" ? (
           <FinishedItems plans={plans} onMarkComplete={onMarkComplete} />
         ) : null}
@@ -730,21 +778,108 @@ function IdeaQuickMenu({
 function PlanItems({
   plans,
   filter,
+  onOpenPlan,
+  onAssignPlan,
+  onApprovePlan,
+  onRedoPlan,
+  onDeletePlan,
 }: {
   plans: Plan[];
   filter: (p: Plan) => boolean;
+  onOpenPlan: (plan: Plan) => void;
+  onAssignPlan: (plan: Plan) => void;
+  onApprovePlan: (plan: Plan) => void | Promise<unknown>;
+  onRedoPlan: (plan: Plan) => void | Promise<unknown>;
+  onDeletePlan: (planId: string) => void | Promise<unknown>;
 }) {
-  const filtered = plans.filter(filter);
+  const [deletePendingId, setDeletePendingId] = useState<string | null>(null);
+  // "<planId>:<action>" while that action's callback is settling.
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const runAction = (key: string, action: () => void | Promise<unknown>) => {
+    const result = action();
+    if (result && typeof (result as Promise<unknown>).finally === "function") {
+      setBusyKey(key);
+      void (result as Promise<unknown>).finally(() => setBusyKey((v) => (v === key ? null : v)));
+    }
+  };
+  const filtered = sortPlansForDisplay(plans.filter(filter));
   if (filtered.length === 0) {
     return <div className="planning-notification-empty">No items</div>;
   }
   return (
     <>
       {filtered.slice(0, 12).map((plan) => (
-        <div key={plan.id} className="planning-notification-item" title={plan.description || plan.goal || ""}>
-          <span className="planning-notification-item-dot planning-notification-item-dot--plans" />
-          <span className="planning-notification-item-text">#{plan.referenceId} {plan.title}</span>
-          <span className="planning-notification-item-meta">{plan.status}</span>
+        <div
+          key={plan.id}
+          className="planning-notification-item planning-notification-item-plan"
+          data-status={plan.status}
+          title={plan.description || plan.goal || ""}
+        >
+          <button
+            type="button"
+            className="planning-notification-item-open"
+            title={`View plan #${plan.referenceId} ${plan.title}`}
+            onClick={() => onOpenPlan(plan)}
+          >
+            <span className="planning-notification-item-dot" />
+            <span className="planning-notification-item-text">#{plan.referenceId} {plan.title}</span>
+            <span className="planning-notification-item-meta planning-notification-item-status">
+              {PLAN_STATUS_LABEL[plan.status]}
+            </span>
+          </button>
+          <span className="planning-notification-item-actions">
+            {plan.status === "ready" ? (
+              <button
+                type="button"
+                className="planning-notification-action"
+                title="Apply this plan to a chat"
+                onClick={(e) => { e.stopPropagation(); onAssignPlan(plan); }}
+              >
+                <Send size={10} />
+              </button>
+            ) : null}
+            {plan.status === "openspec" ? (
+              <button
+                type="button"
+                className="planning-notification-action"
+                title="Approve plan — mark ready to apply to a chat"
+                disabled={busyKey === `${plan.id}:approve`}
+                onClick={(e) => { e.stopPropagation(); runAction(`${plan.id}:approve`, () => onApprovePlan(plan)); }}
+              >
+                {busyKey === `${plan.id}:approve` ? <LoaderCircle size={10} className="spin" /> : <Check size={10} />}
+              </button>
+            ) : null}
+            {plan.status === "openspec" || plan.status === "draft" ? (
+              <button
+                type="button"
+                className="planning-notification-action"
+                title={plan.status === "draft" ? "Generate OpenSpec artifacts" : "Redo — regenerate OpenSpec artifacts"}
+                disabled={busyKey === `${plan.id}:redo`}
+                onClick={(e) => { e.stopPropagation(); runAction(`${plan.id}:redo`, () => onRedoPlan(plan)); }}
+              >
+                {busyKey === `${plan.id}:redo`
+                  ? <LoaderCircle size={10} className="spin" />
+                  : plan.status === "draft" ? <Rocket size={10} /> : <RefreshCw size={10} />}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={`planning-notification-action planning-notification-action-danger${deletePendingId === plan.id ? " is-pending" : ""}`}
+              title={deletePendingId === plan.id ? "Click again to delete this plan" : "Delete plan"}
+              disabled={busyKey === `${plan.id}:delete`}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (deletePendingId === plan.id) {
+                  setDeletePendingId(null);
+                  runAction(`${plan.id}:delete`, () => onDeletePlan(plan.id));
+                } else {
+                  setDeletePendingId(plan.id);
+                }
+              }}
+            >
+              {busyKey === `${plan.id}:delete` ? <LoaderCircle size={10} className="spin" /> : <Trash2 size={10} />}
+            </button>
+          </span>
         </div>
       ))}
       {filtered.length > 12 ? (

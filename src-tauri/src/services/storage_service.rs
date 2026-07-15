@@ -520,6 +520,8 @@ impl StorageService {
                     started_at INTEGER,
                     completed_at INTEGER,
                     created_at INTEGER NOT NULL,
+                    provider_id TEXT,
+                    model_id TEXT,
                     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
                 );
                 CREATE INDEX IF NOT EXISTS idx_pipeline_runs_session ON pipeline_runs(session_id);
@@ -940,6 +942,17 @@ impl StorageService {
              WHERE status IN ('running','pending')",
             params![now],
         );
+
+        // Migration (background-agents): record which provider/model a
+        // pipeline stage runs with so the UI can surface it. Nullable: legacy
+        // rows and stages that fail before model resolution carry none.
+        let has_pipeline_model = connection
+            .prepare("SELECT model_id FROM pipeline_runs LIMIT 0")
+            .is_ok();
+        if !has_pipeline_model {
+            let _ = connection.execute("ALTER TABLE pipeline_runs ADD COLUMN provider_id TEXT", []);
+            let _ = connection.execute("ALTER TABLE pipeline_runs ADD COLUMN model_id TEXT", []);
+        }
 
         // Migration (native-agent-loop): add run_state column to
         // native_chat_sessions for crash-safe agent loop state. Existing

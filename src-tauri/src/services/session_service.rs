@@ -329,6 +329,35 @@ impl SessionService {
             .map_err(|e| e.to_string())
     }
 
+    pub fn list_categories_for_project(project_path: &str) -> DbResult<Vec<IdeaCategory>> {
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, session_id, name, description, created_at
+                 FROM idea_categories
+                 WHERE session_id IN (
+                   SELECT id FROM sessions WHERE project_path = ?1
+                   UNION
+                   SELECT id FROM native_chat_sessions WHERE project_path = ?1
+                 )
+                 ORDER BY created_at ASC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![project_path], |row| {
+                Ok(IdeaCategory {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    name: row.get(2)?,
+                    description: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
+    }
+
     pub fn delete_category(id: &str) -> DbResult<()> {
         let conn = StorageService::connect()?;
         conn.execute("DELETE FROM idea_categories WHERE id = ?1", params![id])
@@ -381,6 +410,43 @@ impl SessionService {
         ).map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map(params![session_id], |row| {
+                let status_str: String = row.get(5)?;
+                Ok(Idea {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    category_id: row.get(2)?,
+                    title: row.get(3)?,
+                    description: row.get(4)?,
+                    status: IdeaStatus::from_str(&status_str),
+                    grounding: row.get(6)?,
+                    anchor: row.get(7)?,
+                    batch_id: row.get(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn list_ideas_for_project(project_path: &str) -> DbResult<Vec<Idea>> {
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, session_id, category_id, title, description, status,
+                        grounding, anchor, batch_id, created_at, updated_at
+                 FROM ideas
+                 WHERE session_id IN (
+                   SELECT id FROM sessions WHERE project_path = ?1
+                   UNION
+                   SELECT id FROM native_chat_sessions WHERE project_path = ?1
+                 )
+                 ORDER BY created_at ASC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![project_path], |row| {
                 let status_str: String = row.get(5)?;
                 Ok(Idea {
                     id: row.get(0)?,
@@ -584,5 +650,33 @@ mod tests {
 
         let error = SessionService::update_idea(&idea.id, "  ", "", None).unwrap_err();
         assert_eq!(error, "Idea title is required.");
+    }
+
+    #[test]
+    fn project_lists_keep_ideas_and_categories_across_sessions() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        let first = SessionService::create_session("/shared-project", "First").unwrap();
+        let second = SessionService::create_session("/shared-project", "Second").unwrap();
+        let other = SessionService::create_session("/other-project", "Other").unwrap();
+
+        SessionService::create_category(&first.id, "UX", "").unwrap();
+        SessionService::create_category(&second.id, "Runtime", "").unwrap();
+        SessionService::create_category(&other.id, "Unrelated", "").unwrap();
+        SessionService::create_idea(&first.id, "First idea", "", None, "", None, None).unwrap();
+        SessionService::create_idea(&second.id, "Second idea", "", None, "", None, None).unwrap();
+        SessionService::create_idea(&other.id, "Other idea", "", None, "", None, None).unwrap();
+
+        let categories = SessionService::list_categories_for_project("/shared-project").unwrap();
+        let ideas = SessionService::list_ideas_for_project("/shared-project").unwrap();
+        assert_eq!(categories.len(), 2);
+        assert_eq!(ideas.len(), 2);
+        assert_eq!(
+            ideas
+                .iter()
+                .map(|idea| idea.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["First idea", "Second idea"]
+        );
     }
 }

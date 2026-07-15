@@ -162,6 +162,8 @@ export function NotificationCenter({ onNavigate }: NotificationCenterProps) {
         className="btn-icon notification-bell"
         title={unread > 0 ? `${unread} unread notification${unread === 1 ? "" : "s"}` : "Notifications"}
         type="button"
+        aria-expanded={open}
+        aria-haspopup="dialog"
         onClick={() => {
           setOpen((v) => !v);
           if (!open) void refresh();
@@ -173,9 +175,17 @@ export function NotificationCenter({ onNavigate }: NotificationCenterProps) {
       {open ? (
         <>
           <div className="notification-center-overlay" onClick={() => setOpen(false)} />
-          <div className="notification-center">
+          <section className="notification-center" aria-label="Notification center">
             <div className="notification-center-header">
-              <span className="notification-center-title">Notifications</span>
+              <div className="notification-center-heading">
+                <Bell className="notification-center-header-icon" size={13} />
+                <div>
+                  <span className="notification-center-title">Notifications</span>
+                  <span className="notification-center-summary">
+                    {unread > 0 ? `${unread} unread` : "You're all caught up"}
+                  </span>
+                </div>
+              </div>
               <div className="notification-center-actions">
                 <button
                   className="btn-text"
@@ -196,53 +206,68 @@ export function NotificationCenter({ onNavigate }: NotificationCenterProps) {
                 </button>
               </div>
             </div>
-            <div className="notification-filters">
+            <div className="notification-filters" aria-label="Filter notifications">
               <button
                 className={`chip ${filter === "all" ? "chip-active" : ""}`}
-                title="All kinds"
+                title="Show all notifications"
                 type="button"
+                aria-pressed={filter === "all"}
                 onClick={() => setFilter("all")}
               >
                 All
               </button>
-              {kinds.map((k) => (
+              {kinds.map((kind) => (
                 <button
-                  key={k}
-                  className={`chip ${filter === k ? "chip-active" : ""}`}
-                  title={KIND_LABELS[k] ?? k}
+                  key={kind}
+                  className={`chip ${filter === kind ? "chip-active" : ""}`}
+                  title={`Show ${KIND_LABELS[kind] ?? kind} notifications`}
                   type="button"
-                  onClick={() => setFilter(k)}
+                  aria-pressed={filter === kind}
+                  onClick={() => setFilter(kind)}
                 >
-                  {KIND_LABELS[k] ?? k}
+                  {KIND_LABELS[kind] ?? kind}
                 </button>
               ))}
             </div>
             <div className="notification-list">
               {filtered.length === 0 ? (
-                <p className="text-muted text-sm notification-empty">No notifications</p>
+                <div className="notification-empty">
+                  <Bell size={18} />
+                  <span>No notifications here</span>
+                </div>
               ) : (
-                filtered.map((n) => (
-                  <div
-                    key={n.id}
-                    className={`notification-item ${n.read ? "notification-read" : ""}`}
-                    title="Click to open"
-                    onClick={() => void handleClick(n)}
+                filtered.map((notification) => (
+                  <button
+                    key={notification.id}
+                    className={`notification-item ${notification.read ? "notification-read" : ""}`}
+                    title={`Open notification: ${notification.title}`}
+                    type="button"
+                    onClick={() => void handleClick(notification)}
                   >
-                    <div className="notification-item-kind">
-                      {KIND_LABELS[n.kind] ?? n.kind}
-                    </div>
-                    <div className="notification-item-title">{n.title}</div>
-                    {n.detail ? (
-                      <div className="notification-item-detail">{n.detail}</div>
+                    <span className="notification-item-heading">
+                      <span
+                        className={`notification-item-dot ${notification.read ? "" : "notification-item-dot-unread"}`}
+                        aria-hidden="true"
+                      />
+                      <span className="notification-item-kind">
+                        {KIND_LABELS[notification.kind] ?? notification.kind}
+                      </span>
+                      <time className="notification-item-time" dateTime={new Date(notification.createdAt).toISOString()}>
+                        {new Date(notification.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </time>
+                    </span>
+                    <span className="notification-item-title">{notification.title}</span>
+                    {notification.detail ? (
+                      <span className="notification-item-detail">{notification.detail}</span>
                     ) : null}
-                    <div className="notification-item-time">
-                      {new Date(n.createdAt).toLocaleTimeString()}
-                    </div>
-                  </div>
+                  </button>
                 ))
               )}
             </div>
-          </div>
+          </section>
         </>
       ) : null}
     </div>

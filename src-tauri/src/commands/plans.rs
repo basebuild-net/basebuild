@@ -68,6 +68,11 @@ pub fn list_plans(session_id: String) -> Result<Vec<Plan>, String> {
 }
 
 #[tauri::command]
+pub fn list_project_plans(project_path: String) -> Result<Vec<Plan>, String> {
+    PlanService::list_for_project(&project_path)
+}
+
+#[tauri::command]
 pub fn get_plan(id: String) -> Result<Option<Plan>, String> {
     PlanService::get(&id)
 }
@@ -107,6 +112,12 @@ pub async fn set_plan_status(app: AppHandle, id: String, status: String) -> Resu
     // draft → openspec: run the generate_openspec pipeline stage to write
     // artifacts atomically, set change_name, and only then flip status. On
     // failure, the plan stays in draft with a surfaced error.
+    //
+    // The stage blocks for the duration of the model calls and the provider
+    // transports use `reqwest::blocking` (which spins up and drops its own
+    // tokio runtime). Running it on this async command's worker thread panics
+    // ("Cannot drop a runtime in a context where blocking is not allowed"),
+    // so the stage runs on the blocking pool where that is permitted.
     if status == PlanStatus::Openspec {
         let plan = PlanService::get(&id)?.ok_or("Plan not found".to_string())?;
         if plan.status != PlanStatus::Openspec {
@@ -122,7 +133,19 @@ pub async fn set_plan_status(app: AppHandle, id: String, status: String) -> Resu
                 input: None,
                 chat_session_id: None,
             };
-            crate::services::pipeline_service::PipelineService::start_stage(&app, request)?;
+            let stage_app = app.clone();
+            let run = tauri::async_runtime::spawn_blocking(move || {
+                crate::services::pipeline_service::PipelineService::start_stage(
+                    &stage_app, request,
+                )
+            })
+            .await
+            .map_err(|e| format!("OpenSpec generation task panicked: {e}"))??;
+            if run.status != "succeeded" {
+                return Err(run.error.unwrap_or_else(|| {
+                    format!("OpenSpec generation did not complete ({})", run.status)
+                }));
+            }
         }
     }
     let plan = PlanService::get(&id)?.ok_or("Plan not found".to_string())?;
