@@ -39,7 +39,7 @@ import { PlanningIndicators, type StageKey } from "./PlanningIndicators";
 import { ToastStack } from "./ToastStack";
 import { useProjectSchematic } from "../../state/schematic";
 import { getLastFocusedProject, revealInExplorer, setLastFocusedProject } from "../../lib/projects";
-import { onPlanRunEvent } from "../../lib/planRuns";
+import { listPlanRuns, onPlanRunEvent } from "../../lib/planRuns";
 import { generateSessionTitle, readSkill } from "../../lib/skills";
 import { getWorkspaceRestoreState, saveWorkspaceRestoreState, type WorkspaceRestoreState } from "../../lib/workspace";
 import { FirstRunModal } from "./FirstRunModal";
@@ -94,7 +94,7 @@ import type { Idea, IdeaCategory } from "../../lib/ideas";
 import { useIdeaState } from "../../state/ideas";
 import type { SessionTab, TabKind } from "../../lib/sessions";
 import { deleteSession } from "../../lib/sessions";
-import { nativeChatStart, nativeChatUpdateSessionModel, renameNativeChatSession } from "../../lib/native-chat";
+import { nativeChatGet, nativeChatStart, nativeChatUpdateSessionModel, renameNativeChatSession } from "../../lib/native-chat";
 import { assignPlanWithProfile, getLaunchProfile, validateReadiness, type LaunchProfile } from "../../lib/planDependencies";
 export type ToolId = "terminal";
 
@@ -1340,24 +1340,69 @@ export function AppShell({ updates }: AppShellProps) {
     [panelGridState.closedPanels, session],
   );
 
+  /** Open a chat session as a visible panel in the grid: focus it when it is
+   *  already surfaced, otherwise insert a new chat panel bound to the
+   *  session. Panels — not backing tabs — are what the workspace renders;
+   *  the old tab-only path changed nothing on screen and left orphaned tabs. */
   const handleOpenChatSession = useCallback(
     async (chatSessionId: string) => {
       if (!session.activeSessionId) return;
-      const existing = session.tabs.find(
-        (t) => t.kind === "chat" && t.chatSessionId === chatSessionId,
-      );
-      if (existing) {
-        session.setActiveTabId(existing.id);
-        return;
+      // Resolve a human title for the panel; fall back to the session id tail.
+      let title = `Chat ${chatSessionId.slice(-6)}`;
+      try {
+        const chat = await nativeChatGet(chatSessionId);
+        if (chat?.title) title = chat.title;
+      } catch {
+        // Title lookup is cosmetic — keep the fallback.
       }
-      // Create a new chat tab and link it to the chat session.
-      await session.createTab("chat", `Plan Run`);
-      const newTab = session.tabs[session.tabs.length - 1];
-      if (newTab) {
-        await session.setTabChatSession(newTab.id, chatSessionId);
+      setPanelGridState((prev) => {
+        const existingPanel = flattenPanels(prev.root).find((p) => p.chatSessionId === chatSessionId);
+        if (existingPanel) {
+          return prev.activePanelId === existingPanel.id ? prev : { ...prev, activePanelId: existingPanel.id };
+        }
+        const newPanel: Panel = {
+          id: chatSessionId,
+          type: "chat",
+          title,
+          chatSessionId,
+          terminalId: null,
+          filePath: null,
+        };
+        const result = insertPanel(prev, newPanel, { side: "right", anchorId: prev.activePanelId });
+        if (!result.ok) {
+          addLog("error", "Chat panel creation failed", result.reason);
+          return prev;
+        }
+        return { ...result.state, activePanelId: newPanel.id };
+      });
+    },
+    [session.activeSessionId, addLog],
+  );
+
+  /** Open the chat hosting a plan's most recent run (running plans first). */
+  const handleOpenPlanRunChat = useCallback(
+    async (plan: Plan) => {
+      if (!session.activeSessionId) return;
+      try {
+        const runs = await listPlanRuns(session.activeSessionId);
+        const candidates = runs
+          .filter((r) => r.planId === plan.id && r.chatSessionId)
+          .sort((a, b) => {
+            const activeA = a.status === "running" || a.status === "pending" ? 1 : 0;
+            const activeB = b.status === "running" || b.status === "pending" ? 1 : 0;
+            return activeB - activeA || b.createdAt - a.createdAt;
+          });
+        const run = candidates[0];
+        if (!run?.chatSessionId) {
+          handleShowToast("No run chat", `#${plan.referenceId} has no chat session bound to a run yet.`, "info");
+          return;
+        }
+        await handleOpenChatSession(run.chatSessionId);
+      } catch (e) {
+        handleShowToast("Could not open run chat", e instanceof Error ? e.message : String(e), "error");
       }
     },
-    [session],
+    [session.activeSessionId, handleOpenChatSession, handleShowToast],
   );
 
   const handleOpenFileInTab = useCallback(
@@ -1530,6 +1575,7 @@ export function AppShell({ updates }: AppShellProps) {
                   void plans.setPlanStatus(planId, "finished");
                 }}
                 onOpenPlan={handleFocusPlan}
+                onOpenRunChat={(p: Plan) => void handleOpenPlanRunChat(p)}
                 onAssignPlan={handleQuickAssignPlan}
                 onApprovePlan={handleApprovePlan}
                 onRedoPlan={handleRedoPlan}
@@ -1720,6 +1766,7 @@ export function AppShell({ updates }: AppShellProps) {
           onCopyReference={handleCopyReference}
           onOpenInTerminal={handleOpenPlanInTerminal}
           onSetContext={(id, ctx: PlanFocusContext) => void plans.setPlanContext(id, ctx)}
+          onOpenRunChat={(p) => void handleOpenPlanRunChat(p)}
         />
       </Suspense>
       <Suspense fallback={<ModalLoading />}>

@@ -60,6 +60,8 @@ type PlanningIndicatorsProps = {
   onPromoteIdeas: (ids: string[]) => Promise<void>;
   /** Open a plan's focus/detail view. */
   onOpenPlan: (plan: Plan) => void;
+  /** Open the chat where an agent is working this (running) plan. */
+  onOpenRunChat: (plan: Plan) => void;
   /** Apply a ready plan to a chat session. */
   onAssignPlan: (plan: Plan) => void;
   /** Approve an openspec plan (validate, then mark ready). May return a
@@ -87,6 +89,7 @@ export function PlanningIndicators({
   onDeleteIdea,
   onPromoteIdeas,
   onOpenPlan,
+  onOpenRunChat,
   onAssignPlan,
   onApprovePlan,
   onRedoPlan,
@@ -179,6 +182,7 @@ export function PlanningIndicators({
           onDeleteIdea={onDeleteIdea}
           onPromoteIdeas={onPromoteIdeas}
           onOpenPlan={(plan) => { onOpenPlan(plan); closeDropdown(); }}
+          onOpenRunChat={(plan) => { onOpenRunChat(plan); closeDropdown(); }}
           onAssignPlan={(plan) => { onAssignPlan(plan); closeDropdown(); }}
           onApprovePlan={onApprovePlan}
           onRedoPlan={onRedoPlan}
@@ -216,6 +220,7 @@ type DropdownProps = {
   onDeleteIdea: (id: string) => Promise<void>;
   onPromoteIdeas: (ids: string[]) => Promise<void>;
   onOpenPlan: (plan: Plan) => void;
+  onOpenRunChat: (plan: Plan) => void;
   onAssignPlan: (plan: Plan) => void;
   onApprovePlan: (plan: Plan) => void | Promise<unknown>;
   onRedoPlan: (plan: Plan) => void | Promise<unknown>;
@@ -239,6 +244,7 @@ function NotificationDropdown({
   onDeleteIdea,
   onPromoteIdeas,
   onOpenPlan,
+  onOpenRunChat,
   onAssignPlan,
   onApprovePlan,
   onRedoPlan,
@@ -290,6 +296,7 @@ function NotificationDropdown({
             plans={plans}
             filter={(p) => p.status !== "running" && p.status !== "finished" && p.status !== "cancelled"}
             onOpenPlan={onOpenPlan}
+            onOpenRunChat={onOpenRunChat}
             onAssignPlan={onAssignPlan}
             onApprovePlan={onApprovePlan}
             onRedoPlan={onRedoPlan}
@@ -300,6 +307,7 @@ function NotificationDropdown({
             plans={plans}
             filter={(p) => p.status === "running"}
             onOpenPlan={onOpenPlan}
+            onOpenRunChat={onOpenRunChat}
             onAssignPlan={onAssignPlan}
             onApprovePlan={onApprovePlan}
             onRedoPlan={onRedoPlan}
@@ -779,6 +787,7 @@ function PlanItems({
   plans,
   filter,
   onOpenPlan,
+  onOpenRunChat,
   onAssignPlan,
   onApprovePlan,
   onRedoPlan,
@@ -787,6 +796,7 @@ function PlanItems({
   plans: Plan[];
   filter: (p: Plan) => boolean;
   onOpenPlan: (plan: Plan) => void;
+  onOpenRunChat: (plan: Plan) => void;
   onAssignPlan: (plan: Plan) => void;
   onApprovePlan: (plan: Plan) => void | Promise<unknown>;
   onRedoPlan: (plan: Plan) => void | Promise<unknown>;
@@ -818,8 +828,12 @@ function PlanItems({
           <button
             type="button"
             className="planning-notification-item-open"
-            title={`View plan #${plan.referenceId} ${plan.title}`}
-            onClick={() => onOpenPlan(plan)}
+            title={
+              plan.status === "running"
+                ? `Open the chat where the agent is working #${plan.referenceId}`
+                : `View plan #${plan.referenceId} ${plan.title}`
+            }
+            onClick={() => (plan.status === "running" ? onOpenRunChat(plan) : onOpenPlan(plan))}
           >
             <span className="planning-notification-item-dot" />
             <span className="planning-notification-item-text">#{plan.referenceId} {plan.title}</span>

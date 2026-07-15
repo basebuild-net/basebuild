@@ -6,6 +6,7 @@ import {
   pipelineListRuns,
   type PipelineRun,
 } from "../../lib/pipeline";
+import { cancelPlanRun, listPlanRuns, type PlanRun } from "../../lib/planRuns";
 import { usePlanningEvents } from "../../state/planningEvents";
 import type { Plan } from "../../lib/plans";
 
@@ -46,20 +47,22 @@ export type BackgroundAgentsProps = {
  */
 export function BackgroundAgents({ sessionId, plans, onOpenChatSession }: BackgroundAgentsProps) {
   const [runs, setRuns] = useState<PipelineRun[]>([]);
+  const [planRuns, setPlanRuns] = useState<PlanRun[]>([]);
   const [open, setOpen] = useState(false);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
 
   const refresh = useCallback(async () => {
     if (!sessionId) {
       setRuns([]);
+      setPlanRuns([]);
       return;
     }
-    try {
-      setRuns(await pipelineListRuns(sessionId));
-    } catch {
-      // Backend without pipeline support (e.g. mocked e2e) — show nothing.
-      setRuns([]);
-    }
+    const [pipeline, plan] = await Promise.all([
+      pipelineListRuns(sessionId).catch(() => [] as PipelineRun[]),
+      listPlanRuns(sessionId).catch(() => [] as PlanRun[]),
+    ]);
+    setRuns(pipeline);
+    setPlanRuns(plan);
   }, [sessionId]);
 
   useEffect(() => {
@@ -71,6 +74,11 @@ export function BackgroundAgents({ sessionId, plans, onOpenChatSession }: Backgr
     () => runs.filter((r) => !isTerminalRunStatus(r.status)),
     [runs],
   );
+  const activePlanRuns = useMemo(
+    () => planRuns.filter((r) => r.status === "running" || r.status === "pending"),
+    [planRuns],
+  );
+  const activeCount = active.length + activePlanRuns.length;
   const recent = useMemo(
     () => runs.filter((r) => isTerminalRunStatus(r.status)).slice(0, RECENT_LIMIT),
     [runs],
@@ -79,24 +87,41 @@ export function BackgroundAgents({ sessionId, plans, onOpenChatSession }: Backgr
   // Elapsed ticker + poll while agents are active (planning events only fire
   // on stage transitions, not during a long model call).
   useEffect(() => {
-    if (active.length === 0) return;
+    if (activeCount === 0) return;
     const tick = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
     const poll = setInterval(() => void refresh(), 5000);
     return () => {
       clearInterval(tick);
       clearInterval(poll);
     };
-  }, [active.length, refresh]);
+  }, [activeCount, refresh]);
+
+  const planTitle = useCallback(
+    (planId: string): string => {
+      const plan = plans.find((p) => p.id === planId);
+      return plan ? `#${plan.referenceId} ${plan.title}` : "";
+    },
+    [plans],
+  );
+
+  const handleCancelPlanRun = useCallback(async (runId: string) => {
+    try {
+      await cancelPlanRun(runId, false);
+    } catch {
+      // Run already finished — refresh reflects the final state.
+    }
+    void refresh();
+  }, [refresh]);
 
   const targetTitle = useCallback(
     (run: PipelineRun): string => {
       if (run.planId) {
-        const plan = plans.find((p) => p.id === run.planId);
-        if (plan) return `#${plan.referenceId} ${plan.title}`;
+        const title = planTitle(run.planId);
+        if (title) return title;
       }
       return run.inputSummary || "";
     },
-    [plans],
+    [planTitle],
   );
 
   const handleCancel = useCallback(async (runId: string) => {
@@ -113,13 +138,13 @@ export function BackgroundAgents({ sessionId, plans, onOpenChatSession }: Backgr
   return (
     <div className="bg-agents-wrap">
       <button
-        className={`btn-icon bg-agents-btn${active.length > 0 ? " is-active" : ""}`}
+        className={`btn-icon bg-agents-btn${activeCount > 0 ? " is-active" : ""}`}
         type="button"
         aria-expanded={open}
         aria-haspopup="dialog"
         title={
-          active.length > 0
-            ? `${active.length} background agent${active.length === 1 ? "" : "s"} running`
+          activeCount > 0
+            ? `${activeCount} background agent${activeCount === 1 ? "" : "s"} running`
             : "Background agents"
         }
         onClick={() => {
@@ -128,7 +153,7 @@ export function BackgroundAgents({ sessionId, plans, onOpenChatSession }: Backgr
         }}
       >
         <Bot size={14} />
-        {active.length > 0 ? <span className="bg-agents-badge">{active.length}</span> : null}
+        {activeCount > 0 ? <span className="bg-agents-badge">{activeCount}</span> : null}
       </button>
       {open ? (
         <>
@@ -139,8 +164,8 @@ export function BackgroundAgents({ sessionId, plans, onOpenChatSession }: Backgr
               <div className="bg-agents-heading">
                 <span className="bg-agents-title">Background agents</span>
                 <span className="bg-agents-summary">
-                  {active.length > 0
-                    ? `${active.length} running`
+                  {activeCount > 0
+                    ? `${activeCount} running`
                     : "Nothing running"}
                 </span>
               </div>
@@ -149,12 +174,52 @@ export function BackgroundAgents({ sessionId, plans, onOpenChatSession }: Backgr
               </button>
             </div>
             <div className="bg-agents-list">
-              {active.length === 0 && recent.length === 0 ? (
+              {activeCount === 0 && recent.length === 0 ? (
                 <div className="bg-agents-empty">
-                  No background agents yet. Generating ideas or preparing an
-                  OpenSpec plan shows up here.
+                  No background agents yet. Generating ideas, preparing an
+                  OpenSpec plan, or running an assigned plan shows up here.
                 </div>
               ) : null}
+              {activePlanRuns.map((run) => (
+                <div key={run.id} className="bg-agents-item is-running">
+                  <Loader2 size={12} className="bg-agents-item-icon is-spinning" />
+                  <div className="bg-agents-item-body">
+                    <span className="bg-agents-item-kind">Working on plan</span>
+                    {planTitle(run.planId) ? (
+                      <span className="bg-agents-item-target" title={planTitle(run.planId)}>
+                        {planTitle(run.planId)}
+                      </span>
+                    ) : null}
+                    <span className="bg-agents-item-meta">
+                      <span className="bg-agents-model" title={`Runner: ${run.runnerKind}`}>{run.runnerKind}</span>
+                      <span className="bg-agents-elapsed">
+                        {formatDuration(run.startedAt ?? Math.floor(run.createdAt), now)}
+                      </span>
+                    </span>
+                  </div>
+                  {run.chatSessionId && onOpenChatSession ? (
+                    <button
+                      className="btn-icon btn-icon-sm"
+                      type="button"
+                      title="Open the chat where this agent works the plan"
+                      onClick={() => {
+                        setOpen(false);
+                        onOpenChatSession(run.chatSessionId!);
+                      }}
+                    >
+                      <ExternalLink size={11} />
+                    </button>
+                  ) : null}
+                  <button
+                    className="btn-icon btn-icon-sm bg-agents-cancel"
+                    type="button"
+                    title="Cancel this plan run"
+                    onClick={() => void handleCancelPlanRun(run.id)}
+                  >
+                    <X size={11} />
+                  </button>
+                </div>
+              ))}
               {active.map((run) => (
                 <div key={run.id} className="bg-agents-item is-running">
                   <Loader2 size={12} className="bg-agents-item-icon is-spinning" />
