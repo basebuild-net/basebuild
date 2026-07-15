@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { FolderTree, LayoutGrid, Plus, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
+import { FolderTree, LayoutGrid, Loader2, Plus, RefreshCw, Rocket, Sparkles, Trash2, X } from "lucide-react";
 import type { Plan, PlanStatus } from "../../lib/plans";
 import { isTerminalStatus } from "../../lib/plans";
 import { batchPromoteIdeas } from "../../lib/plans";
@@ -10,7 +10,6 @@ import { PlanningCommandCenter } from "./PlanningCommandCenter";
 import { IntegrationQueue } from "../panels/IntegrationQueue";
 import { ChangesPanel } from "../panels/ChangesPanel";
 import { CompletionCard } from "../panels/CompletionCard";
-import { IdeaRoundsSection } from "./IdeaRoundsSection";
 import { MissionControlBoard } from "./MissionControlBoard";
 import type { PlanRun, FinishOutcome } from "../../lib/planRuns";
 import { useIdeaState } from "../../state/ideas";
@@ -82,14 +81,12 @@ type PlanningInspectorProps = {
   onCopyReference: (refId: string) => void;
   onOpenInTerminal: (plan: Plan) => void;
   onOpenChatSession: (chatSessionId: string) => void;
-  onPromoteIdea?: (title: string, description: string, chatSessionId: string | null) => Promise<void> | void;
   onSuggestForCategory?: (category: IdeaCategory | null) => void;
   onGenerateFromFinishedPlans?: () => void;
   onStartIdeaRound?: () => void;
   onGenerateCategories?: () => void;
   /** Open grid panels (panel id ↔ chat session id) for mission control. */
   chatPanels?: { panelId: string; chatSessionId: string | null }[];
-  activeChatSessionId?: string | null;
   showHeader?: boolean;
   hostContext?: "dock" | "modal";
   onAssignPlan?: (plan: Plan, profile: LaunchProfile) => void;
@@ -119,13 +116,11 @@ export function PlanningInspector({
   onCopyReference,
   onOpenInTerminal,
   onOpenChatSession,
-  onPromoteIdea,
   onSuggestForCategory,
   onGenerateFromFinishedPlans,
   onStartIdeaRound,
   onGenerateCategories,
   chatPanels,
-  activeChatSessionId,
   showHeader = true,
   hostContext = "dock",
   onAssignPlan,
@@ -141,6 +136,7 @@ export function PlanningInspector({
   const [newCategoryDesc, setNewCategoryDesc] = useState("");
   const [selectedIdeaIds, setSelectedIdeaIds] = useState<Set<string>>(new Set());
   const [batchResult, setBatchResult] = useState<string | null>(null);
+  const [promotingIdeaId, setPromotingIdeaId] = useState<string | null>(null);
   const [planRuns, setPlanRuns] = useState<PlanRun[]>([]);
   const [completionDismissed, setCompletionDismissed] = useState<Set<string>>(new Set());
   const [finishOutcomes, setFinishOutcomes] = useState<Map<string, FinishOutcome>>(new Map());
@@ -290,16 +286,63 @@ export function PlanningInspector({
     setLaunchConfirmOpen(false);
   }, [plans]);
 
+  const prepareOpenSpecPlans = useCallback(
+    (createdPlans: Plan[]) => {
+      if (createdPlans.length === 0) return;
+      setTab("plans");
+      onShowToast?.(
+        createdPlans.length === 1 ? "Getting plan ready" : `Getting ${createdPlans.length} plans ready`,
+        "OpenSpec is generating the proposal, specs, design, and tasks.",
+        "info",
+      );
+      const preparations = createdPlans.map((plan) => (
+        Promise.resolve()
+          .then(() => onSetPlanStatus(plan.id, "openspec"))
+      ));
+      void Promise.allSettled(preparations).then((results) => {
+        const failed = results.filter((result) => result.status === "rejected");
+        if (failed.length > 0) {
+          const first = failed[0] as PromiseRejectedResult;
+          const message = first.reason instanceof Error ? first.reason.message : String(first.reason);
+          onShowToast?.(
+            `${failed.length} plan${failed.length === 1 ? "" : "s"} could not be prepared`,
+            message,
+            "error",
+          );
+        } else {
+          onShowToast?.(
+            createdPlans.length === 1 ? "OpenSpec plan ready" : `${createdPlans.length} OpenSpec plans ready`,
+            "Review the generated artifacts, then approve the plans for execution.",
+            "success",
+          );
+        }
+      });
+    },
+    [onSetPlanStatus, onShowToast],
+  );
+
   const handlePromoteIdea = useCallback(
     async (idea: { id: string; title: string; description: string }) => {
+      if (!sessionId) return;
+      setPromotingIdeaId(idea.id);
       try {
-        await onPromoteIdea?.(idea.title, idea.description, activeChatSessionId ?? null);
-        await ideaState.updateIdeaStatus(idea.id, "picked");
+        const result = await batchPromoteIdeas(sessionId, [idea.id]);
+        const created = result.created[0];
+        if (!created) {
+          throw new Error(result.errors[0]?.error ?? "The idea could not be promoted.");
+        }
+        await ideaState.refresh();
+        setTab("plans");
+        prepareOpenSpecPlans([created]);
       } catch (e) {
-        addLog("error", "Failed to promote idea", e instanceof Error ? e.message : String(e));
+        const message = e instanceof Error ? e.message : String(e);
+        addLog("error", "Failed to promote idea", message);
+        onShowToast?.("Could not prepare plan", message, "error");
+      } finally {
+        setPromotingIdeaId(null);
       }
     },
-    [onPromoteIdea, ideaState, addLog, activeChatSessionId],
+    [sessionId, ideaState, prepareOpenSpecPlans, addLog, onShowToast],
   );
 
   const handleBatchPromote = useCallback(async () => {
@@ -310,24 +353,24 @@ export function PlanningInspector({
       const result = await batchPromoteIdeas(sessionId, ideaIds);
       const createdCount = result.created.length;
       const errorCount = result.errors.length;
-      if (errorCount > 0) {
-        setBatchResult(`Promoted ${createdCount} plan(s); ${errorCount} failed.`);
-        addLog("warn", "Batch promote partial failure", `${createdCount} ok, ${errorCount} failed`);
-      } else {
-        setBatchResult(`Promoted ${createdCount} plan(s).`);
-      }
-      // Mark successfully promoted ideas as picked so counts refresh.
-      const pickedIds = new Set(result.created.map((p) => p.ideaId).filter((id): id is string => !!id));
-      await Promise.all(
-        Array.from(pickedIds).map((id) => ideaState.updateIdeaStatus(id, "picked")),
+      setBatchResult(
+        errorCount > 0
+          ? `${createdCount} plan${createdCount === 1 ? "" : "s"} preparing; ${errorCount} failed.`
+          : `Preparing ${createdCount} OpenSpec plan${createdCount === 1 ? "" : "s"}…`,
       );
+      if (errorCount > 0) {
+        addLog("warn", "Batch promote partial failure", `${createdCount} ok, ${errorCount} failed`);
+      }
       setSelectedIdeaIds(new Set());
-      void ideaState.refresh();
+      await ideaState.refresh();
+      if (result.created.length > 0) setTab("plans");
+      prepareOpenSpecPlans(result.created);
     } catch (e) {
-      addLog("error", "Batch promote failed", e instanceof Error ? e.message : String(e));
-      setBatchResult(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      const message = e instanceof Error ? e.message : String(e);
+      addLog("error", "Batch promote failed", message);
+      setBatchResult(`Error: ${message}`);
     }
-  }, [sessionId, selectedIdeaIds, ideaState, addLog]);
+  }, [sessionId, selectedIdeaIds, ideaState, addLog, prepareOpenSpecPlans]);
 
   const handleRejectSelected = useCallback(async () => {
     if (selectedIdeaIds.size === 0) return;
@@ -989,25 +1032,6 @@ export function PlanningInspector({
             </div>
           ) : null}
           {batchResult ? <p className="text-sm text-muted">{batchResult}</p> : null}
-          <IdeaRoundsSection
-            sessionId={sessionId}
-            ideas={ideaState.ideas}
-            onStartRound={() => onStartIdeaRound?.()}
-            onDeployed={(createdCount, failed) => {
-              void ideaState.refresh();
-              setTab("plans");
-              if (failed.length > 0) {
-                onShowToast?.(
-                  `${createdCount} plan(s) created, ${failed.length} failed`,
-                  failed.map((f) => `${f.ideaId}: ${f.error}`).join("; "),
-                  "warning",
-                );
-              } else {
-                onShowToast?.(`${createdCount} plan(s) created`, "Run them through OpenSpec to reach ready, then launch into chats.", "success");
-              }
-            }}
-            onShowToast={onShowToast}
-          />
           <div className="inspector-ideas-list">
             {filteredIdeas.length === 0 ? (
               <div className="inspector-ideas-empty">
@@ -1047,20 +1071,23 @@ export function PlanningInspector({
                   {idea.status === "concept" ? (
                     <div className="chat-idea-card-actions">
                       <button
-                        className="btn btn-sm"
+                        className="btn btn-sm btn-primary"
                         type="button"
-                        title="Promote this idea into the plan pipeline"
+                        title={`Create and prepare an OpenSpec plan for ${idea.title}`}
+                        disabled={promotingIdeaId === idea.id}
                         onClick={() => void handlePromoteIdea(idea)}
                       >
-                        Promote
+                        {promotingIdeaId === idea.id ? <Loader2 size={11} className="is-spinning" /> : <Rocket size={11} />}
+                        {promotingIdeaId === idea.id ? "Getting plan ready…" : "Make plan"}
                       </button>
                       <button
                         className="btn btn-sm"
                         type="button"
-                        title="Reject this idea"
+                        title={`Reject ${idea.title}`}
+                        disabled={promotingIdeaId === idea.id}
                         onClick={() => void ideaState.rejectIdea(idea.id)}
                       >
-                        Reject
+                        Pass
                       </button>
                     </div>
                   ) : (
@@ -1070,20 +1097,14 @@ export function PlanningInspector({
                   )}
                 </div>
                 {idea.description ? <p className="chat-idea-desc">{idea.description}</p> : null}
-                {idea.grounding ? (
-                  <p className="idea-card-desc idea-grounding" title="Concrete evidence justifying this idea">
-                    <strong>Grounding:</strong> {idea.grounding}
-                  </p>
+                {(idea.anchor || idea.grounding) ? (
+                  <span
+                    className="idea-card-evidence"
+                    title={idea.grounding || "Grounded in the project schematic"}
+                  >
+                    {idea.anchor || "Project grounded"}
+                  </span>
                 ) : null}
-                {idea.anchor ? (
-                  <p className="idea-card-desc idea-anchor" title="Schematic element this idea serves">
-                    <strong>Anchor:</strong> {idea.anchor}
-                  </p>
-                ) : (
-                  <p className="idea-card-desc idea-outside-focus" title="No schematic anchor — outside current focus">
-                    outside current focus
-                  </p>
-                )}
                 <button
                   className="btn-icon btn-icon-sm"
                   title="Delete this idea"

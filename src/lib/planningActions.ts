@@ -112,6 +112,7 @@ export function generateIdeaRoundAction(
       ? "Distribute the ideas across the selected categories. When calling propose_ideas, use the matching category id for each group."
       : "",
     freeformDirection?.trim() ? `User direction: ${freeformDirection.trim()}` : "",
+    "Use plain 2-5 word, verb-first titles. Put the concrete target and reason in one concise description sentence.",
     "Return the strongest ideas first. Do not repeat existing ideas or plans.",
   ].filter(Boolean).join("\n");
   return {

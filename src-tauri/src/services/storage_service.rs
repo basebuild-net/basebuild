@@ -13,7 +13,7 @@ pub struct StorageService;
 // Increment whenever `initialize` gains a schema-changing migration. Existing
 // databases run the idempotent initializer once per version; current databases
 // skip its ~50 table/column probes entirely on normal launches.
-const CURRENT_SCHEMA_VERSION: i64 = 1;
+const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
@@ -1521,6 +1521,33 @@ mod tests {
             .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
             .unwrap();
         assert_eq!(timeout, 5000);
+        let schema_version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(schema_version, CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn connect_upgrades_version_one_database_with_plan_archives() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let db_path = StorageService::state_db_path().unwrap();
+        let seeded = Connection::open(&db_path).unwrap();
+        seeded.pragma_update(None, "user_version", 1).unwrap();
+        drop(seeded);
+
+        let conn = StorageService::connect().unwrap();
+        let table_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'plan_archives'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            table_count, 1,
+            "version one databases must receive plan_archives"
+        );
         let schema_version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();

@@ -1373,6 +1373,8 @@ impl NativeChatService {
              Invocation rules:\n\
              - Start by using native read/list/search tools on the project. Never say you will read files without making the tool calls in that same turn.\n\
              - Capture exactly {idea_count} distinct ideas through propose_ideas. Use the matching category id when a focus area is selected.\n\
+             - Give every idea a plain, verb-first title of 2-5 words. Keep implementation detail and file names out of titles.\n\
+             - Write one concise description sentence naming the concrete target and user-visible reason. Put supporting file/function evidence in grounding.\n\
              - Every idea needs concrete grounding and, when possible, a repository anchor.\n\
              - Do not print the generated idea catalog as a wall of prose; the native tool renders it in Idea Studio.\n\
              - After capture, reply with one short completion sentence.",

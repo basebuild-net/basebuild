@@ -36,6 +36,7 @@ import {
   Lightbulb,
   Loader2,
   RefreshCw,
+  Rocket,
   Send,
   Sparkles,
   Square,
@@ -147,8 +148,8 @@ type ChatPanelProps = {
   activeSessionId?: string | null;
   /** Project schematic content, sent to the provider for idea generation. */
   schematicContent?: string | null;
-  /** Promote a generated idea into the plan pipeline (owned by AppShell). */
-  onCreatePlanFromIdea?: (title: string, description: string, chatSessionId: string | null) => Promise<void> | void;
+  /** Promote a generated idea and start preparing its OpenSpec plan. */
+  onCreatePlanFromIdea?: (idea: Idea, chatSessionId: string | null) => Promise<void> | void;
   /** Open the planning inspector (side panel). */
   onOpenPlanningInspector?: () => void;
   /** Open the schematic tab (focus or create). */
@@ -247,7 +248,155 @@ function UserMessageContent({
 // expanded as the event updates from pending → running → success.
 const toolCardExpanded = new Map<string, boolean>();
 
-function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode }: { event: NativeToolEvent; onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void; debugMode?: boolean; onSetApprovalMode?: (mode: "safe" | "balanced" | "auto") => void; }) {
+type ProposedIdea = {
+  title: string;
+  description: string;
+  grounding?: string;
+  anchor?: string;
+};
+
+function IdeaProposalCard({
+  event,
+  parsedArgs,
+  ideas,
+  showContinue,
+  onPromote,
+  onReject,
+  onContinue,
+}: {
+  event: NativeToolEvent;
+  parsedArgs: Record<string, unknown>;
+  ideas: Idea[];
+  showContinue: boolean;
+  onPromote?: (idea: Idea) => Promise<void>;
+  onReject?: (idea: Idea) => Promise<void>;
+  onContinue?: (categoryId: string | null) => void;
+}) {
+  const [busyIdeaId, setBusyIdeaId] = useState<string | null>(null);
+  const proposals = Array.isArray(parsedArgs.ideas)
+    ? parsedArgs.ideas.filter((value): value is ProposedIdea => (
+        typeof value === "object"
+        && value !== null
+        && typeof (value as ProposedIdea).title === "string"
+        && typeof (value as ProposedIdea).description === "string"
+      ))
+    : [];
+  const categoryId = typeof parsedArgs.categoryId === "string" ? parsedArgs.categoryId : null;
+  const isRunning = event.status === "running" || event.status === "pending";
+
+  const runAction = async (idea: Idea, action: "promote" | "reject") => {
+    setBusyIdeaId(idea.id);
+    try {
+      if (action === "promote") await onPromote?.(idea);
+      else await onReject?.(idea);
+    } finally {
+      setBusyIdeaId(null);
+    }
+  };
+
+  return (
+    <section
+      className="chat-idea-proposal"
+      data-tool-id={event.id}
+      aria-label={`${proposals.length} generated idea${proposals.length === 1 ? "" : "s"}`}
+      title="Generated ideas are saved to this project's Idea Studio"
+    >
+      <header className="chat-idea-proposal-header">
+        <span className="chat-idea-proposal-icon" aria-hidden="true"><Lightbulb size={14} /></span>
+        <div>
+          <strong>{isRunning ? "Finding useful ideas…" : "Ideas for this project"}</strong>
+          <span>{isRunning ? "New options appear as the model finds them." : "Pick what is worth planning. Pass on the rest."}</span>
+        </div>
+        {isRunning ? <Loader2 size={13} className="is-spinning" /> : <span className="badge">{proposals.length}</span>}
+      </header>
+
+      <div className="chat-idea-proposal-list">
+        {proposals.map((proposal, index) => {
+          const idea = ideas.find((candidate) => (
+            candidate.title === proposal.title
+            && candidate.description === proposal.description
+          )) ?? ideas.find((candidate) => candidate.title === proposal.title);
+          const busy = idea ? busyIdeaId === idea.id : false;
+          return (
+            <article className="chat-idea-proposal-item" key={`${proposal.title}-${index}`} title={proposal.grounding || proposal.description}>
+              <div className="chat-idea-proposal-copy">
+                <h4>{proposal.title}</h4>
+                <p>{proposal.description}</p>
+                {proposal.anchor ? <span className="chat-idea-anchor">{proposal.anchor}</span> : null}
+              </div>
+              <div className="chat-idea-proposal-actions">
+                {idea?.status === "concept" ? (
+                  <>
+                    <button
+                      className="btn btn-sm btn-primary"
+                      type="button"
+                      title={`Create and prepare an OpenSpec plan for ${proposal.title}`}
+                      disabled={busy}
+                      onClick={() => void runAction(idea, "promote")}
+                    >
+                      {busy ? <Loader2 size={11} className="is-spinning" /> : <Rocket size={11} />}
+                      {busy ? "Getting plan ready…" : "Make plan"}
+                    </button>
+                    <button
+                      className="btn btn-sm chat-idea-pass"
+                      type="button"
+                      title={`Reject ${proposal.title}`}
+                      disabled={busy}
+                      onClick={() => void runAction(idea, "reject")}
+                    >
+                      Pass
+                    </button>
+                  </>
+                ) : idea ? (
+                  <span className={`chat-idea-result is-${idea.status}`}>
+                    {idea.status === "picked" ? "Getting plan ready" : idea.status === "rejected" ? "Passed" : idea.status}
+                  </span>
+                ) : (
+                  <span className="chat-idea-result">{isRunning ? "Saving…" : "Unavailable"}</span>
+                )}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+
+      {showContinue && !isRunning ? (
+        <footer className="chat-idea-proposal-footer">
+          <button
+            className="btn btn-sm"
+            type="button"
+            title="Generate another set of simple ideas in this chat"
+            onClick={() => onContinue?.(categoryId)}
+          >
+            <Sparkles size={11} /> More ideas
+          </button>
+        </footer>
+      ) : null}
+    </section>
+  );
+}
+
+function ToolEventCard({
+  event,
+  onResolveApproval,
+  debugMode,
+  onSetApprovalMode,
+  ideas = [],
+  showIdeaContinue = false,
+  onPromoteIdea,
+  onRejectIdea,
+  onContinueIdeas,
+}: {
+  event: NativeToolEvent;
+  onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void;
+  debugMode?: boolean;
+  onSetApprovalMode?: (mode: "safe" | "balanced" | "auto") => void;
+  ideas?: Idea[];
+  showIdeaContinue?: boolean;
+  onPromoteIdea?: (idea: Idea) => Promise<void>;
+  onRejectIdea?: (idea: Idea) => Promise<void>;
+  onContinueIdeas?: (categoryId: string | null) => void;
+}) {
   const [expanded, setExpanded] = useState(() => toolCardExpanded.get(event.id) ?? false);
   const toggleExpanded = useCallback(() => {
     setExpanded((prev) => {
@@ -289,6 +438,26 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
       return null;
     }
   })();
+
+  if (
+    event.kind === "propose_ideas"
+    && parsedArgs
+    && typeof parsedArgs === "object"
+    && !Array.isArray(parsedArgs)
+    && Array.isArray((parsedArgs as Record<string, unknown>).ideas)
+  ) {
+    return (
+      <IdeaProposalCard
+        event={event}
+        parsedArgs={parsedArgs as Record<string, unknown>}
+        ideas={ideas}
+        showContinue={showIdeaContinue}
+        onPromote={onPromoteIdea}
+        onReject={onRejectIdea}
+        onContinue={onContinueIdeas}
+      />
+    );
+  }
 
   // Extract key fields from parsed args depending on tool kind.
   const argDisplay = (() => {
@@ -566,6 +735,8 @@ export function ChatPanel({
   }, [showPlanningMenu, projectPath]);
   const { addLog } = useLogs();
   const ideaState = useIdeaState(activeSessionId ?? null);
+  const ideaRefreshRef = useRef(ideaState.refresh);
+  ideaRefreshRef.current = ideaState.refresh;
 
   const filteredModels = useMemo(() => {
     const models = catalog?.models.filter((m) => m.providerId === providerId) ?? [];
@@ -951,6 +1122,13 @@ export function ChatPanel({
           createdAt: Math.floor(Date.now() / 1000),
         }];
       });
+      if (
+        event.payload.toolName === "propose_ideas"
+        && event.payload.status !== "running"
+        && event.payload.status !== "pending"
+      ) {
+        void ideaRefreshRef.current();
+      }
     });
     const unlistenApproval = listen<{
       sessionId: string;
@@ -2183,13 +2361,32 @@ export function ChatPanel({
   const handlePromoteIdea = useCallback(
     async (idea: Idea) => {
       try {
-        await onCreatePlanFromIdea?.(idea.title, idea.description, nativeSessionId);
-        await ideaState.updateIdeaStatus(idea.id, "picked");
+        if (!onCreatePlanFromIdea) {
+          throw new Error("Plan promotion is unavailable in this chat.");
+        }
+        await onCreatePlanFromIdea(idea, nativeSessionId);
+        await ideaState.refresh();
       } catch (e) {
-        addLog("error", "Failed to promote idea to plan", e instanceof Error ? e.message : String(e));
+        const message = e instanceof Error ? e.message : String(e);
+        addLog("error", "Failed to promote idea to plan", message);
+        onShowToast?.("Could not prepare plan", message, "error");
+        throw e;
       }
     },
-    [onCreatePlanFromIdea, ideaState, addLog, nativeSessionId],
+    [onCreatePlanFromIdea, ideaState, addLog, nativeSessionId, onShowToast],
+  );
+  const handleRejectIdea = useCallback(
+    async (idea: Idea) => {
+      try {
+        await ideaState.rejectIdea(idea.id);
+        onShowToast?.("Idea passed", idea.title, "info");
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        onShowToast?.("Could not reject idea", message, "error");
+        throw e;
+      }
+    },
+    [ideaState, onShowToast],
   );
   // ── Chat header handlers ──
   const handleRename = useCallback((title: string) => {
@@ -2335,6 +2532,10 @@ export function ChatPanel({
                 if (ev.kind === "user") lastUserId = ev.id;
                 if (ev.kind === "assistant") lastAssistantId = ev.id;
               }
+              const lastIdeaToolId = [...events]
+                .reverse()
+                .find((event) => event.kind === "tool" && event.event.kind === "propose_ideas")
+                ?.id ?? null;
 
 
               // Render the flat chronological list — consecutive tool
@@ -2352,6 +2553,15 @@ export function ChatPanel({
                       debugMode={debugMode}
                       onResolveApproval={ev.event.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined}
                       onSetApprovalMode={handleSetApprovalMode}
+                      ideas={ideaState.ideas}
+                      showIdeaContinue={ev.id === lastIdeaToolId}
+                      onPromoteIdea={handlePromoteIdea}
+                      onRejectIdea={handleRejectIdea}
+                      onContinueIdeas={(categoryId) => void generateIdeasRef.current?.({
+                        categoryIds: categoryId ? [categoryId] : [],
+                        ideaCount: 8,
+                        direction: "Find more simple, distinct improvements. Use short titles and do not repeat earlier ideas.",
+                      })}
                     />
                   );
                 } else {
@@ -2364,6 +2574,15 @@ export function ChatPanel({
                           debugMode={debugMode}
                           onResolveApproval={ev.event.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined}
                           onSetApprovalMode={handleSetApprovalMode}
+                          ideas={ideaState.ideas}
+                          showIdeaContinue={ev.id === lastIdeaToolId}
+                          onPromoteIdea={handlePromoteIdea}
+                          onRejectIdea={handleRejectIdea}
+                          onContinueIdeas={(categoryId) => void generateIdeasRef.current?.({
+                            categoryIds: categoryId ? [categoryId] : [],
+                            ideaCount: 8,
+                            direction: "Find more simple, distinct improvements. Use short titles and do not repeat earlier ideas.",
+                          })}
                         />
                       ))}
                     </div>
@@ -2741,45 +2960,6 @@ export function ChatPanel({
         </div>
       ) : null}
 
-      {/* Generated ideas surface */}
-      {nativeMode && ideaState.ideas.length > 0 ? (
-        <div className="chat-ideas">
-          <div className="chat-ideas-header">
-            <Lightbulb size={12} />
-            <span>Ideas ({ideaState.ideas.length})</span>
-          </div>
-          {ideaState.ideas.map((idea) => (
-            <div key={idea.id} className="chat-idea-card">
-              <div className="chat-idea-card-top">
-                <span className="chat-idea-title">{idea.title}</span>
-                {idea.status === "concept" ? (
-                  <div className="chat-idea-card-actions">
-                    <button
-                      className="btn btn-sm"
-                      type="button"
-                      title="Promote this idea into the plan pipeline"
-                      onClick={() => void handlePromoteIdea(idea)}
-                    >
-                      Promote to Plan
-                    </button>
-                    <button
-                      className="btn btn-sm"
-                      type="button"
-                      title="Reject this idea"
-                      onClick={() => void ideaState.rejectIdea(idea.id)}
-                    >
-                      Reject
-                    </button>
-                  </div>
-                ) : (
-                  <span className="chat-idea-status">{idea.status === "picked" ? "Planned" : idea.status === "rejected" ? "Rejected" : idea.status}</span>
-                )}
-              </div>
-              {idea.description ? <p className="chat-idea-desc">{idea.description}</p> : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
       {/* Model default notice (unavailable default fell back) */}
       {nativeMode && modelNotice ? (
         <div className="chat-notice-bar" title={modelNotice}>

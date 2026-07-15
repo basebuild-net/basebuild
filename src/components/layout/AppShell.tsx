@@ -87,8 +87,8 @@ const DebugPanel = lazy(() => import("../panels/DebugPanel").then((m) => ({ defa
 import { useLogs } from "../../state/log";
 import { useAccount } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
-import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
-import type { IdeaCategory } from "../../lib/ideas";
+import { batchPromoteIdeas, type Plan, type NewPlan, type PlanFocusContext } from "../../lib/plans";
+import type { Idea, IdeaCategory } from "../../lib/ideas";
 import { useIdeaState } from "../../state/ideas";
 import type { SessionTab, TabKind } from "../../lib/sessions";
 import { deleteSession } from "../../lib/sessions";
@@ -669,17 +669,32 @@ export function AppShell({ updates }: AppShellProps) {
 
 
   const handleCreatePlanFromIdea = useCallback(
-    async (title: string, description: string, chatSessionId: string | null) => {
-      if (!session.activeSessionId) return;
-      await plans.createPlan({
-        title,
-        description,
-        status: "draft",
-        priority: 50,
-        tags: chatSessionId ? [`chat:${chatSessionId}`] : [],
-      });
+    async (idea: Idea, _chatSessionId: string | null) => {
+      if (!session.activeSessionId) {
+        throw new Error("Open a project before preparing a plan.");
+      }
+      const result = await batchPromoteIdeas(session.activeSessionId, [idea.id]);
+      const created = result.created[0];
+      if (!created) {
+        throw new Error(result.errors[0]?.error ?? "The idea could not be promoted.");
+      }
+
+      await plans.refreshPlans();
+      setPlansModalTab("plans");
+      setPlansModalOpen(true);
+      handleShowToast("Getting plan ready", `${created.referenceId} ${created.title}`, "info");
+
+      void Promise.resolve(plans.setPlanStatus(created.id, "openspec"))
+        .then(() => {
+          handleShowToast("OpenSpec plan ready", `${created.referenceId} ${created.title}`, "success");
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          addLog("error", "OpenSpec plan preparation failed", message);
+          handleShowToast("Plan preparation failed", message, "error");
+        });
     },
-    [plans, session.activeSessionId],
+    [plans, session.activeSessionId, addLog, handleShowToast],
   );
   const openPlanningModal = useCallback((tab: PlanningTab) => {
     addLog("debug", "Planning modal opened", `tab=${tab}`);
@@ -1045,6 +1060,8 @@ export function AppShell({ updates }: AppShellProps) {
             activeSessionId={session.activeSessionId}
             chatSessionId={panel.chatSessionId ?? tab?.chatSessionId ?? null}
             chatTitle={panel.title}
+            schematicContent={schematic.content}
+            onCreatePlanFromIdea={handleCreatePlanFromIdea}
             onChatSessionCreated={(chatSessionId) => {
               addLog("debug", "Chat session created", `panel=${panel.id} chatSessionId=${chatSessionId} tab=${tab?.id ?? "none"}`);
               if (tab) {

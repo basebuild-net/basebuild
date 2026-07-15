@@ -11,25 +11,17 @@ async function startRoundFromFlowBoard(page: Page) {
 async function chooseGuidedSetup(page: Page) {
   const setup = page.getByRole("dialog", { name: "Configure idea round" });
   await expect(setup).toBeVisible({ timeout: 5_000 });
-  await setup.getByRole("button", { name: /Give direction/ }).click();
-  await expect(setup.getByRole("heading", { name: "Give the studio direction" })).toBeVisible();
-  await setup.getByRole("textbox", { name: /What should the ideas focus on/ }).fill("Improve reliability without adding setup burden.");
-  await setup.getByRole("button", { name: "Customize" }).click();
-  const categories = setup.locator(".idea-round-category-option");
-  const count = await categories.count();
-  for (let index = 0; index < Math.min(count, 2); index += 1) {
-    await categories.nth(index).click();
-  }
-  await expect(setup.getByTitle("Current round scope")).toContainText(count > 1 ? "2 categories" : count === 1 ? "1 category" : "Project-wide");
+  await setup.getByRole("button", { name: /Fixes/ }).click();
+  await setup.getByPlaceholder("Example: Keep each idea achievable in one afternoon.").fill("Improve reliability without adding setup burden.");
+  await expect(setup.getByTitle("Current generation scope")).toContainText("1 focus area");
   await setup.getByRole("button", { name: "Choose chat" }).click();
 }
 
 async function chooseAutoGenerate(page: Page) {
   const setup = page.getByRole("dialog", { name: "Configure idea round" });
   await expect(setup).toBeVisible({ timeout: 5_000 });
-  await expect(setup.getByRole("button", { name: /Auto-generate ideas/ })).toBeVisible();
-  await expect(setup.getByRole("button", { name: /Give direction/ })).toBeVisible();
-  await setup.getByRole("button", { name: /Auto-generate ideas/ }).click();
+  await expect(setup.getByRole("button", { name: /Anything useful/ })).toHaveAttribute("aria-pressed", "true");
+  await setup.getByRole("button", { name: "Choose chat" }).click();
 }
 
 /** Seed an idea through the mocked backend (tagged with the active round). */
@@ -94,10 +86,10 @@ test.describe("Idea rounds", () => {
     await gate.getByTitle("Cancel the round").click();
     await expect(gate).not.toBeVisible();
 
-    // No round exists — the planning modal stayed open; switch to Ideas.
+    // No generated ideas exist; the Ideas tab presents one clear empty state.
     const modal = page.locator(".modal-overlay").filter({ hasText: "Plans & Ideas" });
     await modal.locator(".inspector-tab", { hasText: "Ideas" }).click();
-    await expect(modal.locator(".idea-rounds-empty")).toBeVisible({ timeout: 5_000 });
+    await expect(modal.locator(".inspector-ideas-empty")).toContainText("No ideas yet");
   });
 
   test("native skill captures a grounded round and approval creates draft plans", async ({ page }) => {
@@ -132,37 +124,21 @@ test.describe("Idea rounds", () => {
     await expect(page.locator(".tool-card", { hasText: "read file" }).last()).toBeVisible({ timeout: 3_000 });
     await expect(page.locator(".chat-message-assistant").last()).toContainText("Captured 2 grounded ideas", { timeout: 5_000 });
 
-    // Open the round review after the native propose_ideas capture finishes.
+    // Ideas appear directly as readable cards; there is no second round-history wall.
     await openPlanningModal(page);
     const modal = page.locator(".modal-overlay").filter({ hasText: "Plans & Ideas" });
     await modal.locator(".inspector-tab", { hasText: "Ideas" }).click();
+    const ideas = modal.locator(".inspector-ideas-list .chat-idea-card");
+    await expect(ideas).toHaveCount(2, { timeout: 5_000 });
+    await expect(ideas.first()).toContainText(/Improve onboarding|Cache provider catalog/);
+    await expect(modal.locator(".idea-round-row")).toHaveCount(0);
 
-    const roundRow = modal.locator(".idea-round-row").first();
-    await expect(roundRow).toBeVisible({ timeout: 5_000 });
-    await expect(roundRow).toContainText("2 captured");
-    await roundRow.click();
-
-    // Select both ideas and approve them behind the enumerated confirmation.
-    const review = modal.locator(".idea-round-review");
-    await expect(review.locator(".idea-round-idea")).toHaveCount(2);
-    for (const box of await review.locator("input[type=checkbox]").all()) {
-      await box.check();
-    }
-    await review.getByTitle(/Approve 2 idea/).click();
-    const confirm = modal.locator(".idea-round-confirm");
-    await expect(confirm).toBeVisible();
-    await expect(confirm).toContainText("Improve onboarding");
-    await expect(confirm).toContainText("Cache provider catalog");
-    await confirm.getByTitle("Approve ideas and create plans").click();
-
-    // Approval lands on the Plans tab with two independent draft plans.
+    // One action promotes the idea and immediately starts OpenSpec preparation.
+    const onboarding = ideas.filter({ hasText: "Improve onboarding" });
+    await onboarding.getByRole("button", { name: "Make plan" }).click();
     await expect(modal.locator(".inspector-tab.is-active", { hasText: "Plans" })).toBeVisible({ timeout: 5_000 });
-    await expect(modal.locator(".plan-card, .plan-row").filter({ hasText: "Improve onboarding" })).toBeVisible({ timeout: 5_000 });
-    await expect(modal.locator(".plan-card, .plan-row").filter({ hasText: "Cache provider catalog" })).toBeVisible();
-
-    // OpenSpec generation and queue approval are separate user decisions.
-    const alphaPlan = modal.locator(".plan-card").filter({ hasText: "Improve onboarding" });
-    await alphaPlan.getByRole("button", { name: "Generate OpenSpec" }).click();
+    const alphaPlan = modal.locator(".plan-card, .plan-row").filter({ hasText: "Improve onboarding" });
+    await expect(alphaPlan).toBeVisible({ timeout: 5_000 });
     await expect(alphaPlan.getByRole("button", { name: "Approve plan" })).toBeVisible({ timeout: 5_000 });
     await alphaPlan.getByRole("button", { name: "Approve plan" }).click();
     await expect(
@@ -185,39 +161,15 @@ test.describe("Idea rounds", () => {
     await page.keyboard.press("Escape");
     await expect(picker).not.toBeVisible({ timeout: 5_000 });
 
-    // The abandoned round is finished, not running.
-    await openPlanningModal(page);
-    const modal = page.locator(".modal-overlay").filter({ hasText: "Plans & Ideas" });
-    await modal.locator(".inspector-tab", { hasText: "Ideas" }).click();
-    const roundRow = modal.locator(".idea-round-row").first();
-    await expect(roundRow).toBeVisible({ timeout: 5_000 });
-    await expect(roundRow.locator(".idea-round-status")).toHaveText("succeeded");
+    const rounds = await page.evaluate(async () => {
+      const w = window as unknown as {
+        __basebuildInvoke?: (cmd: string, args: Record<string, unknown>) => Promise<unknown>;
+      };
+      return w.__basebuildInvoke?.("list_idea_rounds", { sessionId: "session-1" });
+    }) as { status: string }[];
+    expect(rounds[0]?.status).toBe("succeeded");
   });
 
-  test("End round finishes a running round in place", async ({ page }) => {
-    await openMvpFixtureProject(page);
-    await waitForAppReady(page);
-
-    await startRoundDirect(page);
-    await seedIdea(page, "Mid-round capture");
-
-    const modal = await openIdeasTab(page);
-    const roundRow = modal.locator(".idea-round-row").first();
-    await expect(roundRow).toBeVisible({ timeout: 5_000 });
-    await expect(roundRow.locator(".idea-round-status")).toHaveText("running");
-
-    const endButton = roundRow.getByTitle("End this round — new captures stop being tagged with it");
-    await expect(endButton).toBeVisible();
-    await endButton.click();
-
-    // The round transitions in place; the End action disappears.
-    await expect(roundRow.locator(".idea-round-status")).toHaveText("succeeded", { timeout: 5_000 });
-    await expect(endButton).not.toBeVisible();
-
-    // Captures after the round ended are no longer tagged with it.
-    await seedIdea(page, "Post-round capture");
-    await expect(roundRow).toContainText("1 captured", { timeout: 5_000 });
-  });
 
   test("approval isolates per-idea failures and still creates the rest", async ({ page }) => {
     await openMvpFixtureProject(page);
@@ -237,39 +189,17 @@ test.describe("Idea rounds", () => {
     });
 
     const modal = await openIdeasTab(page);
-    const roundRow = modal.locator(".idea-round-row").first();
-    await expect(roundRow).toBeVisible({ timeout: 5_000 });
-    await roundRow.click();
-
-    const review = modal.locator(".idea-round-review");
-    await expect(review.locator(".idea-round-idea")).toHaveCount(2);
-    for (const box of await review.locator("input[type=checkbox]").all()) {
+    const cards = modal.locator(".inspector-ideas-list .chat-idea-card");
+    await expect(cards).toHaveCount(2);
+    for (const box of await cards.locator("input[type=checkbox]").all()) {
       await box.check();
     }
-    await review.getByTitle(/Approve 2 idea/).click();
-    await modal.locator(".idea-round-confirm").getByTitle("Approve ideas and create plans").click();
+    await modal.getByTitle("Promote selected ideas into plans").click();
 
-    // Partial failure is reported, not swallowed; navigation still happens.
-    await expect(page.locator(".toast-title", { hasText: "1 plan(s) created, 1 failed" })).toBeVisible({ timeout: 5_000 });
+    // Partial failure is visible; the surviving plan still enters preparation.
     await expect(modal.locator(".inspector-tab.is-active", { hasText: "Plans" })).toBeVisible({ timeout: 5_000 });
     await expect(modal.locator(".plan-card, .plan-row").filter({ hasText: "Deploy survivor" })).toBeVisible({ timeout: 5_000 });
     await expect(modal.locator(".plan-card, .plan-row").filter({ hasText: "Deploy casualty" })).toHaveCount(0);
   });
 
-  test("a round with zero captures shows the empty review state", async ({ page }) => {
-    await openMvpFixtureProject(page);
-    await waitForAppReady(page);
-
-    await startRoundDirect(page);
-
-    const modal = await openIdeasTab(page);
-    const roundRow = modal.locator(".idea-round-row").first();
-    await expect(roundRow).toBeVisible({ timeout: 5_000 });
-    await expect(roundRow).toContainText("0 captured");
-    await roundRow.click();
-
-    const review = modal.locator(".idea-round-review");
-    await expect(review).toBeVisible({ timeout: 5_000 });
-    await expect(review).toContainText("No ideas captured in this round yet.");
-  });
 });

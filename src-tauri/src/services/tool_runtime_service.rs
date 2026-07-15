@@ -320,9 +320,9 @@ pub fn registry() -> Vec<ToolDef> {
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "title": { "type": "string", "description": "Short title (max 12 words)." },
-                                    "description": { "type": "string", "description": "1-2 sentence description of the idea." },
-                                    "grounding": { "type": "string", "description": "Concrete evidence justifying the idea: real files, functions, or observed gaps. Required." },
+                                    "title": { "type": "string", "description": "Plain, verb-first title of 2-5 words. No file names or implementation detail." },
+                                    "description": { "type": "string", "description": "One concise sentence naming the concrete target and user-visible reason." },
+                                    "grounding": { "type": "string", "description": "Concrete supporting evidence: real files, functions, or observed gaps. Keep evidence here rather than in the title. Required." },
                                     "anchor": { "type": "string", "description": "Optional schematic element served (Vision / End goal / Current priority). Omit if outside current focus." }
                                 },
                                 "required": ["title", "description", "grounding"]
