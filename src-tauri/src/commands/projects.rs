@@ -11,11 +11,15 @@ pub async fn pick_project_directory(app: tauri::AppHandle) -> Result<Option<Stri
         app.dialog()
             .file()
             .set_title("Open Basebuild project")
-            .set_directory(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+            .set_directory(
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            )
             .blocking_pick_folder()
     });
 
-    let result = handle.await.map_err(|e| format!("Dialog task failed: {e}"))?;
+    let result = handle
+        .await
+        .map_err(|e| format!("Dialog task failed: {e}"))?;
     Ok(result.and_then(|fp| match fp {
         FilePath::Path(p) => Some(p.to_string_lossy().to_string()),
         FilePath::Url(_) => None,
@@ -25,16 +29,24 @@ pub async fn pick_project_directory(app: tauri::AppHandle) -> Result<Option<Stri
 #[tauri::command]
 pub async fn pick_context_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let handle = tauri::async_runtime::spawn_blocking(move || {
-        let result: Option<FilePath> = app.dialog()
+        let result: Option<FilePath> = app
+            .dialog()
             .file()
             .set_title("Select context file or folder")
-            .add_filter("Basebuild files", &["md", "json", "yaml", "yml", "toml", "txt"])
-            .set_directory(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+            .add_filter(
+                "Basebuild files",
+                &["md", "json", "yaml", "yml", "toml", "txt"],
+            )
+            .set_directory(
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            )
             .blocking_pick_file();
         result
     });
 
-    let result = handle.await.map_err(|e| format!("Dialog task failed: {e}"))?;
+    let result = handle
+        .await
+        .map_err(|e| format!("Dialog task failed: {e}"))?;
     Ok(result.and_then(|fp| match fp {
         FilePath::Path(p) => Some(p.to_string_lossy().to_string()),
         FilePath::Url(_) => None,
@@ -44,15 +56,20 @@ pub async fn pick_context_file(app: tauri::AppHandle) -> Result<Option<String>, 
 #[tauri::command]
 pub async fn pick_context_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let handle = tauri::async_runtime::spawn_blocking(move || {
-        let result: Option<FilePath> = app.dialog()
+        let result: Option<FilePath> = app
+            .dialog()
             .file()
             .set_title("Select context folder")
-            .set_directory(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+            .set_directory(
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            )
             .blocking_pick_folder();
         result
     });
 
-    let result = handle.await.map_err(|e| format!("Dialog task failed: {e}"))?;
+    let result = handle
+        .await
+        .map_err(|e| format!("Dialog task failed: {e}"))?;
     Ok(result.and_then(|fp| match fp {
         FilePath::Path(p) => Some(p.to_string_lossy().to_string()),
         FilePath::Url(_) => None,

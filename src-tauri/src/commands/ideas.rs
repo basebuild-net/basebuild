@@ -1,5 +1,8 @@
 use crate::{
-    models::{idea::{Idea, IdeaCategory, IdeaStatus}, plan::{NewPlan, Plan, PlanStatus}},
+    models::{
+        idea::{Idea, IdeaCategory, IdeaStatus},
+        plan::{NewPlan, Plan, PlanStatus},
+    },
     services::{plan_service::PlanService, session_service::SessionService},
 };
 
@@ -89,6 +92,32 @@ pub fn list_ideas(session_id: String) -> Result<Vec<Idea>, String> {
 }
 
 #[tauri::command]
+pub fn update_idea(
+    app: AppHandle,
+    id: String,
+    title: String,
+    description: String,
+    category_id: Option<String>,
+) -> Result<Idea, String> {
+    let idea = SessionService::update_idea(&id, &title, &description, category_id.as_deref())?;
+    let project_path = SessionService::get(&idea.session_id)
+        .ok()
+        .flatten()
+        .map(|session| session.project_path)
+        .unwrap_or_default();
+    crate::services::planning_events::emit(
+        &app,
+        crate::models::planning_event::PlanningEventKind::IdeaUpdated,
+        &idea.id,
+        &project_path,
+        Some(idea.session_id.clone()),
+        &idea.title,
+        None,
+    );
+    Ok(idea)
+}
+
+#[tauri::command]
 pub fn update_idea_status(app: AppHandle, id: String, status: String) -> Result<(), String> {
     let new_status = IdeaStatus::from_str(&status);
     SessionService::update_idea_status(&id, new_status)?;
@@ -142,7 +171,6 @@ pub fn reject_idea(app: AppHandle, id: String) -> Result<(), String> {
 pub fn ensure_default_categories(session_id: String) -> Result<(), String> {
     SessionService::ensure_default_categories(&session_id)
 }
-
 
 #[tauri::command]
 pub fn promote_ideas(app: AppHandle, input: PromoteIdeasInput) -> Result<Vec<Plan>, String> {

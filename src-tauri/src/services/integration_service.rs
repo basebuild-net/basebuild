@@ -105,7 +105,12 @@ impl IntegrationService {
     fn ahead_behind(project_path: &str, branch: &str) -> DbResult<String> {
         let default = Self::default_branch(project_path).unwrap_or_else(|_| "main".to_string());
         let output = crate::services::process_helpers::hidden_command("git")
-            .args(["rev-list", "--left-right", "--count", &format!("{default}...{branch}")])
+            .args([
+                "rev-list",
+                "--left-right",
+                "--count",
+                &format!("{default}...{branch}"),
+            ])
             .current_dir(project_path)
             .output()
             .map_err(|e| format!("git rev-list failed: {e}"))?;
@@ -137,7 +142,10 @@ impl IntegrationService {
             return Ok("main".to_string());
         }
         let ref_name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        Ok(ref_name.strip_prefix("origin/").unwrap_or(&ref_name).to_string())
+        Ok(ref_name
+            .strip_prefix("origin/")
+            .unwrap_or(&ref_name)
+            .to_string())
     }
 
     /// Check PR state via `gh` CLI (hidden spawn, best-effort).
@@ -152,16 +160,23 @@ impl IntegrationService {
         }
         let json: serde_json::Value = serde_json::from_slice(&output.stdout)
             .map_err(|e| format!("gh pr view parse failed: {e}"))?;
-        let state = json.get("state").and_then(serde_json::Value::as_str).map(str::to_string);
-        let url = json.get("url").and_then(serde_json::Value::as_str).map(str::to_string);
+        let state = json
+            .get("state")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        let url = json
+            .get("url")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
         Ok((state, url))
     }
 
     /// Prune a worktree + delete its branch (merged only unless force).
     pub fn cleanup(run_id: &str, force: bool) -> DbResult<()> {
-        let run = PlanRunnerService::get_run(run_id)?
-            .ok_or_else(|| format!("Run {run_id} not found"))?;
-        let workspace_path = run.workspace_path
+        let run =
+            PlanRunnerService::get_run(run_id)?.ok_or_else(|| format!("Run {run_id} not found"))?;
+        let workspace_path = run
+            .workspace_path
             .ok_or_else(|| "Run has no worktree".to_string())?;
         // Check merged unless force.
         if !force {

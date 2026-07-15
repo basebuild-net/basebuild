@@ -1,4 +1,4 @@
-import { Plus, Sparkles, Wrench, Rocket, UserPlus, CheckCircle, GitMerge, Archive } from "lucide-react";
+import { Plus, Sparkles, Wrench, Rocket, CheckCircle, GitMerge, Archive } from "lucide-react";
 
 type StageId = "ideas" | "openspec" | "ready" | "queued" | "running" | "blocked" | "review" | "finished";
 
@@ -22,8 +22,7 @@ type PlanningCommandCenterProps = {
   review: number;
   finished: number;
   onGenerateIdeas: () => void;
-  onRunThroughOpenSpec: () => void;
-  onAddWorker: () => void;
+  onReviewIdeas: () => void;
   onReview: () => void;
   onMerge: () => void;
   onArchiveSync: () => void;
@@ -130,19 +129,11 @@ export function PlanningCommandCenter(props: PlanningCommandCenterProps) {
         <button
           className="btn btn-sm"
           type="button"
-          title="Run a selected idea through OpenSpec to generate artifacts"
-          onClick={props.onRunThroughOpenSpec}
+          title="Review generated ideas and approve selected ideas into OpenSpec"
+          onClick={props.onReviewIdeas}
           disabled={props.ideas === 0}
         >
-          <Wrench size={11} /> Run through OpenSpec
-        </button>
-        <button
-          className="btn btn-sm"
-          type="button"
-          title="Add another worker chat for parallel runs"
-          onClick={props.onAddWorker}
-        >
-          <UserPlus size={11} /> Add worker
+          <Wrench size={11} /> Review ideas
         </button>
         <button
           className="btn btn-sm"

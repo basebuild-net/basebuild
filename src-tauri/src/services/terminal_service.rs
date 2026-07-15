@@ -160,7 +160,10 @@ impl TerminalManager {
                 }
             }
         });
-        let started_at = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let started_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         let session = PtySession {
             master: pair.master,
             writer,
@@ -188,7 +191,12 @@ impl TerminalManager {
             .writer
             .lock()
             .map_err(|_| "Terminal writer poisoned")?;
-        eprintln!("[terminal] write: id={} {} bytes: {:?}", id, data.len(), data.chars().take(40).collect::<String>());
+        eprintln!(
+            "[terminal] write: id={} {} bytes: {:?}",
+            id,
+            data.len(),
+            data.chars().take(40).collect::<String>()
+        );
         writer
             .write_all(data.as_bytes())
             .map_err(|error| format!("Failed to write to terminal: {error}"))?;
@@ -292,7 +300,11 @@ mod tests {
         // Oldest 100 bytes (0x41) were evicted; remaining old bytes at front.
         assert_eq!(sb[0], 0x41, "remaining old bytes should be at front");
         // New bytes (0x42) are at the back.
-        assert_eq!(sb[SCROLLBACK_CAP - 100], 0x42, "new bytes should be at the back");
+        assert_eq!(
+            sb[SCROLLBACK_CAP - 100],
+            0x42,
+            "new bytes should be at the back"
+        );
         assert_eq!(sb[SCROLLBACK_CAP - 1], 0x42, "last byte should be new");
     }
 
@@ -304,7 +316,10 @@ mod tests {
         let s1 = seq.fetch_add(1, Ordering::SeqCst) + 1;
         let s2 = seq.fetch_add(1, Ordering::SeqCst) + 1;
         let s3 = seq.fetch_add(1, Ordering::SeqCst) + 1;
-        assert!(s1 < s2 && s2 < s3, "seq should be monotonic: {s1} < {s2} < {s3}");
+        assert!(
+            s1 < s2 && s2 < s3,
+            "seq should be monotonic: {s1} < {s2} < {s3}"
+        );
         assert_eq!(s1, 1);
         assert_eq!(s2, 2);
         assert_eq!(s3, 3);

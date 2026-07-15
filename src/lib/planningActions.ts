@@ -82,7 +82,49 @@ export function generateIdeasAction(categoryName?: string, categoryDescription?:
     text,
     mode: "send",
     context: categoryName ? `ideas for category: ${categoryName}` : "ideas for project",
-    action: { kind: "generate_ideas", categoryId: categoryId ?? null },
+    action: { kind: "generate_ideas", categoryIds: categoryId ? [categoryId] : [], ideaCount: 8 },
+  };
+}
+
+type IdeaRoundCategory = {
+  id: string;
+  name: string;
+  description?: string | null;
+};
+
+/** Build one bounded, guided round across zero, one, or many categories. */
+export function generateIdeaRoundAction(
+  categories: IdeaRoundCategory[],
+  ideaCount = 8,
+  freeformDirection?: string,
+): PlanningAction {
+  const boundedCount = Math.min(8, Math.max(5, ideaCount));
+  const scope = categories.length > 0
+    ? categories
+        .map((category) => `- ${category.name} [${category.id}]${category.description ? `: ${category.description}` : ""}`)
+        .join("\n")
+    : "- Project-wide: use the schematic's current priorities and observed repository gaps.";
+  const direction = [
+    `Propose exactly ${boundedCount} distinct, grounded ideas total.`,
+    "Selected round scope:",
+    scope,
+    categories.length > 1
+      ? "Distribute the ideas across the selected categories. When calling propose_ideas, use the matching category id for each group."
+      : "",
+    freeformDirection?.trim() ? `User direction: ${freeformDirection.trim()}` : "",
+    "Return the strongest ideas first. Do not repeat existing ideas or plans.",
+  ].filter(Boolean).join("\n");
+  return {
+    type: categories.length === 1 ? "generate-ideas-for-category" : "generate-ideas",
+    text: direction,
+    mode: "send",
+    context: `guided idea round (${boundedCount} ideas, ${categories.length || "project-wide"} categories)`,
+    action: {
+      kind: "generate_ideas",
+      categoryIds: categories.map((category) => category.id),
+      ideaCount: boundedCount,
+      direction: freeformDirection?.trim() || null,
+    },
   };
 }
 

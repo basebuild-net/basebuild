@@ -96,7 +96,7 @@ export function IdeaRoundsSection({ sessionId, ideas, onStartRound, onDeployed, 
         <button
           className="btn btn-sm btn-primary"
           type="button"
-          title="Generate ideas — one-click round grounded in the schematic, decision history, and preferences"
+          title="Configure a new grounded idea round"
           onClick={onStartRound}
         >
           <Sparkles size={11} /> Generate ideas
@@ -145,13 +145,32 @@ export function IdeaRoundsSection({ sessionId, ideas, onStartRound, onDeployed, 
                       No ideas captured in this round yet.
                     </div>
                   ) : (
-                    roundIdeas.map((idea) => (
+                    <>
+                    <div className="idea-round-actions">
+                      <button
+                        className="btn btn-sm"
+                        type="button"
+                        title="Select every concept idea in this round"
+                        onClick={() => setSelected(new Set(roundIdeas.filter((idea) => idea.status === "concept").map((idea) => idea.id)))}
+                      >
+                        Select all concepts
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        type="button"
+                        title="Configure another grounded idea round"
+                        onClick={onStartRound}
+                      >
+                        <Sparkles size={11} /> Generate more
+                      </button>
+                    </div>
+                    {roundIdeas.map((idea) => (
                       <label key={idea.id} className="idea-round-idea" title={`${idea.title} — ${idea.status}${idea.grounding ? `. Grounding: ${idea.grounding}` : ""}`}>
                         <input
                           type="checkbox"
                           disabled={idea.status !== "concept"}
                           checked={selected.has(idea.id)}
-                          title={idea.status === "concept" ? "Select for deploy" : `Already ${idea.status}`}
+                          title={idea.status === "concept" ? "Select for approval" : `Already ${idea.status}`}
                           onChange={(e) => {
                             setSelected((prev) => {
                               const next = new Set(prev);
@@ -167,31 +186,32 @@ export function IdeaRoundsSection({ sessionId, ideas, onStartRound, onDeployed, 
                           <span className="idea-round-idea-flag text-muted" title="No schematic anchor — outside current focus">outside focus</span>
                         ) : null}
                       </label>
-                    ))
+                    ))}
+                    </>
                   )}
                   {selectedConcepts.length > 0 && !confirmOpen ? (
                     <div className="idea-round-actions">
                       <button
                         className="btn btn-sm btn-primary"
                         type="button"
-                        title={`Deploy ${selectedConcepts.length} idea(s): create one plan per idea and open the Plans stage`}
+                        title={`Approve ${selectedConcepts.length} idea(s): create one plan per idea and open the Plans stage`}
                         disabled={deploying}
                         onClick={() => setConfirmOpen(true)}
                       >
-                        <Rocket size={11} /> Deploy selected ({selectedConcepts.length})
+                        <Rocket size={11} /> Approve selected ({selectedConcepts.length})
                       </button>
                     </div>
                   ) : null}
                   {confirmOpen ? (
-                    <div className="idea-round-confirm" title="Deploy confirmation">
+                    <div className="idea-round-confirm" title="Idea approval confirmation">
                       <p className="text-sm">
-                        Deploy {selectedConcepts.length} idea{selectedConcepts.length > 1 ? "s" : ""}: one plan is created per idea
-                        ({selectedConcepts.map((i) => i.title).join(", ")}). Plans start in draft — run them through OpenSpec
-                        to reach ready, then launch into chats. Nothing runs yet.
+                        Approve {selectedConcepts.length} idea{selectedConcepts.length > 1 ? "s" : ""}: one plan is created per idea
+                        ({selectedConcepts.map((i) => i.title).join(", ")}). Plans start in draft — generate OpenSpec artifacts,
+                        approve the plan, then launch it into a dedicated chat. Nothing runs yet.
                       </p>
                       <div className="idea-round-actions">
-                        <button className="btn btn-sm btn-primary" type="button" title="Create the plans" disabled={deploying} onClick={() => void handleDeploy()}>
-                          {deploying ? "Deploying…" : "Confirm deploy"}
+                        <button className="btn btn-sm btn-primary" type="button" title="Approve ideas and create plans" disabled={deploying} onClick={() => void handleDeploy()}>
+                          {deploying ? "Approving…" : "Approve ideas"}
                         </button>
                         <button className="btn btn-sm" type="button" title="Cancel — nothing is created" onClick={() => setConfirmOpen(false)}>
                           Cancel

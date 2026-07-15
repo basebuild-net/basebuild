@@ -91,8 +91,16 @@ mod tests {
 
     #[test]
     fn workspace_width_is_clamped() {
-        let too_small = WorkspaceRestoreState { side_width: 20, ..WorkspaceRestoreState::default_for("C:/project") }.clamped();
-        let too_large = WorkspaceRestoreState { side_width: 900, ..WorkspaceRestoreState::default_for("C:/project") }.clamped();
+        let too_small = WorkspaceRestoreState {
+            side_width: 20,
+            ..WorkspaceRestoreState::default_for("C:/project")
+        }
+        .clamped();
+        let too_large = WorkspaceRestoreState {
+            side_width: 900,
+            ..WorkspaceRestoreState::default_for("C:/project")
+        }
+        .clamped();
         assert_eq!(too_small.side_width, 180);
         assert_eq!(too_large.side_width, 520);
     }

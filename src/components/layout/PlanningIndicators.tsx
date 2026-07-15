@@ -2,15 +2,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
   ChevronRight,
+  Edit3,
   FolderTree,
   Lightbulb,
   ListChecks,
+  LoaderCircle,
+  Plus,
   Play,
-  Square,
+  RefreshCw,
+  Rocket,
+  Save,
+  Trash2,
+  X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-import type { Idea } from "../../lib/ideas";
+import type { Idea, IdeaCategory, IdeaStatus } from "../../lib/ideas";
 import type { Plan } from "../../lib/plans";
 
 export type StageKey = "schematic" | "ideas" | "plans" | "running" | "finished";
@@ -33,10 +40,22 @@ const STAGE_META: Record<StageKey, StageMeta> = {
 type PlanningIndicatorsProps = {
   plans: Plan[];
   ideas: Idea[];
+  categories: IdeaCategory[];
   schematicHealth: "complete" | "incomplete" | "none";
   onOpenStage: (stage: StageKey) => void;
   onOpenFullUI: (stage: StageKey) => void;
   onMarkComplete: (planId: string) => void;
+  onGenerateMoreIdeas: () => void;
+  onCreateIdea: (title: string, description: string, categoryId: string | null) => Promise<void>;
+  onUpdateIdea: (
+    id: string,
+    title: string,
+    description: string,
+    categoryId: string | null,
+  ) => Promise<void>;
+  onSetIdeaStatus: (id: string, status: IdeaStatus) => Promise<void>;
+  onDeleteIdea: (id: string) => Promise<void>;
+  onPromoteIdeas: (ids: string[]) => Promise<void>;
 };
 
 type DropdownState = { stage: StageKey; rect: DOMRect } | null;
@@ -44,10 +63,17 @@ type DropdownState = { stage: StageKey; rect: DOMRect } | null;
 export function PlanningIndicators({
   plans,
   ideas,
+  categories,
   schematicHealth,
   onOpenStage,
   onOpenFullUI,
   onMarkComplete,
+  onGenerateMoreIdeas,
+  onCreateIdea,
+  onUpdateIdea,
+  onSetIdeaStatus,
+  onDeleteIdea,
+  onPromoteIdeas,
 }: PlanningIndicatorsProps) {
   const [dropdown, setDropdown] = useState<DropdownState>(null);
   const [pulse, setPulse] = useState(false);
@@ -127,7 +153,14 @@ export function PlanningIndicators({
           rect={dropdown.rect}
           plans={plans}
           ideas={ideas}
+          categories={categories}
           schematicHealth={schematicHealth}
+          onGenerateMoreIdeas={() => { onGenerateMoreIdeas(); closeDropdown(); }}
+          onCreateIdea={onCreateIdea}
+          onUpdateIdea={onUpdateIdea}
+          onSetIdeaStatus={onSetIdeaStatus}
+          onDeleteIdea={onDeleteIdea}
+          onPromoteIdeas={onPromoteIdeas}
           onOpenFullUI={() => { onOpenFullUI(dropdown.stage); closeDropdown(); }}
           onMarkComplete={(planId) => { onMarkComplete(planId); }}
           onOpenStage={(stage) => { onOpenStage(stage); closeDropdown(); }}
@@ -144,10 +177,22 @@ type DropdownProps = {
   rect: DOMRect;
   plans: Plan[];
   ideas: Idea[];
+  categories: IdeaCategory[];
   schematicHealth: "complete" | "incomplete" | "none";
   onOpenFullUI: () => void;
   onMarkComplete: (planId: string) => void;
   onOpenStage: (stage: StageKey) => void;
+  onGenerateMoreIdeas: () => void;
+  onCreateIdea: (title: string, description: string, categoryId: string | null) => Promise<void>;
+  onUpdateIdea: (
+    id: string,
+    title: string,
+    description: string,
+    categoryId: string | null,
+  ) => Promise<void>;
+  onSetIdeaStatus: (id: string, status: IdeaStatus) => Promise<void>;
+  onDeleteIdea: (id: string) => Promise<void>;
+  onPromoteIdeas: (ids: string[]) => Promise<void>;
 };
 
 function NotificationDropdown({
@@ -155,17 +200,25 @@ function NotificationDropdown({
   rect,
   plans,
   ideas,
+  categories,
   schematicHealth,
   onOpenFullUI,
   onMarkComplete,
   onOpenStage,
+  onGenerateMoreIdeas,
+  onCreateIdea,
+  onUpdateIdea,
+  onSetIdeaStatus,
+  onDeleteIdea,
+  onPromoteIdeas,
 }: DropdownProps) {
   const meta = STAGE_META[stage];
   const Icon = meta.icon;
 
   // Position dropdown below the button, clamped to viewport.
   const top = rect.bottom + 4;
-  const left = Math.min(rect.left, window.innerWidth - 280);
+  const dropdownWidth = stage === "ideas" ? 380 : 280;
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - dropdownWidth - 8));
 
   return (
     <div
@@ -190,7 +243,16 @@ function NotificationDropdown({
         {stage === "schematic" ? (
           <SchematicItems health={schematicHealth} onOpen={onOpenStage} />
         ) : stage === "ideas" ? (
-          <IdeaItems ideas={ideas} />
+          <IdeaQuickMenu
+            ideas={ideas}
+            categories={categories}
+            onGenerateMore={onGenerateMoreIdeas}
+            onCreate={onCreateIdea}
+            onUpdate={onUpdateIdea}
+            onSetStatus={onSetIdeaStatus}
+            onDelete={onDeleteIdea}
+            onPromote={onPromoteIdeas}
+          />
         ) : stage === "plans" ? (
           <PlanItems plans={plans} filter={(p) => p.status !== "running" && p.status !== "finished"} />
         ) : stage === "running" ? (
@@ -229,24 +291,437 @@ function SchematicItems({
 
 // ─── Idea items ─────────────────────────────────────────────────────────────
 
-function IdeaItems({ ideas }: { ideas: Idea[] }) {
-  const active = ideas.filter((i) => i.status === "concept" || i.status === "picked");
-  if (active.length === 0) {
-    return <div className="planning-notification-empty">No active ideas</div>;
-  }
-  return (
-    <>
-      {active.slice(0, 12).map((idea) => (
-        <div key={idea.id} className="planning-notification-item" title={idea.description}>
-          <span className="planning-notification-item-dot planning-notification-item-dot--ideas" />
-          <span className="planning-notification-item-text">{idea.title}</span>
-          <span className="planning-notification-item-meta">{idea.status}</span>
+type IdeaFilter = "active" | "all" | IdeaStatus;
+
+type IdeaDraft = {
+  title: string;
+  description: string;
+  categoryId: string | null;
+};
+
+type IdeaEditorState = {
+  mode: "create" | "edit";
+  ideaId: string | null;
+  draft: IdeaDraft;
+};
+
+function IdeaQuickMenu({
+  ideas,
+  categories,
+  onGenerateMore,
+  onCreate,
+  onUpdate,
+  onSetStatus,
+  onDelete,
+  onPromote,
+}: {
+  ideas: Idea[];
+  categories: IdeaCategory[];
+  onGenerateMore: () => void;
+  onCreate: (title: string, description: string, categoryId: string | null) => Promise<void>;
+  onUpdate: (
+    id: string,
+    title: string,
+    description: string,
+    categoryId: string | null,
+  ) => Promise<void>;
+  onSetStatus: (id: string, status: IdeaStatus) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+  onPromote: (ids: string[]) => Promise<void>;
+}) {
+  const [statusFilter, setStatusFilter] = useState<IdeaFilter>("active");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [editor, setEditor] = useState<IdeaEditorState | null>(null);
+  const [deletePendingId, setDeletePendingId] = useState<string | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const filteredIdeas = ideas.filter((idea) => {
+    const matchesStatus =
+      statusFilter === "all"
+      || (statusFilter === "active"
+        ? idea.status === "concept" || idea.status === "picked"
+        : idea.status === statusFilter);
+    const matchesCategory =
+      categoryFilter === "all"
+      || (categoryFilter === "uncategorized"
+        ? idea.categoryId === null
+        : idea.categoryId === categoryFilter);
+    return matchesStatus && matchesCategory;
+  });
+  const selectedConceptIds = ideas
+    .filter((idea) => idea.status === "concept" && selectedIds.has(idea.id))
+    .map((idea) => idea.id);
+
+  const runAction = useCallback(
+    async (key: string, action: () => Promise<void>): Promise<boolean> => {
+      setBusyKey(key);
+      setError(null);
+      try {
+        await action();
+        return true;
+      } catch (actionError) {
+        setError(actionError instanceof Error ? actionError.message : String(actionError));
+        return false;
+      } finally {
+        setBusyKey(null);
+      }
+    },
+    [],
+  );
+
+  const beginCreate = () => {
+    setError(null);
+    setDeletePendingId(null);
+    setEditor({
+      mode: "create",
+      ideaId: null,
+      draft: { title: "", description: "", categoryId: null },
+    });
+  };
+
+  const beginEdit = (idea: Idea) => {
+    setError(null);
+    setDeletePendingId(null);
+    setEditor({
+      mode: "edit",
+      ideaId: idea.id,
+      draft: {
+        title: idea.title,
+        description: idea.description,
+        categoryId: idea.categoryId,
+      },
+    });
+  };
+
+  const saveEditor = async () => {
+    if (!editor) return;
+    const title = editor.draft.title.trim();
+    if (!title) {
+      setError("Idea title is required.");
+      return;
+    }
+    const saved = await runAction("save", async () => {
+      if (editor.mode === "create") {
+        await onCreate(title, editor.draft.description, editor.draft.categoryId);
+      } else if (editor.ideaId) {
+        await onUpdate(
+          editor.ideaId,
+          title,
+          editor.draft.description,
+          editor.draft.categoryId,
+        );
+      }
+    });
+    if (saved) setEditor(null);
+  };
+
+  const promoteSelected = async () => {
+    if (selectedConceptIds.length === 0) return;
+    const promoted = await runAction("promote-selected", () => onPromote(selectedConceptIds));
+    if (promoted) setSelectedIds(new Set());
+  };
+
+  const renderEditor = () => {
+    if (!editor) return null;
+    const label = editor.mode === "create" ? "Create idea" : "Edit idea";
+    return (
+      <div className="planning-quick-editor" aria-label={label}>
+        <label className="planning-quick-field">
+          <span>Title</span>
+          <input
+            className="input"
+            value={editor.draft.title}
+            maxLength={240}
+            autoFocus
+            title={`${label} title`}
+            onChange={(event) => {
+              const title = event.target.value;
+              setEditor((current) => current
+                ? { ...current, draft: { ...current.draft, title } }
+                : current);
+            }}
+          />
+        </label>
+        <label className="planning-quick-field">
+          <span>Description</span>
+          <textarea
+            className="input planning-quick-description"
+            value={editor.draft.description}
+            maxLength={20_000}
+            rows={3}
+            title={`${label} description`}
+            onChange={(event) => {
+              const description = event.target.value;
+              setEditor((current) => current
+                ? { ...current, draft: { ...current.draft, description } }
+                : current);
+            }}
+          />
+        </label>
+        <label className="planning-quick-field">
+          <span>Category</span>
+          <select
+            className="input planning-quick-select"
+            value={editor.draft.categoryId ?? ""}
+            title={`${label} category`}
+            onChange={(event) => {
+              const categoryId = event.target.value || null;
+              setEditor((current) => current
+                ? { ...current, draft: { ...current.draft, categoryId } }
+                : current);
+            }}
+          >
+            <option value="">No category</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>{category.name}</option>
+            ))}
+          </select>
+        </label>
+        <div className="planning-quick-editor-actions">
+          <button
+            type="button"
+            className="btn btn-sm btn-primary"
+            title={editor.mode === "create" ? "Create idea" : "Save idea changes"}
+            disabled={busyKey === "save" || !editor.draft.title.trim()}
+            onClick={() => void saveEditor()}
+          >
+            {busyKey === "save"
+              ? <LoaderCircle size={11} className="spin" />
+              : <Save size={11} />}
+            {editor.mode === "create" ? "Create" : "Save"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            title="Cancel idea editing"
+            disabled={busyKey === "save"}
+            onClick={() => setEditor(null)}
+          >
+            <X size={11} />
+            Cancel
+          </button>
         </div>
-      ))}
-      {active.length > 12 ? (
-        <div className="planning-notification-more">+{active.length - 12} more</div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="planning-quick-menu">
+      <div className="planning-quick-primary-actions">
+        <button
+          type="button"
+          className="btn btn-sm btn-primary"
+          title="Generate another guided round of ideas"
+          onClick={onGenerateMore}
+        >
+          <RefreshCw size={11} />
+          Generate more ideas
+        </button>
+        <button
+          type="button"
+          className="btn btn-sm"
+          title="Create an idea manually"
+          onClick={beginCreate}
+        >
+          <Plus size={11} />
+          New idea
+        </button>
+      </div>
+
+      {editor?.mode === "create" ? renderEditor() : null}
+
+      <div className="planning-quick-filters">
+        <select
+          className="input planning-quick-select"
+          value={statusFilter}
+          title="Filter ideas by status"
+          onChange={(event) => setStatusFilter(event.target.value as IdeaFilter)}
+        >
+          <option value="active">Active</option>
+          <option value="all">All statuses</option>
+          <option value="concept">Concept</option>
+          <option value="picked">Picked</option>
+          <option value="rejected">Rejected</option>
+          <option value="archived">Archived</option>
+        </select>
+        <select
+          className="input planning-quick-select"
+          value={categoryFilter}
+          title="Filter ideas by category"
+          onChange={(event) => setCategoryFilter(event.target.value)}
+        >
+          <option value="all">All categories</option>
+          <option value="uncategorized">Uncategorized</option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>{category.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {selectedConceptIds.length > 0 ? (
+        <button
+          type="button"
+          className="planning-quick-bulk-action"
+          title={`Upgrade ${selectedConceptIds.length} selected idea${selectedConceptIds.length === 1 ? "" : "s"} to plans`}
+          disabled={busyKey === "promote-selected"}
+          onClick={() => void promoteSelected()}
+        >
+          {busyKey === "promote-selected"
+            ? <LoaderCircle size={11} className="spin" />
+            : <Rocket size={11} />}
+          Upgrade selected ({selectedConceptIds.length})
+        </button>
       ) : null}
-    </>
+
+      {error ? <div className="planning-quick-error" role="alert">{error}</div> : null}
+
+      <div className="planning-quick-idea-list">
+        {filteredIdeas.length === 0 ? (
+          <div className="planning-notification-empty">No ideas match these filters</div>
+        ) : filteredIdeas.map((idea) => {
+          const isBusy = busyKey?.endsWith(idea.id) ?? false;
+          const category = categories.find((item) => item.id === idea.categoryId);
+          const isEditing = editor?.mode === "edit" && editor.ideaId === idea.id;
+          const isDeletePending = deletePendingId === idea.id;
+          return (
+            <div key={idea.id} className="planning-quick-idea" data-status={idea.status}>
+              <div className="planning-quick-idea-row">
+                {idea.status === "concept" ? (
+                  <input
+                    type="checkbox"
+                    className="planning-quick-checkbox"
+                    checked={selectedIds.has(idea.id)}
+                    title={`Select ${idea.title} for upgrade`}
+                    aria-label={`Select ${idea.title} for upgrade`}
+                    onChange={(event) => {
+                      const checked = event.target.checked;
+                      setSelectedIds((current) => {
+                        const next = new Set(current);
+                        if (checked) next.add(idea.id);
+                        else next.delete(idea.id);
+                        return next;
+                      });
+                    }}
+                  />
+                ) : <span className="planning-quick-checkbox-spacer" />}
+                <button
+                  type="button"
+                  className="planning-quick-idea-main"
+                  title={`Edit ${idea.title}`}
+                  onClick={() => beginEdit(idea)}
+                >
+                  <span className="planning-quick-idea-title">{idea.title}</span>
+                  <span className="planning-quick-idea-description">
+                    {idea.description || "No description"}
+                    {category ? ` · ${category.name}` : ""}
+                  </span>
+                </button>
+                <select
+                  className="planning-quick-status"
+                  value={idea.status}
+                  title={`Change status for ${idea.title}`}
+                  aria-label={`Status for ${idea.title}`}
+                  disabled={isBusy}
+                  onChange={(event) => {
+                    const status = event.target.value as IdeaStatus;
+                    void runAction(`status-${idea.id}`, () => onSetStatus(idea.id, status));
+                  }}
+                >
+                  <option value="concept">Concept</option>
+                  <option value="picked">Picked</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="archived">Archived</option>
+                </select>
+                {isDeletePending ? (
+                  <div className="planning-quick-delete-confirm">
+                    <span>Delete?</span>
+                    <button
+                      type="button"
+                      className="planning-notification-action is-danger"
+                      title={`Confirm deletion of ${idea.title}`}
+                      aria-label={`Confirm deletion of ${idea.title}`}
+                      disabled={isBusy}
+                      onClick={() => {
+                        void runAction(`delete-${idea.id}`, () => onDelete(idea.id))
+                          .then((deleted) => {
+                            if (deleted) {
+                              setDeletePendingId(null);
+                              setSelectedIds((current) => {
+                                const next = new Set(current);
+                                next.delete(idea.id);
+                                return next;
+                              });
+                            }
+                          });
+                      }}
+                    >
+                      <Check size={11} />
+                    </button>
+                    <button
+                      type="button"
+                      className="planning-notification-action"
+                      title="Cancel deletion"
+                      aria-label="Cancel deletion"
+                      disabled={isBusy}
+                      onClick={() => setDeletePendingId(null)}
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="planning-quick-row-actions">
+                    <button
+                      type="button"
+                      className="planning-notification-action"
+                      title={`Edit ${idea.title}`}
+                      aria-label={`Edit ${idea.title}`}
+                      onClick={() => beginEdit(idea)}
+                    >
+                      <Edit3 size={11} />
+                    </button>
+                    {idea.status === "concept" ? (
+                      <button
+                        type="button"
+                        className="planning-notification-action is-primary"
+                        title={`Upgrade ${idea.title} to a plan`}
+                        aria-label={`Upgrade ${idea.title} to a plan`}
+                        disabled={isBusy}
+                        onClick={() => {
+                          void runAction(`promote-${idea.id}`, () => onPromote([idea.id]));
+                        }}
+                      >
+                        {busyKey === `promote-${idea.id}`
+                          ? <LoaderCircle size={11} className="spin" />
+                          : <Rocket size={11} />}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="planning-notification-action is-danger"
+                      title={`Delete ${idea.title}`}
+                      aria-label={`Delete ${idea.title}`}
+                      onClick={() => {
+                        setEditor(null);
+                        setDeletePendingId(idea.id);
+                      }}
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                )}
+              </div>
+              {isEditing ? renderEditor() : null}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="planning-quick-summary">
+        Showing {filteredIdeas.length} of {ideas.length} ideas
+      </div>
+    </div>
   );
 }
 

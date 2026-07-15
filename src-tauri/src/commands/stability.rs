@@ -31,8 +31,12 @@ pub fn stability_unseen_count() -> Result<usize, String> {
 }
 
 #[tauri::command]
-pub fn stability_recent_telemetry(limit: Option<u32>) -> Result<Vec<CommandTelemetryEntry>, String> {
-    Ok(stability_service::recent_telemetry(limit.unwrap_or(50) as usize))
+pub fn stability_recent_telemetry(
+    limit: Option<u32>,
+) -> Result<Vec<CommandTelemetryEntry>, String> {
+    Ok(stability_service::recent_telemetry(
+        limit.unwrap_or(50) as usize
+    ))
 }
 
 #[tauri::command]

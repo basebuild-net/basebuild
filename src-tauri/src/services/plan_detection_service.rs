@@ -78,7 +78,10 @@ impl PlanDetectionService {
         if let Ok(catalog) = Self::list_plans(None) {
             let mut plans_by_provider: BTreeMap<String, Vec<ProviderPlanOption>> = BTreeMap::new();
             for opt in catalog {
-                plans_by_provider.entry(opt.provider.clone()).or_default().push(opt);
+                plans_by_provider
+                    .entry(opt.provider.clone())
+                    .or_default()
+                    .push(opt);
             }
             for (provider, plans) in &plans_by_provider {
                 let documented = by_provider
@@ -90,7 +93,9 @@ impl PlanDetectionService {
                 }
                 let stats_provider = website_to_stats_provider(provider);
                 let observed = observed_usage(&stats_provider);
-                if let Some(entry) = infer_plan_from_caps(provider, &stats_provider, plans, &observed) {
+                if let Some(entry) =
+                    infer_plan_from_caps(provider, &stats_provider, plans, &observed)
+                {
                     by_provider.insert(provider.clone(), entry);
                 }
             }
@@ -207,7 +212,11 @@ impl PlanDetectionService {
                     .filter_map(|p| {
                         let id = p.get("id").and_then(Value::as_str)?.to_string();
                         let provider = p.get("provider").and_then(Value::as_str)?.to_string();
-                        let name = p.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+                        let name = p
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
                         let usage_limits = parse_usage_limits(p);
                         Some(ProviderPlanOption {
                             id,
@@ -245,11 +254,19 @@ impl PlanDetectionService {
         let plan_map: serde_json::Map<String, Value> = plans
             .into_iter()
             .map(|(provider, plan_id)| {
-                let value = if plan_id.is_empty() { Value::Null } else { Value::String(plan_id) };
+                let value = if plan_id.is_empty() {
+                    Value::Null
+                } else {
+                    Value::String(plan_id)
+                };
                 (provider, value)
             })
             .collect();
-        let result = call_mcp_tool(&token, "declare_usage_profile", json!({ "plans": plan_map }))?;
+        let result = call_mcp_tool(
+            &token,
+            "declare_usage_profile",
+            json!({ "plans": plan_map }),
+        )?;
         Ok(result
             .get("message")
             .and_then(Value::as_str)
@@ -280,7 +297,10 @@ fn parse_usage_limits(p: &Value) -> Vec<UsageLimit> {
                     request_cap: l.get("requestCap").and_then(Value::as_i64),
                     input_token_cap: l.get("inputTokenCap").and_then(Value::as_i64),
                     output_token_cap: l.get("outputTokenCap").and_then(Value::as_i64),
-                    confidence: l.get("confidence").and_then(Value::as_str).map(str::to_string),
+                    confidence: l
+                        .get("confidence")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
                 })
             })
             .collect();
@@ -295,20 +315,50 @@ fn parse_usage_limits(p: &Value) -> Vec<UsageLimit> {
         .and_then(Value::as_str)
         .map(str::to_string);
     if let Some(c) = p.get("sessionRequestCap").and_then(Value::as_i64) {
-        limits.push(UsageLimit { window_seconds: Some(18_000), request_cap: Some(c), input_token_cap: None, output_token_cap: None, confidence: conf.clone() });
+        limits.push(UsageLimit {
+            window_seconds: Some(18_000),
+            request_cap: Some(c),
+            input_token_cap: None,
+            output_token_cap: None,
+            confidence: conf.clone(),
+        });
     }
     if let Some(c) = p.get("dailyRequestCap").and_then(Value::as_i64) {
-        limits.push(UsageLimit { window_seconds: Some(86_400), request_cap: Some(c), input_token_cap: None, output_token_cap: None, confidence: conf.clone() });
+        limits.push(UsageLimit {
+            window_seconds: Some(86_400),
+            request_cap: Some(c),
+            input_token_cap: None,
+            output_token_cap: None,
+            confidence: conf.clone(),
+        });
     }
     if let Some(c) = p.get("weeklyRequestCap").and_then(Value::as_i64) {
-        limits.push(UsageLimit { window_seconds: Some(604_800), request_cap: Some(c), input_token_cap: None, output_token_cap: None, confidence: conf.clone() });
+        limits.push(UsageLimit {
+            window_seconds: Some(604_800),
+            request_cap: Some(c),
+            input_token_cap: None,
+            output_token_cap: None,
+            confidence: conf.clone(),
+        });
     }
     if let Some(c) = p.get("monthlyRequestCap").and_then(Value::as_i64) {
-        limits.push(UsageLimit { window_seconds: Some(2_592_000), request_cap: Some(c), input_token_cap: None, output_token_cap: None, confidence: conf.clone() });
+        limits.push(UsageLimit {
+            window_seconds: Some(2_592_000),
+            request_cap: Some(c),
+            input_token_cap: None,
+            output_token_cap: None,
+            confidence: conf.clone(),
+        });
     }
     if let Some(c) = p.get("requestLimit").and_then(Value::as_i64) {
         let window_secs = parse_window_string(p.get("requestLimitWindow").and_then(Value::as_str));
-        limits.push(UsageLimit { window_seconds: window_secs, request_cap: Some(c), input_token_cap: None, output_token_cap: None, confidence: conf });
+        limits.push(UsageLimit {
+            window_seconds: window_secs,
+            request_cap: Some(c),
+            input_token_cap: None,
+            output_token_cap: None,
+            confidence: conf,
+        });
     }
     limits
 }
@@ -413,7 +463,11 @@ struct WindowMetrics {
 /// provider, from OMP's stats.db messages table. Returns zeros when the query
 /// fails (missing columns, no data). This is the signal for modular cap-based
 /// inference — compares against both request and token caps.
-fn peak_metrics_in_window(conn: &Connection, stats_provider: &str, window_ms: i64) -> WindowMetrics {
+fn peak_metrics_in_window(
+    conn: &Connection,
+    stats_provider: &str,
+    window_ms: i64,
+) -> WindowMetrics {
     let row: rusqlite::Result<(i64, i64, i64, i64)> = conn.query_row(
         r#"SELECT MAX(req), MAX(inp), MAX(outp), MAX(total) FROM (
            SELECT COUNT(*) AS req,
@@ -510,15 +564,16 @@ fn infer_from_modular_caps(
     plans: &[ProviderPlanOption],
     metrics_by_window: &BTreeMap<i64, WindowMetrics>,
 ) -> Option<DetectedProviderPlan> {
-    let mut priced: Vec<&ProviderPlanOption> =
-        plans.iter().filter(|p| p.price.is_some()).collect();
+    let mut priced: Vec<&ProviderPlanOption> = plans.iter().filter(|p| p.price.is_some()).collect();
     if priced.len() < 2 {
         return None;
     }
     let has_caps = priced.iter().any(|p| {
         p.usage_limits.iter().any(|l| {
             l.window_seconds.is_some()
-                && (l.request_cap.is_some() || l.input_token_cap.is_some() || l.output_token_cap.is_some())
+                && (l.request_cap.is_some()
+                    || l.input_token_cap.is_some()
+                    || l.output_token_cap.is_some())
         })
     });
     if !has_caps {
@@ -535,9 +590,13 @@ fn infer_from_modular_caps(
             return None;
         }
         for l in &p.usage_limits {
-            let Some(secs) = l.window_seconds else { continue };
+            let Some(secs) = l.window_seconds else {
+                continue;
+            };
             let wms = secs * 1000;
-            let Some(m) = metrics_by_window.get(&wms) else { continue };
+            let Some(m) = metrics_by_window.get(&wms) else {
+                continue;
+            };
             if let Some(cap) = l.request_cap {
                 if m.requests > cap as u64 {
                     return Some(format!("{}s request cap", secs));
@@ -576,7 +635,11 @@ fn infer_from_modular_caps(
         omp_provider: stats_provider.to_string(),
         account_email: None,
         detected_plan_type: Some(inferred.name.clone()),
-        confidence: if conf == "documented" { "inferred".to_string() } else { conf },
+        confidence: if conf == "documented" {
+            "inferred".to_string()
+        } else {
+            conf
+        },
         source: "volume".to_string(),
         needs_declaration: true,
         note: Some(note),
@@ -750,19 +813,31 @@ mod tests {
 
     #[test]
     fn umans_baseline_is_configured() {
-        let b = VOLUME_BASELINES.iter().find(|b| b.website_provider == "umans-ai").unwrap();
+        let b = VOLUME_BASELINES
+            .iter()
+            .find(|b| b.website_provider == "umans-ai")
+            .unwrap();
         assert_eq!(b.stats_provider, "umans");
         assert_eq!(b.lower_plan_hourly_cap, 500);
     }
 
-    fn plan(name: &str, price: f64, session_cap: Option<i64>, unmetered: bool) -> ProviderPlanOption {
-        let usage_limits = session_cap.map(|c| vec![UsageLimit {
-            window_seconds: Some(18_000),
-            request_cap: Some(c),
-            input_token_cap: None,
-            output_token_cap: None,
-            confidence: None,
-        }]).unwrap_or_default();
+    fn plan(
+        name: &str,
+        price: f64,
+        session_cap: Option<i64>,
+        unmetered: bool,
+    ) -> ProviderPlanOption {
+        let usage_limits = session_cap
+            .map(|c| {
+                vec![UsageLimit {
+                    window_seconds: Some(18_000),
+                    request_cap: Some(c),
+                    input_token_cap: None,
+                    output_token_cap: None,
+                    confidence: None,
+                }]
+            })
+            .unwrap_or_default();
         ProviderPlanOption {
             id: name.to_string(),
             provider: "acme".to_string(),
@@ -779,7 +854,13 @@ mod tests {
 
     fn metrics_5h(requests: u64) -> BTreeMap<i64, WindowMetrics> {
         let mut m = BTreeMap::new();
-        m.insert(18_000_000, WindowMetrics { requests, ..Default::default() });
+        m.insert(
+            18_000_000,
+            WindowMetrics {
+                requests,
+                ..Default::default()
+            },
+        );
         m
     }
 
@@ -839,28 +920,50 @@ mod tests {
     fn caps_inference_token_cap_rules_out_plan() {
         let plans = vec![
             ProviderPlanOption {
-                id: "p1".into(), provider: "acme".into(), name: "Lite".into(),
-                tier: Some("pro".into()), price: Some(10.0), period: Some("month".into()),
+                id: "p1".into(),
+                provider: "acme".into(),
+                name: "Lite".into(),
+                tier: Some("pro".into()),
+                price: Some(10.0),
+                period: Some("month".into()),
                 unmetered: false,
                 usage_limits: vec![UsageLimit {
-                    window_seconds: Some(604_800), request_cap: None,
-                    input_token_cap: Some(1_000_000), output_token_cap: None, confidence: None,
+                    window_seconds: Some(604_800),
+                    request_cap: None,
+                    input_token_cap: Some(1_000_000),
+                    output_token_cap: None,
+                    confidence: None,
                 }],
-                usage_limit_confidence: None, label: "Lite".into(),
+                usage_limit_confidence: None,
+                label: "Lite".into(),
             },
             ProviderPlanOption {
-                id: "p2".into(), provider: "acme".into(), name: "Max".into(),
-                tier: Some("pro".into()), price: Some(40.0), period: Some("month".into()),
+                id: "p2".into(),
+                provider: "acme".into(),
+                name: "Max".into(),
+                tier: Some("pro".into()),
+                price: Some(40.0),
+                period: Some("month".into()),
                 unmetered: false,
                 usage_limits: vec![UsageLimit {
-                    window_seconds: Some(604_800), request_cap: None,
-                    input_token_cap: Some(10_000_000), output_token_cap: None, confidence: None,
+                    window_seconds: Some(604_800),
+                    request_cap: None,
+                    input_token_cap: Some(10_000_000),
+                    output_token_cap: None,
+                    confidence: None,
                 }],
-                usage_limit_confidence: None, label: "Max".into(),
+                usage_limit_confidence: None,
+                label: "Max".into(),
             },
         ];
         let mut metrics = BTreeMap::new();
-        metrics.insert(604_800_000, WindowMetrics { input_tokens: 2_000_000, ..Default::default() });
+        metrics.insert(
+            604_800_000,
+            WindowMetrics {
+                input_tokens: 2_000_000,
+                ..Default::default()
+            },
+        );
         let out = infer_from_modular_caps("acme", "acme", &plans, &metrics).unwrap();
         assert_eq!(out.detected_plan_type.as_deref(), Some("Max"));
     }
@@ -891,9 +994,15 @@ mod tests {
         });
         let limits = parse_usage_limits(&p);
         assert_eq!(limits.len(), 3);
-        assert!(limits.iter().any(|l| l.window_seconds == Some(18_000) && l.request_cap == Some(200)));
-        assert!(limits.iter().any(|l| l.window_seconds == Some(604_800) && l.request_cap == Some(2000)));
-        assert!(limits.iter().any(|l| l.window_seconds == Some(10_800) && l.request_cap == Some(80)));
+        assert!(limits
+            .iter()
+            .any(|l| l.window_seconds == Some(18_000) && l.request_cap == Some(200)));
+        assert!(limits
+            .iter()
+            .any(|l| l.window_seconds == Some(604_800) && l.request_cap == Some(2000)));
+        assert!(limits
+            .iter()
+            .any(|l| l.window_seconds == Some(10_800) && l.request_cap == Some(80)));
     }
 
     #[test]

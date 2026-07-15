@@ -111,8 +111,8 @@ impl StabilityReport {
     pub fn read(id: &str) -> Result<Self, String> {
         let dir = reports_dir()?;
         let path = dir.join(format!("{id}.json"));
-        let content = fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read report {id}: {e}"))?;
+        let content =
+            fs::read_to_string(&path).map_err(|e| format!("Failed to read report {id}: {e}"))?;
         serde_json::from_str(&content).map_err(|e| format!("Failed to parse report: {e}"))
     }
 
@@ -146,7 +146,11 @@ impl StabilityReport {
             }
             // Extract timestamp from filename: <kind>-<timestamp>.json
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            let ts = stem.rsplit('-').next().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
+            let ts = stem
+                .rsplit('-')
+                .next()
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(0);
             entries.push((path, ts));
         }
         if entries.len() <= MAX_REPORTS {
@@ -280,7 +284,8 @@ pub fn start_watchdog(app: tauri::AppHandle) {
                 match action {
                     FreezeAction::Abort => {
                         let elapsed = start.elapsed().as_secs();
-                        let (summary, details) = build_freeze_report_details(elapsed, ABORT_THRESHOLD_SECS, "abort");
+                        let (summary, details) =
+                            build_freeze_report_details(elapsed, ABORT_THRESHOLD_SECS, "abort");
                         let _ = StabilityReport::write("abort", &summary, &details);
                         eprintln!("{summary}");
                         std::process::abort();
@@ -289,7 +294,11 @@ pub fn start_watchdog(app: tauri::AppHandle) {
                         if LAST_HEARTBEAT.load(Ordering::SeqCst) == 0 {
                             // First freeze report (only once per freeze).
                             let elapsed = start.elapsed().as_secs();
-                            let (summary, details) = build_freeze_report_details(elapsed, REPORT_THRESHOLD_SECS, "freeze");
+                            let (summary, details) = build_freeze_report_details(
+                                elapsed,
+                                REPORT_THRESHOLD_SECS,
+                                "freeze",
+                            );
                             let _ = StabilityReport::write("freeze", &summary, &details);
                             LAST_HEARTBEAT.store(-1, Ordering::SeqCst); // Mark as reported
                         }
@@ -336,7 +345,8 @@ fn check_renderer_crash() {
     let now = now_secs();
     let elapsed = now - last;
     if elapsed > RENDERER_CRASH_THRESHOLD_SECS && !RENDERER_REPORTED.swap(true, Ordering::SeqCst) {
-        let summary = format!("Renderer crash detected: no heartbeat for >{RENDERER_CRASH_THRESHOLD_SECS}s");
+        let summary =
+            format!("Renderer crash detected: no heartbeat for >{RENDERER_CRASH_THRESHOLD_SECS}s");
         let details = format!(
             "## Renderer Crash Report\n\n**Last heartbeat:** {last}s\n**Current time:** {now}s\n**Elapsed:** {elapsed}s\n\nThe renderer process may have crashed or frozen. Check the webview console for JavaScript errors."
         );
@@ -350,9 +360,9 @@ fn check_renderer_crash() {
 pub enum FreezeAction {
     /// Main thread is responsive — no action needed.
     None,
- /// Main thread unresponsive beyond report threshold — write a freeze report.
+    /// Main thread unresponsive beyond report threshold — write a freeze report.
     Report,
- /// Main thread unresponsive beyond abort threshold — abort the process.
+    /// Main thread unresponsive beyond abort threshold — abort the process.
     Abort,
 }
 
@@ -372,7 +382,11 @@ fn classify_freeze(elapsed: Duration) -> FreezeAction {
 fn build_freeze_report_details(uptime: u64, threshold: u64, kind: &str) -> (String, String) {
     let summary = format!(
         "{}: main thread unresponsive for >{threshold}s (uptime: {uptime}s)",
-        if kind == "abort" { "Freeze abort" } else { "Freeze detected" }
+        if kind == "abort" {
+            "Freeze abort"
+        } else {
+            "Freeze detected"
+        }
     );
     let telemetry = recent_telemetry(20);
     let tel_str = telemetry
@@ -400,9 +414,8 @@ mod tests {
     use super::*;
     use std::sync::LazyLock;
 
-    static SHARED_DIR: LazyLock<tempfile::TempDir> = LazyLock::new(|| {
-        tempfile::TempDir::new().unwrap()
-    });
+    static SHARED_DIR: LazyLock<tempfile::TempDir> =
+        LazyLock::new(|| tempfile::TempDir::new().unwrap());
 
     fn lock() -> parking_lot::MutexGuard<'static, ()> {
         let _ = &*SHARED_DIR;
@@ -501,19 +514,34 @@ mod tests {
     #[test]
     fn freeze_classification_report_above_threshold() {
         // 11s: above 10s report threshold, below 60s abort
-        assert_eq!(classify_freeze(Duration::from_secs(11)), FreezeAction::Report);
+        assert_eq!(
+            classify_freeze(Duration::from_secs(11)),
+            FreezeAction::Report
+        );
         // 30s: mid-range
-        assert_eq!(classify_freeze(Duration::from_secs(30)), FreezeAction::Report);
+        assert_eq!(
+            classify_freeze(Duration::from_secs(30)),
+            FreezeAction::Report
+        );
         // Exactly 60s: not strictly greater than abort threshold
-        assert_eq!(classify_freeze(Duration::from_secs(60)), FreezeAction::Report);
+        assert_eq!(
+            classify_freeze(Duration::from_secs(60)),
+            FreezeAction::Report
+        );
     }
 
     #[test]
     fn freeze_classification_abort_above_60s() {
         // 61s: above 60s abort threshold
-        assert_eq!(classify_freeze(Duration::from_secs(61)), FreezeAction::Abort);
+        assert_eq!(
+            classify_freeze(Duration::from_secs(61)),
+            FreezeAction::Abort
+        );
         // 120s: well above
-        assert_eq!(classify_freeze(Duration::from_secs(120)), FreezeAction::Abort);
+        assert_eq!(
+            classify_freeze(Duration::from_secs(120)),
+            FreezeAction::Abort
+        );
     }
 
     #[test]

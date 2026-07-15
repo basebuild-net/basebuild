@@ -198,7 +198,9 @@ mod tests {
 
     #[test]
     fn validate_project_returns_false_for_nonexistent() {
-        assert!(!OpenSpecRuntimeService::validate_project("/nonexistent/path/xyz"));
+        assert!(!OpenSpecRuntimeService::validate_project(
+            "/nonexistent/path/xyz"
+        ));
     }
 
     #[test]

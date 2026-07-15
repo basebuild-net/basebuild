@@ -8,8 +8,8 @@ use std::sync::LazyLock;
 
 use parking_lot::Mutex;
 
-use basebuild_app_lib::services::settings_service::SettingsService;
 use basebuild_app_lib::models::permission::{ApprovalMode, PermissionDecision, SessionRule};
+use basebuild_app_lib::services::settings_service::SettingsService;
 
 /// Shared temp dir — all tests use the same DB. Serialized via TEST_LOCK.
 static SHARED_DIR: LazyLock<tempfile::TempDir> = LazyLock::new(|| {

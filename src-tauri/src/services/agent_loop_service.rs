@@ -264,6 +264,8 @@ pub struct TurnSegment {
     pub reasoning: Option<String>,
     /// 1-based loop iteration this segment came from.
     pub iteration: usize,
+    /// Pre-created assistant row checkpointed while this iteration streams.
+    pub message_id: Option<String>,
 }
 
 /// A tool event recorded during a run (persisted to native_tool_events by the caller).
@@ -282,6 +284,8 @@ pub struct ToolEventRecord {
     /// 1-based loop iteration this event was executed in, so the caller can
     /// bind it to the assistant message that preceded it.
     pub iteration: usize,
+    /// Stable provider tool-call id used to upsert live status transitions.
+    pub tool_call_id: String,
 }
 
 /// Run an agentic loop for a session. This is the entry point for both
@@ -369,14 +373,27 @@ pub fn cancel_run(session_id: &str) -> bool {
 /// On startup, sweep any sessions left in 'running' state and mark them
 /// 'interrupted' so the UI shows a recovery notice.
 pub fn sweep_interrupted_runs() {
-    let conn = match crate::services::storage_service::StorageService::connect() {
+    let mut conn = match crate::services::storage_service::StorageService::connect() {
         Ok(c) => c,
         Err(_) => return,
     };
-    let _ = conn.execute(
+    let Ok(tx) = conn.transaction() else {
+        return;
+    };
+    let _ = tx.execute(
+        "UPDATE native_tool_events
+         SET status = 'interrupted'
+         WHERE status IN ('running', 'pending')
+           AND session_id IN (
+             SELECT id FROM native_chat_sessions WHERE run_state = 'running'
+           )",
+        [],
+    );
+    let _ = tx.execute(
         "UPDATE native_chat_sessions SET run_state = 'interrupted' WHERE run_state = 'running'",
         [],
     );
+    let _ = tx.commit();
 }
 
 /// Set the run_state column on a native chat session.
@@ -457,6 +474,23 @@ fn run_loop_inner(
         }
         messages = trimmed_messages;
 
+        // Create the assistant row before contacting the provider. Streaming
+        // callbacks update this row, preserving partial text/reasoning if the
+        // app exits before the provider turn completes.
+        let draft_message =
+            crate::services::native_chat_service::NativeChatService::insert_message(
+                session_id,
+                "assistant",
+                "",
+                None,
+                Some(provider_id),
+                Some(model_id),
+                Some(effort_level),
+            )
+            .ok();
+        let draft_message_id = draft_message.as_ref().map(|message| message.id.clone());
+        let live_progress = Arc::new(Mutex::new((String::new(), String::new())));
+
         // Build the request.
         let req = ProviderRequest {
             model_id: model_id.to_string(),
@@ -477,11 +511,32 @@ fn run_loop_inner(
             resolve_client_for_model(provider_id, &api_kind, base_url.as_deref(), &model_base_url);
         let session_id_for_emit = session_id.to_string();
         let app_for_emit = app.clone();
+        let draft_id_for_emit = draft_message_id.clone();
+        let progress_for_emit = live_progress.clone();
         let emit = move |delta: &str, channel: &str| {
             let _ = app_for_emit.emit(
                 "native-chat://chunk",
                 json!({ "sessionId": session_id_for_emit, "delta": delta, "channel": channel }),
             );
+            if channel != "content" && channel != "reasoning" {
+                return;
+            }
+            let Some(message_id) = draft_id_for_emit.as_deref() else {
+                return;
+            };
+            let mut progress = progress_for_emit.lock();
+            if channel == "reasoning" {
+                progress.1.push_str(delta);
+            } else {
+                progress.0.push_str(delta);
+            }
+            let reasoning = (!progress.1.is_empty()).then_some(progress.1.as_str());
+            let _ =
+                crate::services::native_chat_service::NativeChatService::update_message_progress(
+                    message_id,
+                    &progress.0,
+                    reasoning,
+                );
         };
 
         // Signal the UI that the model is thinking (streaming will follow).
@@ -492,16 +547,32 @@ fn run_loop_inner(
         let response = match client.generate(&req, &emit) {
             Ok(r) => r,
             Err(e) => {
-                // Surface the error as a segment so it persists like any other
-                // iteration text; earlier segments are preserved alongside it.
+                // Preserve any streamed checkpoint and append the terminal
+                // error instead of replacing the partial response.
+                let progress = live_progress.lock();
+                let error = format!("Error: {e}");
+                let content = if progress.0.trim().is_empty() {
+                    error
+                } else {
+                    format!("{}\n\n{error}", progress.0)
+                };
+                let reasoning = (!progress.1.trim().is_empty()).then_some(progress.1.clone());
+                if let Some(message_id) = draft_message_id.as_deref() {
+                    let _ = crate::services::native_chat_service::NativeChatService::update_message_progress(
+                        message_id,
+                        &content,
+                        reasoning.as_deref(),
+                    );
+                }
                 segments.push(TurnSegment {
-                    content: format!("Error: {e}"),
-                    reasoning: None,
+                    content: content.clone(),
+                    reasoning: reasoning.clone(),
                     iteration,
+                    message_id: draft_message_id,
                 });
                 return RunResult {
-                    content: format!("Error: {e}"),
-                    reasoning: None,
+                    content,
+                    reasoning,
                     segments,
                     completed: false,
                     cancelled: false,
@@ -511,6 +582,15 @@ fn run_loop_inner(
                 };
             }
         };
+
+        if let Some(message_id) = draft_message_id.as_deref() {
+            let _ =
+                crate::services::native_chat_service::NativeChatService::update_message_progress(
+                    message_id,
+                    &response.content,
+                    response.reasoning.as_deref(),
+                );
+        }
 
         // Record this iteration's assistant output as a segment so the caller
         // can persist one message per iteration. Iterations that produced only
@@ -525,9 +605,12 @@ fn run_loop_inner(
                 content: response.content.clone(),
                 reasoning: response.reasoning.clone(),
                 iteration,
+                message_id: draft_message_id.clone(),
             });
+        } else if let Some(message_id) = draft_message_id.as_deref() {
+            let _ =
+                crate::services::native_chat_service::NativeChatService::delete_message(message_id);
         }
-
         // Append the assistant message to history.
         let mut assistant_msg = ChatMsg::text("assistant", response.content.clone());
         assistant_msg.tool_calls = response.tool_calls.clone();
@@ -550,7 +633,8 @@ fn run_loop_inner(
         // Signal the UI that tool execution is starting (clears streaming text).
         emit("tools", "status");
 
-        // Process tool calls.
+        // Process tool calls. The draft message id binds live tool status to
+        // the assistant iteration that requested each tool.
         let tool_results = process_tool_calls(
             &response.tool_calls,
             &tool_defs,
@@ -562,6 +646,7 @@ fn run_loop_inner(
             session_id,
             planning_session_id,
             iteration,
+            draft_message_id.as_deref(),
             &mut tool_events,
         );
 
@@ -591,9 +676,30 @@ fn process_tool_calls(
     session_id: &str,
     planning_session_id: Option<&str>,
     iteration: usize,
+    message_id: Option<&str>,
     tool_events: &mut Vec<ToolEventRecord>,
 ) -> Vec<(ToolCallRequest, ToolResult)> {
     let mut results: Vec<(ToolCallRequest, ToolResult)> = Vec::with_capacity(calls.len());
+    // Surface and checkpoint every tool before execution. This makes the
+    // active tool name visible immediately and leaves a recoverable running
+    // record if the process exits inside the tool.
+    for call in calls {
+        let summary = format!("Running {}", call.name.replace('_', " "));
+        let _ = app.emit(
+            "native-chat://tool-event",
+            json!({
+                "sessionId": session_id,
+                "toolCallId": call.id,
+                "toolName": call.name,
+                "status": "running",
+                "summary": summary,
+            }),
+        );
+        let _ = crate::services::native_chat_service::NativeChatService::upsert_tool_event(
+            &call.id, session_id, message_id, &call.name, "running", &summary, None, None, None,
+            None,
+        );
+    }
 
     // Intercept propose_ideas calls: capture structured ideas to the catalog
     // (ideas table) as concept ideas, optionally category-tagged. This tool is
@@ -602,7 +708,15 @@ fn process_tool_calls(
     for (idx, call) in calls.iter().enumerate() {
         if call.name == "propose_ideas" {
             let result = execute_propose_ideas(planning_session_id.unwrap_or(session_id), call);
-            record_tool_event(app, session_id, call, &result, iteration, tool_events);
+            record_tool_event(
+                app,
+                session_id,
+                message_id,
+                call,
+                &result,
+                iteration,
+                tool_events,
+            );
             results.push((calls[idx].clone(), result));
         }
     }
@@ -612,7 +726,15 @@ fn process_tool_calls(
     for (idx, call) in calls.iter().enumerate() {
         if call.name == "ask_user" {
             let result = execute_ask_user(app, session_id, call);
-            record_tool_event(app, session_id, call, &result, iteration, tool_events);
+            record_tool_event(
+                app,
+                session_id,
+                message_id,
+                call,
+                &result,
+                iteration,
+                tool_events,
+            );
             results.push((calls[idx].clone(), result));
         }
     }
@@ -697,7 +819,15 @@ fn process_tool_calls(
     read_results.sort_by_key(|(i, _)| *i);
     for (idx, result) in read_results {
         let call = &calls[idx];
-        record_tool_event(app, session_id, call, &result, iteration, tool_events);
+        record_tool_event(
+            app,
+            session_id,
+            message_id,
+            call,
+            &result,
+            iteration,
+            tool_events,
+        );
         results.push((calls[idx].clone(), result));
     }
 
@@ -739,7 +869,15 @@ fn process_tool_calls(
                 sensitive: false,
             }
         };
-        record_tool_event(app, session_id, call, &result, iteration, tool_events);
+        record_tool_event(
+            app,
+            session_id,
+            message_id,
+            call,
+            &result,
+            iteration,
+            tool_events,
+        );
         results.push((calls[*idx].clone(), result));
     }
 
@@ -1047,21 +1185,36 @@ fn execute_with_gateway(
 /// Record a tool event in the tool_events list (caller persists to DB).
 fn record_tool_event(
     _app: &AppHandle,
-    _session_id: &str,
+    session_id: &str,
+    message_id: Option<&str>,
     call: &ToolCallRequest,
     result: &ToolResult,
     iteration: usize,
     tool_events: &mut Vec<ToolEventRecord>,
 ) {
+    let arguments = if result.sensitive {
+        redact_tool_arguments(&call.arguments)
+    } else {
+        call.arguments.clone()
+    };
+    let summary = &result.content[..result.content.len().min(200)];
+    let _ = crate::services::native_chat_service::NativeChatService::upsert_tool_event(
+        &call.id,
+        session_id,
+        message_id,
+        &call.name,
+        &result.status,
+        summary,
+        Some(&arguments),
+        result.diff.as_deref(),
+        result.decision.as_deref(),
+        result.rule_source.as_deref(),
+    );
     tool_events.push(ToolEventRecord {
         tool_name: call.name.clone(),
         status: result.status.clone(),
-        summary: result.content[..result.content.len().min(200)].to_string(),
-        arguments: Some(if result.sensitive {
-            redact_tool_arguments(&call.arguments)
-        } else {
-            call.arguments.clone()
-        }),
+        summary: summary.to_string(),
+        arguments: Some(arguments),
         duration_ms: 0,
         decision: result
             .decision
@@ -1070,6 +1223,7 @@ fn record_tool_event(
         rule_source: result.rule_source.clone(),
         diff: result.diff.clone(),
         iteration,
+        tool_call_id: call.id.clone(),
     });
 }
 

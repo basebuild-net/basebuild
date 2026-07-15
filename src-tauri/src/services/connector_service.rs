@@ -6,8 +6,8 @@ use crate::{
     models::{
         connector::{
             Connector, ConnectorCapability, ConnectorError, ConnectorEvent, ConnectorEventType,
-            ConnectorGrantDecision, ConnectorGrantScope, ConnectorManifest, ConnectorState,
-            ConnectorTransport, ConnectorPermissionRequest, ProviderClaim,
+            ConnectorGrantDecision, ConnectorGrantScope, ConnectorManifest,
+            ConnectorPermissionRequest, ConnectorState, ConnectorTransport, ProviderClaim,
         },
         permission::PermissionDecision,
     },
@@ -42,7 +42,11 @@ impl ConnectorService {
         let existing = Self::get_by_manifest_id(&manifest.id)?;
         let now = now();
         let capabilities_json = serde_json::to_string(
-            &manifest.capabilities.iter().map(|c| c.as_str()).collect::<Vec<_>>(),
+            &manifest
+                .capabilities
+                .iter()
+                .map(|c| c.as_str())
+                .collect::<Vec<_>>(),
         )
         .map_err(|e| e.to_string())?;
 
@@ -63,7 +67,8 @@ impl ConnectorService {
                 ],
             )
             .map_err(|e| format!("Failed to update connector: {e}"))?;
-            return Self::get_by_manifest_id(&manifest.id)?.ok_or_else(|| "Connector not found after update".to_string());
+            return Self::get_by_manifest_id(&manifest.id)?
+                .ok_or_else(|| "Connector not found after update".to_string());
         }
 
         // Insert new.
@@ -142,7 +147,12 @@ impl ConnectorService {
         Ok(())
     }
 
-    pub fn set_state(app: &AppHandle, id: &str, state: ConnectorState, error: Option<&str>) -> DbResult<()> {
+    pub fn set_state(
+        app: &AppHandle,
+        id: &str,
+        state: ConnectorState,
+        error: Option<&str>,
+    ) -> DbResult<()> {
         let conn = StorageService::connect()?;
         conn.execute(
             "UPDATE connectors SET state = ?1, last_error = ?2, updated_at = ?3 WHERE id = ?4",
@@ -204,9 +214,7 @@ impl ConnectorService {
     /// Resolve a permission request for a connector capability. Extends the
     /// native-agent-loop approval substrate: checks connector grants first,
     /// then falls back to the project's approval mode (Safe/Balanced/Auto).
-    pub fn resolve_permission(
-        request: &ConnectorPermissionRequest,
-    ) -> ConnectorGrantDecision {
+    pub fn resolve_permission(request: &ConnectorPermissionRequest) -> ConnectorGrantDecision {
         let connector = match Self::get(&request.connector_id) {
             Ok(Some(c)) => c,
             _ => {
@@ -527,7 +535,14 @@ mod tests {
 
     #[test]
     fn connector_state_round_trip() {
-        for s in ["registered", "connecting", "connected", "disconnected", "error", "unsupported"] {
+        for s in [
+            "registered",
+            "connecting",
+            "connected",
+            "disconnected",
+            "error",
+            "unsupported",
+        ] {
             assert_eq!(ConnectorState::from_str(s).as_str(), s);
         }
     }
@@ -582,7 +597,9 @@ mod tests {
         assert_eq!(found.name, "Test Connector");
 
         // Get by manifest id.
-        let found2 = ConnectorService::get_by_manifest_id("test-connector").unwrap().unwrap();
+        let found2 = ConnectorService::get_by_manifest_id("test-connector")
+            .unwrap()
+            .unwrap();
         assert_eq!(found2.id, conn.id);
     }
 

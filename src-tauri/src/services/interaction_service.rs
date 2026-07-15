@@ -44,16 +44,12 @@ impl InteractionService {
             params![id, session_id, run_id, questions_json, created_at],
         )
         .map_err(|e| e.to_string())?;
-        Self::get(&id)?
-            .ok_or_else(|| "Interaction not found after insert".to_string())
+        Self::get(&id)?.ok_or_else(|| "Interaction not found after insert".to_string())
     }
 
     /// Resolve a pending interaction with answers. Called when the user
     /// responds to a question card.
-    pub fn resolve(
-        id: &str,
-        request: &ResolveInteractionRequest,
-    ) -> DbResult<PendingInteraction> {
+    pub fn resolve(id: &str, request: &ResolveInteractionRequest) -> DbResult<PendingInteraction> {
         let answers_json = serde_json::to_string(&request.answers).map_err(|e| e.to_string())?;
         let resolved_at = now_millis();
         let conn = StorageService::connect()?;
@@ -62,8 +58,7 @@ impl InteractionService {
             params![answers_json, resolved_at, id],
         )
         .map_err(|e| e.to_string())?;
-        Self::get(id)?
-            .ok_or_else(|| "Interaction not found after resolve".to_string())
+        Self::get(id)?.ok_or_else(|| "Interaction not found after resolve".to_string())
     }
 
     /// Cancel a pending interaction. Called when the run is cancelled or the
@@ -102,7 +97,8 @@ impl InteractionService {
         let rows = stmt
             .query_map(params![session_id], Self::row_to_interaction)
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     /// List all interactions for a session (including answered/cancelled, for
@@ -119,7 +115,8 @@ impl InteractionService {
         let rows = stmt
             .query_map(params![session_id], Self::row_to_interaction)
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     pub fn get(id: &str) -> DbResult<Option<PendingInteraction>> {
@@ -149,8 +146,7 @@ impl InteractionService {
 
     fn row_to_interaction(row: &rusqlite::Row<'_>) -> rusqlite::Result<PendingInteraction> {
         let questions_json: String = row.get(3)?;
-        let questions: Vec<Question> =
-            serde_json::from_str(&questions_json).unwrap_or_default();
+        let questions: Vec<Question> = serde_json::from_str(&questions_json).unwrap_or_default();
         let status_str: String = row.get(4)?;
         let status = InteractionStatus::from_str(&status_str);
         let answers_json: Option<String> = row.get(5)?;
@@ -181,8 +177,14 @@ mod tests {
             prompt: "Pick a color".into(),
             kind: QuestionKind::Options,
             options: vec![
-                QuestionOption { label: "Red".into(), description: None },
-                QuestionOption { label: "Blue".into(), description: None },
+                QuestionOption {
+                    label: "Red".into(),
+                    description: None,
+                },
+                QuestionOption {
+                    label: "Blue".into(),
+                    description: None,
+                },
             ],
             recommended: Some(1),
             allow_free_text: false,
@@ -208,8 +210,7 @@ mod tests {
     fn resolve_sets_answered() {
         let dir = tempfile::TempDir::new().unwrap();
         let _g = crate::test_util::test::lock_db(&dir);
-        let interaction =
-            InteractionService::create("sess_1", None, &sample_questions()).unwrap();
+        let interaction = InteractionService::create("sess_1", None, &sample_questions()).unwrap();
         let request = ResolveInteractionRequest {
             answers: vec![QuestionAnswer {
                 question_id: "q1".into(),
@@ -227,8 +228,7 @@ mod tests {
     fn cancel_sets_cancelled() {
         let dir = tempfile::TempDir::new().unwrap();
         let _g = crate::test_util::test::lock_db(&dir);
-        let interaction =
-            InteractionService::create("sess_1", None, &sample_questions()).unwrap();
+        let interaction = InteractionService::create("sess_1", None, &sample_questions()).unwrap();
         InteractionService::cancel(&interaction.id).unwrap();
         let got = InteractionService::get(&interaction.id).unwrap().unwrap();
         assert_eq!(got.status, InteractionStatus::Cancelled);

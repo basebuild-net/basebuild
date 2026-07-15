@@ -86,7 +86,8 @@ pub fn sync_catalog() -> CatalogSyncResult {
 }
 
 fn sync_catalog_inner() -> Result<CatalogSyncResult, String> {
-    let base = env::var("BASEBUILD_CATALOG_URL").unwrap_or_else(|_| DEFAULT_CATALOG_BASE_URL.to_string());
+    let base =
+        env::var("BASEBUILD_CATALOG_URL").unwrap_or_else(|_| DEFAULT_CATALOG_BASE_URL.to_string());
     let url = format!("{}/api/catalog/desktop", base.trim_end_matches('/'));
 
     let resp = reqwest::blocking::Client::builder()
@@ -128,8 +129,9 @@ fn sync_catalog_inner() -> Result<CatalogSyncResult, String> {
             } else {
                 "[]".to_string()
             };
-            let changed = conn.execute(
-                "INSERT INTO native_provider_model_cache
+            let changed = conn
+                .execute(
+                    "INSERT INTO native_provider_model_cache
                     (provider_id, model_id, label, context_window, max_tokens,
                      supports_reasoning, supported_efforts, supports_images, source,
                      synced_at, error, model_api_id)
@@ -144,19 +146,19 @@ fn sync_catalog_inner() -> Result<CatalogSyncResult, String> {
                     synced_at = excluded.synced_at,
                     error = NULL,
                     model_api_id = excluded.model_api_id",
-                params![
-                    provider.slug,
-                    model.slug,
-                    model.name,
-                    model.context_limit,
-                    model.output_limit,
-                    model.reasoning as i32,
-                    supported_efforts,
-                    now,
-                    model.api_id,
-                ],
-            )
-            .map_err(|e| format!("Failed to upsert catalog row: {e}"))?;
+                    params![
+                        provider.slug,
+                        model.slug,
+                        model.name,
+                        model.context_limit,
+                        model.output_limit,
+                        model.reasoning as i32,
+                        supported_efforts,
+                        now,
+                        model.api_id,
+                    ],
+                )
+                .map_err(|e| format!("Failed to upsert catalog row: {e}"))?;
             if changed > 0 {
                 synced += 1;
             } else {

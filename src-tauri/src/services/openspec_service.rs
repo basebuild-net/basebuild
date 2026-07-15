@@ -3,9 +3,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::params;
 
 use crate::{
-    models::openspec_catalog::{
-        ChangeCatalogEntry, StructuredTask, StructuredTasks, TaskPhase,
-    },
+    models::openspec_catalog::{ChangeCatalogEntry, StructuredTask, StructuredTasks, TaskPhase},
     models::plan::Plan,
     services::storage_service::StorageService,
 };
@@ -137,12 +135,11 @@ pub fn write_artifacts_atomic(
 
     // Atomic rename: temp_dir → final_dir. On Windows, the target must not
     // exist (we already ensured uniqueness via resolve_unique_change_name).
-    std::fs::rename(&temp_dir, &final_dir)
-        .map_err(|e| {
-            // Clean up the temp dir on rename failure.
-            let _ = std::fs::remove_dir_all(&temp_dir);
-            format!("Failed to finalize change directory: {e}")
-        })?;
+    std::fs::rename(&temp_dir, &final_dir).map_err(|e| {
+        // Clean up the temp dir on rename failure.
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        format!("Failed to finalize change directory: {e}")
+    })?;
 
     Ok(final_dir)
 }
@@ -218,8 +215,7 @@ pub fn unlink_plan_from_change(plan_id: &str) -> DbResult<()> {
         let plan_status = crate::models::plan::PlanStatus::from_str(&status);
         if matches!(
             plan_status,
-            crate::models::plan::PlanStatus::Running
-                | crate::models::plan::PlanStatus::Ready
+            crate::models::plan::PlanStatus::Running | crate::models::plan::PlanStatus::Ready
         ) {
             return Err(format!(
                 "Cannot unlink: plan is {status} (must be finished, cancelled, draft, or openspec)."
@@ -315,9 +311,7 @@ pub fn find_plan_by_change(change_name: &str) -> DbResult<Option<Plan>> {
             })
         })
         .map_err(|e| e.to_string())?;
-    rows.next()
-        .transpose()
-        .map_err(|e| e.to_string())
+    rows.next().transpose().map_err(|e| e.to_string())
 }
 
 /// Parse a `tasks.md` string into structured phases + tasks with line
@@ -433,7 +427,9 @@ pub fn list_changes(project_path: &str) -> DbResult<Vec<ChangeCatalogEntry>> {
     let mut entries = Vec::new();
 
     if changes_dir.exists() {
-        for entry in std::fs::read_dir(&changes_dir).map_err(|e| format!("Failed to read changes dir: {e}"))? {
+        for entry in std::fs::read_dir(&changes_dir)
+            .map_err(|e| format!("Failed to read changes dir: {e}"))?
+        {
             let entry = match entry {
                 Ok(e) => e,
                 Err(_) => continue,
@@ -451,7 +447,9 @@ pub fn list_changes(project_path: &str) -> DbResult<Vec<ChangeCatalogEntry>> {
     }
 
     if archive_dir.exists() {
-        for entry in std::fs::read_dir(&archive_dir).map_err(|e| format!("Failed to read archive dir: {e}"))? {
+        for entry in std::fs::read_dir(&archive_dir)
+            .map_err(|e| format!("Failed to read archive dir: {e}"))?
+        {
             let entry = match entry {
                 Ok(e) => e,
                 Err(_) => continue,
@@ -474,13 +472,16 @@ pub fn list_changes(project_path: &str) -> DbResult<Vec<ChangeCatalogEntry>> {
     Ok(entries)
 }
 
-fn catalog_entry(path: &Path, name: &str, archived: bool, project_path: &str) -> ChangeCatalogEntry {
+fn catalog_entry(
+    path: &Path,
+    name: &str,
+    archived: bool,
+    project_path: &str,
+) -> ChangeCatalogEntry {
     let has_proposal = path.join("proposal.md").exists();
     let has_design = path.join("design.md").exists();
     let has_tasks = path.join("tasks.md").exists();
-    let has_specs = path
-        .join("specs")
-        .is_dir()
+    let has_specs = path.join("specs").is_dir()
         && std::fs::read_dir(path.join("specs"))
             .map(|mut d| d.next().is_some())
             .unwrap_or(false);
@@ -491,8 +492,10 @@ fn catalog_entry(path: &Path, name: &str, archived: bool, project_path: &str) ->
         (0, 0)
     };
 
-    let linked_plan_reference_id =
-        find_plan_by_change(name).ok().flatten().map(|p| p.reference_id);
+    let linked_plan_reference_id = find_plan_by_change(name)
+        .ok()
+        .flatten()
+        .map(|p| p.reference_id);
 
     let created_at = parse_openspec_created_at(path);
 
@@ -615,7 +618,10 @@ pub fn toggle_task<R: tauri::Runtime>(
     let lines: Vec<&str> = content.lines().collect();
     let idx = line_no as usize;
     if idx == 0 || idx > lines.len() {
-        return Err(format!("Line {line_no} is out of range (1..={}).", lines.len()));
+        return Err(format!(
+            "Line {line_no} is out of range (1..={}).",
+            lines.len()
+        ));
     }
 
     let target = lines[idx - 1];
@@ -670,14 +676,15 @@ pub fn toggle_task<R: tauri::Runtime>(
 }
 
 /// Archive a change by moving its directory to `openspec/changes/archive/`.
-/// Refuses if the linked plan is in a non-terminal status. The archive
-/// directory is created if it doesn't exist.
+/// Refuses if the linked plan is non-terminal. Terminal linked plans receive a
+/// durable archive record and leave active plan lists without deleting history.
 pub fn archive_change(project_path: &str, change_name: &str) -> DbResult<()> {
     if change_name.contains('/') || change_name.contains('\\') || change_name.contains("..") {
         return Err("Invalid change name.".to_string());
     }
 
-    if let Some(plan) = find_plan_by_change(change_name)? {
+    let linked_plan = find_plan_by_change(change_name)?;
+    if let Some(plan) = linked_plan.as_ref() {
         let status = plan.status;
         if !matches!(
             status,
@@ -704,8 +711,33 @@ pub fn archive_change(project_path: &str, change_name: &str) -> DbResult<()> {
     let archived_name = format!("{date}-{change_name}");
     let dest = archive_dir.join(&archived_name);
 
-    std::fs::rename(&src, &dest)
-        .map_err(|e| format!("Failed to move change to archive: {e}"))?;
+    let archive_connection = if let Some(plan) = linked_plan.as_ref() {
+        let connection = StorageService::connect()?;
+        let archived_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs() as i64)
+            .unwrap_or_default();
+        connection
+            .execute(
+                "INSERT OR REPLACE INTO plan_archives (plan_id, archived_at) VALUES (?1, ?2)",
+                params![plan.id, archived_at],
+            )
+            .map_err(|error| format!("Failed to archive linked plan: {error}"))?;
+        Some(connection)
+    } else {
+        None
+    };
+
+    if let Err(error) = std::fs::rename(&src, &dest) {
+        if let (Some(plan), Some(connection)) = (linked_plan.as_ref(), archive_connection.as_ref())
+        {
+            let _ = connection.execute(
+                "DELETE FROM plan_archives WHERE plan_id = ?1",
+                params![plan.id],
+            );
+        }
+        return Err(format!("Failed to move change to archive: {error}"));
+    }
 
     Ok(())
 }
@@ -746,7 +778,10 @@ pub fn validate_artifacts(change_dir: &std::path::Path) -> ArtifactValidation {
         if !lower.contains("## why") && !lower.contains("# why") {
             errors.push("proposal.md missing '## Why' section".to_string());
         }
-        if !lower.contains("## what-changes") && !lower.contains("## what changes") && !lower.contains("# what-changes") {
+        if !lower.contains("## what-changes")
+            && !lower.contains("## what changes")
+            && !lower.contains("# what-changes")
+        {
             errors.push("proposal.md missing '## What-Changes' section".to_string());
         }
         // Warning for thin proposal (< 100 chars of content).
@@ -770,15 +805,22 @@ pub fn validate_artifacts(change_dir: &std::path::Path) -> ArtifactValidation {
                         spec_count += 1;
                         if let Ok(spec_content) = std::fs::read_to_string(&spec_md) {
                             let lower = spec_content.to_lowercase();
-                            if lower.contains("### requirement") || lower.contains("## requirement") {
+                            if lower.contains("### requirement") || lower.contains("## requirement")
+                            {
                                 found_requirement = true;
                             }
-                            if lower.contains("### scenario") || lower.contains("## scenario") || lower.contains("#### scenario") {
+                            if lower.contains("### scenario")
+                                || lower.contains("## scenario")
+                                || lower.contains("#### scenario")
+                            {
                                 found_scenario = true;
                             }
                             // Warning for thin spec (< 50 chars).
                             if spec_content.trim().len() < 50 {
-                                warnings.push(format!("spec '{}' is very thin", entry.file_name().to_string_lossy()));
+                                warnings.push(format!(
+                                    "spec '{}' is very thin",
+                                    entry.file_name().to_string_lossy()
+                                ));
                             }
                         }
                     }
@@ -812,12 +854,18 @@ pub fn validate_artifacts(change_dir: &std::path::Path) -> ArtifactValidation {
             errors.push("tasks.md has no task checkboxes".to_string());
         }
         if completed > 0 {
-            warnings.push(format!("tasks.md has {completed} pre-checked task(s); expected 0 for a new change"));
+            warnings.push(format!(
+                "tasks.md has {completed} pre-checked task(s); expected 0 for a new change"
+            ));
         }
     }
 
     let valid = errors.is_empty();
-    ArtifactValidation { errors, warnings, valid }
+    ArtifactValidation {
+        errors,
+        warnings,
+        valid,
+    }
 }
 
 #[cfg(test)]
@@ -829,7 +877,10 @@ mod tests {
     fn derive_change_name_kebab_cases_titles() {
         assert_eq!(derive_change_name("Add Dark Mode"), "add-dark-mode");
         assert_eq!(derive_change_name("Fix SSL & Auth"), "fix-ssl-auth");
-        assert_eq!(derive_change_name("  Multiple   Spaces  "), "multiple-spaces");
+        assert_eq!(
+            derive_change_name("  Multiple   Spaces  "),
+            "multiple-spaces"
+        );
         assert_eq!(derive_change_name("API_v2 Refactor"), "api-v2-refactor");
         assert_eq!(derive_change_name(""), "untitled-change");
         assert_eq!(derive_change_name("   "), "untitled-change");
@@ -859,7 +910,10 @@ mod tests {
     #[test]
     fn parse_task_progress_handles_empty_and_no_checkboxes() {
         assert_eq!(parse_task_progress(""), (0, 0));
-        assert_eq!(parse_task_progress("# Just a heading\n\nNo checkboxes here."), (0, 0));
+        assert_eq!(
+            parse_task_progress("# Just a heading\n\nNo checkboxes here."),
+            (0, 0)
+        );
     }
 
     #[test]
@@ -883,7 +937,10 @@ mod tests {
         std::fs::create_dir_all(&tmp).unwrap();
         let project_path = tmp.to_string_lossy().to_string();
 
-        let specs = vec![("test-capability".to_string(), "## ADDED Requirements\n...".to_string())];
+        let specs = vec![(
+            "test-capability".to_string(),
+            "## ADDED Requirements\n...".to_string(),
+        )];
         let result = write_artifacts_atomic(
             &project_path,
             "test-change",
@@ -892,15 +949,28 @@ mod tests {
             Some("# Design: Test"),
             "# Tasks: Test\n- [x] 1.1 Task",
         );
-        assert!(result.is_ok(), "write_artifacts_atomic failed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "write_artifacts_atomic failed: {:?}",
+            result
+        );
 
         let change_dir = change_dir(&project_path, "test-change");
         assert!(change_dir.exists(), "change dir exists");
-        assert!(change_dir.join("proposal.md").exists(), "proposal.md exists");
-        assert!(change_dir.join("specs/test-capability/spec.md").exists(), "spec.md exists");
+        assert!(
+            change_dir.join("proposal.md").exists(),
+            "proposal.md exists"
+        );
+        assert!(
+            change_dir.join("specs/test-capability/spec.md").exists(),
+            "spec.md exists"
+        );
         assert!(change_dir.join("design.md").exists(), "design.md exists");
         assert!(change_dir.join("tasks.md").exists(), "tasks.md exists");
-        assert!(change_dir.join(".openspec.yaml").exists(), ".openspec.yaml exists");
+        assert!(
+            change_dir.join(".openspec.yaml").exists(),
+            ".openspec.yaml exists"
+        );
 
         let (completed, total) = read_task_progress(&project_path, "test-change");
         assert_eq!(completed, 1);
@@ -923,15 +993,28 @@ mod tests {
         let project_path = tmp.to_string_lossy().to_string();
 
         // First "test-change" is unique.
-        assert_eq!(resolve_unique_change_name(&project_path, "Test Change"), "test-change");
+        assert_eq!(
+            resolve_unique_change_name(&project_path, "Test Change"),
+            "test-change"
+        );
 
         // Create the first change dir.
         let specs: Vec<(String, String)> = vec![];
-        write_artifacts_atomic(&project_path, "test-change", "# Proposal", &specs, None, "# Tasks")
-            .unwrap();
+        write_artifacts_atomic(
+            &project_path,
+            "test-change",
+            "# Proposal",
+            &specs,
+            None,
+            "# Tasks",
+        )
+        .unwrap();
 
         // Second "test-change" collision gets -2 suffix.
-        assert_eq!(resolve_unique_change_name(&project_path, "Test Change"), "test-change-2");
+        assert_eq!(
+            resolve_unique_change_name(&project_path, "Test Change"),
+            "test-change-2"
+        );
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&tmp);
@@ -1043,7 +1126,10 @@ mod tests {
         let result = link_change_to_plan("test-change", "plan-b");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.contains("already linked"), "Expected double-link error, got: {err}");
+        assert!(
+            err.contains("already linked"),
+            "Expected double-link error, got: {err}"
+        );
     }
 
     #[test]
@@ -1069,14 +1155,82 @@ mod tests {
         let result = unlink_plan_from_change("plan-run");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.contains("Cannot unlink"), "Expected active-plan rejection, got: {err}");
+        assert!(
+            err.contains("Cannot unlink"),
+            "Expected active-plan rejection, got: {err}"
+        );
+    }
+
+    #[test]
+    fn archive_change_hides_linked_plan_from_active_lists() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        let project_path = dir.path().to_str().unwrap();
+        let change_path = change_dir(project_path, "test-change");
+        std::fs::create_dir_all(&change_path).unwrap();
+        std::fs::write(change_path.join("proposal.md"), "# Test change").unwrap();
+
+        let connection = StorageService::connect().unwrap();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        connection
+            .execute(
+                "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+                 VALUES ('sess-archive', ?1, 'Test', ?2, ?2)",
+                params![project_path, timestamp],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO plans (
+                    id, session_id, reference_id, title, description, goal, status,
+                    priority, tags, ai_enhanced, context, idea_id, change_name,
+                    created_at, updated_at, finished_at
+                 ) VALUES (
+                    'plan-archive', 'sess-archive', 'PLAN-ARCHIVE', 'Archived plan', '', '',
+                    'finished', 1, '[]', 0, NULL, NULL, 'test-change', ?1, ?1, ?1
+                 )",
+                params![timestamp],
+            )
+            .unwrap();
+        drop(connection);
+
+        assert_eq!(
+            crate::services::plan_service::PlanService::list("sess-archive")
+                .unwrap()
+                .len(),
+            1
+        );
+
+        archive_change(project_path, "test-change").unwrap();
+
+        assert!(
+            crate::services::plan_service::PlanService::list("sess-archive")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            crate::services::plan_service::PlanService::get("plan-archive")
+                .unwrap()
+                .is_some()
+        );
+        assert!(changes_dir(project_path)
+            .join("archive")
+            .join(format!("{}-test-change", current_date_string()))
+            .exists());
     }
 
     fn make_valid_change_dir(dir: &std::path::Path) {
         std::fs::create_dir_all(dir.join("specs/test-cap")).unwrap();
         std::fs::write(dir.join("proposal.md"), "# Proposal\n\n## Why\nThis is a sufficiently long proposal that explains the rationale for the change in detail.\n\n## What-Changes\n- Added feature X\n- Modified feature Y\n").unwrap();
         std::fs::write(dir.join("specs/test-cap/spec.md"), "# Test Capability\n\n### Requirement: Must do the thing\n\nThe system must do the thing.\n\n### Scenario: User does the thing\n\n- Given a user\n- When they do the thing\n- Then it works\n").unwrap();
-        std::fs::write(dir.join("tasks.md"), "# Tasks\n\n- [ ] 1.1 First task\n- [ ] 1.2 Second task\n").unwrap();
+        std::fs::write(
+            dir.join("tasks.md"),
+            "# Tasks\n\n- [ ] 1.1 First task\n- [ ] 1.2 Second task\n",
+        )
+        .unwrap();
     }
 
     #[test]
@@ -1096,7 +1250,10 @@ mod tests {
         std::fs::write(tmp.path().join("tasks.md"), "# Tasks\n\nNo tasks here.\n").unwrap();
         let result = validate_artifacts(tmp.path());
         assert!(!result.valid);
-        assert!(result.errors.iter().any(|e| e.contains("no task checkboxes")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.contains("no task checkboxes")));
     }
 
     #[test]
@@ -1104,7 +1261,11 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         make_valid_change_dir(tmp.path());
         // Overwrite spec.md with a requirement but no scenario.
-        std::fs::write(tmp.path().join("specs/test-cap/spec.md"), "# Test\n\n### Requirement: Must do\n\nDo the thing.\n").unwrap();
+        std::fs::write(
+            tmp.path().join("specs/test-cap/spec.md"),
+            "# Test\n\n### Requirement: Must do\n\nDo the thing.\n",
+        )
+        .unwrap();
         let result = validate_artifacts(tmp.path());
         assert!(!result.valid);
         assert!(result.errors.iter().any(|e| e.contains("scenario")));
@@ -1118,7 +1279,10 @@ mod tests {
         std::fs::remove_file(tmp.path().join("proposal.md")).unwrap();
         let result = validate_artifacts(tmp.path());
         assert!(!result.valid);
-        assert!(result.errors.iter().any(|e| e.contains("proposal.md is missing")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.contains("proposal.md is missing")));
     }
 
     #[test]
@@ -1126,7 +1290,11 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         make_valid_change_dir(tmp.path());
         // Make proposal very short.
-        std::fs::write(tmp.path().join("proposal.md"), "# Proposal\n\n## Why\nShort.\n\n## What-Changes\n- X\n").unwrap();
+        std::fs::write(
+            tmp.path().join("proposal.md"),
+            "# Proposal\n\n## Why\nShort.\n\n## What-Changes\n- X\n",
+        )
+        .unwrap();
         let result = validate_artifacts(tmp.path());
         assert!(result.valid, "Thin content should warn, not error");
         assert!(result.warnings.iter().any(|w| w.contains("very short")));
@@ -1137,7 +1305,11 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         make_valid_change_dir(tmp.path());
         // Write tasks.md with a pre-checked task.
-        std::fs::write(tmp.path().join("tasks.md"), "# Tasks\n\n- [x] 1.1 Already done\n- [ ] 1.2 Second task\n").unwrap();
+        std::fs::write(
+            tmp.path().join("tasks.md"),
+            "# Tasks\n\n- [x] 1.1 Already done\n- [ ] 1.2 Second task\n",
+        )
+        .unwrap();
         let result = validate_artifacts(tmp.path());
         assert!(result.valid, "Pre-checked tasks should warn, not error");
         assert!(result.warnings.iter().any(|w| w.contains("pre-checked")));

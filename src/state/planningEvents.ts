@@ -21,6 +21,7 @@ export type PlanningEventKind =
   | "plan_updated"
   | "plan_status_changed"
   | "idea_captured"
+  | "idea_updated"
   | "idea_status_changed"
   | "category_created"
   | "category_updated"

@@ -13,6 +13,17 @@ configured). Plans that use `engine: openspec` are gated: if the runtime is
 `missing` or `error`, the PlanPanel and PlanningInspector show a setup-required
 card linking to Settings → OpenSpec and block promotion/launch.
 
+## Plan promotion
+
+Approved ideas create independent plans in `draft`. **Generate OpenSpec** runs
+the backend `GenerateOpenspec` pipeline stage with the selected planner model;
+proposal, specs, design, tasks, and `.openspec.yaml` are written atomically and
+validated before the plan changes to `openspec`. Failure leaves the plan in
+`draft` and surfaces the error. **Approve plan** then validates artifact
+completeness, dependency readiness, and execution settings before moving the
+plan to `ready`. Planner routing is distinct from the coding model used by the
+eventual run.
+
 ## Starting a change
 
 Use the `/propose` skill:
@@ -50,8 +61,10 @@ The Planning Inspector's **Changes** tab lists all OpenSpec changes in
 - **Link/unlink to plan** — binds a change to a plan for run-end checklist
   evaluation. A change can only link to one plan at a time; unlinking is
   refused while the plan is running or ready.
-- **Archive** — moves the change to `openspec/changes/archive/` (confirm-gated
-  via `ConfirmDialog`, not `window.confirm`).
+- **Archive** — moves the change to `openspec/changes/archive/` and records the
+  linked terminal plan as archived so it leaves active Done/Finished views.
+  The plan row, chat, and worktree remain intact. The action is confirm-gated
+  via `ConfirmDialog`, not `window.confirm`, and emits a planning refresh event.
 
 Task checkboxes in `tasks.md` can be toggled directly from the catalog —
 clicking a task calls `openspec_toggle_task` which rewrites the file. Progress

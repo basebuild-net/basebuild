@@ -15,12 +15,14 @@ import {
   type PlanQueueEntry,
   type PlanRun,
 } from "../../lib/planRuns";
-import { nativeChatModelDefault } from "../../lib/native-chat";
+import { getLaunchProfile, type WorkspacePolicy } from "../../lib/planDependencies";
 
 type PlanQueueSectionProps = {
   sessionId: string | null;
+  projectPath: string | null;
   plans: Plan[];
   onOpenChatSession: (chatSessionId: string) => void;
+  onShowToast?: (title: string, detail?: string, kind?: "success" | "error") => void;
 };
 
 /// Default execution profile: 1× (concurrency 1, no worktrees yet).
@@ -33,30 +35,47 @@ const DEFAULT_PROFILE: ExecutionProfile = {
 
 export function PlanQueueSection({
   sessionId,
+  projectPath,
   plans,
   onOpenChatSession,
+  onShowToast,
 }: PlanQueueSectionProps) {
   const [queue, setQueue] = useState<PlanQueueEntry[]>([]);
   const [runs, setRuns] = useState<PlanRun[]>([]);
   const [profile, setProfile] = useState<ExecutionProfile>(DEFAULT_PROFILE);
-  const [defaultModel, setDefaultModel] = useState<{
-    providerId: string;
-    modelId: string;
-    effortLevel: string;
-  } | null>(null);
+  const [workspacePolicy, setWorkspacePolicy] = useState<WorkspacePolicy>("isolated_worktrees");
 
-  // Load queue + runs + default model when session changes.
+  // Queue entries belong to the session; the coding profile belongs to the project.
   useEffect(() => {
     if (!sessionId) {
       setQueue([]);
       setRuns([]);
-      setDefaultModel(null);
       return;
     }
     void refreshQueue(sessionId);
     void refreshRuns(sessionId);
-    void loadDefaultModel(sessionId);
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!projectPath) {
+      setProfile(DEFAULT_PROFILE);
+      return;
+    }
+    void getLaunchProfile(projectPath)
+      .then((saved) => {
+        if (!saved) return;
+        setProfile({
+          concurrency: Math.max(1, saved.workerCount),
+          providerId: saved.providerId,
+          modelId: saved.modelId,
+          effortLevel: saved.effortLevel,
+        });
+        setWorkspacePolicy(saved.workspacePolicy === "sequential_primary" ? "sequential_primary" : "isolated_worktrees");
+      })
+      .catch((error) => {
+        onShowToast?.("Could not load queue profile", error instanceof Error ? error.message : String(error), "error");
+      });
+  }, [projectPath, onShowToast]);
 
   // Listen for plan_run:// events to refresh runs.
   useEffect(() => {
@@ -85,22 +104,6 @@ export function PlanQueueSection({
     }
   }
 
-  async function loadDefaultModel(sid: string) {
-    try {
-      const dm = await nativeChatModelDefault(sid);
-      if (dm) {
-        setDefaultModel(dm);
-        setProfile((p) => ({
-          ...p,
-          providerId: dm.providerId,
-          modelId: dm.modelId,
-          effortLevel: dm.effortLevel,
-        }));
-      }
-    } catch {
-      setDefaultModel(null);
-    }
-  }
 
   const readyPlans = plans.filter((p) => p.status === "ready");
   const queuedPlanIds = new Set(queue.map((q) => q.planId));
@@ -111,8 +114,8 @@ export function PlanQueueSection({
     try {
       await enqueuePlan({ sessionId, planId });
       await refreshQueue(sessionId);
-    } catch {
-      // Non-blocking; the queue stays as-is.
+    } catch (error) {
+      onShowToast?.("Could not enqueue plan", error instanceof Error ? error.message : String(error), "error");
     }
   }
 
@@ -120,8 +123,8 @@ export function PlanQueueSection({
     try {
       await removePlanRun(entryId);
       if (sessionId) await refreshQueue(sessionId);
-    } catch {
-      // Non-blocking.
+    } catch (error) {
+      onShowToast?.("Could not remove queue entry", error instanceof Error ? error.message : String(error), "error");
     }
   }
 
@@ -129,8 +132,9 @@ export function PlanQueueSection({
     if (!sessionId) return;
     try {
       await startQueue({ sessionId, profile });
-    } catch {
-      // Non-blocking.
+      onShowToast?.("Queue started", `${profile.concurrency} concurrent worker${profile.concurrency === 1 ? "" : "s"}`, "success");
+    } catch (error) {
+      onShowToast?.("Could not start queue", error instanceof Error ? error.message : String(error), "error");
     }
   }
 
@@ -138,8 +142,9 @@ export function PlanQueueSection({
     if (!sessionId) return;
     try {
       await pauseQueue(sessionId);
-    } catch {
-      // Non-blocking.
+      onShowToast?.("Queue paused", "In-flight runs will finish; no new plans will start.", "success");
+    } catch (error) {
+      onShowToast?.("Could not pause queue", error instanceof Error ? error.message : String(error), "error");
     }
   }
 
@@ -147,8 +152,8 @@ export function PlanQueueSection({
     try {
       await cancelPlanRun(runId, cancelPlan);
       if (sessionId) await refreshRuns(sessionId);
-    } catch {
-      // Non-blocking.
+    } catch (error) {
+      onShowToast?.("Could not cancel run", error instanceof Error ? error.message : String(error), "error");
     }
   }
 
@@ -157,8 +162,8 @@ export function PlanQueueSection({
     try {
       await startOmpPlanRun(sessionId, planId);
       await refreshRuns(sessionId);
-    } catch {
-      // Non-blocking.
+    } catch (error) {
+      onShowToast?.("Could not start OMP run", error instanceof Error ? error.message : String(error), "error");
     }
   }
 
@@ -180,7 +185,7 @@ export function PlanQueueSection({
 
       {/* Profile selector */}
       <div className="plan-queue-profile">
-        <label className="plan-queue-concurrency" title="Parallel run count (1 without worktrees)">
+        <label className="plan-queue-concurrency" title="Requested parallel run count; capped at one when isolated worktrees are unavailable">
           <span>×</span>
           <input
             type="number"
@@ -193,15 +198,22 @@ export function PlanQueueSection({
                 concurrency: Math.max(1, Math.min(4, Number(e.target.value) || 1)),
               }))
             }
-            title="Parallel run count (capped at 1 without worktrees)"
+            title="Requested parallel run count"
           />
         </label>
+        <div
+          className="plan-queue-routing"
+          title={`Coding route: ${profile.providerId || "project default"} / ${profile.modelId || "project default"} · ${workspacePolicy === "isolated_worktrees" ? "isolated worktrees" : "primary worktree"}`}
+        >
+          <span>{profile.providerId || "project default"} / {profile.modelId || "model default"}</span>
+          <span>{workspacePolicy === "isolated_worktrees" ? "worktrees" : "primary"}</span>
+        </div>
         <button
           className="btn btn-sm btn-primary plan-queue-start"
           type="button"
           onClick={handleStartQueue}
           disabled={!hasQueue || activeRuns.length > 0}
-          title="Start the queue with the selected profile"
+          title={`Start queued plans with ${profile.providerId || "the project provider"} / ${profile.modelId || "the project model"}`}
         >
           <Play size={12} /> Start
         </button>

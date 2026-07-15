@@ -1,6 +1,7 @@
+use parking_lot::Mutex;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde_json::Value;
-use std::env;
+use std::{env, sync::Arc};
 use tauri::{AppHandle, Emitter};
 
 use crate::{
@@ -359,6 +360,16 @@ impl NativeChatService {
     /// `openai-codex` → `openai`).
     fn omp_credentials() -> Vec<NativeProviderCredential> {
         Self::omp_credentials_from(&omp_agent_dir().join("agent.db"))
+    }
+
+    /// Return the active OMP key for a provider as a transport fallback.
+    /// Basebuild-saved credentials remain primary; native adapters use this
+    /// only after the primary credential is explicitly rejected.
+    pub(crate) fn omp_api_key(provider_id: &str) -> Option<String> {
+        Self::omp_credentials()
+            .into_iter()
+            .find(|credential| credential.provider_id == provider_id)
+            .map(|credential| credential.api_key)
     }
 
     fn omp_credentials_from(db_path: &std::path::Path) -> Vec<NativeProviderCredential> {
@@ -832,7 +843,12 @@ impl NativeChatService {
         // with actionable guidance instead of silently delegating to OMP,
         // which cannot run Basebuild tools (approvals, ask_user, schematic
         // wizard) and leaks protocol frames into the transcript.
-        if Self::route_requires_omp(&api_kind, req.base_url.as_deref(), is_local) {
+        if Self::route_requires_omp(
+            &api_kind,
+            req.base_url.as_deref(),
+            &model_base_url,
+            is_local,
+        ) {
             let is_oauth = req.base_url.as_deref() == Some(OMP_CODEX_BASE_URL);
             let message = if is_oauth {
                 format!(
@@ -969,6 +985,18 @@ impl NativeChatService {
             });
         }
 
+        let assistant_draft = Self::insert_message(
+            &request.session_id,
+            "assistant",
+            "",
+            None,
+            Some(&provider_id),
+            Some(&model_id),
+            Some(&effort_level),
+        )?;
+        let live_progress = Arc::new(Mutex::new((String::new(), String::new())));
+        Self::set_run_state(&request.session_id, "running");
+
         let client = resolve_client_for_model(
             &provider_id,
             &api_kind,
@@ -977,11 +1005,24 @@ impl NativeChatService {
         );
         let session_id_for_emit = request.session_id.clone();
         let app_for_emit = app.clone();
+        let draft_id_for_emit = assistant_draft.id.clone();
+        let progress_for_emit = live_progress.clone();
         let emit = move |delta: &str, channel: &str| {
             let _ = app_for_emit.emit(
                 NATIVE_CHAT_CHUNK,
                 serde_json::json!({ "sessionId": session_id_for_emit, "delta": delta, "channel": channel }),
             );
+            if channel != "content" && channel != "reasoning" {
+                return;
+            }
+            let mut progress = progress_for_emit.lock();
+            if channel == "reasoning" {
+                progress.1.push_str(delta);
+            } else {
+                progress.0.push_str(delta);
+            }
+            let reasoning = (!progress.1.is_empty()).then_some(progress.1.as_str());
+            let _ = Self::update_message_progress(&draft_id_for_emit, &progress.0, reasoning);
         };
 
         // Signal the UI that the model is thinking before the first token.
@@ -990,6 +1031,15 @@ impl NativeChatService {
         let response = match client.generate(&req, &emit) {
             Ok(r) => r,
             Err(e) => {
+                let progress = live_progress.lock();
+                let error = format!("Error: {e}");
+                let content = if progress.0.trim().is_empty() {
+                    error
+                } else {
+                    format!("{}\n\n{error}", progress.0)
+                };
+                let reasoning = (!progress.1.trim().is_empty()).then_some(progress.1.as_str());
+                let _ = Self::update_message_progress(&assistant_draft.id, &content, reasoning);
                 let completed_at = now_millis();
                 let subscription = Self::resolve_subscription(&provider_id);
                 let metric = NativeRequestMetric {
@@ -1017,18 +1067,15 @@ impl NativeChatService {
                     created_at: now_seconds(),
                 };
                 let _ = Self::insert_metric(&metric);
+                Self::set_run_state(&request.session_id, "idle");
                 return Err(e);
             }
         };
 
-        let assistant_message = Self::insert_message(
-            &request.session_id,
-            "assistant",
+        let assistant_message = Self::update_message_progress(
+            &assistant_draft.id,
             &response.content,
             response.reasoning.as_deref(),
-            Some(&provider_id),
-            Some(&model_id),
-            Some(&effort_level),
         )?;
 
         let duration_ms = response.duration_ms.max(1);
@@ -1086,6 +1133,7 @@ impl NativeChatService {
         )?;
 
         Self::touch_session(&request.session_id)?;
+        Self::set_run_state(&request.session_id, "idle");
 
         Ok(NativeChatSendResult {
             user_message,
@@ -1256,8 +1304,13 @@ impl NativeChatService {
 
         let resolved_model_id =
             Self::resolve_model_api_id(&provider_id, &model_id).unwrap_or_else(|| model_id.clone());
-        let (api_kind, _) = Self::resolve_model_routing(&provider_id, &model_id);
-        if Self::route_requires_omp(&api_kind, credential.base_url.as_deref(), false) {
+        let (api_kind, model_base_url) = Self::resolve_model_routing(&provider_id, &model_id);
+        if Self::route_requires_omp(
+            &api_kind,
+            credential.base_url.as_deref(),
+            &model_base_url,
+            false,
+        ) {
             let _ = Self::record_pipeline_run(
                 &run_id,
                 &request.planning_session_id,
@@ -1634,25 +1687,24 @@ impl NativeChatService {
         (String::new(), String::new())
     }
 
-    /// True when this (api_kind, credential base_url) combination has no
-    /// native transport and would previously have bridged through OMP RPC:
-    /// the ChatGPT-subscription OAuth sentinel (`omp://openai-codex`), or a
-    /// bespoke agent api_kind with no direct endpoint. Native chat refuses
-    /// these routes (native-first contract) instead of delegating to OMP.
+    /// True when this route has no native transport and would previously have
+    /// bridged through OMP RPC. The ChatGPT-subscription OAuth sentinel always
+    /// requires OMP. Bespoke protocol kinds require OMP only when neither the
+    /// credential nor the model catalog supplies a direct endpoint.
     pub fn route_requires_omp(
         api_kind: &str,
         credential_base_url: Option<&str>,
+        model_base_url: &str,
         is_local: bool,
     ) -> bool {
-        credential_base_url == Some(OMP_CODEX_BASE_URL)
-            || (api_kind != "openai-completions"
-                && api_kind != "openai-responses"
-                && api_kind != "azure-openai-responses"
-                && api_kind != "anthropic-messages"
-                && api_kind != "openrouter"
-                && api_kind != "ollama-chat"
-                && !is_local
-                && credential_base_url.is_none())
+        if credential_base_url == Some(OMP_CODEX_BASE_URL) {
+            return true;
+        }
+        let has_direct_endpoint = credential_base_url.is_some_and(|value| !value.trim().is_empty())
+            || !model_base_url.trim().is_empty();
+        !crate::services::provider_client::transport_supports_tools(api_kind)
+            && !is_local
+            && !has_direct_endpoint
     }
 
     fn validate_provider_model(
@@ -1738,7 +1790,8 @@ impl NativeChatService {
         let mut pending_events = event_records.iter().peekable();
 
         let persist_event = |te: &ToolEventRecord, message_id: &str| -> DbResult<NativeToolEvent> {
-            Self::insert_tool_event(
+            Self::upsert_tool_event(
+                &te.tool_call_id,
                 session_id,
                 Some(message_id),
                 &te.tool_name,
@@ -1770,15 +1823,23 @@ impl NativeChatService {
             if segment.content.trim().is_empty() && !has_reasoning {
                 continue;
             }
-            let message = Self::insert_message(
-                session_id,
-                "assistant",
-                &segment.content,
-                segment.reasoning.as_deref(),
-                Some(provider_id),
-                Some(model_id),
-                Some(effort_level),
-            )?;
+            let message = if let Some(message_id) = segment.message_id.as_deref() {
+                Self::update_message_progress(
+                    message_id,
+                    &segment.content,
+                    segment.reasoning.as_deref(),
+                )?
+            } else {
+                Self::insert_message(
+                    session_id,
+                    "assistant",
+                    &segment.content,
+                    segment.reasoning.as_deref(),
+                    Some(provider_id),
+                    Some(model_id),
+                    Some(effort_level),
+                )?
+            };
             bind_message_id = message.id.clone();
             assistant_message = Some(message);
         }
@@ -1839,6 +1900,39 @@ impl NativeChatService {
         Ok(message)
     }
 
+    /// Checkpoint an in-flight assistant message. The row is created before a
+    /// provider request starts, then updated as text and reasoning arrive so a
+    /// process exit cannot erase the visible work completed so far.
+    pub(crate) fn update_message_progress(
+        message_id: &str,
+        content: &str,
+        reasoning: Option<&str>,
+    ) -> DbResult<NativeChatMessage> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "UPDATE native_chat_messages SET content = ?1, reasoning = ?2 WHERE id = ?3",
+            params![content, reasoning, message_id],
+        )
+        .map_err(|e| format!("Failed to checkpoint native chat message: {e}"))?;
+        conn.query_row(
+            "SELECT id, session_id, role, content, reasoning, sort_order, provider_id, model_id, effort_level, created_at
+             FROM native_chat_messages WHERE id = ?1",
+            params![message_id],
+            map_message,
+        )
+        .map_err(|e| format!("Failed to reload native chat checkpoint: {e}"))
+    }
+
+    pub(crate) fn delete_message(message_id: &str) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "DELETE FROM native_chat_messages WHERE id = ?1 AND role = 'assistant'",
+            params![message_id],
+        )
+        .map_err(|e| format!("Failed to remove empty native chat checkpoint: {e}"))?;
+        Ok(())
+    }
+
     fn insert_tool_event(
         session_id: &str,
         message_id: Option<&str>,
@@ -1850,46 +1944,96 @@ impl NativeChatService {
         decision: Option<&str>,
         rule_source: Option<&str>,
     ) -> DbResult<NativeToolEvent> {
-        let conn = StorageService::connect()?;
-        let next_seq: i64 = conn
-            .query_row(
-                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM native_tool_events WHERE session_id = ?1",
-                params![session_id],
-                |row| row.get(0),
-            )
-            .unwrap_or(1);
-        let event = NativeToolEvent {
-            id: gen_id("ntool"),
-            session_id: session_id.to_string(),
-            message_id: message_id.map(str::to_string),
-            kind: kind.to_string(),
-            status: status.to_string(),
-            summary: summary.to_string(),
-            arguments: arguments.map(str::to_string),
-            diff: diff.map(str::to_string),
-            decision: decision.map(str::to_string),
-            rule_source: rule_source.map(str::to_string),
-            sequence: next_seq,
-            created_at: now_seconds(),
-        };
-        conn.execute(
-            "INSERT INTO native_tool_events (id, session_id, message_id, kind, status, summary, arguments, diff, decision, rule_source, sequence, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, (SELECT COALESCE(MAX(sequence), 0) + 1 FROM native_tool_events WHERE session_id = ?2), ?11)",
-            params![event.id, event.session_id, event.message_id, event.kind, event.status, event.summary, event.arguments, event.diff, event.decision, event.rule_source, event.created_at],
+        Self::upsert_tool_event(
+            &gen_id("ntool"),
+            session_id,
+            message_id,
+            kind,
+            status,
+            summary,
+            arguments,
+            diff,
+            decision,
+            rule_source,
         )
-        .map_err(|e| format!("Failed to save native tool event: {e}"))?;
-        // Read back the assigned sequence so the returned event matches what was persisted.
-        let persisted_seq: i64 = conn
-            .query_row(
-                "SELECT sequence FROM native_tool_events WHERE id = ?1",
-                params![event.id],
-                |row| row.get(0),
-            )
-            .map_err(|e| format!("Failed to read back tool event sequence: {e}"))?;
-        Ok(NativeToolEvent {
-            sequence: persisted_seq,
-            ..event
-        })
+    }
+
+    /// Persist a live tool event under the provider's stable tool-call id.
+    /// Later status updates replace the same row instead of creating duplicate
+    /// pending/running/completed cards.
+    pub(crate) fn upsert_tool_event(
+        event_id: &str,
+        session_id: &str,
+        message_id: Option<&str>,
+        kind: &str,
+        status: &str,
+        summary: &str,
+        arguments: Option<&str>,
+        diff: Option<&str>,
+        decision: Option<&str>,
+        rule_source: Option<&str>,
+    ) -> DbResult<NativeToolEvent> {
+        let conn = StorageService::connect()?;
+        let created_at = now_seconds();
+        // Provider tool-call ids are stable only within a conversation. Scope
+        // the primary key to the session so two providers cannot overwrite
+        // each other's persisted tool history by reusing an id.
+        let persisted_id = format!("{session_id}:{event_id}");
+        conn.execute(
+            "INSERT INTO native_tool_events (
+                id, session_id, message_id, kind, status, summary, arguments,
+                diff, decision, rule_source, sequence, created_at
+             ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                (SELECT COALESCE(MAX(sequence), 0) + 1 FROM native_tool_events WHERE session_id = ?2),
+                ?11
+             )
+             ON CONFLICT(id) DO UPDATE SET
+                message_id = COALESCE(excluded.message_id, native_tool_events.message_id),
+                kind = excluded.kind,
+                status = excluded.status,
+                summary = excluded.summary,
+                arguments = COALESCE(excluded.arguments, native_tool_events.arguments),
+                diff = COALESCE(excluded.diff, native_tool_events.diff),
+                decision = COALESCE(excluded.decision, native_tool_events.decision),
+                rule_source = COALESCE(excluded.rule_source, native_tool_events.rule_source)",
+            params![
+                persisted_id,
+                session_id,
+                message_id,
+                kind,
+                status,
+                summary,
+                arguments,
+                diff,
+                decision,
+                rule_source,
+                created_at,
+            ],
+        )
+        .map_err(|e| format!("Failed to checkpoint native tool event: {e}"))?;
+        conn.query_row(
+            "SELECT id, session_id, message_id, kind, status, summary, arguments, diff, decision, rule_source, sequence, created_at
+             FROM native_tool_events WHERE id = ?1",
+            params![persisted_id],
+            |row| {
+                Ok(NativeToolEvent {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    message_id: row.get(2)?,
+                    kind: row.get(3)?,
+                    status: row.get(4)?,
+                    summary: row.get(5)?,
+                    arguments: row.get(6)?,
+                    diff: row.get(7)?,
+                    decision: row.get(8)?,
+                    rule_source: row.get(9)?,
+                    sequence: row.get(10)?,
+                    created_at: row.get(11)?,
+                })
+            },
+        )
+        .map_err(|e| format!("Failed to reload native tool checkpoint: {e}"))
     }
 
     pub fn list_tool_events(session_id: &str) -> DbResult<Vec<NativeToolEvent>> {
@@ -2005,6 +2149,15 @@ impl NativeChatService {
         )
         .map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    fn set_run_state(session_id: &str, run_state: &str) {
+        if let Ok(conn) = StorageService::connect() {
+            let _ = conn.execute(
+                "UPDATE native_chat_sessions SET run_state = ?1, updated_at = ?2 WHERE id = ?3",
+                params![run_state, now_millis(), session_id],
+            );
+        }
     }
 
     /// Auto-title a native chat session from its first user message.
@@ -2360,20 +2513,23 @@ mod tests {
         assert!(NativeChatService::route_requires_omp(
             "openai-responses",
             Some(crate::services::provider_client::OMP_CODEX_BASE_URL),
+            "",
             false,
         ));
     }
 
     #[test]
-    fn route_requires_omp_refuses_bespoke_kind_without_endpoint() {
+    fn route_requires_omp_refuses_unsupported_kind_without_endpoint() {
         assert!(NativeChatService::route_requires_omp(
-            "devin-agent",
+            "cursor-agent",
             None,
+            "",
             false
         ));
         assert!(NativeChatService::route_requires_omp(
             "openai-codex-responses",
             None,
+            "",
             false
         ));
     }
@@ -2386,21 +2542,32 @@ mod tests {
             "azure-openai-responses",
             "anthropic-messages",
             "openrouter",
+            "devin-agent",
             "ollama-chat",
         ] {
             assert!(
-                !NativeChatService::route_requires_omp(kind, None, false),
+                !NativeChatService::route_requires_omp(kind, None, "", false),
                 "{kind} is native"
             );
         }
-        // Custom base_url is the OpenAI-compatible escape hatch for bespoke kinds.
+        // An explicit credential endpoint remains the compatibility escape
+        // hatch for a provider exposed through an OpenAI-compatible proxy.
         assert!(!NativeChatService::route_requires_omp(
-            "devin-agent",
-            Some("https://server.codeium.com"),
+            "cursor-agent",
+            Some("https://compatible.example/v1"),
+            "",
+            false
+        ));
+        // Unknown protocol kinds may likewise declare a compatible catalog
+        // endpoint; known native Devin does not depend on this escape hatch.
+        assert!(!NativeChatService::route_requires_omp(
+            "custom-openai",
+            None,
+            "https://compatible.example/v1",
             false
         ));
         // Local coordinator never routes through OMP.
-        assert!(!NativeChatService::route_requires_omp("", None, true));
+        assert!(!NativeChatService::route_requires_omp("", None, "", true));
     }
 
     #[test]
@@ -2940,6 +3107,7 @@ mod tests {
             content: content.to_string(),
             reasoning: reasoning.map(str::to_string),
             iteration,
+            message_id: None,
         }
     }
 
@@ -2954,6 +3122,7 @@ mod tests {
             rule_source: None,
             diff: None,
             iteration,
+            tool_call_id: format!("tool-{iteration}-{tool_name}"),
         }
     }
 
@@ -3032,6 +3201,118 @@ mod tests {
         // No event is left unbound after the turn.
         let persisted = NativeChatService::list_tool_events(&session.id).unwrap();
         assert!(persisted.iter().all(|e| e.message_id.is_some()));
+    }
+
+    #[test]
+    fn persisted_checkpoint_is_reused_without_duplicate_assistant_rows() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+        let (session, user) = start_persist_session("/test/persist-checkpoint");
+        let draft = NativeChatService::insert_message(
+            &session.id,
+            "assistant",
+            "",
+            None,
+            Some(LOCAL_PROVIDER_ID),
+            Some("basebuild-local-coordinator"),
+            Some("medium"),
+        )
+        .unwrap();
+        NativeChatService::update_message_progress(
+            &draft.id,
+            "Partial answer",
+            Some("Careful reasoning"),
+        )
+        .unwrap();
+        let segments = vec![TurnSegment {
+            content: "Final answer".to_string(),
+            reasoning: Some("Careful reasoning".to_string()),
+            iteration: 1,
+            message_id: Some(draft.id.clone()),
+        }];
+
+        NativeChatService::persist_turn_segments(
+            &session.id,
+            &user.id,
+            &segments,
+            &[],
+            LOCAL_PROVIDER_ID,
+            "basebuild-local-coordinator",
+            "medium",
+        )
+        .unwrap();
+
+        let messages = NativeChatService::list_messages(&session.id).unwrap();
+        let assistants: Vec<_> = messages
+            .iter()
+            .filter(|message| message.role == "assistant")
+            .collect();
+        assert_eq!(assistants.len(), 1);
+        assert_eq!(assistants[0].id, draft.id);
+        assert_eq!(assistants[0].content, "Final answer");
+        assert_eq!(
+            assistants[0].reasoning.as_deref(),
+            Some("Careful reasoning")
+        );
+    }
+
+    #[test]
+    fn startup_sweep_preserves_progress_and_interrupts_live_state() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+        let (session, _user) = start_persist_session("/test/interrupted-checkpoint");
+        let draft = NativeChatService::insert_message(
+            &session.id,
+            "assistant",
+            "",
+            None,
+            Some(LOCAL_PROVIDER_ID),
+            Some("basebuild-local-coordinator"),
+            Some("medium"),
+        )
+        .unwrap();
+        NativeChatService::update_message_progress(
+            &draft.id,
+            "Saved before shutdown",
+            Some("Recovered thought"),
+        )
+        .unwrap();
+        NativeChatService::upsert_tool_event(
+            "live-tool",
+            &session.id,
+            Some(&draft.id),
+            "read_file",
+            "running",
+            "Running read file",
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "UPDATE native_chat_sessions SET run_state = 'running' WHERE id = ?1",
+            params![session.id],
+        )
+        .unwrap();
+
+        crate::services::agent_loop_service::sweep_interrupted_runs();
+
+        let recovered = NativeChatService::get_session(&session.id)
+            .unwrap()
+            .expect("recovered session");
+        assert_eq!(recovered.run_state, "interrupted");
+        let messages = NativeChatService::list_messages(&session.id).unwrap();
+        let saved = messages
+            .iter()
+            .find(|message| message.id == draft.id)
+            .unwrap();
+        assert_eq!(saved.content, "Saved before shutdown");
+        assert_eq!(saved.reasoning.as_deref(), Some("Recovered thought"));
+        let tools = NativeChatService::list_tool_events(&session.id).unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].status, "interrupted");
     }
 
     #[test]

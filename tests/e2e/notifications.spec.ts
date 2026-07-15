@@ -114,4 +114,28 @@ test.describe("Notifications: toast + center + badge", () => {
     await expect(page.locator(".notification-center")).toBeVisible();
     await expect(page.locator(".notification-item-title").filter({ hasText: "Muted run" })).toBeVisible();
   });
+
+  test("high-signal events surface a dismissible in-app attention notice", async ({ page }) => {
+    await openFixtureProject(page);
+    await page.evaluate(() => {
+      const w = window as unknown as { __emit?: (event: string, payload: unknown) => void };
+      w.__emit?.("notifications://attention", {
+        id: "test-attention-1",
+        kind: "run_blocked",
+        entityId: "run_attention",
+        entityKind: "plan_run",
+        projectPath: "C:\\basebuild-e2e\\project",
+        title: "Plan needs your input",
+        detail: "Choose a deployment target to continue.",
+        read: false,
+        createdAt: Date.now(),
+      });
+    });
+
+    const notice = page.locator(".notification-attention");
+    await expect(notice).toContainText("Plan needs your input");
+    await expect(notice).toContainText("Choose a deployment target");
+    await notice.getByTitle("Dismiss notification").click();
+    await expect(notice).toHaveCount(0);
+  });
 });

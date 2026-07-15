@@ -12,7 +12,9 @@ use crate::{
 type AppResult<T> = Result<T, String>;
 
 #[tauri::command]
-pub async fn plan_set_dependencies(request: SetDependenciesRequest) -> AppResult<crate::models::plan::Plan> {
+pub async fn plan_set_dependencies(
+    request: SetDependenciesRequest,
+) -> AppResult<crate::models::plan::Plan> {
     PlanDependencyService::set_dependencies(&request)
 }
 

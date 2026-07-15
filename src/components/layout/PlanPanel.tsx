@@ -38,6 +38,11 @@ import { useOpenSpecRuntime } from "../../state/useOpenSpecRuntime";
 import { PlanImportModal } from "./PlanImportModal";
 import { OptionList, type OptionListOption } from "./OptionList";
 import { listResolvedSkills, type ResolvedSkill } from "../../lib/skillRegistry";
+import {
+  nativeChatBootstrap,
+  nativeChatSetProjectModelDefault,
+  type NativeProviderCatalog,
+} from "../../lib/native-chat";
 
 type EffortLevel = "low" | "medium" | "high";
 
@@ -63,7 +68,7 @@ type PlanPanelProps = {
 
   onEditPlan: (plan: Plan) => void;
   onFocusPlan: (plan: Plan) => void;
-  onSetPlanStatus: (id: string, status: PlanStatus) => void;
+  onSetPlanStatus: (id: string, status: PlanStatus) => void | Promise<unknown>;
   onDeletePlan: (id: string) => void;
   onCopyReference: (refId: string) => void;
   onOpenInTerminal: (plan: Plan) => void;
@@ -267,8 +272,10 @@ export function PlanPanel({
       </div>
       <PlanQueueSection
         sessionId={sessionId}
+        projectPath={projectPath}
         plans={plans}
         onOpenChatSession={onOpenChatSession}
+        onShowToast={onShowToast}
       />
       {showImport ? (
         <PlanImportModal projectPath={projectPath} onClose={() => setShowImport(false)} />
@@ -319,9 +326,6 @@ function PlanCard({
     return () => { cancelled = true; };
   }, [plan.changeName, projectPath]);
 
-  const nextStatuses: PlanStatus[] = isFinished
-    ? []
-    : PLAN_STATUSES.filter((s) => s !== plan.status && !isTerminalStatus(s));
 
   const profileForAssign = useMemo<LaunchProfile>(() => ({
     projectPath: projectPath ?? "",
@@ -426,20 +430,7 @@ function PlanCard({
           </button>
           {menuOpen ? (
             <div className="context-menu" onMouseLeave={() => setMenuOpen(false)}>
-              {nextStatuses.map((status) => (
-                <button
-                  key={status}
-                  className="menu-item text-sm"
-                  type="button"
-                  onClick={() => {
-                    onSetStatus(plan.id, status);
-                    setMenuOpen(false);
-                  }}
-                >
-                  Move to {PLAN_STATUS_LABEL[status]}
-                </button>
-              ))}
-              {!isFinished ? (
+              {plan.status === "running" ? (
                 <button
                   className="menu-item text-sm"
                   type="button"
@@ -448,7 +439,7 @@ function PlanCard({
                     setMenuOpen(false);
                   }}
                 >
-                  Mark finished
+                  Mark complete
                 </button>
               ) : null}
               <button
@@ -484,16 +475,12 @@ type PlanPromotionFormProps = {
   plan: Plan;
   defaults: ProfileForm;
   projectPath: string | null;
-  onSetStatus: (id: string, status: PlanStatus) => void;
+  onSetStatus: (id: string, status: PlanStatus) => void | Promise<unknown>;
   onOpenInTerminal: (plan: Plan) => void;
   onShowToast?: (title: string, detail?: string, kind?: "success" | "error") => void;
   onValidationChange?: (result: ValidationResult | null) => void;
 };
 
-const ENGINE_OPTION_ITEMS: OptionListOption<EngineKind>[] = [
-  { id: "openspec", label: "openspec", title: "Use the OpenSpec planning engine" },
-  { id: "native", label: "native", title: "Use the native planning engine" },
-];
 const EFFORT_OPTION_ITEMS: OptionListOption<EffortLevel>[] = [
   { id: "low", label: "low", title: "Low effort — smaller, faster runs" },
   { id: "medium", label: "medium", title: "Medium effort — balanced depth and speed" },
@@ -527,10 +514,54 @@ function PlanPromotionForm({
   const skillPickerRef = useRef<HTMLDivElement | null>(null);
   const runtime = useOpenSpecRuntime(projectPath);
   const runtimeReady = runtime.status?.state === "ready";
+  const [modelCatalog, setModelCatalog] = useState<NativeProviderCatalog | null>(null);
+  const [plannerProviderId, setPlannerProviderId] = useState("");
+  const [plannerModelId, setPlannerModelId] = useState("");
+  const [plannerEffortLevel, setPlannerEffortLevel] = useState<EffortLevel>("medium");
+  const configuredProviders = useMemo(
+    () => modelCatalog?.providers.filter((provider) => provider.configured) ?? [],
+    [modelCatalog],
+  );
+  const plannerModels = useMemo(
+    () => modelCatalog?.models.filter((model) => model.providerId === plannerProviderId) ?? [],
+    [modelCatalog, plannerProviderId],
+  );
+  const codingModels = useMemo(
+    () => modelCatalog?.models.filter((model) => model.providerId === form.providerId) ?? [],
+    [modelCatalog, form.providerId],
+  );
 
   useEffect(() => {
     setForm(defaults);
   }, [defaults]);
+
+  useEffect(() => {
+    if (!projectPath) return;
+    let cancelled = false;
+    void nativeChatBootstrap(projectPath)
+      .then(({ catalog, resolved }) => {
+        if (cancelled) return;
+        setModelCatalog(catalog);
+        setPlannerProviderId(resolved.providerId);
+        setPlannerModelId(resolved.modelId);
+        setPlannerEffortLevel(
+          resolved.effortLevel === "low" || resolved.effortLevel === "high"
+            ? resolved.effortLevel
+            : "medium",
+        );
+        setForm((current) => ({
+          ...current,
+          engine: "openspec",
+          providerId: current.providerId || resolved.providerId,
+          modelId: current.modelId || resolved.modelId,
+          effortLevel: current.effortLevel || "medium",
+        }));
+      })
+      .catch((error) => {
+        if (!cancelled) setReviseMessage(error instanceof Error ? error.message : String(error));
+      });
+    return () => { cancelled = true; };
+  }, [projectPath]);
 
   useEffect(() => {
     onValidationChange?.(validation);
@@ -592,31 +623,71 @@ function PlanPromotionForm({
     }
   }, [plan, form]);
 
+  const persistExecutionProfile = useCallback(
+    () => setLaunchProfile({
+      projectPath: projectPath ?? "",
+      engine: "openspec",
+      providerId: form.providerId || plannerProviderId,
+      modelId: form.modelId || plannerModelId,
+      effortLevel: form.effortLevel,
+      skillId: form.skillId,
+      workerCount: form.workerCount,
+      workspacePolicy: form.workspacePolicy,
+      schedulingMode: form.schedulingMode,
+      finishPolicy: form.finishPolicy ?? "hold",
+      updatedAt: Date.now(),
+    }),
+    [projectPath, form, plannerProviderId, plannerModelId],
+  );
+
+  const handleGenerateOpenSpec = useCallback(async () => {
+    if (!projectPath || !plannerProviderId || !plannerModelId) {
+      setReviseMessage("Choose a planner provider and model first.");
+      return;
+    }
+    setLoading(true);
+    setReviseMessage(null);
+    try {
+      await nativeChatSetProjectModelDefault(projectPath, {
+        providerId: plannerProviderId,
+        modelId: plannerModelId,
+        effortLevel: plannerEffortLevel,
+      });
+      await persistExecutionProfile();
+      await onSetStatus(plan.id, "openspec");
+      onShowToast?.("OpenSpec plan generated", `${plan.referenceId} ${plan.title}`, "success");
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setReviseMessage(message);
+      onShowToast?.("OpenSpec generation failed", message, "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    projectPath,
+    plannerProviderId,
+    plannerModelId,
+    plannerEffortLevel,
+    persistExecutionProfile,
+    onSetStatus,
+    plan,
+    onShowToast,
+  ]);
+
   const handlePromote = useCallback(async () => {
     setReviseMessage(null);
     const result = await runValidation();
     if (!result.valid || result.errors.length > 0) return;
     try {
-      await setLaunchProfile({
-        projectPath: projectPath ?? "",
-        engine: form.engine,
-        providerId: form.providerId,
-        modelId: form.modelId,
-        effortLevel: form.effortLevel,
-        skillId: form.skillId,
-        workerCount: form.workerCount,
-        workspacePolicy: form.workspacePolicy,
-        schedulingMode: form.schedulingMode,
-        finishPolicy: form.finishPolicy ?? "hold",
-        updatedAt: Date.now(),
-      });
+      await persistExecutionProfile();
       await onSetStatus(plan.id, "ready");
-      onShowToast?.("Plan promoted to ready", `${plan.referenceId} ${plan.title}`, "success");
+      onShowToast?.("Plan approved and ready", `${plan.referenceId} ${plan.title}`, "success");
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      onShowToast?.("Failed to promote plan", message, "error");
+      setReviseMessage(message);
+      onShowToast?.("Failed to approve plan", message, "error");
     }
-  }, [plan, form, projectPath, onSetStatus, onShowToast, runValidation]);
+  }, [plan, onSetStatus, onShowToast, runValidation, persistExecutionProfile]);
 
   const handleRevalidate = useCallback(async () => {
     await runValidation();
@@ -637,47 +708,90 @@ function PlanPromotionForm({
     <div className="plan-promotion-form stack-sm">
       <div className="plan-promotion-header">
         <Rocket size={11} />
-        <span className="text-sm">Launch profile</span>
+        <span className="text-sm">OpenSpec launch profile</span>
       </div>
       <div className="plan-promotion-fields">
-        <label className="plan-promotion-field" title="Engine">
-          <span className="plan-promotion-label">Engine</span>
+        <label className="plan-promotion-field" title="Provider used to generate and revise OpenSpec artifacts">
+          <span className="plan-promotion-label">Planner provider</span>
+          <select
+            className="input plan-promotion-input"
+            title="Planner provider"
+            value={plannerProviderId}
+            disabled={configuredProviders.length === 0}
+            onChange={(event) => {
+              const providerId = event.target.value;
+              const modelId = modelCatalog?.models.find((model) => model.providerId === providerId)?.id ?? "";
+              setPlannerProviderId(providerId);
+              setPlannerModelId(modelId);
+            }}
+          >
+            {configuredProviders.map((provider) => (
+              <option key={provider.id} value={provider.id}>{provider.label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="plan-promotion-field" title="Model used to generate and revise OpenSpec artifacts">
+          <span className="plan-promotion-label">Planner model</span>
+          <select
+            className="input plan-promotion-input"
+            title="Planner model"
+            value={plannerModelId}
+            disabled={plannerModels.length === 0}
+            onChange={(event) => setPlannerModelId(event.target.value)}
+          >
+            {plannerModels.map((model) => (
+              <option key={model.id} value={model.id}>{model.label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="plan-promotion-field" title="Reasoning effort used while planning">
+          <span className="plan-promotion-label">Planner effort</span>
           <OptionList
-            value={form.engine}
-            options={ENGINE_OPTION_ITEMS}
-            onChange={(id) => setForm((prev) => ({ ...prev, engine: id }))}
-            label="Engine"
+            value={plannerEffortLevel}
+            options={EFFORT_OPTION_ITEMS}
+            onChange={setPlannerEffortLevel}
+            label="Planner effort"
           />
         </label>
-        <label className="plan-promotion-field" title="Provider">
-          <span className="plan-promotion-label">Provider</span>
-          <input
+        <label className="plan-promotion-field" title="Provider used to implement the approved plan">
+          <span className="plan-promotion-label">Coding provider</span>
+          <select
             className="input plan-promotion-input"
-            type="text"
-            title="Provider"
-            placeholder="Provider"
+            title="Coding provider"
             value={form.providerId}
-            onChange={(e) => setForm((prev) => ({ ...prev, providerId: e.target.value }))}
-          />
+            disabled={configuredProviders.length === 0}
+            onChange={(event) => {
+              const providerId = event.target.value;
+              const modelId = modelCatalog?.models.find((model) => model.providerId === providerId)?.id ?? "";
+              setForm((current) => ({ ...current, providerId, modelId }));
+            }}
+          >
+            {configuredProviders.map((provider) => (
+              <option key={provider.id} value={provider.id}>{provider.label}</option>
+            ))}
+          </select>
         </label>
-        <label className="plan-promotion-field" title="Model">
-          <span className="plan-promotion-label">Model</span>
-          <input
+        <label className="plan-promotion-field" title="Model used to implement the approved plan">
+          <span className="plan-promotion-label">Coding model</span>
+          <select
             className="input plan-promotion-input"
-            type="text"
-            title="Model"
-            placeholder="Model"
+            title="Coding model"
             value={form.modelId}
-            onChange={(e) => setForm((prev) => ({ ...prev, modelId: e.target.value }))}
-          />
+            disabled={codingModels.length === 0}
+            onChange={(event) => setForm((current) => ({ ...current, modelId: event.target.value }))}
+          >
+            {codingModels.map((model) => (
+              <option key={model.id} value={model.id}>{model.label}</option>
+            ))}
+          </select>
         </label>
-        <label className="plan-promotion-field" title="Effort">
-          <span className="plan-promotion-label">Effort</span>
+        <label className="plan-promotion-field" title="Reasoning effort used while coding">
+          <span className="plan-promotion-label">Coding effort</span>
           <OptionList
             value={form.effortLevel}
             options={EFFORT_OPTION_ITEMS}
             onChange={(id) => setForm((prev) => ({ ...prev, effortLevel: id }))}
-            label="Effort"
+            label="Coding effort"
           />
         </label>
         <label className="plan-promotion-field" title="Skill">
@@ -789,25 +903,38 @@ function PlanPromotionForm({
             <AlertCircle size={12} />
             <span className="text-sm">
               OpenSpec runtime is {runtime.status?.state ?? "missing"}.{" "}
-              Configure it in Settings → OpenSpec before promoting.
+              Configure it in Settings → OpenSpec before generating or approving.
             </span>
           </div>
         )}
-        <button
-          className="btn btn-sm btn-primary"
-          type="button"
-          title={runtimeReady ? "Validate readiness and promote to ready" : "OpenSpec runtime not configured"}
-          disabled={loading || hasErrors || !runtimeReady}
-          onClick={() => void handlePromote()}
-        >
-          {loading ? <RefreshCw size={11} className="is-spinning" /> : <Rocket size={11} />}
-          Validate & Promote to Ready
-        </button>
-        {validation ? (
+        {plan.status === "draft" ? (
+          <button
+            className="btn btn-sm btn-primary"
+            type="button"
+            title={runtimeReady ? "Generate proposal, specs, design, and tasks with the planner model" : "OpenSpec runtime not configured"}
+            disabled={loading || !runtimeReady || !plannerProviderId || !plannerModelId}
+            onClick={() => void handleGenerateOpenSpec()}
+          >
+            {loading ? <RefreshCw size={11} className="is-spinning" /> : <Rocket size={11} />}
+            {loading ? "Generating OpenSpec..." : "Generate OpenSpec"}
+          </button>
+        ) : (
+          <button
+            className="btn btn-sm btn-primary"
+            type="button"
+            title={runtimeReady ? "Validate the generated artifacts and approve this plan for the queue" : "OpenSpec runtime not configured"}
+            disabled={loading || hasErrors || !runtimeReady}
+            onClick={() => void handlePromote()}
+          >
+            {loading ? <RefreshCw size={11} className="is-spinning" /> : <CheckCircle size={11} />}
+            {loading ? "Validating..." : "Approve plan"}
+          </button>
+        )}
+        {plan.status === "openspec" && validation ? (
           <button
             className="btn btn-sm"
             type="button"
-            title="Re-validate plan readiness"
+            title="Re-validate the generated OpenSpec artifacts"
             disabled={loading}
             onClick={() => void handleRevalidate()}
           >

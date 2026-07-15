@@ -22,7 +22,7 @@ workspace contains the command strip, chat context, workspace tabs, transcript,
 and composer. Project-owned surfaces open as modals; there is no persistent right
 side panel.
 
-The **Planning** modal has five tabs: Plans, Ideas, Categories, Flow, and
+The **Planning** modal has six tabs: Plans, Ideas, Categories, Flow, Runs, and
 Changes. The **Plans** tab exposes an **Import** action
 (`plan_import_detect` / `plan_import_apply`): it scans `openspec/changes/`
 for change folders not already linked to a `.basebuild` plan, lists them as
@@ -30,19 +30,29 @@ candidates (title from `proposal.md`, status derived from `tasks.md` progress),
 and on explicit confirm writes `.basebuild/plans/<slug>/plan.md` records
 (`engine: openspec`, `external:` pointer, no duplicated task list). Detection
 never writes; re-import skips already-linked sources; malformed sources are
-reported and skipped. Plans otherwise originate from the promotion of one or
-more structured ideas into an AI generation run; the UI has no blank-create
-affordance.
+reported and skipped.
 
-The **Flow** tab shows a board with per-stage counts (schematic, ideas, plans,
-running, finished) and completion cards for runs in `awaiting_review` or
-`succeeded` status. It also shows a **launch profile form** (worker count,
-provider cap, workspace policy, scheduling mode) and a **run board** with
-dependency graph nodes showing plan, priority, prerequisites, owner chat,
-branch/worktree, affected-path claims, progress, blockers, and merge
-readiness. A **merge-review queue** lists finished workers awaiting review
-with approve/reject/merge actions. The **Changes** tab shows the OpenSpec
-change catalog (see `docs/agents/openspec.md`).
+New planning work starts with a guided idea round. The user can select multiple
+categories or a project-wide pass, request five to eight ideas (eight by
+default), and route the prompt to an existing chat or a dedicated new chat.
+Approving ideas creates one draft plan per idea. **Generate OpenSpec** performs
+the local artifact-generation transition; **Approve plan** is a separate
+validation decision before the plan becomes ready.
+
+The compact planning indicators above the chat are working quick menus, not
+read-only counters. The Ideas lightbulb puts **Generate more ideas** first and
+supports manual creation, status/category filtering, inline title/description/
+category editing, status management, single or multi-idea upgrade to draft
+plans, and confirmation-gated deletion. **Full UI** remains available for the
+larger planning workspace without being required for these common actions.
+
+The **Flow** tab is the compact coordinator: stage counts, planner/coding model
+routing, worker count, safe dependency scheduling, workspace policy, queue
+pause/start, completion review, merge review, and archive/sync navigation.
+The **Runs** tab is mission control for owner chat, branch/worktree, task
+progress, blockers, elapsed time, and supported run controls. The **Changes**
+tab shows the OpenSpec change catalog and explicit archive action (see
+`docs/agents/openspec.md`).
 
 Account and update controls live at the bottom of the left sidebar. The update indicator
 checks on startup and every 5 minutes; when an update is available it becomes a

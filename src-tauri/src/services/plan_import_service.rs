@@ -320,7 +320,10 @@ mod tests {
     #[test]
     fn parse_proposal_title_extracts_first_heading() {
         let content = "# Proposal: My Great Plan\n\n## Why\n...";
-        assert_eq!(parse_proposal_title(content), Some("My Great Plan".to_string()));
+        assert_eq!(
+            parse_proposal_title(content),
+            Some("My Great Plan".to_string())
+        );
     }
 
     #[test]
@@ -400,7 +403,11 @@ mod tests {
         make_linked_plan(&tmp, "add-dark-mode", "openspec/changes/add-dark-mode/");
 
         let candidates = detect_candidates(&tmp.to_string_lossy());
-        assert_eq!(candidates.len(), 0, "already-linked change should be skipped");
+        assert_eq!(
+            candidates.len(),
+            0,
+            "already-linked change should be skipped"
+        );
 
         let _ = fs::remove_dir_all(&tmp);
     }
@@ -419,12 +426,7 @@ mod tests {
         // archive dir has subfolders but should be skipped entirely
         let archive = tmp.join("openspec").join("changes").join("archive");
         fs::create_dir_all(&archive.join("old-change")).unwrap();
-        make_change_dir(
-            &tmp,
-            "real-change",
-            Some("# Proposal: Real Change\n"),
-            None,
-        );
+        make_change_dir(&tmp, "real-change", Some("# Proposal: Real Change\n"), None);
 
         let candidates = detect_candidates(&tmp.to_string_lossy());
         assert_eq!(candidates.len(), 1);
@@ -491,10 +493,7 @@ mod tests {
             Some("# Tasks\n- [ ] 1.1 Task\n"),
         );
 
-        let results = import_candidates(
-            &tmp.to_string_lossy(),
-            &["add-dark-mode".to_string()],
-        );
+        let results = import_candidates(&tmp.to_string_lossy(), &["add-dark-mode".to_string()]);
         assert_eq!(results.len(), 1);
         assert!(!results[0].skipped, "should not be skipped");
         assert_eq!(results[0].slug, "add-dark-mode");

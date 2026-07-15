@@ -35,7 +35,8 @@ static AUTOSYNC_RUNNING: AtomicBool = AtomicBool::new(false);
 static SYNC_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 /// Current backoff in seconds. Reset to INITIAL_BACKOFF_SECS on success,
 /// doubled (capped at MAX_BACKOFF_SECS) on transient failure.
-static BACKOFF_SECS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(INITIAL_BACKOFF_SECS);
+static BACKOFF_SECS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(INITIAL_BACKOFF_SECS);
 /// The most recent status, shared between the loop and command reads.
 static AUTOSYNC_STATUS: Mutex<AutoSyncStatus> = parking_lot::const_mutex(AutoSyncStatus {
     enabled: false,
@@ -111,18 +112,20 @@ pub fn sync_raw_usage_native() -> Result<String, String> {
     }
 
     // Parse the JSON-RPC response
-    let parsed: Value = serde_json::from_str(&text)
-        .map_err(|e| format!("Failed to parse MCP response: {e}"))?;
+    let parsed: Value =
+        serde_json::from_str(&text).map_err(|e| format!("Failed to parse MCP response: {e}"))?;
 
     if let Some(error) = parsed.get("error") {
-        let message = error.get("message")
+        let message = error
+            .get("message")
             .and_then(|v| v.as_str())
             .unwrap_or("Unknown MCP error");
         return Err(format!("MCP error: {message}"));
     }
 
     // Extract result text
-    let result = parsed.get("result")
+    let result = parsed
+        .get("result")
         .and_then(|v| v.get("content"))
         .and_then(|v| v.as_array())
         .and_then(|arr| arr.first())
@@ -282,7 +285,10 @@ pub fn sync_envelope_native() -> Result<String, String> {
         Err(e) => {
             // If the server doesn't recognize the envelope tool, fall back to
             // the existing sync_messages path. This preserves compatibility.
-            if e.contains("Unknown tool") || e.contains("not found") || e.contains("sync_usage_envelope") {
+            if e.contains("Unknown tool")
+                || e.contains("not found")
+                || e.contains("sync_usage_envelope")
+            {
                 eprintln!("[SYNC] server doesn't support sync_usage_envelope — falling back to sync_messages");
                 sync_messages_native()
             } else {
@@ -313,7 +319,9 @@ fn message_row_json(m: &crate::models::native_chat::NativeRequestMetric) -> Valu
 }
 
 /// Roll native metrics up client-side, grouped by (provider, model, tier).
-fn build_message_summaries(metrics: &[crate::models::native_chat::NativeRequestMetric]) -> Vec<Value> {
+fn build_message_summaries(
+    metrics: &[crate::models::native_chat::NativeRequestMetric],
+) -> Vec<Value> {
     use std::collections::HashMap;
     struct Acc {
         provider: String,
@@ -519,7 +527,10 @@ pub fn fetch_projected_usage() -> Result<ProjectedUsage, String> {
 fn parse_live_usage(v: Value) -> LiveUsage {
     // The MCP tool returns an object with per-(provider, window) rows and
     // a top-level shouldSync flag. Be defensive about shape.
-    let should_sync = v.get("shouldSync").and_then(|v| v.as_bool()).unwrap_or(false);
+    let should_sync = v
+        .get("shouldSync")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let rows = v
         .get("rows")
         .or_else(|| v.get("usage"))
@@ -540,7 +551,10 @@ fn parse_live_usage_row(row: &Value) -> LiveUsageRow {
         resets_at: s("resetsAt"),
         severity: s("severity").unwrap_or_else(|| "unknown".to_string()),
         fetched_ago_min: row.get("fetchedAgoMin").and_then(|v| v.as_f64()),
-        is_stale: row.get("isStale").and_then(|v| v.as_bool()).unwrap_or(false),
+        is_stale: row
+            .get("isStale")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
     }
 }
 
@@ -608,8 +622,14 @@ fn parse_plan_timeline_window(row: &Value) -> PlanTimelineWindow {
         tier: s("tier"),
         started_at: s("startedAt"),
         ended_at: s("endedAt"),
-        had_exhaustion_event: row.get("hadExhaustionEvent").and_then(|v| v.as_bool()).unwrap_or(false),
-        is_current: row.get("isCurrent").and_then(|v| v.as_bool()).unwrap_or(false),
+        had_exhaustion_event: row
+            .get("hadExhaustionEvent")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        is_current: row
+            .get("isCurrent")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
     }
 }
 
@@ -620,8 +640,7 @@ fn parse_plan_timeline_window(row: &Value) -> PlanTimelineWindow {
 /// via the `sync_environment` MCP tool for internal analytics (not shown
 /// publicly). All fields are metadata only — no prompts, code, or secrets.
 pub fn sync_environment_native() -> Result<String, String> {
-    let token = AuthService::get_access_token()?
-        .ok_or_else(|| "Not signed in".to_string())?;
+    let token = AuthService::get_access_token()?.ok_or_else(|| "Not signed in".to_string())?;
     let env = collect_environment();
     let rpc_body = json!({
         "jsonrpc": "2.0",
@@ -659,13 +678,15 @@ fn collect_connectors() -> Vec<Value> {
     crate::services::connector_service::ConnectorService::list()
         .unwrap_or_default()
         .into_iter()
-        .map(|c| json!({
-            "id": c.manifest_id,
-            "name": c.name,
-            "version": c.version,
-            "enabled": c.enabled,
-            "state": c.state.as_str(),
-        }))
+        .map(|c| {
+            json!({
+                "id": c.manifest_id,
+                "name": c.name,
+                "version": c.version,
+                "enabled": c.enabled,
+                "state": c.state.as_str(),
+            })
+        })
         .collect()
 }
 
@@ -674,19 +695,21 @@ fn collect_skills() -> Vec<Value> {
     crate::services::skill_registry_service::SkillRegistryService::list()
         .unwrap_or_default()
         .into_iter()
-        .map(|s| json!({
-            "name": s.name,
-            "source": match s.source {
-                crate::services::skill_registry_service::SkillSource::Bundled => "bundled",
-                crate::services::skill_registry_service::SkillSource::User => "user",
-                crate::services::skill_registry_service::SkillSource::Override => "override",
-            },
-            "runtime": match s.runtime {
-                crate::services::skill_registry_service::SkillRuntime::Native => "native",
-                crate::services::skill_registry_service::SkillRuntime::Omp => "omp",
-                crate::services::skill_registry_service::SkillRuntime::Both => "both",
-            },
-        }))
+        .map(|s| {
+            json!({
+                "name": s.name,
+                "source": match s.source {
+                    crate::services::skill_registry_service::SkillSource::Bundled => "bundled",
+                    crate::services::skill_registry_service::SkillSource::User => "user",
+                    crate::services::skill_registry_service::SkillSource::Override => "override",
+                },
+                "runtime": match s.runtime {
+                    crate::services::skill_registry_service::SkillRuntime::Native => "native",
+                    crate::services::skill_registry_service::SkillRuntime::Omp => "omp",
+                    crate::services::skill_registry_service::SkillRuntime::Both => "both",
+                },
+            })
+        })
         .collect()
 }
 
@@ -696,10 +719,12 @@ fn collect_providers() -> Vec<Value> {
     crate::services::native_chat_service::NativeChatService::list_credentials()
         .unwrap_or_default()
         .into_iter()
-        .map(|c| json!({
-            "providerId": c.provider_id,
-            "label": c.label,
-        }))
+        .map(|c| {
+            json!({
+                "providerId": c.provider_id,
+                "label": c.label,
+            })
+        })
         .collect()
 }
 
@@ -720,13 +745,24 @@ fn collect_omp_status() -> Value {
 pub fn gates_pass() -> bool {
     let token_ok = match AuthService::get_access_token() {
         Ok(Some(_)) => true,
-        Ok(None) => { eprintln!("[SYNC] gates: no token"); false }
-        Err(e) => { eprintln!("[SYNC] gates: token error: {e}"); false }
+        Ok(None) => {
+            eprintln!("[SYNC] gates: no token");
+            false
+        }
+        Err(e) => {
+            eprintln!("[SYNC] gates: token error: {e}");
+            false
+        }
     };
-    if !token_ok { return false; }
+    if !token_ok {
+        return false;
+    }
     let rules = match SettingsService::get_permission_rules() {
         Ok(r) => r,
-        Err(e) => { eprintln!("[SYNC] gates: permission rules error: {e}"); return false; }
+        Err(e) => {
+            eprintln!("[SYNC] gates: permission rules error: {e}");
+            return false;
+        }
     };
     if !rules.allow_usage_analytics_upload {
         eprintln!("[SYNC] gates: allow_usage_analytics_upload=false");
@@ -807,7 +843,11 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
         let status = AUTOSYNC_STATUS.lock().clone();
         if let Some(last) = status.last_sync_at {
             if now - last < MIN_INTER_SYNC_GAP_SECS {
-                eprintln!("[SYNC] debounced — last sync was {}s ago, min gap is {}s", now - last, MIN_INTER_SYNC_GAP_SECS);
+                eprintln!(
+                    "[SYNC] debounced — last sync was {}s ago, min gap is {}s",
+                    now - last,
+                    MIN_INTER_SYNC_GAP_SECS
+                );
                 SYNC_IN_FLIGHT.store(false, Ordering::SeqCst);
                 return;
             }
@@ -816,7 +856,9 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
     // Freshness check: ask the server if data is stale before pushing.
     // Skipped on startup so the first sync fires unconditionally.
     let should_push = if skip_freshness {
-        let has_token = AuthService::get_access_token().map(|t| t.is_some()).unwrap_or(false);
+        let has_token = AuthService::get_access_token()
+            .map(|t| t.is_some())
+            .unwrap_or(false);
         eprintln!("[SYNC] skip_freshness=true, has_token={has_token}");
         has_token
     } else {
@@ -848,13 +890,31 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
     thread::spawn(move || {
         eprintln!("[SYNC] thread started — calling sync_raw_usage_native…");
         let result = sync_raw_usage_native();
-        eprintln!("[SYNC] sync_raw_usage_native: {}", match &result { Ok(m) => format!("ok: {m}"), Err(e) => format!("ERR: {e}") });
+        eprintln!(
+            "[SYNC] sync_raw_usage_native: {}",
+            match &result {
+                Ok(m) => format!("ok: {m}"),
+                Err(e) => format!("ERR: {e}"),
+            }
+        );
         eprintln!("[SYNC] calling sync_envelope_native…");
         let messages_result = sync_envelope_native();
-        eprintln!("[SYNC] sync_envelope_native: {}", match &messages_result { Ok(m) => format!("ok: {m}"), Err(e) => format!("ERR: {e}") });
+        eprintln!(
+            "[SYNC] sync_envelope_native: {}",
+            match &messages_result {
+                Ok(m) => format!("ok: {m}"),
+                Err(e) => format!("ERR: {e}"),
+            }
+        );
         eprintln!("[SYNC] calling sync_environment_native…");
         let env_result = sync_environment_native();
-        eprintln!("[SYNC] sync_environment_native: {}", match &env_result { Ok(m) => format!("ok: {m}"), Err(e) => format!("ERR: {e}") });
+        eprintln!(
+            "[SYNC] sync_environment_native: {}",
+            match &env_result {
+                Ok(m) => format!("ok: {m}"),
+                Err(e) => format!("ERR: {e}"),
+            }
+        );
         let now = now_seconds();
         let mut status = AUTOSYNC_STATUS.lock().clone();
         match result {
@@ -874,7 +934,11 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
                 eprintln!("[SYNC] ✅ all syncs complete: {reason_owned}: {msg}{extra}{env_extra}");
                 let _ = app2.emit(
                     USAGE_SYNC_STATUS,
-                    &SyncResult { ok: true, message: format!("{reason_owned}: {msg}{extra}{env_extra}"), completed_at: now },
+                    &SyncResult {
+                        ok: true,
+                        message: format!("{reason_owned}: {msg}{extra}{env_extra}"),
+                        completed_at: now,
+                    },
                 );
             }
             Err(e) => {
@@ -886,7 +950,11 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
                 eprintln!("[SYNC] ❌ raw usage sync failed: {e} (backoff: {next}s)");
                 let _ = app2.emit(
                     USAGE_SYNC_STATUS,
-                    &SyncResult { ok: false, message: format!("{reason_owned}: {e}"), completed_at: now },
+                    &SyncResult {
+                        ok: false,
+                        message: format!("{reason_owned}: {e}"),
+                        completed_at: now,
+                    },
                 );
                 // If the error was auth-related, emit auth-changed so the UI prompts re-sign-in.
                 if e.contains("Token expired") || e.contains("Not signed in") {
@@ -919,7 +987,11 @@ pub fn start_autosync_loop(app: AppHandle) {
             // First tick = startup: sync unconditionally (skip freshness check)
             // so the user's data flows immediately on app launch. Subsequent
             // ticks use the server freshness check to avoid redundant pushes.
-            trigger_sync(app.clone(), if first_tick { "startup" } else { "hourly" }, first_tick);
+            trigger_sync(
+                app.clone(),
+                if first_tick { "startup" } else { "hourly" },
+                first_tick,
+            );
             first_tick = false;
             // Sleep for the interval, checking the stop flag every 5s so the
             // loop can exit promptly when stopped.
@@ -943,7 +1015,6 @@ pub fn stop_autosync_loop() {
     AUTOSYNC_RUNNING.store(false, Ordering::SeqCst);
 }
 
-
 /// Blocking final sync on app exit. Bypasses debounce + freshness — just
 /// pushes everything if gates pass. Called from `RunEvent::ExitRequested` so
 /// the app doesn't exit until the push completes (or times out after 10s).
@@ -961,7 +1032,11 @@ pub fn sync_on_exit() {
     thread::spawn(move || {
         let raw = sync_raw_usage_native();
         let msgs = sync_envelope_native();
-        eprintln!("[SYNC] sync_on_exit: raw={:?}, msgs={:?}", raw.is_ok(), msgs.is_ok());
+        eprintln!(
+            "[SYNC] sync_on_exit: raw={:?}, msgs={:?}",
+            raw.is_ok(),
+            msgs.is_ok()
+        );
         let _ = tx.send(());
     });
     match rx.recv_timeout(std::time::Duration::from_secs(10)) {

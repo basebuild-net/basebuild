@@ -56,7 +56,10 @@ impl FinalTouchStepKind {
     /// Remote-writing kinds default disabled per the no-silent-side-effects
     /// invariant.
     pub fn defaults_disabled(&self) -> bool {
-        matches!(self, FinalTouchStepKind::Commit | FinalTouchStepKind::PullRequest)
+        matches!(
+            self,
+            FinalTouchStepKind::Commit | FinalTouchStepKind::PullRequest
+        )
     }
 }
 
@@ -290,9 +293,17 @@ impl FinalTouchesService {
                 FinalTouchStepResult {
                     step_id: step.id.clone(),
                     kind: step.kind.as_str().to_string(),
-                    status: if out.status.success() { "succeeded".to_string() } else { "failed".to_string() },
+                    status: if out.status.success() {
+                        "succeeded".to_string()
+                    } else {
+                        "failed".to_string()
+                    },
                     output: Some(stdout),
-                    error: if out.status.success() { None } else { Some(stderr) },
+                    error: if out.status.success() {
+                        None
+                    } else {
+                        Some(stderr)
+                    },
                 }
             }
             Err(e) => FinalTouchStepResult {
@@ -314,7 +325,9 @@ impl FinalTouchesService {
             step_id: step.id.clone(),
             kind: step.kind.as_str().to_string(),
             status: "skipped".to_string(),
-            output: Some("Validate step requires a running chat session (diff-review-workflow)".to_string()),
+            output: Some(
+                "Validate step requires a running chat session (diff-review-workflow)".to_string(),
+            ),
             error: None,
         }
     }
@@ -384,7 +397,11 @@ impl FinalTouchesService {
             Ok(result) => FinalTouchStepResult {
                 step_id: step.id.clone(),
                 kind: step.kind.as_str().to_string(),
-                status: if result.success { "succeeded".to_string() } else { "failed".to_string() },
+                status: if result.success {
+                    "succeeded".to_string()
+                } else {
+                    "failed".to_string()
+                },
                 output: result.url,
                 error: result.error,
             },

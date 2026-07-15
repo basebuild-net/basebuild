@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Bell, X } from "lucide-react";
 import { type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
 import {
   notificationList,
   notificationMarkAllRead,
   notificationMarkRead,
   notificationUnreadCount,
   onNotificationsChanged,
+  onNotificationAttention,
   type Notification,
   type NotificationKind,
 } from "../../lib/notifications";
@@ -39,6 +41,7 @@ export function NotificationCenter({ onNavigate }: NotificationCenterProps) {
   const [unread, setUnread] = useState(0);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [filter, setFilter] = useState<NotificationKind | "all">("all");
+  const [attention, setAttention] = useState<Notification | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -54,12 +57,55 @@ export function NotificationCenter({ onNavigate }: NotificationCenterProps) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     let unlisten: UnlistenFn | null = null;
-    onNotificationsChanged(() => void refresh()).then((fn) => {
-      unlisten = fn;
+    void refresh();
+    void onNotificationsChanged(() => void refresh()).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
     });
     return () => {
+      cancelled = true;
       if (unlisten) unlisten();
+    };
+  }, [refresh]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: UnlistenFn | null = null;
+    let dismissTimer: number | null = null;
+    void onNotificationAttention((notification) => {
+      setAttention(notification);
+      void refresh();
+      if (!document.hasFocus()) {
+        void getCurrentWindow().requestUserAttention(UserAttentionType.Critical).catch(() => undefined);
+      }
+      try {
+        const audio = new AudioContext();
+        const oscillator = audio.createOscillator();
+        const gain = audio.createGain();
+        oscillator.frequency.setValueAtTime(660, audio.currentTime);
+        gain.gain.setValueAtTime(0.045, audio.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.16);
+        oscillator.connect(gain);
+        gain.connect(audio.destination);
+        oscillator.start();
+        oscillator.stop(audio.currentTime + 0.16);
+        oscillator.addEventListener("ended", () => void audio.close(), { once: true });
+      } catch {
+        // Audio may be unavailable before the first user gesture; the toast
+        // and platform attention request still surface the event.
+      }
+      if (dismissTimer !== null) window.clearTimeout(dismissTimer);
+      dismissTimer = window.setTimeout(() => setAttention(null), 8_000);
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+      if (dismissTimer !== null) window.clearTimeout(dismissTimer);
     };
   }, [refresh]);
 
@@ -87,6 +133,31 @@ export function NotificationCenter({ onNavigate }: NotificationCenterProps) {
 
   return (
     <div className="notification-center-wrap">
+      {attention ? (
+        <div className="notification-attention" role="status" aria-live="assertive">
+          <button
+            className="notification-attention-body"
+            type="button"
+            title="Open this notification"
+            onClick={() => {
+              setAttention(null);
+              void handleClick(attention);
+            }}
+          >
+            <span className="notification-attention-kind">{KIND_LABELS[attention.kind] ?? "Attention"}</span>
+            <strong>{attention.title}</strong>
+            {attention.detail ? <span>{attention.detail}</span> : null}
+          </button>
+          <button
+            className="btn-icon"
+            type="button"
+            title="Dismiss notification"
+            onClick={() => setAttention(null)}
+          >
+            <X size={12} />
+          </button>
+        </div>
+      ) : null}
       <button
         className="btn-icon notification-bell"
         title={unread > 0 ? `${unread} unread notification${unread === 1 ? "" : "s"}` : "Notifications"}

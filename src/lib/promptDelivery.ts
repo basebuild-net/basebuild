@@ -10,9 +10,11 @@ export type PromptMode = "insert" | "send";
  */
 export type DeliveryAction = {
   kind: "generate_ideas";
-  /** Ground generation in a specific idea category. */
-  categoryId?: string | null;
-  /** Extra steering appended to the idea-generation prompt. */
+  /** Planning-session categories selected for this round. */
+  categoryIds?: string[];
+  /** Number of ideas requested by Idea Studio. */
+  ideaCount?: number;
+  /** Optional user-authored direction. */
   direction?: string | null;
 };
 

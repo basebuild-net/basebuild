@@ -2,12 +2,13 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { AlertTriangle, CheckCircle, Info, LayoutTemplate, Settings2, TerminalSquare, X, XCircle } from "lucide-react";
 import { deliverPrompt, type DeliveryAction, type PromptMode } from "../../lib/promptDelivery";
 import { markStart, markEnd } from "../../lib/timing";
-import { generateCategoriesAction, generateFromFinishedPlansAction, generateIdeasAction, schematicWizardAction, type PlanningAction } from "../../lib/planningActions";
+import { generateCategoriesAction, generateFromFinishedPlansAction, generateIdeaRoundAction, generateIdeasAction, schematicWizardAction, type PlanningAction } from "../../lib/planningActions";
 import { DestinationPicker, type DestinationChoice } from "./DestinationPicker";
 import { WorkspaceSplash, type RestorePhase } from "./WorkspaceSplash";
 import { ProjectSwitchingOverlay } from "./ProjectSwitchingOverlay";
 import { ModalPortal } from "../ModalPortal";
 import { IdeaRoundGate } from "./IdeaRoundGate";
+import { IdeaRoundSetupModal, type IdeaRoundSetup } from "./IdeaRoundSetupModal";
 import { startIdeaRound, finishIdeaRound } from "../../lib/ideaRounds";
 
 export type ToastKind = "success" | "warning" | "error" | "info";
@@ -147,10 +148,12 @@ export function AppShell({ updates }: AppShellProps) {
   // one click, and the close handler must observe the cleared value.
   const pendingRoundRef = useRef<string | null>(null);
   const [roundGateOpen, setRoundGateOpen] = useState(false);
+  const [roundSetupOpen, setRoundSetupOpen] = useState(false);
   // Escape-to-close for inline modals that don't have their own hook.
   useEscapeKey(changesModalOpen, () => setChangesModalOpen(false));
   useEscapeKey(plansModalOpen, () => setPlansModalOpen(false));
   useEscapeKey(schematicModalOpen, () => setSchematicModalOpen(false));
+  useEscapeKey(roundSetupOpen, () => setRoundSetupOpen(false));
   useEscapeKey(debugPanelOpen, () => setDebugPanelOpen(false));
   const [focusedChatId, setFocusedChatId] = useState<string | null>(null);
   const [panelGridState, setPanelGridState] = useState<PanelGridState>(emptyGrid());
@@ -671,7 +674,7 @@ export function AppShell({ updates }: AppShellProps) {
       await plans.createPlan({
         title,
         description,
-        status: "openspec",
+        status: "draft",
         priority: 50,
         tags: chatSessionId ? [`chat:${chatSessionId}`] : [],
       });
@@ -780,36 +783,49 @@ export function AppShell({ updates }: AppShellProps) {
     handleShowToast("Generating from finished plans", `${grounding.finishedPlanCount} finished plan${grounding.finishedPlanCount > 1 ? "s" : ""} since last schematic update.`, "info");
   }, [addLog, handleShowToast]);
 
-  // One-click zero-input idea round: soft-gate on schematic health, start the
-  // round (captures during the turn get tagged), then deliver the generation
-  // prompt through the destination picker.
-  const handleStartIdeaRound = useCallback(async (proceedDespiteGate = false) => {
+  // Guided idea rounds keep the existing schematic soft gate, then collect a
+  // bounded category scope before any provider turn or chat creation occurs.
+  const handleStartIdeaRound = useCallback((proceedDespiteGate = false) => {
     if (!session.activeSessionId) {
+      addLog("debug", "Idea round setup skipped", "no active session");
       handleShowToast("No active session", "Open a project first to run an idea round.", "warning");
       return;
     }
     const health = schematic.report?.health ?? (schematic.exists ? "partial" : "missing");
     if (health !== "complete" && !proceedDespiteGate) {
+      addLog("debug", "Idea round soft gate opened", `health=${health}`);
       setRoundGateOpen(true);
       return;
     }
+    addLog("debug", "Idea round setup opened", `health=${health}; categories=${ideaState.categories.length}`);
     setRoundGateOpen(false);
-    let roundId: string | null = null;
+    setRoundSetupOpen(true);
+  }, [session.activeSessionId, schematic.report, schematic.exists, ideaState.categories.length, addLog, handleShowToast]);
+
+  const handleConfirmIdeaRound = useCallback(async (setup: IdeaRoundSetup) => {
+    if (!session.activeSessionId) {
+      addLog("debug", "Idea round confirmation skipped", "no active session");
+      return;
+    }
+    const health = schematic.report?.health ?? (schematic.exists ? "partial" : "missing");
+    const categories = ideaState.categories.filter((category) => setup.categoryIds.includes(category.id));
+    setRoundSetupOpen(false);
+    let roundId: string;
     try {
       roundId = await startIdeaRound(session.activeSessionId);
-      addLog("info", "Idea round started", `round=${roundId} gate=${health}${proceedDespiteGate ? " (proceeded despite gate)" : ""}`);
+      addLog("info", "Idea round started", `round=${roundId} gate=${health} categories=${categories.map((category) => category.id).join(",") || "project-wide"} ideas=${setup.ideaCount}`);
     } catch (e) {
       addLog("error", "Failed to start idea round", e instanceof Error ? e.message : String(e));
       handleShowToast("Round failed to start", "Could not start the idea round. See logs.", "error");
       return;
     }
     pendingRoundRef.current = roundId;
-    const action = generateIdeasAction();
+    const action = generateIdeaRoundAction(categories, setup.ideaCount, setup.direction);
     setPendingDelivery({ text: action.text, mode: action.mode, action: action.action });
     setDestinationPickerOpen(true);
     setPlansModalOpen(false);
-    handleShowToast("Idea round started", "Pick a destination chat — captured ideas are collected into this round.", "info");
-  }, [session.activeSessionId, schematic.report, schematic.exists, addLog, handleShowToast]);
+    handleShowToast("Idea round ready", "Choose an existing chat or create a dedicated one.", "info");
+  }, [session.activeSessionId, schematic.report, schematic.exists, ideaState.categories, addLog, handleShowToast]);
 
   const handleOpenSchematic = useCallback(() => {
     addLog("debug", "Project schematic opened", activeProjectPath ?? "no project");
@@ -1361,6 +1377,32 @@ export function AppShell({ updates }: AppShellProps) {
               <PlanningIndicators
                 plans={plans.plans}
                 ideas={ideaState.ideas}
+                categories={ideaState.categories}
+                onGenerateMoreIdeas={() => handleStartIdeaRound()}
+                onCreateIdea={async (title, description, categoryId) => {
+                  await ideaState.createIdea(title, description, categoryId ?? undefined);
+                  handleShowToast("Idea created", title, "success");
+                }}
+                onUpdateIdea={async (id, title, description, categoryId) => {
+                  await ideaState.updateIdea(id, title, description, categoryId);
+                  handleShowToast("Idea updated", title, "success");
+                }}
+                onSetIdeaStatus={async (id, status) => {
+                  await ideaState.updateIdeaStatus(id, status);
+                }}
+                onDeleteIdea={async (id) => {
+                  await ideaState.removeIdea(id);
+                  handleShowToast("Idea deleted", "The idea was removed.", "info");
+                }}
+                onPromoteIdeas={async (ids) => {
+                  await ideaState.promoteIdeas(ids);
+                  await plans.refreshPlans();
+                  handleShowToast(
+                    ids.length === 1 ? "Idea upgraded" : "Ideas upgraded",
+                    `${ids.length} draft plan${ids.length === 1 ? "" : "s"} created.`,
+                    "success",
+                  );
+                }}
                 schematicHealth={schematic.report ? (schematic.report.health === "complete" ? "complete" : "incomplete") : "none"}
                 onOpenStage={(stage: StageKey) => {
                   addLog("debug", "Planning stage opened", stage);
@@ -1675,6 +1717,16 @@ export function AppShell({ updates }: AppShellProps) {
           pendingRoundRef.current = null;
         }}
       />
+      {roundSetupOpen ? (
+        <IdeaRoundSetupModal
+          categories={ideaState.categories}
+          onConfirm={(setup) => { void handleConfirmIdeaRound(setup); }}
+          onCancel={() => {
+            addLog("debug", "Idea round setup cancelled", "no round started");
+            setRoundSetupOpen(false);
+          }}
+        />
+      ) : null}
       <IdeaRoundGate
         open={roundGateOpen}
         health={schematic.exists ? "partial" : "missing"}

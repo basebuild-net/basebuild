@@ -6,8 +6,8 @@ use crate::{
             ApprovalMode, ApprovalRule, AuditEntry, GatewayDecision, PermissionDecision,
             PermissionRules, SessionRule, UsageSyncSettings,
         },
-        runtime::{RuntimeDefaults, RuntimeProfile, RuntimeProfileKind, WorkingDirectoryMode},
         run_concurrency::{RunConcurrencyEntry, RunConcurrencyLimits},
+        runtime::{RuntimeDefaults, RuntimeProfile, RuntimeProfileKind, WorkingDirectoryMode},
     },
     services::process_helpers::hidden_command,
     services::storage_service::StorageService,
@@ -15,7 +15,7 @@ use crate::{
 type DbResult<T> = Result<T, String>;
 
 #[allow(dead_code)]
- fn gen_id() -> String {
+fn gen_id() -> String {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
@@ -24,7 +24,7 @@ type DbResult<T> = Result<T, String>;
 }
 
 #[allow(dead_code)]
- fn now() -> i64 {
+fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -54,20 +54,23 @@ impl SettingsService {
                     label: row.get(2)?,
                     executable: row.get(3)?,
                     args: serde_json::from_str(&args_str).unwrap_or_default(),
-                    working_directory_mode: WorkingDirectoryMode::from_str(&row.get::<_, String>(5)?),
+                    working_directory_mode: WorkingDirectoryMode::from_str(
+                        &row.get::<_, String>(5)?,
+                    ),
                     default_model: row.get(6)?,
                     capabilities: serde_json::from_str(&caps_str).unwrap_or_default(),
                     built_in: row.get::<_, i32>(8)? != 0,
                 })
             })
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     #[allow(dead_code)]
-     pub fn get_profile(id: &str) -> DbResult<Option<RuntimeProfile>> {
+    pub fn get_profile(id: &str) -> DbResult<Option<RuntimeProfile>> {
         Ok(Self::list_profiles()?.into_iter().find(|p| p.id == id))
-     }
+    }
 
     pub fn upsert_profile(profile: &RuntimeProfile) -> DbResult<()> {
         let conn = StorageService::connect()?;
@@ -96,8 +99,11 @@ impl SettingsService {
 
     pub fn delete_profile(id: &str) -> DbResult<()> {
         let conn = StorageService::connect()?;
-        conn.execute("DELETE FROM runtime_profiles WHERE id = ?1 AND built_in = 0", params![id])
-            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM runtime_profiles WHERE id = ?1 AND built_in = 0",
+            params![id],
+        )
+        .map_err(|e| e.to_string())?;
         Ok(())
     }
     /// Built-in adapters whose chat runs inside this process (no external
@@ -129,7 +135,11 @@ impl SettingsService {
         // as a script expression and exits 1 with a ParserError. Use the
         // correct flag per shell, falling back to `--version` for everything else.
         let version_args: &[&str] = match profile.executable.as_str() {
-            "powershell" | "powershell.exe" => &["-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"],
+            "powershell" | "powershell.exe" => &[
+                "-NoProfile",
+                "-Command",
+                "$PSVersionTable.PSVersion.ToString()",
+            ],
             "pwsh" | "pwsh.exe" => &["--version"],
             _ => &["--version"],
         };
@@ -255,7 +265,7 @@ impl SettingsService {
     // ─── Audit Trail ───
 
     #[allow(dead_code)]
-     pub fn record_audit(
+    pub fn record_audit(
         action: &str,
         scope: Option<&str>,
         decision: &str,
@@ -289,7 +299,8 @@ impl SettingsService {
                 })
             })
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     pub fn clear_audit() -> DbResult<()> {
@@ -379,7 +390,10 @@ impl SettingsService {
         conn.execute(
             "INSERT INTO app_defaults (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![format!("milestone_auto_commit:{project_path}"), if enabled { "true" } else { "false" }],
+            params![
+                format!("milestone_auto_commit:{project_path}"),
+                if enabled { "true" } else { "false" }
+            ],
         )
         .map_err(|e| e.to_string())?;
         Ok(())
@@ -409,7 +423,8 @@ impl SettingsService {
                 })
             })
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     /// Add a persistent per-project approval rule.
@@ -499,10 +514,7 @@ impl SettingsService {
         }
 
         // Default by mode.
-        let is_read_only = matches!(
-            tool_name,
-            "read_file" | "list_files" | "search_files"
-        );
+        let is_read_only = matches!(tool_name, "read_file" | "list_files" | "search_files");
         match mode {
             ApprovalMode::Safe => GatewayDecision {
                 decision: PermissionDecision::Ask,
@@ -624,10 +636,7 @@ impl SettingsService {
     }
 
     /// Remove a provider's override for a project (revert to global default).
-    pub fn remove_run_concurrency_override(
-        project_path: &str,
-        provider_id: &str,
-    ) -> DbResult<()> {
+    pub fn remove_run_concurrency_override(project_path: &str, provider_id: &str) -> DbResult<()> {
         let conn = StorageService::connect()?;
         conn.execute(
             "DELETE FROM run_concurrency_overrides WHERE project_path = ?1 AND provider_id = ?2",
@@ -656,5 +665,3 @@ pub struct ProfileValidation {
     pub version: Option<String>,
     pub error: Option<String>,
 }
-
-

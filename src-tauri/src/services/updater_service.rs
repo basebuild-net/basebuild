@@ -128,15 +128,18 @@ pub fn clear_skipped_version() -> Result<(), String> {
 }
 
 fn connect_state_db() -> Result<Connection, String> {
-    let db_path = StoragePathService::ensure_global_layout()?.global_dir.join("state.db");
-    Connection::open(db_path)
-        .map_err(|e| format!("Failed to open Basebuild state database: {e}"))
+    let db_path = StoragePathService::ensure_global_layout()?
+        .global_dir
+        .join("state.db");
+    Connection::open(db_path).map_err(|e| format!("Failed to open Basebuild state database: {e}"))
 }
 
 /// Directory for staging downloaded update payloads before apply.
 #[allow(dead_code)]
 pub fn update_staging_dir() -> Result<PathBuf, String> {
-    let dir = StoragePathService::ensure_global_layout()?.global_dir.join("updates");
+    let dir = StoragePathService::ensure_global_layout()?
+        .global_dir
+        .join("updates");
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("Failed to create update staging directory: {e}"))?;
     Ok(dir)

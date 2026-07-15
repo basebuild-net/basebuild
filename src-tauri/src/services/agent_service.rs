@@ -18,7 +18,7 @@ struct AgentSession {
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     #[allow(dead_code)]
-     profile_id: String,
+    profile_id: String,
 }
 
 /// Manages agent chat sessions. Uses runtime profiles so any chat adapter
@@ -52,9 +52,7 @@ impl AgentManager {
         let profile = profiles
             .into_iter()
             .find(|p| p.id == effective_id)
-            .ok_or_else(|| {
-                format!("Chat profile '{effective_id}' not found. Check settings.")
-            })?;
+            .ok_or_else(|| format!("Chat profile '{effective_id}' not found. Check settings."))?;
 
         if profile.kind != RuntimeProfileKind::Chat {
             return Err(format!(
@@ -87,15 +85,12 @@ impl AgentManager {
         }
         cmd.cwd(cwd);
 
-        let child = pair
-            .slave
-            .spawn_command(cmd)
-            .map_err(|e| {
-                format!(
-                    "Failed to spawn '{}': {e}. Is '{}' installed and on PATH?",
-                    profile.label, profile.executable
-                )
-            })?;
+        let child = pair.slave.spawn_command(cmd).map_err(|e| {
+            format!(
+                "Failed to spawn '{}': {e}. Is '{}' installed and on PATH?",
+                profile.label, profile.executable
+            )
+        })?;
 
         let _pid = child.process_id();
 
@@ -170,9 +165,7 @@ impl AgentManager {
     }
 
     pub fn stop(&mut self, id: u64) -> Result<(), String> {
-        self.sessions
-            .remove(&id)
-            .ok_or("Agent session not found")?;
+        self.sessions.remove(&id).ok_or("Agent session not found")?;
         Ok(())
     }
 }

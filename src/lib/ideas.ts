@@ -58,6 +58,15 @@ export async function listIdeas(sessionId: string): Promise<Idea[]> {
   return invoke<Idea[]>("list_ideas", { sessionId });
 }
 
+export async function updateIdea(
+  id: string,
+  title: string,
+  description: string,
+  categoryId: string | null,
+): Promise<Idea> {
+  return invoke<Idea>("update_idea", { id, title, description, categoryId });
+}
+
 export async function updateIdeaStatus(id: string, status: IdeaStatus): Promise<void> {
   return invoke("update_idea_status", { id, status });
 }

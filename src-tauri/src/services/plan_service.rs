@@ -103,7 +103,12 @@ impl PlanService {
                 "SELECT id, session_id, reference_id, title, description, goal, status,
                         priority, tags, ai_enhanced, context, idea_id, change_name,
                         created_at, updated_at, finished_at
-                 FROM plans WHERE session_id = ?1 ORDER BY priority DESC, updated_at DESC",
+                 FROM plans
+                 WHERE session_id = ?1
+                   AND NOT EXISTS (
+                       SELECT 1 FROM plan_archives WHERE plan_archives.plan_id = plans.id
+                   )
+                 ORDER BY priority DESC, updated_at DESC",
             )
             .map_err(|e| e.to_string())?;
 

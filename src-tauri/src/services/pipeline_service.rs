@@ -12,9 +12,11 @@ use crate::{
         planning_event::PlanningEventKind,
     },
     services::{
-        native_chat_service::NativeChatService, planning_events,
+        native_chat_service::NativeChatService,
+        planning_events,
         provider_client::{resolve_client_for_model, ChatMsg, ProviderRequest},
-        session_service::SessionService, storage_service::StorageService,
+        session_service::SessionService,
+        storage_service::StorageService,
     },
 };
 
@@ -71,10 +73,7 @@ impl PipelineService {
     /// Start a pipeline stage. Records a `pending` run row, marks it
     /// `running`, executes the stage, and records the terminal status. The
     /// `CancellationToken` is held in `RUNNING_STAGES` so cancel can abort.
-    pub fn start_stage(
-        app: &AppHandle,
-        request: PipelineStartRequest,
-    ) -> DbResult<PipelineRun> {
+    pub fn start_stage(app: &AppHandle, request: PipelineStartRequest) -> DbResult<PipelineRun> {
         let kind = PipelineStageKind::from_str(&request.kind)
             .ok_or_else(|| format!("Unknown pipeline stage kind: {}", request.kind))?;
 
@@ -104,7 +103,15 @@ impl PipelineService {
         if let Ok(mut map) = RUNNING_STAGES.lock() {
             map.insert(run_id.clone(), token.clone());
         }
-        Self::update_run_status(app, &run_id, PipelineRunStatus::Running, None, &[], Some(now()), None)?;
+        Self::update_run_status(
+            app,
+            &run_id,
+            PipelineRunStatus::Running,
+            None,
+            &[],
+            Some(now()),
+            None,
+        )?;
 
         // Execute the stage. Errors are recorded on the run row.
         let result = match kind {
@@ -166,8 +173,7 @@ impl PipelineService {
             }
         }
 
-        Self::get_run(&run_id)?
-            .ok_or_else(|| "Pipeline run not found after completion".to_string())
+        Self::get_run(&run_id)?.ok_or_else(|| "Pipeline run not found after completion".to_string())
     }
 
     /// Cancel a running pipeline stage by run id. Sets the cancellation token
@@ -240,12 +246,16 @@ impl PipelineService {
 
         let system = crate::services::planning_prompt_service::PlanningPromptService::get(
             crate::models::planning_prompt::CATEGORY_GENERATION,
-        ).unwrap_or_else(|_| NativeChatService::system_prompt(&request.project_path, schematic.as_deref()));
+        )
+        .unwrap_or_else(|_| {
+            NativeChatService::system_prompt(&request.project_path, schematic.as_deref())
+        });
         let focus = Self::focus_directive(&request.project_path);
-        let digest = crate::services::planning_prompt_service::PlanningPromptService::decision_digest(
-            &request.session_id,
-            &request.project_path,
-        );
+        let digest =
+            crate::services::planning_prompt_service::PlanningPromptService::decision_digest(
+                &request.session_id,
+                &request.project_path,
+            );
         let focus_and_digest = match &digest {
             Some(d) => format!("{focus}\n\n{d}"),
             None => format!("{focus}\n\n## Recent decisions\n(No decisions since last schematic update — generate freely from the schematic.)"),
@@ -269,7 +279,6 @@ impl PipelineService {
             convo = convo,
         );
 
-
         let response = Self::call_model(
             app,
             &request.session_id,
@@ -283,14 +292,13 @@ impl PipelineService {
             "categories",
         )?;
 
-        let names: Vec<String> = serde_json::from_str(&response)
-            .unwrap_or_else(|_| {
-                response
-                    .lines()
-                    .map(|l| l.trim().trim_matches(',').trim_matches('"').to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect()
-            });
+        let names: Vec<String> = serde_json::from_str(&response).unwrap_or_else(|_| {
+            response
+                .lines()
+                .map(|l| l.trim().trim_matches(',').trim_matches('"').to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        });
 
         let mut category_ids = Vec::new();
         for name in names.iter().take(10) {
@@ -315,12 +323,16 @@ impl PipelineService {
 
         let system = crate::services::planning_prompt_service::PlanningPromptService::get(
             crate::models::planning_prompt::IDEA_GENERATION,
-        ).unwrap_or_else(|_| NativeChatService::system_prompt(&request.project_path, schematic.as_deref()));
+        )
+        .unwrap_or_else(|_| {
+            NativeChatService::system_prompt(&request.project_path, schematic.as_deref())
+        });
         let focus = Self::focus_directive(&request.project_path);
-        let digest = crate::services::planning_prompt_service::PlanningPromptService::decision_digest(
-            &request.session_id,
-            &request.project_path,
-        );
+        let digest =
+            crate::services::planning_prompt_service::PlanningPromptService::decision_digest(
+                &request.session_id,
+                &request.project_path,
+            );
         let focus_and_digest = match &digest {
             Some(d) => format!("{focus}\n\n{d}"),
             None => format!("{focus}\n\n## Recent decisions\n(No decisions since last schematic update — generate freely from the schematic.)"),
@@ -461,7 +473,10 @@ impl PipelineService {
 
         let system = crate::services::planning_prompt_service::PlanningPromptService::get(
             crate::models::planning_prompt::PLAN_GENERATION,
-        ).unwrap_or_else(|_| NativeChatService::system_prompt(&request.project_path, schematic.as_deref()));
+        )
+        .unwrap_or_else(|_| {
+            NativeChatService::system_prompt(&request.project_path, schematic.as_deref())
+        });
         let focus = Self::focus_directive(&request.project_path);
         let prompt = format!(
             "{focus}\n\n\
@@ -475,7 +490,10 @@ impl PipelineService {
             title = idea.title,
             desc = idea.description,
             grounding = idea.grounding,
-            anchor = idea.anchor.as_deref().unwrap_or("(none — outside current focus)"),
+            anchor = idea
+                .anchor
+                .as_deref()
+                .unwrap_or("(none — outside current focus)"),
         );
 
         let response = Self::call_model(
@@ -653,11 +671,15 @@ impl PipelineService {
         // Validate artifacts: check proposal has Why/What-Changes, specs have
         // requirements + scenarios, tasks.md has ≥1 task. If validation fails,
         // keep the plan in draft status and return an error with details.
-        let change_dir = crate::services::openspec_service::change_dir(&request.project_path, &change_name);
+        let change_dir =
+            crate::services::openspec_service::change_dir(&request.project_path, &change_name);
         let validation = crate::services::openspec_service::validate_artifacts(&change_dir);
         if !validation.valid {
             // Artifacts are preserved on disk; plan stays in draft.
-            let error_msg = format!("Artifact validation failed: {}", validation.errors.join("; "));
+            let error_msg = format!(
+                "Artifact validation failed: {}",
+                validation.errors.join("; ")
+            );
             // Record the validation error on the pipeline run.
             let _ = crate::services::native_chat_service::NativeChatService::record_pipeline_run(
                 run_id,
@@ -665,7 +687,10 @@ impl PipelineService {
                 &request.project_path,
                 "generate_openspec",
                 "failed",
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0),
             );
             return Err(error_msg);
         }
@@ -682,9 +707,12 @@ impl PipelineService {
     /// project's chat model default.
     fn resolve_stage_model(request: &PipelineStartRequest) -> DbResult<(String, String, String)> {
         let resolved = NativeChatService::resolve_model_default(&request.project_path)?;
-        Ok((resolved.provider_id, resolved.model_id, resolved.effort_level))
+        Ok((
+            resolved.provider_id,
+            resolved.model_id,
+            resolved.effort_level,
+        ))
     }
-
 
     /// Load the conversation history for a session as a single string.
     fn load_conversation(session_id: &str) -> String {
@@ -755,8 +783,14 @@ impl PipelineService {
             tools: vec![ask_user_tool_schema()],
         };
 
-        let (api_kind, model_base_url) = NativeChatService::resolve_model_routing(provider_id, model_id);
-        let client = resolve_client_for_model(provider_id, &api_kind, req.base_url.as_deref(), &model_base_url);
+        let (api_kind, model_base_url) =
+            NativeChatService::resolve_model_routing(provider_id, model_id);
+        let client = resolve_client_for_model(
+            provider_id,
+            &api_kind,
+            req.base_url.as_deref(),
+            &model_base_url,
+        );
         let session_id_for_emit = session_id.to_string();
         let run_id_for_check = run_id.to_string();
         let token_clone = token.clone();
@@ -786,7 +820,11 @@ impl PipelineService {
         // park until the user responds, then resume with the answers as a
         // follow-up turn so the model can use them.
         if response.tool_calls.iter().any(|c| c.name == "ask_user") {
-            let ask_call = response.tool_calls.iter().find(|c| c.name == "ask_user").unwrap();
+            let ask_call = response
+                .tool_calls
+                .iter()
+                .find(|c| c.name == "ask_user")
+                .unwrap();
             let answers = handle_pipeline_ask_user(app, session_id, ask_call, token)?;
             if answers.is_empty() {
                 // Cancelled or timed out.
@@ -885,11 +923,12 @@ fn handle_pipeline_ask_user(
 ) -> DbResult<Vec<crate::models::interaction::QuestionAnswer>> {
     use crate::services::agent_loop_service::{InteractionResolution, PENDING_INTERACTIONS};
     use parking_lot::Mutex;
-    use std::sync::mpsc;
     use std::collections::HashMap;
+    use std::sync::mpsc;
     use std::sync::LazyLock;
 
-    let args: serde_json::Value = serde_json::from_str(&call.arguments).unwrap_or(serde_json::json!({}));
+    let args: serde_json::Value =
+        serde_json::from_str(&call.arguments).unwrap_or(serde_json::json!({}));
     let Some(questions) = args.get("questions").and_then(serde_json::Value::as_array) else {
         return Err("ask_user requires a 'questions' array.".to_string());
     };
@@ -898,9 +937,20 @@ fn handle_pipeline_ask_user(
     }
     let mut parsed: Vec<crate::models::interaction::Question> = Vec::with_capacity(questions.len());
     for q in questions {
-        let id = q.get("id").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
-        let prompt = q.get("prompt").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
-        let kind_str = q.get("kind").and_then(serde_json::Value::as_str).unwrap_or("text");
+        let id = q
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let prompt = q
+            .get("prompt")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let kind_str = q
+            .get("kind")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("text");
         let kind = crate::models::interaction::QuestionKind::from_str(kind_str);
         let options: Vec<crate::models::interaction::QuestionOption> = q
             .get("options")
@@ -908,18 +958,44 @@ fn handle_pipeline_ask_user(
             .map(|arr| {
                 arr.iter()
                     .filter_map(|o| {
-                        let label = o.get("label").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
-                        if label.is_empty() { return None; }
-                        let description = o.get("description").and_then(serde_json::Value::as_str).map(str::to_string);
+                        let label = o
+                            .get("label")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        if label.is_empty() {
+                            return None;
+                        }
+                        let description = o
+                            .get("description")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_string);
                         Some(crate::models::interaction::QuestionOption { label, description })
                     })
                     .collect()
             })
             .unwrap_or_default();
-        let recommended = q.get("recommended").and_then(serde_json::Value::as_i64).map(|i| i as usize);
-        let allow_free_text = q.get("allowFreeText").and_then(serde_json::Value::as_bool).unwrap_or(false);
-        let detail = q.get("detail").and_then(serde_json::Value::as_str).map(str::to_string);
-        parsed.push(crate::models::interaction::Question { id, prompt, kind, options, recommended, allow_free_text, detail });
+        let recommended = q
+            .get("recommended")
+            .and_then(serde_json::Value::as_i64)
+            .map(|i| i as usize);
+        let allow_free_text = q
+            .get("allowFreeText")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let detail = q
+            .get("detail")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        parsed.push(crate::models::interaction::Question {
+            id,
+            prompt,
+            kind,
+            options,
+            recommended,
+            allow_free_text,
+            detail,
+        });
     }
     let interaction = crate::services::interaction_service::InteractionService::create(
         session_id,
@@ -930,6 +1006,27 @@ fn handle_pipeline_ask_user(
         "native-chat://interactive-request",
         serde_json::json!({ "sessionId": session_id, "interactionId": interaction.id, "toolCallId": call.id }),
     );
+    let project_path = SessionService::get(session_id)
+        .ok()
+        .flatten()
+        .map(|session| session.project_path)
+        .or_else(|| {
+            NativeChatService::get_session(session_id)
+                .ok()
+                .flatten()
+                .map(|session| session.project_path)
+        });
+    if let Some(project_path) = project_path {
+        let _ = crate::services::notification_service::NotificationService::deliver(
+            app,
+            crate::models::notification::NotificationKind::PendingQuestion,
+            &interaction.id,
+            "interaction",
+            &project_path,
+            "Planner needs your input",
+            Some("Open the planning chat to answer the pending question."),
+        );
+    }
     let (tx, rx) = mpsc::channel::<InteractionResolution>();
     {
         let mut pending = PENDING_INTERACTIONS.lock();
@@ -938,14 +1035,17 @@ fn handle_pipeline_ask_user(
     match rx.recv_timeout(std::time::Duration::from_secs(600)) {
         Ok(resolution) => {
             if resolution.cancelled {
-                let _ = crate::services::interaction_service::InteractionService::cancel(&interaction.id);
+                let _ = crate::services::interaction_service::InteractionService::cancel(
+                    &interaction.id,
+                );
                 Ok(Vec::new())
             } else {
                 Ok(resolution.answers)
             }
         }
         Err(_) => {
-            let _ = crate::services::interaction_service::InteractionService::cancel(&interaction.id);
+            let _ =
+                crate::services::interaction_service::InteractionService::cancel(&interaction.id);
             Ok(Vec::new())
         }
     }
@@ -1012,7 +1112,14 @@ impl PipelineService {
             "UPDATE pipeline_runs SET status = ?1, error = ?2, output_refs = ?3,
                 started_at = COALESCE(?4, started_at), completed_at = COALESCE(?5, completed_at)
              WHERE id = ?6",
-            params![status.as_str(), error, output_json, started_at, completed_at, id],
+            params![
+                status.as_str(),
+                error,
+                output_json,
+                started_at,
+                completed_at,
+                id
+            ],
         )
         .map_err(|e| e.to_string())?;
 
@@ -1089,12 +1196,30 @@ mod tests {
 
     #[test]
     fn pipeline_run_status_from_str_parses_known_values() {
-        assert_eq!(PipelineRunStatus::from_str("pending"), PipelineRunStatus::Pending);
-        assert_eq!(PipelineRunStatus::from_str("running"), PipelineRunStatus::Running);
-        assert_eq!(PipelineRunStatus::from_str("succeeded"), PipelineRunStatus::Succeeded);
-        assert_eq!(PipelineRunStatus::from_str("failed"), PipelineRunStatus::Failed);
-        assert_eq!(PipelineRunStatus::from_str("cancelled"), PipelineRunStatus::Cancelled);
-        assert_eq!(PipelineRunStatus::from_str("nonsense"), PipelineRunStatus::Pending);
+        assert_eq!(
+            PipelineRunStatus::from_str("pending"),
+            PipelineRunStatus::Pending
+        );
+        assert_eq!(
+            PipelineRunStatus::from_str("running"),
+            PipelineRunStatus::Running
+        );
+        assert_eq!(
+            PipelineRunStatus::from_str("succeeded"),
+            PipelineRunStatus::Succeeded
+        );
+        assert_eq!(
+            PipelineRunStatus::from_str("failed"),
+            PipelineRunStatus::Failed
+        );
+        assert_eq!(
+            PipelineRunStatus::from_str("cancelled"),
+            PipelineRunStatus::Cancelled
+        );
+        assert_eq!(
+            PipelineRunStatus::from_str("nonsense"),
+            PipelineRunStatus::Pending
+        );
     }
 
     #[test]

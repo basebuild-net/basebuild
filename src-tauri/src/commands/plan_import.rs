@@ -18,5 +18,8 @@ pub fn plan_import_apply(
     project_path: String,
     slugs: Vec<String>,
 ) -> Result<Vec<PlanImportResult>, String> {
-    Ok(plan_import_service::import_candidates(&project_path, &slugs))
+    Ok(plan_import_service::import_candidates(
+        &project_path,
+        &slugs,
+    ))
 }

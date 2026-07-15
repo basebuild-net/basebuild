@@ -2,8 +2,8 @@ use tauri::AppHandle;
 
 use crate::{
     models::native_chat::{
-        ChatModelDefault, NativeChatHistoryEntry, NativeChatMessage, NativeChatSendRequest,
-        NativeChatSendResult, NativeChatSession, NativeChatStartRequest,
+        ChatModelDefault, NativeChatBootstrap, NativeChatHistoryEntry, NativeChatMessage,
+        NativeChatSendRequest, NativeChatSendResult, NativeChatSession, NativeChatStartRequest,
         NativeGenerateIdeasRequest, NativeGenerateIdeasResult, NativeProviderCatalog,
         NativeProviderCatalogRefreshRequest, NativeProviderCredential,
         NativeProviderCredentialInput, NativeRequestMetric, NativeRequestMetricsSummary,
@@ -22,6 +22,13 @@ pub async fn native_provider_catalog() -> Result<NativeProviderCatalog, String> 
 }
 
 #[tauri::command]
+pub async fn native_chat_bootstrap(project_path: String) -> Result<NativeChatBootstrap, String> {
+    tauri::async_runtime::spawn_blocking(move || NativeChatService::bootstrap(&project_path))
+        .await
+        .map_err(|error| format!("Chat-bootstrap task panicked: {error}"))?
+}
+
+#[tauri::command]
 pub async fn native_provider_catalog_refresh(
     request: Option<NativeProviderCatalogRefreshRequest>,
 ) -> Result<NativeProviderCatalog, String> {
@@ -36,12 +43,11 @@ pub async fn native_provider_catalog_refresh(
 }
 
 #[tauri::command]
-pub async fn native_catalog_sync() -> Result<crate::services::catalog_sync_service::CatalogSyncResult, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        crate::services::catalog_sync_service::sync_catalog()
-    })
-    .await
-    .map_err(|e| format!("Catalog sync task panicked: {e}"))
+pub async fn native_catalog_sync(
+) -> Result<crate::services::catalog_sync_service::CatalogSyncResult, String> {
+    tauri::async_runtime::spawn_blocking(|| crate::services::catalog_sync_service::sync_catalog())
+        .await
+        .map_err(|e| format!("Catalog sync task panicked: {e}"))
 }
 #[tauri::command]
 pub fn native_chat_start(request: NativeChatStartRequest) -> Result<NativeChatSession, String> {
@@ -56,9 +62,11 @@ pub async fn native_chat_get(session_id: String) -> Result<Option<NativeChatSess
 }
 #[tauri::command]
 pub async fn native_chat_rename(session_id: String, title: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || NativeChatService::rename_session(&session_id, &title))
-        .await
-        .map_err(|error| format!("Chat-rename task panicked: {error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        NativeChatService::rename_session(&session_id, &title)
+    })
+    .await
+    .map_err(|error| format!("Chat-rename task panicked: {error}"))?
 }
 
 #[tauri::command]
@@ -101,24 +109,19 @@ pub async fn native_chat_send(
     app: AppHandle,
     request: NativeChatSendRequest,
 ) -> Result<NativeChatSendResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        NativeChatService::send_message(&app, request)
-    })
-    .await
-    .map_err(|e| format!("Chat send task panicked: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || NativeChatService::send_message(&app, request))
+        .await
+        .map_err(|e| format!("Chat send task panicked: {e}"))?
 }
 #[tauri::command]
 pub async fn native_generate_ideas(
     app: AppHandle,
     request: NativeGenerateIdeasRequest,
 ) -> Result<NativeGenerateIdeasResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        NativeChatService::generate_ideas(&app, request)
-    })
-    .await
-    .map_err(|e| format!("Generate ideas task panicked: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || NativeChatService::generate_ideas(&app, request))
+        .await
+        .map_err(|e| format!("Generate ideas task panicked: {e}"))?
 }
-
 
 #[tauri::command]
 pub fn native_request_metrics(limit: Option<u32>) -> Result<Vec<NativeRequestMetric>, String> {
@@ -168,11 +171,14 @@ pub fn native_chat_resolve_approval(
             // Session rule: the tool name is read from the pending approval.
             // We use a permissive tool_name and let the gateway match; the UI
             // passes command_prefix for run_command scoping.
-            (PermissionDecision::Allow, Some(SessionRule {
-                tool_name: "*".to_string(),
-                command_prefix,
-                decision: PermissionDecision::Allow,
-            }))
+            (
+                PermissionDecision::Allow,
+                Some(SessionRule {
+                    tool_name: "*".to_string(),
+                    command_prefix,
+                    decision: PermissionDecision::Allow,
+                }),
+            )
         }
         _ => (PermissionDecision::Deny, None),
     };
@@ -180,7 +186,10 @@ pub fn native_chat_resolve_approval(
         decision: perm_decision,
         session_rule,
     };
-    Ok(crate::services::agent_loop_service::resolve_approval(&tool_call_id, resolution))
+    Ok(crate::services::agent_loop_service::resolve_approval(
+        &tool_call_id,
+        resolution,
+    ))
 }
 
 #[tauri::command]
@@ -249,17 +258,22 @@ pub fn native_provider_refresh_omp_credentials(
 ) -> Result<crate::models::native_chat::NativeProviderCatalog, String> {
     // Refresh the provider's catalog (picks up new credentials from OMP).
     crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh_provider(
-        &provider_id, true,
+        &provider_id,
+        true,
     )?;
     // Return the updated catalog.
     Ok(crate::services::native_chat_service::NativeChatService::provider_catalog())
 }
 
 #[tauri::command]
-pub async fn native_chat_model_default(project_path: String) -> Result<ResolvedChatModelDefault, String> {
-    tauri::async_runtime::spawn_blocking(move || NativeChatService::resolve_model_default(&project_path))
-        .await
-        .map_err(|error| format!("Chat-model-default task panicked: {error}"))?
+pub async fn native_chat_model_default(
+    project_path: String,
+) -> Result<ResolvedChatModelDefault, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        NativeChatService::resolve_model_default(&project_path)
+    })
+    .await
+    .map_err(|error| format!("Chat-model-default task panicked: {error}"))?
 }
 
 #[tauri::command]
@@ -274,4 +288,3 @@ pub fn native_chat_set_project_model_default(
 pub fn native_chat_set_global_model_default(default: ChatModelDefault) -> Result<(), String> {
     NativeChatService::set_global_model_default(&default)
 }
-

@@ -52,6 +52,23 @@ test.describe("chat coherence: tool ordering, stop, approval, completion", () =>
     await attachScreenshot(page, "multi-tool-stream-ordering.png");
   });
 
+  test("tool phase shows active tool, progress counts, and phase duration", async ({ page }) => {
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+    await selectLocalProvider(page);
+
+    await sendMessage(page, "approval-stream-test");
+
+    const progress = page.locator(".chat-loading-tools").first();
+    await expect(progress).toBeVisible({ timeout: 5_000 });
+    await expect(progress.locator(".chat-loading-label")).toContainText("edit file", { timeout: 5_000 });
+    await expect(progress.locator(".chat-loading-count")).toContainText("pending");
+    await expect(progress.locator(".chat-elapsed-badge")).toContainText(/\d+ second/, { timeout: 3_000 });
+
+    const activeCard = page.locator(".tool-card").filter({ hasText: "edit file" }).first();
+    await expect(activeCard.locator(".tool-card-status")).toContainText(/pending · \d+ second/, { timeout: 3_000 });
+  });
+
   test("multi-tool-stream: completed tool cards remain expanded and readable after finish", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);

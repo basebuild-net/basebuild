@@ -6,6 +6,7 @@ import {
   ensureDefaultCategories as ensureDefaultCategoriesApi,
   listIdeas,
   promoteIdeas as promoteIdeasApi,
+  updateIdea as updateIdeaApi,
   updateIdeaStatus as updateIdeaStatusApi,
   createCategory as createCategoryApi,
   deleteCategory as deleteCategoryApi,
@@ -53,6 +54,15 @@ export function useIdeaState(sessionId: string | null) {
       return idea;
     },
     [sessionId, refresh],
+  );
+
+  const updateIdea = useCallback(
+    async (id: string, title: string, description: string, categoryId: string | null) => {
+      const idea = await updateIdeaApi(id, title, description, categoryId);
+      await refresh();
+      return idea;
+    },
+    [refresh],
   );
 
   const updateIdeaStatus = useCallback(
@@ -120,6 +130,7 @@ export function useIdeaState(sessionId: string | null) {
     categories,
     refresh,
     createIdea,
+    updateIdea,
     updateIdeaStatus,
     rejectIdea,
     removeIdea,

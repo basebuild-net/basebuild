@@ -74,8 +74,9 @@ impl UpdateChannelStatus {
             UpdaterPluginError::Serialization(_) | UpdaterPluginError::Semver(_) => {
                 Self::MalformedManifest
             }
-            UpdaterPluginError::TargetNotFound(_)
-            | UpdaterPluginError::TargetsNotFound(_) => Self::PlatformMissing,
+            UpdaterPluginError::TargetNotFound(_) | UpdaterPluginError::TargetsNotFound(_) => {
+                Self::PlatformMissing
+            }
             UpdaterPluginError::Minisign(_)
             | UpdaterPluginError::Base64(_)
             | UpdaterPluginError::SignatureUtf8(_) => Self::SignatureInvalid,
@@ -267,16 +268,11 @@ pub async fn check_for_updates(app: AppHandle) -> Result<UpdateInfo, String> {
         .updater()
         .map_err(|e| format!("Failed to get updater: {e}"))?;
 
-    let update = updater
-        .check()
-        .await
-        .map_err(|e| {
-            let status = UpdateChannelStatus::from_plugin_error(&e);
-            let explanation = status.explanation();
-            format!(
-                "Failed to check for updates: {e} | channel_status={status:?} | {explanation}"
-            )
-        })?;
+    let update = updater.check().await.map_err(|e| {
+        let status = UpdateChannelStatus::from_plugin_error(&e);
+        let explanation = status.explanation();
+        format!("Failed to check for updates: {e} | channel_status={status:?} | {explanation}")
+    })?;
 
     match update {
         Some(update) => {
@@ -337,9 +333,7 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
         .map_err(|e| {
             let status = UpdateChannelStatus::from_plugin_error(&e);
             let explanation = status.explanation();
-            format!(
-                "Failed to check for updates: {e} | channel_status={status:?} | {explanation}"
-            )
+            format!("Failed to check for updates: {e} | channel_status={status:?} | {explanation}")
         })?
         .ok_or("No update available")?;
 
@@ -351,9 +345,7 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
         .map_err(|e| {
             let status = UpdateChannelStatus::from_plugin_error(&e);
             let explanation = status.explanation();
-            format!(
-                "Failed to install update: {e} | channel_status={status:?} | {explanation}"
-            )
+            format!("Failed to install update: {e} | channel_status={status:?} | {explanation}")
         })?;
 
     app.restart();
@@ -376,9 +368,7 @@ pub async fn install_update_with_progress(app: AppHandle) -> Result<(), String> 
         .map_err(|e| {
             let status = UpdateChannelStatus::from_plugin_error(&e);
             let explanation = status.explanation();
-            format!(
-                "Failed to check for updates: {e} | channel_status={status:?} | {explanation}"
-            )
+            format!("Failed to check for updates: {e} | channel_status={status:?} | {explanation}")
         })?
         .ok_or("No update available")?;
 
@@ -427,9 +417,7 @@ pub async fn install_update_with_progress(app: AppHandle) -> Result<(), String> 
         .map_err(|e| {
             let status = UpdateChannelStatus::from_plugin_error(&e);
             let explanation = status.explanation();
-            format!(
-                "Failed to install update: {e} | channel_status={status:?} | {explanation}"
-            )
+            format!("Failed to install update: {e} | channel_status={status:?} | {explanation}")
         })?;
 
     let _ = app_handle.emit(
@@ -656,7 +644,8 @@ mod tests {
         let err = serde_json::from_str::<serde_json::Value>("not json")
             .err()
             .unwrap();
-        let status = UpdateChannelStatus::from_plugin_error(&UpdaterPluginError::Serialization(err));
+        let status =
+            UpdateChannelStatus::from_plugin_error(&UpdaterPluginError::Serialization(err));
         assert_eq!(status, UpdateChannelStatus::MalformedManifest);
         assert!(
             status.explanation().contains("malformed"),
@@ -668,9 +657,9 @@ mod tests {
     #[test]
     fn classifies_target_not_found_as_platform_missing() {
         // The manifest parsed but has no windows-x86_64 entry.
-        let status = UpdateChannelStatus::from_plugin_error(
-            &UpdaterPluginError::TargetNotFound("windows-x86_64".to_string()),
-        );
+        let status = UpdateChannelStatus::from_plugin_error(&UpdaterPluginError::TargetNotFound(
+            "windows-x86_64".to_string(),
+        ));
         assert_eq!(status, UpdateChannelStatus::PlatformMissing);
         assert!(
             status.explanation().contains("Windows"),
@@ -684,9 +673,9 @@ mod tests {
         // SignatureUtf8 wraps a String and exercises the same SignatureInvalid
         // classification path as Minisign/Base64 errors, without requiring
         // minisign_verify as a direct dependency.
-        let status = UpdateChannelStatus::from_plugin_error(
-            &UpdaterPluginError::SignatureUtf8("not base64".to_string()),
-        );
+        let status = UpdateChannelStatus::from_plugin_error(&UpdaterPluginError::SignatureUtf8(
+            "not base64".to_string(),
+        ));
         assert_eq!(status, UpdateChannelStatus::SignatureInvalid);
         assert!(
             status.explanation().contains("signature"),
@@ -738,16 +727,28 @@ mod tests {
             "minimumSupportedVersion": "0.1.0"
         });
         let policy = UpdatePolicy::from_raw_json(&raw);
-        assert!(policy.is_mandatory("0.0.3"), "0.0.3 < 0.1.0 should be mandatory");
-        assert!(!policy.is_mandatory("0.1.0"), "0.1.0 >= 0.1.0 should be optional");
-        assert!(!policy.is_mandatory("0.1.5"), "0.1.5 >= 0.1.0 should be optional");
+        assert!(
+            policy.is_mandatory("0.0.3"),
+            "0.0.3 < 0.1.0 should be mandatory"
+        );
+        assert!(
+            !policy.is_mandatory("0.1.0"),
+            "0.1.0 >= 0.1.0 should be optional"
+        );
+        assert!(
+            !policy.is_mandatory("0.1.5"),
+            "0.1.5 >= 0.1.0 should be optional"
+        );
     }
 
     #[test]
     fn policy_with_no_threshold_is_optional() {
         let raw = serde_json::json!({ "version": "0.1.2" });
         let policy = UpdatePolicy::from_raw_json(&raw);
-        assert!(!policy.is_mandatory("0.0.1"), "no threshold means always optional");
+        assert!(
+            !policy.is_mandatory("0.0.1"),
+            "no threshold means always optional"
+        );
     }
 
     #[test]
@@ -757,7 +758,10 @@ mod tests {
             "releaseSummary": "Critical security update"
         });
         let policy = UpdatePolicy::from_raw_json(&raw);
-        assert_eq!(policy.release_summary.as_deref(), Some("Critical security update"));
+        assert_eq!(
+            policy.release_summary.as_deref(),
+            Some("Critical security update")
+        );
     }
 
     #[test]
@@ -766,18 +770,15 @@ mod tests {
         // the frontend should suppress the startup prompt.
         let skipped = Some("0.1.2".to_string());
         let target = "0.1.2";
-        let is_skipped = skipped
-            .as_deref()
-            .map(|v| v == target)
-            .unwrap_or(false);
+        let is_skipped = skipped.as_deref().map(|v| v == target).unwrap_or(false);
         assert!(is_skipped, "matching skipped version should be true");
 
         // A newer version (0.1.3) should clear the skip implicitly.
         let target_new = "0.1.3";
-        let is_skipped_new = skipped
-            .as_deref()
-            .map(|v| v == target_new)
-            .unwrap_or(false);
-        assert!(!is_skipped_new, "non-matching version should not be skipped");
+        let is_skipped_new = skipped.as_deref().map(|v| v == target_new).unwrap_or(false);
+        assert!(
+            !is_skipped_new,
+            "non-matching version should not be skipped"
+        );
     }
 }

@@ -1226,10 +1226,9 @@ export function PlanningInspector({
               if (onStartIdeaRound) onStartIdeaRound();
               else setTab("ideas");
             }}
-            onRunThroughOpenSpec={() => { setTab("plans"); }}
-            onAddWorker={() => { /* Future: create a new chat panel */ }}
-            onReview={() => { /* Future: focus review queue */ }}
-            onMerge={() => { /* Future: open merge queue */ }}
+            onReviewIdeas={() => { setTab("ideas"); }}
+            onReview={() => { setTab("runs"); }}
+            onMerge={() => { setTab("runs"); }}
             onArchiveSync={() => { setTab("changes"); }}
             onStageClick={(stage) => {
               if (stage === "queued" || stage === "running" || stage === "blocked" || stage === "review") setTab("runs");
@@ -1432,13 +1431,6 @@ export function PlanningInspector({
                   onMarkComplete={async (runId) => {
                     await markPlanRunComplete(runId);
                     setPlanRuns((prev) => prev.map((r) => (r.id === runId ? { ...r, status: "succeeded" } : r)));
-                  }}
-                  onCommit={async (_runId, _message) => {
-                    // Commit is handled by the source control panel; this is a placeholder for future wiring.
-                    addLog("info", "Commit requested", _message);
-                  }}
-                  onCreatePR={async (_runId, _title, _body) => {
-                    addLog("info", "PR requested", _title);
                   }}
                   onDismiss={() => {
                     setCompletionDismissed((prev) => new Set(prev).add(run.id));

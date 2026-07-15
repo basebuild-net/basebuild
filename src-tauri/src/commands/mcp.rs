@@ -9,9 +9,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::app_state::AppState;
 use crate::models::native_chat::NativeToolApprovalRequest;
 use crate::services::mcp_oauth_service::{McpOAuthPoll, McpOAuthStart};
-use crate::services::mcp_service::{
-    LoadResult, NamespacedPrompt, NamespacedTool, ServerState,
-};
+use crate::services::mcp_service::{LoadResult, NamespacedPrompt, NamespacedTool, ServerState};
 use crate::services::native_chat_service::NativeChatService;
 
 /// Event channel for MCP tool-call lifecycle events (approval prompts, results).
@@ -20,10 +18,7 @@ const MCP_TOOL_EVENT: &str = "mcp://tool-event";
 /// Load MCP configs for a project and (re)connect enabled servers.
 /// Returns the load result so the UI can surface validation errors.
 #[tauri::command]
-pub async fn mcp_reload(
-    app: AppHandle,
-    project_path: String,
-) -> Result<LoadResult, String> {
+pub async fn mcp_reload(app: AppHandle, project_path: String) -> Result<LoadResult, String> {
     let state = app.state::<AppState>();
     let svc = state.get_or_create_mcp_service(&project_path);
     let result = svc.reload().await;
@@ -197,10 +192,7 @@ pub async fn mcp_oauth_clear(server_url: String) -> Result<(), String> {
 
 /// Disconnect all MCP servers for a project (e.g. on project close).
 #[tauri::command]
-pub async fn mcp_shutdown_all(
-    app: AppHandle,
-    project_path: String,
-) -> Result<(), String> {
+pub async fn mcp_shutdown_all(app: AppHandle, project_path: String) -> Result<(), String> {
     let state = app.state::<AppState>();
     let svc = state.get_or_create_mcp_service(&project_path);
     svc.shutdown_all().await;

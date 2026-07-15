@@ -8,8 +8,8 @@ use crate::{
     events::PLAN_RUN_EVENT,
     models::plan::PlanStatus,
     models::plan_run::{
-        EnqueuePlanRequest, ExecutionProfile, PlanQueueEntry, PlanRun, PlanRunEvent,
-        PlanRunStatus, RunnerKind, StartQueueRequest,
+        EnqueuePlanRequest, ExecutionProfile, PlanQueueEntry, PlanRun, PlanRunEvent, PlanRunStatus,
+        RunnerKind, StartQueueRequest,
     },
     models::planning_event::PlanningEventKind,
     services::{
@@ -57,13 +57,18 @@ impl RunCancellationToken {
 
 static RUNNING_RUNS: std::sync::LazyLock<Mutex<HashMap<String, RunCancellationToken>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
-/// Per-provider in-flight semaphores (`run-concurrency-limits`). Each
-/// provider gets a semaphore sized to its effective concurrency limit
-/// (project override else global default else conservative `1`). Runs +
-/// subagents both acquire here, so they count together against the provider
-/// cap. Replaces the former single-`N` semaphore.
-static PROVIDER_SEMAPHORES: std::sync::LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Semaphore>>>> =
-    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Per-project, per-provider in-flight semaphores (`run-concurrency-limits`).
+/// Keeping the configured limit beside the semaphore prevents an exhausted
+/// semaphore from being mistaken for a changed limit and replaced.
+#[derive(Debug)]
+struct ProviderSemaphore {
+    limit: usize,
+    semaphore: Arc<tokio::sync::Semaphore>,
+}
+
+static PROVIDER_SEMAPHORES: std::sync::LazyLock<
+    Mutex<HashMap<(String, String), ProviderSemaphore>>,
+> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Per-session queue state: whether the queue is paused and the active
 /// execution profile. Held in memory so the scheduler loop can read it
@@ -71,6 +76,7 @@ static PROVIDER_SEMAPHORES: std::sync::LazyLock<Mutex<HashMap<String, Arc<tokio:
 #[derive(Debug, Default, Clone)]
 struct QueueState {
     paused: bool,
+    generation: String,
     profile: Option<ExecutionProfile>,
     overrides: HashMap<String, ExecutionProfile>,
 }
@@ -134,7 +140,13 @@ impl PlanRunnerService {
         conn.execute(
             "INSERT INTO plan_queue (id, session_id, plan_id, sort_order, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![entry.id, entry.session_id, entry.plan_id, entry.sort_order, entry.created_at],
+            params![
+                entry.id,
+                entry.session_id,
+                entry.plan_id,
+                entry.sort_order,
+                entry.created_at
+            ],
         )
         .map_err(|e| format!("Failed to enqueue plan: {e}"))?;
         Ok(entry)
@@ -183,7 +195,12 @@ impl PlanRunnerService {
     /// the existing `PLAN_RUN_EVENT`. Best-effort: fetches plan title + project
     /// path from the run's session; missing data degrades to empty strings
     /// rather than failing the run.
-    fn emit_planning_event<R: Runtime>(app: &AppHandle<R>, run: &PlanRun, kind: PlanningEventKind, detail: Option<String>) {
+    fn emit_planning_event<R: Runtime>(
+        app: &AppHandle<R>,
+        run: &PlanRun,
+        kind: PlanningEventKind,
+        detail: Option<String>,
+    ) {
         let title = PlanService::get(&run.plan_id)
             .ok()
             .flatten()
@@ -230,12 +247,14 @@ impl PlanRunnerService {
             })
             .collect::<HashMap<_, _>>();
 
+        let generation = gen_id();
         // Store queue state for the scheduler loop.
         if let Ok(mut states) = QUEUE_STATE.lock() {
             states.insert(
                 session_id.clone(),
                 QueueState {
                     paused: false,
+                    generation: generation.clone(),
                     profile: Some(profile.clone()),
                     overrides,
                 },
@@ -251,15 +270,11 @@ impl PlanRunnerService {
             .map(|s| s.project_path)
             .unwrap_or_default();
         let worktrees_enabled = Self::worktrees_enabled_for(&project_path);
-        let concurrency = profile.concurrency.max(1).min(if worktrees_enabled {
-            profile.concurrency
-        } else {
-            1
-        });
+        let concurrency = Self::effective_queue_concurrency(profile.concurrency, worktrees_enabled);
         let app_clone = app.clone();
         let sid = session_id.clone();
         std::thread::spawn(move || {
-            Self::dispatch_loop(app_clone, sid, concurrency);
+            Self::dispatch_loop(app_clone, sid, concurrency, generation);
         });
 
         Ok(())
@@ -342,9 +357,7 @@ impl PlanRunnerService {
             // If succeeded, run final-touches before transitioning.
             let new_plan_status = if succeeded {
                 // Run the final-touches pipeline.
-                let session = SessionService::get(&run.session_id)
-                    .ok()
-                    .flatten();
+                let session = SessionService::get(&run.session_id).ok().flatten();
                 let project_path = session
                     .as_ref()
                     .map(|s| s.project_path.as_str())
@@ -379,7 +392,9 @@ impl PlanRunnerService {
                         project_path,
                         Some(run.session_id.clone()),
                         "Run awaiting review".to_string(),
-                        Some("Checklist incomplete — mark as complete or keep running.".to_string()),
+                        Some(
+                            "Checklist incomplete — mark as complete or keep running.".to_string(),
+                        ),
                     );
                     PlanStatus::Running // Keep plan running while awaiting review.
                 } else {
@@ -411,17 +426,17 @@ impl PlanRunnerService {
             let (run_kind, run_detail) = if succeeded {
                 (PlanningEventKind::RunFinished, None)
             } else {
-                (
-                    PlanningEventKind::RunFailed,
-                    Some("Run failed".to_string()),
-                )
+                (PlanningEventKind::RunFailed, Some("Run failed".to_string()))
             };
             Self::emit_planning_event(app, run, run_kind, run_detail);
             // Re-align nudge: if the plan finished and the schematic mtime
             // predates the run start, emit a drift-suspected notification.
             if succeeded && new_plan_status == PlanStatus::Finished {
                 let session = SessionService::get(&run.session_id).ok().flatten();
-                let project_path = session.as_ref().map(|s| s.project_path.as_str()).unwrap_or("");
+                let project_path = session
+                    .as_ref()
+                    .map(|s| s.project_path.as_str())
+                    .unwrap_or("");
                 if !project_path.is_empty() {
                     let schematic_mtime = std::fs::metadata(
                         std::path::Path::new(project_path).join(".basebuild/project-schematic.md"),
@@ -434,16 +449,8 @@ impl PlanRunnerService {
                     let run_start = run.started_at.unwrap_or(0);
                     if schematic_mtime > 0 && run_start > 0 && schematic_mtime < run_start {
                         // Schematic is older than the run — drift suspected.
-                        let _ = crate::services::planning_events::emit(
+                        let _ = crate::services::notification_service::NotificationService::deliver(
                             app,
-                            PlanningEventKind::SchematicUpdated,
-                            run.plan_id.clone(),
-                            project_path,
-                            Some(run.session_id.clone()),
-                            "Schematic drift suspected".to_string(),
-                            Some("Plan finished but schematic predates the run. Consider re-aligning the schematic.".to_string()),
-                        );
-                        let _ = crate::services::notification_service::NotificationService::insert(
                             crate::models::notification::NotificationKind::SchematicDriftSuspected,
                             &run.plan_id,
                             "plan",
@@ -471,7 +478,10 @@ impl PlanRunnerService {
         // Verify the run exists and is in a completable state.
         let run = Self::get_run(run_id)?;
         let run = run.ok_or("Run not found")?;
-        if !matches!(run.status, PlanRunStatus::AwaitingReview | PlanRunStatus::Succeeded) {
+        if !matches!(
+            run.status,
+            PlanRunStatus::AwaitingReview | PlanRunStatus::Succeeded
+        ) {
             return Err(format!(
                 "Cannot mark complete: run is {} (must be awaiting_review or succeeded).",
                 run.status.as_str()
@@ -500,17 +510,13 @@ impl PlanRunnerService {
         Ok(())
     }
 
-
     /// Apply the project's finish policy to a completed run and persist the
     /// outcome on the run row. Called ONCE from `complete_run` after the run
     /// transitions to `succeeded` and the plan is `Finished`. Reads go through
     /// `get_finish_outcome` — they never re-execute policy side effects.
     /// Non-git or primary-checkout hard-fallbacks to hold. Failures surface
     /// without retry.
-    pub fn apply_finish_policy(
-        app: &AppHandle,
-        run_id: &str,
-    ) -> DbResult<FinishResult> {
+    pub fn apply_finish_policy(app: &AppHandle, run_id: &str) -> DbResult<FinishResult> {
         let result = Self::apply_finish_policy_inner(app, run_id)?;
         Self::persist_finish_outcome(run_id, &result)?;
         Ok(result)
@@ -562,18 +568,17 @@ impl PlanRunnerService {
         }
     }
 
-    fn apply_finish_policy_inner(
-        app: &AppHandle,
-        run_id: &str,
-    ) -> DbResult<FinishResult> {
-        let run = Self::get_run(run_id)?
-            .ok_or("Run not found")?;
+    fn apply_finish_policy_inner(app: &AppHandle, run_id: &str) -> DbResult<FinishResult> {
+        let run = Self::get_run(run_id)?.ok_or("Run not found")?;
         let session = SessionService::get(&run.session_id)
             .ok()
             .flatten()
             .ok_or("Session not found")?;
         let project_path = &session.project_path;
-        let profile = crate::services::plan_dependency_service::PlanDependencyService::get_launch_profile(project_path)
+        let profile =
+            crate::services::plan_dependency_service::PlanDependencyService::get_launch_profile(
+                project_path,
+            )
             .ok()
             .flatten();
         let policy = profile
@@ -593,7 +598,8 @@ impl PlanRunnerService {
         // Check if the directory is a git repo. Non-git → fallback to hold.
         if !work_dir.join(".git").exists() {
             let msg = format!("Finish policy '{policy}' not applied: not a git repository.");
-            let _ = crate::services::notification_service::NotificationService::insert(
+            let _ = crate::services::notification_service::NotificationService::deliver(
+                app,
                 crate::models::notification::NotificationKind::IntegrationAction,
                 run_id,
                 "plan_run",
@@ -609,7 +615,10 @@ impl PlanRunnerService {
             .map(|p| p.reference_id.clone())
             .unwrap_or_else(|| run.plan_id.clone());
         let commit_msg = format!("Auto-commit: plan {plan_ref} completed (run {run_id})");
-        let mk = |commit_sha: Option<String>, pr_url: Option<String>, merge_ready: bool, error: Option<String>| {
+        let mk = |commit_sha: Option<String>,
+                  pr_url: Option<String>,
+                  merge_ready: bool,
+                  error: Option<String>| {
             FinishOutcome {
                 run_id: run_id.to_string(),
                 policy: policy.to_string(),
@@ -623,17 +632,35 @@ impl PlanRunnerService {
             "auto_commit" => {
                 match crate::services::git_service::GitService::commit_all(&work_dir, &commit_msg) {
                     Ok(sha) if !sha.is_empty() => mk(Some(sha), None, false, None),
-                    Ok(_) => mk(None, None, false, Some("Nothing to commit — working tree clean.".to_string())),
+                    Ok(_) => mk(
+                        None,
+                        None,
+                        false,
+                        Some("Nothing to commit — working tree clean.".to_string()),
+                    ),
                     Err(e) => mk(None, None, false, Some(format!("git commit failed: {e}"))),
                 }
             }
             "auto_commit_pr" => {
                 match crate::services::git_service::GitService::commit_all(&work_dir, &commit_msg) {
-                    Ok(sha) if sha.is_empty() => mk(None, None, false, Some("Nothing to commit — working tree clean.".to_string())),
+                    Ok(sha) if sha.is_empty() => mk(
+                        None,
+                        None,
+                        false,
+                        Some("Nothing to commit — working tree clean.".to_string()),
+                    ),
                     Ok(sha) => {
-                        let branch = crate::services::git_service::GitService::current_branch(&work_dir);
+                        let branch =
+                            crate::services::git_service::GitService::current_branch(&work_dir);
                         match branch {
-                            None => mk(Some(sha), None, false, Some("Cannot determine current branch — detached HEAD?".to_string())),
+                            None => mk(
+                                Some(sha),
+                                None,
+                                false,
+                                Some(
+                                    "Cannot determine current branch — detached HEAD?".to_string(),
+                                ),
+                            ),
                             Some(b) => {
                                 let pr_result = crate::services::pull_request_service::PullRequestService::create_pr(
                                     project_path,
@@ -643,8 +670,21 @@ impl PlanRunnerService {
                                 );
                                 match pr_result {
                                     Ok(pr) if pr.success => mk(Some(sha), pr.url, false, None),
-                                    Ok(pr) => mk(Some(sha), None, false, Some(format!("PR creation failed: {}", pr.error.unwrap_or_default()))),
-                                    Err(e) => mk(Some(sha), None, false, Some(format!("PR creation error: {e}"))),
+                                    Ok(pr) => mk(
+                                        Some(sha),
+                                        None,
+                                        false,
+                                        Some(format!(
+                                            "PR creation failed: {}",
+                                            pr.error.unwrap_or_default()
+                                        )),
+                                    ),
+                                    Err(e) => mk(
+                                        Some(sha),
+                                        None,
+                                        false,
+                                        Some(format!("PR creation error: {e}")),
+                                    ),
                                 }
                             }
                         }
@@ -654,9 +694,15 @@ impl PlanRunnerService {
             }
             "queue_merge_review" => {
                 // Commit, then add to merge-review queue with merge-ready flag.
-                let (sha, commit_err) = match crate::services::git_service::GitService::commit_all(&work_dir, &commit_msg) {
+                let (sha, commit_err) = match crate::services::git_service::GitService::commit_all(
+                    &work_dir,
+                    &commit_msg,
+                ) {
                     Ok(s) if !s.is_empty() => (Some(s), None),
-                    Ok(_) => (None, Some("Nothing to commit — working tree clean.".to_string())),
+                    Ok(_) => (
+                        None,
+                        Some("Nothing to commit — working tree clean.".to_string()),
+                    ),
                     Err(e) => (None, Some(format!("git commit failed: {e}"))),
                 };
                 let _ = crate::services::plan_dependency_service::PlanDependencyService::add_to_merge_queue(
@@ -668,7 +714,12 @@ impl PlanRunnerService {
                 );
                 mk(sha, None, true, commit_err)
             }
-            _ => mk(None, None, false, Some(format!("Unknown finish policy: {policy}"))),
+            _ => mk(
+                None,
+                None,
+                false,
+                Some(format!("Unknown finish policy: {policy}")),
+            ),
         };
         // Emit a planning event with the outcome.
         let detail = if let Some(ref err) = outcome.error {
@@ -767,13 +818,11 @@ impl PlanRunnerService {
     /// completed == total), the run is auto-completed as succeeded. Returns
     /// the (completed, total) counts so the UI can display progress.
     pub fn check_run_completion(app: &AppHandle, run_id: &str) -> DbResult<(u32, u32)> {
-        let run = Self::get_run(run_id)?
-            .ok_or_else(|| "Plan run not found".to_string())?;
+        let run = Self::get_run(run_id)?.ok_or_else(|| "Plan run not found".to_string())?;
         if run.status != PlanRunStatus::Running {
             return Ok((0, 0));
         }
-        let plan = PlanService::get(&run.plan_id)?
-            .ok_or_else(|| "Plan not found".to_string())?;
+        let plan = PlanService::get(&run.plan_id)?.ok_or_else(|| "Plan not found".to_string())?;
         let session = SessionService::get(&plan.session_id)?
             .ok_or_else(|| "Session not found".to_string())?;
         let project_path = &session.project_path;
@@ -827,14 +876,13 @@ impl PlanRunnerService {
             Self::emit_planning_event(app, &run, PlanningEventKind::RunStarted, None);
         }
 
-        Self::get_run(&run_id)?
-            .ok_or_else(|| "OMP plan run not found after creation".to_string())
+        Self::get_run(&run_id)?.ok_or_else(|| "OMP plan run not found after creation".to_string())
     }
     // ── Dispatcher ──────────────────────────────────────────────────────
 
     /// Dispatch loop: pulls the next pending queue entry, provisions a
     /// session, and runs the plan. Respects pause and cancellation.
-    fn dispatch_loop(app: AppHandle, session_id: String, concurrency: u32) {
+    fn dispatch_loop(app: AppHandle, session_id: String, concurrency: u32, generation: String) {
         let runtime = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -842,19 +890,24 @@ impl PlanRunnerService {
             Ok(rt) => rt,
             Err(_) => return,
         };
-        // Legacy single-N semaphore kept as a fallback ceiling; the real
-        // bound is per-provider (below). This preserves the old behavior for
-        // callers that never set per-provider limits.
-        let _legacy_cap = concurrency.max(1);
+        let session_semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency.max(1) as usize));
 
         loop {
-            // Check pause state.
-            let paused = QUEUE_STATE
+            // A resumed queue gets a new generation. Retire the old paused
+            // dispatcher before it can race the replacement.
+            let queue_status = QUEUE_STATE
                 .lock()
                 .ok()
-                .and_then(|s| s.get(&session_id).map(|q| q.paused))
-                .unwrap_or(true);
-            if paused {
+                .and_then(|states| {
+                    states
+                        .get(&session_id)
+                        .map(|state| (state.generation == generation, state.paused))
+                })
+                .unwrap_or((false, true));
+            if !queue_status.0 {
+                return;
+            }
+            if queue_status.1 {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 continue;
             }
@@ -863,7 +916,11 @@ impl PlanRunnerService {
             // running/succeeded/failed plan_run.
             let next = match Self::next_pending_entry(&session_id) {
                 Ok(Some(entry)) => entry,
-                Ok(None) => break, // Queue empty or all dispatched.
+                Ok(None) if Self::has_pending_entries(&session_id).unwrap_or(false) => {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    continue;
+                }
+                Ok(None) => break,
                 Err(_) => break,
             };
 
@@ -885,6 +942,11 @@ impl PlanRunnerService {
                     model_id: String::new(),
                     effort_level: None,
                 });
+
+            let session_permit = match runtime.block_on(session_semaphore.clone().acquire_owned()) {
+                Ok(permit) => permit,
+                Err(_) => break,
+            };
 
             // Acquire a per-provider permit (blocks if at the provider's
             // effective concurrency limit). Falls back to a single permit
@@ -912,6 +974,7 @@ impl PlanRunnerService {
             let sid = session_id.clone();
             std::thread::spawn(move || {
                 let _permit = permit; // Released on drop.
+                let _session_permit = session_permit;
                 let _ = Self::execute_run(&app_clone, &sid, &next, &profile);
             });
         }
@@ -926,21 +989,27 @@ impl PlanRunnerService {
         _runtime: &tokio::runtime::Runtime,
     ) -> Arc<tokio::sync::Semaphore> {
         let entry = crate::services::settings_service::SettingsService::effective_run_concurrency(
-            project_path, provider_id,
-        ).unwrap_or_default();
+            project_path,
+            provider_id,
+        )
+        .unwrap_or_default();
         let limit = entry.max_concurrency.max(1) as usize;
         if let Ok(mut map) = PROVIDER_SEMAPHORES.lock() {
-            // Rebuild if the limit changed. tokio Semaphore can't be resized
-            // after creation, so we replace it when the configured limit differs.
-            let needs_rebuild = map
-                .get(provider_id)
-                .map(|sem| sem.available_permits() > limit || sem.available_permits() == 0)
-                .unwrap_or(true);
-            if needs_rebuild || !map.contains_key(provider_id) {
-                let sem = Arc::new(tokio::sync::Semaphore::new(limit));
-                map.insert(provider_id.to_string(), sem);
+            let key = (project_path.to_string(), provider_id.to_string());
+            if let Some(existing) = map.get(&key) {
+                if existing.limit == limit {
+                    return existing.semaphore.clone();
+                }
             }
-            map.get(provider_id).unwrap().clone()
+            let semaphore = Arc::new(tokio::sync::Semaphore::new(limit));
+            map.insert(
+                key,
+                ProviderSemaphore {
+                    limit,
+                    semaphore: semaphore.clone(),
+                },
+            );
+            semaphore
         } else {
             Arc::new(tokio::sync::Semaphore::new(limit))
         }
@@ -988,8 +1057,7 @@ impl PlanRunnerService {
         let _ = PlanService::set_status(&entry.plan_id, PlanStatus::Running);
 
         // Provision a native chat session for the plan.
-        let plan = PlanService::get(&entry.plan_id)?
-            .ok_or_else(|| "Plan not found".to_string())?;
+        let plan = PlanService::get(&entry.plan_id)?.ok_or_else(|| "Plan not found".to_string())?;
         let chat_session = NativeChatService::create_session_for_plan(
             &plan,
             &profile.provider_id,
@@ -1027,8 +1095,7 @@ impl PlanRunnerService {
             map.remove(&run_id);
         }
 
-        Self::get_run(&run_id)?
-            .ok_or_else(|| "Plan run not found after execution".to_string())
+        Self::get_run(&run_id)?.ok_or_else(|| "Plan run not found after execution".to_string())
     }
 
     /// Assign a plan to an *existing* chat session and start the run.
@@ -1043,15 +1110,21 @@ impl PlanRunnerService {
     ) -> DbResult<PlanRun> {
         // Validate the plan exists and is ready (or running — re-assign is
         // allowed only if the prior run was cancelled).
-        let plan = PlanService::get(plan_id)?
-            .ok_or_else(|| "Plan not found".to_string())?;
-        if plan.status != PlanStatus::Ready && plan.status != PlanStatus::Draft && plan.status != PlanStatus::Openspec {
-            return Err(format!("Plan must be ready to assign, but is {}.", plan.status.as_str()));
+        let plan = PlanService::get(plan_id)?.ok_or_else(|| "Plan not found".to_string())?;
+        if plan.status != PlanStatus::Ready
+            && plan.status != PlanStatus::Draft
+            && plan.status != PlanStatus::Openspec
+        {
+            return Err(format!(
+                "Plan must be ready to assign, but is {}.",
+                plan.status.as_str()
+            ));
         }
 
         // Validate the chat session exists.
-        let chat_session = crate::services::native_chat_service::NativeChatService::get_session(chat_session_id)?
-            .ok_or_else(|| "Chat session not found".to_string())?;
+        let chat_session =
+            crate::services::native_chat_service::NativeChatService::get_session(chat_session_id)?
+                .ok_or_else(|| "Chat session not found".to_string())?;
 
         // Check no active run is already bound to this chat session.
         let conn = StorageService::connect()?;
@@ -1086,7 +1159,11 @@ impl PlanRunnerService {
         };
 
         // Seed the opening context into the existing chat session.
-        let opening = crate::services::native_chat_service::NativeChatService::build_plan_opening_context(&plan, &chat_session.project_path);
+        let opening =
+            crate::services::native_chat_service::NativeChatService::build_plan_opening_context(
+                &plan,
+                &chat_session.project_path,
+            );
         if !opening.is_empty() {
             let _ = crate::services::native_chat_service::NativeChatService::insert_message(
                 chat_session_id,
@@ -1104,7 +1181,15 @@ impl PlanRunnerService {
             "INSERT INTO plan_runs (id, plan_id, session_id, chat_session_id, workspace_path,
              status, runner_kind, error, steps_output, started_at, finished_at, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, 'running', 'native', NULL, '[]', ?6, NULL, ?7)",
-            params![run_id, plan_id, plan.session_id, chat_session_id, workspace_path, created, created],
+            params![
+                run_id,
+                plan_id,
+                plan.session_id,
+                chat_session_id,
+                workspace_path,
+                created,
+                created
+            ],
         )
         .map_err(|e| format!("Failed to insert plan run: {e}"))?;
 
@@ -1142,8 +1227,7 @@ impl PlanRunnerService {
             Self::emit_planning_event(app, &run, PlanningEventKind::RunStarted, None);
         }
 
-        Self::get_run(&run_id)?
-            .ok_or_else(|| "Plan run not found after assignment".to_string())
+        Self::get_run(&run_id)?.ok_or_else(|| "Plan run not found after assignment".to_string())
     }
 
     /// Worktrees are enabled when the project is a git repo. Called by
@@ -1152,11 +1236,40 @@ impl PlanRunnerService {
         crate::services::worktree_service::WorktreeService::is_supported(project_path)
     }
 
+    fn effective_queue_concurrency(requested: u32, worktrees_enabled: bool) -> u32 {
+        if worktrees_enabled {
+            requested.max(1)
+        } else {
+            1
+        }
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────
 
     /// Find the next queue entry whose plan has no run yet (or only
     /// cancelled runs). Returns None when the queue is exhausted.
     fn next_pending_entry(session_id: &str) -> DbResult<Option<PlanQueueEntry>> {
+        let pending = Self::pending_entries(session_id)?;
+        if pending.is_empty() {
+            return Ok(None);
+        }
+        let graph = crate::services::plan_dependency_service::PlanDependencyService::build_graph(
+            session_id,
+        )?;
+        Ok(pending.into_iter().find(|entry| {
+            graph
+                .nodes
+                .iter()
+                .find(|node| node.plan_id == entry.plan_id)
+                .is_some_and(|node| node.dispatchable)
+        }))
+    }
+
+    fn has_pending_entries(session_id: &str) -> DbResult<bool> {
+        Ok(!Self::pending_entries(session_id)?.is_empty())
+    }
+
+    fn pending_entries(session_id: &str) -> DbResult<Vec<PlanQueueEntry>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn
             .prepare(
@@ -1169,11 +1282,11 @@ impl PlanRunnerService {
                        AND r.session_id = q.session_id
                        AND r.status IN ('running', 'succeeded', 'pending')
                  )
-                 ORDER BY q.sort_order ASC LIMIT 1",
+                 ORDER BY q.sort_order ASC",
             )
             .map_err(|e| e.to_string())?;
-        let row = stmt
-            .query_row(params![session_id], |row| {
+        let rows = stmt
+            .query_map(params![session_id], |row| {
                 Ok(PlanQueueEntry {
                     id: row.get(0)?,
                     session_id: row.get(1)?,
@@ -1182,11 +1295,10 @@ impl PlanRunnerService {
                     created_at: row.get(4)?,
                 })
             })
-            .optional()
             .map_err(|e| e.to_string())?;
-        Ok(row)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
-
 
     fn map_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<PlanRun> {
         let steps_json: String = row.get(8)?;
@@ -1215,7 +1327,15 @@ mod tests {
 
     #[test]
     fn plan_run_status_round_trip() {
-        for s in ["pending", "running", "succeeded", "failed", "cancelled", "paused", "awaiting_review"] {
+        for s in [
+            "pending",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled",
+            "paused",
+            "awaiting_review",
+        ] {
             assert_eq!(PlanRunStatus::from_str(s).as_str(), s);
         }
     }
@@ -1234,6 +1354,40 @@ mod tests {
         assert!(!token.is_cancelled());
         token.cancel();
         assert!(token.is_cancelled());
+    }
+
+    #[test]
+    fn queue_concurrency_requires_worktree_isolation() {
+        assert_eq!(PlanRunnerService::effective_queue_concurrency(0, true), 1);
+        assert_eq!(PlanRunnerService::effective_queue_concurrency(4, true), 4);
+        assert_eq!(PlanRunnerService::effective_queue_concurrency(4, false), 1);
+    }
+
+    #[test]
+    fn exhausted_provider_semaphore_is_reused() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let first = PlanRunnerService::provider_semaphore(
+            "/semaphore-regression",
+            "semaphore-regression-provider",
+            &runtime,
+        );
+        let permit = runtime
+            .block_on(first.clone().acquire_owned())
+            .expect("first provider permit");
+        assert_eq!(first.available_permits(), 0);
+
+        let second = PlanRunnerService::provider_semaphore(
+            "/semaphore-regression",
+            "semaphore-regression-provider",
+            &runtime,
+        );
+        assert!(Arc::ptr_eq(&first, &second));
+        drop(permit);
     }
 
     #[test]
@@ -1293,6 +1447,56 @@ mod tests {
     }
 
     #[test]
+    fn queue_selects_ready_prerequisite_before_blocked_plan() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+             VALUES ('s1', '/test', 'Test', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plans (id, session_id, reference_id, title, description, status, priority, tags, ai_enhanced, created_at, updated_at)
+             VALUES ('dependent', 's1', 'bb-dep', 'Dependent', 'desc', 'ready', 50, '[]', 0, 0, 0),
+                    ('prerequisite', 's1', 'bb-pre', 'Prerequisite', 'desc', 'ready', 50, '[]', 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plan_dependency_meta
+                (plan_id, prerequisites, affected_paths, scheduling_mode, workspace_policy, updated_at)
+             VALUES ('dependent', '[\"prerequisite\"]', '[]', 'safe', 'isolated_worktrees', 0)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        PlanRunnerService::enqueue(EnqueuePlanRequest {
+            session_id: "s1".into(),
+            plan_id: "dependent".into(),
+        })
+        .unwrap();
+        PlanRunnerService::enqueue(EnqueuePlanRequest {
+            session_id: "s1".into(),
+            plan_id: "prerequisite".into(),
+        })
+        .unwrap();
+
+        let first = PlanRunnerService::next_pending_entry("s1")
+            .unwrap()
+            .expect("dispatchable prerequisite");
+        assert_eq!(first.plan_id, "prerequisite");
+
+        PlanService::set_status("prerequisite", PlanStatus::Finished).unwrap();
+        let second = PlanRunnerService::next_pending_entry("s1")
+            .unwrap()
+            .expect("unblocked dependent");
+        assert_eq!(second.plan_id, "dependent");
+    }
+
+    #[test]
     fn list_runs_empty_session_returns_empty() {
         let dir = tempfile::TempDir::new().unwrap();
         let _g = crate::test_util::test::lock_db(&dir);
@@ -1328,7 +1532,9 @@ mod tests {
         drop(conn);
 
         // No outcome persisted yet — read returns None (frontend maps to hold).
-        assert!(PlanRunnerService::get_finish_outcome("r1").unwrap().is_none());
+        assert!(PlanRunnerService::get_finish_outcome("r1")
+            .unwrap()
+            .is_none());
 
         // Persist an applied outcome; read returns the wrapped JSON verbatim.
         let applied = FinishResult::Applied(FinishOutcome {
@@ -1340,19 +1546,25 @@ mod tests {
             error: None,
         });
         PlanRunnerService::persist_finish_outcome("r1", &applied).unwrap();
-        let read = PlanRunnerService::get_finish_outcome("r1").unwrap().unwrap();
+        let read = PlanRunnerService::get_finish_outcome("r1")
+            .unwrap()
+            .unwrap();
         assert_eq!(read["kind"], "applied");
         assert_eq!(read["outcome"]["commitSha"], "abc123");
         assert_eq!(read["outcome"]["policy"], "auto_commit");
 
         // Reading twice is a pure read — same value, no state change.
-        let read2 = PlanRunnerService::get_finish_outcome("r1").unwrap().unwrap();
+        let read2 = PlanRunnerService::get_finish_outcome("r1")
+            .unwrap()
+            .unwrap();
         assert_eq!(read, read2);
 
         // Fallback-hold persists with its message.
         let fallback = FinishResult::FallbackHold("not a git repository".to_string());
         PlanRunnerService::persist_finish_outcome("r1", &fallback).unwrap();
-        let read3 = PlanRunnerService::get_finish_outcome("r1").unwrap().unwrap();
+        let read3 = PlanRunnerService::get_finish_outcome("r1")
+            .unwrap()
+            .unwrap();
         assert_eq!(read3["kind"], "fallback_hold");
         assert_eq!(read3["message"], "not a git repository");
     }
@@ -1383,7 +1595,9 @@ mod tests {
     #[test]
     fn worktrees_not_supported_for_nonexistent_path() {
         // A non-git path returns false from worktrees_enabled_for.
-        assert!(!PlanRunnerService::worktrees_enabled_for("/nonexistent/path/that/does/not/exist"));
+        assert!(!PlanRunnerService::worktrees_enabled_for(
+            "/nonexistent/path/that/does/not/exist"
+        ));
     }
 
     #[test]
@@ -1393,7 +1607,8 @@ mod tests {
         #[cfg(not(target_os = "windows"))]
         {
             let app = tauri::test::mock_app().app_handle().clone();
-            let result = PlanRunnerService::assign_to_chat(&app, "nonexistent-plan", "nonexistent-chat");
+            let result =
+                PlanRunnerService::assign_to_chat(&app, "nonexistent-plan", "nonexistent-chat");
             assert!(result.is_err());
             assert!(result.unwrap_err().contains("Plan not found"));
         }
@@ -1463,9 +1678,21 @@ mod tests {
 
     #[test]
     fn slugify_handles_titles() {
-        assert_eq!(crate::services::worktree_service::WorktreeService::slugify("My Plan Title"), "my-plan-title");
-        assert_eq!(crate::services::worktree_service::WorktreeService::slugify("  spaces  "), "spaces");
-        assert_eq!(crate::services::worktree_service::WorktreeService::slugify("!!!"), "plan");
-        assert_eq!(crate::services::worktree_service::WorktreeService::slugify("a-b_c"), "a-b-c");
+        assert_eq!(
+            crate::services::worktree_service::WorktreeService::slugify("My Plan Title"),
+            "my-plan-title"
+        );
+        assert_eq!(
+            crate::services::worktree_service::WorktreeService::slugify("  spaces  "),
+            "spaces"
+        );
+        assert_eq!(
+            crate::services::worktree_service::WorktreeService::slugify("!!!"),
+            "plan"
+        );
+        assert_eq!(
+            crate::services::worktree_service::WorktreeService::slugify("a-b_c"),
+            "a-b-c"
+        );
     }
- }
+}

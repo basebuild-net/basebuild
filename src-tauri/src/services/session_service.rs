@@ -429,6 +429,50 @@ impl SessionService {
         rows.next().transpose().map_err(|e| e.to_string())
     }
 
+    pub fn update_idea(
+        id: &str,
+        title: &str,
+        description: &str,
+        category_id: Option<&str>,
+    ) -> DbResult<Idea> {
+        let title = title.trim();
+        let description = description.trim();
+        if title.is_empty() {
+            return Err("Idea title is required.".to_string());
+        }
+        if title.chars().count() > 240 {
+            return Err("Idea title must be 240 characters or fewer.".to_string());
+        }
+        if description.chars().count() > 20_000 {
+            return Err("Idea description must be 20,000 characters or fewer.".to_string());
+        }
+
+        let existing = Self::get_idea(id)?.ok_or_else(|| "Idea not found.".to_string())?;
+        let conn = StorageService::connect()?;
+        if let Some(category_id) = category_id {
+            let category_session_id: String = conn
+                .query_row(
+                    "SELECT session_id FROM idea_categories WHERE id = ?1",
+                    params![category_id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| "Idea category not found.".to_string())?;
+            if category_session_id != existing.session_id {
+                return Err("Idea category belongs to another session.".to_string());
+            }
+        }
+
+        conn.execute(
+            "UPDATE ideas
+             SET title = ?1, description = ?2, category_id = ?3, updated_at = ?4
+             WHERE id = ?5",
+            params![title, description, category_id, now(), id],
+        )
+        .map_err(|error| error.to_string())?;
+        Self::touch_session(&existing.session_id)?;
+        Self::get_idea(id)?.ok_or_else(|| "Idea not found after update.".to_string())
+    }
+
     pub fn update_idea_status(id: &str, status: IdeaStatus) -> DbResult<()> {
         let conn = StorageService::connect()?;
         conn.execute(
@@ -445,7 +489,11 @@ impl SessionService {
     pub fn reject_idea(id: &str) -> DbResult<()> {
         let conn = StorageService::connect()?;
         let current_status: String = conn
-            .query_row("SELECT status FROM ideas WHERE id = ?1", params![id], |row| row.get(0))
+            .query_row(
+                "SELECT status FROM ideas WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
             .map_err(|e| e.to_string())?;
         let status = IdeaStatus::from_str(&current_status);
         if status != IdeaStatus::Concept {
@@ -483,4 +531,58 @@ pub(crate) fn truncate_title(s: &str, max_chars: usize) -> String {
         }
     }
     format!("{truncated}…")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn update_idea_edits_content_and_rejects_cross_session_categories() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        let first_session = SessionService::create_session("/project-a", "First").unwrap();
+        let second_session = SessionService::create_session("/project-b", "Second").unwrap();
+        let first_category =
+            SessionService::create_category(&first_session.id, "UX", "User experience").unwrap();
+        let second_category =
+            SessionService::create_category(&second_session.id, "Backend", "Services").unwrap();
+        let idea = SessionService::create_idea(
+            &first_session.id,
+            "Original",
+            "Original description",
+            None,
+            "",
+            None,
+            None,
+        )
+        .unwrap();
+
+        let updated = SessionService::update_idea(
+            &idea.id,
+            "  Edited idea  ",
+            "  Edited description  ",
+            Some(&first_category.id),
+        )
+        .unwrap();
+
+        assert_eq!(updated.title, "Edited idea");
+        assert_eq!(updated.description, "Edited description");
+        assert_eq!(
+            updated.category_id.as_deref(),
+            Some(first_category.id.as_str())
+        );
+
+        let error = SessionService::update_idea(
+            &idea.id,
+            "Invalid category",
+            "",
+            Some(&second_category.id),
+        )
+        .unwrap_err();
+        assert_eq!(error, "Idea category belongs to another session.");
+
+        let error = SessionService::update_idea(&idea.id, "  ", "", None).unwrap_err();
+        assert_eq!(error, "Idea title is required.");
+    }
 }

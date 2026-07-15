@@ -499,6 +499,12 @@ impl StorageService {
                 CREATE INDEX IF NOT EXISTS idx_plans_session ON plans(session_id);
                 CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status);
 
+                CREATE TABLE IF NOT EXISTS plan_archives (
+                    plan_id TEXT PRIMARY KEY NOT NULL,
+                    archived_at INTEGER NOT NULL,
+                    FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+                );
+
                 CREATE TABLE IF NOT EXISTS pipeline_runs (
                     id TEXT PRIMARY KEY NOT NULL,
                     session_id TEXT NOT NULL,
@@ -845,15 +851,13 @@ impl StorageService {
             .prepare("SELECT idea_id FROM plans LIMIT 0")
             .is_ok();
         if !has_idea_id {
-            let _ = connection
-                .execute("ALTER TABLE plans ADD COLUMN idea_id TEXT", []);
+            let _ = connection.execute("ALTER TABLE plans ADD COLUMN idea_id TEXT", []);
         }
         let has_change_name = connection
             .prepare("SELECT change_name FROM plans LIMIT 0")
             .is_ok();
         if !has_change_name {
-            let _ = connection
-                .execute("ALTER TABLE plans ADD COLUMN change_name TEXT", []);
+            let _ = connection.execute("ALTER TABLE plans ADD COLUMN change_name TEXT", []);
         }
         // Migration (schematic-grounded-planning): add grounding + anchor to
         // ideas. Both nullable: legacy ideas and freeform captures carry none.
@@ -861,15 +865,16 @@ impl StorageService {
             .prepare("SELECT grounding FROM ideas LIMIT 0")
             .is_ok();
         if !has_grounding {
-            let _ = connection
-                .execute("ALTER TABLE ideas ADD COLUMN grounding TEXT NOT NULL DEFAULT ''", []);
+            let _ = connection.execute(
+                "ALTER TABLE ideas ADD COLUMN grounding TEXT NOT NULL DEFAULT ''",
+                [],
+            );
         }
         let has_anchor = connection
             .prepare("SELECT anchor FROM ideas LIMIT 0")
             .is_ok();
         if !has_anchor {
-            let _ = connection
-                .execute("ALTER TABLE ideas ADD COLUMN anchor TEXT", []);
+            let _ = connection.execute("ALTER TABLE ideas ADD COLUMN anchor TEXT", []);
         }
         // Migration (idea-to-merge-autopilot): add batch_id to ideas. Nullable:
         // manual creations and captures outside a generation round carry none.
@@ -877,8 +882,7 @@ impl StorageService {
             .prepare("SELECT batch_id FROM ideas LIMIT 0")
             .is_ok();
         if !has_batch_id {
-            let _ = connection
-                .execute("ALTER TABLE ideas ADD COLUMN batch_id TEXT", []);
+            let _ = connection.execute("ALTER TABLE ideas ADD COLUMN batch_id TEXT", []);
         }
         // Migration (idea-to-merge-autopilot): add finish_policy to
         // plan_launch_profiles. Default 'hold' (absent = hold).
@@ -958,7 +962,9 @@ impl StorageService {
         // a real title derived from each session's first user message.
         // Sessions without messages keep the placeholder until the first
         // message is sent, which triggers auto_title_native.
-        let _ = crate::services::native_chat_service::NativeChatService::backfill_default_titles(connection);
+        let _ = crate::services::native_chat_service::NativeChatService::backfill_default_titles(
+            connection,
+        );
 
         // Migration (idea-to-merge-autopilot): add finish_outcome to plan_runs
         // so the applied finish policy is persisted once at completion and
@@ -968,10 +974,7 @@ impl StorageService {
             .prepare("SELECT finish_outcome FROM plan_runs LIMIT 0")
             .is_ok();
         if !has_finish_outcome {
-            let _ = connection.execute(
-                "ALTER TABLE plan_runs ADD COLUMN finish_outcome TEXT",
-                [],
-            );
+            let _ = connection.execute("ALTER TABLE plan_runs ADD COLUMN finish_outcome TEXT", []);
         }
 
         // Migration (native-agent-loop): create approval_rules table for
@@ -1037,10 +1040,7 @@ impl StorageService {
             .prepare("SELECT diff FROM native_tool_events LIMIT 0")
             .is_ok();
         if !has_tool_diff {
-            let _ = connection.execute(
-                "ALTER TABLE native_tool_events ADD COLUMN diff TEXT",
-                [],
-            );
+            let _ = connection.execute("ALTER TABLE native_tool_events ADD COLUMN diff TEXT", []);
         }
         // Migration (chat-experience-completion): add decision + rule_source
         // columns to native_tool_events for approval provenance display.
@@ -1173,8 +1173,7 @@ impl StorageService {
                         .map(|id| id != "basebuild-native")
                         .unwrap_or(true);
                     if needs_migration {
-                        defaults.default_chat_profile_id =
-                            Some("basebuild-native".to_string());
+                        defaults.default_chat_profile_id = Some("basebuild-native".to_string());
                         if defaults.default_model.is_none() {
                             defaults.default_model =
                                 Some("basebuild-local-coordinator".to_string());
@@ -1205,7 +1204,13 @@ impl StorageService {
                     "SELECT auto_sync_usage, auto_sync_interval_minutes, last_usage_sync_at
                      FROM usage_sync_settings WHERE key = 'settings'",
                     [],
-                    |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, Option<i64>>(2)?)),
+                    |r| {
+                        Ok((
+                            r.get::<_, i64>(0)?,
+                            r.get::<_, i64>(1)?,
+                            r.get::<_, Option<i64>>(2)?,
+                        ))
+                    },
                 )
                 .ok();
             let _ = connection.execute("DROP TABLE usage_sync_settings", []);
@@ -1367,13 +1372,7 @@ mod tests {
         assert_eq!(
             statuses,
             vec![
-                "concept",
-                "picked",
-                "picked",
-                "picked",
-                "picked",
-                "picked",
-                "archived",
+                "concept", "picked", "picked", "picked", "picked", "picked", "archived",
                 "archived",
             ]
         );
@@ -1398,16 +1397,22 @@ mod tests {
         StorageService::initialize(&conn).expect("initialize");
         // planning_prompts exists and is empty (defaults are compiled-in, not seeded).
         let prompt_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM planning_prompts", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM planning_prompts", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(prompt_count, 0, "no prompts seeded by default");
         // plan_proposals is gone.
-        let still_exists = conn.prepare("SELECT id FROM plan_proposals LIMIT 0").is_ok();
+        let still_exists = conn
+            .prepare("SELECT id FROM plan_proposals LIMIT 0")
+            .is_ok();
         assert!(!still_exists, "plan_proposals must be dropped");
         // Re-initialize is idempotent.
         StorageService::initialize(&conn).expect("second initialize");
         let prompt_count_again: i64 = conn
-            .query_row("SELECT COUNT(*) FROM planning_prompts", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM planning_prompts", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(prompt_count_again, 0);
     }
@@ -1455,7 +1460,10 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(pipeline_failed, 2, "stale running/pending pipeline runs -> failed");
+        assert_eq!(
+            pipeline_failed, 2,
+            "stale running/pending pipeline runs -> failed"
+        );
         let plan_failed: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM plan_runs WHERE status = 'failed'",
@@ -1538,7 +1546,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(table_count, 0, "current databases must bypass the full initializer");
+        assert_eq!(
+            table_count, 0,
+            "current databases must bypass the full initializer"
+        );
     }
 
     #[test]
@@ -1614,9 +1625,19 @@ mod tests {
             .expect("value column exists and row present");
         let settings: crate::models::permission::UsageSyncSettings =
             serde_json::from_str(&value).unwrap();
-        assert!(settings.auto_sync_usage, "legacy auto_sync_usage=1 carried forward");
-        assert_eq!(settings.auto_sync_interval_minutes, 30, "legacy interval carried forward");
-        assert_eq!(settings.last_usage_sync_at, Some(1700000000), "legacy last_sync carried forward");
+        assert!(
+            settings.auto_sync_usage,
+            "legacy auto_sync_usage=1 carried forward"
+        );
+        assert_eq!(
+            settings.auto_sync_interval_minutes, 30,
+            "legacy interval carried forward"
+        );
+        assert_eq!(
+            settings.last_usage_sync_at,
+            Some(1700000000),
+            "legacy last_sync carried forward"
+        );
         // Idempotent: second run does not drop/recreate again.
         StorageService::initialize(&conn).expect("idempotent re-init");
         let value2: String = conn
@@ -1645,8 +1666,14 @@ mod tests {
         // Default values come from UsageSyncSettings::default().
         let default = crate::models::permission::UsageSyncSettings::default();
         assert!(default.auto_sync_usage, "default auto_sync_usage is true");
-        assert_eq!(default.auto_sync_interval_minutes, 60, "default interval is 60");
-        assert!(default.last_usage_sync_at.is_none(), "default last_sync is None");
+        assert_eq!(
+            default.auto_sync_interval_minutes, 60,
+            "default interval is 60"
+        );
+        assert!(
+            default.last_usage_sync_at.is_none(),
+            "default last_sync is None"
+        );
         // And a missing row in the table maps to that default via the
         // service's None branch.
         let value: Option<String> = conn
@@ -1742,11 +1769,15 @@ mod tests {
 
         let path = "/test/remove-project";
         StorageService::set_last_focused_project(path).unwrap();
-        assert!(StorageService::get_last_focused_project().unwrap().is_some());
+        assert!(StorageService::get_last_focused_project()
+            .unwrap()
+            .is_some());
 
         StorageService::remove_recent_project(path).unwrap();
 
-        assert!(StorageService::get_last_focused_project().unwrap().is_none());
+        assert!(StorageService::get_last_focused_project()
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -1762,17 +1793,29 @@ mod tests {
             "INSERT INTO recent_projects(path, name, last_opened_at, last_active_session_id)
              VALUES (?1, ?2, ?3, ?4), (?5, ?6, ?7, ?8), (?9, ?10, ?11, ?12)",
             params![
-                "/test/zebra", "Zebra", 300i64, None::<&str>,
-                "/test/alpha", "Alpha", 100i64, None::<&str>,
-                "/test/mango", "Mango", 200i64, None::<&str>,
+                "/test/zebra",
+                "Zebra",
+                300i64,
+                None::<&str>,
+                "/test/alpha",
+                "Alpha",
+                100i64,
+                None::<&str>,
+                "/test/mango",
+                "Mango",
+                200i64,
+                None::<&str>,
             ],
         )
         .unwrap();
 
         let list = StorageService::list_recent_projects(10).unwrap();
         let names: Vec<&str> = list.iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, vec!["Alpha", "Mango", "Zebra"],
-            "list_recent_projects must return alphabetical order by name, not recency");
+        assert_eq!(
+            names,
+            vec!["Alpha", "Mango", "Zebra"],
+            "list_recent_projects must return alphabetical order by name, not recency"
+        );
     }
 
     #[test]
@@ -1785,8 +1828,14 @@ mod tests {
             "INSERT INTO recent_projects(path, name, last_opened_at, last_active_session_id)
              VALUES (?1, ?2, ?3, ?4), (?5, ?6, ?7, ?8)",
             params![
-                "/test/alpha", "Alpha", 100i64, None::<&str>,
-                "/test/zebra", "Zebra", 200i64, None::<&str>,
+                "/test/alpha",
+                "Alpha",
+                100i64,
+                None::<&str>,
+                "/test/zebra",
+                "Zebra",
+                200i64,
+                None::<&str>,
             ],
         )
         .unwrap();
@@ -1796,14 +1845,23 @@ mod tests {
 
         let list = StorageService::list_recent_projects(10).unwrap();
         let names: Vec<&str> = list.iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, vec!["Alpha", "Zebra"],
-            "Focusing a project must not reorder the list - alphabetical order must be stable");
+        assert_eq!(
+            names,
+            vec!["Alpha", "Zebra"],
+            "Focusing a project must not reorder the list - alphabetical order must be stable"
+        );
 
         // Verify last_opened_at was NOT bumped.
         let zebra_ts: i64 = conn
-            .query_row("SELECT last_opened_at FROM recent_projects WHERE path = '/test/zebra'", [], |row| row.get(0))
+            .query_row(
+                "SELECT last_opened_at FROM recent_projects WHERE path = '/test/zebra'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
-        assert_eq!(zebra_ts, 200i64,
-            "set_last_focused_project must NOT update last_opened_at");
+        assert_eq!(
+            zebra_ts, 200i64,
+            "set_last_focused_project must NOT update last_opened_at"
+        );
     }
 }

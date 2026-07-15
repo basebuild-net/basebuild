@@ -276,6 +276,9 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
   const timeStr = event.createdAt
     ? new Date(event.createdAt * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })
     : null;
+  const activeDuration = isRunning && event.createdAt
+    ? formatElapsed(Math.max(0, Math.floor(Date.now() / 1000) - event.createdAt))
+    : null;
 
   // Parse arguments for structured display.
   const parsedArgs = (() => {
@@ -334,7 +337,9 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
         <span className="tool-card-icon">{icon}</span>
         <span className={`tool-card-name is-${event.kind.replace(/_/g, "-")}`}>{event.kind.replace(/_/g, " ")}</span>
         {argDisplay ? <code className="tool-card-arg-value" title={`${argDisplay.label}: ${argDisplay.value}`}>{argDisplay.value}</code> : null}
-        <span className={`tool-card-status tool-card-status-${statusClass}`}>{event.status}</span>
+        <span className={`tool-card-status tool-card-status-${statusClass}`}>
+          {event.status}{activeDuration ? ` · ${activeDuration}` : ""}
+        </span>
         {timeStr ? <span className="tool-card-time text-muted">{timeStr}</span> : null}
         {!isApproval ? <span className="tool-card-expand">{expanded ? "▼" : "▶"}</span> : null}
       </div>
@@ -438,6 +443,7 @@ export function ChatPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stuck, setStuck] = useState(false);
+  const [interruptedRun, setInterruptedRun] = useState(false);
   const [agentId, setAgentId] = useState<number | null>(null);
   const [debugMode, setDebugMode] = useState(() => localStorage.getItem("basebuild.debug-mode") === "true");
   const [debugEvents, setDebugEvents] = useState<Array<{ ts: number; channel: string; data: unknown }>>([]);
@@ -456,6 +462,8 @@ export function ChatPanel({
   const [searchActiveIndex, setSearchActiveIndex] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const streamStartRef = useRef<number | null>(null);
+  const [phaseElapsed, setPhaseElapsed] = useState(0);
+  const phaseStartRef = useRef<number | null>(null);
   const streamBufRef = useRef("");
   const reasoningBufRef = useRef("");
   // Publish live panel status to the activity sidebar (project status dot).
@@ -726,12 +734,19 @@ export function ChatPanel({
           setToolEvents(events);
           setInteractions(intrs);
           setLiveSegments([]);
-          // Restore streaming state if the chat is still running in the
-          // backend (e.g., user switched projects and switched back).
-          if (sessionInfo?.runState === "running") {
+          // A live run can be reattached after switching panels. A run swept
+          // as interrupted after process restart is shown as recoverable
+          // history instead of a phantom thinking indicator.
+          const isRunning = sessionInfo?.runState === "running";
+          setInterruptedRun(sessionInfo?.runState === "interrupted");
+          if (isRunning) {
             setStreaming(true);
             setStreamPhase("thinking");
             streamStartRef.current = Date.now();
+          } else {
+            setStreaming(false);
+            setStreamPhase("idle");
+            streamStartRef.current = null;
           }
           void latestMetric.then((metric) => {
             if (!cancelled) {
@@ -838,7 +853,6 @@ export function ChatPanel({
         if (channel === "reasoning") {
           reasoningBufRef.current += event.payload.delta;
           scheduleStreamRender();
-          setStreamPhase((prev) => prev === "thinking" ? "streaming" : prev);
           return;
         }
         // Only the content channel accumulates into the visible stream.
@@ -1174,6 +1188,7 @@ export function ChatPanel({
         if (chatInputRef.current) chatInputRef.current.style.setProperty("--chat-input-height", "auto");
         setError(null);
         setSetupRequired(null);
+        setInterruptedRun(false);
         setLoading(true);
         setStuck(false);
         streamBufRef.current = "";
@@ -1459,6 +1474,24 @@ export function ChatPanel({
     }, 1000);
     return () => clearInterval(interval);
   }, [streaming]);
+
+  // Phase timer answers "how long has it been thinking/running tools?" rather
+  // than showing only the total turn duration.
+  useEffect(() => {
+    if (!streaming || streamPhase === "idle") {
+      phaseStartRef.current = null;
+      setPhaseElapsed(0);
+      return;
+    }
+    phaseStartRef.current = Date.now();
+    setPhaseElapsed(0);
+    const interval = window.setInterval(() => {
+      if (phaseStartRef.current) {
+        setPhaseElapsed(Math.floor((Date.now() - phaseStartRef.current) / 1000));
+      }
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [streaming, streamPhase]);
 
   // Clear stuck timer
   useEffect(() => {
@@ -2424,15 +2457,6 @@ export function ChatPanel({
               }
               flushToolBatch();
 
-              // Loading row for streaming/thinking state.
-              if (streaming) {
-                rendered.push(
-                  <div key="loading-streaming" className="chat-loading-row" title="Assistant is responding">
-                    <Loader2 size={12} className="is-spinning" />
-                    <span className="text-sm text-muted">Thinking…</span>
-                  </div>,
-                );
-              }
               // Loading row for queued state.
               if (loading && !streaming) {
                 rendered.push(
@@ -2464,7 +2488,7 @@ export function ChatPanel({
           <div className="chat-message chat-message-assistant chat-message-reasoning" title="Live chain-of-thought from the model. Final answer follows.">
             <span className="chat-message-role">
               Thinking{streaming ? "…" : " (stopped)"}
-              {streaming ? <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span> : null}
+              {streaming ? <span className="chat-elapsed-badge" title={`Thinking for ${formatElapsed(phaseElapsed)}`}>{formatElapsed(phaseElapsed)}</span> : null}
             </span>
             <pre className="chat-message-content chat-reasoning-live">{reasoningText}{streaming ? <span className="chat-cursor" /> : null}</pre>
           </div>
@@ -2483,10 +2507,10 @@ export function ChatPanel({
 
         {/* Waiting for first token with elapsed timer */}
         {streaming && streamPhase === "thinking" && !streamText && !reasoningText ? (
-          <div className="chat-message chat-thinking-indicator" title={`Waiting for the model to start responding (${formatElapsed(elapsed)})`}>
+          <div className="chat-message chat-thinking-indicator" title={`Waiting for the model to start responding (${formatElapsed(phaseElapsed)})`}>
             <span className="chat-message-role">
               {selectedModel?.label ?? modelId}
-              <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
+              <span className="chat-elapsed-badge" title={`Thinking for ${formatElapsed(phaseElapsed)}`}>{formatElapsed(phaseElapsed)}</span>
             </span>
             <div className="chat-thinking-dots">
               <span className="chat-thinking-dot" />
@@ -2511,8 +2535,8 @@ export function ChatPanel({
               className={`chat-loading chat-loading-active chat-loading-tools${isWaitingApproval ? " chat-loading-approval" : ""}`}
               title={
                 isWaitingApproval
-                  ? `Waiting for approval: ${pendingTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")}. Click the approval card to allow or deny. Elapsed: ${formatElapsed(elapsed)}.`
-                  : `Executing: ${toolNames} (${activeTools.length} running, ${completedTools.length} done). Elapsed: ${formatElapsed(elapsed)}.`
+                  ? `Waiting for approval: ${pendingTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")}. Click the approval card to allow or deny. Waiting for ${formatElapsed(phaseElapsed)}.`
+                  : `Executing: ${toolNames} (${activeTools.length} running, ${completedTools.length} done). Running for ${formatElapsed(phaseElapsed)}.`
               }
             >
               <LogoPulse size={14} className="chat-loading-spinner" />
@@ -2532,13 +2556,30 @@ export function ChatPanel({
                   {completedTools.length > 0 ? `${completedTools.length} done` : ""}
                 </span>
               ) : null}
-              <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
+              <span className="chat-elapsed-badge" title={`Tool phase: ${formatElapsed(phaseElapsed)}`}>{formatElapsed(phaseElapsed)}</span>
             </div>
           );
         })() : null}
 
         {loading && !streaming ? (
           <div className="chat-loading">{nativeMode ? "Working…" : "Agent is typing…"}</div>
+        ) : null}
+        {interruptedRun && !streaming ? (
+          <div className="chat-stuck-bar chat-recovery-bar" role="status">
+            <AlertCircle size={12} />
+            <span className="text-sm">Previous run was interrupted. Saved messages, thinking, and tool progress are shown above.</span>
+            <button
+              className="btn btn-sm"
+              type="button"
+              title="Prepare a safe continuation message without automatically repeating tools"
+              onClick={() => {
+                setInput("Continue from the saved checkpoint. Review what completed before retrying any tool.");
+                window.requestAnimationFrame(() => chatInputRef.current?.focus());
+              }}
+            >
+              Continue
+            </button>
+          </div>
         ) : null}
         {stuck ? (
           <div className="chat-stuck-bar">

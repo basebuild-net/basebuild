@@ -18,7 +18,6 @@ use crate::services::{native_chat_service::NativeChatService, storage_service::S
 static ACTIVE_ROUNDS: LazyLock<Mutex<HashMap<String, String>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-
 fn now_seconds() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -141,7 +140,8 @@ impl IdeaRoundService {
                 })
             })
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -162,18 +162,25 @@ mod tests {
         .unwrap();
 
         let round = IdeaRoundService::start_round("rs1", "/p").unwrap();
-        assert_eq!(IdeaRoundService::active_round("rs1").as_deref(), Some(round.as_str()));
+        assert_eq!(
+            IdeaRoundService::active_round("rs1").as_deref(),
+            Some(round.as_str())
+        );
         // No cross-session leakage.
         assert!(IdeaRoundService::active_round("other").is_none());
 
-        let idea = SessionService::create_idea("rs1", "T", "D", None, "evidence", None, Some(&round)).unwrap();
+        let idea =
+            SessionService::create_idea("rs1", "T", "D", None, "evidence", None, Some(&round))
+                .unwrap();
         assert_eq!(idea.batch_id.as_deref(), Some(round.as_str()));
 
         let finished = IdeaRoundService::finish_round("rs1", "/p").unwrap();
         assert_eq!(finished.as_deref(), Some(round.as_str()));
         assert!(IdeaRoundService::active_round("rs1").is_none());
         // Finish again is a no-op.
-        assert!(IdeaRoundService::finish_round("rs1", "/p").unwrap().is_none());
+        assert!(IdeaRoundService::finish_round("rs1", "/p")
+            .unwrap()
+            .is_none());
 
         let rounds = IdeaRoundService::list_rounds("rs1").unwrap();
         assert_eq!(rounds.len(), 1);
@@ -197,7 +204,10 @@ mod tests {
         let first = IdeaRoundService::start_round("rs2", "/p").unwrap();
         let second = IdeaRoundService::start_round("rs2", "/p").unwrap();
         assert_ne!(first, second);
-        assert_eq!(IdeaRoundService::active_round("rs2").as_deref(), Some(second.as_str()));
+        assert_eq!(
+            IdeaRoundService::active_round("rs2").as_deref(),
+            Some(second.as_str())
+        );
 
         let rounds = IdeaRoundService::list_rounds("rs2").unwrap();
         assert_eq!(rounds.len(), 2);

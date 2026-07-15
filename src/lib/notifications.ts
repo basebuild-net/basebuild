@@ -80,3 +80,10 @@ export function onNotificationsChanged(
 ): Promise<UnlistenFn> {
   return listen("notifications://changed", () => callback());
 }
+
+/** Subscribe to high-signal notifications that should surface immediately. */
+export function onNotificationAttention(
+  callback: (notification: Notification) => void,
+): Promise<UnlistenFn> {
+  return listen<Notification>("notifications://attention", (event) => callback(event.payload));
+}

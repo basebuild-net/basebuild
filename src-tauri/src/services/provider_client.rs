@@ -146,9 +146,9 @@ pub fn resolve_client(provider_id: &str, base_url: Option<&str>) -> Box<dyn Prov
         }),
         "google" => Box::new(OpenAiCompatibleClient {
             provider_id: "google".to_string(),
-            base_url: base_url
-                .map(str::to_string)
-                .unwrap_or_else(|| "https://generativelanguage.googleapis.com/v1beta/openai".to_string()),
+            base_url: base_url.map(str::to_string).unwrap_or_else(|| {
+                "https://generativelanguage.googleapis.com/v1beta/openai".to_string()
+            }),
         }),
         "groq" => Box::new(OpenAiCompatibleClient {
             provider_id: "groq".to_string(),
@@ -221,18 +221,16 @@ pub fn transport_supports_tools(api_kind: &str) -> bool {
             | "azure-openai-responses"
             | "anthropic-messages"
             | "openrouter"
+            | "devin-agent"
             | "ollama-chat"
     )
 }
 
-/// Whether the transport can carry tool schemas when the model's `base_url`
-/// (from the catalog cache) is known. Bespoke api_kinds route through OMP
-/// RPC, which has its own tool system — so tools are always available
-/// regardless of base_url. This function is used by the catalog to report
-pub fn transport_supports_tools_with_base(_api_kind: &str, _base_url: &str) -> bool {
-    // All non-local transports support tools: native kinds pass Basebuild
-    // tool schemas directly; bespoke kinds use OMP's built-in tools.
-    true
+/// Whether the catalog-backed transport can carry Basebuild tool schemas.
+/// A model endpoint does not make a proprietary protocol OpenAI-compatible;
+/// only explicitly implemented native transports are eligible.
+pub fn transport_supports_tools_with_base(api_kind: &str, _base_url: &str) -> bool {
+    transport_supports_tools(api_kind)
 }
 
 /// Resolve a provider client using the model's `api_kind` for routing.
@@ -240,13 +238,12 @@ pub fn transport_supports_tools_with_base(_api_kind: &str, _base_url: &str) -> b
 /// Routing priority:
 /// 1. `LOCAL_PROVIDER_ID` → `LocalCoordinator`
 /// 2. `base_url == OMP_CODEX_BASE_URL` → `OmpRpcClient` (backward compat)
-/// 3. `anthropic-messages` → `AnthropicClient`
-/// 4. `openai-completions`/`openai-responses`/`azure-openai-responses`/
+/// 3. `devin-agent` → native `DevinClient`
+/// 4. `anthropic-messages` → `AnthropicClient`
+/// 5. `openai-completions`/`openai-responses`/`azure-openai-responses`/
 ///    `openrouter`/`ollama-chat` → `OpenAiCompatibleClient`
-/// 5. Bespoke api kinds:
-///    a. If credential or model cache has a `base_url` → `OpenAiCompatibleClient`
-///       (escape hatch for OpenAI-compatible endpoints)
-///    b. Otherwise → `OmpRpcClient` (OMP RPC delegation)
+/// 6. Other kinds use an explicit OpenAI-compatible endpoint when configured,
+///    otherwise OMP RPC.
 pub fn resolve_client_for_model(
     provider_id: &str,
     api_kind: &str,
@@ -263,19 +260,17 @@ pub fn resolve_client_for_model(
             omp_provider_id: "openai-codex".to_string(),
         });
     }
+    let direct_base_url = base_url
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| (!model_base_url.trim().is_empty()).then_some(model_base_url));
     match api_kind {
+        "devin-agent" => Box::new(super::devin_client::DevinClient::new(
+            direct_base_url.unwrap_or(super::devin_client::DEVIN_API_URL),
+        )),
         "anthropic-messages" => Box::new(AnthropicClient {
             provider_id: provider_id.to_string(),
-            base_url: base_url
+            base_url: direct_base_url
                 .map(str::to_string)
-                .filter(|s| !s.is_empty())
-                .or_else(|| {
-                    if model_base_url.is_empty() {
-                        None
-                    } else {
-                        Some(model_base_url.to_string())
-                    }
-                })
                 .unwrap_or_else(|| "https://api.anthropic.com/v1".to_string()),
         }),
         "openai-completions"
@@ -284,32 +279,21 @@ pub fn resolve_client_for_model(
         | "openrouter"
         | "ollama-chat" => Box::new(OpenAiCompatibleClient {
             provider_id: provider_id.to_string(),
-            base_url: base_url
+            base_url: direct_base_url
                 .map(str::to_string)
-                .filter(|s| !s.is_empty())
-                .or_else(|| {
-                    if model_base_url.is_empty() {
-                        None
-                    } else {
-                        Some(model_base_url.to_string())
-                    }
-                })
                 .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
         }),
-        // Bespoke api kinds → OMP RPC delegation (or OpenAI-compatible
-        // escape hatch if the user configured a custom base_url).
-        _ => {
-            if let Some(custom) = base_url.filter(|s| !s.is_empty()) {
-                Box::new(OpenAiCompatibleClient {
-                    provider_id: provider_id.to_string(),
-                    base_url: custom.to_string(),
-                })
-            } else {
-                Box::new(OmpRpcClient {
-                    omp_provider_id: provider_id.to_string(),
-                })
-            }
-        }
+        // Bespoke api kinds use a catalog or credential endpoint when one is
+        // available; only endpoint-less routes fall back to OMP RPC.
+        _ => match direct_base_url {
+            Some(direct) => Box::new(OpenAiCompatibleClient {
+                provider_id: provider_id.to_string(),
+                base_url: direct.to_string(),
+            }),
+            None => Box::new(OmpRpcClient {
+                omp_provider_id: provider_id.to_string(),
+            }),
+        },
     }
 }
 
@@ -368,7 +352,12 @@ impl ProviderClient for OmpRpcClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| format!("Failed to launch OMP for provider {}: {e}", self.omp_provider_id))?;
+            .map_err(|e| {
+                format!(
+                    "Failed to launch OMP for provider {}: {e}",
+                    self.omp_provider_id
+                )
+            })?;
 
         let mut stdin = child.stdin.take().ok_or("Failed to open OMP stdin")?;
         let stdout = child.stdout.take().ok_or("Failed to open OMP stdout")?;
@@ -388,8 +377,11 @@ impl ProviderClient for OmpRpcClient {
         });
 
         let prompt_frame = json!({ "id": "basebuild-prompt", "type": "prompt", "message": prompt });
-        writeln!(stdin, "{prompt_frame}").map_err(|e| format!("Failed to write OMP prompt: {e}"))?;
-        stdin.flush().map_err(|e| format!("Failed to flush OMP prompt: {e}"))?;
+        writeln!(stdin, "{prompt_frame}")
+            .map_err(|e| format!("Failed to write OMP prompt: {e}"))?;
+        stdin
+            .flush()
+            .map_err(|e| format!("Failed to flush OMP prompt: {e}"))?;
 
         let mut content = String::new();
         let mut ttft_ms = None;
@@ -402,25 +394,28 @@ impl ProviderClient for OmpRpcClient {
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             };
-            let Ok(frame) = serde_json::from_str::<Value>(&line) else { continue };
+            let Ok(frame) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
             if frame.get("type").and_then(Value::as_str) == Some("response")
                 && frame.get("command").and_then(Value::as_str) == Some("prompt")
             {
                 if frame.get("success").and_then(Value::as_bool) == Some(false) {
                     let _ = child.kill();
-                    return Err(frame.get("error").and_then(Value::as_str).unwrap_or("OMP rejected prompt").to_string());
+                    return Err(frame
+                        .get("error")
+                        .and_then(Value::as_str)
+                        .unwrap_or("OMP rejected prompt")
+                        .to_string());
                 }
                 prompt_accepted = true;
                 continue;
             }
-            if let Some(delta) = frame
-                .get("assistantMessageEvent")
-                .and_then(|event| {
-                    (event.get("type").and_then(Value::as_str) == Some("text_delta"))
-                        .then(|| event.get("delta").and_then(Value::as_str))
-                        .flatten()
-                })
-            {
+            if let Some(delta) = frame.get("assistantMessageEvent").and_then(|event| {
+                (event.get("type").and_then(Value::as_str) == Some("text_delta"))
+                    .then(|| event.get("delta").and_then(Value::as_str))
+                    .flatten()
+            }) {
                 if !delta.is_empty() {
                     if ttft_ms.is_none() {
                         ttft_ms = Some(start.elapsed().as_millis() as i64);
@@ -429,7 +424,10 @@ impl ProviderClient for OmpRpcClient {
                     emit(delta, "content");
                 }
             }
-            if matches!(frame.get("type").and_then(Value::as_str), Some("turn_end") | Some("agent_end")) {
+            if matches!(
+                frame.get("type").and_then(Value::as_str),
+                Some("turn_end") | Some("agent_end")
+            ) {
                 break;
             }
         }
@@ -439,9 +437,16 @@ impl ProviderClient for OmpRpcClient {
             let _ = child.wait();
             let stderr = stderr_reader.join().unwrap_or_default();
             return Err(if stderr.trim().is_empty() {
-                format!("OMP did not accept the prompt for provider {}", self.omp_provider_id)
+                format!(
+                    "OMP did not accept the prompt for provider {}",
+                    self.omp_provider_id
+                )
             } else {
-                format!("OMP did not accept the prompt for provider {}: {}", self.omp_provider_id, stderr.trim())
+                format!(
+                    "OMP did not accept the prompt for provider {}: {}",
+                    self.omp_provider_id,
+                    stderr.trim()
+                )
             });
         }
 
@@ -455,7 +460,9 @@ impl ProviderClient for OmpRpcClient {
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             };
-            let Ok(frame) = serde_json::from_str::<Value>(&line) else { continue };
+            let Ok(frame) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
             if frame.get("type").and_then(Value::as_str) == Some("response")
                 && frame.get("command").and_then(Value::as_str) == Some("get_last_assistant_text")
             {
@@ -470,7 +477,9 @@ impl ProviderClient for OmpRpcClient {
 
         let _ = child.kill();
         let _ = child.wait();
-        let final_content = last_text.filter(|s| !s.trim().is_empty()).unwrap_or(content);
+        let final_content = last_text
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or(content);
         if final_content.trim().is_empty() {
             let stderr = stderr_reader.join().unwrap_or_default();
             // Ponytail: OMP swallows 429s silently — tail its latest log for a usable hint.
@@ -478,19 +487,34 @@ impl ProviderClient for OmpRpcClient {
             let hint = omp_rate_limit_hint();
             return Err(if stderr.trim().is_empty() {
                 if let Some(h) = hint {
-                    format!("OMP returned an empty response for provider {}: {h}", self.omp_provider_id)
+                    format!(
+                        "OMP returned an empty response for provider {}: {h}",
+                        self.omp_provider_id
+                    )
                 } else {
-                    format!("OMP returned an empty response for provider {}", self.omp_provider_id)
+                    format!(
+                        "OMP returned an empty response for provider {}",
+                        self.omp_provider_id
+                    )
                 }
             } else {
-                format!("OMP returned an empty response for provider {}: {}", self.omp_provider_id, stderr.trim())
+                format!(
+                    "OMP returned an empty response for provider {}: {}",
+                    self.omp_provider_id,
+                    stderr.trim()
+                )
             });
         }
         let duration_ms = (start.elapsed().as_millis() as i64).max(1);
         Ok(ProviderResponse {
             content: final_content.clone(),
             reasoning: None,
-            input_tokens: Some(req.messages.iter().map(|m| estimate_tokens(&m.content)).sum()),
+            input_tokens: Some(
+                req.messages
+                    .iter()
+                    .map(|m| estimate_tokens(&m.content))
+                    .sum(),
+            ),
             output_tokens: Some(estimate_tokens(&final_content)),
             ttft_ms: ttft_ms.or(Some(duration_ms)),
             duration_ms,
@@ -596,7 +620,11 @@ pub enum ProviderError {
     /// Missing or invalid API key.
     AuthMissing,
     /// HTTP status error (4xx/5xx) from the provider.
-    HttpError { provider: String, status: u16, message: String },
+    HttpError {
+        provider: String,
+        status: u16,
+        message: String,
+    },
     /// Connection or read timeout during request.
     ConnectTimeout,
     /// Stream started but went idle (no SSE data) for >120s.
@@ -611,14 +639,21 @@ impl std::fmt::Display for ProviderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ProviderError::AuthMissing => write!(f, "Missing API key for provider request"),
-            ProviderError::HttpError { provider, status, message } => {
+            ProviderError::HttpError {
+                provider,
+                status,
+                message,
+            } => {
                 write!(f, "Provider '{provider}' returned HTTP {status}: {message}")
             }
             ProviderError::ConnectTimeout => {
                 write!(f, "Provider connection timed out (>10s)")
             }
             ProviderError::StreamIdleTimeout => {
-                write!(f, "Provider stream went idle for >{STREAM_IDLE_TIMEOUT_SECS}s")
+                write!(
+                    f,
+                    "Provider stream went idle for >{STREAM_IDLE_TIMEOUT_SECS}s"
+                )
             }
             ProviderError::EmptyResponse { provider } => {
                 write!(f, "Provider '{provider}' returned an empty response")
@@ -665,7 +700,11 @@ fn strip_think_tags(content: &str) -> (String, String) {
                 let after_start = &cleaned[start + open.len()..];
                 if let Some(end_rel) = after_start.find(close) {
                     let inner = after_start[..end_rel].to_string();
-                    cleaned = format!("{}{}", &cleaned[..start], &after_start[end_rel + close.len()..]);
+                    cleaned = format!(
+                        "{}{}",
+                        &cleaned[..start],
+                        &after_start[end_rel + close.len()..]
+                    );
                     if !inner.trim().is_empty() {
                         if !extracted.is_empty() {
                             extracted.push_str("\n\n");
@@ -694,7 +733,12 @@ pub struct LocalCoordinator;
 
 impl LocalCoordinator {
     /// The canned offline response — tells the user to connect a provider.
-    pub fn compose(_system: Option<&str>, _messages: &[ChatMsg], _model_id: &str, _effort_level: &str) -> String {
+    pub fn compose(
+        _system: Option<&str>,
+        _messages: &[ChatMsg],
+        _model_id: &str,
+        _effort_level: &str,
+    ) -> String {
         "No provider connected. Select a provider (OpenAI, Anthropic, or Umans) from the model dropdown above to start chatting.".to_string()
     }
 }
@@ -715,7 +759,12 @@ impl ProviderClient for LocalCoordinator {
         emit(&text, "content");
         let elapsed = start.elapsed().as_millis() as i64;
         Ok(ProviderResponse {
-            input_tokens: Some(req.messages.iter().map(|m| estimate_tokens(&m.content)).sum()),
+            input_tokens: Some(
+                req.messages
+                    .iter()
+                    .map(|m| estimate_tokens(&m.content))
+                    .sum(),
+            ),
             output_tokens: Some(estimate_tokens(&text)),
             ttft_ms: Some(elapsed),
             duration_ms: elapsed.max(1),
@@ -783,10 +832,7 @@ impl OpenAiStreamState {
                 emit(text, "reasoning");
             }
         }
-        if let Some(text) = delta
-            .and_then(|d| d.get("content"))
-            .and_then(Value::as_str)
-        {
+        if let Some(text) = delta.and_then(|d| d.get("content")).and_then(Value::as_str) {
             if !text.is_empty() {
                 if self.ttft_ms.is_none() {
                     self.ttft_ms = Some(start.elapsed().as_millis() as i64);
@@ -803,10 +849,7 @@ impl OpenAiStreamState {
             .and_then(Value::as_array)
         {
             for call in calls {
-                let idx = call
-                    .get("index")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0) as usize;
+                let idx = call.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
                 while self.tool_calls.len() <= idx {
                     self.tool_calls.push(ToolCallRequest::default());
                 }
@@ -942,7 +985,8 @@ impl ProviderClient for OpenAiCompatibleClient {
                 provider: self.provider_id.clone(),
                 status: status.as_u16(),
                 message: provider_http_error(status.as_u16(), &self.provider_id, &text),
-            }.into());
+            }
+            .into());
         }
 
         let mut state = OpenAiStreamState::default();
@@ -969,7 +1013,8 @@ impl ProviderClient for OpenAiCompatibleClient {
         {
             return Err(ProviderError::EmptyResponse {
                 provider: self.provider_id.clone(),
-            }.into());
+            }
+            .into());
         }
         let (clean_content, extracted_reasoning) = strip_think_tags(&content);
         let mut final_reasoning = if reasoning.trim().is_empty() {
@@ -989,8 +1034,14 @@ impl ProviderClient for OpenAiCompatibleClient {
         }
         Ok(ProviderResponse {
             output_tokens: output_tokens.or_else(|| Some(estimate_tokens(&clean_content))),
-            input_tokens: input_tokens
-                .or_else(|| Some(req.messages.iter().map(|m| estimate_tokens(&m.content)).sum())),
+            input_tokens: input_tokens.or_else(|| {
+                Some(
+                    req.messages
+                        .iter()
+                        .map(|m| estimate_tokens(&m.content))
+                        .sum(),
+                )
+            }),
             ttft_ms: ttft_ms.or(Some(duration_ms)),
             duration_ms,
             content: clean_content,
@@ -1041,8 +1092,16 @@ impl AnthropicStreamState {
                 let block = value.get("content_block");
                 if let (Some(idx), Some(b)) = (idx, block) {
                     if b.get("type").and_then(Value::as_str) == Some("tool_use") {
-                        let id = b.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-                        let name = b.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+                        let id = b
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        let name = b
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
                         while self.tool_calls.len() <= idx {
                             self.tool_calls.push(ToolCallRequest::default());
                         }
@@ -1069,10 +1128,7 @@ impl AnthropicStreamState {
                         emit(text, "reasoning");
                     }
                 }
-                if let Some(text) = delta
-                    .and_then(|d| d.get("text"))
-                    .and_then(Value::as_str)
-                {
+                if let Some(text) = delta.and_then(|d| d.get("text")).and_then(Value::as_str) {
                     if !text.is_empty() {
                         if self.ttft_ms.is_none() {
                             self.ttft_ms = Some(start.elapsed().as_millis() as i64);
@@ -1204,7 +1260,14 @@ impl ProviderClient for AnthropicClient {
             .post(&url)
             // OAuth JWTs (from omp login) use Bearer; regular API keys use
             // x-api-key. Sending both risks auth-confusion rejection.
-            .header(if is_jwt { "Authorization" } else { "x-api-key" }, if is_jwt { format!("Bearer {}", api_key) } else { api_key.to_string() })
+            .header(
+                if is_jwt { "Authorization" } else { "x-api-key" },
+                if is_jwt {
+                    format!("Bearer {}", api_key)
+                } else {
+                    api_key.to_string()
+                },
+            )
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
             .json(&body)
@@ -1218,7 +1281,8 @@ impl ProviderClient for AnthropicClient {
                 provider: self.provider_id.clone(),
                 status: status.as_u16(),
                 message: provider_http_error(status.as_u16(), &self.provider_id, &text),
-            }.into());
+            }
+            .into());
         }
         let mut state = AnthropicStreamState::default();
         let reader = BufReader::new(resp);
@@ -1245,7 +1309,8 @@ impl ProviderClient for AnthropicClient {
         {
             return Err(ProviderError::EmptyResponse {
                 provider: "anthropic".to_string(),
-            }.into());
+            }
+            .into());
         }
         let (clean_content, extracted_reasoning) = strip_think_tags(&content);
         let mut final_reasoning = if reasoning.trim().is_empty() {
@@ -1265,8 +1330,14 @@ impl ProviderClient for AnthropicClient {
         }
         Ok(ProviderResponse {
             output_tokens: output_tokens.or_else(|| Some(estimate_tokens(&clean_content))),
-            input_tokens: input_tokens
-                .or_else(|| Some(req.messages.iter().map(|m| estimate_tokens(&m.content)).sum())),
+            input_tokens: input_tokens.or_else(|| {
+                Some(
+                    req.messages
+                        .iter()
+                        .map(|m| estimate_tokens(&m.content))
+                        .sum(),
+                )
+            }),
             ttft_ms: ttft_ms.or(Some(duration_ms)),
             duration_ms,
             content: clean_content,
@@ -1315,14 +1386,22 @@ mod tests {
             model_id: "basebuild-local-coordinator".to_string(),
             effort_level: "medium".to_string(),
             system: Some("Project: /tmp/demo".to_string()),
-            messages: vec![ChatMsg { role: "user".to_string(), content: "hello there".to_string(), tool_calls: Vec::new(), tool_call_id: None, name: None }],
+            messages: vec![ChatMsg {
+                role: "user".to_string(),
+                content: "hello there".to_string(),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
+                name: None,
+            }],
             api_key: None,
             base_url: None,
             tools: Vec::new(),
         };
         let streamed = std::cell::RefCell::new(String::new());
         let resp = client
-            .generate(&req, &|delta, _channel| streamed.borrow_mut().push_str(delta))
+            .generate(&req, &|delta, _channel| {
+                streamed.borrow_mut().push_str(delta)
+            })
             .expect("local coordinator generate");
         assert!(resp.content.contains("No provider connected"));
         assert_eq!(streamed.into_inner(), resp.content);
@@ -1339,68 +1418,61 @@ mod tests {
     }
 
     #[test]
-    fn resolve_client_for_model_routes_devin_with_base_url_to_compatible() {
-        // Devin uses the devin-agent bespoke protocol, but when the model
-        // cache provides a base_url (server.codeium.com), it should route
-        // to OpenAiCompatibleClient (direct API), not OmpRpcClient.
-        let _ = resolve_client_for_model("devin", "devin-agent", None, "https://server.codeium.com");
-    }
-
-    #[test]
-    fn resolve_client_for_model_routes_devin_without_base_url_to_omp_rpc() {
-        // Devin with no base_url at all → OmpRpcClient (OMP RPC delegation).
-        let client = resolve_client_for_model("devin", "devin-agent", None, "");
-        // OmpRpcClient::generate will fail with the "requires Oh My Pi"
-        // error if OMP is not installed. We verify by checking that
-        // generate() produces an OMP-related error.
+    fn resolve_client_for_model_routes_devin_to_native_transport() {
+        let client =
+            resolve_client_for_model("devin", "devin-agent", None, "https://server.codeium.com");
         let req = ProviderRequest {
-            model_id: "swe-1-6".to_string(),
-            effort_level: "medium".to_string(),
+            model_id: "glm-5-2".to_string(),
+            effort_level: "high".to_string(),
             system: None,
-            messages: vec![ChatMsg {
-                role: "user".to_string(),
-                content: "hello".to_string(),
-                tool_calls: Vec::new(),
-                tool_call_id: None,
-                name: None,
-            }],
+            messages: vec![ChatMsg::text("user", "hello")],
             api_key: None,
             base_url: None,
             tools: Vec::new(),
         };
-        let result = client.generate(&req, &|_, _| {});
-        if let Err(e) = result {
-            assert!(
-                e.contains("Oh My Pi") || e.contains("OMP") || e.contains("omp"),
-                "devin routing without base_url should produce an OMP-related error, got: {e}"
-            );
-        }
+        let error = client.generate(&req, &|_, _| {}).unwrap_err();
+        assert!(error.contains("Devin authentication is missing"));
+        assert!(!error.contains("OMP"));
     }
 
     #[test]
     fn resolve_client_for_model_routes_openai_to_compatible() {
         // OpenAI uses openai-completions → OpenAiCompatibleClient.
-        let _ = resolve_client_for_model("openai", "openai-completions", None, "https://api.openai.com/v1");
+        let _ = resolve_client_for_model(
+            "openai",
+            "openai-completions",
+            None,
+            "https://api.openai.com/v1",
+        );
         // With a custom base_url override, should still use OpenAiCompatibleClient.
-        let _ = resolve_client_for_model("openai", "openai-completions", Some("https://custom.proxy/v1"), "https://api.openai.com/v1");
+        let _ = resolve_client_for_model(
+            "openai",
+            "openai-completions",
+            Some("https://custom.proxy/v1"),
+            "https://api.openai.com/v1",
+        );
     }
 
     #[test]
     fn resolve_client_for_model_routes_anthropic_to_anthropic_client() {
         // Anthropic uses anthropic-messages → AnthropicClient.
-        let _ = resolve_client_for_model("anthropic", "anthropic-messages", None, "https://api.anthropic.com/v1");
+        let _ = resolve_client_for_model(
+            "anthropic",
+            "anthropic-messages",
+            None,
+            "https://api.anthropic.com/v1",
+        );
     }
 
     #[test]
     fn resolve_client_for_model_omp_sentinel_routes_to_omp_rpc() {
         // Backward compat: omp://openai-codex sentinel → OmpRpcClient.
-        let _ = resolve_client_for_model("openai", "openai-completions", Some(OMP_CODEX_BASE_URL), "https://api.openai.com/v1");
-    }
-
-    #[test]
-    fn resolve_client_for_model_bespoke_with_custom_base_url_uses_compatible() {
-        // Escape hatch: bespoke provider with custom base_url → OpenAiCompatibleClient.
-        let _ = resolve_client_for_model("devin", "devin-agent", Some("https://my-proxy/v1"), "https://server.codeium.com");
+        let _ = resolve_client_for_model(
+            "openai",
+            "openai-completions",
+            Some(OMP_CODEX_BASE_URL),
+            "https://api.openai.com/v1",
+        );
     }
 
     #[test]
@@ -1412,13 +1484,13 @@ mod tests {
         assert!(transport_supports_tools("azure-openai-responses"));
         assert!(transport_supports_tools("anthropic-messages"));
         assert!(transport_supports_tools("openrouter"));
+        assert!(transport_supports_tools("devin-agent"));
         assert!(transport_supports_tools("ollama-chat"));
     }
 
     #[test]
-    fn transport_supports_tools_bespoke_kinds_are_false() {
-        // Bespoke kinds route to OmpRpcClient which cannot carry tool schemas.
-        assert!(!transport_supports_tools("devin-agent"));
+    fn transport_supports_tools_unsupported_protocols_are_false() {
+        // Protocols without native adapters still route through OMP RPC.
         assert!(!transport_supports_tools("cursor-agent"));
         assert!(!transport_supports_tools("openai-codex-responses"));
         assert!(!transport_supports_tools("google-generative-ai"));
@@ -1447,9 +1519,14 @@ mod tests {
         ];
         let start = Instant::now();
         let mut state = OpenAiStreamState::default();
-        let emitted: std::cell::RefCell<Vec<(String, String)>> = std::cell::RefCell::new(Vec::new());
+        let emitted: std::cell::RefCell<Vec<(String, String)>> =
+            std::cell::RefCell::new(Vec::new());
         for line in &lines {
-            state.process_line(line, &|d, ch| emitted.borrow_mut().push((d.to_string(), ch.to_string())), &start);
+            state.process_line(
+                line,
+                &|d, ch| emitted.borrow_mut().push((d.to_string(), ch.to_string())),
+                &start,
+            );
         }
         assert_eq!(state.content, "Let me read that file.");
         assert_eq!(state.tool_calls.len(), 1);
@@ -1458,10 +1535,8 @@ mod tests {
         assert_eq!(call.name, "read_file");
         assert_eq!(call.arguments, r#"{"path":"src/main.rs"}"#);
         let emitted = emitted.into_inner();
-        let tool_call_emits: Vec<&(String, String)> = emitted
-            .iter()
-            .filter(|(_, ch)| ch == "tool_call")
-            .collect();
+        let tool_call_emits: Vec<&(String, String)> =
+            emitted.iter().filter(|(_, ch)| ch == "tool_call").collect();
         assert_eq!(tool_call_emits.len(), 2);
     }
 
@@ -1547,7 +1622,9 @@ mod tests {
         let idle = ProviderError::StreamIdleTimeout;
         assert!(idle.to_string().contains("idle"));
 
-        let empty = ProviderError::EmptyResponse { provider: "anthropic".to_string() };
+        let empty = ProviderError::EmptyResponse {
+            provider: "anthropic".to_string(),
+        };
         assert!(empty.to_string().contains("empty response"));
     }
 
@@ -1572,7 +1649,9 @@ mod tests {
         assert!(state.tool_calls.is_empty());
         assert!(state.output_tokens.is_none());
         // In the real generate(), this would return EmptyResponse.
-        let err = ProviderError::EmptyResponse { provider: "openai".to_string() };
+        let err = ProviderError::EmptyResponse {
+            provider: "openai".to_string(),
+        };
         assert!(err.to_string().contains("openai"));
     }
 
@@ -1608,12 +1687,20 @@ mod tests {
             model_id: "basebuild-local-coordinator".to_string(),
             effort_level: "medium".to_string(),
             system: None,
-            messages: vec![ChatMsg { role: "user".to_string(), content: "hi".to_string(), tool_calls: Vec::new(), tool_call_id: None, name: None }],
+            messages: vec![ChatMsg {
+                role: "user".to_string(),
+                content: "hi".to_string(),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
+                name: None,
+            }],
             api_key: None,
             base_url: None,
             tools: Vec::new(),
         };
-        let resp = client.generate(&req, &|_, _| {}).expect("local coordinator generate");
+        let resp = client
+            .generate(&req, &|_, _| {})
+            .expect("local coordinator generate");
         assert!(resp.reasoning.is_none());
     }
 }

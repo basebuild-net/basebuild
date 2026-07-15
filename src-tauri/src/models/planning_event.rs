@@ -12,6 +12,7 @@ pub enum PlanningEventKind {
     PlanStatusChanged,
     // Idea lifecycle
     IdeaCaptured,
+    IdeaUpdated,
     IdeaStatusChanged,
     // Category lifecycle
     CategoryCreated,
@@ -40,6 +41,7 @@ impl PlanningEventKind {
             PlanningEventKind::PlanUpdated => "plan_updated",
             PlanningEventKind::PlanStatusChanged => "plan_status_changed",
             PlanningEventKind::IdeaCaptured => "idea_captured",
+            PlanningEventKind::IdeaUpdated => "idea_updated",
             PlanningEventKind::IdeaStatusChanged => "idea_status_changed",
             PlanningEventKind::CategoryCreated => "category_created",
             PlanningEventKind::CategoryUpdated => "category_updated",
@@ -115,7 +117,10 @@ mod tests {
             ts: 1_720_000_000_000,
         };
         let json = serde_json::to_string(&event).unwrap();
-        assert!(!json.contains("sessionId"), "sessionId should be omitted: {json}");
+        assert!(
+            !json.contains("sessionId"),
+            "sessionId should be omitted: {json}"
+        );
         assert!(!json.contains("detail"), "detail should be omitted: {json}");
         assert!(!json.contains("projectId"), "no projectId field");
         assert!(json.contains("\"entityId\":\"plan_x7k2p1\""));

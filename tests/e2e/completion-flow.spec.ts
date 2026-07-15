@@ -62,17 +62,15 @@ test.describe("Planning cockpit: completion flow", () => {
     await expect(card.getByRole("button", { name: "Mark complete" })).toBeVisible({ timeout: 3_000 });
   });
 
-  test("commit and PR sections are present", async ({ page }) => {
+  test("completion card does not duplicate finish-policy git actions", async ({ page }) => {
     await openFixtureProject(page);
     await openPlanningInspector(page);
     await clickFlowTab(page);
 
     const card = page.locator(".completion-card").first();
     await expect(card).toBeVisible({ timeout: 5_000 });
-    // Commit section.
-    await expect(card.locator("summary").filter({ hasText: "Commit" })).toBeVisible({ timeout: 3_000 });
-    // PR section.
-    await expect(card.locator("summary").filter({ hasText: "Pull request" })).toBeVisible({ timeout: 3_000 });
+    await expect(card.getByRole("button", { name: /^Commit$/ })).toHaveCount(0);
+    await expect(card.getByRole("button", { name: /Create PR|Create pull request/ })).toHaveCount(0);
   });
 
   test("dismiss button hides the completion card", async ({ page }) => {

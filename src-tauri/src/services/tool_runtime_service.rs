@@ -72,13 +72,37 @@ pub struct ToolResult {
 
 impl ToolResult {
     pub fn success(content: String) -> Self {
-        Self { content, status: "succeeded".to_string(), full_content: None, diff: None, decision: None, rule_source: None, sensitive: false }
+        Self {
+            content,
+            status: "succeeded".to_string(),
+            full_content: None,
+            diff: None,
+            decision: None,
+            rule_source: None,
+            sensitive: false,
+        }
     }
     pub fn failure(content: String) -> Self {
-        Self { content, status: "failed".to_string(), full_content: None, diff: None, decision: None, rule_source: None, sensitive: false }
+        Self {
+            content,
+            status: "failed".to_string(),
+            full_content: None,
+            diff: None,
+            decision: None,
+            rule_source: None,
+            sensitive: false,
+        }
     }
     pub fn denied(content: String) -> Self {
-        Self { content, status: "denied".to_string(), full_content: None, diff: None, decision: None, rule_source: None, sensitive: false }
+        Self {
+            content,
+            status: "denied".to_string(),
+            full_content: None,
+            diff: None,
+            decision: None,
+            rule_source: None,
+            sensitive: false,
+        }
     }
 }
 /// Redaction marker used when a tool touches a sensitive path.
@@ -147,7 +171,10 @@ fn is_sensitive_path(path: &Path) -> bool {
         if name == ".env" || name.starts_with(".env.") {
             return true;
         }
-        if name.starts_with("id_rsa") || name.starts_with("id_ed25519") || name.starts_with("id_ecdsa") {
+        if name.starts_with("id_rsa")
+            || name.starts_with("id_ed25519")
+            || name.starts_with("id_ecdsa")
+        {
             return true;
         }
         if name == "credentials.json" {
@@ -393,9 +420,9 @@ fn resolve_scoped(workspace_root: &Path, relative: &str) -> Result<PathBuf, Stri
         // if it exists, to catch symlink escapes on existing directories.
         if let Some(parent) = candidate.parent() {
             if parent.exists() {
-                let canonical_parent = parent.canonicalize().map_err(|e| {
-                    format!("Path parent not accessible: {e}")
-                })?;
+                let canonical_parent = parent
+                    .canonicalize()
+                    .map_err(|e| format!("Path parent not accessible: {e}"))?;
                 if !canonical_parent.starts_with(&canonical_root) {
                     return Err(format!(
                         "Path '{}' resolves outside the workspace and was denied.",
@@ -472,8 +499,15 @@ fn read_file(workspace_root: &Path, args: &Value) -> ToolResult {
         Err(e) => return ToolResult::failure(format!("Failed to read file '{path}': {e}")),
     };
     let lines: Vec<&str> = content.lines().collect();
-    let start = args.get("start_line").and_then(Value::as_i64).map(|i| i.max(1) as usize).unwrap_or(1);
-    let end = args.get("end_line").and_then(Value::as_i64).map(|i| i as usize);
+    let start = args
+        .get("start_line")
+        .and_then(Value::as_i64)
+        .map(|i| i.max(1) as usize)
+        .unwrap_or(1);
+    let end = args
+        .get("end_line")
+        .and_then(Value::as_i64)
+        .map(|i| i as usize);
     // If a range is requested, return just that range with line numbers.
     if start > 1 || end.is_some() {
         let end = end.unwrap_or(lines.len());
@@ -590,7 +624,6 @@ fn compute_diff(before: &str, after: &str) -> Option<String> {
     }
 }
 
-
 fn write_file(workspace_root: &Path, args: &Value) -> ToolResult {
     let path = match args.get("path").and_then(Value::as_str) {
         Some(p) => p,
@@ -639,7 +672,15 @@ fn write_file(workspace_root: &Path, args: &Value) -> ToolResult {
             } else {
                 compute_diff(&before, content)
             };
-            ToolResult { content: format!("Wrote {} bytes to {}", content.len(), path), status: "succeeded".to_string(), full_content: None, diff, decision: None, rule_source: None, sensitive }
+            ToolResult {
+                content: format!("Wrote {} bytes to {}", content.len(), path),
+                status: "succeeded".to_string(),
+                full_content: None,
+                diff,
+                decision: None,
+                rule_source: None,
+                sensitive,
+            }
         }
         Err(e) => ToolResult {
             content: format!("Failed to write file '{path}': {e}"),
@@ -666,7 +707,10 @@ fn edit_file(workspace_root: &Path, args: &Value) -> ToolResult {
         Some(t) => t,
         None => return ToolResult::failure("Missing required parameter: new_text".to_string()),
     };
-    let expected = args.get("expected_occurrences").and_then(Value::as_i64).unwrap_or(1) as usize;
+    let expected = args
+        .get("expected_occurrences")
+        .and_then(Value::as_i64)
+        .unwrap_or(1) as usize;
     let resolved = match resolve_scoped(workspace_root, path) {
         Ok(p) => p,
         Err(e) => return ToolResult::denied(e),
@@ -688,15 +732,17 @@ fn edit_file(workspace_root: &Path, args: &Value) -> ToolResult {
     }
     let content = match std::fs::read_to_string(&resolved) {
         Ok(c) => c,
-        Err(e) => return ToolResult {
-            content: format!("Failed to read file '{path}': {e}"),
-            status: "failed".to_string(),
-            full_content: None,
-            diff: None,
-            decision: None,
-            rule_source: None,
-            sensitive,
-        },
+        Err(e) => {
+            return ToolResult {
+                content: format!("Failed to read file '{path}': {e}"),
+                status: "failed".to_string(),
+                full_content: None,
+                diff: None,
+                decision: None,
+                rule_source: None,
+                sensitive,
+            }
+        }
     };
     let actual = content.matches(old_text).count();
     if actual != expected {
@@ -714,9 +760,21 @@ fn edit_file(workspace_root: &Path, args: &Value) -> ToolResult {
         };
     }
     let new_content = content.replacen(old_text, new_text, expected);
-    let diff = if sensitive { None } else { compute_diff(&content, &new_content) };
+    let diff = if sensitive {
+        None
+    } else {
+        compute_diff(&content, &new_content)
+    };
     match std::fs::write(&resolved, &new_content) {
-        Ok(_) => ToolResult { content: format!("Replaced {} occurrence(s) in {}", expected, path), status: "succeeded".to_string(), full_content: None, diff, decision: None, rule_source: None, sensitive },
+        Ok(_) => ToolResult {
+            content: format!("Replaced {} occurrence(s) in {}", expected, path),
+            status: "succeeded".to_string(),
+            full_content: None,
+            diff,
+            decision: None,
+            rule_source: None,
+            sensitive,
+        },
         Err(e) => ToolResult {
             content: format!("Failed to write file '{path}': {e}"),
             status: "failed".to_string(),
@@ -748,7 +806,10 @@ fn list_files(workspace_root: &Path, args: &Value) -> ToolResult {
         out.push('\n');
     }
     if matches.len() > 500 {
-        out.push_str(&format!("\n... and {} more files (showing first 500).\n", matches.len() - 500));
+        out.push_str(&format!(
+            "\n... and {} more files (showing first 500).\n",
+            matches.len() - 500
+        ));
     }
     ToolResult::success(out)
 }
@@ -886,12 +947,20 @@ fn search_files(workspace_root: &Path, args: &Value) -> ToolResult {
         out.push_str(&format!("{}:{}: {}\n", path, line_no, line));
     }
     if results.len() > 200 {
-        out.push_str(&format!("\n... and {} more matches (showing first 200).\n", results.len() - 200));
+        out.push_str(&format!(
+            "\n... and {} more matches (showing first 200).\n",
+            results.len() - 200
+        ));
     }
     ToolResult::success(out)
 }
 
-fn search_recursive(root: &Path, current: &Path, re: &regex::Regex, results: &mut Vec<(String, usize, String)>) {
+fn search_recursive(
+    root: &Path,
+    current: &Path,
+    re: &regex::Regex,
+    results: &mut Vec<(String, usize, String)>,
+) {
     let entries = match std::fs::read_dir(current) {
         Ok(e) => e,
         Err(_) => return,
@@ -928,7 +997,10 @@ fn run_command(workspace_root: &Path, args: &Value) -> ToolResult {
         None => return ToolResult::failure("Missing required parameter: command".to_string()),
     };
     let cwd_rel = args.get("cwd").and_then(Value::as_str).unwrap_or("");
-    let timeout_secs = args.get("timeout_secs").and_then(Value::as_i64).unwrap_or(DEFAULT_COMMAND_TIMEOUT_SECS as i64) as u64;
+    let timeout_secs = args
+        .get("timeout_secs")
+        .and_then(Value::as_i64)
+        .unwrap_or(DEFAULT_COMMAND_TIMEOUT_SECS as i64) as u64;
     let canonical_root = match workspace_root.canonicalize() {
         Ok(p) => p,
         Err(e) => return ToolResult::failure(format!("Workspace root not accessible: {e}")),
@@ -967,16 +1039,24 @@ fn run_command(workspace_root: &Path, args: &Value) -> ToolResult {
     let wait_result = child.wait_timeout(std::time::Duration::from_secs(timeout_secs));
     match wait_result {
         Ok(Some(status)) => {
-            let stdout = child.stdout.take().map(|mut r| {
-                let mut buf = String::new();
-                let _ = std::io::Read::read_to_string(&mut r, &mut buf);
-                buf
-            }).unwrap_or_default();
-            let stderr = child.stderr.take().map(|mut r| {
-                let mut buf = String::new();
-                let _ = std::io::Read::read_to_string(&mut r, &mut buf);
-                buf
-            }).unwrap_or_default();
+            let stdout = child
+                .stdout
+                .take()
+                .map(|mut r| {
+                    let mut buf = String::new();
+                    let _ = std::io::Read::read_to_string(&mut r, &mut buf);
+                    buf
+                })
+                .unwrap_or_default();
+            let stderr = child
+                .stderr
+                .take()
+                .map(|mut r| {
+                    let mut buf = String::new();
+                    let _ = std::io::Read::read_to_string(&mut r, &mut buf);
+                    buf
+                })
+                .unwrap_or_default();
             let mut output = String::new();
             if !stdout.is_empty() {
                 output.push_str(&stdout);
@@ -988,7 +1068,11 @@ fn run_command(workspace_root: &Path, args: &Value) -> ToolResult {
                 output.push_str(&stderr);
             }
             let duration_ms = start.elapsed().as_millis();
-            let mut result = format!("Exit code: {}\nDuration: {}ms\n\n", status.code().unwrap_or(-1), duration_ms);
+            let mut result = format!(
+                "Exit code: {}\nDuration: {}ms\n\n",
+                status.code().unwrap_or(-1),
+                duration_ms
+            );
             result.push_str(&output);
             // Truncate if needed.
             truncate_output(result)
@@ -1023,16 +1107,23 @@ fn propose_ideas_fallback(_workspace_root: &Path, _args: &Value) -> ToolResult {
 /// execute pointer; if called directly, it returns a notice.
 fn ask_user_fallback(_workspace_root: &Path, _args: &Value) -> ToolResult {
     ToolResult::failure(
-        "ask_user must be intercepted by the agent loop. This fallback should never be called.".to_string(),
+        "ask_user must be intercepted by the agent loop. This fallback should never be called."
+            .to_string(),
     )
 }
 trait ChildWaitTimeoutExt {
     /// Returns `Ok(Some(status))` on exit, `Ok(None)` on timeout.
-    fn wait_timeout(&mut self, dur: std::time::Duration) -> std::io::Result<Option<std::process::ExitStatus>>;
+    fn wait_timeout(
+        &mut self,
+        dur: std::time::Duration,
+    ) -> std::io::Result<Option<std::process::ExitStatus>>;
 }
 
 impl ChildWaitTimeoutExt for std::process::Child {
-    fn wait_timeout(&mut self, dur: std::time::Duration) -> std::io::Result<Option<std::process::ExitStatus>> {
+    fn wait_timeout(
+        &mut self,
+        dur: std::time::Duration,
+    ) -> std::io::Result<Option<std::process::ExitStatus>> {
         // Poll-based: check every 50ms.
         let start = Instant::now();
         loop {
@@ -1178,7 +1269,11 @@ mod tests {
     fn read_file_range() {
         let dir = workspace();
         let root = dir.path();
-        fs::write(root.join("test.txt"), "line one\nline two\nline three\nline four").unwrap();
+        fs::write(
+            root.join("test.txt"),
+            "line one\nline two\nline three\nline four",
+        )
+        .unwrap();
         let args = json!({ "path": "test.txt", "start_line": 2, "end_line": 3 });
         let result = read_file(root, &args);
         assert_eq!(result.status, "succeeded");
@@ -1221,8 +1316,14 @@ mod tests {
             fs::write(root.join("openspec/changes/plan-a/file_{i}.txt"), "").unwrap();
         }
         let matches = walk_glob(root, "**/proposal.md");
-        let proposal_count = matches.iter().filter(|m| m.ends_with("proposal.md")).count();
-        assert_eq!(proposal_count, 2, "expected 2 proposal.md files, got {matches:?}");
+        let proposal_count = matches
+            .iter()
+            .filter(|m| m.ends_with("proposal.md"))
+            .count();
+        assert_eq!(
+            proposal_count, 2,
+            "expected 2 proposal.md files, got {matches:?}"
+        );
         // No duplicates at all.
         let mut sorted = matches.clone();
         sorted.sort();
@@ -1234,8 +1335,16 @@ mod tests {
         let dir = workspace();
         let root = dir.path();
         fs::create_dir_all(root.join("src")).unwrap();
-        fs::write(root.join("src/main.rs"), "fn main() {\n    println!(\"hello\");\n}").unwrap();
-        fs::write(root.join("src/lib.rs"), "pub fn greet() {\n    println!(\"hello\");\n}").unwrap();
+        fs::write(
+            root.join("src/main.rs"),
+            "fn main() {\n    println!(\"hello\");\n}",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/lib.rs"),
+            "pub fn greet() {\n    println!(\"hello\");\n}",
+        )
+        .unwrap();
         let args = json!({ "pattern": "hello" });
         let result = search_files(root, &args);
         assert_eq!(result.status, "succeeded");
@@ -1404,7 +1513,8 @@ mod tests {
         let result = write_file(root, &args);
         assert_eq!(result.status, "succeeded");
         // Verify the file was written at the correct path.
-        let written = std::fs::read_to_string(root.join(".basebuild/project-schematic.md")).unwrap();
+        let written =
+            std::fs::read_to_string(root.join(".basebuild/project-schematic.md")).unwrap();
         assert_eq!(written, schematic_content);
         // Diff should be present (new file).
         assert!(result.diff.is_some());
@@ -1422,10 +1532,16 @@ mod tests {
         let result = write_file(root, &args);
         assert_eq!(result.status, "succeeded");
         // Verify the file is inside the workspace root.
- let written_path = root.join(".basebuild").join("project-schematic.md");
-        assert!(written_path.exists(), "schematic file should exist within workspace");
+        let written_path = root.join(".basebuild").join("project-schematic.md");
+        assert!(
+            written_path.exists(),
+            "schematic file should exist within workspace"
+        );
         // Verify parent directory was created.
-        assert!(root.join(".basebuild").exists(), ".basebuild directory should be created");
+        assert!(
+            root.join(".basebuild").exists(),
+            ".basebuild directory should be created"
+        );
     }
 
     #[test]
@@ -1491,10 +1607,19 @@ mod tests {
         let result = write_file(root, &args);
         assert_eq!(result.status, "succeeded");
         assert!(result.sensitive, "result should be flagged sensitive");
-        assert!(result.diff.is_none(), "diff should be redacted for sensitive paths");
-        assert!(result.content.contains("Wrote"), "content summary should remain visible");
+        assert!(
+            result.diff.is_none(),
+            "diff should be redacted for sensitive paths"
+        );
+        assert!(
+            result.content.contains("Wrote"),
+            "content summary should remain visible"
+        );
         let written = fs::read_to_string(root.join(".env")).unwrap();
-        assert_eq!(written, "SECRET_API_KEY=12345\n", "file must still be written");
+        assert_eq!(
+            written, "SECRET_API_KEY=12345\n",
+            "file must still be written"
+        );
     }
 
     #[test]
@@ -1532,14 +1657,18 @@ mod tests {
         });
         let result = write_file(root, &args);
         assert_eq!(result.status, "succeeded");
-        assert!(result.diff.is_none(), "diff should be skipped for oversized files");
+        assert!(
+            result.diff.is_none(),
+            "diff should be skipped for oversized files"
+        );
         let written = fs::read_to_string(root.join("big.txt")).unwrap();
         assert_eq!(written, "small", "write should still proceed");
     }
 
     #[test]
     fn redact_tool_arguments_redacts_bodies() {
-        let input = r#"{"path":".env","content":"SECRET=1","old_text":"a","new_text":"b","other":"keep"}"#;
+        let input =
+            r#"{"path":".env","content":"SECRET=1","old_text":"a","new_text":"b","other":"keep"}"#;
         let out = redact_tool_arguments(input);
         let value: Value = serde_json::from_str(&out).expect("redacted output is valid JSON");
         assert_eq!(value["path"], ".env");

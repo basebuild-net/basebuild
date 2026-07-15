@@ -61,13 +61,14 @@ pub struct CatalogCost {
 }
 
 /// The parsed catalog: provider id → (model id → model entry).
-pub static CATALOG: LazyLock<HashMap<String, HashMap<String, CatalogModel>>> = LazyLock::new(|| {
-    serde_json::from_str(CATALOG_JSON).unwrap_or_else(|e| {
-        // A corrupt vendored catalog is a build-time bug, not a runtime
-        // condition. Panic at first use so the developer fixes the file.
-        panic!("Failed to parse vendored OMP catalog: {e}")
-    })
-});
+pub static CATALOG: LazyLock<HashMap<String, HashMap<String, CatalogModel>>> =
+    LazyLock::new(|| {
+        serde_json::from_str(CATALOG_JSON).unwrap_or_else(|e| {
+            // A corrupt vendored catalog is a build-time bug, not a runtime
+            // condition. Panic at first use so the developer fixes the file.
+            panic!("Failed to parse vendored OMP catalog: {e}")
+        })
+    });
 
 /// All provider ids in the catalog, sorted alphabetically.
 pub fn provider_ids() -> Vec<&'static str> {

@@ -15,7 +15,9 @@ fn emit_changed(app: &AppHandle, session_id: &str) {
 }
 
 #[tauri::command]
-pub fn native_interaction_list_pending(session_id: String) -> Result<Vec<PendingInteraction>, String> {
+pub fn native_interaction_list_pending(
+    session_id: String,
+) -> Result<Vec<PendingInteraction>, String> {
     InteractionService::list_pending(&session_id)
 }
 

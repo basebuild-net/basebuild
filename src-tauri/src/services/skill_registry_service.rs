@@ -16,10 +16,7 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
-use crate::{
-    commands::skills::skill_dir,
-    services::storage_paths::StoragePathService,
-};
+use crate::{commands::skills::skill_dir, services::storage_paths::StoragePathService};
 
 /// Source of a resolved skill.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]

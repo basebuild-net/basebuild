@@ -1,9 +1,9 @@
 use tauri::AppHandle;
 
-use crate::services::openspec_service;
-use crate::services::openspec_runtime_service::OpenSpecRuntimeService;
 use crate::models::openspec_catalog::{ChangeCatalogEntry, StructuredTasks};
 use crate::models::openspec_runtime::OpenSpecRuntimeStatus;
+use crate::services::openspec_runtime_service::OpenSpecRuntimeService;
+use crate::services::openspec_service;
 
 /// Derive a kebab-case change name from a title.
 #[tauri::command]
@@ -14,13 +14,22 @@ pub fn openspec_derive_change_name(title: String) -> Result<String, String> {
 /// Resolve a unique change name for a project, appending -2, -3, … on collision.
 #[tauri::command]
 pub fn openspec_resolve_change_name(project_path: String, title: String) -> Result<String, String> {
-    Ok(openspec_service::resolve_unique_change_name(&project_path, &title))
+    Ok(openspec_service::resolve_unique_change_name(
+        &project_path,
+        &title,
+    ))
 }
 
 /// Parse the completed/total checkbox counts from a plan's linked change.
 #[tauri::command]
-pub fn openspec_task_progress(project_path: String, change_name: String) -> Result<(u32, u32), String> {
-    Ok(openspec_service::read_task_progress(&project_path, &change_name))
+pub fn openspec_task_progress(
+    project_path: String,
+    change_name: String,
+) -> Result<(u32, u32), String> {
+    Ok(openspec_service::read_task_progress(
+        &project_path,
+        &change_name,
+    ))
 }
 
 /// Parse task progress from a raw tasks.md string.
@@ -68,18 +77,26 @@ pub fn openspec_toggle_task(
 /// Archive a change directory (moves to openspec/changes/archive/).
 #[tauri::command]
 pub fn openspec_archive_change(
+    app: AppHandle,
     project_path: String,
     change_name: String,
 ) -> Result<(), String> {
-    openspec_service::archive_change(&project_path, &change_name)
+    openspec_service::archive_change(&project_path, &change_name)?;
+    crate::services::planning_events::emit(
+        &app,
+        crate::models::planning_event::PlanningEventKind::PlanUpdated,
+        change_name.clone(),
+        project_path,
+        None,
+        format!("Archived {change_name}"),
+        None,
+    );
+    Ok(())
 }
 
 /// Link a change to a plan (by plan id). Refuses double-link.
 #[tauri::command]
-pub fn openspec_link_change_to_plan(
-    change_name: String,
-    plan_id: String,
-) -> Result<(), String> {
+pub fn openspec_link_change_to_plan(change_name: String, plan_id: String) -> Result<(), String> {
     openspec_service::link_change_to_plan(&change_name, &plan_id)
 }
 
@@ -99,25 +116,37 @@ pub fn openspec_refresh_task_progress(
     last_completed: u32,
     last_total: u32,
 ) -> Result<bool, String> {
-    openspec_service::refresh_task_progress(&app, &project_path, &change_name, last_completed, last_total)
+    openspec_service::refresh_task_progress(
+        &app,
+        &project_path,
+        &change_name,
+        last_completed,
+        last_total,
+    )
 }
 
 /// Check OpenSpec runtime status for a project. No network calls.
 #[tauri::command]
-pub fn openspec_runtime_status(project_path: Option<String>) -> Result<OpenSpecRuntimeStatus, String> {
+pub fn openspec_runtime_status(
+    project_path: Option<String>,
+) -> Result<OpenSpecRuntimeStatus, String> {
     Ok(OpenSpecRuntimeService::status(project_path.as_deref()))
 }
 
 /// Install OpenSpec (stub until a distribution source is configured).
 /// No network call; returns an actionable error.
 #[tauri::command]
-pub fn openspec_runtime_install(project_path: Option<String>) -> Result<OpenSpecRuntimeStatus, String> {
+pub fn openspec_runtime_install(
+    project_path: Option<String>,
+) -> Result<OpenSpecRuntimeStatus, String> {
     OpenSpecRuntimeService::install(project_path.as_deref())
 }
 
 /// Update OpenSpec (stub until a distribution source is configured).
 /// No network call; returns an actionable error.
 #[tauri::command]
-pub fn openspec_runtime_update(project_path: Option<String>) -> Result<OpenSpecRuntimeStatus, String> {
+pub fn openspec_runtime_update(
+    project_path: Option<String>,
+) -> Result<OpenSpecRuntimeStatus, String> {
     OpenSpecRuntimeService::update(project_path.as_deref())
 }

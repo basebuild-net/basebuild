@@ -2,6 +2,21 @@ import { expect, test, type Page } from "@playwright/test";
 import { ensureChatPanel, openFixtureProject, selectLocalProvider } from "./helpers";
 
 test.describe("native chat workspace", () => {
+  test("shows catalog readiness while preserving the chat surface", async ({ page }) => {
+    await page.addInitScript(() => {
+      (window as typeof window & { __BASEBUILD_E2E_BOOTSTRAP_DELAY_MS__?: number })
+        .__BASEBUILD_E2E_BOOTSTRAP_DELAY_MS__ = 2_000;
+    });
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+
+    const modelChip = page.locator(".chat-column-model-chip").first();
+    await expect(modelChip).toHaveAttribute("title", /Provider catalog is loading/);
+    await expect(modelChip.locator(".spin")).toBeVisible();
+    await expect(modelChip).not.toContainText("No model selected");
+    await expect(modelChip).not.toHaveAttribute("title", /Provider catalog is loading/, { timeout: 5_000 });
+  });
+
   test("creates a native chat tab and records a structured turn", async ({ page }) => {
     const consoleErrors: string[] = [];
     const pageErrors: string[] = [];

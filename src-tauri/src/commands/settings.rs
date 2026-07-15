@@ -1,11 +1,11 @@
 use crate::models::{
     permission::{ApprovalMode, ApprovalRule, AuditEntry, PermissionRules},
-    runtime::RuntimeProfile,
     run_concurrency::{RunConcurrencyEntry, RunConcurrencyLimits},
+    runtime::RuntimeProfile,
 };
 use crate::services::settings_service::{ProfileValidation, SettingsService};
 
- #[tauri::command]
+#[tauri::command]
 pub fn list_runtime_profiles() -> Result<Vec<RuntimeProfile>, String> {
     SettingsService::list_profiles()
 }
