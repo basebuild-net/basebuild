@@ -149,6 +149,13 @@ export async function listPlanRuns(sessionId: string): Promise<PlanRun[]> {
   return invoke<PlanRun[]>("plan_run_list", { sessionId });
 }
 
+/** List all runs for a plan, across all workspace sessions. Use this to
+ *  resolve a plan's active chat session regardless of which session
+ *  originally assigned it. */
+export async function listPlanRunsByPlan(planId: string): Promise<PlanRun[]> {
+  return invoke<PlanRun[]>("plan_run_list_by_plan", { planId });
+}
+
 export async function getPlanRun(runId: string): Promise<PlanRun | null> {
   return invoke<PlanRun | null>("plan_run_get", { runId });
 }

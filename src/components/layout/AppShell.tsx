@@ -39,7 +39,7 @@ import { PlanningIndicators, type StageKey } from "./PlanningIndicators";
 import { ToastStack } from "./ToastStack";
 import { useProjectSchematic } from "../../state/schematic";
 import { getLastFocusedProject, revealInExplorer, setLastFocusedProject } from "../../lib/projects";
-import { listPlanRuns, onPlanRunEvent } from "../../lib/planRuns";
+import { listPlanRuns, listPlanRunsByPlan, onPlanRunEvent } from "../../lib/planRuns";
 import { generateSessionTitle, readSkill } from "../../lib/skills";
 import { getWorkspaceRestoreState, saveWorkspaceRestoreState, type WorkspaceRestoreState } from "../../lib/workspace";
 import { FirstRunModal } from "./FirstRunModal";
@@ -1379,30 +1379,49 @@ export function AppShell({ updates }: AppShellProps) {
     [session.activeSessionId, addLog],
   );
 
-  /** Open the chat hosting a plan's most recent run (running plans first). */
+  /** Open the chat hosting a plan's most recent run. Queries by plan_id
+   *  (not session_id) so runs assigned from a different workspace session
+   *  are still found. If the plan is "running" but no run has a chat
+   *  session (zombie — execute_run crashed before linking), offer to
+   *  re-assign instead of showing a dead-end toast. */
   const handleOpenPlanRunChat = useCallback(
     async (plan: Plan) => {
-      if (!session.activeSessionId) return;
       try {
-        const runs = await listPlanRuns(session.activeSessionId);
+        const runs = await listPlanRunsByPlan(plan.id);
         const candidates = runs
-          .filter((r) => r.planId === plan.id && r.chatSessionId)
+          .filter((r) => r.chatSessionId)
           .sort((a, b) => {
             const activeA = a.status === "running" || a.status === "pending" ? 1 : 0;
             const activeB = b.status === "running" || b.status === "pending" ? 1 : 0;
             return activeB - activeA || b.createdAt - a.createdAt;
           });
         const run = candidates[0];
-        if (!run?.chatSessionId) {
-          handleShowToast("No run chat", `#${plan.referenceId} has no chat session bound to a run yet.`, "info");
+        if (run?.chatSessionId) {
+          await handleOpenChatSession(run.chatSessionId);
           return;
         }
-        await handleOpenChatSession(run.chatSessionId);
+        // No chat-bound run. If the plan is running, it's a zombie — the run
+        // row exists but execute_run crashed before linking a chat session.
+        // Offer re-assign so the user can restart the agent.
+        if (plan.status === "running") {
+          handleShowToast(
+            "Plan has no active chat",
+            `#${plan.referenceId} is marked running but its run never linked a chat session. Re-assigning will start a fresh agent.`,
+            "info",
+          );
+          handleQuickAssignPlan(plan);
+        } else {
+          handleShowToast(
+            "No run chat",
+            `#${plan.referenceId} has no chat session bound to a run yet.`,
+            "info",
+          );
+        }
       } catch (e) {
         handleShowToast("Could not open run chat", e instanceof Error ? e.message : String(e), "error");
       }
     },
-    [session.activeSessionId, handleOpenChatSession, handleShowToast],
+    [handleOpenChatSession, handleShowToast, handleQuickAssignPlan],
   );
 
   const handleOpenFileInTab = useCallback(

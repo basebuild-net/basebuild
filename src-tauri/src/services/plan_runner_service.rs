@@ -800,6 +800,24 @@ impl PlanRunnerService {
         rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
     }
 
+    /// List all runs for a plan, across all workspace sessions. Used by the
+    /// UI to resolve a plan's active chat session regardless of which session
+    /// originally assigned it (plans are project-scoped, not session-scoped).
+    pub fn list_runs_by_plan(plan_id: &str) -> DbResult<Vec<PlanRun>> {
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, plan_id, session_id, chat_session_id, workspace_path, status,
+                        runner_kind, error, steps_output, started_at, finished_at, created_at
+                 FROM plan_runs WHERE plan_id = ?1 ORDER BY created_at DESC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![plan_id], Self::map_run)
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
+    }
+
     pub fn get_run(run_id: &str) -> DbResult<Option<PlanRun>> {
         let conn = StorageService::connect()?;
         conn.query_row(
@@ -1046,24 +1064,41 @@ impl PlanRunnerService {
         }
 
         // Mark running.
-        let now = now();
+        let started = now();
         conn.execute(
             "UPDATE plan_runs SET status = 'running', started_at = ?1 WHERE id = ?2",
-            params![now, run_id],
+            params![started, run_id],
         )
         .map_err(|e| format!("Failed to mark run running: {e}"))?;
 
         // Transition the plan to running.
         let _ = PlanService::set_status(&entry.plan_id, PlanStatus::Running);
 
-        // Provision a native chat session for the plan.
+        // Provision a native chat session for the plan. If this fails, clean
+        // up the zombie run row (mark failed) and revert the plan to ready so
+        // the user can re-assign instead of being stuck with a "running" plan
+        // that has no chat session.
         let plan = PlanService::get(&entry.plan_id)?.ok_or_else(|| "Plan not found".to_string())?;
-        let chat_session = NativeChatService::create_session_for_plan(
+        let chat_session = match NativeChatService::create_session_for_plan(
             &plan,
             &profile.provider_id,
             &profile.model_id,
             profile.effort_level.as_deref(),
-        )?;
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                let err_msg = format!("Failed to create chat session: {e}");
+                let _ = conn.execute(
+                    "UPDATE plan_runs SET status = 'failed', error = ?1, finished_at = ?2 WHERE id = ?3",
+                    params![err_msg, now(), run_id],
+                );
+                let _ = PlanService::set_status(&entry.plan_id, PlanStatus::Ready);
+                if let Ok(mut map) = RUNNING_RUNS.lock() {
+                    map.remove(&run_id);
+                }
+                return Err(err_msg);
+            }
+        };
 
         // Link the chat session to the run.
         conn.execute(
