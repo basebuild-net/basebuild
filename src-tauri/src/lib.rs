@@ -86,7 +86,7 @@ use commands::{
         openspec_runtime_update, openspec_task_progress, openspec_toggle_task,
         openspec_unlink_plan_from_change,
     },
-    pipeline::{pipeline_cancel, pipeline_get_run, pipeline_list_runs, pipeline_start},
+    pipeline::{pipeline_cancel, pipeline_get_run, pipeline_list_runs, pipeline_list_runs_by_project, pipeline_start},
     plan_dependency::{
         plan_assign_with_profile, plan_coordination_event_publish, plan_coordination_events,
         plan_dependency_graph, plan_file_claims_list, plan_file_claims_set, plan_get_dependencies,
@@ -376,6 +376,7 @@ pub fn run() {
             pipeline_start,
             pipeline_cancel,
             pipeline_list_runs,
+            pipeline_list_runs_by_project,
             connector_register,
             connector_list,
             connector_get,

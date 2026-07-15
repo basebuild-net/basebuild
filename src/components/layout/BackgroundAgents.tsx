@@ -4,6 +4,7 @@ import {
   isTerminalRunStatus,
   pipelineCancel,
   pipelineListRuns,
+  pipelineListRunsByProject,
   type PipelineRun,
 } from "../../lib/pipeline";
 import { cancelPlanRun, listPlanRuns, type PlanRun } from "../../lib/planRuns";
@@ -34,18 +35,15 @@ function formatDuration(fromSecs: number, toSecs: number): string {
 
 export type BackgroundAgentsProps = {
   sessionId: string | null;
+  /** Project path for project-scoped pipeline run queries. */
+  projectPath: string | null;
   /** Plans for resolving a run's target title from its planId. */
   plans: Plan[];
   /** Focus the chat session a run streams into (preview the chat). */
   onOpenChatSession?: (chatSessionId: string) => void;
 };
 
-/**
- * Taskbar indicator for background AI stages (pipeline runs): shows a live
- * count while stages run, and a dropdown with what each agent is doing, the
- * model it uses, elapsed time, errors, and a jump to the run's chat.
- */
-export function BackgroundAgents({ sessionId, plans, onOpenChatSession }: BackgroundAgentsProps) {
+export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSession }: BackgroundAgentsProps) {
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [planRuns, setPlanRuns] = useState<PlanRun[]>([]);
   const [open, setOpen] = useState(false);
@@ -57,13 +55,19 @@ export function BackgroundAgents({ sessionId, plans, onOpenChatSession }: Backgr
       setPlanRuns([]);
       return;
     }
+    // Query pipeline runs by project path (not session ID) so runs from
+    // any workspace session in this project are visible. Fall back to
+    // session-scoped query if projectPath is unavailable.
+    const pipelineQuery = projectPath
+      ? pipelineListRunsByProject(projectPath).catch(() => [] as PipelineRun[])
+      : pipelineListRuns(sessionId).catch(() => [] as PipelineRun[]);
     const [pipeline, plan] = await Promise.all([
-      pipelineListRuns(sessionId).catch(() => [] as PipelineRun[]),
+      pipelineQuery,
       listPlanRuns(sessionId).catch(() => [] as PlanRun[]),
     ]);
     setRuns(pipeline);
     setPlanRuns(plan);
-  }, [sessionId]);
+  }, [sessionId, projectPath]);
 
   useEffect(() => {
     void refresh();
@@ -85,7 +89,13 @@ export function BackgroundAgents({ sessionId, plans, onOpenChatSession }: Backgr
   );
 
   // Elapsed ticker + poll while agents are active (planning events only fire
-  // on stage transitions, not during a long model call).
+  // on stage transitions, not during a long model call). A baseline poll
+  // always runs so we catch runs that started before mount or whose events
+  // arrived during a webview reload.
+  useEffect(() => {
+    const baseline = setInterval(() => void refresh(), 10000);
+    return () => clearInterval(baseline);
+  }, [refresh]);
   useEffect(() => {
     if (activeCount === 0) return;
     const tick = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
@@ -181,7 +191,17 @@ export function BackgroundAgents({ sessionId, plans, onOpenChatSession }: Backgr
                 </div>
               ) : null}
               {activePlanRuns.map((run) => (
-                <div key={run.id} className="bg-agents-item is-running">
+                <div
+                  key={run.id}
+                  className="bg-agents-item is-running"
+                  draggable={!!run.chatSessionId}
+                  onDragStart={(e) => {
+                    if (!run.chatSessionId) return;
+                    e.dataTransfer.setData("text/plain", run.chatSessionId);
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  title={run.chatSessionId ? "Drag into the panel grid to open the chat" : undefined}
+                >
                   <Loader2 size={12} className="bg-agents-item-icon is-spinning" />
                   <div className="bg-agents-item-body">
                     <span className="bg-agents-item-kind">Working on plan</span>
@@ -221,7 +241,17 @@ export function BackgroundAgents({ sessionId, plans, onOpenChatSession }: Backgr
                 </div>
               ))}
               {active.map((run) => (
-                <div key={run.id} className="bg-agents-item is-running">
+                <div
+                  key={run.id}
+                  className="bg-agents-item is-running"
+                  draggable={!!run.sessionChatId}
+                  onDragStart={(e) => {
+                    if (!run.sessionChatId) return;
+                    e.dataTransfer.setData("text/plain", run.sessionChatId);
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  title={run.sessionChatId ? "Drag into the panel grid to open the chat" : undefined}
+                >
                   <Loader2 size={12} className="bg-agents-item-icon is-spinning" />
                   <div className="bg-agents-item-body">
                     <span className="bg-agents-item-kind">{kindLabel(run.kind)}</span>

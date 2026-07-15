@@ -217,6 +217,26 @@ impl PipelineService {
             .map_err(|e| e.to_string())
     }
 
+    /// List pipeline runs for a project path, newest first. Used by the
+    /// background agents dropdown so runs show up regardless of which
+    /// workspace session created them.
+    pub fn list_runs_by_project(project_path: &str) -> DbResult<Vec<PipelineRun>> {
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, session_id, project_path, kind, idea_id, plan_id, input_summary,
+                        session_chat_id, status, error, output_refs, started_at, completed_at, created_at,
+                        provider_id, model_id
+                 FROM pipeline_runs WHERE project_path = ?1 ORDER BY created_at DESC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![project_path], row_to_run)
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
+    }
+
     /// Get a single pipeline run by id.
     pub fn get_run(run_id: &str) -> DbResult<Option<PipelineRun>> {
         let conn = StorageService::connect()?;
@@ -786,7 +806,7 @@ impl PipelineService {
             }],
             api_key: credential.as_ref().map(|c| c.api_key.clone()),
             base_url: credential.as_ref().and_then(|c| c.base_url.clone()),
-            tools: vec![ask_user_tool_schema()],
+            tools: Vec::new(),
         };
 
         let (api_kind, model_base_url) =
@@ -821,54 +841,6 @@ impl PipelineService {
         let response = client.generate(&req, &emit)?;
         if token.is_cancelled() {
             return Err("Cancelled by user".to_string());
-        }
-        // Handle ask_user tool calls: persist the interaction, emit an event,
-        // park until the user responds, then resume with the answers as a
-        // follow-up turn so the model can use them.
-        if response.tool_calls.iter().any(|c| c.name == "ask_user") {
-            let ask_call = response
-                .tool_calls
-                .iter()
-                .find(|c| c.name == "ask_user")
-                .unwrap();
-            let answers = handle_pipeline_ask_user(app, session_id, ask_call, token)?;
-            if answers.is_empty() {
-                // Cancelled or timed out.
-                return Err("ask_user cancelled or timed out".to_string());
-            }
-            // Resume with a follow-up turn: append the assistant's tool call
-            // and the tool result, then generate again.
-            let answers_json = serde_json::to_string(&answers).unwrap_or_else(|_| "[]".to_string());
-            let resume_req = ProviderRequest {
-                model_id: resolved_model_id.clone(),
-                effort_level: effort_level.to_string(),
-                system: Some(req.system.clone().unwrap_or_default()),
-                messages: vec![
-                    req.messages[0].clone(),
-                    ChatMsg {
-                        role: "assistant".to_string(),
-                        content: String::new(),
-                        tool_calls: vec![ask_call.clone()],
-                        tool_call_id: None,
-                        name: None,
-                    },
-                    ChatMsg {
-                        role: "tool".to_string(),
-                        content: answers_json,
-                        tool_calls: Vec::new(),
-                        tool_call_id: Some(ask_call.id.clone()),
-                        name: Some("ask_user".to_string()),
-                    },
-                ],
-                api_key: credential.as_ref().map(|c| c.api_key.clone()),
-                base_url: credential.as_ref().and_then(|c| c.base_url.clone()),
-                tools: Vec::new(),
-            };
-            let resume_response = client.generate(&resume_req, &emit)?;
-            if token.is_cancelled() {
-                return Err("Cancelled by user".to_string());
-            }
-            return Ok(resume_response.content);
         }
         Ok(response.content)
     }

@@ -56,8 +56,13 @@ export type PanelGridProps = {
   onCreatePanel: (anchorId: string | null, side: DropSide) => Panel;
   /** Viewport width for size calculations. 0 = use default. */
   viewportWidth: number;
-  /** Viewport height for size calculations. 0 = use default. */
   viewportHeight: number;
+  /** Called when an external item (e.g. a background agent) is dragged
+   *  into the grid and dropped. The chatSessionId is passed through. */
+  onDropExternalChat?: (chatSessionId: string) => void;
+  /** Chat session IDs currently hosting a background agent. Panels matching
+   *  these show a minimize button instead of close. */
+  backgroundChatSessionIds?: Set<string>;
 };
 
 type DragState = {
@@ -80,7 +85,7 @@ type DragState = {
 };
 
 export function PanelGrid(props: PanelGridProps) {
-  const { state, onStateChange, onRenameTab, renderPanel, onCreatePanel, viewportWidth, viewportHeight } = props;
+  const { state, onStateChange, onRenameTab, renderPanel, onCreatePanel, viewportWidth, viewportHeight, onDropExternalChat, backgroundChatSessionIds } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const panelRefs = useRef<Record<string, HTMLDivElement>>({});
   const dragRef = useRef<DragState | null>(null);
@@ -469,7 +474,24 @@ export function PanelGrid(props: PanelGridProps) {
   }
 
   return (
-    <div className="panel-grid" ref={containerRef}>
+    <div
+      className="panel-grid"
+      ref={containerRef}
+      onDragOver={(e) => {
+        if (onDropExternalChat && e.dataTransfer.types.includes("text/plain")) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+        }
+      }}
+      onDrop={(e) => {
+        if (!onDropExternalChat) return;
+        const chatSessionId = e.dataTransfer.getData("text/plain");
+        if (chatSessionId) {
+          e.preventDefault();
+          onDropExternalChat(chatSessionId);
+        }
+      }}
+    >
       {renderNode(state.root, null, 0)}
     </div>
   );
@@ -557,6 +579,7 @@ export function PanelGrid(props: PanelGridProps) {
             onDragEnd={() => {}}
             onDragMove={() => {}}
             onDragCancel={() => {}}
+            minimizable={!!panel.chatSessionId && !!backgroundChatSessionIds?.has(panel.chatSessionId)}
           />
           <div className="panel-grid-content">
             {renderPanel(effectivePanel, isActive)}

@@ -60,6 +60,10 @@ export async function pipelineListRuns(sessionId: string): Promise<PipelineRun[]
   return invoke<PipelineRun[]>("pipeline_list_runs", { sessionId });
 }
 
+export async function pipelineListRunsByProject(projectPath: string): Promise<PipelineRun[]> {
+  return invoke<PipelineRun[]>("pipeline_list_runs_by_project", { projectPath });
+}
+
 export async function pipelineGetRun(runId: string): Promise<PipelineRun | null> {
   return invoke<PipelineRun | null>("pipeline_get_run", { runId });
 }

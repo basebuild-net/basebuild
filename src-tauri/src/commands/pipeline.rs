@@ -24,6 +24,11 @@ pub fn pipeline_list_runs(session_id: String) -> Result<Vec<PipelineRun>, String
 }
 
 #[tauri::command]
+pub fn pipeline_list_runs_by_project(project_path: String) -> Result<Vec<PipelineRun>, String> {
+    PipelineService::list_runs_by_project(&project_path)
+}
+
+#[tauri::command]
 pub fn pipeline_get_run(run_id: String) -> Result<Option<PipelineRun>, String> {
     PipelineService::get_run(&run_id)
 }

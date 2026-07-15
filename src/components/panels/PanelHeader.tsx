@@ -11,6 +11,7 @@ import {
   Zap,
   LayoutTemplate,
   X,
+  Minus,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Panel, PanelType } from "../../lib/panelGrid";
@@ -49,12 +50,14 @@ export type PanelHeaderProps = {
   onDragEnd: () => void;
   onDragMove: () => void;
   onDragCancel: () => void;
+  /** When true, the panel hosts a background agent — show a minimize
+   *  button instead of close, since closing would kill the agent's UI. */
+  minimizable?: boolean;
 };
-
 const TAB_DRAG_THRESHOLD = 4;
 
 export function PanelHeader(props: PanelHeaderProps) {
-  const { panel, status, isActive, onFocus, onClose, onSplitRight, onAddTab, onSplitDown, onDuplicate, onRename, onSwitchTab, onCloseTab, onReorderTabs, onDragStart, onDragEnd, onDragMove, onDragCancel } = props;
+  const { panel, status, isActive, onFocus, onClose, onSplitRight, onAddTab, onSplitDown, onDuplicate, onRename, onSwitchTab, onCloseTab, onReorderTabs, onDragStart, onDragEnd, onDragMove, onDragCancel, minimizable } = props;
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(panel.title);
@@ -244,8 +247,8 @@ export function PanelHeader(props: PanelHeaderProps) {
               <button type="button" title="Split down (add panel below)" onClick={() => { setMenuOpen(false); onSplitDown(); }}>
                 <SplitSquareVertical size={11} /> Split down
               </button>
-              <button type="button" title="Close and move to history" onClick={() => { setMenuOpen(false); onClose(); }}>
-                <X size={11} /> Close
+              <button type="button" title={minimizable ? "Send to background agents" : "Close and move to history"} onClick={() => { setMenuOpen(false); onClose(); }}>
+                {minimizable ? <Minus size={11} /> : <X size={11} />} {minimizable ? "Minimize" : "Close"}
               </button>
             </div>
           ) : null}

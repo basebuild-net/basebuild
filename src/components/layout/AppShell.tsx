@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle, Info, LayoutTemplate, Settings2, TerminalSquare, X, XCircle } from "lucide-react";
+import { LayoutTemplate, Settings2, TerminalSquare, X } from "lucide-react";
 import { deliverPrompt, type DeliveryAction, type PromptMode } from "../../lib/promptDelivery";
 import { markStart, markEnd } from "../../lib/timing";
 import { generateCategoriesAction, generateFromFinishedPlansAction, generateIdeaRoundAction, generateIdeasAction, schematicWizardAction, type PlanningAction } from "../../lib/planningActions";
@@ -13,12 +13,6 @@ import { startIdeaRound, finishIdeaRound } from "../../lib/ideaRounds";
 
 export type ToastKind = "success" | "warning" | "error" | "info";
 
-const TOAST_ICONS: Record<ToastKind, { icon: typeof CheckCircle; className: string }> = {
-  success: { icon: CheckCircle, className: "toast-icon-success" },
-  warning: { icon: AlertTriangle, className: "toast-icon-warning" },
-  error: { icon: XCircle, className: "toast-icon-error" },
-  info: { icon: Info, className: "toast-icon-info" },
-};
 
 import { useSessionState } from "../../state/sessions";
 import { useZoom } from "../../state/useZoom";
@@ -51,6 +45,7 @@ const FileViewer = lazy(() => import("../panels/FileViewer").then((m) => ({ defa
 import { ProjectSchematicTab } from "../panels/ProjectSchematicTab";
 import { ChatPanel } from "../panels/ChatPanel";
 import { PanelGrid } from "../panels/PanelGrid";
+import { listen } from "@tauri-apps/api/event";
 import { PanelStatusProvider } from "../panels/PanelStatusContext";
 const HistoryDrawer = lazy(() => import("../panels/HistoryDrawer").then((m) => ({ default: m.HistoryDrawer })));
 import {
@@ -83,6 +78,9 @@ import { ModalLoading } from "./ModalLoading";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { WindowControls } from "./WindowControls";
 import { NotificationCenter } from "./NotificationCenter";
+import { type Notification } from "../../lib/notifications";
+import { QuestionCard } from "../panels/QuestionCard";
+import { nativeInteractionListPending, type PendingInteraction } from "../../lib/interactions";
 const LogPanel = lazy(() => import("./LogPanel").then((m) => ({ default: m.LogPanel })));
 import { CrashReportNotice } from "./CrashReportNotice";
 const DebugPanel = lazy(() => import("../panels/DebugPanel").then((m) => ({ default: m.DebugPanel })));
@@ -136,12 +134,17 @@ export function AppShell({ updates }: AppShellProps) {
   // Plan assignment destination picker state — a ready plan + profile waiting
   // for the user to choose a chat session.
   const [pendingAssign, setPendingAssign] = useState<{ plan: Plan; profile: LaunchProfile } | null>(null);
-  const [appToast, setAppToast] = useState<{ title: string; detail?: string; kind: ToastKind } | null>(null);
+  const [appToasts, setAppToasts] = useState<{ id: string; title: string; detail?: string; kind: ToastKind }[]>([]);
+  const [globalInteraction, setGlobalInteraction] = useState<PendingInteraction | null>(null);
 
-  // Toast helper — defined early so all handlers can use it.
+  // Toast helper — defined early so all handlers can use it. Pushes a toast
+  // to the array; ToastStack auto-removes it after 5 seconds.
   const handleShowToast = useCallback((title: string, detail?: string, kind: ToastKind = "success") => {
-    setAppToast({ title, detail, kind });
-    window.setTimeout(() => setAppToast(null), 4000);
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    setAppToasts((prev) => [...prev, { id, title, detail, kind }]);
+  }, []);
+  const dismissAppToast = useCallback((id: string) => {
+    setAppToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
   const [pendingDelivery, setPendingDelivery] = useState<{ text: string; mode: PromptMode; action?: DeliveryAction } | null>(null);
   // Idea round awaiting destination delivery — abandoned (finished) if the
@@ -159,6 +162,7 @@ export function AppShell({ updates }: AppShellProps) {
   useEscapeKey(debugPanelOpen, () => setDebugPanelOpen(false));
   const [focusedChatId, setFocusedChatId] = useState<string | null>(null);
   const [panelGridState, setPanelGridState] = useState<PanelGridState>(emptyGrid());
+  const [backgroundChatSessionIds, setBackgroundChatSessionIds] = useState<Set<string>>(new Set());
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const [terminalOutputBuffer, setTerminalOutputBuffer] = useState("");
   const titleDebounceRef = useRef<number | null>(null);
@@ -389,10 +393,23 @@ export function AppShell({ updates }: AppShellProps) {
     let disposed = false;
     void onPlanRunEvent((event) => {
       const chatSessionId = event.chatSessionId;
+      // Track background chat sessions for minimize-button display.
+      if (chatSessionId) {
+        setBackgroundChatSessionIds((prev) => {
+          if (event.status === "running" || event.status === "pending") {
+            if (prev.has(chatSessionId)) return prev;
+            return new Set(prev).add(chatSessionId);
+          }
+          if (!prev.has(chatSessionId)) return prev;
+          const next = new Set(prev);
+          next.delete(chatSessionId);
+          return next;
+        });
+      }
       if (event.status !== "running" || !chatSessionId) return;
       setPanelGridState((prev) => {
         // Already surfaced — just focus it (idempotent under duplicate events).
-        const existingPanel = flattenPanels(prev.root).find((p) => p.chatSessionId === chatSessionId);
+        const existingPanel = flattenPanels(prev.root).find((p) => p.id === chatSessionId || p.chatSessionId === chatSessionId);
         if (existingPanel) {
           return prev.activePanelId === existingPanel.id ? prev : { ...prev, activePanelId: existingPanel.id };
         }
@@ -420,6 +437,44 @@ export function AppShell({ updates }: AppShellProps) {
       if (unlisten) unlisten();
     };
   }, [addLog]);
+  // Global interactive-request listener: when a background pipeline stage
+  // (e.g. openspec generation) calls ask_user, the event arrives with the
+  // workspace session ID — not a chat session ID — so no ChatPanel handles
+  // it. This listener catches those and surfaces a modal so the user can
+  // answer. ChatPanel filters by its own nchat_ session ID, so there's no
+  // double-handling.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+    void listen<{ sessionId: string; interactionId?: string }>(
+      "native-chat://interactive-request",
+      (event) => {
+        const { sessionId } = event.payload;
+        // Only handle events for workspace sessions (not chat sessions).
+        // Chat sessions start with "nchat_" and are handled by ChatPanel.
+        if (sessionId.startsWith("nchat_")) return;
+        // Fetch pending interactions for the workspace session and show
+        // the first one in a modal.
+        void (async () => {
+          try {
+            const pending = await nativeInteractionListPending(sessionId);
+            if (pending.length > 0) {
+              setGlobalInteraction(pending[0]);
+            }
+          } catch {
+            // Best-effort — the notification still points the user to act.
+          }
+        })();
+      },
+    ).then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
   // Hydrate per-tab grid states from the workspace restore snapshot.
   useEffect(() => {
     if (!workspaceRestore?.tabGridStates) return;
@@ -952,7 +1007,7 @@ export function AppShell({ updates }: AppShellProps) {
         await plans.setPlanStatus(plan.id, "openspec");
         handleShowToast(
           plan.status === "draft" ? "Generating plan" : "Redoing plan",
-          "OpenSpec is generating the proposal, specs, design, and tasks.",
+          "OpenSpec is generating in the background — check the agents icon in the taskbar for progress.",
           "info",
         );
       } catch (e) {
@@ -1356,7 +1411,9 @@ export function AppShell({ updates }: AppShellProps) {
         // Title lookup is cosmetic — keep the fallback.
       }
       setPanelGridState((prev) => {
-        const existingPanel = flattenPanels(prev.root).find((p) => p.chatSessionId === chatSessionId);
+        const existingPanel = flattenPanels(prev.root).find(
+          (p) => p.id === chatSessionId || p.chatSessionId === chatSessionId,
+        );
         if (existingPanel) {
           return prev.activePanelId === existingPanel.id ? prev : { ...prev, activePanelId: existingPanel.id };
         }
@@ -1424,6 +1481,38 @@ export function AppShell({ updates }: AppShellProps) {
     [handleOpenChatSession, handleShowToast, handleQuickAssignPlan],
   );
 
+  /** Handle notification clicks: pending_question opens the global
+   *  interaction modal; plan/stage notifications open the plan focus modal. */
+  const handleNotificationNavigate = useCallback(
+    (n: Notification) => {
+      if (n.kind === "pending_question") {
+        // The entityId is the interaction ID — fetch pending interactions
+        // for the active workspace session and find the matching one.
+        if (!session.activeSessionId) return;
+        const sid = session.activeSessionId;
+        void (async () => {
+          try {
+            const pending = await nativeInteractionListPending(sid);
+            const match = pending.find((p) => p.id === n.entityId) ?? pending[0];
+            if (match) {
+              setGlobalInteraction(match);
+            } else {
+              handleShowToast("Question resolved", "This question was already answered or cancelled.", "info");
+            }
+          } catch (e) {
+            handleShowToast("Could not open question", e instanceof Error ? e.message : String(e), "error");
+          }
+        })();
+      } else if (n.kind === "plan_status_changed" || n.kind === "plan_created") {
+        // entityId is the plan ID — find it and open the focus modal.
+        const plan = plans.plans.find((p) => p.id === n.entityId);
+        if (plan) {
+          setFocusingPlan(plan);
+        }
+      }
+    },
+    [session.activeSessionId, plans.plans, handleShowToast],
+  );
   const handleOpenFileInTab = useCallback(
     async (filePath: string) => {
       if (!session.activeSessionId) return;
@@ -1477,10 +1566,11 @@ export function AppShell({ updates }: AppShellProps) {
         <div className="window-taskbar-right">
           <BackgroundAgents
             sessionId={session.activeSessionId}
+            projectPath={activeProjectPath}
             plans={plans.plans}
             onOpenChatSession={handleOpenChatSession}
           />
-          <NotificationCenter />
+          <NotificationCenter onNavigate={handleNotificationNavigate} />
           <WindowControls />
         </div>
       </div>
@@ -1618,6 +1708,7 @@ export function AppShell({ updates }: AppShellProps) {
               </div>
             ) : null}
             {activeProjectPath && projectRestoreError ? (
+              <>
               <div className="project-restore-error" role="alert">
                 <h3>Project restore failed</h3>
                 <p>{projectRestoreError}</p>
@@ -1626,9 +1717,8 @@ export function AppShell({ updates }: AppShellProps) {
                   <button className="btn" type="button" title="Switch to another project" onClick={() => setActiveProjectPath(null)}>Switch project</button>
                 </div>
               </div>
-            ) : null}
-            {activeProjectPath && !projectRestoreError && projectRestoreLoading ? (
               <ProjectSwitchingOverlay projectName={activeProjectPath.split(/[\\/]/).pop() ?? activeProjectPath} />
+              </>
             ) : null}
             {activeProjectPath && !projectRestoreError && !projectRestoreLoading ? (
               <>
@@ -1640,6 +1730,8 @@ export function AppShell({ updates }: AppShellProps) {
                   onCreatePanel={handleCreatePanel}
                   viewportWidth={typeof window !== "undefined" ? window.innerWidth - 80 : 1200}
                   viewportHeight={typeof window !== "undefined" ? window.innerHeight - 120 : 700}
+                  onDropExternalChat={handleOpenChatSession}
+                  backgroundChatSessionIds={backgroundChatSessionIds}
                 />
                 {historyDrawerOpen ? (
                   <Suspense fallback={<ModalLoading />}>
@@ -1802,29 +1894,11 @@ export function AppShell({ updates }: AppShellProps) {
         onComplete={() => firstRun.complete()}
         onSkip={() => firstRun.skip()}
       />
-      <ToastStack />
-      {appToast ? (() => {
-        const { icon: ToastIcon, className: iconClassName } = TOAST_ICONS[appToast.kind];
-        return (
-          <div className="toast-stack">
-            <div className={`toast toast-${appToast.kind}`} role="status" aria-live="polite">
-              <ToastIcon size={13} className={`toast-icon ${iconClassName}`} />
-              <div className="toast-content">
-                <span className="toast-title">{appToast.title}</span>
-                {appToast.detail ? <span className="toast-detail">{appToast.detail}</span> : null}
-              </div>
-              <button
-                className="toast-dismiss btn-icon"
-                title="Dismiss"
-                type="button"
-                onClick={() => setAppToast(null)}
-              >
-                <X size={12} />
-              </button>
-            </div>
-          </div>
-        );
-      })() : null}
+      <ToastStack
+        appToasts={appToasts}
+        onDismissAppToast={dismissAppToast}
+        onNavigate={handleNotificationNavigate}
+      />
       <DestinationPicker
         open={destinationPickerOpen}
         onClose={() => {
@@ -1960,6 +2034,27 @@ export function AppShell({ updates }: AppShellProps) {
         onProceed={() => { void handleStartIdeaRound(true); }}
         onCancel={() => setRoundGateOpen(false)}
       />
+      {globalInteraction ? (
+        <ModalPortal>
+          <div className="modal-overlay" role="dialog" aria-label="Background agent question" onClick={() => setGlobalInteraction(null)}>
+            <div className="modal modal-interaction" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <span className="modal-title">Background agent needs your input</span>
+                <button className="btn-icon" type="button" title="Close" onClick={() => setGlobalInteraction(null)}>
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="modal-body">
+                <QuestionCard
+                  interaction={globalInteraction}
+                  onResolved={() => setGlobalInteraction(null)}
+                  onCancelled={() => setGlobalInteraction(null)}
+                />
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      ) : null}
     </div>
     </PanelStatusProvider>
   );

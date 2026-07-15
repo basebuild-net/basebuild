@@ -13,7 +13,7 @@ pub struct StorageService;
 // Increment whenever `initialize` gains a schema-changing migration. Existing
 // databases run the idempotent initializer once per version; current databases
 // skip its ~50 table/column probes entirely on normal launches.
-const CURRENT_SCHEMA_VERSION: i64 = 2;
+const CURRENT_SCHEMA_VERSION: i64 = 3;
 
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {

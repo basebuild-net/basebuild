@@ -109,15 +109,11 @@ pub fn update_plan(app: AppHandle, id: String, input: UpdatePlanInput) -> Result
 #[tauri::command]
 pub async fn set_plan_status(app: AppHandle, id: String, status: String) -> Result<Plan, String> {
     let status = parse_status(&status);
-    // draft → openspec: run the generate_openspec pipeline stage to write
-    // artifacts atomically, set change_name, and only then flip status. On
-    // failure, the plan stays in draft with a surfaced error.
-    //
-    // The stage blocks for the duration of the model calls and the provider
-    // transports use `reqwest::blocking` (which spins up and drops its own
-    // tokio runtime). Running it on this async command's worker thread panics
-    // ("Cannot drop a runtime in a context where blocking is not allowed"),
-    // so the stage runs on the blocking pool where that is permitted.
+    // draft → openspec: kick off the generate_openspec pipeline stage in the
+    // background. The plan status flips to "openspec" immediately so the UI
+    // reflects the transition without waiting for 4 model calls. The pipeline
+    // run shows up in BackgroundAgents via the StageStarted planning event.
+    // If the stage fails, the plan reverts to draft with an error event.
     if status == PlanStatus::Openspec {
         let plan = PlanService::get(&id)?.ok_or("Plan not found".to_string())?;
         if plan.status != PlanStatus::Openspec {
@@ -133,19 +129,56 @@ pub async fn set_plan_status(app: AppHandle, id: String, status: String) -> Resu
                 input: None,
                 chat_session_id: None,
             };
+            // Set status to openspec immediately.
+            let updated = PlanService::set_status(&id, PlanStatus::Openspec)?;
+            let project_path = SessionService::get(&updated.session_id)
+                .ok()
+                .flatten()
+                .map(|s| s.project_path)
+                .unwrap_or_default();
+            crate::services::planning_events::emit(
+                &app,
+                crate::models::planning_event::PlanningEventKind::PlanStatusChanged,
+                &updated.id,
+                &project_path,
+                Some(updated.session_id.clone()),
+                &updated.title,
+                Some(format!("{} → openspec", plan.status.as_str())),
+            );
+            // Spawn the pipeline stage detached — it runs in the background
+            // and emits its own StageStarted/StageSucceeded/StageFailed events.
             let stage_app = app.clone();
-            let run = tauri::async_runtime::spawn_blocking(move || {
-                crate::services::pipeline_service::PipelineService::start_stage(
-                    &stage_app, request,
-                )
-            })
-            .await
-            .map_err(|e| format!("OpenSpec generation task panicked: {e}"))??;
-            if run.status != "succeeded" {
-                return Err(run.error.unwrap_or_else(|| {
-                    format!("OpenSpec generation did not complete ({})", run.status)
-                }));
-            }
+            let plan_id = id.clone();
+            let plan_title = updated.title.clone();
+            let plan_session = updated.session_id.clone();
+            tauri::async_runtime::spawn(async move {
+                let fail_app = stage_app.clone();
+                let run = tauri::async_runtime::spawn_blocking(move || {
+                    crate::services::pipeline_service::PipelineService::start_stage(
+                        &stage_app, request,
+                    )
+                })
+                .await;
+                let failed = match run {
+                    Ok(Ok(result)) => result.status != "succeeded",
+                    Ok(Err(_)) => true,
+                    Err(_) => true,
+                };
+                if failed {
+                    // Revert the plan to draft so the user can retry.
+                    let _ = PlanService::set_status(&plan_id, PlanStatus::Draft);
+                    let _ = crate::services::planning_events::emit(
+                    &fail_app,
+                        crate::models::planning_event::PlanningEventKind::PlanStatusChanged,
+                        &plan_id,
+                        &project_path,
+                        Some(plan_session),
+                        &plan_title,
+                        Some("openspec → draft (generation failed)".to_string()),
+                    );
+                }
+            });
+            return Ok(updated);
         }
     }
     let plan = PlanService::get(&id)?.ok_or("Plan not found".to_string())?;
