@@ -13,10 +13,11 @@ use rusqlite::params;
 use serde::Deserialize;
 
 use crate::services::storage_service::StorageService;
+use crate::models::execution_advisor::ModelExecutionProfileV1;
 
 /// The highest catalog response `version` this desktop understands. If the
 /// endpoint returns a higher version, sync refuses with an upgrade prompt.
-pub const SUPPORTED_CATALOG_VERSION: u32 = 1;
+pub const SUPPORTED_CATALOG_VERSION: u32 = 2;
 
 /// Default catalog base URL. Override with `BASEBUILD_CATALOG_URL` for dev.
 const DEFAULT_CATALOG_BASE_URL: &str = "https://basebuild.net";
@@ -61,6 +62,8 @@ struct CatalogModel {
     output_limit: Option<i64>,
     #[allow(dead_code)]
     input_modalities: String,
+    #[serde(default)]
+    execution_profile: Option<ModelExecutionProfileV1>,
 }
 
 /// Result of a catalog sync, surfaced to the UI.
@@ -76,12 +79,15 @@ pub struct CatalogSyncResult {
 /// same data updates `synced_at` without duplicating rows.
 pub fn sync_catalog() -> CatalogSyncResult {
     match sync_catalog_inner() {
-        Ok(r) => r,
-        Err(e) => CatalogSyncResult {
-            synced: 0,
-            skipped: 0,
-            error: Some(e),
-        },
+        Ok(result) => result,
+        Err(error) => {
+            mark_profile_cache_error(&error);
+            CatalogSyncResult {
+                synced: 0,
+                skipped: 0,
+                error: Some(error),
+            }
+        }
     }
 }
 
@@ -129,19 +135,21 @@ fn sync_catalog_inner() -> Result<CatalogSyncResult, String> {
             } else {
                 "[]".to_string()
             };
+            let supports_images = model.input_modalities.split(',').any(|item| item.trim() == "image");
             let changed = conn
                 .execute(
                     "INSERT INTO native_provider_model_cache
                     (provider_id, model_id, label, context_window, max_tokens,
                      supports_reasoning, supported_efforts, supports_images, source,
                      synced_at, error, model_api_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 'catalog_sync', ?8, NULL, ?9)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'catalog_sync', ?9, NULL, ?10)
                  ON CONFLICT(provider_id, model_id) DO UPDATE SET
                     label = excluded.label,
                     context_window = excluded.context_window,
                     max_tokens = excluded.max_tokens,
                     supports_reasoning = excluded.supports_reasoning,
                     supported_efforts = excluded.supported_efforts,
+                    supports_images = excluded.supports_images,
                     source = 'catalog_sync',
                     synced_at = excluded.synced_at,
                     error = NULL,
@@ -154,6 +162,7 @@ fn sync_catalog_inner() -> Result<CatalogSyncResult, String> {
                         model.output_limit,
                         model.reasoning as i32,
                         supported_efforts,
+                        supports_images as i32,
                         now,
                         model.api_id,
                     ],
@@ -164,6 +173,29 @@ fn sync_catalog_inner() -> Result<CatalogSyncResult, String> {
             } else {
                 skipped += 1;
             }
+            if let Some(profile) = &model.execution_profile {
+                if let Err(error) = profile.validate() {
+                    skipped += 1;
+                    eprintln!(
+                        "[catalog-sync] skipped invalid execution profile {}: {error}",
+                        profile.canonical_model_id
+                    );
+                    continue;
+                }
+                let profile_json = serde_json::to_string(profile)
+                    .map_err(|error| format!("Failed to serialize execution profile: {error}"))?;
+                conn.execute(
+                    "INSERT INTO model_execution_profile_cache
+                        (canonical_model_id, profile_json, fetched_at, error)
+                     VALUES (?1, ?2, ?3, NULL)
+                     ON CONFLICT(canonical_model_id) DO UPDATE SET
+                        profile_json = excluded.profile_json,
+                        fetched_at = excluded.fetched_at,
+                        error = NULL",
+                    params![profile.canonical_model_id, profile_json, now],
+                )
+                .map_err(|error| format!("Failed to cache execution profile: {error}"))?;
+            }
         }
     }
 
@@ -173,14 +205,23 @@ fn sync_catalog_inner() -> Result<CatalogSyncResult, String> {
         error: None,
     })
 }
+fn mark_profile_cache_error(error: &str) {
+    let Ok(conn) = StorageService::connect() else {
+        return;
+    };
+    let bounded = error.chars().take(1_000).collect::<String>();
+    let _ = conn.execute(
+        "UPDATE model_execution_profile_cache SET error = ?1",
+        params![bounded],
+    );
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn supported_version_is_1() {
-        // Guard against accidental bump without desktop support.
-        assert_eq!(SUPPORTED_CATALOG_VERSION, 1);
+    fn supports_additive_profile_catalog_version() {
+        assert_eq!(SUPPORTED_CATALOG_VERSION, 2);
     }
 }

@@ -4,6 +4,7 @@ pub mod app;
 pub mod auth;
 pub mod config_packs;
 pub mod connectors;
+pub mod execution_advisor;
 pub mod files;
 pub mod final_touches;
 pub mod git;

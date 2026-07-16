@@ -310,25 +310,56 @@ pub fn registry() -> Vec<ToolDef> {
         ToolDef {
             schema: ToolSchema {
                 name: "propose_ideas".to_string(),
-                description: "Capture one or more structured ideas during a generate-ideas run. Each idea must cite concrete grounding (real files, functions, or observed gaps); ideas without grounding are rejected. An optional anchor names the schematic element (Vision / End goal / Current priority) the idea serves. Call this tool with ideas as they are formed; do not emit them as prose.".to_string(),
+                description: "Capture a batch of distinct, grounded implementation ideas. Every idea requires a versioned bounded assessment; invalid items reject the complete batch. Inspect the repository and existing ideas/plans first, cite concrete evidence, and call this tool instead of printing an idea wall as prose.".to_string(),
                 parameters: json!({
                     "type": "object",
+                    "additionalProperties": false,
                     "properties": {
                         "ideas": {
                             "type": "array",
-                            "description": "Ideas to capture.",
+                            "minItems": 1,
+                            "maxItems": 12,
+                            "description": "Distinct, non-duplicate ideas to capture.",
                             "items": {
                                 "type": "object",
+                                "additionalProperties": false,
                                 "properties": {
-                                    "title": { "type": "string", "description": "Plain, verb-first title of 2-5 words. No file names or implementation detail." },
-                                    "description": { "type": "string", "description": "One concise sentence naming the concrete target and user-visible reason." },
-                                    "grounding": { "type": "string", "description": "Concrete supporting evidence: real files, functions, or observed gaps. Keep evidence here rather than in the title. Required." },
-                                    "anchor": { "type": "string", "description": "Optional schematic element served (Vision / End goal / Current priority). Omit if outside current focus." }
+                                    "title": { "type": "string", "minLength": 1, "maxLength": 240, "description": "Plain, verb-first title of 2-5 words. No file names or implementation detail." },
+                                    "description": { "type": "string", "minLength": 1, "maxLength": 20000, "description": "Concise concrete target and user-visible reason." },
+                                    "grounding": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "Concrete supporting evidence: real files, symbols, observed behavior, or an explicit unknown." },
+                                    "anchor": { "type": "string", "maxLength": 4000, "description": "Optional schematic Vision, end goal, or current priority served." },
+                                    "assessment": {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "schemaVersion": { "type": "integer", "enum": [1] },
+                                            "effort": {
+                                                "type": "object",
+                                                "additionalProperties": false,
+                                                "properties": {
+                                                    "minHours": { "type": "integer", "minimum": 1, "maximum": 10000 },
+                                                    "maxHours": { "type": "integer", "minimum": 1, "maximum": 10000 }
+                                                },
+                                                "required": ["minHours", "maxHours"]
+                                            },
+                                            "difficulty": { "type": "integer", "minimum": 1, "maximum": 5 },
+                                            "impact": { "type": "integer", "minimum": 1, "maximum": 5 },
+                                            "risk": { "type": "integer", "minimum": 1, "maximum": 5 },
+                                            "confidence": { "type": "integer", "minimum": 1, "maximum": 5 },
+                                            "rationale": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                                            "grounding": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+                                            "requiredCapabilities": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+                                            "constraints": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+                                            "missingEvidence": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+                                            "alternatives": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } }
+                                        },
+                                        "required": ["schemaVersion", "effort", "difficulty", "impact", "risk", "confidence", "rationale", "grounding", "requiredCapabilities", "constraints", "missingEvidence", "alternatives"]
+                                    }
                                 },
-                                "required": ["title", "description", "grounding"]
+                                "required": ["title", "description", "grounding", "assessment"]
                             }
                         },
-                        "categoryId": { "type": "string", "description": "Optional category id to tag every idea in this batch with (e.g. for category-directed generation)." }
+                        "categoryId": { "type": "string", "description": "Optional category id applied to every idea in the batch." }
                     },
                     "required": ["ideas"]
                 }),
@@ -341,34 +372,63 @@ pub fn registry() -> Vec<ToolDef> {
         ToolDef {
             schema: ToolSchema {
                 name: "ask_user".to_string(),
-                description: "Present one or more questions to the user and wait for their response. Each question carries an id, a prompt, a kind (options, multi, confirm, text), an optional option list, an optional recommended-option index, an optional allow-free-text flag, and an optional `detail` preview. The user can always ALSO type a custom answer for any question, so answers may include both a selected option and free text. The loop pauses until the user responds or the run is cancelled.".to_string(),
+                description: "Pause and present a focused, resumable questionnaire. Use a concise title and description, group related questions with pageId/pageTitle, mark decision-critical questions required, and use a rating question for a typed bounded score. Legacy flat questions remain supported. The user may minimize without cancelling; only final submission resumes the loop.".to_string(),
                 parameters: json!({
                     "type": "object",
                     "properties": {
+                        "title": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "description": "Prominent questionnaire title."
+                        },
+                        "description": {
+                            "type": "string",
+                            "maxLength": 4096,
+                            "description": "Why these decisions are needed and what continues afterward."
+                        },
                         "questions": {
                             "type": "array",
-                            "description": "Questions to present. All render in one card; answers are returned keyed by question id.",
+                            "minItems": 1,
+                            "maxItems": 32,
+                            "description": "Questions in page order. Questions sharing a pageId render on the same page.",
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "id": { "type": "string", "description": "Unique question id (used to key the answer)." },
-                                    "prompt": { "type": "string", "description": "The question text shown to the user." },
-                                    "kind": { "type": "string", "enum": ["options", "multi", "confirm", "text"], "description": "Question kind: single-select, multi-select, confirm/deny, or free-text." },
+                                    "id": { "type": "string", "maxLength": 128, "description": "Unique question id used to key the answer." },
+                                    "prompt": { "type": "string", "maxLength": 4096, "description": "Question text shown to the user." },
+                                    "kind": { "type": "string", "enum": ["options", "multi", "confirm", "text", "rating"] },
+                                    "pageId": { "type": "string", "maxLength": 128, "description": "Optional stable page id. Omit on every question for a legacy single page." },
+                                    "pageTitle": { "type": "string", "maxLength": 256 },
+                                    "pageDescription": { "type": "string", "maxLength": 4096 },
+                                    "required": { "type": "boolean", "default": false },
+                                    "multiline": { "type": "boolean", "default": false, "description": "Render a multiline text control for text questions." },
                                     "options": {
                                         "type": "array",
-                                        "description": "Options for `options`/`multi`/`confirm` kinds. Ignored for `text`.",
+                                        "maxItems": 20,
                                         "items": {
                                             "type": "object",
                                             "properties": {
-                                                "label": { "type": "string", "description": "Option label shown as a button." },
-                                                "description": { "type": "string", "description": "Optional longer description shown in the button tooltip." }
+                                                "label": { "type": "string", "maxLength": 256 },
+                                                "description": { "type": "string", "maxLength": 1024 }
                                             },
                                             "required": ["label"]
                                         }
                                     },
-                                    "recommended": { "type": "integer", "description": "Index into `options` of the recommended choice. The recommended option is visibly marked." },
-                                    "allowFreeText": { "type": "boolean", "description": "Deprecated hint: the UI always accepts a typed answer for every question. Kept for compatibility.", "default": false },
-                                    "detail": { "type": "string", "description": "Optional read-only preview/context shown in the card (e.g. the prefilled field content the user is confirming). Use this so the user can review a value before answering. Not treated as an answer." }
+                                    "recommended": { "type": "integer", "minimum": 0, "description": "Index into options." },
+                                    "allowFreeText": { "type": "boolean", "default": false },
+                                    "detail": { "type": "string", "maxLength": 8192, "description": "Optional read-only context; never treated as an answer." },
+                                    "scale": {
+                                        "type": "object",
+                                        "description": "Rating bounds. Omit for the default 1–5 scale.",
+                                        "properties": {
+                                            "min": { "type": "integer", "minimum": 0, "maximum": 9 },
+                                            "max": { "type": "integer", "minimum": 1, "maximum": 10 },
+                                            "lowLabel": { "type": "string", "maxLength": 128 },
+                                            "highLabel": { "type": "string", "maxLength": 128 },
+                                            "style": { "type": "string", "enum": ["stars", "numbers"] }
+                                        },
+                                        "required": ["min", "max"]
+                                    }
                                 },
                                 "required": ["id", "prompt", "kind"]
                             }
@@ -1420,6 +1480,26 @@ mod tests {
     }
 
     #[test]
+    fn ask_user_schema_exposes_paged_rating_contract() {
+        let tool = registry()
+            .into_iter()
+            .find(|definition| definition.schema.name == "ask_user")
+            .unwrap();
+        let properties = &tool.schema.parameters["properties"];
+        assert!(properties.get("title").is_some());
+        assert!(properties.get("description").is_some());
+        let question = &properties["questions"]["items"]["properties"];
+        assert!(question["kind"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|kind| kind == "rating"));
+        assert!(question.get("pageId").is_some());
+        assert!(question.get("required").is_some());
+        assert!(question.get("scale").is_some());
+    }
+
+    #[test]
     fn compute_diff_modified_line() {
         let before = "old text\nline two";
         let after = "new text\nline two";
@@ -1678,5 +1758,45 @@ mod tests {
         assert_eq!(value["new_text"], "[redacted: sensitive path]");
         // Invalid JSON is passed through unchanged.
         assert_eq!(redact_tool_arguments("not json"), "not json");
+    }
+    #[test]
+    fn propose_ideas_assessment_schema_snapshot() {
+        let tool = registry()
+            .into_iter()
+            .find(|tool| tool.schema.name == "propose_ideas")
+            .expect("propose_ideas tool");
+        let assessment =
+            &tool.schema.parameters["properties"]["ideas"]["items"]["properties"]["assessment"];
+
+        assert_eq!(
+            assessment,
+            &json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "schemaVersion": { "type": "integer", "enum": [1] },
+                    "effort": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "minHours": { "type": "integer", "minimum": 1, "maximum": 10000 },
+                            "maxHours": { "type": "integer", "minimum": 1, "maximum": 10000 }
+                        },
+                        "required": ["minHours", "maxHours"]
+                    },
+                    "difficulty": { "type": "integer", "minimum": 1, "maximum": 5 },
+                    "impact": { "type": "integer", "minimum": 1, "maximum": 5 },
+                    "risk": { "type": "integer", "minimum": 1, "maximum": 5 },
+                    "confidence": { "type": "integer", "minimum": 1, "maximum": 5 },
+                    "rationale": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                    "grounding": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+                    "requiredCapabilities": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+                    "constraints": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+                    "missingEvidence": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+                    "alternatives": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } }
+                },
+                "required": ["schemaVersion", "effort", "difficulty", "impact", "risk", "confidence", "rationale", "grounding", "requiredCapabilities", "constraints", "missingEvidence", "alternatives"]
+            })
+        );
     }
 }

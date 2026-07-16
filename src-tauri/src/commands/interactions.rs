@@ -1,7 +1,7 @@
 use tauri::AppHandle;
 
 use crate::{
-    models::interaction::{PendingInteraction, ResolveInteractionRequest},
+    models::interaction::{PendingInteraction, QuestionAnswer, ResolveInteractionRequest},
     services::interaction_service::InteractionService,
 };
 
@@ -39,6 +39,18 @@ pub fn native_interaction_resolve(
     emit_changed(&app, &interaction.session_id);
     Ok(interaction)
 }
+#[tauri::command]
+pub fn native_interaction_save_draft(
+    app: AppHandle,
+    id: String,
+    answers: Vec<QuestionAnswer>,
+    current_page: usize,
+) -> Result<PendingInteraction, String> {
+    let interaction = InteractionService::save_draft(&id, &answers, current_page)?;
+    emit_changed(&app, &interaction.session_id);
+    Ok(interaction)
+}
+
 #[tauri::command]
 pub fn native_interaction_cancel(app: AppHandle, id: String) -> Result<(), String> {
     let interaction = InteractionService::get(&id)?;

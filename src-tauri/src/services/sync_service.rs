@@ -3,6 +3,7 @@ use std::thread;
 use std::time::Duration;
 
 use parking_lot::Mutex;
+use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
@@ -17,6 +18,7 @@ use crate::models::usage_sync::{
 use crate::services::auth_service::AuthService;
 use crate::services::omp_service::OmpService;
 use crate::services::settings_service::SettingsService;
+use crate::services::storage_service::StorageService;
 
 const MCP_URL: &str = "https://basebuild.net/api/mcp";
 /// Minimum gap between sync pushes in seconds, even if a trigger fires.
@@ -497,31 +499,98 @@ pub(crate) fn call_mcp_tool(token: &str, tool: &str, arguments: Value) -> Result
     serde_json::from_str::<Value>(text).or_else(|_| Ok(Value::String(text.to_string())))
 }
 
-/// Fetch the full projected-usage payload for the Account page.
+/// Fetch the full projected-usage payload for the Account page and retain a
+/// privacy-safe last-good local cache for the execution advisor.
 pub fn fetch_projected_usage() -> Result<ProjectedUsage, String> {
     let token = AuthService::get_access_token()?
         .ok_or("Not signed in. Open Settings > Account to sign in.")?;
 
-    let live = call_mcp_tool(&token, "get_my_live_usage", json!({}))
-        .map(parse_live_usage)
-        .unwrap_or_default();
-    let snapshot = call_mcp_tool(&token, "get_my_usage", json!({}))
-        .map(parse_usage_snapshot)
-        .unwrap_or_default();
-    let plans = call_mcp_tool(&token, "list_my_plans", json!({}))
-        .map(parse_plan_summaries)
-        .unwrap_or_default();
-    let timeline = call_mcp_tool(&token, "get_my_plan_timeline", json!({}))
-        .map(parse_plan_timeline)
-        .unwrap_or_default();
+    let live_result = call_mcp_tool(&token, "get_my_live_usage", json!({}));
+    let snapshot_result = call_mcp_tool(&token, "get_my_usage", json!({}));
+    let plans_result = call_mcp_tool(&token, "list_my_plans", json!({}));
+    let timeline_result = call_mcp_tool(&token, "get_my_plan_timeline", json!({}));
+    let success_count = [
+        live_result.is_ok(),
+        snapshot_result.is_ok(),
+        plans_result.is_ok(),
+        timeline_result.is_ok(),
+    ]
+    .into_iter()
+    .filter(|success| *success)
+    .count();
 
-    Ok(ProjectedUsage {
-        live,
-        snapshot,
-        plans,
-        timeline,
+    if success_count == 0 {
+        let error = "All projected-usage reads failed; using the last-good local cache when available.";
+        mark_projected_usage_cache_error(error);
+        if let Some((cached, _, _)) = cached_projected_usage()? {
+            return Ok(cached);
+        }
+    }
+
+    let usage = ProjectedUsage {
+        live: live_result.map(parse_live_usage).unwrap_or_default(),
+        snapshot: snapshot_result
+            .map(parse_usage_snapshot)
+            .unwrap_or_default(),
+        plans: plans_result.map(parse_plan_summaries).unwrap_or_default(),
+        timeline: timeline_result
+            .map(parse_plan_timeline)
+            .unwrap_or_default(),
         assembled_at: now_seconds(),
-    })
+    };
+    save_projected_usage_cache(&usage)?;
+    Ok(usage)
+}
+
+pub fn cached_projected_usage() -> Result<Option<(ProjectedUsage, i64, Option<String>)>, String> {
+    let conn = StorageService::connect()?;
+    let row = conn
+        .query_row(
+            "SELECT usage_json, fetched_at, error FROM execution_usage_cache WHERE key = 'projected'",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    let Some((json, fetched_at, error)) = row else {
+        return Ok(None);
+    };
+    let usage = serde_json::from_str(&json)
+        .map_err(|error| format!("Cached projected usage is invalid: {error}"))?;
+    Ok(Some((usage, fetched_at, error)))
+}
+
+fn save_projected_usage_cache(usage: &ProjectedUsage) -> Result<(), String> {
+    let json = serde_json::to_string(usage).map_err(|error| error.to_string())?;
+    let conn = StorageService::connect()?;
+    conn.execute(
+        "INSERT INTO execution_usage_cache (key, usage_json, fetched_at, error)
+         VALUES ('projected', ?1, ?2, NULL)
+         ON CONFLICT(key) DO UPDATE SET
+            usage_json = excluded.usage_json,
+            fetched_at = excluded.fetched_at,
+            error = NULL",
+        params![json, usage.assembled_at],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn mark_projected_usage_cache_error(error: &str) {
+    let Ok(conn) = StorageService::connect() else {
+        return;
+    };
+    let bounded = error.chars().take(1_000).collect::<String>();
+    let _ = conn.execute(
+        "UPDATE execution_usage_cache SET error = ?1 WHERE key = 'projected'",
+        params![bounded],
+    );
 }
 
 fn parse_live_usage(v: Value) -> LiveUsage {

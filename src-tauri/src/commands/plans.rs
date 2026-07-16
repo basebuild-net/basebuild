@@ -168,7 +168,7 @@ pub async fn set_plan_status(app: AppHandle, id: String, status: String) -> Resu
                     // Revert the plan to draft so the user can retry.
                     let _ = PlanService::set_status(&plan_id, PlanStatus::Draft);
                     let _ = crate::services::planning_events::emit(
-                    &fail_app,
+                        &fail_app,
                         crate::models::planning_event::PlanningEventKind::PlanStatusChanged,
                         &plan_id,
                         &project_path,

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ImplementationAssessment } from "./planning-assessment";
 
 export type NativeChatSession = {
   id: string;
@@ -161,6 +162,9 @@ export type NativeChatSendResult = {
 export type NativeGeneratedIdea = {
   title: string;
   description: string;
+  grounding: string;
+  anchor?: string;
+  assessment?: ImplementationAssessment;
 };
 
 export type GroundingMetadata = {

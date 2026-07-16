@@ -73,7 +73,10 @@ impl PipelineService {
     /// Start a pipeline stage. Records a `pending` run row, marks it
     /// `running`, executes the stage, and records the terminal status. The
     /// `CancellationToken` is held in `RUNNING_STAGES` so cancel can abort.
-    pub fn start_stage<R: Runtime>(app: &AppHandle<R>, request: PipelineStartRequest) -> DbResult<PipelineRun> {
+    pub fn start_stage<R: Runtime>(
+        app: &AppHandle<R>,
+        request: PipelineStartRequest,
+    ) -> DbResult<PipelineRun> {
         let kind = PipelineStageKind::from_str(&request.kind)
             .ok_or_else(|| format!("Unknown pipeline stage kind: {}", request.kind))?;
 
@@ -82,7 +85,8 @@ impl PipelineService {
         // reached `global_max`. The caller can retry once a slot frees.
         let global_max =
             crate::services::settings_service::SettingsService::effective_global_max() as i64;
-        let active = crate::services::plan_runner_service::PlanRunnerService::count_active_runs(None)?;
+        let active =
+            crate::services::plan_runner_service::PlanRunnerService::count_active_runs(None)?;
         if active >= global_max {
             return Err(format!(
                 "Global concurrency limit reached ({active}/{global_max} active runs). \
@@ -379,15 +383,35 @@ impl PipelineService {
             Some(p) => format!("{focus_and_digest}\n\n{p}"),
             None => focus_and_digest.clone(),
         };
+        let existing_work = SessionService::list_ideas(&request.session_id)?
+            .into_iter()
+            .take(50)
+            .map(|idea| format!("- idea [{}]: {}", idea.status.as_str(), idea.title))
+            .chain(
+                crate::services::plan_service::PlanService::list_for_project(
+                    &request.project_path,
+                )?
+                .into_iter()
+                .take(50)
+                .map(|plan| format!("- plan [{}]: {}", plan.status.as_str(), plan.title)),
+            )
+            .collect::<Vec<_>>()
+            .join("\n");
         let prompt = format!(
             "{focus_full}\n\n\
              Based on the project schematic and conversation below, propose 3-6 \
-             concrete, actionable ideas for this project. Each idea must cite \
-             grounding (real files, functions, or observed gaps). Respond with \
-             ONLY a JSON array of objects with \"title\" (max 8 words), \
-             \"description\" (1-2 sentences), and \"grounding\" (concrete \
-             evidence). Optionally include \"anchor\" naming the Vision/End \
-             goal/priority served. No prose, no code fences.\n\n\
+             distinct, bounded ideas for this project. Inspect the repository, compare \
+             trade-offs, and exclude duplicates from the existing-work list unless the \
+             scope is materially different. Respond with ONLY a JSON array. Every object \
+             requires \"title\", \"description\", \"grounding\", and \"assessment\". \
+             assessment must be {{\"schemaVersion\":1,\"effort\":{{\"minHours\":integer,\"maxHours\":integer}},\
+             \"difficulty\":1-5,\"impact\":1-5,\"risk\":1-5,\"confidence\":1-5,\
+             \"rationale\":string,\"grounding\":[string],\"requiredCapabilities\":[string],\
+             \"constraints\":[string],\"missingEvidence\":[string],\"alternatives\":[string]}}. \
+             Ground estimates in real files, symbols, observed behavior, or explicit unknowns. \
+             Low evidence requires low confidence and non-empty missingEvidence. Optionally include \
+             \"anchor\" naming the Vision/End goal/priority served. No prose or code fences.\n\n\
+             Existing ideas and plans (do not duplicate):\n{existing_work}\n\n\
              Category hint: {category_hint}\n\n\
              Schematic:\n{schematic_text}\n\nConversation:\n{convo}",
             schematic_text = schematic.as_deref().unwrap_or("(no schematic)"),
@@ -410,25 +434,44 @@ impl PipelineService {
         )?;
 
         let ideas = NativeChatService::parse_ideas(&response);
-        let mut idea_ids = Vec::new();
+        if ideas.is_empty() {
+            return Err("Idea generation returned no parseable JSON ideas.".to_string());
+        }
+        for (index, idea) in ideas.iter().enumerate() {
+            if idea.grounding.trim().is_empty() {
+                return Err(format!(
+                    "Generated idea {index} is missing concrete grounding; no ideas were persisted."
+                ));
+            }
+            let assessment = idea.assessment.as_ref().ok_or_else(|| {
+                format!(
+                    "Generated idea {index} is missing its versioned assessment; no ideas were persisted."
+                )
+            })?;
+            assessment.validate().map_err(|error| {
+                format!("Generated idea {index} has invalid {error}; no ideas were persisted.")
+            })?;
+        }
+        let category_id = if category_hint.is_empty() {
+            None
+        } else {
+            let categories = SessionService::list_categories(&request.session_id)?;
+            categories
+                .iter()
+                .find(|category| category.name.eq_ignore_ascii_case(category_hint))
+                .map(|category| category.id.clone())
+        };
+        let mut idea_ids = Vec::with_capacity(ideas.len());
         for idea in ideas {
-            let category_id = if category_hint.is_empty() {
-                None
-            } else {
-                // Try to find a category matching the hint; if not, leave uncategorized.
-                let cats = SessionService::list_categories(&request.session_id)?;
-                cats.iter()
-                    .find(|c| c.name.eq_ignore_ascii_case(category_hint))
-                    .map(|c| c.id.clone())
-            };
             let created = SessionService::create_idea(
                 &request.session_id,
                 &idea.title,
                 &idea.description,
                 category_id.as_deref(),
-                "",
-                None,
+                &idea.grounding,
+                idea.anchor.as_deref(),
                 Some(run_id),
+                idea.assessment.as_ref(),
             )?;
             idea_ids.push(created.id);
         }
@@ -734,6 +777,108 @@ impl PipelineService {
             return Err(error_msg);
         }
 
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct GeneratedPlanAssessment {
+            implementation: crate::models::planning_assessment::ImplementationAssessment,
+            parallelism: crate::models::planning_assessment::ParallelismGuidance,
+        }
+
+        let assessment_prompt = format!(
+            "Assess the implementation represented by these validated OpenSpec artifacts. \
+             Return ONLY one JSON object with exactly: implementation (schemaVersion, \
+             effort {{minHours,maxHours}}, difficulty, impact, risk, confidence, rationale, \
+             grounding, requiredCapabilities, constraints, missingEvidence, alternatives), \
+             parallelism {{maxParallelTasks:1-16,rationale:string}}. Ratings are \
+             integers 1-5. Use honest ranges, cite artifact evidence, lower confidence \
+             when evidence is weak, and do not invent precision.\n\nPROPOSAL\n{proposal}\n\n\
+             SPEC\n{}\n\nDESIGN\n{design}\n\nTASKS\n{tasks}",
+            specs
+                .first()
+                .map(|(_, content)| content.as_str())
+                .unwrap_or("")
+        );
+        let assessment_response = Self::call_model(
+            app,
+            &request.session_id,
+            run_id,
+            token,
+            &provider_id,
+            &model_id,
+            &effort_level,
+            NativeChatService::system_prompt(&request.project_path, schematic.as_deref()),
+            assessment_prompt,
+            "openspec-assessment",
+        )?;
+        let generated: GeneratedPlanAssessment = serde_json::from_str(assessment_response.trim())
+            .map_err(|error| {
+            format!("Plan assessment returned invalid JSON ({error}); artifacts remain draft.")
+        })?;
+        generated
+            .implementation
+            .validate()
+            .map_err(|error| format!("Plan assessment has invalid {error}"))?;
+        let (completed_tasks, task_count) =
+            crate::services::openspec_service::parse_task_progress(&tasks);
+        debug_assert_eq!(completed_tasks, 0);
+        let source_idea = plan
+            .idea_id
+            .as_deref()
+            .map(SessionService::get_idea)
+            .transpose()?
+            .flatten();
+        let inherited_idea_assessment = source_idea
+            .as_ref()
+            .and_then(|idea| idea.assessment.clone());
+        let estimate_drift = inherited_idea_assessment.as_ref().map_or_else(
+            || "No source idea assessment was available; this estimate starts from the validated task graph.".to_string(),
+            |idea| {
+                format!(
+                    "Idea estimate {}-{}h became {}-{}h after validating {} task(s).",
+                    idea.effort.min_hours,
+                    idea.effort.max_hours,
+                    generated.implementation.effort.min_hours,
+                    generated.implementation.effort.max_hours,
+                    task_count
+                )
+            },
+        );
+        let artifact_fingerprint =
+            crate::services::openspec_service::assessment_artifact_fingerprint(
+                &request.project_path,
+                &change_name,
+            )?;
+        let artifact_chars = proposal
+            .chars()
+            .count()
+            .saturating_add(
+                specs
+                    .iter()
+                    .map(|(_, content)| content.chars().count())
+                    .sum(),
+            )
+            .saturating_add(design.chars().count())
+            .saturating_add(tasks.chars().count());
+        let expected_context_tokens = u32::try_from(artifact_chars.div_ceil(4))
+            .unwrap_or(2_000_000)
+            .clamp(1, 2_000_000);
+        let assessment = crate::models::planning_assessment::PlanAssessment {
+            schema_version: crate::models::planning_assessment::ASSESSMENT_SCHEMA_VERSION,
+            implementation: generated.implementation,
+            artifact_fingerprint,
+            source_idea_id: plan.idea_id.clone(),
+            estimate_drift,
+            expected_context_tokens,
+            parallelism: generated.parallelism,
+            assessed_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_secs() as i64)
+                .unwrap_or_default(),
+            stale: false,
+        };
+        assessment.validate()?;
+        crate::services::plan_service::PlanService::save_assessment(&plan.id, &assessment)?;
+
         // Link the plan to the change.
         crate::services::openspec_service::link_plan_to_change(&plan.id, &change_name)?;
 
@@ -986,6 +1131,12 @@ fn handle_pipeline_ask_user(
             recommended,
             allow_free_text,
             detail,
+            page_id: None,
+            page_title: None,
+            page_description: None,
+            required: false,
+            multiline: false,
+            scale: None,
         });
     }
     let interaction = crate::services::interaction_service::InteractionService::create(

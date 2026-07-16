@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { FolderTree, LayoutGrid, Loader2, Plus, RefreshCw, Rocket, Sparkles, Trash2, X } from "lucide-react";
+import { Archive, FolderTree, LayoutGrid, Loader2, Plus, RefreshCw, Rocket, Sparkles, Trash2, X } from "lucide-react";
 import type { Plan, PlanStatus } from "../../lib/plans";
 import { isTerminalStatus } from "../../lib/plans";
 import { batchPromoteIdeas } from "../../lib/plans";
@@ -13,8 +13,10 @@ import { CompletionCard } from "../panels/CompletionCard";
 import { MissionControlBoard } from "./MissionControlBoard";
 import type { PlanRun, FinishOutcome } from "../../lib/planRuns";
 import { useIdeaState } from "../../state/ideas";
-import type { IdeaCategory, IdeaStatus } from "../../lib/ideas";
+import type { Idea, IdeaCategory, IdeaStatus } from "../../lib/ideas";
 import { OptionList, type OptionListOption } from "./OptionList";
+import { IdeaBatchPreview, IdeaReviewWorkbench, type ParsedIdeaBatch } from "../panels/IdeaReviewWorkbench";
+import { IdeaAssessmentSummary } from "../planning/IdeaAssessmentSummary";
 import { useProjectSchematic } from "../../state/schematic";
 import { useLogs } from "../../state/log";
 import { subscribeGrounding, getLastGrounding } from "../../state/grounding";
@@ -137,6 +139,8 @@ export function PlanningInspector({
   const [selectedIdeaIds, setSelectedIdeaIds] = useState<Set<string>>(new Set());
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [promotingIdeaId, setPromotingIdeaId] = useState<string | null>(null);
+  const [openIdeaHistoryKey, setOpenIdeaHistoryKey] = useState<string | null>(null);
+  const [openIdeaHistoryIndex, setOpenIdeaHistoryIndex] = useState(0);
   const [planRuns, setPlanRuns] = useState<PlanRun[]>([]);
   const [completionDismissed, setCompletionDismissed] = useState<Set<string>>(new Set());
   const [finishOutcomes, setFinishOutcomes] = useState<Map<string, FinishOutcome>>(new Map());
@@ -827,6 +831,34 @@ export function PlanningInspector({
     ? ideaState.ideas.filter((i) => i.categoryId === selectedCategory.id)
     : [];
 
+  const ideaHistoryBatches = statusFilter === "all"
+    ? Array.from(ideaState.ideas.reduce((groups, idea) => {
+      if (idea.status === "concept") return groups;
+      const key = idea.batchId ?? `idea:${idea.id}`;
+      const existing = groups.get(key);
+      if (existing) existing.push(idea);
+      else groups.set(key, [idea]);
+      return groups;
+    }, new Map<string, Idea[]>())).map(([key, ideas]) => ({
+      key,
+      ideas,
+      batch: {
+        proposals: ideas.map((idea) => ({
+          title: idea.title,
+          description: idea.description,
+          grounding: idea.grounding ?? undefined,
+          anchor: idea.anchor ?? undefined,
+          assessment: idea.assessment,
+        })),
+        categoryId: ideas[0]?.categoryId ?? null,
+      } satisfies ParsedIdeaBatch,
+    }))
+    : [];
+  const openIdeaHistory = ideaHistoryBatches.find(({ key }) => key === openIdeaHistoryKey) ?? null;
+  const displayedIdeas = statusFilter === "all"
+    ? filteredIdeas.filter((idea) => idea.status === "concept")
+    : filteredIdeas;
+
   if (collapsed) {
     return (
       <div className="side-section planning-inspector" data-collapsed="true">
@@ -1034,8 +1066,34 @@ export function PlanningInspector({
             </div>
           ) : null}
           {batchResult ? <p className="text-sm text-muted">{batchResult}</p> : null}
+          {openIdeaHistory ? (
+            <IdeaReviewWorkbench
+              {...openIdeaHistory.batch}
+              toolId={openIdeaHistory.key}
+              status="success"
+              ideas={openIdeaHistory.ideas}
+              projectPath={projectPath ?? undefined}
+              currentIndex={openIdeaHistoryIndex}
+              showContinue={false}
+              readOnly
+              onCurrentIndexChange={setOpenIdeaHistoryIndex}
+              onMinimize={() => setOpenIdeaHistoryKey(null)}
+            />
+          ) : (
           <div className="inspector-ideas-list">
-            {filteredIdeas.length === 0 ? (
+            {ideaHistoryBatches.map(({ key, ideas, batch }) => (
+              <IdeaBatchPreview
+                key={key}
+                {...batch}
+                status="success"
+                ideas={ideas}
+                onOpen={() => {
+                  setOpenIdeaHistoryIndex(0);
+                  setOpenIdeaHistoryKey(key);
+                }}
+              />
+            ))}
+            {displayedIdeas.length === 0 && ideaHistoryBatches.length === 0 ? (
               <div className="inspector-ideas-empty">
                 <p className="text-muted text-sm">No ideas {statusFilter === "all" ? "yet" : `in ${statusFilter}`}.</p>
                 {onStartIdeaRound && statusFilter === "all" ? (
@@ -1050,7 +1108,7 @@ export function PlanningInspector({
                 ) : null}
               </div>
             ) : null}
-            {filteredIdeas.map((idea) => (
+            {displayedIdeas.map((idea) => (
               <div key={idea.id} className={`chat-idea-card chat-idea-status-${idea.status}`}>
                 <div className="chat-idea-card-top">
                   {idea.status === "concept" ? (
@@ -1091,6 +1149,15 @@ export function PlanningInspector({
                       >
                         Pass
                       </button>
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        type="button"
+                        title={`Defer ${idea.title} for later`}
+                        disabled={promotingIdeaId === idea.id}
+                        onClick={() => void ideaState.updateIdeaStatus(idea.id, "archived")}
+                      >
+                        <Archive size={11} /> Defer
+                      </button>
                     </div>
                   ) : (
                     <span className={`chat-idea-status ${idea.status === "rejected" ? "is-rejected" : ""}`}>
@@ -1099,6 +1166,12 @@ export function PlanningInspector({
                   )}
                 </div>
                 {idea.description ? <p className="chat-idea-desc">{idea.description}</p> : null}
+                <IdeaAssessmentSummary
+                  assessment={idea.assessment}
+                  grounding={idea.grounding}
+                  anchor={idea.anchor}
+                  compact
+                />
                 {(idea.anchor || idea.grounding) ? (
                   <span
                     className="idea-card-evidence"
@@ -1118,6 +1191,7 @@ export function PlanningInspector({
               </div>
             ))}
           </div>
+          )}
         </div>
       ) : null}
 

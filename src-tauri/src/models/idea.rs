@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::models::planning_assessment::ImplementationAssessment;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdeaCategory {
@@ -28,6 +30,10 @@ pub struct Idea {
     /// Generation round (batch) that captured this idea. `None` for manual
     /// creations and captures outside a round. Groups ideas into rounds.
     pub batch_id: Option<String>,
+    /// Versioned planning estimate. Legacy and manually-created ideas may not
+    /// have one; planning-skill captures require a validated value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assessment: Option<ImplementationAssessment>,
     pub created_at: i64,
     pub updated_at: i64,
 }

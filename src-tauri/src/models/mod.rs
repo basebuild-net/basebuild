@@ -1,6 +1,7 @@
 pub mod config_pack;
 pub mod connector;
 pub mod git;
+pub mod execution_advisor;
 pub mod idea;
 pub mod interaction;
 pub mod native_chat;
@@ -17,6 +18,7 @@ pub mod plan_dependency;
 pub mod plan_detection;
 pub mod plan_import;
 pub mod plan_run;
+pub mod planning_assessment;
 pub mod planning_event;
 pub mod planning_prompt;
 pub mod project;

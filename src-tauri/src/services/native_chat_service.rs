@@ -1296,7 +1296,6 @@ impl NativeChatService {
         )?;
         Self::touch_session(&request.session_id)?;
 
-
         let catalog = Self::provider_catalog();
         let provider_label = catalog
             .providers
@@ -1365,6 +1364,13 @@ impl NativeChatService {
         } else {
             direction.to_string()
         };
+        let existing_ideas = crate::services::session_service::SessionService::list_ideas(
+            &request.planning_session_id,
+        )?;
+        let existing_plans = crate::services::plan_service::PlanService::list_for_project(
+            &chat_session.project_path,
+        )?;
+        let existing_work = existing_planning_work_context(&existing_ideas, &existing_plans);
         let skill = crate::services::skill_registry_service::SkillRegistryService::read_content(
             "basebuild-planning",
         )
@@ -1377,13 +1383,15 @@ impl NativeChatService {
              - idea_count: {idea_count}\n\
              - planning_session_id: {}\n\
              - focus_areas:\n{category_arguments}\n\
-             - direction: {direction_argument}\n\n\
+             - direction: {direction_argument}\n\
+             - existing ideas and plans (do not duplicate):\n{existing_work}\n\n\
              Invocation rules:\n\
              - Start by using native read/list/search tools on the project. Never say you will read files without making the tool calls in that same turn.\n\
              - Capture exactly {idea_count} distinct ideas through propose_ideas. Use the matching category id when a focus area is selected.\n\
-             - Give every idea a plain, verb-first title of 2-5 words. Keep implementation detail and file names out of titles.\n\
-             - Write one concise description sentence naming the concrete target and user-visible reason. Put supporting file/function evidence in grounding.\n\
-             - Every idea needs concrete grounding and, when possible, a repository anchor.\n\
+             - Exclude existing work unless the scope is materially different, then explain the distinction in assessment.rationale.\n\
+             - Give every idea a plain, verb-first title of 2-5 words and one concise outcome sentence; keep file names in grounding.\n\
+             - Every idea requires assessment schemaVersion 1, an honest minHours/maxHours range, 1-5 difficulty/impact/risk/confidence, rationale, concrete grounding, required capabilities, constraints, missing evidence, and alternatives.\n\
+             - Low evidence requires low confidence and explicit missingEvidence. Compare trade-offs and prefer bounded, goal-aligned impact over inflated scope.\n\
              - Do not print the generated idea catalog as a wall of prose; the native tool renders it in Idea Studio.\n\
              - After capture, reply with one short completion sentence.",
             request.planning_session_id
@@ -1409,12 +1417,10 @@ impl NativeChatService {
             })
             .collect::<Vec<_>>();
         let messages = Self::history_to_provider_messages(&visible_history);
-        let existing_idea_ids = crate::services::session_service::SessionService::list_ideas(
-            &request.planning_session_id,
-        )?
-        .into_iter()
-        .map(|idea| idea.id)
-        .collect::<std::collections::HashSet<_>>();
+        let existing_idea_ids = existing_ideas
+            .iter()
+            .map(|idea| idea.id.clone())
+            .collect::<std::collections::HashSet<_>>();
 
         let run_result = crate::services::agent_loop_service::run_agent_turn(
             &request.session_id,
@@ -1449,6 +1455,9 @@ impl NativeChatService {
         .map(|idea| NativeGeneratedIdea {
             title: idea.title,
             description: idea.description,
+            grounding: idea.grounding,
+            anchor: idea.anchor,
+            assessment: idea.assessment,
         })
         .collect::<Vec<_>>();
 
@@ -2274,7 +2283,29 @@ impl NativeChatService {
                     .unwrap_or("")
                     .trim()
                     .to_string();
-                Some(NativeGeneratedIdea { title, description })
+                let grounding = item
+                    .get("grounding")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                let anchor = item
+                    .get("anchor")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string);
+                let assessment = item
+                    .get("assessment")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value(value).ok());
+                Some(NativeGeneratedIdea {
+                    title,
+                    description,
+                    grounding,
+                    anchor,
+                    assessment,
+                })
             })
             .collect()
     }
@@ -2472,6 +2503,24 @@ fn estimate_tokens(text: &str) -> i64 {
     } else {
         trimmed.split_whitespace().count().max(1) as i64
     }
+}
+
+fn existing_planning_work_context(
+    ideas: &[crate::models::idea::Idea],
+    plans: &[crate::models::plan::Plan],
+) -> String {
+    ideas
+        .iter()
+        .take(50)
+        .map(|idea| format!("- idea [{}]: {}", idea.status.as_str(), idea.title))
+        .chain(
+            plans
+                .iter()
+                .take(50)
+                .map(|plan| format!("- plan [{}]: {}", plan.status.as_str(), plan.title)),
+        )
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(test)]
@@ -3399,5 +3448,49 @@ mod tests {
             ],
             "consecutive assistant rows merge; providers never see back-to-back assistant messages"
         );
+    }
+    #[test]
+    fn existing_planning_work_context_exposes_titles_and_statuses() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = lock_db(&directory);
+        let session = crate::services::session_service::SessionService::create_session(
+            "/test/existing-work",
+            "Existing work",
+        )
+        .unwrap();
+        crate::services::session_service::SessionService::create_idea(
+            &session.id,
+            "Avoid duplicate route",
+            "Existing idea",
+            None,
+            "fixture",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        crate::services::plan_service::PlanService::create(
+            &session.id,
+            &crate::models::plan::NewPlan {
+                title: "Ship active planner".to_string(),
+                description: "Existing plan".to_string(),
+                goal: None,
+                status: crate::models::plan::PlanStatus::Ready,
+                priority: None,
+                tags: vec![],
+                idea_id: None,
+            },
+        )
+        .unwrap();
+        let ideas =
+            crate::services::session_service::SessionService::list_ideas(&session.id).unwrap();
+        let plans =
+            crate::services::plan_service::PlanService::list_for_project("/test/existing-work")
+                .unwrap();
+
+        let context = existing_planning_work_context(&ideas, &plans);
+
+        assert!(context.contains("idea [concept]: Avoid duplicate route"));
+        assert!(context.contains("plan [ready]: Ship active planner"));
     }
 }

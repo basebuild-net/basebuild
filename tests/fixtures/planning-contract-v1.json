@@ -1,0 +1,93 @@
+{
+  "legacyInteraction": {
+    "id": "interaction-legacy",
+    "sessionId": "chat-legacy",
+    "questions": [
+      {
+        "id": "choice",
+        "prompt": "Choose one",
+        "kind": "options",
+        "options": [{ "label": "Safe" }],
+        "allowFreeText": false
+      }
+    ],
+    "status": "pending",
+    "createdAt": 1
+  },
+  "interactionV1": {
+    "id": "interaction-v1",
+    "sessionId": "chat-v1",
+    "title": "Review implementation direction",
+    "description": "The agent will continue after these two decisions.",
+    "questions": [
+      {
+        "id": "scope",
+        "prompt": "Approve the proposed scope?",
+        "kind": "confirm",
+        "pageId": "scope-page",
+        "pageTitle": "Scope",
+        "required": true,
+        "options": [{ "label": "Approve" }, { "label": "Revise" }],
+        "recommended": 0,
+        "allowFreeText": false
+      },
+      {
+        "id": "confidence",
+        "prompt": "How confident are you?",
+        "kind": "rating",
+        "pageId": "rating-page",
+        "pageTitle": "Confidence",
+        "required": true,
+        "options": [],
+        "allowFreeText": false,
+        "scale": {
+          "min": 1,
+          "max": 5,
+          "lowLabel": "Low",
+          "highLabel": "High",
+          "style": "stars"
+        }
+      }
+    ],
+    "status": "pending",
+    "draftAnswers": [{ "questionId": "scope", "selected": ["Approve"] }],
+    "currentPage": 1,
+    "createdAt": 2
+  },
+  "assessmentV1": {
+    "schemaVersion": 1,
+    "effort": { "minHours": 8, "maxHours": 16 },
+    "difficulty": 4,
+    "impact": 5,
+    "risk": 3,
+    "confidence": 4,
+    "rationale": "Touches persisted state and execution recovery.",
+    "grounding": ["Observed interrupted chat with a running plan."],
+    "requiredCapabilities": ["Rust", "SQLite"],
+    "constraints": ["Recovery must be deterministic after restart."],
+    "missingEvidence": [],
+    "alternatives": ["Reconcile only during explicit queue inspection."]
+  },
+  "modelProfilesV1": {
+    "version": 1,
+    "generatedAt": "2026-01-01T00:00:00Z",
+    "profiles": [
+      {
+        "canonicalModelId": "anthropic/claude-sonnet-4",
+        "providerFamily": "anthropic",
+        "displayName": "Claude Sonnet 4",
+        "aliases": ["claude-sonnet-4"],
+        "strengths": ["coding", "planning"],
+        "limitations": ["hosted profile data may be stale"],
+        "taskFit": { "planning": 4, "coding": 5, "review": 4 },
+        "contextClass": "large",
+        "costClass": "premium",
+        "speedClass": "balanced",
+        "availability": "provider_dependent",
+        "source": "basebuild-curated",
+        "sourceUrl": "https://basebuild.net/models/anthropic/claude-sonnet-4",
+        "updatedAt": "2026-01-01T00:00:00Z"
+      }
+    ]
+  }
+}

@@ -38,6 +38,7 @@ import { useOpenSpecRuntime } from "../../state/useOpenSpecRuntime";
 import { PlanImportModal } from "./PlanImportModal";
 import { OptionList, type OptionListOption } from "./OptionList";
 import { listResolvedSkills, type ResolvedSkill } from "../../lib/skillRegistry";
+import { ExecutionAdvisorCard } from "../planning/ExecutionAdvisorCard";
 import {
   nativeChatBootstrap,
   nativeChatSetProjectModelDefault,
@@ -456,6 +457,9 @@ function PlanCard({
           ) : null}
         </div>
       </div>
+      {projectPath && plan.assessment ? (
+        <ExecutionAdvisorCard projectPath={projectPath} planId={plan.id} compact />
+      ) : null}
       {isDraftLike ? (
         <PlanPromotionForm
           plan={plan}

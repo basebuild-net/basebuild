@@ -169,9 +169,17 @@ mod tests {
         // No cross-session leakage.
         assert!(IdeaRoundService::active_round("other").is_none());
 
-        let idea =
-            SessionService::create_idea("rs1", "T", "D", None, "evidence", None, Some(&round))
-                .unwrap();
+        let idea = SessionService::create_idea(
+            "rs1",
+            "T",
+            "D",
+            None,
+            "evidence",
+            None,
+            Some(&round),
+            None,
+        )
+        .unwrap();
         assert_eq!(idea.batch_id.as_deref(), Some(round.as_str()));
 
         let finished = IdeaRoundService::finish_round("rs1", "/p").unwrap();

@@ -1,7 +1,10 @@
 use rusqlite::params;
 
 use crate::{
-    models::plan::{NewPlan, Plan, PlanFocusContext, PlanStatus},
+    models::{
+        plan::{NewPlan, Plan, PlanFocusContext, PlanStatus},
+        planning_assessment::PlanAssessment,
+    },
     services::storage_service::StorageService,
 };
 
@@ -53,8 +56,8 @@ impl PlanService {
             "INSERT INTO plans (
                 id, session_id, reference_id, title, description, goal, status,
                 priority, tags, ai_enhanced, context, idea_id, change_name,
-                created_at, updated_at, finished_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                assessment_json, created_at, updated_at, finished_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 id,
                 session_id,
@@ -68,6 +71,7 @@ impl PlanService {
                 false,
                 None::<String>,
                 plan.idea_id,
+                None::<String>,
                 None::<String>,
                 created,
                 created,
@@ -90,6 +94,7 @@ impl PlanService {
             context: None,
             idea_id: plan.idea_id.clone(),
             change_name: None,
+            assessment: None,
             created_at: created,
             updated_at: created,
             finished_at: None,
@@ -102,7 +107,7 @@ impl PlanService {
             .prepare(
                 "SELECT id, session_id, reference_id, title, description, goal, status,
                         priority, tags, ai_enhanced, context, idea_id, change_name,
-                        created_at, updated_at, finished_at
+                        assessment_json, created_at, updated_at, finished_at
                  FROM plans
                  WHERE session_id = ?1
                    AND NOT EXISTS (
@@ -126,7 +131,7 @@ impl PlanService {
             .prepare(
                 "SELECT id, session_id, reference_id, title, description, goal, status,
                         priority, tags, ai_enhanced, context, idea_id, change_name,
-                        created_at, updated_at, finished_at
+                        assessment_json, created_at, updated_at, finished_at
                  FROM plans
                  WHERE session_id IN (
                    SELECT id FROM sessions WHERE project_path = ?1
@@ -152,7 +157,7 @@ impl PlanService {
             .prepare(
                 "SELECT id, session_id, reference_id, title, description, goal, status,
                         priority, tags, ai_enhanced, context, idea_id, change_name,
-                        created_at, updated_at, finished_at
+                        assessment_json, created_at, updated_at, finished_at
                  FROM plans WHERE id = ?1 LIMIT 1",
             )
             .map_err(|e| e.to_string())?;
@@ -290,6 +295,40 @@ impl PlanService {
         // emitted by the command layer after each successful promote.
         Ok((created, errors))
     }
+    pub fn save_assessment(id: &str, assessment: &PlanAssessment) -> DbResult<()> {
+        assessment.validate()?;
+        let assessment_json =
+            serde_json::to_string(assessment).map_err(|error| error.to_string())?;
+        let conn = StorageService::connect()?;
+        let changed = conn
+            .execute(
+                "UPDATE plans SET assessment_json = ?1, updated_at = ?2 WHERE id = ?3",
+                params![assessment_json, now(), id],
+            )
+            .map_err(|error| error.to_string())?;
+        if changed == 0 {
+            return Err("Plan not found".to_string());
+        }
+        Ok(())
+    }
+
+    pub fn mark_assessment_stale_if_fingerprint_changed(
+        id: &str,
+        artifact_fingerprint: &str,
+    ) -> DbResult<bool> {
+        let Some(plan) = Self::get(id)? else {
+            return Err("Plan not found".to_string());
+        };
+        let Some(mut assessment) = plan.assessment else {
+            return Ok(false);
+        };
+        if assessment.artifact_fingerprint == artifact_fingerprint || assessment.stale {
+            return Ok(false);
+        }
+        assessment.stale = true;
+        Self::save_assessment(id, &assessment)?;
+        Ok(true)
+    }
 }
 
 /// Map a rusqlite row (in the column order used by `list`/`get`) to a `Plan`.
@@ -298,6 +337,7 @@ fn row_to_plan(row: &rusqlite::Row<'_>) -> rusqlite::Result<Plan> {
     let status_str: String = row.get(6)?;
     let tags_json: String = row.get(8)?;
     let context_json: Option<String> = row.get(10)?;
+    let assessment_json: Option<String> = row.get(13)?;
     Ok(Plan {
         id: row.get(0)?,
         session_id: row.get(1)?,
@@ -309,12 +349,13 @@ fn row_to_plan(row: &rusqlite::Row<'_>) -> rusqlite::Result<Plan> {
         priority: row.get(7)?,
         tags: serde_json::from_str(&tags_json).unwrap_or_default(),
         ai_enhanced: row.get(9)?,
-        context: context_json.and_then(|j| serde_json::from_str(&j).ok()),
+        context: context_json.and_then(|json| serde_json::from_str(&json).ok()),
         idea_id: row.get(11)?,
         change_name: row.get(12)?,
-        created_at: row.get(13)?,
-        updated_at: row.get(14)?,
-        finished_at: row.get(15)?,
+        assessment: assessment_json.and_then(|json| serde_json::from_str(&json).ok()),
+        created_at: row.get(14)?,
+        updated_at: row.get(15)?,
+        finished_at: row.get(16)?,
     })
 }
 

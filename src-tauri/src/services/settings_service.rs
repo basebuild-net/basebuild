@@ -602,7 +602,10 @@ impl SettingsService {
             let (provider_id, entry) = row.map_err(|e| e.to_string())?;
             providers.insert(provider_id, entry);
         }
-        Ok(RunConcurrencyLimits { providers, ..Default::default() })
+        Ok(RunConcurrencyLimits {
+            providers,
+            ..Default::default()
+        })
     }
 
     /// Upsert a single provider's override for a project. Replaces the

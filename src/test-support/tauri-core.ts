@@ -9,6 +9,7 @@ import {
   MVP_FIXTURE_TABS,
 } from "./fixture-data";
 import { __emit } from "./tauri-event";
+import type { ImplementationAssessment } from "../lib/planning-assessment";
 
 type Session = {
   id: string;
@@ -102,6 +103,7 @@ type Idea = {
   grounding?: string;
   anchor?: string | null;
   batchId?: string | null;
+  assessment?: ImplementationAssessment;
   createdAt: number;
   updatedAt: number;
 };
@@ -554,10 +556,23 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       }
       return [] as T;
     }
+    case "native_interaction_save_draft": {
+      const w = globalThis as unknown as { __basebuildMockInteraction?: { [k: string]: unknown } };
+      const request = args.request as { answers?: unknown; currentPage?: number } | undefined;
+      if (w.__basebuildMockInteraction && request) {
+        w.__basebuildMockInteraction.draftAnswers = request.answers ?? [];
+        w.__basebuildMockInteraction.currentPage = request.currentPage ?? 0;
+      }
+      return w.__basebuildMockInteraction as T;
+    }
     case "native_interaction_resolve": {
       const w = globalThis as unknown as { __basebuildMockInteraction?: { id: string; status: string; [k: string]: unknown } };
-      if (w.__basebuildMockInteraction) w.__basebuildMockInteraction.status = "answered";
-      return (w.__basebuildMockInteraction ?? { id: args.id as string, status: "answered" }) as T;
+      const request = args.request as { answers?: unknown } | undefined;
+      if (w.__basebuildMockInteraction) {
+        w.__basebuildMockInteraction.status = "answered";
+        w.__basebuildMockInteraction.answers = request?.answers ?? [];
+      }
+      return (w.__basebuildMockInteraction ?? { id: args.id as string, status: "answered", answers: request?.answers ?? [] }) as T;
     }
     case "native_interaction_cancel": {
       const w = globalThis as unknown as { __basebuildMockInteraction?: { id: string; status: string; [k: string]: unknown } };
@@ -1028,6 +1043,51 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       });
       return { catalog, resolved } as T;
     }
+    case "native_catalog_sync":
+      return { synced: 4, skipped: 0, error: null } as T;
+    case "execution_advice_get": {
+      const roleAdvice = (role: "planner" | "coder") => ({
+        role,
+        recommendation: {
+          providerId: "umans",
+          modelId: "umans-glm-5.2",
+          label: "Umans GLM 5.2",
+          score: role === "planner" ? 84.2 : 88.6,
+          confidence: "medium",
+          factors: [
+            { name: "quality_fit", score: 35, maxScore: 45, explanation: "Public role-fit evidence scores 78%" },
+            { name: "capacity", score: 11, maxScore: 15, explanation: "Local telemetry reports 73% remaining" },
+          ],
+          reasons: [],
+          sourceFreshness: ["public_profile_age_seconds:3600", "capacity:omp_live:fresh"],
+          userOverride: false,
+        },
+        alternatives: [{
+          providerId: "openai",
+          modelId: "gpt-5.1",
+          label: "GPT-5.1",
+          score: 80.1,
+          confidence: "medium",
+          factors: [],
+          reasons: [],
+          sourceFreshness: ["public_profile_age_seconds:3600", "capacity:missing"],
+          userOverride: false,
+        }],
+        excluded: [],
+        confidence: "medium",
+        generatedAt: Math.floor(Date.now() / 1000),
+      });
+      return {
+        schemaVersion: 1,
+        assessmentSource: "idea_assessment",
+        assessmentStale: false,
+        planner: roleAdvice("planner"),
+        coder: roleAdvice("coder"),
+      } as T;
+    }
+    case "execution_advice_set_override":
+    case "execution_advice_clear_override":
+      return undefined as T;
     case "native_provider_catalog":
     case "native_provider_catalog_refresh": {
       // Build provider list dynamically — check credentials/blocked state
@@ -1545,6 +1605,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         grounding: (args.grounding as string | undefined) ?? "",
         anchor: (args.anchor as string | null | undefined) ?? null,
         batchId: s.activeRoundBySession.get(args.sessionId as string) ?? null,
+        assessment: args.assessment as Idea["assessment"],
         createdAt: ts,
         updatedAt: ts,
       };
@@ -1608,6 +1669,14 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "update_idea_status": {
       const idea = s.ideas.find((item) => item.id === args.id);
       if (idea) idea.status = args.status as string;
+      return undefined as T;
+    }
+    case "reject_idea": {
+      const idea = s.ideas.find((item) => item.id === args.id);
+      if (idea) {
+        idea.status = "rejected";
+        idea.updatedAt = Math.floor(Date.now() / 1000);
+      }
       return undefined as T;
     }
     case "delete_idea":
@@ -1699,11 +1768,50 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         decision: toolEvent.decision,
         sequence: toolEvent.sequence,
       });
+      s.nativeToolEvents.push(toolEvent);
       await sleep(250);
 
       const generated = [
-        { title: "Improve onboarding", description: "Add a guided first-run tour." },
-        { title: "Cache provider catalog", description: "Avoid refetching on every mount." },
+        {
+          title: "Improve onboarding",
+          description: "Add a guided first-run tour.",
+          grounding: "The existing first-run route has no guided state.",
+          anchor: "src/components/onboarding",
+          assessment: {
+            schemaVersion: 1 as const,
+            effort: { minHours: 4, maxHours: 8 },
+            difficulty: 2,
+            impact: 4,
+            risk: 2,
+            confidence: 4,
+            rationale: "The flow is bounded to an existing component and persisted preference.",
+            grounding: ["Existing onboarding components and preference storage."],
+            requiredCapabilities: ["React", "Tauri settings"],
+            constraints: ["Must remain dismissible and keyboard accessible."],
+            missingEvidence: [],
+            alternatives: ["Improve the empty state without a tour."],
+          },
+        },
+        {
+          title: "Cache provider catalog",
+          description: "Avoid refetching on every mount.",
+          grounding: "Catalog refresh currently runs when the provider view mounts.",
+          anchor: "src/lib/providerCatalog",
+          assessment: {
+            schemaVersion: 1 as const,
+            effort: { minHours: 3, maxHours: 6 },
+            difficulty: 3,
+            impact: 3,
+            risk: 3,
+            confidence: 3,
+            rationale: "A last-good cache is small, but freshness and invalidation need explicit rules.",
+            grounding: ["Existing provider catalog fetch and local persistence paths."],
+            requiredCapabilities: ["Rust", "SQLite", "TypeScript"],
+            constraints: ["Offline startup must preserve the last-good catalog."],
+            missingEvidence: ["Observed catalog response size."],
+            alternatives: ["Keep session-only memory caching."],
+          },
+        },
       ];
       for (const generatedIdea of generated) {
         const idea: Idea = {
@@ -1713,14 +1821,42 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
           title: generatedIdea.title,
           description: generatedIdea.description,
           status: "concept",
-          grounding: "Grounded by the native Idea Studio skill.",
-          anchor: null,
+          grounding: generatedIdea.grounding,
+          anchor: generatedIdea.anchor,
           batchId: s.activeRoundBySession.get(req.planningSessionId) ?? null,
+          assessment: generatedIdea.assessment,
           createdAt: ts,
           updatedAt: ts,
         };
         s.ideas.push(idea);
       }
+      const proposalToolEvent: NativeToolEvent = {
+        id: `ntool-idea-review-${ts}-${s.nativeToolEvents.length}`,
+        sessionId: req.sessionId,
+        messageId: null,
+        kind: "propose_ideas",
+        status: "success",
+        summary: `Captured ${generated.length} grounded ideas.`,
+        arguments: JSON.stringify({
+          categoryId: req.categoryIds?.[0] ?? null,
+          ideas: generated,
+        }),
+        diff: null,
+        decision: "auto",
+        ruleSource: null,
+        sequence: s.nativeToolEvents.filter((event) => event.sessionId === req.sessionId).length + 1,
+        createdAt: ts,
+      };
+      __emit("native-chat://tool-event", {
+        sessionId: req.sessionId,
+        toolCallId: proposalToolEvent.id,
+        toolName: proposalToolEvent.kind,
+        status: proposalToolEvent.status,
+        summary: proposalToolEvent.summary,
+        arguments: proposalToolEvent.arguments,
+        decision: proposalToolEvent.decision,
+        sequence: proposalToolEvent.sequence,
+      });
       const assistantMessage: NativeChatMessage = {
         id: `nmsg-${s.nextNativeMessageId++}`,
         sessionId: req.sessionId,
@@ -1733,8 +1869,9 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         createdAt: ts,
       };
       toolEvent.messageId = assistantMessage.id;
+      proposalToolEvent.messageId = assistantMessage.id;
       s.nativeChatMessages.push(assistantMessage);
-      s.nativeToolEvents.push(toolEvent);
+      s.nativeToolEvents.push(proposalToolEvent);
       return {
         ideas: generated,
         setupRequired: null,

@@ -13,7 +13,7 @@ pub struct StorageService;
 // Increment whenever `initialize` gains a schema-changing migration. Existing
 // databases run the idempotent initializer once per version; current databases
 // skip its ~50 table/column probes entirely on normal launches.
-const CURRENT_SCHEMA_VERSION: i64 = 3;
+const CURRENT_SCHEMA_VERSION: i64 = 4;
 
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
@@ -279,6 +279,7 @@ impl StorageService {
                     title TEXT NOT NULL,
                     description TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL DEFAULT 'concept',
+                    assessment_json TEXT,
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL,
                     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
@@ -433,6 +434,29 @@ impl StorageService {
                 );
                 CREATE INDEX IF NOT EXISTS idx_native_provider_model_cache_provider ON native_provider_model_cache(provider_id, synced_at);
 
+                CREATE TABLE IF NOT EXISTS model_execution_profile_cache (
+                    canonical_model_id TEXT PRIMARY KEY NOT NULL,
+                    profile_json TEXT NOT NULL,
+                    fetched_at INTEGER NOT NULL,
+                    error TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS execution_advisor_overrides (
+                    project_path TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    provider_id TEXT NOT NULL,
+                    model_id TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (project_path, role)
+                );
+
+                CREATE TABLE IF NOT EXISTS execution_usage_cache (
+                    key TEXT PRIMARY KEY NOT NULL,
+                    usage_json TEXT NOT NULL,
+                    fetched_at INTEGER NOT NULL,
+                    error TEXT
+                );
+
                 CREATE TABLE IF NOT EXISTS native_request_metrics (
                     id TEXT PRIMARY KEY NOT NULL,
                     session_id TEXT NOT NULL,
@@ -491,6 +515,7 @@ impl StorageService {
                     context TEXT,
                     idea_id TEXT,
                     change_name TEXT,
+                    assessment_json TEXT,
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL,
                     finished_at INTEGER,
@@ -679,14 +704,19 @@ impl StorageService {
                     id TEXT PRIMARY KEY NOT NULL,
                     session_id TEXT NOT NULL,
                     run_id TEXT,
+                    title TEXT,
+                    description TEXT,
                     questions_json TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'pending',
                     answers_json TEXT,
+                    draft_answers_json TEXT,
+                    draft_page INTEGER NOT NULL DEFAULT 0,
                     created_at INTEGER NOT NULL,
                     resolved_at INTEGER
                 );
                 CREATE INDEX IF NOT EXISTS idx_pending_interactions_session ON pending_interactions(session_id);
                 CREATE INDEX IF NOT EXISTS idx_pending_interactions_status ON pending_interactions(status) WHERE status = 'pending';
+
 
                 /* Plan dependency metadata (plan-dependency-scheduling). */
                 CREATE TABLE IF NOT EXISTS plan_dependency_meta (
@@ -757,6 +787,29 @@ impl StorageService {
                 CREATE INDEX IF NOT EXISTS idx_plan_merge_queue_session ON plan_merge_queue(session_id);
             ")
             .map_err(|error| format!("Failed to initialize Basebuild state database: {error}"))?;
+        // Migration (coherent-planning-workbench): additive questionnaire
+        // metadata and draft state. Nullable/defaulted columns preserve legacy
+        // rows and final answers across repeated initialization.
+        for (column, definition) in [
+            ("title", "TEXT"),
+            ("description", "TEXT"),
+            ("draft_answers_json", "TEXT"),
+            ("draft_page", "INTEGER NOT NULL DEFAULT 0"),
+        ] {
+            let probe = format!("SELECT {column} FROM pending_interactions LIMIT 0");
+            if connection.prepare(&probe).is_err() {
+                connection
+                    .execute(
+                        &format!(
+                            "ALTER TABLE pending_interactions ADD COLUMN {column} {definition}"
+                        ),
+                        [],
+                    )
+                    .map_err(|error| {
+                        format!("Failed to add pending_interactions.{column}: {error}")
+                    })?;
+            }
+        }
         // Migration: add last_active_session_id to existing databases
         let has_column = connection
             .prepare("SELECT last_active_session_id FROM recent_projects LIMIT 0")
@@ -885,6 +938,20 @@ impl StorageService {
             .is_ok();
         if !has_batch_id {
             let _ = connection.execute("ALTER TABLE ideas ADD COLUMN batch_id TEXT", []);
+        }
+        // Migration (coherent-planning-workbench): additive versioned
+        // assessments. Legacy ideas/plans retain NULL and remain usable.
+        let has_idea_assessment = connection
+            .prepare("SELECT assessment_json FROM ideas LIMIT 0")
+            .is_ok();
+        if !has_idea_assessment {
+            let _ = connection.execute("ALTER TABLE ideas ADD COLUMN assessment_json TEXT", []);
+        }
+        let has_plan_assessment = connection
+            .prepare("SELECT assessment_json FROM plans LIMIT 0")
+            .is_ok();
+        if !has_plan_assessment {
+            let _ = connection.execute("ALTER TABLE plans ADD COLUMN assessment_json TEXT", []);
         }
         // Migration (idea-to-merge-autopilot): add finish_policy to
         // plan_launch_profiles. Default 'hold' (absent = hold).
@@ -1317,6 +1384,44 @@ mod tests {
             )
             .unwrap();
         assert!(api_id.is_none(), "legacy row has null model_api_id");
+    }
+
+    #[test]
+    fn migrates_pending_interaction_drafts_without_changing_final_answers() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE pending_interactions (
+                id TEXT PRIMARY KEY NOT NULL,
+                session_id TEXT NOT NULL,
+                run_id TEXT,
+                questions_json TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                answers_json TEXT,
+                created_at INTEGER NOT NULL,
+                resolved_at INTEGER
+            );
+            INSERT INTO pending_interactions
+                (id, session_id, questions_json, status, answers_json, created_at, resolved_at)
+            VALUES
+                ('legacy-answer', 'chat-1', '[]', 'answered',
+                 '[{\"questionId\":\"q1\",\"selected\":[\"Safe\"]}]', 1, 2);",
+        )
+        .unwrap();
+
+        StorageService::initialize(&conn).expect("first migration");
+        StorageService::initialize(&conn).expect("idempotent migration");
+
+        let row: (String, Option<String>, i64) = conn
+            .query_row(
+                "SELECT answers_json, draft_answers_json, draft_page
+                 FROM pending_interactions WHERE id = 'legacy-answer'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert!(row.0.contains("\"Safe\""));
+        assert!(row.1.is_none());
+        assert_eq!(row.2, 0);
     }
 
     #[test]

@@ -8,6 +8,7 @@ pub mod config_pack_service;
 pub mod connector_service;
 pub(crate) mod devin_client;
 pub mod file_service;
+pub mod execution_advisor_service;
 pub mod final_touches_service;
 pub mod git_service;
 pub mod idea_round_service;

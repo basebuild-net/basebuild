@@ -73,6 +73,7 @@ pub fn create_idea(
         grounding.as_deref().unwrap_or(""),
         anchor.as_deref(),
         None,
+        None,
     )?;
     let project_path = SessionService::get(&session_id)
         .ok()

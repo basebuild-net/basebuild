@@ -1,3 +1,4 @@
+use crate::models::planning_assessment::ImplementationAssessment;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -255,6 +256,12 @@ fn default_idea_count() -> usize {
 pub struct NativeGeneratedIdea {
     pub title: String,
     pub description: String,
+    #[serde(default)]
+    pub grounding: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assessment: Option<ImplementationAssessment>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

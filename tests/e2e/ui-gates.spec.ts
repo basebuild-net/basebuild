@@ -86,7 +86,7 @@ test.describe("UI gates: routing, no-manual-plan, settings, header, activity", (
     expect(pageErrors).toEqual([]);
   });
 
-  test("tool events and question cards render in transcript", async ({ page }) => {
+  test("tool events render in transcript and questions take over composer", async ({ page }) => {
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
@@ -109,7 +109,7 @@ test.describe("UI gates: routing, no-manual-plan, settings, header, activity", (
 
     await expect(page.locator(".tool-card").first()).toBeVisible({ timeout: 5_000 });
 
-    // Inject a question card.
+    // Inject a question workbench.
     await page.evaluate(({ sessionId }) => {
       const w = window as unknown as {
         __basebuildMockInteraction?: unknown;
@@ -132,7 +132,7 @@ test.describe("UI gates: routing, no-manual-plan, settings, header, activity", (
       w.__emit?.("native-chat://interactive-request", { sessionId, interactionId: "gate-intr-1" });
     }, { sessionId });
 
-    await expect(page.locator(".question-card-pending")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".interaction-workbench")).toBeVisible({ timeout: 5_000 });
 
     expect(pageErrors).toEqual([]);
   });

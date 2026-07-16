@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ImplementationAssessment } from "./planning-assessment";
 
 export type IdeaStatus = "concept" | "picked" | "rejected" | "archived";
 
@@ -20,6 +21,7 @@ export type Idea = {
   grounding: string;
   anchor: string | null;
   batchId: string | null;
+  assessment?: ImplementationAssessment;
   createdAt: number;
   updatedAt: number;
 };

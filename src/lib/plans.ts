@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { PlanAssessment } from "./planning-assessment";
 
 export type PlanStatus = "draft" | "openspec" | "ready" | "running" | "finished" | "cancelled";
 
@@ -24,6 +25,7 @@ export type Plan = {
   ideaId?: string;
   /** OpenSpec change name once artifacts have been generated. */
   changeName?: string;
+  assessment?: PlanAssessment;
   createdAt: number;
   updatedAt: number;
   finishedAt: number | null;

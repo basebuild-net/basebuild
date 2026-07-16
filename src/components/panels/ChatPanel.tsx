@@ -21,6 +21,8 @@ import {
 import { ChatHeader, BranchDropdown } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
 import { QuestionCard } from "./QuestionCard";
+import { InteractionWorkbench } from "./InteractionWorkbench";
+import { IdeaBatchPreview, IdeaReviewWorkbench, parseIdeaBatch, type ParsedIdeaBatch } from "./IdeaReviewWorkbench";
 import { MarkdownView } from "./MarkdownView";
 import {
   AlertCircle,
@@ -249,133 +251,6 @@ function UserMessageContent({
 // expanded as the event updates from pending → running → success.
 const toolCardExpanded = new Map<string, boolean>();
 
-type ProposedIdea = {
-  title: string;
-  description: string;
-  grounding?: string;
-  anchor?: string;
-};
-
-function IdeaProposalCard({
-  event,
-  parsedArgs,
-  ideas,
-  showContinue,
-  onPromote,
-  onReject,
-  onContinue,
-}: {
-  event: NativeToolEvent;
-  parsedArgs: Record<string, unknown>;
-  ideas: Idea[];
-  showContinue: boolean;
-  onPromote?: (idea: Idea) => Promise<void>;
-  onReject?: (idea: Idea) => Promise<void>;
-  onContinue?: (categoryId: string | null) => void;
-}) {
-  const [busyIdeaId, setBusyIdeaId] = useState<string | null>(null);
-  const proposals = Array.isArray(parsedArgs.ideas)
-    ? parsedArgs.ideas.filter((value): value is ProposedIdea => (
-        typeof value === "object"
-        && value !== null
-        && typeof (value as ProposedIdea).title === "string"
-        && typeof (value as ProposedIdea).description === "string"
-      ))
-    : [];
-  const categoryId = typeof parsedArgs.categoryId === "string" ? parsedArgs.categoryId : null;
-  const isRunning = event.status === "running" || event.status === "pending";
-
-  const runAction = async (idea: Idea, action: "promote" | "reject") => {
-    setBusyIdeaId(idea.id);
-    try {
-      if (action === "promote") await onPromote?.(idea);
-      else await onReject?.(idea);
-    } finally {
-      setBusyIdeaId(null);
-    }
-  };
-
-  return (
-    <section
-      className="chat-idea-proposal"
-      data-tool-id={event.id}
-      aria-label={`${proposals.length} generated idea${proposals.length === 1 ? "" : "s"}`}
-      title="Generated ideas are saved to this project's Idea Studio"
-    >
-      <header className="chat-idea-proposal-header">
-        <span className="chat-idea-proposal-icon" aria-hidden="true"><Lightbulb size={14} /></span>
-        <div>
-          <strong>{isRunning ? "Finding useful ideas…" : "Ideas for this project"}</strong>
-          <span>{isRunning ? "New options appear as the model finds them." : "Pick what is worth planning. Pass on the rest."}</span>
-        </div>
-        {isRunning ? <Loader2 size={13} className="is-spinning" /> : <span className="badge">{proposals.length}</span>}
-      </header>
-
-      <div className="chat-idea-proposal-list">
-        {proposals.map((proposal, index) => {
-          const idea = ideas.find((candidate) => (
-            candidate.title === proposal.title
-            && candidate.description === proposal.description
-          )) ?? ideas.find((candidate) => candidate.title === proposal.title);
-          const busy = idea ? busyIdeaId === idea.id : false;
-          return (
-            <article className="chat-idea-proposal-item" key={`${proposal.title}-${index}`} title={proposal.grounding || proposal.description}>
-              <div className="chat-idea-proposal-copy">
-                <h4>{proposal.title}</h4>
-                <p>{proposal.description}</p>
-                {proposal.anchor ? <span className="chat-idea-anchor">{proposal.anchor}</span> : null}
-              </div>
-              <div className="chat-idea-proposal-actions">
-                {idea?.status === "concept" ? (
-                  <>
-                    <button
-                      className="btn btn-sm btn-primary"
-                      type="button"
-                      title={`Create and prepare an OpenSpec plan for ${proposal.title}`}
-                      disabled={busy}
-                      onClick={() => void runAction(idea, "promote")}
-                    >
-                      {busy ? <Loader2 size={11} className="is-spinning" /> : <Rocket size={11} />}
-                      {busy ? "Getting plan ready…" : "Make plan"}
-                    </button>
-                    <button
-                      className="btn btn-sm chat-idea-pass"
-                      type="button"
-                      title={`Reject ${proposal.title}`}
-                      disabled={busy}
-                      onClick={() => void runAction(idea, "reject")}
-                    >
-                      Pass
-                    </button>
-                  </>
-                ) : idea ? (
-                  <span className={`chat-idea-result is-${idea.status}`}>
-                    {idea.status === "picked" ? "Getting plan ready" : idea.status === "rejected" ? "Passed" : idea.status}
-                  </span>
-                ) : (
-                  <span className="chat-idea-result">{isRunning ? "Saving…" : "Unavailable"}</span>
-                )}
-              </div>
-            </article>
-          );
-        })}
-      </div>
-
-      {showContinue && !isRunning ? (
-        <footer className="chat-idea-proposal-footer">
-          <button
-            className="btn btn-sm"
-            type="button"
-            title="Generate another set of simple ideas in this chat"
-            onClick={() => onContinue?.(categoryId)}
-          >
-            <Sparkles size={11} /> More ideas
-          </button>
-        </footer>
-      ) : null}
-    </section>
-  );
-}
 
 function ToolEventCard({
   event,
@@ -383,20 +258,14 @@ function ToolEventCard({
   debugMode,
   onSetApprovalMode,
   ideas = [],
-  showIdeaContinue = false,
-  onPromoteIdea,
-  onRejectIdea,
-  onContinueIdeas,
+  onOpenIdeaBatch,
 }: {
   event: NativeToolEvent;
   onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void;
   debugMode?: boolean;
   onSetApprovalMode?: (mode: "safe" | "balanced" | "auto") => void;
   ideas?: Idea[];
-  showIdeaContinue?: boolean;
-  onPromoteIdea?: (idea: Idea) => Promise<void>;
-  onRejectIdea?: (idea: Idea) => Promise<void>;
-  onContinueIdeas?: (categoryId: string | null) => void;
+  onOpenIdeaBatch?: (toolId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(() => toolCardExpanded.get(event.id) ?? false);
   const toggleExpanded = useCallback(() => {
@@ -440,22 +309,14 @@ function ToolEventCard({
     }
   })();
 
-  if (
-    event.kind === "propose_ideas"
-    && parsedArgs
-    && typeof parsedArgs === "object"
-    && !Array.isArray(parsedArgs)
-    && Array.isArray((parsedArgs as Record<string, unknown>).ideas)
-  ) {
+  const ideaBatch = event.kind === "propose_ideas" ? parseIdeaBatch(parsedArgs) : null;
+  if (ideaBatch) {
     return (
-      <IdeaProposalCard
-        event={event}
-        parsedArgs={parsedArgs as Record<string, unknown>}
+      <IdeaBatchPreview
+        {...ideaBatch}
+        status={event.status}
         ideas={ideas}
-        showContinue={showIdeaContinue}
-        onPromote={onPromoteIdea}
-        onReject={onRejectIdea}
-        onContinue={onContinueIdeas}
+        onOpen={() => onOpenIdeaBatch?.(event.id)}
       />
     );
   }
@@ -605,6 +466,9 @@ export function ChatPanel({
   const liveOrderRef = useRef(0);
   const [interactions, setInteractions] = useState<PendingInteraction[]>([]);
   const [minimizedQuestions, setMinimizedQuestions] = useState<Set<string>>(() => new Set());
+  const [focusedIdeaBatchId, setFocusedIdeaBatchId] = useState<string | null>(null);
+  const [ideaReviewIndexes, setIdeaReviewIndexes] = useState<Record<string, number>>({});
+  const minimizedIdeaBatchIdsRef = useRef(new Set<string>());
   const [legacyMessages, setLegacyMessages] = useState<LegacyChatMessage[]>([]);
   const [providerId, setProviderId] = useState(LOCAL_PROVIDER_ID);
   const [modelId, setModelId] = useState("basebuild-local-coordinator");
@@ -873,8 +737,10 @@ export function ChatPanel({
   // Sync chatSessionId prop
   useEffect(() => {
     setNativeSessionId(chatSessionId ?? null);
+    setFocusedIdeaBatchId(null);
+    setIdeaReviewIndexes({});
+    minimizedIdeaBatchIdsRef.current.clear();
   }, [chatSessionId]);
-
   // Load session title when the native session changes.
   useEffect(() => {
     if (!nativeSessionId) { setSessionTitle(null); return; }
@@ -1142,12 +1008,16 @@ export function ChatPanel({
           createdAt: Math.floor(Date.now() / 1000),
         }];
       });
-      if (
-        event.payload.toolName === "propose_ideas"
-        && event.payload.status !== "running"
-        && event.payload.status !== "pending"
-      ) {
-        void ideaRefreshRef.current();
+      if (event.payload.toolName === "propose_ideas") {
+        const terminalError = event.payload.status === "error"
+          || event.payload.status === "failed"
+          || event.payload.status === "denied";
+        if (!terminalError && !minimizedIdeaBatchIdsRef.current.has(id)) {
+          setFocusedIdeaBatchId(id);
+        }
+        if (event.payload.status !== "running" && event.payload.status !== "pending") {
+          void ideaRefreshRef.current();
+        }
       }
     });
     toolListenerReadyRef.current = unlistenTool.then(() => undefined);
@@ -2453,6 +2323,19 @@ export function ChatPanel({
     },
     [ideaState, onShowToast],
   );
+  const handleDeferIdea = useCallback(
+    async (idea: Idea) => {
+      try {
+        await ideaState.updateIdeaStatus(idea.id, "archived");
+        onShowToast?.("Idea deferred", idea.title, "info");
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        onShowToast?.("Could not defer idea", message, "error");
+        throw e;
+      }
+    },
+    [ideaState, onShowToast],
+  );
   // ── Chat header handlers ──
   const handleRename = useCallback((title: string) => {
     setTitleLocked(true);
@@ -2540,6 +2423,22 @@ export function ChatPanel({
   const pendingInteractions = interactions.filter((i) => i.status === "pending");
   const activeQuestions = pendingInteractions.filter((i) => !minimizedQuestions.has(i.id));
   const minimizedPending = pendingInteractions.filter((i) => minimizedQuestions.has(i.id));
+  const focusedIdeaEvent = focusedIdeaBatchId
+    ? toolEvents.find((event) => event.id === focusedIdeaBatchId && event.kind === "propose_ideas")
+    : undefined;
+  let focusedIdeaBatch: { event: NativeToolEvent; batch: ParsedIdeaBatch } | null = null;
+  if (focusedIdeaEvent?.arguments) {
+    try {
+      const batch = parseIdeaBatch(JSON.parse(focusedIdeaEvent.arguments));
+      if (batch) focusedIdeaBatch = { event: focusedIdeaEvent, batch };
+    } catch {
+      focusedIdeaBatch = null;
+    }
+  }
+  const latestIdeaToolId = [...toolEvents]
+    .reverse()
+    .find((event) => event.kind === "propose_ideas")
+    ?.id ?? null;
   const minimizeQuestion = (id: string) => {
     addLog("debug", "Question minimized", id);
     setMinimizedQuestions((prev) => new Set(prev).add(id));
@@ -2616,11 +2515,6 @@ export function ChatPanel({
                 if (ev.kind === "user") lastUserId = ev.id;
                 if (ev.kind === "assistant") lastAssistantId = ev.id;
               }
-              const lastIdeaToolId = [...events]
-                .reverse()
-                .find((event) => event.kind === "tool" && event.event.kind === "propose_ideas")
-                ?.id ?? null;
-
 
               // Render the flat chronological list — consecutive tool
               // events are grouped into a compact grid.
@@ -2638,14 +2532,10 @@ export function ChatPanel({
                       onResolveApproval={ev.event.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined}
                       onSetApprovalMode={handleSetApprovalMode}
                       ideas={ideaState.ideas}
-                      showIdeaContinue={ev.id === lastIdeaToolId}
-                      onPromoteIdea={handlePromoteIdea}
-                      onRejectIdea={handleRejectIdea}
-                      onContinueIdeas={(categoryId) => void generateIdeasRef.current?.({
-                        categoryIds: categoryId ? [categoryId] : [],
-                        ideaCount: 8,
-                        direction: "Find more simple, distinct improvements. Use short titles and do not repeat earlier ideas.",
-                      })}
+                      onOpenIdeaBatch={(toolId) => {
+                        minimizedIdeaBatchIdsRef.current.delete(toolId);
+                        setFocusedIdeaBatchId(toolId);
+                      }}
                     />
                   );
                 } else {
@@ -2659,14 +2549,10 @@ export function ChatPanel({
                           onResolveApproval={ev.event.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined}
                           onSetApprovalMode={handleSetApprovalMode}
                           ideas={ideaState.ideas}
-                          showIdeaContinue={ev.id === lastIdeaToolId}
-                          onPromoteIdea={handlePromoteIdea}
-                          onRejectIdea={handleRejectIdea}
-                          onContinueIdeas={(categoryId) => void generateIdeasRef.current?.({
-                            categoryIds: categoryId ? [categoryId] : [],
-                            ideaCount: 8,
-                            direction: "Find more simple, distinct improvements. Use short titles and do not repeat earlier ideas.",
-                          })}
+                          onOpenIdeaBatch={(toolId) => {
+                            minimizedIdeaBatchIdsRef.current.delete(toolId);
+                            setFocusedIdeaBatchId(toolId);
+                          }}
                         />
                       ))}
                     </div>
@@ -2681,9 +2567,8 @@ export function ChatPanel({
                 }
                 flushToolBatch();
                 if (ev.kind === "interaction") {
-                  // Pending questions render in the sticky dock above the
-                  // composer (always visible); only answered/cancelled ones
-                  // render inline here as conversation history.
+                  // Pending questions replace the composer in the focused
+                  // workbench; answered/cancelled items render inline here.
                   if (ev.interaction.status === "pending") continue;
                   rendered.push(
                     <QuestionCard
@@ -3001,25 +2886,6 @@ export function ChatPanel({
           cancelled questions fall back into the transcript as history. */}
       {nativeMode ? (
         <>
-          {activeQuestions.map((intr) => (
-            <div className="chat-question-dock" key={`dock-${intr.id}`}>
-              <div className="chat-question-dock-bar">
-                <button
-                  className="btn btn-ghost btn-icon-sm chat-question-dock-min"
-                  type="button"
-                  title="Hide this question — reopen it from the preview above the composer"
-                  onClick={() => minimizeQuestion(intr.id)}
-                >
-                  <ChevronDown size={13} />
-                </button>
-              </div>
-              <QuestionCard
-                interaction={intr}
-                onResolved={(resolved) => setInteractions((prev) => prev.map((i) => i.id === resolved.id ? resolved : i))}
-                onCancelled={(id) => setInteractions((prev) => prev.map((i) => i.id === id ? { ...i, status: "cancelled" } : i))}
-              />
-            </div>
-          ))}
           {minimizedPending.map((intr) => (
             <button
               className="chat-question-preview"
@@ -3030,7 +2896,7 @@ export function ChatPanel({
             >
               <HelpCircle size={13} className="chat-question-preview-icon" />
               <span className="chat-question-preview-text">
-                {intr.questions[0]?.prompt ?? "Agent is asking a question"}
+                {intr.title ?? intr.questions[0]?.prompt ?? "Agent is asking a question"}
               </span>
               <span className="chat-question-preview-action">Answer</span>
             </button>
@@ -3663,7 +3529,7 @@ export function ChatPanel({
             ) : null}
           </>
         ) : null}
-        {activeQuestions.length === 0 ? (
+        {activeQuestions.length === 0 && !focusedIdeaBatch ? (
         <div className="chat-composer-box">
           <div className="chat-composer-textarea-wrap">
             <textarea
@@ -3829,8 +3695,51 @@ export function ChatPanel({
           </div>
         </div>
         ) : (
-          <div className="chat-composer-locked" title="Answer the question above to continue">
-            Answer the pending question above, or reopen it from the preview, to continue.
+          <div className="chat-interaction-workbench-slot">
+            {activeQuestions.length > 0 ? activeQuestions.map((interaction) => (
+              <InteractionWorkbench
+                key={interaction.id}
+                interaction={interaction}
+                onMinimize={() => minimizeQuestion(interaction.id)}
+                onResolved={(resolved) => setInteractions((current) => current.map((item) => item.id === resolved.id ? resolved : item))}
+                onCancelled={(id) => setInteractions((current) => current.map((item) => item.id === id ? { ...item, status: "cancelled" } : item))}
+                onAction={(action, detail) => addLog(action.endsWith("failed") ? "error" : "debug", action, detail)}
+                onDraftChange={(answers, currentPage) => setInteractions((current) => current.map((item) => item.id === interaction.id ? { ...item, draftAnswers: answers, currentPage } : item))}
+              />
+            )) : focusedIdeaBatch ? (
+              <IdeaReviewWorkbench
+                {...focusedIdeaBatch.batch}
+                toolId={focusedIdeaBatch.event.id}
+                status={focusedIdeaBatch.event.status}
+                ideas={ideaState.ideas}
+                projectPath={projectPath}
+                currentIndex={ideaReviewIndexes[focusedIdeaBatch.event.id] ?? 0}
+                showContinue={focusedIdeaBatch.event.id === latestIdeaToolId}
+                onCurrentIndexChange={(index) => setIdeaReviewIndexes((current) => ({ ...current, [focusedIdeaBatch.event.id]: index }))}
+                onMinimize={() => {
+                  minimizedIdeaBatchIdsRef.current.add(focusedIdeaBatch.event.id);
+                  setFocusedIdeaBatchId(null);
+                  addLog("debug", "Idea review minimized", focusedIdeaBatch.event.id);
+                }}
+                onPromote={handlePromoteIdea}
+                onReject={handleRejectIdea}
+                onDefer={handleDeferIdea}
+                onContinue={(categoryId) => {
+                  minimizedIdeaBatchIdsRef.current.add(focusedIdeaBatch.event.id);
+                  setFocusedIdeaBatchId(null);
+                  void generateIdeasRef.current?.({
+                    categoryIds: categoryId ? [categoryId] : [],
+                    ideaCount: 8,
+                    direction: "Find more grounded, distinct improvements. Avoid semantic duplicates and explain each estimate.",
+                  });
+                }}
+                onReviewed={() => {
+                  minimizedIdeaBatchIdsRef.current.add(focusedIdeaBatch.event.id);
+                  setFocusedIdeaBatchId(null);
+                  addLog("debug", "Idea batch review completed", focusedIdeaBatch.event.id);
+                }}
+              />
+            ) : null}
           </div>
         )}
         <div className="chat-composer-meta">

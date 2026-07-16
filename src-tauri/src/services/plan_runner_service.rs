@@ -1089,8 +1089,7 @@ impl PlanRunnerService {
         // queued as `pending` — the dispatcher re-pulls it once capacity
         // frees (queued runs stay selectable in `pending_entries`).
         if !Self::plan_run_can_start(Some(&run_id))? {
-            return Self::get_run(&run_id)?
-                .ok_or_else(|| "Queued plan run not found".to_string());
+            return Self::get_run(&run_id)?.ok_or_else(|| "Queued plan run not found".to_string());
         }
 
         // Guard against double-start: the dispatcher may re-pull a queued
@@ -1108,8 +1107,7 @@ impl PlanRunnerService {
             }
         };
         if already_starting {
-            return Self::get_run(&run_id)?
-                .ok_or_else(|| "Plan run already starting".to_string());
+            return Self::get_run(&run_id)?.ok_or_else(|| "Plan run already starting".to_string());
         }
 
         // Mark running.
@@ -1951,6 +1949,46 @@ mod tests {
     }
 
     #[test]
+    fn listing_runs_reconciles_interrupted_chat_owner() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        seed_session_and_plans(&conn);
+        conn.execute("UPDATE plans SET status = 'running' WHERE id = 'p1'", [])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO native_chat_sessions
+             (id, project_path, title, profile_id, provider_id, model_id, effort_level,
+              status, created_at, updated_at, run_state)
+             VALUES ('c-interrupted', '/test', 'Plan chat', 'basebuild-native',
+                     'basebuild-local', 'local', 'low', 'ready', 0, 0, 'interrupted')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plan_runs
+             (id, plan_id, session_id, chat_session_id, status, runner_kind,
+              steps_output, started_at, created_at)
+             VALUES ('r-interrupted', 'p1', 's1', 'c-interrupted', 'running',
+                     'native', '[]', 1, 1)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let runs = PlanRunnerService::list_runs("s1").unwrap();
+        let run = runs
+            .iter()
+            .find(|candidate| candidate.id == "r-interrupted")
+            .unwrap();
+        assert_eq!(run.status, PlanRunStatus::AwaitingReview);
+        assert_eq!(run.error.as_deref(), Some("Linked chat was interrupted"));
+
+        let plan = PlanService::get("p1").unwrap().unwrap();
+        assert_eq!(plan.status, PlanStatus::Ready);
+    }
+
+    #[test]
     fn concurrency_defaults_are_planning_3_global_4() {
         let dir = tempfile::TempDir::new().unwrap();
         let _g = crate::test_util::test::lock_db(&dir);
@@ -2004,7 +2042,10 @@ mod tests {
         assert_eq!(PlanRunnerService::count_active_pipeline_runs().unwrap(), 1);
         assert_eq!(PlanRunnerService::count_active_runs(None).unwrap(), 3);
         // Excluding r1 leaves one active plan run (r2).
-        assert_eq!(PlanRunnerService::count_active_plan_runs(Some("r1")).unwrap(), 1);
+        assert_eq!(
+            PlanRunnerService::count_active_plan_runs(Some("r1")).unwrap(),
+            1
+        );
         assert_eq!(PlanRunnerService::count_running_plan_runs().unwrap(), 1);
         assert_eq!(PlanRunnerService::count_running_runs().unwrap(), 2);
     }
@@ -2030,10 +2071,12 @@ mod tests {
         let _g = crate::test_util::test::lock_db(&dir);
         use crate::models::run_concurrency::ConcurrencyLimits;
         // Raise planning_max so only the global cap can block.
-        crate::services::settings_service::SettingsService::set_concurrency_limits(&ConcurrencyLimits {
-            planning_max: Some(10),
-            global_max: Some(2),
-        })
+        crate::services::settings_service::SettingsService::set_concurrency_limits(
+            &ConcurrencyLimits {
+                planning_max: Some(10),
+                global_max: Some(2),
+            },
+        )
         .unwrap();
         let conn = StorageService::connect().unwrap();
         seed_session_and_plans(&conn);
@@ -2079,10 +2122,12 @@ mod tests {
         let _g = crate::test_util::test::lock_db(&dir);
         use crate::models::pipeline::PipelineStartRequest;
         use crate::models::run_concurrency::ConcurrencyLimits;
-        crate::services::settings_service::SettingsService::set_concurrency_limits(&ConcurrencyLimits {
-            planning_max: Some(10),
-            global_max: Some(1),
-        })
+        crate::services::settings_service::SettingsService::set_concurrency_limits(
+            &ConcurrencyLimits {
+                planning_max: Some(10),
+                global_max: Some(1),
+            },
+        )
         .unwrap();
         let conn = StorageService::connect().unwrap();
         seed_session_and_plans(&conn);

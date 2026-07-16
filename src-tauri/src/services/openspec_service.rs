@@ -182,6 +182,65 @@ pub fn read_task_progress(project_path: &str, change_name: &str) -> (u32, u32) {
         Err(_) => (0, 0),
     }
 }
+/// Fingerprint the planning artifacts that inform a plan assessment.
+///
+/// Task checkbox state is intentionally included: recommendations describe
+/// the work remaining at assessment time, so progress can make an earlier
+/// capacity recommendation stale. Files are read in a stable path order.
+pub fn assessment_artifact_fingerprint(project_path: &str, change_name: &str) -> DbResult<String> {
+    if change_name.contains('/') || change_name.contains('\\') || change_name.contains("..") {
+        return Err("Invalid change name.".to_string());
+    }
+    let root = change_dir(project_path, change_name);
+    let mut paths = vec![
+        root.join("proposal.md"),
+        root.join("design.md"),
+        root.join("tasks.md"),
+    ];
+    let specs_root = root.join("specs");
+    let entries = std::fs::read_dir(&specs_root)
+        .map_err(|error| format!("Failed to read {}: {error}", specs_root.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        if path.is_dir() {
+            let spec = path.join("spec.md");
+            if spec.is_file() {
+                paths.push(spec);
+            }
+        } else if path.extension().and_then(|value| value.to_str()) == Some("md") {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    let contents = paths
+        .iter()
+        .map(|path| {
+            std::fs::read_to_string(path)
+                .map_err(|error| format!("Failed to read {}: {error}", path.display()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let refs = contents.iter().map(String::as_str).collect::<Vec<_>>();
+    Ok(crate::models::planning_assessment::artifact_fingerprint(
+        &refs,
+    ))
+}
+
+/// Mark the linked plan's assessment stale when its artifact evidence changed.
+/// Missing assessments remain valid legacy state.
+pub fn refresh_assessment_staleness(project_path: &str, change_name: &str) -> DbResult<bool> {
+    let Some(plan) = find_plan_by_change(change_name)? else {
+        return Ok(false);
+    };
+    if plan.assessment.is_none() {
+        return Ok(false);
+    }
+    let fingerprint = assessment_artifact_fingerprint(project_path, change_name)?;
+    crate::services::plan_service::PlanService::mark_assessment_stale_if_fingerprint_changed(
+        &plan.id,
+        &fingerprint,
+    )
+}
 
 /// Link a plan to its generated OpenSpec change directory. Updates the
 /// `change_name` column on the plan row.
@@ -260,6 +319,7 @@ pub fn refresh_task_progress(
     last_total: u32,
 ) -> DbResult<bool> {
     let (completed, total) = read_task_progress(project_path, change_name);
+    let _ = refresh_assessment_staleness(project_path, change_name)?;
     if completed == last_completed && total == last_total {
         return Ok(false);
     }
@@ -282,7 +342,7 @@ pub fn find_plan_by_change(change_name: &str) -> DbResult<Option<Plan>> {
         .prepare(
             "SELECT id, session_id, reference_id, title, description, goal, status,
                     priority, tags, ai_enhanced, context, idea_id, change_name,
-                    created_at, updated_at, finished_at
+                    assessment_json, created_at, updated_at, finished_at
              FROM plans WHERE change_name = ?1 LIMIT 1",
         )
         .map_err(|e| e.to_string())?;
@@ -291,6 +351,7 @@ pub fn find_plan_by_change(change_name: &str) -> DbResult<Option<Plan>> {
             let status_str: String = row.get(6)?;
             let tags_json: String = row.get(8)?;
             let context_json: Option<String> = row.get(10)?;
+            let assessment_json: Option<String> = row.get(13)?;
             Ok(Plan {
                 id: row.get(0)?,
                 session_id: row.get(1)?,
@@ -305,9 +366,10 @@ pub fn find_plan_by_change(change_name: &str) -> DbResult<Option<Plan>> {
                 context: context_json.and_then(|j| serde_json::from_str(&j).ok()),
                 idea_id: row.get(11)?,
                 change_name: row.get(12)?,
-                created_at: row.get(13)?,
-                updated_at: row.get(14)?,
-                finished_at: row.get(15)?,
+                assessment: assessment_json.and_then(|json| serde_json::from_str(&json).ok()),
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
+                finished_at: row.get(16)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -671,6 +733,7 @@ pub fn toggle_task<R: tauri::Runtime>(
         &format!("{change_name}/tasks.md"),
         Some(format!("{completed}/{total}")),
     );
+    let _ = refresh_assessment_staleness(project_path, change_name)?;
 
     Ok(())
 }
@@ -922,6 +985,95 @@ mod tests {
         let (completed, total) = parse_task_progress(tasks);
         assert_eq!(completed, 2);
         assert_eq!(total, 3);
+    }
+
+    #[test]
+    fn assessment_fingerprint_stays_stable_then_marks_changed_artifacts_stale() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        let project = directory.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let project_path = project.to_string_lossy().to_string();
+        let specs = vec![(
+            "routing".to_string(),
+            "## ADDED Requirements\n### Requirement: Route\n#### Scenario: Choose\n- **WHEN** planning\n- **THEN** choose".to_string(),
+        )];
+        write_artifacts_atomic(
+            &project_path,
+            "assessed-change",
+            "## Why\nNeed route\n## What Changes\nChoose route",
+            &specs,
+            Some("## Context\nExisting route\n## Decisions\nUse evidence"),
+            "## 1. Work\n- [ ] 1.1 Implement route",
+        )
+        .unwrap();
+        let session = crate::services::session_service::SessionService::create_session(
+            &project_path,
+            "Assessment",
+        )
+        .unwrap();
+        let plan = crate::services::plan_service::PlanService::create(
+            &session.id,
+            &crate::models::plan::NewPlan {
+                title: "Assessed plan".to_string(),
+                description: "Test staleness".to_string(),
+                goal: None,
+                status: crate::models::plan::PlanStatus::Draft,
+                priority: None,
+                tags: vec![],
+                idea_id: None,
+            },
+        )
+        .unwrap();
+        link_plan_to_change(&plan.id, "assessed-change").unwrap();
+        let original = assessment_artifact_fingerprint(&project_path, "assessed-change").unwrap();
+        let assessment = crate::models::planning_assessment::PlanAssessment {
+            schema_version: crate::models::planning_assessment::ASSESSMENT_SCHEMA_VERSION,
+            implementation: crate::models::planning_assessment::ImplementationAssessment {
+                schema_version: crate::models::planning_assessment::ASSESSMENT_SCHEMA_VERSION,
+                effort: crate::models::planning_assessment::EffortRange {
+                    min_hours: 2,
+                    max_hours: 6,
+                },
+                difficulty: 3,
+                impact: 4,
+                risk: 2,
+                confidence: 4,
+                rationale: "Validated artifact fixture.".to_string(),
+                grounding: vec!["design.md".to_string()],
+                required_capabilities: vec![],
+                constraints: vec![],
+                missing_evidence: vec![],
+                alternatives: vec![],
+            },
+            artifact_fingerprint: original.clone(),
+            source_idea_id: None,
+            estimate_drift: "No source idea estimate.".to_string(),
+            expected_context_tokens: 128,
+            parallelism: crate::models::planning_assessment::ParallelismGuidance {
+                max_parallel_tasks: 1,
+                rationale: "One ordered task.".to_string(),
+            },
+            assessed_at: 1,
+            stale: false,
+        };
+        crate::services::plan_service::PlanService::save_assessment(&plan.id, &assessment).unwrap();
+
+        assert!(!refresh_assessment_staleness(&project_path, "assessed-change").unwrap());
+        std::fs::write(
+            change_dir(&project_path, "assessed-change").join("design.md"),
+            "## Context\nChanged evidence\n## Decisions\nUse a different route",
+        )
+        .unwrap();
+        assert!(refresh_assessment_staleness(&project_path, "assessed-change").unwrap());
+        let refreshed = crate::services::plan_service::PlanService::get(&plan.id)
+            .unwrap()
+            .unwrap();
+        assert!(refreshed.assessment.unwrap().stale);
+        assert_ne!(
+            original,
+            assessment_artifact_fingerprint(&project_path, "assessed-change").unwrap()
+        );
     }
 
     #[test]

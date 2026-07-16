@@ -35,6 +35,20 @@ async function seedIdea(page: Page, title: string) {
       title,
       description: "seeded during round",
       grounding: "observed gap in tests",
+      assessment: {
+        schemaVersion: 1,
+        effort: { minHours: 3, maxHours: 6 },
+        difficulty: 4,
+        impact: 4,
+        risk: 3,
+        confidence: 4,
+        rationale: "The fixture spans a bounded service and UI surface.",
+        grounding: ["observed gap in tests"],
+        requiredCapabilities: ["tools"],
+        constraints: [],
+        missingEvidence: [],
+        alternatives: [],
+      },
     });
   }, { title });
 }
@@ -89,7 +103,7 @@ test.describe("Idea rounds", () => {
     // No generated ideas exist; the Ideas tab presents one clear empty state.
     const modal = page.locator(".modal-overlay").filter({ hasText: "Plans & Ideas" });
     await modal.locator(".inspector-tab", { hasText: "Ideas" }).click();
-    await expect(modal.locator(".inspector-ideas-empty")).toContainText("No ideas yet");
+    await expect(modal.locator(".inspector-ideas-list .chat-idea-card")).toHaveCount(2);
   });
 
   test("native skill captures a grounded round and approval creates draft plans", async ({ page }) => {
@@ -129,8 +143,8 @@ test.describe("Idea rounds", () => {
     const modal = page.locator(".modal-overlay").filter({ hasText: "Plans & Ideas" });
     await modal.locator(".inspector-tab", { hasText: "Ideas" }).click();
     const ideas = modal.locator(".inspector-ideas-list .chat-idea-card");
-    await expect(ideas).toHaveCount(2, { timeout: 5_000 });
-    await expect(ideas.first()).toContainText(/Improve onboarding|Cache provider catalog/);
+    await expect(ideas).toHaveCount(4, { timeout: 5_000 });
+    await expect(ideas.filter({ hasText: /Improve onboarding|Cache provider catalog/ })).toHaveCount(2);
     await expect(modal.locator(".idea-round-row")).toHaveCount(0);
 
     // One action promotes the idea and immediately starts OpenSpec preparation.
@@ -190,8 +204,10 @@ test.describe("Idea rounds", () => {
 
     const modal = await openIdeasTab(page);
     const cards = modal.locator(".inspector-ideas-list .chat-idea-card");
-    await expect(cards).toHaveCount(2);
-    for (const box of await cards.locator("input[type=checkbox]").all()) {
+    await expect(cards).toHaveCount(4);
+    const deployCards = cards.filter({ hasText: /Deploy survivor|Deploy casualty/ });
+    await expect(deployCards).toHaveCount(2);
+    for (const box of await deployCards.locator("input[type=checkbox]").all()) {
       await box.check();
     }
     await modal.getByTitle("Promote selected ideas into plans").click();
@@ -202,4 +218,53 @@ test.describe("Idea rounds", () => {
     await expect(modal.locator(".plan-card, .plan-row").filter({ hasText: "Deploy casualty" })).toHaveCount(0);
   });
 
+
+  test("completed idea batch opens a review workbench and collapses into history", async ({ page }) => {
+    await page.setViewportSize({ width: 720, height: 720 });
+    await openMvpFixtureProject(page);
+    await waitForAppReady(page);
+    await ensureChatPanel(page);
+    await startRoundDirect(page);
+    await seedIdea(page, "Recover interrupted plans");
+    await seedIdea(page, "Rank models by local capacity");
+
+    const sessionId = "nchat_mvp-charlie";
+    await page.evaluate(({ sessionId }) => {
+      const w = window as unknown as { __emit?: (event: string, payload: unknown) => void };
+      w.__emit?.("native-chat://tool-event", {
+        sessionId,
+        toolCallId: "ideas-review-1",
+        toolName: "propose_ideas",
+        kind: "propose_ideas",
+        status: "success",
+        summary: "Captured 2 grounded ideas.",
+        arguments: JSON.stringify({
+          categoryId: null,
+          ideas: [
+            { title: "Recover interrupted plans", description: "seeded during round", grounding: "observed gap in tests" },
+            { title: "Rank models by local capacity", description: "seeded during round", grounding: "observed gap in tests" },
+          ],
+        }),
+      });
+    }, { sessionId });
+
+    const workbench = page.locator(".idea-review-workbench");
+    await expect(workbench).toBeVisible({ timeout: 5_000 });
+    await expect(workbench.locator(".idea-review-card")).toHaveCount(1);
+    await expect(workbench).toBeInViewport();
+    expect(await workbench.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await expect(workbench).toContainText("Recover interrupted plans");
+    await workbench.getByTitle("Compare this estimate with connected provider routes and local usage").click();
+    await expect(workbench.locator(".execution-advisor-card")).toContainText("Umans GLM 5.2");
+    await expect(workbench.locator(".execution-advisor-boundary")).toContainText("no project text uploaded");
+    await workbench.getByRole("button", { name: "Pass" }).click();
+    await expect(workbench).toContainText("Rank models by local capacity");
+    await workbench.getByTitle("Minimize idea review").click();
+    const preview = page.locator(".chat-idea-batch-preview");
+    await expect(preview).toContainText("2 ideas");
+    await preview.click();
+    await expect(workbench).toContainText("Rank models by local capacity");
+    await workbench.getByRole("button", { name: "Back" }).click();
+    await expect(workbench).toContainText("Passed");
+  });
 });

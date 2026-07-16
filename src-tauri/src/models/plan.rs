@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::models::planning_assessment::PlanAssessment;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanStatus {
@@ -63,6 +65,10 @@ pub struct Plan {
     /// parsing reference ids.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub change_name: Option<String>,
+    /// Assessment derived from the current validated OpenSpec artifacts.
+    /// Legacy drafts and plans that have not generated artifacts carry none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assessment: Option<PlanAssessment>,
     pub created_at: i64,
     pub updated_at: i64,
     pub finished_at: Option<i64>,

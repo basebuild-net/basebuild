@@ -102,13 +102,13 @@ test.describe("Agent status indicators", () => {
     }, { sessionId });
 
     // Project dot bounces as questioning; the panel row dot shows asking.
-    await expect(page.locator(".question-card-pending")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".interaction-workbench")).toBeVisible({ timeout: 5_000 });
     await expect(activeDot).toHaveClass(/agent-status-questioning/, { timeout: 5_000 });
     await expect(page.locator(".activity-sidebar-row-status.panel-status-asking").first()).toBeVisible({ timeout: 5_000 });
 
     // Answering the question clears the questioning state.
-    await page.locator(".question-card-option", { hasText: "Yes" }).click();
-    await page.locator(".question-card-actions button", { hasText: "Submit" }).click();
+    await page.getByRole("button", { name: "Yes" }).click();
+    await page.getByRole("button", { name: "Submit answers" }).click();
     await expect(activeDot).not.toHaveClass(/agent-status-questioning/, { timeout: 5_000 });
   });
 });

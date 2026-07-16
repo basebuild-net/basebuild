@@ -93,16 +93,16 @@ test.describe("Mission control", () => {
       };
       w.__emit?.("native-chat://interactive-request", { sessionId, interactionId: "mc-intr-1" });
     }, { sessionId: chatSessionId });
-    await expect(page.locator(".question-card-pending")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".interaction-workbench")).toBeVisible({ timeout: 5_000 });
 
     const modal = await openRunsTab(page);
     const card = modal.locator(".mission-card").first();
     await expect(card.locator(".mission-card-attention")).toContainText("Waiting on your answer", { timeout: 5_000 });
 
-    // Answer the question in the chat — attention clears.
-    await page.keyboard.press("Escape");
-    await page.locator(".question-card-option", { hasText: "Yes" }).click();
-    await page.locator(".question-card-actions button", { hasText: "Submit" }).click();
+    // Close mission control and answer in the focused chat workbench.
+    await modal.getByTitle("Close (Esc)").click();
+    await page.getByRole("button", { name: "Yes" }).click();
+    await page.getByRole("button", { name: "Submit answers" }).click();
     await expect(page.locator(".question-card-success")).toBeVisible({ timeout: 5_000 });
 
     const modal2 = await openRunsTab(page);
