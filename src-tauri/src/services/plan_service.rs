@@ -2,7 +2,7 @@ use rusqlite::params;
 
 use crate::{
     models::{
-        plan::{NewPlan, Plan, PlanFocusContext, PlanStatus},
+        plan::{NewPlan, Plan, PlanFocusContext, PlanStatus, PlanningIntegrityIssue},
         planning_assessment::PlanAssessment,
     },
     services::storage_service::StorageService,
@@ -303,6 +303,75 @@ impl PlanService {
         // emitted by the command layer after each successful promote.
         Ok((created, errors))
     }
+    /// Load-time planning-data self check: find desyncs the UI would
+    /// otherwise hit as opaque action failures (e.g. "Idea not found" on
+    /// promote). Project-scoped where the owning session still exists;
+    /// orphaned rows (missing session) are reported regardless of project
+    /// because they cannot be scoped.
+    pub fn integrity_check(project_path: &str) -> DbResult<Vec<PlanningIntegrityIssue>> {
+        let conn = StorageService::connect()?;
+        let mut issues = Vec::new();
+        let mut collect =
+            |sql: &str, scoped: bool, kind: &str, detail: &dyn Fn(&str) -> String| -> DbResult<()> {
+                let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+                let map = |row: &rusqlite::Row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                };
+                let rows = if scoped {
+                    stmt.query_map(params![project_path], map)
+                } else {
+                    stmt.query_map([], map)
+                }
+                .map_err(|e| e.to_string())?;
+                for row in rows {
+                    let (entity_id, title) = row.map_err(|e| e.to_string())?;
+                    issues.push(PlanningIntegrityIssue {
+                        kind: kind.to_string(),
+                        entity_id,
+                        detail: detail(&title),
+                        title,
+                    });
+                }
+                Ok(())
+            };
+        collect(
+            "SELECT p.id, p.title FROM plans p
+             JOIN sessions s ON s.id = p.session_id
+             WHERE s.project_path = ?1 AND p.idea_id IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM ideas i WHERE i.id = p.idea_id)",
+            true,
+            "plan_missing_idea",
+            &|title| format!("Plan '{title}' references a source idea that no longer exists."),
+        )?;
+        collect(
+            "SELECT p.id, p.title FROM plans p
+             WHERE NOT EXISTS (SELECT 1 FROM sessions s WHERE s.id = p.session_id)",
+            false,
+            "plan_orphan_session",
+            &|title| {
+                format!("Plan '{title}' belongs to a deleted planning session and is invisible in project views.")
+            },
+        )?;
+        collect(
+            "SELECT i.id, i.title FROM ideas i
+             WHERE NOT EXISTS (SELECT 1 FROM sessions s WHERE s.id = i.session_id)",
+            false,
+            "idea_orphan_session",
+            &|title| {
+                format!("Idea '{title}' belongs to a deleted planning session — promote and status actions will fail.")
+            },
+        )?;
+        collect(
+            "SELECT i.id, i.title FROM ideas i
+             JOIN sessions s ON s.id = i.session_id
+             WHERE s.project_path = ?1 AND i.category_id IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM idea_categories c WHERE c.id = i.category_id)",
+            true,
+            "idea_missing_category",
+            &|title| format!("Idea '{title}' is tagged with a category that no longer exists."),
+        )?;
+        Ok(issues)
+    }
     pub fn save_assessment(id: &str, assessment: &PlanAssessment) -> DbResult<()> {
         assessment.validate()?;
         let assessment_json =
@@ -411,5 +480,57 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["Second plan", "First plan"]
         );
+    }
+    /// Reproduces the observed desync: a plan promoted from an idea that was
+    /// later deleted, plus an orphaned idea whose session row is gone. The
+    /// self check must name both so the UI can warn instead of failing with
+    /// an opaque "not found".
+    #[test]
+    fn integrity_check_reports_missing_ideas_and_orphans() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        let session = SessionService::create_session("/integrity", "Planning").unwrap();
+        let idea = SessionService::create_idea(
+            &session.id,
+            "Doomed idea",
+            "Will be deleted",
+            None,
+            "grounding",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let mut new_plan = draft("Promoted plan");
+        new_plan.idea_id = Some(idea.id.clone());
+        PlanService::create(&session.id, &new_plan).unwrap();
+        SessionService::delete_idea(&idea.id).unwrap();
+        // Orphan idea: its owning session row is removed directly (FKs are
+        // exercised by inserting into a session then deleting the parent with
+        // FK enforcement bypassed via a raw row that never had a parent).
+        let conn = StorageService::connect().unwrap();
+        conn.execute("PRAGMA foreign_keys = OFF", []).unwrap();
+        conn.execute(
+            "INSERT INTO ideas (id, session_id, title, description, status, created_at, updated_at)
+             VALUES ('orphan-idea', 'missing-session', 'Orphan idea', '', 'concept', 0, 0)",
+            [],
+        )
+        .unwrap();
+
+        let issues = PlanService::integrity_check("/integrity").unwrap();
+
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.kind == "plan_missing_idea" && issue.title == "Promoted plan"),
+            "issues: {issues:?}"
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.kind == "idea_orphan_session" && issue.entity_id == "orphan-idea"),
+            "issues: {issues:?}"
+        );
+        assert!(PlanService::integrity_check("/clean-project").unwrap().iter().all(|issue| issue.kind.contains("orphan")));
     }
 }

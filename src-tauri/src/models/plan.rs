@@ -111,3 +111,19 @@ pub struct BatchPromoteError {
     pub idea_id: String,
     pub error: String,
 }
+/// One planning-data integrity problem found by the load-time self check
+/// (e.g. a plan whose source idea was deleted, or an idea whose owning
+/// session row is gone). Surfaced as a desync warning in the planning UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanningIntegrityIssue {
+    /// Machine kind: plan_missing_idea | plan_orphan_session |
+    /// idea_orphan_session | idea_missing_category.
+    pub kind: String,
+    /// Id of the affected plan or idea.
+    pub entity_id: String,
+    /// Human title of the affected entity.
+    pub title: String,
+    /// Explanation of the desync and its likely effect.
+    pub detail: String,
+}

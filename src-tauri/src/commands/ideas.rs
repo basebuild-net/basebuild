@@ -185,7 +185,6 @@ pub fn ensure_default_categories(session_id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn promote_ideas(app: AppHandle, input: PromoteIdeasInput) -> Result<Vec<Plan>, String> {
-    let ideas = SessionService::list_ideas(&input.session_id)?;
     let project_path = SessionService::get(&input.session_id)
         .ok()
         .flatten()
@@ -193,10 +192,25 @@ pub fn promote_ideas(app: AppHandle, input: PromoteIdeasInput) -> Result<Vec<Pla
         .unwrap_or_default();
     let mut plans = Vec::new();
     for idea_id in &input.idea_ids {
-        let idea = ideas
-            .iter()
-            .find(|i| &i.id == idea_id)
-            .ok_or_else(|| format!("Idea '{}' not found", idea_id))?;
+        // Resolve by id instead of scanning one session's list: the UI
+        // aggregates ideas project-wide, so an idea may belong to a sibling
+        // planning session of the same project.
+        let idea = SessionService::get_idea(idea_id)?.ok_or_else(|| {
+            format!(
+                "Idea '{idea_id}' no longer exists — it may have been deleted. Refresh the ideas list."
+            )
+        })?;
+        let idea_project = SessionService::get(&idea.session_id)
+            .ok()
+            .flatten()
+            .map(|s| s.project_path);
+        if idea_project.as_deref() != Some(project_path.as_str()) {
+            return Err(format!(
+                "Idea '{}' belongs to a different project ('{}') — planning data is out of sync.",
+                idea.title,
+                idea_project.as_deref().unwrap_or("unknown"),
+            ));
+        }
         let plan = PlanService::create(
             &input.session_id,
             &NewPlan {

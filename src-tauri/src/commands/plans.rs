@@ -268,6 +268,15 @@ pub fn batch_promote_ideas(
         .collect();
     Ok(BatchPromoteResult { created, errors })
 }
+/// Load-time planning-data self check: reports desyncs (plans with deleted
+/// source ideas, orphaned plans/ideas, dangling category tags) so the UI can
+/// warn instead of failing actions with opaque "not found" errors.
+#[tauri::command]
+pub fn planning_integrity_check(
+    project_path: String,
+) -> Result<Vec<crate::models::plan::PlanningIntegrityIssue>, String> {
+    PlanService::integrity_check(&project_path)
+}
 
 #[cfg(test)]
 mod tests {

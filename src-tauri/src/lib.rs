@@ -113,7 +113,7 @@ use commands::{
     planning_prompts::{planning_prompt_list, planning_prompt_reset, planning_prompt_set},
     plans::{
         batch_promote_ideas, create_plan, delete_plan, get_plan, list_plans, list_project_plans,
-        set_plan_context, set_plan_status, update_plan,
+        planning_integrity_check, set_plan_context, set_plan_status, update_plan,
     },
     projects::{
         basebuild_data_dir, create_project_basebuild_config, detect_project,
@@ -379,6 +379,7 @@ pub fn run() {
             list_plans,
             list_project_plans,
             get_plan,
+            planning_integrity_check,
             update_plan,
             delete_plan,
             set_plan_status,

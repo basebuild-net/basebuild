@@ -137,3 +137,16 @@ export const PLAN_STATUS_LABEL: Record<PlanStatus, string> = {
 export function isTerminalStatus(status: PlanStatus): boolean {
   return status === "finished" || status === "cancelled";
 }
+export type PlanningIntegrityIssue = {
+  kind: string;
+  entityId: string;
+  title: string;
+  detail: string;
+};
+
+/** Load-time planning-data self check — desyncs (deleted source ideas,
+ *  orphaned rows, dangling categories) surfaced as UI warnings instead of
+ *  opaque action failures. */
+export async function planningIntegrityCheck(projectPath: string): Promise<PlanningIntegrityIssue[]> {
+  return invoke<PlanningIntegrityIssue[]>("planning_integrity_check", { projectPath });
+}

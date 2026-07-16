@@ -722,6 +722,22 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return s.plans.filter((plan) => plan.sessionId === args.sessionId) as T;
     case "list_project_plans":
       return (args.projectPath === s.projectPath ? s.plans : []) as T;
+    case "planning_integrity_check": {
+      // Self-consistent with the fixture state: report plans whose source
+      // idea no longer exists, matching the backend check's primary case.
+      const ideaIds = new Set(s.ideas.map((idea) => idea.id));
+      return s.plans
+        .filter((plan) => {
+          const ideaId = (plan as { ideaId?: string | null }).ideaId;
+          return typeof ideaId === "string" && ideaId.length > 0 && !ideaIds.has(ideaId);
+        })
+        .map((plan) => ({
+          kind: "plan_missing_idea",
+          entityId: plan.id,
+          title: plan.title,
+          detail: `Plan '${plan.title}' references a source idea that no longer exists.`,
+        })) as T;
+    }
     case "create_plan": {
       const input = args.input as { sessionId: string; title: string; description: string };
       const plan = makePlan(input.sessionId, input);

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Archive, ClipboardCheck, FolderTree, LayoutGrid, Loader2, MoreHorizontal, Play, Plus, RefreshCw, Rocket, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
+import { AlertTriangle, Archive, ClipboardCheck, FolderTree, LayoutGrid, Loader2, MoreHorizontal, Play, Plus, RefreshCw, Rocket, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import type { Plan, PlanStatus } from "../../lib/plans";
 import { isTerminalStatus } from "../../lib/plans";
-import { batchPromoteIdeas } from "../../lib/plans";
+import { batchPromoteIdeas, planningIntegrityCheck, type PlanningIntegrityIssue } from "../../lib/plans";
 import { assignPlanToChat, enqueuePlan, listPlanRuns, listPlanRunsByProject, markPlanRunComplete, startQueue, getFinishOutcome } from "../../lib/planRuns";
 import { useOpenSpecRuntime } from "../../state/useOpenSpecRuntime";
 import { PlanPanel } from "./PlanPanel";
@@ -145,6 +145,7 @@ export function PlanningInspector({
   const [promotingIdeaId, setPromotingIdeaId] = useState<string | null>(null);
   const [expandedIdeaId, setExpandedIdeaId] = useState<string | null>(null);
   const [ideaMenuId, setIdeaMenuId] = useState<string | null>(null);
+  const [integrityIssues, setIntegrityIssues] = useState<PlanningIntegrityIssue[]>([]);
   const [openIdeaHistoryKey, setOpenIdeaHistoryKey] = useState<string | null>(null);
   const [openIdeaHistoryIndex, setOpenIdeaHistoryIndex] = useState(0);
   const [planRuns, setPlanRuns] = useState<PlanRun[]>([]);
@@ -218,6 +219,35 @@ export function PlanningInspector({
       .then(setPlanRuns)
       .catch(() => setPlanRuns([]));
   }, [projectPath, sessionId, plans]);
+  // Planning-data self check: runs on load and whenever plans/ideas change,
+  // surfacing desyncs (deleted source ideas, orphaned rows, dangling
+  // categories) as a visible warning instead of letting actions fail with
+  // opaque "not found" errors.
+  useEffect(() => {
+    if (!projectPath) {
+      setIntegrityIssues([]);
+      return;
+    }
+    let cancelled = false;
+    void planningIntegrityCheck(projectPath)
+      .then((issues) => {
+        if (cancelled) return;
+        setIntegrityIssues(issues);
+        if (issues.length > 0) {
+          addLog(
+            "warn",
+            "Planning data desync detected",
+            issues.map((issue) => `${issue.kind}: ${issue.detail}`).join(" | "),
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setIntegrityIssues([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectPath, plans, ideaState.ideas, addLog]);
   // Fetch finish-policy outcomes for succeeded runs (for completion cards).
   useEffect(() => {
     const succeeded = planRuns.filter((r) => r.status === "succeeded");
@@ -1020,6 +1050,18 @@ export function PlanningInspector({
           ) : null}
         </div>
       </div>
+      {integrityIssues.length > 0 ? (
+        <div
+          className="planning-integrity-warning"
+          role="status"
+          title={integrityIssues.map((issue) => issue.detail).join("\n")}
+        >
+          <AlertTriangle size={12} />
+          <span>
+            Planning data desync: {integrityIssues.length} issue{integrityIssues.length === 1 ? "" : "s"} found — some actions may fail. Hover for details.
+          </span>
+        </div>
+      ) : null}
 
       {tab === "plans" ? (
         <PlanPanel
