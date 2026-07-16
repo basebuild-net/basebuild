@@ -73,7 +73,7 @@ impl PipelineService {
     /// Start a pipeline stage. Records a `pending` run row, marks it
     /// `running`, executes the stage, and records the terminal status. The
     /// `CancellationToken` is held in `RUNNING_STAGES` so cancel can abort.
-    pub fn start_stage(app: &AppHandle, request: PipelineStartRequest) -> DbResult<PipelineRun> {
+    pub fn start_stage<R: Runtime>(app: &AppHandle<R>, request: PipelineStartRequest) -> DbResult<PipelineRun> {
         let kind = PipelineStageKind::from_str(&request.kind)
             .ok_or_else(|| format!("Unknown pipeline stage kind: {}", request.kind))?;
 
@@ -269,8 +269,8 @@ impl PipelineService {
 
     /// Stage: generate idea categories from the project schematic + conversation.
     /// Returns created category ids as output refs.
-    fn stage_generate_categories(
-        app: &AppHandle,
+    fn stage_generate_categories<R: Runtime>(
+        app: &AppHandle<R>,
         request: &PipelineStartRequest,
         run_id: &str,
         token: &CancellationToken,
@@ -346,8 +346,8 @@ impl PipelineService {
 
     /// Stage: generate ideas, optionally within a category or freeform.
     /// Returns created idea ids as output refs.
-    fn stage_generate_ideas(
-        app: &AppHandle,
+    fn stage_generate_ideas<R: Runtime>(
+        app: &AppHandle<R>,
         request: &PipelineStartRequest,
         run_id: &str,
         token: &CancellationToken,
@@ -489,8 +489,8 @@ impl PipelineService {
 
     /// Stage: enhance an idea into a draft plan. Creates a draft plan linked
     /// to the idea and returns the plan id as an output ref.
-    fn stage_enhance_idea(
-        app: &AppHandle,
+    fn stage_enhance_idea<R: Runtime>(
+        app: &AppHandle<R>,
         request: &PipelineStartRequest,
         run_id: &str,
         token: &CancellationToken,
@@ -586,8 +586,8 @@ impl PipelineService {
     /// Stage: generate OpenSpec artifacts (proposal.md, specs/, design.md,
     /// tasks.md, .openspec.yaml) for a plan. Calls the model to generate each
     /// artifact, writes them atomically, and links the plan to the change.
-    fn stage_generate_openspec(
-        app: &AppHandle,
+    fn stage_generate_openspec<R: Runtime>(
+        app: &AppHandle<R>,
         request: &PipelineStartRequest,
         run_id: &str,
         token: &CancellationToken,
@@ -781,8 +781,8 @@ impl PipelineService {
 
     /// Call the model with streaming, checking the cancellation token between
     /// chunks. Returns the full response content.
-    fn call_model(
-        app: &AppHandle,
+    fn call_model<R: Runtime>(
+        app: &AppHandle<R>,
         session_id: &str,
         run_id: &str,
         token: &CancellationToken,
