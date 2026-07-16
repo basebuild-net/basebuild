@@ -1320,10 +1320,12 @@ mod tests {
     }
 
     #[test]
-    fn migrates_plan_statuses_waiting_to_ready_and_in_progress_to_running() {
-        // A pre-migration database with legacy plan statuses must be rewritten
-        // on initialize. Re-running initialize must be idempotent (no rows
-        // match the legacy values the second time).
+    fn migrates_legacy_plan_statuses_and_reverts_orphaned_running() {
+        // A pre-migration database with legacy plan statuses is rewritten on
+        // initialize: waiting → ready, in_progress → running. The crash-recovery
+        // migration then reverts any `running` plan with no active plan_run back
+        // to `ready` (anti-phantom), so a migrated in_progress plan with no run
+        // lands on `ready`. Re-running initialize stays idempotent.
         let conn = Connection::open_in_memory().unwrap();
         StorageService::initialize(&conn).expect("first initialize");
         conn.execute(
@@ -1348,7 +1350,7 @@ mod tests {
             .unwrap()
             .map(|r| r.unwrap())
             .collect();
-        assert_eq!(statuses, vec!["ready", "running"]);
+        assert_eq!(statuses, vec!["ready", "ready"]);
         // Idempotent: second run matches no legacy rows.
         StorageService::initialize(&conn).expect("idempotent re-init");
         let statuses2: Vec<String> = conn
@@ -1358,7 +1360,7 @@ mod tests {
             .unwrap()
             .map(|r| r.unwrap())
             .collect();
-        assert_eq!(statuses2, vec!["ready", "running"]);
+        assert_eq!(statuses2, vec!["ready", "ready"]);
     }
 
     #[test]
