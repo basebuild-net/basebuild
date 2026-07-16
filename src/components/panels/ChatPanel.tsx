@@ -2541,10 +2541,10 @@ export function ChatPanel({
                   key={p.id}
                   className="btn"
                   type="button"
-                  title={`Assign ${p.referenceId}: ${p.title}`}
+                  title={`Assign "${p.title}" (${p.referenceId}) to this chat`}
                   onClick={() => void handleAssignPlan(p.id)}
                 >
-                  <span>#{p.referenceId} {p.title}</span>
+                  <span>{p.title}</span>
                   <span className="text-muted text-sm plan-status-inline">{p.status}</span>
                 </button>
               ))}
