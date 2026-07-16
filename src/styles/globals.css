@@ -1341,6 +1341,15 @@ a { color: inherit; text-decoration: none; }
    Caps height and scrolls internally so a long question never buries the
    composer; the card keeps its own styling. */
 .chat-question-dock { flex: 0 0 auto; max-height: 45%; overflow-y: auto; border-top: 1px solid var(--bb-border); background: var(--bb-bg); }
+.chat-question-dock-bar { display: flex; justify-content: flex-end; padding: 2px 4px 0; }
+.chat-question-dock-min { color: var(--bb-muted); }
+.chat-question-dock-min:hover { color: var(--bb-text); }
+.chat-question-preview { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 10px; font-size: 11px; text-align: left; color: var(--bb-text); background: var(--bb-surface-high); border: 1px solid var(--bb-cta); border-radius: var(--bb-radius-sm); cursor: pointer; transition: border-color var(--bb-duration-fast) var(--bb-ease), background var(--bb-duration-fast) var(--bb-ease); }
+.chat-question-preview:hover { border-color: var(--bb-border-strong); background: var(--bb-surface-hover); }
+.chat-question-preview-icon { flex: 0 0 auto; color: var(--bb-cta); }
+.chat-question-preview-text { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-question-preview-action { flex: 0 0 auto; font-size: 10px; font-weight: 600; color: var(--bb-cta); text-transform: uppercase; letter-spacing: 0.04em; }
+.chat-composer-locked { padding: 10px 12px; font-size: 11px; color: var(--bb-muted); text-align: center; border: 1px dashed var(--bb-border); border-radius: var(--bb-radius-sm); background: var(--bb-surface); }
 .chat-message { padding: var(--bb-space-2) var(--bb-space-3); font-size: 12px; max-width: 85%; border-radius: 0; }
 .chat-message-user { background: var(--bb-surface); align-self: flex-end; }
 .chat-message-assistant { background: var(--bb-surface-hover); align-self: flex-start; }
@@ -1523,15 +1532,10 @@ a { color: inherit; text-decoration: none; }
 .question-card-input:focus { outline: none; border-color: var(--bb-cta); box-shadow: inset 0 0 0 1px var(--bb-cta); }
 .question-card-actions { display: flex; gap: 4px; }
 .question-card-error { font-size: 10px; color: var(--bb-danger, #c53030); }
-/* Composer answering banner */
-.chat-answering-banner { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--bb-surface-high); border: 1px solid var(--bb-cta); border-radius: var(--bb-radius-md); font-size: 11px; }
 .chat-elapsed-badge { display: inline-block; font-size: 9px; font-weight: 600; color: var(--bb-muted); font-family: var(--bb-mono); padding: 0 4px; margin-left: 6px; }
 .chat-loading-tools { gap: 6px; align-items: center; }
 .chat-loading-label { flex: 1; }
 .chat-loading-count { font-size: 10px; color: var(--bb-muted); font-family: var(--bb-mono); }
-.chat-answering-icon { font-weight: 700; color: var(--bb-cta); }
-.chat-answering-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-answering-hint { font-size: 10px; font-style: italic; }
 .chat-reasoning-toggle:hover { color: var(--bb-text); }
 .chat-reasoning-content { font-family: var(--bb-font); font-size: 11px; font-style: italic; color: var(--bb-muted); white-space: pre-wrap; word-break: break-word; margin: 4px 6px; max-height: 200px; overflow-y: auto; }
 .chat-proposals { display: flex; flex-direction: column; gap: 6px; padding: 4px; }

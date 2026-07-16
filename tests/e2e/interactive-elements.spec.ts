@@ -109,7 +109,7 @@ test.describe("Interactive elements: ask_user question card", () => {
     await expect(page.locator(".question-card-status", { hasText: "Cancelled" })).toBeVisible();
   });
 
-  test("text question captures composer with answering indicator", async ({ page }) => {
+  test("text question hides the composer and answers in the card", async ({ page }) => {
     await openFixtureProject(page);
     const sessionId = await getNativeSessionId(page);
 
@@ -128,12 +128,12 @@ test.describe("Interactive elements: ask_user question card", () => {
       createdAt: Math.floor(Date.now() / 1000),
     }, sessionId);
 
-    // The answering banner should appear above the composer.
-    await expect(page.locator(".chat-answering-banner")).toBeVisible({ timeout: 5_000 });
-    await expect(page.locator(".chat-answering-text", { hasText: "Answering" })).toBeVisible();
-
-    // The QuestionCard should also render with a text input.
-    await expect(page.locator(".question-card-input")).toBeVisible();
+    // New flow: a pending question hides the composer; the answer is captured
+    // in the docked QuestionCard's text input, not the composer.
+    await expect(page.locator(".chat-question-dock .question-card-input")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".chat-input")).toHaveCount(0);
+    await expect(page.locator(".chat-composer-locked")).toBeVisible();
+    await expect(page.locator(".chat-answering-banner")).toHaveCount(0);
   });
 
   test("pending question is docked above the composer and always reachable", async ({ page }) => {

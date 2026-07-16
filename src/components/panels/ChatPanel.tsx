@@ -31,6 +31,7 @@ import {
   Edit2,
   GitBranch as GitBranchIcon,
   FolderTree,
+  HelpCircle,
   Key,
   LayoutGrid,
   Lightbulb,
@@ -603,6 +604,7 @@ export function ChatPanel({
   // segments; orders items within the in-flight turn.
   const liveOrderRef = useRef(0);
   const [interactions, setInteractions] = useState<PendingInteraction[]>([]);
+  const [minimizedQuestions, setMinimizedQuestions] = useState<Set<string>>(() => new Set());
   const [legacyMessages, setLegacyMessages] = useState<LegacyChatMessage[]>([]);
   const [providerId, setProviderId] = useState(LOCAL_PROVIDER_ID);
   const [modelId, setModelId] = useState("basebuild-local-coordinator");
@@ -1745,7 +1747,7 @@ export function ChatPanel({
     if (!text) return;
     // Composer answer routing: if there's a pending text/free-text question,
     // capture the next send as the answer (unless escaped with /send).
-    const pendingInteraction = interactions.find((i) => i.status === "pending");
+    const pendingInteraction = interactions.find((i) => i.status === "pending" && !minimizedQuestions.has(i.id));
     if (nativeMode && pendingInteraction) {
       const textQuestion = pendingInteraction.questions.find(
         (q) => q.kind === "text" || (q.kind === "options" && q.allowFreeText),
@@ -2002,7 +2004,7 @@ export function ChatPanel({
       return;
     }
     await sendMessage(text);
-  }, [input, nativeMode, sendMessage, catalog, addLog, interactions, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId, onOpenSchematic, projectPath, selectedModel]);
+  }, [input, nativeMode, sendMessage, catalog, addLog, interactions, minimizedQuestions, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId, onOpenSchematic, projectPath, selectedModel]);
 
   // Merged chronological timeline (messages + tool events + interactions).
   // Memoized so it is rebuilt only when the underlying lists change — not on
@@ -2531,6 +2533,25 @@ export function ChatPanel({
   const sendDisabled = loading || !input.trim() || (nativeMode ? !nativeSessionId : agentId === null);
 
   const modelName = selectedModel?.label ?? modelId;
+  // Pending ask_user questions. Non-minimized ("active") questions take over
+  // the composer: the input box is hidden so the only affordance is answering
+  // the question card in the dock. Users can minimize a question at any time to
+  // reclaim the composer; a compact clickable preview then lets them reopen it.
+  const pendingInteractions = interactions.filter((i) => i.status === "pending");
+  const activeQuestions = pendingInteractions.filter((i) => !minimizedQuestions.has(i.id));
+  const minimizedPending = pendingInteractions.filter((i) => minimizedQuestions.has(i.id));
+  const minimizeQuestion = (id: string) => {
+    addLog("debug", "Question minimized", id);
+    setMinimizedQuestions((prev) => new Set(prev).add(id));
+  };
+  const restoreQuestion = (id: string) => {
+    addLog("debug", "Question reopened", id);
+    setMinimizedQuestions((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  };
   return (
     <div className="chat-panel" ref={panelRef} tabIndex={-1} onKeyDown={(e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "f") {
@@ -2978,19 +2999,44 @@ export function ChatPanel({
           always visible, instead of scrolling out of view up in the transcript
           (which left only the cryptic "/send to escape" banner). Answered and
           cancelled questions fall back into the transcript as history. */}
-      {nativeMode
-        ? interactions
-            .filter((i) => i.status === "pending")
-            .map((intr) => (
-              <div className="chat-question-dock" key={`dock-${intr.id}`}>
-                <QuestionCard
-                  interaction={intr}
-                  onResolved={(resolved) => setInteractions((prev) => prev.map((i) => i.id === resolved.id ? resolved : i))}
-                  onCancelled={(id) => setInteractions((prev) => prev.map((i) => i.id === id ? { ...i, status: "cancelled" } : i))}
-                />
+      {nativeMode ? (
+        <>
+          {activeQuestions.map((intr) => (
+            <div className="chat-question-dock" key={`dock-${intr.id}`}>
+              <div className="chat-question-dock-bar">
+                <button
+                  className="btn btn-ghost btn-icon-sm chat-question-dock-min"
+                  type="button"
+                  title="Hide this question — reopen it from the preview above the composer"
+                  onClick={() => minimizeQuestion(intr.id)}
+                >
+                  <ChevronDown size={13} />
+                </button>
               </div>
-            ))
-        : null}
+              <QuestionCard
+                interaction={intr}
+                onResolved={(resolved) => setInteractions((prev) => prev.map((i) => i.id === resolved.id ? resolved : i))}
+                onCancelled={(id) => setInteractions((prev) => prev.map((i) => i.id === id ? { ...i, status: "cancelled" } : i))}
+              />
+            </div>
+          ))}
+          {minimizedPending.map((intr) => (
+            <button
+              className="chat-question-preview"
+              type="button"
+              key={`preview-${intr.id}`}
+              title="Reopen the agent's question"
+              onClick={() => restoreQuestion(intr.id)}
+            >
+              <HelpCircle size={13} className="chat-question-preview-icon" />
+              <span className="chat-question-preview-text">
+                {intr.questions[0]?.prompt ?? "Agent is asking a question"}
+              </span>
+              <span className="chat-question-preview-action">Answer</span>
+            </button>
+          ))}
+        </>
+      ) : null}
       {/* Scroll-to-bottom button */}
       {isScrolledUp ? (
         <button
@@ -3617,19 +3663,7 @@ export function ChatPanel({
             ) : null}
           </>
         ) : null}
-        {(() => {
-          const pending = interactions.find((i) => i.status === "pending");
-          if (!pending) return null;
-          const textQ = pending.questions.find((q) => q.kind === "text" || (q.kind === "options" && q.allowFreeText));
-          if (!textQ) return null;
-          return (
-            <div className="chat-answering-banner" title="Your next send will be submitted as the answer. Use /send <text> to send a normal message instead.">
-              <span className="chat-answering-icon">?</span>
-              <span className="chat-answering-text">Answering: {textQ.prompt}</span>
-              <span className="chat-answering-hint text-muted">/send to escape</span>
-            </div>
-          );
-        })()}
+        {activeQuestions.length === 0 ? (
         <div className="chat-composer-box">
           <div className="chat-composer-textarea-wrap">
             <textarea
@@ -3794,6 +3828,11 @@ export function ChatPanel({
             )}
           </div>
         </div>
+        ) : (
+          <div className="chat-composer-locked" title="Answer the question above to continue">
+            Answer the pending question above, or reopen it from the preview, to continue.
+          </div>
+        )}
         <div className="chat-composer-meta">
           <div className="chat-composer-meta-left">
             {projectPath ? (
