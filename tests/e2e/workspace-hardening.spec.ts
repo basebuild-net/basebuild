@@ -123,7 +123,9 @@ test.describe("Workspace lifecycle hardening", () => {
     expect(result).toEqual({ kind: "hold" });
 
     // Verify the launch profile form shows hold as the finish policy.
+    // The fields are collapsed behind the launch-profile disclosure.
     const modal = await openFlowTab(page);
+    await modal.getByTitle("Workers, workspace, scheduling, engine, and finish policy for launched plans").click();
     const finishList = modal.locator(".option-list[aria-label='Finish policy']").first();
     await expect(finishList.locator(".option-list-btn.is-active")).toHaveText("Hold for review");
 
