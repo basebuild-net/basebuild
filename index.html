@@ -28,6 +28,17 @@
         var root = document.documentElement;
         root.dataset.bbTheme = theme;
         root.style.colorScheme = theme;
+        // Pre-React UI-scale bootstrap: exact-allowlist the persisted zoom
+        // step (80–150 in tens) and apply it before first paint so startup
+        // does not flash at 100%. Malformed/missing values fall back to 100.
+        var scale = 100;
+        try {
+          var storedScale = Number(localStorage.getItem("basebuild.zoom"));
+          if ([80, 90, 100, 110, 120, 130, 140, 150].indexOf(storedScale) !== -1) scale = storedScale;
+        } catch (e) {
+          // Storage access may throw; keep 100%.
+        }
+        if (scale !== 100) root.style.setProperty("zoom", String(scale / 100));
         // Suppress transitions during startup to prevent theme flash.
         root.classList.add("bb-suppress-transitions");
       })();

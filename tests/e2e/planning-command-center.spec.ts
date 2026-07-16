@@ -86,25 +86,23 @@ test.describe("Visual planning command center", () => {
     await dropdown.getByTitle("Create idea title").fill("Quick menu idea");
     await dropdown.getByTitle("Create idea description").fill("Created without opening the full planning modal.");
     await dropdown.getByRole("button", { name: "Create", exact: true }).click();
-    await expect(dropdown.locator(".planning-quick-idea-title")).toHaveText("Quick menu idea");
+    await expect(dropdown.locator(".planning-notification-item-title")).toHaveText("Quick menu idea");
 
-    await dropdown.locator(".planning-quick-idea-main", { hasText: "Quick menu idea" }).click();
+    await dropdown.locator(".planning-notification-item-open", { hasText: "Quick menu idea" }).click();
     await dropdown.getByTitle("Edit idea title").fill("Updated quick menu idea");
     await dropdown.getByTitle("Save idea changes").click();
-    await expect(dropdown.locator(".planning-quick-idea-title")).toHaveText("Updated quick menu idea");
+    await expect(dropdown.locator(".planning-notification-item-title")).toHaveText("Updated quick menu idea");
 
-    await dropdown
-      .getByRole("button", { name: "Upgrade Updated quick menu idea to a plan" })
-      .click();
-    await expect(dropdown.getByTitle("Change status for Updated quick menu idea")).toHaveValue("picked");
+    // All row actions live in the shared `…` menu.
+    await dropdown.getByTitle("More actions for Updated quick menu idea").click();
+    await dropdown.getByRole("button", { name: "Upgrade to plan" }).click();
+    await expect(dropdown.locator(".planning-quick-idea[data-status='picked']")).toHaveCount(1);
     await expect(page.locator(".planning-indicator[data-stage='plans']")).toHaveAttribute("title", /Plans: 1/);
 
-    await dropdown
-      .getByRole("button", { name: "Delete Updated quick menu idea" })
-      .click();
-    await dropdown
-      .getByRole("button", { name: "Confirm deletion of Updated quick menu idea" })
-      .click();
+    // Delete is a two-step confirm inside the menu.
+    await dropdown.getByTitle("More actions for Updated quick menu idea").click();
+    await dropdown.getByRole("button", { name: "Delete idea" }).click();
+    await dropdown.getByRole("button", { name: "Confirm delete" }).click();
     await expect(dropdown.locator(".planning-quick-idea")).toHaveCount(0);
 
     await dropdown.getByRole("button", { name: "Generate more ideas" }).click();

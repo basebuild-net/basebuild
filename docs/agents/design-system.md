@@ -141,7 +141,23 @@ dependencies are NOT adopted.
 - `.settings-table` — concurrency settings grid (provider, global max,
   project max, subagents, subagent cap).
 - `.settings-modal .modal-body` — always a row: fixed `.settings-sidebar`
-  beside flexible, independently scrolling `.settings-content`.
+  beside flexible, independently scrolling `.settings-content`. The sidebar
+  is grouped: `.settings-group` sections with non-interactive
+  `.settings-group-label` headers (Appearance leads, then General,
+  Providers & Models, Execution, Integrations, Privacy & Data). Every tab
+  belongs to exactly one group.
+- Appearance tab hosts theme (`.theme-picker`) and UI scale
+  (`.ui-scale-control` + `.ui-scale-value`). The scale is a bounded root
+  zoom multiplier (80–150% in tens) from `src/lib/uiScale.ts`, persisted in
+  localStorage (`basebuild.zoom`, exact-allowlisted, applied pre-paint in
+  `index.html`) with CTRL+= / CTRL+- / CTRL+0 shortcuts via `useZoom`.
+- `.planning-dropdown-row` — the shared row for ALL planning dropdowns
+  (Ideas, Plans, Running, Done): status dot, `.planning-notification-item-title`
+  with a one-line `.planning-notification-item-desc`, right-aligned status
+  label, and a `…` menu (`.context-menu`) holding every secondary action
+  (Assign/Approve/Generate OpenSpec/status changes/Copy id/two-step Delete).
+  Dropdown panels share one width (`.planning-notification-dropdown`,
+  340px); rows never grow inline button clusters.
 - `.chat-env-context` + `.chat-context-badge` — compact chat context badges;
   truncate with tooltip text rather than wrapping over header actions.
 - `.provider-catalog-modal` — two-pane provider/model configuration workspace.

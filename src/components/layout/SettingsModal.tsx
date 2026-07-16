@@ -102,6 +102,14 @@ import { useEscapeKey } from "../../lib/useEscapeKey";
 import { listResolvedSkills, readResolvedSkill, type ResolvedSkill } from "../../lib/skillRegistry";
 import { useTheme, type AppTheme } from "../../state/useTheme";
 import { ModalPortal } from "../ModalPortal";
+import {
+  getUiScale,
+  resetUiScale,
+  stepUiScale,
+  subscribeUiScale,
+  UI_SCALE_STEPS,
+  type UiScale,
+} from "../../lib/uiScale";
 
 type SettingsModalProps = {
   open: boolean;
@@ -111,7 +119,7 @@ type SettingsModalProps = {
   updates: UpdaterState;
 };
 
-type Tab = "updates" | "defaults" | "permissions" | "privacy" | "theme" | "account" | "configs" | "mcp" | "planning" | "openspec" | "final_touches" | "concurrency" | "notifications" | "skills" | "about";
+type Tab = "updates" | "defaults" | "permissions" | "privacy" | "appearance" | "account" | "configs" | "mcp" | "planning" | "openspec" | "final_touches" | "concurrency" | "notifications" | "skills" | "about";
 
 export function SettingsModal({ open, onClose, projectPath, account, updates }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
@@ -379,22 +387,50 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
 
   if (!open) return null;
 
-  const tabs: { id: Tab; label: string; icon: typeof Settings2 }[] = [
-    { id: "updates", label: "Updates", icon: RefreshCw },
-    { id: "defaults", label: "Defaults", icon: Settings2 },
-    { id: "permissions", label: "Permissions", icon: Lock },
-    { id: "privacy", label: "Privacy", icon: Shield },
-    { id: "theme", label: "Theme", icon: Sun },
-    { id: "account", label: "Account", icon: User },
-    { id: "configs", label: "Config Packs", icon: Settings2 },
-    { id: "mcp", label: "MCP Servers", icon: Plug },
-    { id: "planning", label: "Planning", icon: Lightbulb },
-    { id: "openspec", label: "OpenSpec", icon: Wrench },
-    { id: "final_touches", label: "Final Touches", icon: Settings2 },
-    { id: "notifications", label: "Notifications", icon: Bell },
-    { id: "concurrency", label: "Concurrency", icon: Settings2 },
-    { id: "skills", label: "Skills", icon: Sparkles },
-    { id: "about", label: "About", icon: Globe },
+  // Grouped sidebar: every tab belongs to exactly one named group;
+  // Appearance leads so theme and UI scale are one click away.
+  const tabGroups: { group: string; tabs: { id: Tab; label: string; icon: typeof Settings2 }[] }[] = [
+    {
+      group: "Appearance",
+      tabs: [
+        { id: "appearance", label: "Appearance", icon: Sun },
+        { id: "notifications", label: "Notifications", icon: Bell },
+      ],
+    },
+    {
+      group: "General",
+      tabs: [
+        { id: "updates", label: "Updates", icon: RefreshCw },
+        { id: "account", label: "Account", icon: User },
+        { id: "about", label: "About", icon: Globe },
+      ],
+    },
+    {
+      group: "Providers & Models",
+      tabs: [{ id: "defaults", label: "Defaults", icon: Settings2 }],
+    },
+    {
+      group: "Execution",
+      tabs: [
+        { id: "permissions", label: "Permissions", icon: Lock },
+        { id: "planning", label: "Planning", icon: Lightbulb },
+        { id: "openspec", label: "OpenSpec", icon: Wrench },
+        { id: "final_touches", label: "Final Touches", icon: Settings2 },
+        { id: "concurrency", label: "Concurrency", icon: Settings2 },
+      ],
+    },
+    {
+      group: "Integrations",
+      tabs: [
+        { id: "mcp", label: "MCP Servers", icon: Plug },
+        { id: "configs", label: "Config Packs", icon: Settings2 },
+        { id: "skills", label: "Skills", icon: Sparkles },
+      ],
+    },
+    {
+      group: "Privacy & Data",
+      tabs: [{ id: "privacy", label: "Privacy", icon: Shield }],
+    },
   ];
 
   const updateChecking = updates.status === "checking";
@@ -417,21 +453,26 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
         </div>
         <div className="modal-body">
           <div className="settings-sidebar">
-            {tabs.map((t) => {
-              const Icon = t.icon;
-              return (
-                <button
-                  key={t.id}
-                  className={`settings-tab${tab === t.id ? " is-active" : ""}`}
-                  type="button"
-                  title={t.label}
-                  onClick={() => setTab(t.id)}
-                >
-                  <Icon size={14} />
-                  {t.label}
-                </button>
-              );
-            })}
+            {tabGroups.map((group) => (
+              <div key={group.group} className="settings-group">
+                <span className="settings-group-label" title={`${group.group} settings`}>{group.group}</span>
+                {group.tabs.map((t) => {
+                  const Icon = t.icon;
+                  return (
+                    <button
+                      key={t.id}
+                      className={`settings-tab${tab === t.id ? " is-active" : ""}`}
+                      type="button"
+                      title={t.label}
+                      onClick={() => setTab(t.id)}
+                    >
+                      <Icon size={14} />
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </div>
           <div className="settings-content">
             {/* ─── Updates ─── */}
@@ -1027,8 +1068,8 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
               </div>
             ) : null}
 
-            {/* ─── Theme ─── */}
-            {tab === "theme" ? <ThemeTab /> : null}
+            {/* ─── Appearance ─── */}
+            {tab === "appearance" ? <AppearanceTab /> : null}
 
             {/* ─── Config Packs ─── */}
             {tab === "configs" ? <ConfigPanel projectPath={projectPath} /> : null}
@@ -2284,12 +2325,16 @@ function SkillsTab() {
   );
 }
 
-function ThemeTab() {
+function AppearanceTab() {
   const { theme, setTheme } = useTheme();
+  const [scale, setScale] = useState<UiScale>(() => getUiScale());
+  useEffect(() => subscribeUiScale(setScale), []);
   const themes: { id: AppTheme; label: string; icon: typeof Sun; title: string }[] = [
     { id: "dark", label: "Dark", icon: Moon, title: "Graphite canvas with orange accent — the default Basebuild theme." },
     { id: "light", label: "Light", icon: Sun, title: "Soft neutral canvas with deeper accent for contrast." },
   ];
+  const minScale = UI_SCALE_STEPS[0];
+  const maxScale = UI_SCALE_STEPS[UI_SCALE_STEPS.length - 1];
   return (
     <div className="stack">
       <h3>Theme</h3>
@@ -2312,6 +2357,41 @@ function ThemeTab() {
             </button>
           );
         })}
+      </div>
+      <h3>UI scale</h3>
+      <p className="text-muted text-sm">
+        Scales the whole interface proportionally — text, padding, and layout together.
+        Keyboard: CTRL+= to zoom in, CTRL+- to zoom out, CTRL+0 to reset. Stored locally.
+      </p>
+      <div className="row ui-scale-control" role="group" aria-label="UI scale">
+        <button
+          className="btn btn-sm"
+          type="button"
+          title="Decrease UI scale (CTRL+-)"
+          disabled={scale <= minScale}
+          onClick={() => stepUiScale(-1)}
+        >
+          −
+        </button>
+        <span className="mono ui-scale-value" title={`Current UI scale: ${scale}%`}>{scale}%</span>
+        <button
+          className="btn btn-sm"
+          type="button"
+          title="Increase UI scale (CTRL+=)"
+          disabled={scale >= maxScale}
+          onClick={() => stepUiScale(1)}
+        >
+          +
+        </button>
+        <button
+          className="btn btn-sm btn-ghost"
+          type="button"
+          title="Reset UI scale to 100% (CTRL+0)"
+          disabled={scale === 100}
+          onClick={() => resetUiScale()}
+        >
+          Reset
+        </button>
       </div>
     </div>
   );

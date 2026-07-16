@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Check,
   ChevronRight,
+  Copy,
   Edit3,
   FolderTree,
   Lightbulb,
@@ -302,7 +303,7 @@ function NotificationDropdown({
 
   // Position dropdown below the button, clamped to viewport.
   const top = rect.bottom + 4;
-  const dropdownWidth = stage === "ideas" ? 380 : 280;
+  const dropdownWidth = 340;
   const left = Math.max(8, Math.min(rect.left, window.innerWidth - dropdownWidth - 8));
 
   return (
@@ -391,6 +392,101 @@ function SchematicItems({
       <span className="planning-notification-item-dot" />
       <span className="planning-notification-item-text">{label}</span>
     </button>
+  );
+}
+// ─── Shared dropdown row ─────────────────────────────────────────────────────
+
+/** One entry in a planning dropdown row's `…` menu. */
+type PlanningDropdownMenuItem = {
+  key: string;
+  label: string;
+  title: string;
+  icon?: ReactNode;
+  danger?: boolean;
+  disabled?: boolean;
+  busy?: boolean;
+  /** Keep the menu open after selection (two-step delete confirms). */
+  keepOpen?: boolean;
+  onSelect: () => void;
+};
+
+/** Shared row for every planning dropdown (Ideas, Plans, Running, Done):
+ *  status dot · title with one-line description · status label · `…` menu.
+ *  All secondary actions live in the menu — rows never grow inline button
+ *  clusters, so every dropdown keeps the same anatomy and right edge. */
+function PlanningDropdownRow({
+  dotStatus,
+  rowTitle,
+  title,
+  description,
+  statusLabel,
+  openTitle,
+  onOpen,
+  menuItems,
+  leading,
+  extraClassName,
+}: {
+  dotStatus?: string;
+  rowTitle?: string;
+  title: string;
+  description?: string;
+  statusLabel?: string;
+  openTitle: string;
+  onOpen: () => void;
+  menuItems: PlanningDropdownMenuItem[];
+  leading?: ReactNode;
+  extraClassName?: string;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  return (
+    <div
+      className={`planning-notification-item planning-dropdown-row${extraClassName ? ` ${extraClassName}` : ""}`}
+      data-status={dotStatus}
+      title={rowTitle ?? ""}
+    >
+      {leading}
+      <button type="button" className="planning-notification-item-open" title={openTitle} onClick={onOpen}>
+        <span className="planning-notification-item-dot" />
+        <span className="planning-notification-item-body">
+          <span className="planning-notification-item-title">{title}</span>
+          {description ? <span className="planning-notification-item-desc">{description}</span> : null}
+        </span>
+        {statusLabel ? (
+          <span className="planning-notification-item-meta planning-notification-item-status">{statusLabel}</span>
+        ) : null}
+      </button>
+      <span className="planning-notification-item-actions plan-card-menu-wrap">
+        <button
+          type="button"
+          className="planning-notification-action"
+          title={`More actions for ${title}`}
+          aria-label={`More actions for ${title}`}
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          <MoreHorizontal size={11} />
+        </button>
+        {menuOpen ? (
+          <div className="context-menu" onMouseLeave={() => setMenuOpen(false)}>
+            {menuItems.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={`menu-item text-sm${item.danger ? " menu-item-danger" : ""}`}
+                title={item.title}
+                disabled={item.disabled || item.busy}
+                onClick={() => {
+                  if (!item.keepOpen) setMenuOpen(false);
+                  item.onSelect();
+                }}
+              >
+                {item.busy ? <LoaderCircle size={12} className="spin" /> : item.icon}
+                {item.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </span>
+    </div>
   );
 }
 
@@ -686,14 +782,19 @@ function IdeaQuickMenu({
         {filteredIdeas.length === 0 ? (
           <div className="planning-notification-empty">No ideas match these filters</div>
         ) : filteredIdeas.map((idea) => {
-          const isBusy = busyKey?.endsWith(idea.id) ?? false;
           const category = categories.find((item) => item.id === idea.categoryId);
           const isEditing = editor?.mode === "edit" && editor.ideaId === idea.id;
           const isDeletePending = deletePendingId === idea.id;
           return (
             <div key={idea.id} className="planning-quick-idea" data-status={idea.status}>
-              <div className="planning-quick-idea-row">
-                {idea.status === "concept" ? (
+              <PlanningDropdownRow
+                dotStatus={idea.status}
+                title={idea.title}
+                description={`${idea.description || "No description"}${category ? ` · ${category.name}` : ""}`}
+                statusLabel={idea.status}
+                openTitle={`Edit ${idea.title}`}
+                onOpen={() => beginEdit(idea)}
+                leading={idea.status === "concept" ? (
                   <input
                     type="checkbox"
                     className="planning-quick-checkbox"
@@ -711,112 +812,66 @@ function IdeaQuickMenu({
                     }}
                   />
                 ) : <span className="planning-quick-checkbox-spacer" />}
-                <button
-                  type="button"
-                  className="planning-quick-idea-main"
-                  title={`Edit ${idea.title}`}
-                  onClick={() => beginEdit(idea)}
-                >
-                  <span className="planning-quick-idea-title">{idea.title}</span>
-                  <span className="planning-quick-idea-description">
-                    {idea.description || "No description"}
-                    {category ? ` · ${category.name}` : ""}
-                  </span>
-                </button>
-                <select
-                  className="planning-quick-status"
-                  value={idea.status}
-                  title={`Change status for ${idea.title}`}
-                  aria-label={`Status for ${idea.title}`}
-                  disabled={isBusy}
-                  onChange={(event) => {
-                    const status = event.target.value as IdeaStatus;
-                    void runAction(`status-${idea.id}`, () => onSetStatus(idea.id, status));
-                  }}
-                >
-                  <option value="concept">Concept</option>
-                  <option value="picked">Picked</option>
-                  <option value="rejected">Rejected</option>
-                  <option value="archived">Archived</option>
-                </select>
-                {isDeletePending ? (
-                  <div className="planning-quick-delete-confirm">
-                    <span>Delete?</span>
-                    <button
-                      type="button"
-                      className="planning-notification-action is-danger"
-                      title={`Confirm deletion of ${idea.title}`}
-                      aria-label={`Confirm deletion of ${idea.title}`}
-                      disabled={isBusy}
-                      onClick={() => {
-                        void runAction(`delete-${idea.id}`, () => onDelete(idea.id))
-                          .then((deleted) => {
-                            if (deleted) {
-                              setDeletePendingId(null);
-                              setSelectedIds((current) => {
-                                const next = new Set(current);
-                                next.delete(idea.id);
-                                return next;
-                              });
-                            }
-                          });
-                      }}
-                    >
-                      <Check size={11} />
-                    </button>
-                    <button
-                      type="button"
-                      className="planning-notification-action"
-                      title="Cancel deletion"
-                      aria-label="Cancel deletion"
-                      disabled={isBusy}
-                      onClick={() => setDeletePendingId(null)}
-                    >
-                      <X size={11} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="planning-quick-row-actions">
-                    <button
-                      type="button"
-                      className="planning-notification-action"
-                      title={`Edit ${idea.title}`}
-                      aria-label={`Edit ${idea.title}`}
-                      onClick={() => beginEdit(idea)}
-                    >
-                      <Edit3 size={11} />
-                    </button>
-                    {idea.status === "concept" ? (
-                      <button
-                        type="button"
-                        className="planning-notification-action is-primary"
-                        title={`Upgrade ${idea.title} to a plan`}
-                        aria-label={`Upgrade ${idea.title} to a plan`}
-                        disabled={isBusy}
-                        onClick={() => {
-                          void runAction(`promote-${idea.id}`, () => onPromote([idea.id]));
-                        }}
-                      >
-                        {busyKey === `promote-${idea.id}`
-                          ? <LoaderCircle size={11} className="spin" />
-                          : <Rocket size={11} />}
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="planning-notification-action is-danger"
-                      title={`Delete ${idea.title}`}
-                      aria-label={`Delete ${idea.title}`}
-                      onClick={() => {
+                menuItems={[
+                  ...(idea.status === "concept" ? [{
+                    key: "promote",
+                    label: "Upgrade to plan",
+                    title: `Upgrade ${idea.title} to a plan`,
+                    icon: <Rocket size={12} />,
+                    busy: busyKey === `promote-${idea.id}`,
+                    onSelect: () => {
+                      void runAction(`promote-${idea.id}`, () => onPromote([idea.id]));
+                    },
+                  }] : []),
+                  {
+                    key: "edit",
+                    label: "Edit idea",
+                    title: `Edit ${idea.title}`,
+                    icon: <Edit3 size={12} />,
+                    onSelect: () => beginEdit(idea),
+                  },
+                  ...(["concept", "picked", "rejected", "archived"] as IdeaStatus[])
+                    .filter((status) => status !== idea.status)
+                    .map((status) => ({
+                      key: `status-${status}`,
+                      label: `Change status: ${status}`,
+                      title: `Change ${idea.title} status to ${status}`,
+                      icon: <ListChecks size={12} />,
+                      busy: busyKey === `status-${idea.id}`,
+                      onSelect: () => {
+                        void runAction(`status-${idea.id}`, () => onSetStatus(idea.id, status));
+                      },
+                    })),
+                  {
+                    key: "delete",
+                    label: isDeletePending ? "Confirm delete" : "Delete idea",
+                    title: isDeletePending
+                      ? `Confirm deletion of ${idea.title}`
+                      : `Delete ${idea.title}`,
+                    icon: <Trash2 size={12} />,
+                    danger: true,
+                    keepOpen: !isDeletePending,
+                    busy: busyKey === `delete-${idea.id}`,
+                    onSelect: () => {
+                      if (!isDeletePending) {
                         setEditor(null);
                         setDeletePendingId(idea.id);
-                      }}
-                    >
-                      <Trash2 size={11} />
-                    </button>
-                  </div>
-                )}
-              </div>
+                        return;
+                      }
+                      void runAction(`delete-${idea.id}`, () => onDelete(idea.id)).then((deleted) => {
+                        if (deleted) {
+                          setDeletePendingId(null);
+                          setSelectedIds((current) => {
+                            const next = new Set(current);
+                            next.delete(idea.id);
+                            return next;
+                          });
+                        }
+                      });
+                    },
+                  },
+                ]}
+              />
               {isEditing ? renderEditor() : null}
             </div>
           );
@@ -869,100 +924,82 @@ function PlanItems({
   }
   return (
     <>
-      {filtered.slice(0, 12).map((plan) => (
-        <div
-          key={plan.id}
-          className="planning-notification-item planning-notification-item-plan"
-          data-status={openRunIds.has(plan.id) ? "running" : plan.status}
-          title={plan.description || plan.goal || ""}
-        >
-          <button
-            type="button"
-            className="planning-notification-item-open"
-            title={
-              openRunIds.has(plan.id)
+      {filtered.slice(0, 12).map((plan) => {
+        const isRunning = openRunIds.has(plan.id);
+        const isDeletePending = deletePendingId === plan.id;
+        const menuItems: PlanningDropdownMenuItem[] = [];
+        if (plan.status === "ready") {
+          menuItems.push({
+            key: "assign",
+            label: "Assign to chat",
+            title: "Apply this plan to a chat",
+            icon: <Send size={12} />,
+            onSelect: () => onAssignPlan(plan),
+          });
+        }
+        if (plan.status === "openspec") {
+          menuItems.push({
+            key: "approve",
+            label: "Approve plan",
+            title: "Approve plan — mark ready to apply to a chat",
+            icon: <Check size={12} />,
+            busy: busyKey === `${plan.id}:approve`,
+            onSelect: () => runAction(`${plan.id}:approve`, () => onApprovePlan(plan)),
+          });
+        }
+        if (plan.status === "draft" || plan.status === "openspec") {
+          menuItems.push({
+            key: "redo",
+            label: plan.status === "draft" ? "Generate OpenSpec" : "Regenerate OpenSpec",
+            title: plan.status === "draft" ? "Generate OpenSpec artifacts" : "Redo — regenerate OpenSpec artifacts",
+            icon: plan.status === "draft" ? <Rocket size={12} /> : <RefreshCw size={12} />,
+            busy: busyKey === `${plan.id}:redo`,
+            onSelect: () => runAction(`${plan.id}:redo`, () => onRedoPlan(plan)),
+          });
+        }
+        menuItems.push({
+          key: "copy",
+          label: "Copy plan id",
+          title: `Copy plan id ${plan.referenceId}`,
+          icon: <Copy size={12} />,
+          onSelect: () => void navigator.clipboard.writeText(plan.referenceId),
+        });
+        menuItems.push({
+          key: "delete",
+          label: isDeletePending ? "Confirm delete" : "Delete plan",
+          title: isDeletePending ? "Click to permanently delete this plan" : "Delete plan",
+          icon: <Trash2 size={12} />,
+          danger: true,
+          keepOpen: !isDeletePending,
+          busy: busyKey === `${plan.id}:delete`,
+          onSelect: () => {
+            if (isDeletePending) {
+              setDeletePendingId(null);
+              runAction(`${plan.id}:delete`, () => onDeletePlan(plan.id));
+            } else {
+              setDeletePendingId(plan.id);
+            }
+          },
+        });
+        return (
+          <PlanningDropdownRow
+            key={plan.id}
+            extraClassName="planning-notification-item-plan"
+            dotStatus={isRunning ? "running" : plan.status}
+            rowTitle={plan.description || plan.goal || ""}
+            title={plan.title}
+            description={plan.description || undefined}
+            statusLabel={isRunning ? PLAN_STATUS_LABEL.running : PLAN_STATUS_LABEL[plan.status]}
+            openTitle={
+              isRunning
                 ? `Open the chat where the agent is working on ${plan.title}`
                 : `View plan: ${plan.title}`
             }
-            onClick={() => (openRunIds.has(plan.id) ? onOpenRunChat(plan) : onOpenPlan(plan))}
-          >
-            <span className="planning-notification-item-dot" />
-            <span className="planning-notification-item-body">
-              <span className="planning-notification-item-title">{plan.title}</span>
-              {plan.description ? (
-                <span className="planning-notification-item-desc">{plan.description}</span>
-              ) : null}
-            </span>
-            <span className="planning-notification-item-meta planning-notification-item-status">
-              {openRunIds.has(plan.id) ? PLAN_STATUS_LABEL.running : PLAN_STATUS_LABEL[plan.status]}
-            </span>
-          </button>
-          <span className="planning-notification-item-actions">
-            <button
-              type="button"
-              className="planning-notification-action"
-              title={`Copy plan id ${plan.referenceId}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                void navigator.clipboard.writeText(plan.referenceId);
-              }}
-            >
-              <MoreHorizontal size={10} />
-            </button>
-            {plan.status === "ready" ? (
-              <button
-                type="button"
-                className="planning-notification-action"
-                title="Apply this plan to a chat"
-                onClick={(e) => { e.stopPropagation(); onAssignPlan(plan); }}
-              >
-                <Send size={10} />
-              </button>
-            ) : null}
-            {plan.status === "openspec" ? (
-              <button
-                type="button"
-                className="planning-notification-action"
-                title="Approve plan — mark ready to apply to a chat"
-                disabled={busyKey === `${plan.id}:approve`}
-                onClick={(e) => { e.stopPropagation(); runAction(`${plan.id}:approve`, () => onApprovePlan(plan)); }}
-              >
-                {busyKey === `${plan.id}:approve` ? <LoaderCircle size={10} className="spin" /> : <Check size={10} />}
-              </button>
-            ) : null}
-            {plan.status === "openspec" || plan.status === "draft" ? (
-              <button
-                type="button"
-                className="planning-notification-action"
-                title={plan.status === "draft" ? "Generate OpenSpec artifacts" : "Redo — regenerate OpenSpec artifacts"}
-                disabled={busyKey === `${plan.id}:redo`}
-                onClick={(e) => { e.stopPropagation(); runAction(`${plan.id}:redo`, () => onRedoPlan(plan)); }}
-              >
-                {busyKey === `${plan.id}:redo`
-                  ? <LoaderCircle size={10} className="spin" />
-                  : plan.status === "draft" ? <Rocket size={10} /> : <RefreshCw size={10} />}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className={`planning-notification-action planning-notification-action-danger${deletePendingId === plan.id ? " is-pending" : ""}`}
-              title={deletePendingId === plan.id ? "Click again to delete this plan" : "Delete plan"}
-              disabled={busyKey === `${plan.id}:delete`}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (deletePendingId === plan.id) {
-                  setDeletePendingId(null);
-                  runAction(`${plan.id}:delete`, () => onDeletePlan(plan.id));
-                } else {
-                  setDeletePendingId(plan.id);
-                }
-              }}
-            >
-              {busyKey === `${plan.id}:delete` ? <LoaderCircle size={10} className="spin" /> : <Trash2 size={10} />}
-            </button>
-          </span>
-        </div>
-      ))}
+            onOpen={() => (isRunning ? onOpenRunChat(plan) : onOpenPlan(plan))}
+            menuItems={menuItems}
+          />
+        );
+      })}
       {filtered.length > 12 ? (
         <div className="planning-notification-more">+{filtered.length - 12} more</div>
       ) : null}
@@ -980,24 +1017,24 @@ function FinishedItems({ plans }: { plans: Plan[] }) {
   return (
     <>
       {finished.map((plan) => (
-        <div key={plan.id} className="planning-notification-item planning-notification-item-done" title={plan.description || plan.goal || ""}>
-          <span className="planning-notification-item-dot" />
-          <span className="planning-notification-item-body">
-            <span className="planning-notification-item-title">{plan.title}</span>
-            {plan.description ? (
-              <span className="planning-notification-item-desc">{plan.description}</span>
-            ) : null}
-          </span>
-          <span className="planning-notification-item-meta">done</span>
-          <button
-            type="button"
-            className="planning-notification-action"
-            title={`Copy plan id ${plan.referenceId}`}
-            onClick={() => void navigator.clipboard.writeText(plan.referenceId)}
-          >
-            <MoreHorizontal size={10} />
-          </button>
-        </div>
+        <PlanningDropdownRow
+          key={plan.id}
+          extraClassName="planning-notification-item-done"
+          dotStatus="finished"
+          rowTitle={plan.description || plan.goal || ""}
+          title={plan.title}
+          description={plan.description || undefined}
+          statusLabel="done"
+          openTitle={`Finished plan: ${plan.title}`}
+          onOpen={() => undefined}
+          menuItems={[{
+            key: "copy",
+            label: "Copy plan id",
+            title: `Copy plan id ${plan.referenceId}`,
+            icon: <Copy size={12} />,
+            onSelect: () => void navigator.clipboard.writeText(plan.referenceId),
+          }]}
+        />
       ))}
     </>
   );

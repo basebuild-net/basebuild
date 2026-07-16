@@ -1,68 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
+import {
+  getUiScale,
+  resetUiScale,
+  stepUiScale,
+  subscribeUiScale,
+  type UiScale,
+} from "../lib/uiScale";
 
-export const ZOOM_STEPS = [80, 90, 100, 110, 125, 150] as const;
-const STORAGE_KEY = "basebuild.zoom";
-
-function clampZoom(value: number): number {
-  const min = ZOOM_STEPS[0];
-  const max = ZOOM_STEPS[ZOOM_STEPS.length - 1];
-  return Math.min(Math.max(value, min), max);
-}
-
-function applyZoom(percent: number) {
-  document.documentElement.dataset.bbZoom = String(percent);
-  localStorage.setItem(STORAGE_KEY, String(percent));
-}
-
-function loadZoom(): number {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored) {
-    const n = parseInt(stored, 10);
-    if (!Number.isNaN(n)) return clampZoom(n);
-  }
-  return 100;
-}
-
-function nextZoomUp(current: number): number {
-  const idx = ZOOM_STEPS.indexOf(current as (typeof ZOOM_STEPS)[number]);
-  if (idx === -1) return 100;
-  return ZOOM_STEPS[Math.min(idx + 1, ZOOM_STEPS.length - 1)];
-}
-
-function nextZoomDown(current: number): number {
-  const idx = ZOOM_STEPS.indexOf(current as (typeof ZOOM_STEPS)[number]);
-  if (idx === -1) return 100;
-  return ZOOM_STEPS[Math.max(idx - 1, 0)];
-}
-
+/** Global UI-scale hook: exposes the live scale plus in/out/reset actions
+ *  and registers the CTRL+= / CTRL+- / CTRL+0 keyboard shortcuts. The scale
+ *  itself is applied by `lib/uiScale` as a root zoom multiplier (and
+ *  pre-paint by the index.html bootstrap), so all sizes stay proportional. */
 export function useZoom() {
-  const [zoom, setZoom] = useState<number>(100);
+  const [zoom, setZoom] = useState<UiScale>(() => getUiScale());
 
-  useEffect(() => {
-    const initial = loadZoom();
-    setZoom(initial);
-    applyZoom(initial);
-  }, []);
+  useEffect(() => subscribeUiScale(setZoom), []);
 
   const zoomIn = useCallback(() => {
-    setZoom((prev) => {
-      const next = nextZoomUp(prev);
-      applyZoom(next);
-      return next;
-    });
+    stepUiScale(1);
   }, []);
-
   const zoomOut = useCallback(() => {
-    setZoom((prev) => {
-      const next = nextZoomDown(prev);
-      applyZoom(next);
-      return next;
-    });
+    stepUiScale(-1);
   }, []);
-
   const zoomReset = useCallback(() => {
-    setZoom(100);
-    applyZoom(100);
+    resetUiScale();
   }, []);
 
   useEffect(() => {
