@@ -198,6 +198,7 @@ type E2eState = {
   nextRoundId: number;
   nextPlanningEventSeq?: number;
   taskProgressByChange?: Map<string, [number, number]>;
+  archivedChanges?: Set<string>;
   launchProfile?: LaunchProfile;
   mergeQueue: MergeReviewEntry[];
   planQueue: { id: string; sessionId: string; planId: string; sortOrder: number; createdAt: number }[];
@@ -813,18 +814,52 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       const run = { id: `run-${Date.now()}`, planId, sessionId: typeof args.sessionId === "string" && args.sessionId ? args.sessionId : (plan?.sessionId ?? ""), chatSessionId, workspacePath: `worktrees/bb-${planId}`, status: "running", runnerKind: "native", error: undefined, stepsOutput: [], startedAt: nowSecs, finishedAt: undefined, createdAt: Date.now() };
       s.planRuns.push(run);
       if (plan) plan.status = "running";
+      const chat = s.nativeChatSessions.find((candidate) => candidate.id === chatSessionId);
+      if (chat) chat.runState = "running";
       return run as T;
     }
-    case "openspec_list_changes":
-      return [] as T;
+    case "openspec_list_changes": {
+      const entries = new Map<string, {
+        name: string;
+        hasProposal: boolean;
+        hasDesign: boolean;
+        hasTasks: boolean;
+        hasSpecs: boolean;
+        completed: number;
+        total: number;
+        linkedPlanReferenceId?: string;
+        archived: boolean;
+        createdAt: number;
+      }>();
+      for (const plan of s.plans) {
+        if (!plan.changeName) continue;
+        const [completed, total] = s.taskProgressByChange?.get(plan.changeName) ?? [0, 0];
+        entries.set(plan.changeName, {
+          name: plan.changeName,
+          hasProposal: true,
+          hasDesign: true,
+          hasTasks: total > 0,
+          hasSpecs: true,
+          completed,
+          total,
+          linkedPlanReferenceId: plan.referenceId,
+          archived: s.archivedChanges?.has(plan.changeName) ?? false,
+          createdAt: plan.createdAt,
+        });
+      }
+      return [...entries.values()] as T;
+    }
     case "openspec_parse_tasks_structured":
       return { phases: [], total: 0, completed: 0 } as T;
     case "openspec_read_tasks_structured":
       return { phases: [], total: 0, completed: 0 } as T;
     case "openspec_toggle_task":
       return undefined as T;
-    case "openspec_archive_change":
+    case "openspec_archive_change": {
+      const archived = (s.archivedChanges ??= new Set<string>());
+      archived.add(args.changeName as string);
       return undefined as T;
+    }
     case "openspec_link_change_to_plan":
       return undefined as T;
     case "openspec_unlink_plan_from_change":
@@ -1016,7 +1051,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
           const cp = s.plans.find((pp) => pp.id === cid);
           return cp?.status === "running";
         });
-        const readiness = p.status === "finished" ? "finished" : p.status === "cancelled" ? "cancelled" : p.status === "running" ? "running" : unmet.length > 0 ? "blocked" : (schedulingMode !== "yolo" && runningCollisions.length > 0) ? "blocked" : "ready";
+        const readiness = p.status === "finished" ? "finished" : p.status === "cancelled" ? "cancelled" : unmet.length > 0 ? "blocked" : (schedulingMode !== "yolo" && runningCollisions.length > 0) ? "blocked" : p.status === "running" ? "running" : "ready";
         const blockReason = readiness === "blocked" ? (unmet.length > 0 ? `Waiting on prerequisites: ${unmet.join(", ")}` : `File collision with running plan(s): ${runningCollisions.join(", ")}`) : undefined;
         return { planId: p.id, referenceId: p.referenceId, title: p.title, status: p.status, priority: p.priority, prerequisites, affectedPaths, readiness, blockReason, collisions, dispatchable: readiness === "ready", yoloConfirmed: schedulingMode === "yolo" };
       });

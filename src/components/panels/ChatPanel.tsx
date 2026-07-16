@@ -1615,37 +1615,6 @@ export function ChatPanel({
     const text = input.trim();
     addLog("debug", "Chat send", `text=${text.slice(0, 80)} nativeMode=${nativeMode} session=${nativeSessionId ?? "none"}`);
     if (!text) return;
-    // Composer answer routing: if there's a pending text/free-text question,
-    // capture the next send as the answer (unless escaped with /send).
-    const pendingInteraction = interactions.find((i) => i.status === "pending" && !minimizedQuestions.has(i.id));
-    if (nativeMode && pendingInteraction) {
-      const textQuestion = pendingInteraction.questions.find(
-        (q) => q.kind === "text" || (q.kind === "options" && q.allowFreeText),
-      );
-      if (textQuestion) {
-        // /send escape: send as a normal message instead of answering.
-        if (text.startsWith("/send ")) {
-          setInput(text.slice(6));
-          return;
-        }
-        // Route the text as the answer.
-        try {
-          const answers = pendingInteraction.questions.map((q) => ({
-            questionId: q.id,
-            selected: q.kind === "text" || (q.kind === "options" && q.allowFreeText)
-              ? undefined
-              : [],
-            text: q.id === textQuestion.id ? text : undefined,
-          }));
-          const resolved = await nativeInteractionResolve(pendingInteraction.id, answers);
-          setInteractions((prev) => prev.map((i) => i.id === resolved.id ? resolved : i));
-          setInput("");
-        } catch (e) {
-          addLog("error", "Failed to submit answer", e instanceof Error ? e.message : String(e));
-        }
-        return;
-      }
-    }
     if (nativeMode && text.startsWith("/")) {
       const [rawCommand, ...parts] = text.slice(1).split(/\s+/);
       const command = rawCommand.toLowerCase();
@@ -1874,7 +1843,7 @@ export function ChatPanel({
       return;
     }
     await sendMessage(text);
-  }, [input, nativeMode, sendMessage, catalog, addLog, interactions, minimizedQuestions, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId, onOpenSchematic, projectPath, selectedModel]);
+  }, [input, nativeMode, sendMessage, catalog, addLog, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId, onOpenSchematic, projectPath, selectedModel]);
 
   // Merged chronological timeline (messages + tool events + interactions).
   // Memoized so it is rebuilt only when the underlying lists change — not on
@@ -2416,10 +2385,9 @@ export function ChatPanel({
   const sendDisabled = loading || !input.trim() || (nativeMode ? !nativeSessionId : agentId === null);
 
   const modelName = selectedModel?.label ?? modelId;
-  // Pending ask_user questions. Non-minimized ("active") questions take over
-  // the composer: the input box is hidden so the only affordance is answering
-  // the question card in the dock. Users can minimize a question at any time to
-  // reclaim the composer; a compact clickable preview then lets them reopen it.
+  // Pending ask_user questions own the composer until resolved or explicitly
+  // minimized. A minimized question becomes a compact preview; restoring it
+  // returns to the same page and draft answers.
   const pendingInteractions = interactions.filter((i) => i.status === "pending");
   const activeQuestions = pendingInteractions.filter((i) => !minimizedQuestions.has(i.id));
   const minimizedPending = pendingInteractions.filter((i) => minimizedQuestions.has(i.id));
@@ -2879,11 +2847,9 @@ export function ChatPanel({
           </div>
         );
       })() : null}
-      {/* Pending-question dock — the active ask_user question is pinned here
-          above the composer so its options / text input / Submit / Cancel are
-          always visible, instead of scrolling out of view up in the transcript
-          (which left only the cryptic "/send to escape" banner). Answered and
-          cancelled questions fall back into the transcript as history. */}
+      {/* Pending-question previews remain beside the composer. Active questions
+          replace the composer below; resolved/cancelled questions remain in
+          transcript history. */}
       {nativeMode ? (
         <>
           {minimizedPending.map((intr) => (

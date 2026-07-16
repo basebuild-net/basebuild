@@ -108,11 +108,11 @@ test.describe("Planning cockpit: completion flow", () => {
     await openPlanningInspector(page);
     await clickFlowTab(page);
 
-    const card = page.locator(".completion-card").first();
+    const cards = page.locator(".completion-card");
+    const initialCount = await cards.count();
+    const card = cards.first();
     await expect(card).toBeVisible({ timeout: 5_000 });
     await card.locator("button[title='Dismiss']").click();
-    await page.waitForTimeout(500);
-    // Card should be gone (or at least this instance).
-    await expect(page.locator(".completion-card")).toHaveCount(0, { timeout: 3_000 });
+    await expect(cards).toHaveCount(initialCount - 1, { timeout: 3_000 });
   });
 });

@@ -201,6 +201,16 @@ hidden from the active concept list. The offline local coordinator does not
 fabricate ideas — with no configured provider the command returns a setup
 prompt. Categories organize ideas and can be managed in the Planning Inspector.
 
+Idea and plan cards can request a local execution assessment. The assessment
+combines the work's structured scope, duration, difficulty, uncertainty, risk,
+and parallelism with the currently available provider/model routes. The
+`ExecutionAdvisorService` applies hard capability/context/capacity gates before
+scoring planner and coder candidates. It returns alternatives, exclusions,
+factor explanations, evidence freshness, and confidence; a missing or stale
+signal lowers confidence and never becomes an invented zero or unlimited
+capacity. Recommendations are advisory: the user must explicitly apply or
+override a route, and refresh never launches work.
+
 ## Defaults
 
 `RuntimeDefaults` (persisted in SQLite):
@@ -218,6 +228,9 @@ prompt. Categories organize ideas and can be managed in the Planning Inspector.
 - `allowUsageAnalyticsCollection`: default `false`.
 - `allowUsageAnalyticsUpload`: default `false`.
 - `allowDetailedDiagnostics`: default `false`.
+- Execution recommendation feedback has separate consent, defaults to `false`,
+  and also requires analytics collection before a bounded event can be queued
+  and analytics upload before it can leave the device.
 
 Permission checks happen before backend action, not only in UI. All permission
 decisions are recorded in the audit trail.
@@ -426,14 +439,18 @@ Every activity item carries:
 
 ### Blocking questions and approvals
 
-`question` and `approval` cards render inline in their owning surface (Schematic
-or planning) and visibly block the run. The run resumes the exact pending turn
-once, after the user answers or resolves the approval gate; duplicate or stale
-answers are ignored.
+Pending questions move into the composer-owned `.interaction-workbench`, disable
+the normal message input, and visibly block their run. One interaction may have
+multiple pages; Next validates the current page and Back preserves answers.
+Rating prompts use a keyboard-accessible five-level scale. Exit collapses the
+workbench to a compact pending preview without answering; reopening restores the
+same page and values. After submission, the transcript keeps a compact answered
+summary that can reopen read-only detail. The backend resumes the exact pending
+turn once; duplicate or stale answers are ignored.
 
 ## Tool Runtime
 
-The `ToolRuntimeService` provides six built-in tools:
+The `ToolRuntimeService` provides seven built-in tools:
 
 | Tool | Kind | Description |
 |------|------|-------------|
@@ -443,10 +460,18 @@ The `ToolRuntimeService` provides six built-in tools:
 | `list_files` | ReadOnly | Glob-based file listing |
 | `search_files` | ReadOnly | Rust regex content search, workspace-scoped |
 | `run_command` | Mutating | Supervised child process with timeout and output capping |
+| `get_execution_advice` | ReadOnly | Return a bounded local planner/coder route recommendation for one persisted plan or idea |
 
 All file tools enforce workspace scoping: paths are canonicalized and
 symlink-resolved before a prefix check against the project root. Denials are
 recorded as audit events.
+
+`get_execution_advice` is allowlisted output, not a general planning-data read.
+It excludes credentials, account ids, project/source text, paths, messages,
+questionnaire answers, raw usage, diffs, and logs. Local UI advice remains
+available without external-context permission; returning advice to an external
+provider crosses that provider boundary and preserves the
+`allowExternalContext` gate.
 
 ## Approval Gateway
 

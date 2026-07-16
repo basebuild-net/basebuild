@@ -290,9 +290,6 @@ impl PlanDependencyService {
         if plan.status == PlanStatus::Cancelled {
             return ("cancelled".to_string(), None, false);
         }
-        if plan.status == PlanStatus::Running {
-            return ("running".to_string(), None, false);
-        }
 
         // Check prerequisites: all must be finished.
         let unmet: Vec<String> = prerequisites
@@ -336,6 +333,12 @@ impl PlanDependencyService {
             }
         }
 
+        // A live run with newly unmet prerequisites or a safe-mode collision
+        // is blocked, not healthy-running. Preserve that reason so recovery
+        // surfaces can explain the inconsistency.
+        if plan.status == PlanStatus::Running {
+            return ("running".to_string(), None, false);
+        }
         // Ready to dispatch.
         ("ready".to_string(), None, true)
     }
@@ -932,6 +935,36 @@ mod tests {
             .as_ref()
             .unwrap()
             .contains("prerequisites"));
+    }
+
+    #[test]
+    fn test_running_plan_preserves_new_prerequisite_blocker() {
+        let (_dir, _guard) = isolated_home();
+        let session_id = make_session("/test/project");
+        let prerequisite = make_plan(&session_id, "Plan A", PlanStatus::Ready);
+        let running = make_plan(&session_id, "Plan B", PlanStatus::Running);
+
+        PlanDependencyService::set_dependencies(&SetDependenciesRequest {
+            plan_id: running.clone(),
+            prerequisites: vec![prerequisite],
+            affected_paths: vec![],
+            priority: None,
+            scheduling_mode: None,
+            workspace_policy: None,
+        })
+        .expect("set deps");
+
+        let graph = PlanDependencyService::build_graph(&session_id).expect("build graph");
+        let node = graph
+            .nodes
+            .iter()
+            .find(|candidate| candidate.plan_id == running)
+            .expect("running node");
+        assert_eq!(node.readiness, "blocked");
+        assert!(node
+            .block_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("prerequisites")));
     }
 
     #[test]

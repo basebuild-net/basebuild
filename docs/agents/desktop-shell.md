@@ -39,6 +39,13 @@ Approving ideas creates one draft plan per idea. **Generate OpenSpec** performs
 the local artifact-generation transition; **Approve plan** is a separate
 validation decision before the plan becomes ready.
 
+Before launch, idea and plan detail can show a local execution assessment:
+estimated time, difficulty, uncertainty, risk, parallelism, and an explainable
+planner/coder route recommendation. Stale, offline, or missing provider
+evidence is labeled and reduces confidence. Apply is explicit and opens the
+normal route controls; recommendations never start work or override a user's
+persisted model choice silently.
+
 Planning catalogs use creation-recency order: newly added ideas, categories,
 and plans appear first, with older records naturally moving toward the bottom.
 
@@ -56,6 +63,15 @@ The **Runs** tab is mission control for owner chat, branch/worktree, task
 progress, blockers, elapsed time, and supported run controls. The **Changes**
 tab shows the OpenSpec change catalog and explicit archive action (see
 `docs/agents/openspec.md`).
+
+Background agents and Runs share backend truth from pipeline, run, owner-chat,
+pending-interaction, and pending-approval snapshots. `active`, `queued`,
+`needs input`, `awaiting review`, `interrupted`, `failed`, and `complete` are
+separate states. Closing a panel does not stop its retained chat. Clicking the
+run body reopens that owner chat; Stop/Cancel remains a separate action. Ready
+plans with an awaiting-review or continuation run do not inflate Running counts.
+Available next actions are state-specific (`Resume`, `Review`, `Retry`,
+`Archive`) and disabled actions state the backend reason.
 
 Account and update controls live at the bottom of the left sidebar. The update indicator
 checks on startup and every 5 minutes; when an update is available it becomes a
@@ -357,10 +373,12 @@ that guarantees exactly-once delivery by `actionId`.
 
 ## Completion card
 
-When a run ends, the backend evaluates the linked change's `tasks.md`:
-- **All tasks complete** → run auto-completes, plan transitions to `finished`.
-- **Incomplete tasks** → run parks in `awaiting_review`, plan stays `running`,
-  a planning event prompts the user to review.
+When a run ends or its owner chat becomes idle, the backend lifecycle authority
+evaluates the linked change's `tasks.md`:
+- **All tasks complete** → run succeeds and the plan transitions to `finished`.
+- **Incomplete tasks** → run parks in `awaiting_review` with a
+  `needs_continuation` outcome, the plan returns to `ready`, and a planning event
+  prompts Review/Resume rather than claiming work is live.
 
 The `CompletionCard` renders in the Flow board's Finished stage for
 `awaiting_review` and `succeeded` runs. It shows:
@@ -373,3 +391,10 @@ The `CompletionCard` renders in the Flow board's Finished stage for
 - **Dismiss** button — hides the card for this run.
 
 All confirm-gated actions use `ConfirmDialog`, never `window.confirm`.
+
+Assignment, kickoff failure, stop, error, interaction/approval blocking, idle,
+review, completion, cancellation, restart, and chat deletion all transition
+through `PlanLifecycleService`. Startup and list/dispatch boundaries reconcile
+contradictory persisted rows idempotently without deleting terminal history.
+Deleting a run-owned chat is blocked until the user explicitly cancels, keeps,
+or reassigns the run; ordinary panel close remains presentation-only.

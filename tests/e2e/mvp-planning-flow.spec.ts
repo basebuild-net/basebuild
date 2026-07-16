@@ -54,10 +54,11 @@ test.describe("Planning flow: schematic → categories → ideas → plans", () 
       await checkboxes.first().check();
       // Batch bar should appear.
       await expect(page.locator("text=selected").first()).toBeVisible({ timeout: 3000 });
-      // Click "Approve selected".
+      // Promote the selection. The workbench moves to Plans so the result is
+      // visible in context instead of relying on an ephemeral toast.
       await page.locator('[title="Promote selected ideas into plans"]').click();
-      // Wait for a result message.
-      await expect(page.locator("text=/Promoted|Error/")).toBeVisible({ timeout: 5000 });
+      await expect(page.locator(".inspector-tab.is-active", { hasText: "Plans" })).toBeVisible({ timeout: 5000 });
+      await expect(page.locator(".plan-card, .plan-row").first()).toBeVisible({ timeout: 5000 });
     }
   });
 

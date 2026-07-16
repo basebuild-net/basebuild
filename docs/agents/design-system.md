@@ -181,10 +181,10 @@ The composer must be structurally impossible to clip:
   transcript (title, description, `.chat-idea-card-actions` with `Promote` /
   `Reject`). Promoted cards show a `Planned` status badge; rejected cards
   show `Rejected`. Cards are append-only and reload with the session.
-- The Planning Inspector (`.planning-inspector`) has five tabs
-  (`.inspector-tab`): Plans, Ideas, Categories, Flow, and Changes. In a modal,
-  `.planning-inspector-modal` stays column-oriented even when wide container
-  queries make docked inspectors master-detail. The Ideas tab has
+- The Planning Inspector (`.planning-inspector`) has six tabs
+  (`.inspector-tab`): Plans, Ideas, Categories, Flow, Runs, and Changes. In a
+  modal, `.planning-inspector-modal` stays column-oriented even when wide
+  container queries make docked inspectors master-detail. The Ideas tab has
   status filter chips (`.inspector-filter-chip`) and per-idea promote/reject
   actions. The Categories tab lists `.inspector-category-card` entries with
   idea counts and drill-down detail.
@@ -215,9 +215,9 @@ as a structured section-card view by default, with a raw-markdown toggle:
   first.
 
 The Schematic stage always opens this modal; starting the current wizard may
-still route a skill-driven turn through the destination chooser. The
-`ai-workbench-course-correction` change tracks moving the managed questionnaire
-and activity into the modal itself. The chat soft-gate notice is a full-width button
+still route a skill-driven turn through the destination chooser. Managed
+questions use the composer-owned interaction workbench described below rather
+than a surrogate modal chat. The chat soft-gate notice is a full-width button
 (`.chat-command-notice-button`) that opens the schematic tab.
 
 Idea grounding/anchor flags on idea cards and inspector rows:
@@ -288,13 +288,25 @@ Rendering contract:
 - Reasoning/thinking tokens render in `.reasoning-fold` above the assistant
   reply; the fold auto-expands while streaming and collapses on completion.
   Reasoning is never concatenated into the persisted content string.
-- Question and approval items remain inline and block the run visibly. Use
-  `.question-card` (`.question-card-pending`, `.question-card-success`,
-  `.question-card-error`) for these cards.
+- A pending question becomes the composer's primary
+  `.interaction-workbench`: the normal textarea is unavailable, title and
+  progress are prominent, multi-page Back/Next navigation preserves values,
+  rating choices expose a five-level keyboard-accessible scale, and Exit
+  collapses to `.chat-question-preview`. Answered questions remain as
+  compact `.question-card` history and reopen read-only detail. Use
+  `.question-card-pending`, `.question-card-success`, and
+  `.question-card-error` only for transcript state, not a second answer path.
 - Captured ideas render as `.chat-idea-card` rows; notices and errors use
   `.chat-command-notice`, `.chat-notice-bar`, and `.chat-error-bar`.
 - Unsupported transports produce an explicit capability state before launch, not
   a fake tools-capable run.
+
+Planning state color follows backend run state, not plan-label inference:
+orange is only live/queued/needs-input work; awaiting-review and interrupted use
+warning treatment; failed is negative; complete is positive; archived is muted.
+The full `.bg-agents-item-open` row reopens the retained owner chat. Resume,
+Review, Retry, Archive, and Cancel are explicit sibling actions with `title=`
+reasons when blocked.
 
 ## Screenshot verification
 

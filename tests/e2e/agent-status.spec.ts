@@ -170,6 +170,56 @@ test.describe("Agent status indicators", () => {
     await expect(reopened).toBeVisible({ timeout: 5_000 });
   });
 
+  test("active run prevents permanent deletion of its owning chat", async ({ page }) => {
+    await openMvpFixtureProject(page);
+    await waitForAppReady(page);
+    await ensureChatPanel(page);
+    const chatSessionId = await getNativeSessionId(page);
+
+    await page.evaluate(({ chatSessionId }) => {
+      const state = (globalThis as {
+        __BASEBUILD_E2E_STATE__?: {
+          sessions: { id: string }[];
+          nativeChatSessions: { id: string; runState: string }[];
+          planRuns: {
+            id: string;
+            planId: string;
+            sessionId: string;
+            chatSessionId: string;
+            status: string;
+            runnerKind: string;
+            stepsOutput: unknown[];
+            startedAt: number;
+            createdAt: number;
+          }[];
+        };
+      }).__BASEBUILD_E2E_STATE__;
+      if (!state) return;
+      const chat = state.nativeChatSessions.find((candidate) => candidate.id === chatSessionId);
+      if (chat) chat.runState = "running";
+      for (const session of state.sessions) {
+        state.planRuns.push({
+          id: `run-delete-guard-${session.id}`,
+          planId: "plan-fixture",
+          sessionId: session.id,
+          chatSessionId,
+          status: "running",
+          runnerKind: "native",
+          stepsOutput: [],
+          startedAt: Math.floor(Date.now() / 1000),
+          createdAt: Date.now(),
+        });
+      }
+    }, { chatSessionId });
+
+    const owningPanel = page.locator(`.chat-panel[data-native-session-id="${chatSessionId}"]`);
+    await owningPanel.getByTitle("More actions").click();
+    await page.getByRole("button", { name: "Close chat and delete session" }).click();
+
+    await expect(owningPanel).toBeVisible();
+    await expect(page.getByText("Chat owns active work")).toBeVisible({ timeout: 5_000 });
+  });
+
   test("stale native run is reviewable and never counted as running", async ({ page }) => {
     await openMvpFixtureProject(page);
     await waitForAppReady(page);
@@ -225,6 +275,6 @@ test.describe("Agent status indicators", () => {
     const running = modal.locator(".planning-stage-card", { hasText: "Running" });
     await expect(running.locator(".planning-stage-count")).toHaveText("0");
     const review = modal.locator(".planning-stage-card", { hasText: "Review" });
-    await expect(review.locator(".planning-stage-count")).toHaveText("1");
+    await expect(review.locator(".planning-stage-count")).toHaveText("2");
   });
 });

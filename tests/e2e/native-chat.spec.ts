@@ -122,16 +122,21 @@ test.describe("native chat workspace", () => {
   test("opens a chat-bound background run from the full run row", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
+    const activeChatId = await page.locator(".chat-panel").first().getAttribute("data-native-session-id");
+    if (!activeChatId) throw new Error("Active native chat is unavailable");
 
-    const backgroundChatId = await page.evaluate(async () => {
+    const backgroundChatId = await page.evaluate(async ({ activeChatId }) => {
       const w = window as typeof window & {
         __basebuildInvoke?: (cmd: string, args: Record<string, unknown>) => Promise<unknown>;
         __emit?: (event: string, payload: unknown) => void;
       };
       const invoke = w.__basebuildInvoke;
       if (!invoke) throw new Error("E2E fixture unavailable");
-      const sessionId = "session-1";
-      const projectPath = "C:\\basebuild-e2e\\project";
+      const activeChat = await invoke("native_chat_get", { sessionId: activeChatId }) as { projectPath: string };
+      const projectPath = activeChat.projectPath;
+      const sessions = await invoke("list_sessions", { projectPath }) as { id: string }[];
+      const sessionId = sessions[0]?.id;
+      if (!sessionId) throw new Error("Active workspace session is unavailable");
 
       const chat = await invoke("native_chat_start", {
         request: {
@@ -163,12 +168,14 @@ test.describe("native chat workspace", () => {
         ts: Math.floor(Date.now() / 1000),
       });
       return chat.id;
-    });
+    }, { activeChatId });
 
-    const taskbarButton = page.getByTitle(/1 background agent running/);
-    await expect(taskbarButton).toBeVisible();
+    const taskbarButton = page.locator(".bg-agents-btn");
+    await expect(taskbarButton).toHaveAttribute("title", "1 background agent active", { timeout: 5_000 });
     await taskbarButton.click();
-    await page.getByTitle("Open the chat where this agent is working").click();
+    const running = page.locator(".bg-agents-item.is-running").filter({ hasText: "Background plan" });
+    await expect(running).toBeVisible({ timeout: 5_000 });
+    await running.getByTitle("Open the chat where this agent is working").click();
 
     await expect(page.locator(`.chat-panel[data-native-session-id="${backgroundChatId}"]`)).toBeVisible();
   });
