@@ -291,7 +291,7 @@ html, body, #root {
 .app-container {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -3712,7 +3712,7 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .sidebar-empty { padding: 12px 10px; }
 
 /* ─── Chat-first shell layout ─── */
-.app-container-chat-first { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+.app-container-chat-first { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
 .app-shell-chat-first {
   display: grid;
   grid-template-columns: var(--bb-sidebar-w, 240px) minmax(0, 1fr);

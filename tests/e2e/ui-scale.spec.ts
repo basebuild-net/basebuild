@@ -10,18 +10,18 @@ test.describe("UI scale (zoom)", () => {
       page.evaluate(() => document.documentElement.style.getPropertyValue("zoom") || "1");
 
     await page.keyboard.press("Control+=");
-    expect(await readZoom()).toBe("1.1");
+    await expect.poll(readZoom).toBe("1.1");
     await page.keyboard.press("Control+=");
-    expect(await readZoom()).toBe("1.2");
+    await expect.poll(readZoom).toBe("1.2");
     expect(await page.evaluate(() => localStorage.getItem("basebuild.zoom"))).toBe("120");
 
     // Persists across reloads via the pre-paint bootstrap.
     await page.reload();
     await waitForAppReady(page);
-    expect(await readZoom()).toBe("1.2");
+    await expect.poll(readZoom).toBe("1.2");
 
     await page.keyboard.press("Control+0");
-    expect(await readZoom()).toBe("1");
+    await expect.poll(readZoom).toBe("1");
     expect(await page.evaluate(() => localStorage.getItem("basebuild.zoom"))).toBe("100");
   });
 
@@ -35,14 +35,12 @@ test.describe("UI scale (zoom)", () => {
     });
     await openMvpFixtureProject(page);
     await waitForAppReady(page);
-    expect(
-      await page.evaluate(() => document.documentElement.style.getPropertyValue("zoom")),
-    ).toBe("1.5");
+    const readZoom = () =>
+      page.evaluate(() => document.documentElement.style.getPropertyValue("zoom") || "1");
+    await expect.poll(readZoom).toBe("1.5");
     // Clamped: another zoom-in stays at the bound.
     await page.keyboard.press("Control+=");
-    expect(
-      await page.evaluate(() => document.documentElement.style.getPropertyValue("zoom")),
-    ).toBe("1.5");
+    await expect.poll(readZoom).toBe("1.5");
     // The composer (chat input area) must remain visible at maximum scale.
     await expect(page.locator(".chat-input-area").first()).toBeVisible({ timeout: 10_000 });
   });
@@ -57,9 +55,9 @@ test.describe("UI scale (zoom)", () => {
     });
     await openMvpFixtureProject(page);
     await waitForAppReady(page);
-    expect(
-      await page.evaluate(() => document.documentElement.style.getPropertyValue("zoom") || "1"),
-    ).toBe("1");
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("zoom") || "1"))
+      .toBe("1");
   });
 
   test("settings Appearance group leads and hosts theme plus scale", async ({ page }) => {
@@ -83,9 +81,9 @@ test.describe("UI scale (zoom)", () => {
     await expect(value).toHaveText("100%");
     await page.getByTitle("Increase UI scale (CTRL+=)").click();
     await expect(value).toHaveText("110%");
-    expect(
-      await page.evaluate(() => document.documentElement.style.getPropertyValue("zoom")),
-    ).toBe("1.1");
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("zoom")))
+      .toBe("1.1");
     await page.getByTitle("Reset UI scale to 100% (CTRL+0)").click();
     await expect(value).toHaveText("100%");
   });

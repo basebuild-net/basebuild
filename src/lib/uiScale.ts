@@ -1,8 +1,10 @@
-/** UI scale (zoom) — a bounded root zoom multiplier persisted beside the
- *  theme. Applied via the standard CSS `zoom` property on the root element
- *  (Chromium/WebView2), so every px-derived size, padding, and layout scales
- *  proportionally without a stylesheet rewrite. Persisted values are
- *  untrusted: exact-allowlisted before applying (missing/malformed → 100). */
+/** UI scale (zoom) — a bounded zoom multiplier persisted beside the theme.
+ *  Applied as NATIVE webview zoom (Tauri `setZoom`, the same mechanism as
+ *  browser CTRL+ zoom): the viewport itself rescales in CSS pixels, so
+ *  every size — px, viewport units, fixed positioning — stays uniform.
+ *  Outside Tauri (browser e2e) it falls back to CSS `zoom` on the root.
+ *  Persisted values are untrusted: exact-allowlisted before applying
+ *  (missing/malformed → 100). */
 
 const STORAGE_KEY = "basebuild.zoom";
 
@@ -28,8 +30,27 @@ export function getUiScale(): UiScale {
 }
 
 function applyUiScale(scale: UiScale): void {
-  // Standard CSS zoom — layout zoom, crisp text, fixed-position aware.
-  document.documentElement.style.setProperty("zoom", String(scale / 100));
+  const factor = scale / 100;
+  void (async () => {
+    try {
+      const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+      await getCurrentWebview().setZoom(factor);
+      // Native zoom engaged — clear the CSS fallback, including the
+      // pre-paint bootstrap value from index.html.
+      document.documentElement.style.removeProperty("zoom");
+    } catch {
+      // Not running under Tauri (browser/e2e) — CSS zoom approximates the
+      // scale; the shell uses percentage heights so layout stays intact.
+      document.documentElement.style.setProperty("zoom", String(factor));
+    }
+  })();
+}
+
+/** Apply the persisted scale once at startup: webview zoom does not persist
+ *  across app restarts, and this promotes the pre-paint CSS fallback to
+ *  native zoom. */
+export function initUiScale(): void {
+  applyUiScale(getUiScale());
 }
 
 export function setUiScale(scale: UiScale): UiScale {

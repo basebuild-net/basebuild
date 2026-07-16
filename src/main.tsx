@@ -2,6 +2,11 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./styles/globals.css";
+import { initUiScale } from "./lib/uiScale";
+
+// Promote the pre-paint CSS-zoom bootstrap to native webview zoom (which
+// does not persist across restarts) before the shell renders.
+initUiScale();
 
 // Suppress the native right-click context menu - the app draws its own menus
 document.addEventListener("contextmenu", (e) => {
