@@ -62,12 +62,15 @@ GitHub Actions (`.github/workflows/windows.yml`) runs three jobs on every PR and
 
 | Job | What it does |
 |---|---|
-| `check-frontend` | `npm ci`, `npm run build`, `npx tsc --noEmit` |
+| `check-frontend` | `npm ci`, `npm run build`, `npm run check:ui-invariants`, `npm run check:release-config` |
 | `check-rust` | `cargo check`, `cargo test` (on Ubuntu with Tauri Linux deps) |
 | `check-e2e` | `BASEBUILD_E2E=1 npm run test:e2e` with Playwright browser cache |
 
-The `release` job (manual dispatch only) gates on all three. Playwright
-traces, screenshots, and videos are uploaded as artifacts on failure
+The `release` job (manual dispatch only) gates on all three, then builds the
+installer and, before publishing, runs `scripts/verify-prod-webview.mjs` to
+confirm the packaged app serves its embedded frontend (it fails the release if
+the webview reaches for the `127.0.0.1:1420` dev server — a dev-mode binary).
+Playwright traces, screenshots, and videos are uploaded as artifacts on failure
 (7-day retention).
 
 ### Local CI reproduction

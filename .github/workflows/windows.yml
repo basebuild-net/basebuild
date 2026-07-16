@@ -44,6 +44,8 @@ jobs:
 
       - name: UI invariant checks
         run: npm run check:ui-invariants
+      - name: Release-config integrity check
+        run: npm run check:release-config
   check-rust:
     runs-on: ubuntu-latest
     steps:
@@ -214,6 +216,16 @@ jobs:
           prerelease: false
           updaterJsonPreferNsis: true
           args: "--target x86_64-pc-windows-msvc"
+
+      - name: Verify production build does not use the dev server
+        shell: bash
+        run: |
+          exe_path="src-tauri/target/x86_64-pc-windows-msvc/release/basebuild-app.exe"
+          if [ ! -f "$exe_path" ]; then
+            echo "::error::Release executable not found at $exe_path"
+            exit 1
+          fi
+          node scripts/verify-prod-webview.mjs "$exe_path"
 
       - name: Create portable artifact
         shell: bash
