@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useEscapeKey } from "../../lib/useEscapeKey";
-import { CheckCircle, Clock, Copy, ListChecks, Loader2, MessageSquare, TerminalSquare, X } from "lucide-react";
-import type { Plan, PlanFocusContext, PlanStatus } from "../../lib/plans";
+import { Copy, ListChecks, Loader2, MessageSquare, TerminalSquare, X } from "lucide-react";
+import type { Plan, PlanFocusContext } from "../../lib/plans";
 import { PLAN_STATUS_LABEL } from "../../lib/plans";
 import { openspecReadTasksStructured, openspecToggleTask, type StructuredTasks } from "../../lib/openspec";
 import { ModalPortal } from "../ModalPortal";
@@ -10,7 +10,6 @@ type FocusPlanModalProps = {
   open: boolean;
   projectPath: string;
   onClose: () => void;
-  onSetStatus: (id: string, status: PlanStatus) => void;
   onCopyReference: (refId: string) => void;
   onOpenInTerminal: (plan: Plan) => void;
   onSetContext: (id: string, context: PlanFocusContext) => void;
@@ -23,7 +22,6 @@ export function FocusPlanModal({
   open,
   projectPath,
   onClose,
-  onSetStatus,
   onCopyReference,
   onOpenInTerminal,
   onSetContext,
@@ -89,12 +87,6 @@ export function FocusPlanModal({
   if (!open || !plan) return null;
   const currentPlan = plan;
 
-  const statusActions: { status: PlanStatus; label: string; icon: typeof Clock }[] = [
-    { status: "openspec", label: "Start OpenSpec", icon: Clock },
-    { status: "ready", label: "Mark ready", icon: Clock },
-    { status: "running", label: "Start running", icon: TerminalSquare },
-    { status: "finished", label: "Mark finished", icon: CheckCircle },
-  ];
 
   const remaining = tasks ? tasks.total - tasks.completed : 0;
   const pct = tasks && tasks.total > 0 ? Math.round((tasks.completed / tasks.total) * 100) : 0;
@@ -254,29 +246,8 @@ export function FocusPlanModal({
             />
           </label>
 
-          <div className="row">
-            {statusActions
-              .filter((a) => a.status !== plan.status)
-              .map((a) => {
-                const Icon = a.icon;
-                return (
-                  <button
-                    key={a.status}
-                    className="btn btn-sm"
-                    type="button"
-                    onClick={() => {
-                      handleSaveContext();
-                      onSetStatus(currentPlan.id, a.status);
-                      if (a.status === "running") {
-                        onOpenInTerminal(currentPlan);
-                      }
-                      onClose();
-                    }}
-                  >
-                    <Icon size={12} /> {a.label}
-                  </button>
-                );
-              })}
+          <div className="focus-plan-lifecycle-note text-sm text-muted">
+            Plan lifecycle changes are driven by OpenSpec approval and live runs. Use Plans to approve or assign work, and Runs to resume or review execution.
           </div>
         </div>
         <div className="modal-actions">

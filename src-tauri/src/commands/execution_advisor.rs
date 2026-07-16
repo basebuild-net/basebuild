@@ -1,7 +1,10 @@
 use serde::Deserialize;
 
 use crate::{
-    models::execution_advisor::{ExecutionAdviceBundle, ExecutionRole},
+    models::execution_advisor::{
+        AdvisorFeedbackConsent, AdvisorFeedbackEvent, ExecutionAdviceBundle, ExecutionRole,
+        NewAdvisorFeedbackEvent,
+    },
     services::execution_advisor_service::ExecutionAdvisorService,
 };
 
@@ -27,6 +30,12 @@ pub struct ExecutionOverrideRequest {
 pub struct ClearExecutionOverrideRequest {
     pub project_path: String,
     pub role: ExecutionRole,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FeedbackConsentRequest {
+    pub enabled: bool,
 }
 
 #[tauri::command]
@@ -55,8 +64,40 @@ pub fn execution_advice_set_override(input: ExecutionOverrideRequest) -> Result<
 }
 
 #[tauri::command]
-pub fn execution_advice_clear_override(
-    input: ClearExecutionOverrideRequest,
-) -> Result<(), String> {
+pub fn execution_advice_clear_override(input: ClearExecutionOverrideRequest) -> Result<(), String> {
     ExecutionAdvisorService::clear_override(&input.project_path, input.role)
+}
+
+#[tauri::command]
+pub fn execution_advice_feedback_consent() -> Result<AdvisorFeedbackConsent, String> {
+    ExecutionAdvisorService::feedback_consent()
+}
+
+#[tauri::command]
+pub fn execution_advice_set_feedback_consent(
+    input: FeedbackConsentRequest,
+) -> Result<AdvisorFeedbackConsent, String> {
+    ExecutionAdvisorService::set_feedback_consent(input.enabled)
+}
+
+#[tauri::command]
+pub fn execution_advice_record_feedback(
+    input: NewAdvisorFeedbackEvent,
+) -> Result<AdvisorFeedbackEvent, String> {
+    ExecutionAdvisorService::record_feedback(input)
+}
+
+#[tauri::command]
+pub fn execution_advice_list_feedback() -> Result<Vec<AdvisorFeedbackEvent>, String> {
+    ExecutionAdvisorService::list_feedback()
+}
+
+#[tauri::command]
+pub fn execution_advice_export_feedback() -> Result<String, String> {
+    ExecutionAdvisorService::export_feedback()
+}
+
+#[tauri::command]
+pub fn execution_advice_delete_feedback() -> Result<usize, String> {
+    ExecutionAdvisorService::delete_feedback()
 }

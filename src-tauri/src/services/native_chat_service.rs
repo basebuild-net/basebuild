@@ -1042,7 +1042,9 @@ impl NativeChatService {
             Some(&effort_level),
         )?;
         let live_progress = Arc::new(Mutex::new((String::new(), String::new())));
-        Self::set_run_state(&request.session_id, "running");
+        let _ = crate::services::plan_lifecycle_service::PlanLifecycleService::chat_running(
+            &request.session_id,
+        );
 
         let client = resolve_client_for_model(
             &provider_id,
@@ -1114,7 +1116,12 @@ impl NativeChatService {
                     created_at: now_seconds(),
                 };
                 let _ = Self::insert_metric(&metric);
-                Self::set_run_state(&request.session_id, "idle");
+                let _ =
+                    crate::services::plan_lifecycle_service::PlanLifecycleService::chat_terminal(
+                        app,
+                        &request.session_id,
+                        crate::services::plan_lifecycle_service::ChatTerminalState::Failed,
+                    );
                 return Err(e);
             }
         };
@@ -1180,7 +1187,11 @@ impl NativeChatService {
         )?;
 
         Self::touch_session(&request.session_id)?;
-        Self::set_run_state(&request.session_id, "idle");
+        let _ = crate::services::plan_lifecycle_service::PlanLifecycleService::chat_terminal(
+            app,
+            &request.session_id,
+            crate::services::plan_lifecycle_service::ChatTerminalState::Idle,
+        );
 
         Ok(NativeChatSendResult {
             user_message,
@@ -2143,15 +2154,6 @@ impl NativeChatService {
         )
         .map_err(|e| e.to_string())?;
         Ok(())
-    }
-
-    fn set_run_state(session_id: &str, run_state: &str) {
-        if let Ok(conn) = StorageService::connect() {
-            let _ = conn.execute(
-                "UPDATE native_chat_sessions SET run_state = ?1, updated_at = ?2 WHERE id = ?3",
-                params![run_state, now_millis(), session_id],
-            );
-        }
     }
 
     /// Auto-title a native chat session from its first user message.

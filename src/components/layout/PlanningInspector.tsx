@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { Archive, FolderTree, LayoutGrid, Loader2, Plus, RefreshCw, Rocket, Sparkles, Trash2, X } from "lucide-react";
+import { Archive, ClipboardCheck, FolderTree, LayoutGrid, Loader2, Play, Plus, RefreshCw, Rocket, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import type { Plan, PlanStatus } from "../../lib/plans";
 import { isTerminalStatus } from "../../lib/plans";
 import { batchPromoteIdeas } from "../../lib/plans";
-import { enqueuePlan, listPlanRuns, markPlanRunComplete, startQueue, getFinishOutcome } from "../../lib/planRuns";
+import { assignPlanToChat, enqueuePlan, listPlanRuns, listPlanRunsByProject, markPlanRunComplete, startQueue, getFinishOutcome } from "../../lib/planRuns";
 import { useOpenSpecRuntime } from "../../state/useOpenSpecRuntime";
 import { PlanPanel } from "./PlanPanel";
 import { PlanningCommandCenter } from "./PlanningCommandCenter";
@@ -208,10 +208,10 @@ export function PlanningInspector({
       setPlanRuns([]);
       return;
     }
-    void listPlanRuns(sessionId)
+    void (projectPath ? listPlanRunsByProject(projectPath) : listPlanRuns(sessionId))
       .then(setPlanRuns)
       .catch(() => setPlanRuns([]));
-  }, [sessionId, plans]);
+  }, [projectPath, sessionId, plans]);
   // Fetch finish-policy outcomes for succeeded runs (for completion cards).
   useEffect(() => {
     const succeeded = planRuns.filter((r) => r.status === "succeeded");
@@ -496,6 +496,21 @@ export function PlanningInspector({
     [addLog, onShowToast],
   );
 
+  const handleResumePlanRun = useCallback(async (run: PlanRun) => {
+    if (!run.chatSessionId) {
+      onShowToast?.("Resume blocked", "This run has no retained chat owner.", "error");
+      return;
+    }
+    try {
+      await assignPlanToChat(run.planId, run.chatSessionId);
+      onOpenChatSession(run.chatSessionId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      addLog("error", "Failed to resume plan run", message);
+      onShowToast?.("Resume failed", message, "error");
+    }
+  }, [addLog, onOpenChatSession, onShowToast]);
+
   function RunBoardRow({ node }: { node: DependencyNode }) {
     const plan = plans.find((p) => p.id === node.planId);
     const run = planRuns.find((r) => r.planId === node.planId);
@@ -526,6 +541,18 @@ export function PlanningInspector({
       .filter((line): line is string => Boolean(line))
       .join("\n");
 
+    const resumeBlockedReason = !run
+      ? "Cannot resume: no plan run exists."
+      : !run.chatSessionId
+        ? "Cannot resume: this run has no retained chat owner."
+        : null;
+    const archiveBlockedReason = !plan
+      ? "Cannot archive: linked plan is unavailable."
+      : plan.status !== "finished"
+        ? `Cannot archive: linked plan is ${plan.status}; finish it first.`
+        : !plan.changeName
+          ? "Cannot archive: plan has no linked OpenSpec change."
+          : null;
     return (
       <div className="run-board-row" title={tooltip}>
         <div className="run-board-cell run-board-cell-title">{node.title}</div>
@@ -564,6 +591,38 @@ export function PlanningInspector({
         </div>
         <div className="run-board-cell" title={`Merge readiness: ${node.readiness}`}>
           {node.readiness}
+        </div>
+        <div className="run-board-cell run-board-cell-actions">
+          {!run ? (
+            <span className="text-muted" title="No plan run exists yet">Not started</span>
+          ) : run.status === "pending" || run.status === "running" ? (
+            <button
+              className="btn btn-sm"
+              type="button"
+              title={run.chatSessionId ? "Open this run's retained chat" : "Cannot open: this run has no retained chat owner."}
+              disabled={!run.chatSessionId}
+              onClick={() => onOpenChatSession(run.chatSessionId!)}
+            >
+              <Play size={10} /> Open
+            </button>
+          ) : run.status === "awaiting_review" ? (
+            <>
+              <button className="btn btn-sm" type="button" title={resumeBlockedReason ?? "Resume this plan in its retained chat"} disabled={resumeBlockedReason !== null} onClick={() => run && void handleResumePlanRun(run)}>
+                <Play size={10} /> Resume
+              </button>
+              <button className="btn btn-sm" type="button" title="Review the linked OpenSpec tasks and retained artifacts" onClick={() => setTab("changes")}>
+                <ClipboardCheck size={10} /> Review
+              </button>
+            </>
+          ) : run.status === "failed" || run.status === "cancelled" ? (
+            <button className="btn btn-sm" type="button" title={resumeBlockedReason ?? "Retry this plan in its retained chat"} disabled={resumeBlockedReason !== null} onClick={() => run && void handleResumePlanRun(run)}>
+              <RotateCcw size={10} /> Retry
+            </button>
+          ) : (
+            <button className="btn btn-sm" type="button" title={archiveBlockedReason ?? "Open the linked completed change to archive it"} disabled={archiveBlockedReason !== null} onClick={() => setTab("changes")}>
+              <Archive size={10} /> Archive
+            </button>
+          )}
         </div>
       </div>
     );
@@ -611,6 +670,7 @@ export function PlanningInspector({
           <div className="run-board-cell">Blockers</div>
           <div className="run-board-cell">Collisions</div>
           <div className="run-board-cell">Readiness</div>
+          <div className="run-board-cell">Next</div>
         </div>
         {dependencyGraph.nodes.map((node) => (
           <RunBoardRow key={node.planId} node={node} />
@@ -960,6 +1020,7 @@ export function PlanningInspector({
           sessionId={sessionId}
           projectPath={projectPath}
           plans={plans}
+          planRuns={planRuns}
           loading={loading}
           collapsed={false}
           onToggleCollapse={() => setTab("ideas")}
@@ -972,6 +1033,9 @@ export function PlanningInspector({
           onOpenChatSession={onOpenChatSession}
           onAssignPlan={onAssignPlan}
           onShowToast={onShowToast}
+          onArchivePlan={() => setTab("changes")}
+          onResumeRun={handleResumePlanRun}
+          onReviewRun={() => setTab("changes")}
         />
       ) : null}
 
@@ -1315,7 +1379,7 @@ export function PlanningInspector({
             openspec={plans.filter((p) => p.status === "openspec").length}
             ready={plans.filter((p) => p.status === "ready").length}
             queued={planRuns.filter((r) => r.status === "pending").length}
-            running={plans.filter((p) => p.status === "running").length}
+            running={planRuns.filter((r) => r.status === "running").length}
             blocked={planRuns.filter((r) => r.status === "failed").length}
             review={planRuns.filter((r) => r.status === "awaiting_review").length}
             finished={plans.filter((p) => p.status === "finished").length}
@@ -1495,12 +1559,12 @@ export function PlanningInspector({
           <div className="flow-stage" title="Plans currently running in worktrees">
             <div className="flow-stage-header">
               <span className="flow-stage-name">Running</span>
-              <span className={`flow-stage-count flow-count-${plans.some((p) => p.status === "running") ? "active" : "empty"}`}>
-                {plans.filter((p) => p.status === "running").length}
+              <span className={`flow-stage-count flow-count-${planRuns.some((r) => r.status === "running") ? "active" : "empty"}`}>
+                {planRuns.filter((r) => r.status === "running").length}
               </span>
             </div>
             <span className="flow-stage-detail text-muted text-sm">
-              {plans.filter((p) => p.status === "running").length} active run(s)
+              {planRuns.filter((r) => r.status === "running").length} active run(s)
             </span>
           </div>
 
@@ -1525,6 +1589,9 @@ export function PlanningInspector({
                   run={run}
                   projectPath={projectPath ?? ""}
                   finishOutcome={finishOutcomes.get(run.id) ?? null}
+                  changeName={plans.find((plan) => plan.id === run.planId)?.changeName}
+                  onReviewTasks={() => setTab("changes")}
+                  onResume={() => run.chatSessionId ? onOpenChatSession(run.chatSessionId) : setTab("runs")}
                   onMarkComplete={async (runId) => {
                     await markPlanRunComplete(runId);
                     setPlanRuns((prev) => prev.map((r) => (r.id === runId ? { ...r, status: "succeeded" } : r)));
@@ -1561,7 +1628,12 @@ export function PlanningInspector({
             const plan = plans.find((p) => p.referenceId === refId);
             if (plan) onFocusPlan(plan);
           }}
-          linkablePlans={plans.map((p) => ({ id: p.id, referenceId: p.referenceId, title: p.title }))}
+          linkablePlans={plans.map((p) => ({
+            id: p.id,
+            referenceId: p.referenceId,
+            title: p.title,
+            status: p.status,
+          }))}
         />
       ) : null}
     </div>

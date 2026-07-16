@@ -13,8 +13,14 @@ use crate::{
     },
     models::planning_event::PlanningEventKind,
     services::{
-        native_chat_service::NativeChatService, openspec_service, plan_service::PlanService,
-        planning_events, session_service::SessionService, storage_service::StorageService,
+        final_touches_service::FinalTouchStepResult,
+        native_chat_service::NativeChatService,
+        openspec_service,
+        plan_lifecycle_service::{PlanCompletionState, PlanLifecycleService},
+        plan_service::PlanService,
+        planning_events,
+        session_service::SessionService,
+        storage_service::StorageService,
     },
 };
 
@@ -26,6 +32,20 @@ fn gen_id() -> String {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     format!("{ts:x}")
+}
+
+fn normalize_final_touch_results(
+    result: DbResult<Vec<FinalTouchStepResult>>,
+) -> Vec<FinalTouchStepResult> {
+    result.unwrap_or_else(|error| {
+        vec![FinalTouchStepResult {
+            step_id: "final-touches".to_string(),
+            kind: "system".to_string(),
+            status: "failed".to_string(),
+            output: None,
+            error: Some(error.chars().take(500).collect()),
+        }]
+    })
 }
 
 fn now() -> i64 {
@@ -300,13 +320,7 @@ impl PlanRunnerService {
                 token.cancel();
             }
         }
-        let now = now();
-        let conn = StorageService::connect()?;
-        conn.execute(
-            "UPDATE plan_runs SET status = 'cancelled', finished_at = ?1 WHERE id = ?2",
-            params![now, run_id],
-        )
-        .map_err(|e| format!("Failed to cancel plan run: {e}"))?;
+        PlanLifecycleService::user_stop(run_id, cancel_plan)?;
 
         // Emit the cancelled event.
         let run = Self::get_run(run_id)?;
@@ -328,13 +342,6 @@ impl PlanRunnerService {
                 PlanningEventKind::StageCancelled,
                 Some("Run cancelled by user".to_string()),
             );
-            // Return the plan to ready (or cancelled if the user chose).
-            let new_status = if cancel_plan {
-                PlanStatus::Cancelled
-            } else {
-                PlanStatus::Ready
-            };
-            let _ = PlanService::set_status(&run.plan_id, new_status);
         }
         Ok(())
     }
@@ -343,128 +350,96 @@ impl PlanRunnerService {
     /// checked or explicit user done). Stamps `finished_at` and transitions
     /// the plan to `finished` if final-touches (phase 8) succeeds.
     pub fn complete_run(app: &AppHandle, run_id: &str, succeeded: bool) -> DbResult<()> {
-        let now = now();
-        let conn = StorageService::connect()?;
-        let status = if succeeded { "succeeded" } else { "failed" };
-        conn.execute(
-            "UPDATE plan_runs SET status = ?1, finished_at = ?2 WHERE id = ?3",
-            params![status, now, run_id],
-        )
-        .map_err(|e| format!("Failed to complete plan run: {e}"))?;
+        let run = Self::get_run(run_id)?.ok_or_else(|| "Run not found".to_string())?;
+        let session = SessionService::get(&run.session_id).ok().flatten();
+        let project_path = session
+            .as_ref()
+            .map(|session| session.project_path.as_str())
+            .unwrap_or("");
 
-        let run = Self::get_run(run_id)?;
-        if let Some(run) = &run {
-            // If succeeded, run final-touches before transitioning.
-            let new_plan_status = if succeeded {
-                // Run the final-touches pipeline.
-                let session = SessionService::get(&run.session_id).ok().flatten();
-                let project_path = session
-                    .as_ref()
-                    .map(|s| s.project_path.as_str())
-                    .unwrap_or("");
-                let step_results = if !project_path.is_empty() {
+        let completion = if succeeded {
+            let step_results = if project_path.is_empty() {
+                Vec::new()
+            } else {
+                normalize_final_touch_results(
                     crate::services::final_touches_service::FinalTouchesService::execute_steps(
                         project_path,
-                    )
-                    .unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
-                let _ = Self::update_run_steps(run_id, &step_results);
-                let any_failed = step_results.iter().any(|r| r.status == "failed");
-                if any_failed {
-                    let _ = conn.execute(
-                        "UPDATE plan_runs SET status = 'failed' WHERE id = ?1",
-                        params![run_id],
-                    );
-                    PlanStatus::Ready
-                } else if !Self::evaluate_checklist_completion(&run) {
-                    // Checklist incomplete → park in awaiting_review.
-                    let _ = conn.execute(
-                        "UPDATE plan_runs SET status = 'awaiting_review' WHERE id = ?1",
-                        params![run_id],
-                    );
-                    // Emit a planning event for the review prompt.
-                    let _ = crate::services::planning_events::emit(
-                        app,
-                        PlanningEventKind::RunFinished,
-                        &run.plan_id,
-                        project_path,
-                        Some(run.session_id.clone()),
-                        "Run awaiting review".to_string(),
-                        Some(
-                            "Checklist incomplete — mark as complete or keep running.".to_string(),
-                        ),
-                    );
-                    PlanStatus::Running // Keep plan running while awaiting review.
-                } else {
-                    PlanStatus::Finished
-                }
-            } else {
-                PlanStatus::Ready
+                    ),
+                )
             };
-            let _ = PlanService::set_status(&run.plan_id, new_plan_status);
-            let _ = app.emit(
-                PLAN_RUN_EVENT,
-                PlanRunEvent {
-                    run_id: run.id.clone(),
-                    session_id: run.session_id.clone(),
-                    plan_id: run.plan_id.clone(),
-                    status: if succeeded {
-                        PlanRunStatus::Succeeded
-                    } else {
-                        PlanRunStatus::Failed
-                    },
-                    chat_session_id: run.chat_session_id.clone(),
-                    error: if succeeded {
-                        None
-                    } else {
-                        Some("Run failed".to_string())
-                    },
-                },
+            Self::update_run_steps(run_id, &step_results)?;
+            if step_results.iter().any(|result| result.status == "failed") {
+                PlanCompletionState::Failed
+            } else if Self::evaluate_checklist_completion(&run) {
+                PlanCompletionState::Succeeded
+            } else {
+                PlanCompletionState::AwaitingReview
+            }
+        } else {
+            PlanCompletionState::Failed
+        };
+
+        PlanLifecycleService::finish_run(run_id, completion)?;
+        if completion == PlanCompletionState::AwaitingReview {
+            let _ = crate::services::planning_events::emit(
+                app,
+                PlanningEventKind::RunFinished,
+                &run.plan_id,
+                project_path,
+                Some(run.session_id.clone()),
+                "Run awaiting review".to_string(),
+                Some("Checklist incomplete — continue the plan or mark it complete.".to_string()),
             );
-            let (run_kind, run_detail) = if succeeded {
-                (PlanningEventKind::RunFinished, None)
-            } else {
-                (PlanningEventKind::RunFailed, Some("Run failed".to_string()))
-            };
-            Self::emit_planning_event(app, run, run_kind, run_detail);
-            // Re-align nudge: if the plan finished and the schematic mtime
-            // predates the run start, emit a drift-suspected notification.
-            if succeeded && new_plan_status == PlanStatus::Finished {
-                let session = SessionService::get(&run.session_id).ok().flatten();
-                let project_path = session
-                    .as_ref()
-                    .map(|s| s.project_path.as_str())
-                    .unwrap_or("");
-                if !project_path.is_empty() {
-                    let schematic_mtime = std::fs::metadata(
-                        std::path::Path::new(project_path).join(".basebuild/project-schematic.md"),
-                    )
-                    .ok()
-                    .and_then(|m| m.modified().ok())
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(0);
-                    let run_start = run.started_at.unwrap_or(0);
-                    if schematic_mtime > 0 && run_start > 0 && schematic_mtime < run_start {
-                        // Schematic is older than the run — drift suspected.
-                        let _ = crate::services::notification_service::NotificationService::deliver(
-                            app,
-                            crate::models::notification::NotificationKind::SchematicDriftSuspected,
-                            &run.plan_id,
-                            "plan",
-                            project_path,
-                            "Schematic drift suspected",
-                            Some("Plan finished but the schematic hasn't been updated since before the run. Re-align the schematic to reflect completed work."),
-                        );
-                    }
-                }
+        }
+
+        let updated = Self::get_run(run_id)?.ok_or_else(|| "Run not found".to_string())?;
+        let error = match completion {
+            PlanCompletionState::Succeeded => None,
+            PlanCompletionState::Failed => Some("Run failed".to_string()),
+            PlanCompletionState::AwaitingReview => {
+                Some("Checklist incomplete; continuation or review required".to_string())
             }
-            // Apply finish policy (auto-commit, PR, merge review) if configured.
-            if succeeded && new_plan_status == PlanStatus::Finished {
-                let _ = Self::apply_finish_policy(app, run_id);
+        };
+        let _ = app.emit(
+            PLAN_RUN_EVENT,
+            PlanRunEvent {
+                run_id: updated.id.clone(),
+                session_id: updated.session_id.clone(),
+                plan_id: updated.plan_id.clone(),
+                status: updated.status.clone(),
+                chat_session_id: updated.chat_session_id.clone(),
+                error: error.clone(),
+            },
+        );
+        let event_kind = if completion == PlanCompletionState::Failed {
+            PlanningEventKind::RunFailed
+        } else {
+            PlanningEventKind::RunFinished
+        };
+        Self::emit_planning_event(app, &updated, event_kind, error);
+
+        if completion == PlanCompletionState::Succeeded {
+            let schematic_mtime = std::fs::metadata(
+                std::path::Path::new(project_path).join(".basebuild/project-schematic.md"),
+            )
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs() as i64)
+            .unwrap_or(0);
+            let run_start = run.started_at.unwrap_or(0);
+            if schematic_mtime > 0 && run_start > 0 && schematic_mtime < run_start {
+                let _ = crate::services::notification_service::NotificationService::deliver(
+                    app,
+                    crate::models::notification::NotificationKind::SchematicDriftSuspected,
+                    &run.plan_id,
+                    "plan",
+                    project_path,
+                    "Schematic drift suspected",
+                    Some("Plan finished but the schematic hasn't been updated since before the run. Re-align the schematic to reflect completed work."),
+                );
             }
+            let _ = Self::apply_finish_policy(app, run_id);
         }
         Ok(())
     }
@@ -473,8 +448,6 @@ impl PlanRunnerService {
     /// or `succeeded` run to fully finished, sets the plan to `Finished`,
     /// and emits events. Used by the completion card "Mark as complete" action.
     pub fn mark_complete(app: &AppHandle, run_id: &str) -> DbResult<()> {
-        let conn = StorageService::connect()?;
-        let now = now();
         // Verify the run exists and is in a completable state.
         let run = Self::get_run(run_id)?;
         let run = run.ok_or("Run not found")?;
@@ -487,14 +460,8 @@ impl PlanRunnerService {
                 run.status.as_str()
             ));
         }
-        // Update run status to succeeded.
-        conn.execute(
-            "UPDATE plan_runs SET status = 'succeeded', finished_at = ?1 WHERE id = ?2",
-            params![now, run_id],
-        )
-        .map_err(|e| format!("Failed to mark run complete: {e}"))?;
-        // Set plan to finished.
-        let _ = PlanService::set_status(&run.plan_id, PlanStatus::Finished);
+        Self::require_checklist_completion(&run)?;
+        PlanLifecycleService::finish_run(run_id, PlanCompletionState::Succeeded)?;
         // Emit run event.
         let _ = app.emit(
             PLAN_RUN_EVENT,
@@ -739,35 +706,44 @@ impl PlanRunnerService {
         Ok(FinishResult::Applied(outcome))
     }
 
-    /// Evaluate checklist completion at run end. If the linked change has an
-    /// incomplete tasks.md, park the run in `awaiting_review` instead of
-    /// auto-completing. Returns true if the run should auto-complete, false
-    /// if it should park.
-    fn evaluate_checklist_completion(run: &PlanRun) -> bool {
-        // Get the linked plan's change_name.
-        let plan = PlanService::get(&run.plan_id).ok().flatten();
-        let plan = match plan {
-            Some(p) => p,
-            None => return true, // No plan → auto-complete.
-        };
-        let change_name = match &plan.change_name {
-            Some(c) => c,
-            None => return true, // No change → auto-complete.
-        };
-        let session = SessionService::get(&run.session_id).ok().flatten();
-        let project_path = session
-            .as_ref()
-            .map(|s| s.project_path.as_str())
-            .unwrap_or("");
-        if project_path.is_empty() {
-            return true;
+    /// Return task progress for a linked OpenSpec change. `None` means the
+    /// plan has no linked checklist and therefore follows the manual lifecycle.
+    fn checklist_progress(run: &PlanRun) -> Option<(u32, u32)> {
+        let plan = PlanService::get(&run.plan_id).ok().flatten()?;
+        let change_name = plan.change_name.as_deref()?;
+        let session = SessionService::get(&run.session_id).ok().flatten()?;
+        if session.project_path.is_empty() {
+            return None;
         }
-        let (completed, total) =
-            crate::services::openspec_service::read_task_progress(project_path, change_name);
+        Some(crate::services::openspec_service::read_task_progress(
+            &session.project_path,
+            change_name,
+        ))
+    }
+
+    fn require_checklist_completion(run: &PlanRun) -> DbResult<()> {
+        let Some((completed, total)) = Self::checklist_progress(run) else {
+            return Ok(());
+        };
         if total == 0 {
-            return true; // No tasks → auto-complete.
+            return Err(
+                "Cannot mark complete: the linked OpenSpec change has no required tasks."
+                    .to_string(),
+            );
         }
-        completed == total // All tasks done → auto-complete.
+        if completed < total {
+            return Err(format!(
+                "Cannot mark complete: {completed}/{total} required OpenSpec tasks are complete."
+            ));
+        }
+        Ok(())
+    }
+
+    fn evaluate_checklist_completion(run: &PlanRun) -> bool {
+        match Self::checklist_progress(run) {
+            Some((completed, total)) => total > 0 && completed == total,
+            None => true,
+        }
     }
 
     /// Update the steps_output JSON on a plan_run row.
@@ -785,7 +761,26 @@ impl PlanRunnerService {
         Ok(())
     }
 
+    /// Repair persisted "running" claims whose linked chat no longer has a live
+    /// execution owner. The transition is atomic; in-memory tokens are released
+    /// only after commit. This is safe to call repeatedly at read boundaries.
+    pub fn reconcile_stale_owners(
+        session_id: Option<&str>,
+        project_path: Option<&str>,
+    ) -> DbResult<usize> {
+        let stale = PlanLifecycleService::reconcile_stale_owners(session_id, project_path)?;
+        if let Ok(mut running) = RUNNING_RUNS.lock() {
+            for run_id in &stale {
+                if let Some(token) = running.remove(run_id) {
+                    token.cancel();
+                }
+            }
+        }
+        Ok(stale.len())
+    }
+
     pub fn list_runs(session_id: &str) -> DbResult<Vec<PlanRun>> {
+        Self::reconcile_stale_owners(Some(session_id), None)?;
         let conn = StorageService::connect()?;
         let mut stmt = conn
             .prepare(
@@ -800,10 +795,36 @@ impl PlanRunnerService {
         rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
     }
 
+    /// List all plan runs owned by sessions in a project. Planning surfaces
+    /// are project-scoped, so session-only queries can hide retained runs
+    /// created from another workspace or native-chat session.
+    pub fn list_runs_for_project(project_path: &str) -> DbResult<Vec<PlanRun>> {
+        Self::reconcile_stale_owners(None, Some(project_path))?;
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, plan_id, session_id, chat_session_id, workspace_path, status,
+                        runner_kind, error, steps_output, started_at, finished_at, created_at
+                 FROM plan_runs
+                 WHERE session_id IN (
+                   SELECT id FROM sessions WHERE project_path = ?1
+                   UNION
+                   SELECT id FROM native_chat_sessions WHERE project_path = ?1
+                 )
+                 ORDER BY created_at DESC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![project_path], Self::map_run)
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
+    }
+
     /// List all runs for a plan, across all workspace sessions. Used by the
     /// UI to resolve a plan's active chat session regardless of which session
     /// originally assigned it (plans are project-scoped, not session-scoped).
     pub fn list_runs_by_plan(plan_id: &str) -> DbResult<Vec<PlanRun>> {
+        Self::reconcile_stale_owners(None, None)?;
         let conn = StorageService::connect()?;
         let mut stmt = conn
             .prepare(
@@ -868,13 +889,15 @@ impl PlanRunnerService {
         conn.execute(
             "INSERT INTO plan_runs (id, plan_id, session_id, chat_session_id, workspace_path,
              status, runner_kind, error, steps_output, started_at, finished_at, created_at)
-             VALUES (?1, ?2, ?3, NULL, NULL, 'running', 'omp', NULL, '[]', ?4, NULL, ?5)",
-            params![run_id, plan_id, session_id, created, created],
+             VALUES (?1, ?2, ?3, NULL, NULL, 'pending', 'omp', NULL, '[]', NULL, NULL, ?4)",
+            params![run_id, plan_id, session_id, created],
         )
         .map_err(|e| format!("Failed to insert OMP plan run: {e}"))?;
 
-        // Transition the plan to running.
-        let _ = PlanService::set_status(plan_id, PlanStatus::Running);
+        if let Err(error) = PlanLifecycleService::kickoff_started(&run_id, None) {
+            let _ = PlanLifecycleService::kickoff_failed(&run_id, &error);
+            return Err(format!("Failed to start OMP plan run: {error}"));
+        }
 
         // Emit the running event so the frontend opens the OMP tab.
         let _ = app.emit(
@@ -929,6 +952,8 @@ impl PlanRunnerService {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 continue;
             }
+
+            let _ = Self::reconcile_stale_owners(Some(&session_id), None);
 
             // Find the next pending queue entry that doesn't already have a
             // running/succeeded/failed plan_run.
@@ -1110,17 +1135,6 @@ impl PlanRunnerService {
             return Self::get_run(&run_id)?.ok_or_else(|| "Plan run already starting".to_string());
         }
 
-        // Mark running.
-        let started = now();
-        conn.execute(
-            "UPDATE plan_runs SET status = 'running', started_at = ?1 WHERE id = ?2",
-            params![started, run_id],
-        )
-        .map_err(|e| format!("Failed to mark run running: {e}"))?;
-
-        // Transition the plan to running.
-        let _ = PlanService::set_status(&entry.plan_id, PlanStatus::Running);
-
         // Provision a native chat session for the plan. If this fails, clean
         // up the zombie run row (mark failed) and revert the plan to ready so
         // the user can re-assign instead of being stuck with a "running" plan
@@ -1135,11 +1149,7 @@ impl PlanRunnerService {
             Ok(s) => s,
             Err(e) => {
                 let err_msg = format!("Failed to create chat session: {e}");
-                let _ = conn.execute(
-                    "UPDATE plan_runs SET status = 'failed', error = ?1, finished_at = ?2 WHERE id = ?3",
-                    params![err_msg, now(), run_id],
-                );
-                let _ = PlanService::set_status(&entry.plan_id, PlanStatus::Ready);
+                let _ = PlanLifecycleService::kickoff_failed(&run_id, &err_msg);
                 if let Ok(mut map) = RUNNING_RUNS.lock() {
                     map.remove(&run_id);
                 }
@@ -1147,12 +1157,14 @@ impl PlanRunnerService {
             }
         };
 
-        // Link the chat session to the run.
-        conn.execute(
-            "UPDATE plan_runs SET chat_session_id = ?1 WHERE id = ?2",
-            params![chat_session.id, run_id],
-        )
-        .map_err(|e| format!("Failed to link chat session: {e}"))?;
+        // Link chat, run, and plan in one lifecycle transition.
+        if let Err(error) = PlanLifecycleService::kickoff_started(&run_id, Some(&chat_session.id)) {
+            let _ = PlanLifecycleService::kickoff_failed(&run_id, &error);
+            if let Ok(mut map) = RUNNING_RUNS.lock() {
+                map.remove(&run_id);
+            }
+            return Err(format!("Failed to start plan run: {error}"));
+        }
 
         // Emit the running event.
         let _ = app.emit(
@@ -1262,28 +1274,22 @@ impl PlanRunnerService {
         conn.execute(
             "INSERT INTO plan_runs (id, plan_id, session_id, chat_session_id, workspace_path,
              status, runner_kind, error, steps_output, started_at, finished_at, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'running', 'native', NULL, '[]', ?6, NULL, ?7)",
+             VALUES (?1, ?2, ?3, ?4, ?5, 'pending', 'native', NULL, '[]', NULL, NULL, ?6)",
             params![
                 run_id,
                 plan_id,
                 plan.session_id,
                 chat_session_id,
                 workspace_path,
-                created,
                 created
             ],
         )
         .map_err(|e| format!("Failed to insert plan run: {e}"))?;
 
-        // Mark running.
-        conn.execute(
-            "UPDATE plan_runs SET started_at = ?1 WHERE id = ?2",
-            params![created, run_id],
-        )
-        .map_err(|e| format!("Failed to mark run started: {e}"))?;
-
-        // Transition the plan to running.
-        let _ = PlanService::set_status(plan_id, PlanStatus::Running);
+        if let Err(error) = PlanLifecycleService::kickoff_started(&run_id, Some(chat_session_id)) {
+            let _ = PlanLifecycleService::kickoff_failed(&run_id, &error);
+            return Err(format!("Failed to start assigned plan run: {error}"));
+        }
 
         // Register the cancellation token.
         let token = RunCancellationToken::new();
@@ -1323,7 +1329,7 @@ impl PlanRunnerService {
         let session_id = chat_session_id.to_string();
         std::thread::spawn(move || {
             let request = crate::models::native_chat::NativeChatSendRequest {
-                session_id,
+                session_id: session_id.clone(),
                 content: "Begin working on the assigned plan now. Use the opening context \
                           above: if an OpenSpec change is referenced, read its proposal, \
                           design, specs, and tasks.md, then work tasks.md top to bottom and \
@@ -1333,8 +1339,20 @@ impl PlanRunnerService {
                 model_id: None,
                 effort_level: None,
             };
-            if let Err(error) = NativeChatService::send_message(&app, request) {
-                eprintln!("[plan-run] kickoff turn failed: {error}");
+            match NativeChatService::send_message(&app, request) {
+                Ok(result) if result.setup_required.is_some() => {
+                    let error = "Assigned plan requires provider setup";
+                    let _ = PlanLifecycleService::fail_linked_chat(&session_id, error);
+                    eprintln!("[plan-run] kickoff turn failed: {error}");
+                }
+                Err(error) => {
+                    let _ = PlanLifecycleService::fail_linked_chat(
+                        &session_id,
+                        "Assigned plan kickoff failed",
+                    );
+                    eprintln!("[plan-run] kickoff turn failed: {error}");
+                }
+                Ok(_) => {}
             }
         });
     }
@@ -1565,11 +1583,58 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_token_signals() {
-        let token = RunCancellationToken::new();
-        assert!(!token.is_cancelled());
-        token.cancel();
-        assert!(token.is_cancelled());
+    fn mark_complete_requires_linked_openspec_tasks_to_be_complete() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        let project_path = dir.path().to_string_lossy().into_owned();
+        let change_dir = dir.path().join("openspec/changes/strict-completion");
+        std::fs::create_dir_all(&change_dir).unwrap();
+        std::fs::write(
+            change_dir.join("tasks.md"),
+            "# Tasks\n\n- [x] Implement lifecycle\n- [ ] Verify lifecycle\n",
+        )
+        .unwrap();
+
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+             VALUES ('s1', ?1, 'Test', 0, 0)",
+            rusqlite::params![project_path],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plans (
+                id, session_id, reference_id, title, description, status, priority,
+                tags, ai_enhanced, change_name, created_at, updated_at
+             ) VALUES (
+                'p1', 's1', 'bb-strict', 'Strict completion', '', 'ready', 50,
+                '[]', 0, 'strict-completion', 0, 0
+             )",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plan_runs (
+                id, plan_id, session_id, status, runner_kind, created_at
+             ) VALUES ('r1', 'p1', 's1', 'awaiting_review', 'native', 0)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let run = PlanRunnerService::get_run("r1").unwrap().unwrap();
+        let error = PlanRunnerService::require_checklist_completion(&run).unwrap_err();
+        assert_eq!(
+            error,
+            "Cannot mark complete: 1/2 required OpenSpec tasks are complete."
+        );
+
+        std::fs::write(
+            change_dir.join("tasks.md"),
+            "# Tasks\n\n- [x] Implement lifecycle\n- [x] Verify lifecycle\n",
+        )
+        .unwrap();
+        PlanRunnerService::require_checklist_completion(&run).unwrap();
     }
 
     #[test]
@@ -1718,6 +1783,39 @@ mod tests {
         let _g = crate::test_util::test::lock_db(&dir);
         let runs = PlanRunnerService::list_runs("no-such-session").unwrap();
         assert!(runs.is_empty());
+    }
+
+    #[test]
+    fn list_runs_for_project_excludes_other_projects() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+             VALUES ('s1', '/target', 'Target', 0, 0),
+                    ('s2', '/other', 'Other', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plans (id, session_id, reference_id, title, description, status, priority, tags, ai_enhanced, created_at, updated_at)
+             VALUES ('p1', 's1', 'bb-one', 'One', 'desc', 'finished', 50, '[]', 0, 0, 0),
+                    ('p2', 's2', 'bb-two', 'Two', 'desc', 'finished', 50, '[]', 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plan_runs (id, plan_id, session_id, status, runner_kind, steps_output, created_at)
+             VALUES ('r1', 'p1', 's1', 'succeeded', 'native', '[]', 0),
+                    ('r2', 'p2', 's2', 'succeeded', 'native', '[]', 0)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let runs = PlanRunnerService::list_runs_for_project("/target").unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].id, "r1");
     }
 
     #[test]
@@ -2149,5 +2247,62 @@ mod tests {
             assert!(result.is_err());
             assert!(result.unwrap_err().contains("Global concurrency limit"));
         }
+    }
+
+    #[test]
+    fn final_touch_setup_error_becomes_a_failed_step() {
+        let results =
+            normalize_final_touch_results(Err("final-touch database unavailable".to_string()));
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].step_id, "final-touches");
+        assert_eq!(results[0].kind, "system");
+        assert_eq!(results[0].status, "failed");
+        assert_eq!(
+            results[0].error.as_deref(),
+            Some("final-touch database unavailable")
+        );
+    }
+
+    #[test]
+    fn checklist_completion_distinguishes_partial_and_complete_work() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+             VALUES ('s-checklist', ?1, 'Checklist', 0, 0)",
+            params![dir.path().to_string_lossy().to_string()],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plans
+             (id, session_id, reference_id, title, description, status, priority, tags,
+              ai_enhanced, change_name, created_at, updated_at)
+             VALUES ('p-checklist', 's-checklist', 'bb-checklist', 'Checklist', 'd',
+                     'running', 50, '[]', 0, 'checklist-change', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plan_runs
+             (id, plan_id, session_id, status, runner_kind, steps_output, created_at)
+             VALUES ('r-checklist', 'p-checklist', 's-checklist', 'running', 'native', '[]', 0)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let change_dir = dir
+            .path()
+            .join("openspec")
+            .join("changes")
+            .join("checklist-change");
+        std::fs::create_dir_all(&change_dir).unwrap();
+        std::fs::write(change_dir.join("tasks.md"), "- [x] Done\n- [ ] Remaining\n").unwrap();
+        let run = PlanRunnerService::get_run("r-checklist").unwrap().unwrap();
+        assert!(!PlanRunnerService::evaluate_checklist_completion(&run));
+
+        std::fs::write(change_dir.join("tasks.md"), "- [x] Done\n- [x] Remaining\n").unwrap();
+        assert!(PlanRunnerService::evaluate_checklist_completion(&run));
     }
 }

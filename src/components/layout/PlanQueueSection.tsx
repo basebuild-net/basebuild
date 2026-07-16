@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
-import { Loader2, Pause, Play, Square, X } from "lucide-react";
+import { ClipboardCheck, Loader2, Pause, Play, RotateCcw, Square, X } from "lucide-react";
 import type { Plan } from "../../lib/plans";
 import {
+  assignPlanToChat,
   cancelPlanRun,
   enqueuePlan,
   listPlanQueue,
   listPlanRuns,
+  markPlanRunComplete,
   onPlanRunEvent,
   pauseQueue,
   removePlanRun,
@@ -167,6 +169,30 @@ export function PlanQueueSection({
     }
   }
 
+  async function handleResumeRun(run: PlanRun) {
+    try {
+      if (run.chatSessionId) {
+        await assignPlanToChat(run.planId, run.chatSessionId);
+      } else if (run.runnerKind === "omp") {
+        await startOmpPlanRun(run.sessionId, run.planId);
+      } else {
+        throw new Error("The retained execution chat is unavailable. Assign the ready plan to a new chat.");
+      }
+      if (sessionId) await refreshRuns(sessionId);
+    } catch (error) {
+      onShowToast?.("Could not resume plan", error instanceof Error ? error.message : String(error), "error");
+    }
+  }
+
+  async function handleReviewRun(run: PlanRun) {
+    try {
+      await markPlanRunComplete(run.id);
+      if (sessionId) await refreshRuns(sessionId);
+    } catch (error) {
+      onShowToast?.("Could not complete review", error instanceof Error ? error.message : String(error), "error");
+    }
+  }
+
   if (!sessionId) return null;
 
   const hasQueue = queue.length > 0;
@@ -305,6 +331,38 @@ export function PlanQueueSection({
                       title="Cancel this run (returns plan to ready)"
                     >
                       <Square size={12} />
+                    </button>
+                  ) : null}
+                  {run?.status === "awaiting_review" ? (
+                    <>
+                      <button
+                        className="btn btn-sm"
+                        type="button"
+                        disabled={!run.chatSessionId && run.runnerKind === "native"}
+                        onClick={() => void handleResumeRun(run)}
+                        title={run.chatSessionId || run.runnerKind === "omp" ? "Resume the incomplete plan run" : "Cannot resume: the retained execution chat is unavailable; assign the ready plan to a new chat."}
+                      >
+                        <Play size={10} /> Resume
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        type="button"
+                        onClick={() => void handleReviewRun(run)}
+                        title="Review retained artifacts and mark the run complete"
+                      >
+                        <ClipboardCheck size={10} /> Review
+                      </button>
+                    </>
+                  ) : null}
+                  {run?.status === "failed" ? (
+                    <button
+                      className="btn btn-sm"
+                      type="button"
+                      disabled={!run.chatSessionId && run.runnerKind === "native"}
+                      onClick={() => void handleResumeRun(run)}
+                      title={run.chatSessionId || run.runnerKind === "omp" ? "Retry this failed plan run" : "Cannot retry: the retained execution chat is unavailable; assign the ready plan to a new chat."}
+                    >
+                      <RotateCcw size={10} /> Retry
                     </button>
                   ) : null}
                   {!run ? (

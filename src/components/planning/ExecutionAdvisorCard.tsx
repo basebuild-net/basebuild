@@ -3,6 +3,7 @@ import { AlertTriangle, BrainCircuit, Check, Code2, Loader2, RefreshCw, Route } 
 import {
   clearExecutionAdviceOverride,
   getExecutionAdvice,
+  recordExecutionAdviceFeedback,
   setExecutionAdviceOverride,
   type ExecutionAdviceBundle,
   type ExecutionRole,
@@ -59,7 +60,17 @@ function RoleRecommendation({
             >
               <Check size={11} /> User choice · reset
             </button>
-          ) : null}
+          ) : (
+            <button
+              className="btn btn-sm btn-ghost"
+              type="button"
+              title={`Use the recommended ${advice.role} route for this project`}
+              disabled={busy}
+              onClick={() => void onOverride(advice.role, recommendation)}
+            >
+              <Check size={11} /> Use recommendation
+            </button>
+          )}
           <details className="execution-advisor-details">
             <summary title={`Explain the ${advice.role} recommendation`}>Why this route</summary>
             <ul>
@@ -137,6 +148,24 @@ export function ExecutionAdvisorCard({
         providerId: route.providerId,
         modelId: route.modelId,
       });
+      const previousRecommendation = advice?.[role].recommendation;
+      if (previousRecommendation) {
+        await recordExecutionAdviceFeedback({
+          role,
+          recommendedProviderId: previousRecommendation.providerId,
+          recommendedModelId: previousRecommendation.modelId,
+          selectedProviderId: route.providerId,
+          selectedModelId: route.modelId,
+          outcome:
+            previousRecommendation.providerId === route.providerId
+            && previousRecommendation.modelId === route.modelId
+              ? "accepted"
+              : "overridden",
+          confidence: previousRecommendation.confidence,
+          difficultyBucket: advice.difficultyBucket,
+          effortBucket: advice.effortBucket,
+        }).catch(() => undefined);
+      }
       await load();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));

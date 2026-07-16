@@ -102,6 +102,10 @@ impl PlanService {
     }
 
     pub fn list(session_id: &str) -> DbResult<Vec<Plan>> {
+        crate::services::plan_runner_service::PlanRunnerService::reconcile_stale_owners(
+            Some(session_id),
+            None,
+        )?;
         let conn = StorageService::connect()?;
         let mut stmt = conn
             .prepare(
@@ -126,6 +130,10 @@ impl PlanService {
     }
 
     pub fn list_for_project(project_path: &str) -> DbResult<Vec<Plan>> {
+        crate::services::plan_runner_service::PlanRunnerService::reconcile_stale_owners(
+            None,
+            Some(project_path),
+        )?;
         let conn = StorageService::connect()?;
         let mut stmt = conn
             .prepare(

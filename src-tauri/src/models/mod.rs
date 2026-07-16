@@ -1,7 +1,7 @@
 pub mod config_pack;
 pub mod connector;
-pub mod git;
 pub mod execution_advisor;
+pub mod git;
 pub mod idea;
 pub mod interaction;
 pub mod native_chat;

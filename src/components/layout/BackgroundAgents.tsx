@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bot, Check, ExternalLink, Loader2, X, XCircle } from "lucide-react";
+import { Archive, Bot, Check, CircleHelp, ClipboardCheck, ExternalLink, Loader2, Play, RotateCcw, X, XCircle } from "lucide-react";
 import {
   isTerminalRunStatus,
   pipelineCancel,
@@ -7,11 +7,20 @@ import {
   pipelineListRunsByProject,
   type PipelineRun,
 } from "../../lib/pipeline";
-import { cancelPlanRun, listPlanRuns, type PlanRun } from "../../lib/planRuns";
+import {
+  assignPlanToChat,
+  cancelPlanRun,
+  derivePlanRunViewState,
+  listPlanRuns,
+  listPlanRunsByProject,
+  markPlanRunComplete,
+  type PlanRun,
+} from "../../lib/planRuns";
 import { usePlanningEvents } from "../../state/planningEvents";
 import { getConcurrencyLimits } from "../../lib/runConcurrency";
 import type { Plan } from "../../lib/plans";
 import { useLogs } from "../../state/log";
+import { nativeChatList, type NativeChatSession } from "../../lib/native-chat";
 
 const KIND_LABELS: Record<string, string> = {
   generate_categories: "Generating categories",
@@ -35,6 +44,7 @@ function formatDuration(fromSecs: number, toSecs: number): string {
   return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 }
 
+
 export type BackgroundAgentsProps = {
   sessionId: string | null;
   /** Project path for project-scoped pipeline run queries. */
@@ -43,13 +53,23 @@ export type BackgroundAgentsProps = {
   plans: Plan[];
   /** Focus the chat session a run streams into (preview the chat). */
   onOpenChatSession?: (chatSessionId: string) => void;
+  /** Open the planning surface for review or archive actions. */
+  onOpenPlanning?: (tab: "runs" | "changes") => void;
 };
 
-export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSession }: BackgroundAgentsProps) {
+export function BackgroundAgents({
+  sessionId,
+  projectPath,
+  plans,
+  onOpenChatSession,
+  onOpenPlanning,
+}: BackgroundAgentsProps) {
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [planRuns, setPlanRuns] = useState<PlanRun[]>([]);
+  const [chatSessions, setChatSessions] = useState<NativeChatSession[]>([]);
   const [open, setOpen] = useState(false);
   const [maxConcurrent, setMaxConcurrent] = useState(0);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   const { addLog } = useLogs();
 
@@ -57,6 +77,7 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
     if (!sessionId) {
       setRuns([]);
       setPlanRuns([]);
+      setChatSessions([]);
       return;
     }
     // Query pipeline runs by project path (not session ID) so runs from
@@ -65,13 +86,19 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
     const pipelineQuery = projectPath
       ? pipelineListRunsByProject(projectPath).catch(() => [] as PipelineRun[])
       : pipelineListRuns(sessionId).catch(() => [] as PipelineRun[]);
-    const [pipeline, plan, limits] = await Promise.all([
+    const [pipeline, plan, limits, chats] = await Promise.all([
       pipelineQuery,
-      listPlanRuns(sessionId).catch(() => [] as PlanRun[]),
+      projectPath
+        ? listPlanRunsByProject(projectPath).catch(() => [] as PlanRun[])
+        : listPlanRuns(sessionId).catch(() => [] as PlanRun[]),
       getConcurrencyLimits().catch(() => null),
+      projectPath
+        ? nativeChatList(projectPath).catch(() => [] as NativeChatSession[])
+        : Promise.resolve([] as NativeChatSession[]),
     ]);
     setRuns(pipeline);
     setPlanRuns(plan);
+    setChatSessions(chats);
     if (limits) setMaxConcurrent(limits.globalMax);
   }, [sessionId, projectPath]);
 
@@ -85,10 +112,18 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
     [runs],
   );
   const activePlanRuns = useMemo(
-    () => planRuns.filter((r) => r.status === "running" || r.status === "pending"),
-    [planRuns],
+    () => planRuns.filter((run) => {
+      const chat = chatSessions.find((candidate) => candidate.id === run.chatSessionId);
+      const state = derivePlanRunViewState(run, chat?.runState).state;
+      return state === "queued" || state === "running" || state === "needs-input";
+    }),
+    [planRuns, chatSessions],
   );
   const activeCount = active.length + activePlanRuns.length;
+  const recentPlanRuns = useMemo(
+    () => planRuns.filter((run) => !activePlanRuns.some((activeRun) => activeRun.id === run.id)).slice(0, RECENT_LIMIT),
+    [planRuns, activePlanRuns],
+  );
   const recent = useMemo(
     () => runs.filter((r) => isTerminalRunStatus(r.status)).slice(0, RECENT_LIMIT),
     [runs],
@@ -129,6 +164,47 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
     }
     void refresh();
   }, [refresh, addLog]);
+  const handleOpenChat = useCallback((chatSessionId: string, runId: string) => {
+    addLog("debug", "Background agent chat opened", `run=${runId} chat=${chatSessionId}`);
+    setOpen(false);
+    onOpenChatSession?.(chatSessionId);
+  }, [addLog, onOpenChatSession]);
+
+
+  const handleResumePlanRun = useCallback(async (run: PlanRun) => {
+    setActionError(null);
+    if (!run.chatSessionId) {
+      setOpen(false);
+      onOpenPlanning?.("runs");
+      return;
+    }
+    try {
+      await assignPlanToChat(run.planId, run.chatSessionId);
+      await refresh();
+      handleOpenChat(run.chatSessionId, run.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setActionError(`Could not resume: ${message}`);
+      addLog("error", "Background plan resume failed", message);
+    }
+  }, [addLog, handleOpenChat, onOpenPlanning, refresh]);
+
+  const handleReviewPlanRun = useCallback(async (run: PlanRun) => {
+    setActionError(null);
+    try {
+      await markPlanRunComplete(run.id);
+      await refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setActionError(`Could not complete review: ${message}`);
+      addLog("error", "Background plan review failed", message);
+    }
+  }, [addLog, refresh]);
+
+  const handleArchivePlan = useCallback(() => {
+    setOpen(false);
+    onOpenPlanning?.("changes");
+  }, [onOpenPlanning]);
 
   const targetTitle = useCallback(
     (run: PipelineRun): string => {
@@ -150,11 +226,6 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
     }
     void refresh();
   }, [refresh, addLog]);
-  const handleOpenChat = useCallback((chatSessionId: string, runId: string) => {
-    addLog("debug", "Background agent chat opened", `run=${runId} chat=${chatSessionId}`);
-    setOpen(false);
-    onOpenChatSession?.(chatSessionId);
-  }, [addLog, onOpenChatSession]);
 
   if (!sessionId) return null;
 
@@ -167,7 +238,7 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
         aria-haspopup="dialog"
         title={
           activeCount > 0
-            ? `${activeCount} background agent${activeCount === 1 ? "" : "s"} running`
+            ? `${activeCount} background agent${activeCount === 1 ? "" : "s"} active`
             : "Background agents"
         }
         onClick={() => {
@@ -194,7 +265,7 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
                 <span className="bg-agents-title">Background agents</span>
                 <span className="bg-agents-summary">
                   {activeCount > 0
-                    ? `${activeCount} running`
+                    ? `${activeCount} active`
                     : "Nothing running"}
                 </span>
               </div>
@@ -203,74 +274,92 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
               </button>
             </div>
             <div className="bg-agents-list">
-              {activeCount === 0 && recent.length === 0 ? (
+              {actionError ? <div className="bg-agents-action-error" role="alert">{actionError}</div> : null}
+              {activeCount === 0 && recent.length === 0 && recentPlanRuns.length === 0 ? (
                 <div className="bg-agents-empty">
                   No background agents yet. Generating ideas, preparing an
                   OpenSpec plan, or running an assigned plan shows up here.
                 </div>
               ) : null}
-              {activePlanRuns.map((run) => (
-                <div
-                  key={run.id}
-                  className="bg-agents-item is-running"
-                  draggable={!!run.chatSessionId}
-                  onDragStart={(e) => {
-                    if (!run.chatSessionId) return;
-                    e.dataTransfer.setData("text/plain", run.chatSessionId);
-                    e.dataTransfer.effectAllowed = "move";
-                  }}
-                >
-                  {run.chatSessionId && onOpenChatSession ? (
-                    <button
-                      className="bg-agents-item-open"
-                      type="button"
-                      title="Open the chat where this agent is working"
-                      onClick={() => handleOpenChat(run.chatSessionId!, run.id)}
-                    >
-                      <Loader2 size={12} className="bg-agents-item-icon is-spinning" />
-                      <span className="bg-agents-item-body">
-                        <span className="bg-agents-item-kind">Working on plan</span>
-                        {planTitle(run.planId) ? (
-                          <span className="bg-agents-item-target" title={planTitle(run.planId)}>
-                            {planTitle(run.planId)}
-                          </span>
-                        ) : null}
-                        <span className="bg-agents-item-meta">
-                          <span className="bg-agents-model" title={`Runner: ${run.runnerKind}`}>{run.runnerKind}</span>
-                          <span className="bg-agents-elapsed">
-                            {formatDuration(run.startedAt ?? Math.floor(run.createdAt), now)}
+              {activePlanRuns.map((run) => {
+                const chat = chatSessions.find((candidate) => candidate.id === run.chatSessionId);
+                const view = derivePlanRunViewState(run, chat?.runState);
+                const needsInput = view.state === "needs-input";
+                const queued = view.state === "queued";
+                const ActivityIcon = needsInput ? CircleHelp : queued ? Play : Loader2;
+                return (
+                  <div
+                    key={run.id}
+                    className={`bg-agents-item is-${view.state}`}
+                    draggable={!!run.chatSessionId}
+                    onDragStart={(e) => {
+                      if (!run.chatSessionId) return;
+                      e.dataTransfer.setData("text/plain", run.chatSessionId);
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
+                  >
+                    {run.chatSessionId && onOpenChatSession ? (
+                      <button
+                        className="bg-agents-item-open"
+                        type="button"
+                        title={needsInput
+                          ? "Open the pending question or approval"
+                          : queued
+                            ? "Open the chat reserved for this queued plan"
+                            : "Open the chat where this agent is working"}
+                        onClick={() => handleOpenChat(run.chatSessionId!, run.id)}
+                      >
+                        <ActivityIcon
+                          size={12}
+                          className={`bg-agents-item-icon${needsInput || queued ? "" : " is-spinning"}`}
+                        />
+                        <span className="bg-agents-item-body">
+                          <span className="bg-agents-item-kind">{view.label}</span>
+                          {planTitle(run.planId) ? (
+                            <span className="bg-agents-item-target" title={planTitle(run.planId)}>
+                              {planTitle(run.planId)}
+                            </span>
+                          ) : null}
+                          <span className="bg-agents-item-meta">
+                            <span className="bg-agents-model" title={`Runner: ${run.runnerKind}`}>{run.runnerKind}</span>
+                            <span className="bg-agents-elapsed">
+                              {formatDuration(run.startedAt ?? Math.floor(run.createdAt), now)}
+                            </span>
                           </span>
                         </span>
-                      </span>
-                      <ExternalLink size={11} className="bg-agents-open-icon" />
+                        <ExternalLink size={11} className="bg-agents-open-icon" />
+                      </button>
+                    ) : (
+                      <>
+                        <ActivityIcon
+                          size={12}
+                          className={`bg-agents-item-icon${needsInput || queued ? "" : " is-spinning"}`}
+                        />
+                        <div className="bg-agents-item-body">
+                          <span className="bg-agents-item-kind">{view.label}</span>
+                          {planTitle(run.planId) ? (
+                            <span className="bg-agents-item-target" title={planTitle(run.planId)}>
+                              {planTitle(run.planId)}
+                            </span>
+                          ) : null}
+                        </div>
+                      </>
+                    )}
+                    <button
+                      className="btn-icon btn-icon-sm bg-agents-cancel"
+                      type="button"
+                      title="Cancel this plan run"
+                      onClick={() => void handleCancelPlanRun(run.id)}
+                    >
+                      <X size={11} />
                     </button>
-                  ) : (
-                    <>
-                      <Loader2 size={12} className="bg-agents-item-icon is-spinning" />
-                      <div className="bg-agents-item-body">
-                        <span className="bg-agents-item-kind">Working on plan</span>
-                        {planTitle(run.planId) ? (
-                          <span className="bg-agents-item-target" title={planTitle(run.planId)}>
-                            {planTitle(run.planId)}
-                          </span>
-                        ) : null}
-                      </div>
-                    </>
-                  )}
-                  <button
-                    className="btn-icon btn-icon-sm bg-agents-cancel"
-                    type="button"
-                    title="Cancel this plan run"
-                    onClick={() => void handleCancelPlanRun(run.id)}
-                  >
-                    <X size={11} />
-                  </button>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
               {active.map((run) => (
                 <div
                   key={run.id}
-                  className="bg-agents-item is-running"
+                  className={`bg-agents-item is-${run.status === "pending" ? "queued" : "running"}`}
                   draggable={!!run.sessionChatId}
                   onDragStart={(e) => {
                     if (!run.sessionChatId) return;
@@ -282,12 +371,14 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
                     <button
                       className="bg-agents-item-open"
                       type="button"
-                      title="Open the chat where this agent is working"
+                      title={run.status === "pending" ? "Open the chat reserved for this queued agent" : "Open the chat where this agent is working"}
                       onClick={() => handleOpenChat(run.sessionChatId!, run.id)}
                     >
-                      <Loader2 size={12} className="bg-agents-item-icon is-spinning" />
+                      {run.status === "pending"
+                        ? <Play size={12} className="bg-agents-item-icon" />
+                        : <Loader2 size={12} className="bg-agents-item-icon is-spinning" />}
                       <span className="bg-agents-item-body">
-                        <span className="bg-agents-item-kind">{kindLabel(run.kind)}</span>
+                        <span className="bg-agents-item-kind">{run.status === "pending" ? `${kindLabel(run.kind)} queued` : kindLabel(run.kind)}</span>
                         {targetTitle(run) ? (
                           <span className="bg-agents-item-target" title={targetTitle(run)}>
                             {targetTitle(run)}
@@ -308,9 +399,11 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
                     </button>
                   ) : (
                     <>
-                      <Loader2 size={12} className="bg-agents-item-icon is-spinning" />
+                      {run.status === "pending"
+                        ? <Play size={12} className="bg-agents-item-icon" />
+                        : <Loader2 size={12} className="bg-agents-item-icon is-spinning" />}
                       <div className="bg-agents-item-body">
-                        <span className="bg-agents-item-kind">{kindLabel(run.kind)}</span>
+                        <span className="bg-agents-item-kind">{run.status === "pending" ? `${kindLabel(run.kind)} queued` : kindLabel(run.kind)}</span>
                         {targetTitle(run) ? (
                           <span className="bg-agents-item-target" title={targetTitle(run)}>
                             {targetTitle(run)}
@@ -329,9 +422,81 @@ export function BackgroundAgents({ sessionId, projectPath, plans, onOpenChatSess
                   </button>
                 </div>
               ))}
-              {recent.length > 0 ? (
+              {recent.length > 0 || recentPlanRuns.length > 0 ? (
                 <div className="bg-agents-section-label">Recent</div>
               ) : null}
+              {recentPlanRuns.map((run) => {
+                const chat = chatSessions.find((candidate) => candidate.id === run.chatSessionId);
+                const view = derivePlanRunViewState(run, chat?.runState);
+                const plan = plans.find((candidate) => candidate.id === run.planId);
+                const archiveReason = !plan
+                  ? "Cannot archive: linked plan is unavailable."
+                  : plan.status !== "finished"
+                    ? `Cannot archive: linked plan is ${plan.status}; finish it first.`
+                    : !plan.changeName
+                      ? "Cannot archive: plan has no linked OpenSpec change."
+                      : null;
+                const StatusIcon = view.state === "complete"
+                  ? Check
+                  : view.state === "awaiting-review"
+                    ? ClipboardCheck
+                    : view.state === "interrupted"
+                      ? CircleHelp
+                      : XCircle;
+                return (
+                  <div key={run.id} className={`bg-agents-item is-${view.state}`}>
+                    {run.chatSessionId && onOpenChatSession ? (
+                      <button
+                        className="bg-agents-item-open"
+                        type="button"
+                        title="Open this plan run's retained chat"
+                        onClick={() => handleOpenChat(run.chatSessionId!, run.id)}
+                      >
+                        <StatusIcon size={12} className="bg-agents-item-icon" />
+                        <span className="bg-agents-item-body">
+                          <span className="bg-agents-item-kind">{view.label}</span>
+                          <span className="bg-agents-item-target" title={planTitle(run.planId)}>
+                            {planTitle(run.planId) || run.planId}
+                          </span>
+                          {run.error ? <span className="bg-agents-item-error" title={run.error}>{run.error}</span> : null}
+                        </span>
+                        <ExternalLink size={11} className="bg-agents-open-icon" />
+                      </button>
+                    ) : (
+                      <>
+                        <StatusIcon size={12} className="bg-agents-item-icon" />
+                        <div className="bg-agents-item-body">
+                          <span className="bg-agents-item-kind">{view.label}</span>
+                          <span className="bg-agents-item-target">{planTitle(run.planId) || run.planId}</span>
+                          {run.error ? <span className="bg-agents-item-error" title={run.error}>{run.error}</span> : null}
+                        </div>
+                      </>
+                    )}
+                    <div className="bg-agents-item-actions">
+                      {view.state === "awaiting-review" || view.state === "interrupted" ? (
+                        <>
+                          <button className="btn btn-sm" type="button" title={run.chatSessionId ? "Resume this plan in its retained chat" : "Open Runs to choose a new execution owner"} onClick={() => void handleResumePlanRun(run)}>
+                            <Play size={10} /> Resume
+                          </button>
+                          <button className="btn btn-sm" type="button" title="Review the retained artifacts and mark this run complete" onClick={() => void handleReviewPlanRun(run)}>
+                            <ClipboardCheck size={10} /> Review
+                          </button>
+                        </>
+                      ) : null}
+                      {view.state === "failed" ? (
+                        <button className="btn btn-sm" type="button" title={run.chatSessionId ? "Retry this plan in its retained chat" : "Open Runs to choose a new execution owner"} onClick={() => void handleResumePlanRun(run)}>
+                          <RotateCcw size={10} /> Retry
+                        </button>
+                      ) : null}
+                      {view.state === "complete" ? (
+                        <button className="btn btn-sm" type="button" title={archiveReason ?? "Open the linked change and archive it"} disabled={archiveReason !== null} onClick={handleArchivePlan}>
+                          <Archive size={10} /> Archive
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
               {recent.map((run) => (
                 <div key={run.id} className={`bg-agents-item is-${run.status}`}>
                   {run.sessionChatId && onOpenChatSession ? (

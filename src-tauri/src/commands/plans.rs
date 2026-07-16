@@ -33,13 +33,34 @@ pub struct UpdatePlanInput {
 fn parse_status(s: &str) -> PlanStatus {
     PlanStatus::from_str(s)
 }
+
+fn validate_manual_lifecycle_transition(
+    current: Option<PlanStatus>,
+    requested: PlanStatus,
+) -> Result<(), String> {
+    if current == Some(requested) {
+        return Ok(());
+    }
+    match requested {
+        PlanStatus::Running => Err(
+            "Cannot set plan to running directly: assign it to a live plan run.".to_string(),
+        ),
+        PlanStatus::Finished => Err(
+            "Cannot set plan to finished directly: complete the linked OpenSpec checklist and plan run."
+                .to_string(),
+        ),
+        _ => Ok(()),
+    }
+}
 #[tauri::command]
 pub fn create_plan(app: AppHandle, input: CreatePlanInput) -> Result<Plan, String> {
+    let status = parse_status(input.status.as_deref().unwrap_or("draft"));
+    validate_manual_lifecycle_transition(None, status)?;
     let plan = NewPlan {
         title: input.title,
         description: input.description,
         goal: input.goal,
-        status: parse_status(input.status.as_deref().unwrap_or("draft")),
+        status,
         priority: input.priority,
         tags: input.tags.unwrap_or_default(),
         idea_id: input.idea_id,
@@ -79,11 +100,14 @@ pub fn get_plan(id: String) -> Result<Option<Plan>, String> {
 
 #[tauri::command]
 pub fn update_plan(app: AppHandle, id: String, input: UpdatePlanInput) -> Result<Plan, String> {
+    let current = PlanService::get(&id)?.ok_or("Plan not found".to_string())?;
+    let status = parse_status(&input.status);
+    validate_manual_lifecycle_transition(Some(current.status), status)?;
     let plan = NewPlan {
         title: input.title,
         description: input.description,
         goal: input.goal,
-        status: parse_status(&input.status),
+        status,
         priority: input.priority,
         tags: input.tags,
         idea_id: None,
@@ -109,6 +133,8 @@ pub fn update_plan(app: AppHandle, id: String, input: UpdatePlanInput) -> Result
 #[tauri::command]
 pub async fn set_plan_status(app: AppHandle, id: String, status: String) -> Result<Plan, String> {
     let status = parse_status(&status);
+    let current = PlanService::get(&id)?.ok_or("Plan not found".to_string())?;
+    validate_manual_lifecycle_transition(Some(current.status), status)?;
     // draft → openspec: kick off the generate_openspec pipeline stage in the
     // background. The plan status flips to "openspec" immediately so the UI
     // reflects the transition without waiting for 4 model calls. The pipeline
@@ -241,4 +267,34 @@ pub fn batch_promote_ideas(
         .map(|(idea_id, error)| crate::models::plan::BatchPromoteError { idea_id, error })
         .collect();
     Ok(BatchPromoteResult { created, errors })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manual_status_changes_cannot_claim_execution_or_completion() {
+        assert!(
+            validate_manual_lifecycle_transition(None, PlanStatus::Running)
+                .unwrap_err()
+                .contains("live plan run")
+        );
+        assert!(validate_manual_lifecycle_transition(
+            Some(PlanStatus::Ready),
+            PlanStatus::Finished
+        )
+        .unwrap_err()
+        .contains("OpenSpec checklist"));
+        assert!(validate_manual_lifecycle_transition(
+            Some(PlanStatus::Running),
+            PlanStatus::Running
+        )
+        .is_ok());
+        assert!(validate_manual_lifecycle_transition(
+            Some(PlanStatus::Draft),
+            PlanStatus::Openspec
+        )
+        .is_ok());
+    }
 }

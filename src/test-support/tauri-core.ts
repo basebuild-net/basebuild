@@ -454,6 +454,23 @@ function makePlan(sessionId: string, input: Partial<Plan> & { title: string; des
   };
 }
 
+function reconcileMockPlanRunOwners(
+  s: E2eState,
+  runs: E2eState["planRuns"],
+): E2eState["planRuns"] {
+  for (const run of runs) {
+    if (run.status !== "running" || run.runnerKind !== "native") continue;
+    const chat = s.nativeChatSessions.find((candidate) => candidate.id === run.chatSessionId);
+    if (chat?.runState === "running" || chat?.runState === "needs_input") continue;
+    run.status = "awaiting_review";
+    run.error = "Linked chat is not executing; continuation required";
+    run.finishedAt = Math.floor(Date.now() / 1000);
+    const plan = s.plans.find((candidate) => candidate.id === run.planId);
+    if (plan) plan.status = "ready";
+  }
+  return runs;
+}
+
 export async function invoke<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
   const s = state();
 
@@ -795,6 +812,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       const nowSecs = Math.floor(Date.now() / 1000);
       const run = { id: `run-${Date.now()}`, planId, sessionId: typeof args.sessionId === "string" && args.sessionId ? args.sessionId : (plan?.sessionId ?? ""), chatSessionId, workspacePath: `worktrees/bb-${planId}`, status: "running", runnerKind: "native", error: undefined, stepsOutput: [], startedAt: nowSecs, finishedAt: undefined, createdAt: Date.now() };
       s.planRuns.push(run);
+      if (plan) plan.status = "running";
       return run as T;
     }
     case "openspec_list_changes":
@@ -827,14 +845,36 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "plan_run_pause":
       return undefined as T;
-    case "plan_run_cancel":
+    case "plan_run_cancel": {
+      const run = s.planRuns.find((candidate) => candidate.id === args.runId);
+      if (run) {
+        run.status = "cancelled";
+        run.finishedAt = Math.floor(Date.now() / 1000);
+        const plan = s.plans.find((candidate) => candidate.id === run.planId);
+        if (plan && !args.cancelPlan) plan.status = "ready";
+      }
       return undefined as T;
+    }
     case "plan_run_complete": {
       const runId = args.runId as string;
       const run = s.planRuns.find((r) => r.id === runId);
+      const plan = run ? s.plans.find((candidate) => candidate.id === run.planId) : undefined;
+      const progress = plan?.changeName
+        ? (s.taskProgressByChange?.get(plan.changeName) ?? [0, 0])
+        : null;
+      const checklistComplete = progress === null || (progress[1] > 0 && progress[0] === progress[1]);
       if (run) {
+        if (args.succeeded && !checklistComplete) {
+          run.status = "awaiting_review";
+          run.error = progress?.[1] === 0
+            ? "Checklist has no required tasks; review required"
+            : `Checklist incomplete: ${progress?.[0]}/${progress?.[1]} tasks complete`;
+          if (plan) plan.status = "ready";
+          return undefined as T;
+        }
         run.status = args.succeeded ? "succeeded" : "failed";
         run.finishedAt = Math.floor(Date.now() / 1000);
+        if (plan) plan.status = args.succeeded ? "finished" : "ready";
         // Mirror the backend: the finish policy is applied EXACTLY ONCE at
         // completion and its outcome persisted on the run. Reads via
         // plan_run_finish_outcome never re-apply.
@@ -876,8 +916,25 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       }
       return undefined as T;
     }
-    case "plan_run_mark_complete":
+    case "plan_run_mark_complete": {
+      const run = s.planRuns.find((candidate) => candidate.id === args.runId);
+      if (!run) throw new Error("Run not found");
+      const plan = s.plans.find((candidate) => candidate.id === run.planId);
+      const progress = plan?.changeName
+        ? (s.taskProgressByChange?.get(plan.changeName) ?? [0, 0])
+        : null;
+      if (progress && progress[1] === 0) {
+        throw new Error("Cannot mark complete: the linked OpenSpec change has no required tasks.");
+      }
+      if (progress && progress[0] < progress[1]) {
+        throw new Error(`Cannot mark complete: ${progress[0]}/${progress[1]} required OpenSpec tasks are complete.`);
+      }
+      run.status = "succeeded";
+      run.error = undefined;
+      run.finishedAt = Math.floor(Date.now() / 1000);
+      if (plan) plan.status = "finished";
       return undefined as T;
+    }
     case "plan_run_finish_outcome": {
       const run = s.planRuns.find((r) => r.id === args.runId);
       return (run?.finishOutcome ?? { kind: "hold" }) as T;
@@ -890,8 +947,23 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return null as T;
     case "pipeline_cancel":
       return undefined as T;
-    case "plan_run_list":
-      return s.planRuns.filter((r) => r.sessionId === args.sessionId) as T;
+    case "plan_run_list": {
+      return reconcileMockPlanRunOwners(
+        s,
+        s.planRuns.filter((run) => run.sessionId === args.sessionId),
+      ) as T;
+    }
+    case "plan_run_list_by_project": {
+      const projectPath = args.projectPath as string;
+      const sessionIds = new Set([
+        ...s.sessions.filter((session) => session.projectPath === projectPath).map((session) => session.id),
+        ...s.nativeChatSessions.filter((chat) => chat.projectPath === projectPath).map((chat) => chat.id),
+      ]);
+      return reconcileMockPlanRunOwners(
+        s,
+        s.planRuns.filter((run) => sessionIds.has(run.sessionId)),
+      ) as T;
+    }
     case "plan_run_get":
       return (s.planRuns.find((r) => r.id === args.runId) ?? null) as T;
     case "plan_run_start_omp": {
@@ -1080,6 +1152,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return {
         schemaVersion: 1,
         assessmentSource: "idea_assessment",
+        difficultyBucket: 4,
+        effortBucket: "same_day",
         assessmentStale: false,
         planner: roleAdvice("planner"),
         coder: roleAdvice("coder"),
@@ -1088,6 +1162,36 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "execution_advice_set_override":
     case "execution_advice_clear_override":
       return undefined as T;
+    case "execution_advice_feedback_consent":
+      return { enabled: false, updatedAt: null } as T;
+    case "execution_advice_set_feedback_consent": {
+      const input = args.input;
+      const enabled = Boolean(
+        input && typeof input === "object" && "enabled" in input && input.enabled,
+      );
+      return { enabled, updatedAt: Math.floor(Date.now() / 1000) } as T;
+    }
+    case "execution_advice_list_feedback":
+      return [] as T;
+    case "execution_advice_export_feedback":
+      return "[]" as T;
+    case "execution_advice_delete_feedback":
+      return 0 as T;
+    case "execution_advice_record_feedback":
+      return {
+        id: `advisor-feedback-${Date.now()}`,
+        schemaVersion: 1,
+        role: "planner",
+        recommendedProviderId: "umans",
+        recommendedModelId: "umans-glm-5.2",
+        selectedProviderId: "umans",
+        selectedModelId: "umans-glm-5.2",
+        outcome: "accepted",
+        confidence: "medium",
+        difficultyBucket: 4,
+        effortBucket: "same_day",
+        createdAt: Math.floor(Date.now() / 1000),
+      } as T;
     case "native_provider_catalog":
     case "native_provider_catalog_refresh": {
       // Build provider list dynamically — check credentials/blocked state

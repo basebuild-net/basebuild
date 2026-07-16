@@ -67,6 +67,14 @@ import {
   exportAnalyticsJson,
   type AnalyticsConsent,
 } from "../../lib/analytics";
+import {
+  deleteExecutionAdviceFeedback,
+  exportExecutionAdviceFeedback,
+  getExecutionAdviceFeedbackConsent,
+  listExecutionAdviceFeedback,
+  setExecutionAdviceFeedbackConsent,
+  type AdvisorFeedbackConsent,
+} from "../../lib/execution-advisor";
 import { startupGetStatus, startupEnable, startupDisable, startupReconcile, type StartupRegistrationStatus } from "../../lib/startup";
 import {
   mcpReload,
@@ -137,6 +145,8 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
   // Analytics state
   const [consent, setConsent] = useState<AnalyticsConsent | null>(null);
   const [eventCount, setEventCount] = useState(0);
+  const [advisorFeedbackConsent, setAdvisorFeedbackConsent] = useState<AdvisorFeedbackConsent | null>(null);
+  const [advisorFeedbackCount, setAdvisorFeedbackCount] = useState(0);
 
   // MCP state
   const [mcpServers, setMcpServers] = useState<McpServerState[]>([]);
@@ -231,9 +241,16 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
 
   async function refreshAnalytics() {
     try {
-      const [c, count] = await Promise.all([getAnalyticsConsent(), analyticsEventCount()]);
+      const [c, count, feedbackConsent, feedback] = await Promise.all([
+        getAnalyticsConsent(),
+        analyticsEventCount(),
+        getExecutionAdviceFeedbackConsent(),
+        listExecutionAdviceFeedback(),
+      ]);
       setConsent(c);
       setEventCount(count);
+      setAdvisorFeedbackConsent(feedbackConsent);
+      setAdvisorFeedbackCount(feedback.length);
     } catch {
       // ignore
     }
@@ -318,6 +335,38 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
       const a = document.createElement("a");
       a.href = url;
       a.download = "basebuild-analytics-export.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function saveAdvisorFeedbackConsent(enabled: boolean) {
+    try {
+      setAdvisorFeedbackConsent(await setExecutionAdviceFeedbackConsent(enabled));
+    } catch {
+      // ignore
+    }
+  }
+
+  async function deleteAdvisorFeedback() {
+    try {
+      await deleteExecutionAdviceFeedback();
+      setAdvisorFeedbackCount(0);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function exportAdvisorFeedback() {
+    try {
+      const json = await exportExecutionAdviceFeedback();
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "basebuild-execution-advisor-feedback.json";
       a.click();
       URL.revokeObjectURL(url);
     } catch {
@@ -891,7 +940,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                       <span className="text-sm">Enable anonymous upload</span>
                     </label>
                     <p className="text-muted text-sm mt-n4">
-                      Upload is disabled until a reviewed endpoint is configured. No upload code runs unless this is enabled.
+                      Upload stays off unless you enable it. Only reviewed, fixed-field endpoints receive supported analytics.
                     </p>
 
                     <div className="mt-8">
@@ -913,6 +962,49 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                           title="Delete all local analytics events"
                           onClick={() => void deleteAnalytics()}
                           disabled={eventCount === 0}
+                        >
+                          <Trash2 size={12} /> Delete
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mt-8">
+                      <h4 className="text-sm text-muted mb-6">Execution recommendation feedback</h4>
+                      <label className="row gap-sm">
+                        <input
+                          type="checkbox"
+                          title="Separately opt in to fixed-field execution recommendation feedback"
+                          checked={advisorFeedbackConsent?.enabled ?? false}
+                          disabled={!consent.collectionEnabled || !advisorFeedbackConsent}
+                          onChange={(event) => void saveAdvisorFeedbackConsent(event.target.checked)}
+                        />
+                        <span className="text-sm">Collect recommendation choices</span>
+                      </label>
+                      <p className="text-muted text-sm mt-n4">
+                        Off by default. Stores only model/provider ids, role, fixed estimate buckets,
+                        confidence, and accepted/overridden outcome. No free text, project content, paths,
+                        account ids, credentials, or raw usage.
+                      </p>
+                      <p className="text-muted text-sm">
+                        Remote upload additionally requires anonymous upload above; queued choices remain local until both gates are enabled.
+                      </p>
+                      <div className="row gap-sm">
+                        <span className="text-sm mono">{advisorFeedbackCount} choices stored</span>
+                        <button
+                          className="btn btn-sm"
+                          type="button"
+                          title="Inspect execution recommendation feedback by exporting its fixed-field JSON"
+                          onClick={() => void exportAdvisorFeedback()}
+                          disabled={advisorFeedbackCount === 0}
+                        >
+                          <Download size={12} /> Export
+                        </button>
+                        <button
+                          className="btn btn-sm"
+                          type="button"
+                          title="Delete all local execution recommendation feedback"
+                          onClick={() => void deleteAdvisorFeedback()}
+                          disabled={advisorFeedbackCount === 0}
                         >
                           <Trash2 size={12} /> Delete
                         </button>

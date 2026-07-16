@@ -26,7 +26,7 @@ type ChangesPanelProps = {
   /** Optional callback to focus the plan linked to a change. */
   onFocusPlan?: (referenceId: string) => void;
   /** Plans available for linking (planId → referenceId). */
-  linkablePlans?: { id: string; referenceId: string; title: string }[];
+  linkablePlans?: { id: string; referenceId: string; title: string; status: string }[];
 };
 
 type ArchivedFilter = "active" | "archived" | "all";
@@ -223,6 +223,30 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
 
   const archivedCount = useMemo(() => changes.filter((c) => c.archived).length, [changes]);
 
+  const archiveAvailability = useCallback((entry: ChangeCatalogEntry) => {
+    const linkedPlan = linkablePlans?.find(
+      (plan) => plan.referenceId === entry.linkedPlanReferenceId,
+    );
+    if (!linkedPlan || linkedPlan.status === "cancelled") {
+      return { blocked: false, primary: false, title: "Archive change" };
+    }
+    if (linkedPlan.status !== "finished") {
+      return {
+        blocked: true,
+        primary: false,
+        title: `Cannot archive: linked plan is ${linkedPlan.status}; finish or cancel it first.`,
+      };
+    }
+    if (entry.total === 0 || entry.completed !== entry.total) {
+      return {
+        blocked: true,
+        primary: false,
+        title: `Cannot archive: ${entry.completed}/${entry.total} required tasks are complete.`,
+      };
+    }
+    return { blocked: false, primary: true, title: "Archive finished change" };
+  }, [linkablePlans]);
+
   if (!projectPath) {
     return (
       <div className="changes-panel-empty">
@@ -354,11 +378,13 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
               {!entry.archived && (
                 <button
                   type="button"
-                  className="changes-panel-item-archive"
-                  title="Archive change"
+                  className={`changes-panel-item-archive${archiveAvailability(entry).primary ? " is-primary" : ""}`}
+                  title={archiveAvailability(entry).title}
+                  disabled={archiveAvailability(entry).blocked}
                   onClick={() => void handleArchive(entry.name)}
                 >
                   <Archive size={12} />
+                  {archiveAvailability(entry).primary ? <span>Archive</span> : null}
                 </button>
               )}
             </div>

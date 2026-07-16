@@ -9,16 +9,39 @@ async function openFixtureProject(page: Page) {
   await expect(
     page.locator(".activity-sidebar-project-name, .activity-sidebar-row-title", { hasText: "project" }),
   ).toBeVisible({ timeout: 5_000 });
-  // Seed an awaiting_review run into the mock state. Attach to all sessions
-  // for this project so the active session's run list includes it.
-  await page.evaluate(() => {
-    const state = (globalThis as { __BASEBUILD_E2E_STATE__?: { sessions: { id: string; projectPath: string }[]; planRuns: { id: string; planId: string; sessionId: string; status: string; runnerKind: string; stepsOutput: unknown[]; createdAt: number }[] } }).__BASEBUILD_E2E_STATE__;
-    if (!state) return;
+  // Seed an awaiting_review run linked to an incomplete OpenSpec checklist.
+  await page.evaluate(async () => {
+    const global = globalThis as {
+      __BASEBUILD_E2E_STATE__?: {
+        sessions: { id: string; projectPath: string }[];
+        planRuns: { id: string; planId: string; sessionId: string; status: string; runnerKind: string; stepsOutput: unknown[]; createdAt: number }[];
+      };
+      __basebuildInvoke?: <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
+    };
+    const state = global.__BASEBUILD_E2E_STATE__;
+    const invoke = global.__basebuildInvoke;
+    if (!state || !invoke) return;
+    await invoke("__e2e_set_task_progress", {
+      changeName: "completion-flow",
+      completed: 1,
+      total: 2,
+    });
     for (const session of state.sessions) {
       if (session.projectPath !== "C:\\basebuild-e2e\\project") continue;
+      const plan = await invoke<{ id: string }>("create_plan", {
+        input: {
+          sessionId: session.id,
+          title: "Completion flow",
+          description: "Exercise strict completion gates.",
+        },
+      });
+      await invoke("update_plan", {
+        id: plan.id,
+        input: { changeName: "completion-flow", status: "ready" },
+      });
       state.planRuns.push({
         id: `run-awaiting-${session.id}`,
-        planId: "plan-fixture",
+        planId: plan.id,
         sessionId: session.id,
         status: "awaiting_review",
         runnerKind: "native",
@@ -34,7 +57,7 @@ async function openPlanningInspector(page: Page) {
 
 async function clickFlowTab(page: Page) {
   const modal = page.locator('.modal-overlay[aria-label="Plans & Ideas"]');
-  await modal.getByRole("button", { name: "Flow" }).click();
+  await modal.getByRole("button", { name: "Flow", exact: true }).click();
   await expect(modal.locator(".flow-board")).toBeVisible({ timeout: 3_000 });
 }
 
@@ -51,15 +74,22 @@ test.describe("Planning cockpit: completion flow", () => {
     await expect(card.locator(".completion-card-title")).toContainText(/Awaiting review|Complete/);
   });
 
-  test("mark complete button is present for awaiting_review runs", async ({ page }) => {
+  test("mark complete explains and enforces the incomplete checklist gate", async ({ page }) => {
     await openFixtureProject(page);
     await openPlanningInspector(page);
     await clickFlowTab(page);
 
     const card = page.locator(".completion-card").first();
     await expect(card).toBeVisible({ timeout: 5_000 });
-    // The "Mark complete" button should be present.
-    await expect(card.getByRole("button", { name: "Mark complete" })).toBeVisible({ timeout: 3_000 });
+    const markComplete = card.getByRole("button", { name: "Mark complete" });
+    await expect(markComplete).toBeVisible({ timeout: 3_000 });
+    await expect(markComplete).toBeDisabled();
+    await expect(markComplete).toHaveAttribute(
+      "title",
+      "Cannot mark complete: 1/2 required OpenSpec tasks are complete.",
+    );
+    await expect(card.getByRole("button", { name: "Review tasks" })).toBeVisible();
+    await expect(card.getByRole("button", { name: "Resume" })).toBeVisible();
   });
 
   test("completion card does not duplicate finish-policy git actions", async ({ page }) => {

@@ -337,8 +337,8 @@ pub fn run_agent_turn(
         let mut active = ACTIVE_RUNS.lock();
         active.insert(session_id.to_string(), handle.clone());
     }
-    // Mark run state as running.
-    set_run_state(session_id, "running");
+    // The lifecycle authority owns chat/run/plan coherence.
+    let _ = crate::services::plan_lifecycle_service::PlanLifecycleService::chat_running(session_id);
 
     let result = run_loop_inner(
         session_id,
@@ -361,12 +361,16 @@ pub fn run_agent_turn(
         let mut active = ACTIVE_RUNS.lock();
         active.remove(session_id);
     }
-    let final_state = if result.cancelled {
-        "cancelled"
+    let terminal = if result.cancelled {
+        crate::services::plan_lifecycle_service::ChatTerminalState::Cancelled
+    } else if result.completed || result.hit_cap {
+        crate::services::plan_lifecycle_service::ChatTerminalState::Idle
     } else {
-        "idle"
+        crate::services::plan_lifecycle_service::ChatTerminalState::Failed
     };
-    set_run_state(session_id, final_state);
+    let _ = crate::services::plan_lifecycle_service::PlanLifecycleService::chat_terminal(
+        &app, session_id, terminal,
+    );
 
     result
 }
@@ -397,25 +401,19 @@ pub fn sweep_interrupted_runs() {
          SET status = 'interrupted'
          WHERE status IN ('running', 'pending')
            AND session_id IN (
-             SELECT id FROM native_chat_sessions WHERE run_state = 'running'
+             SELECT id FROM native_chat_sessions WHERE run_state IN ('running','needs_input')
            )",
         [],
     );
     let _ = tx.execute(
-        "UPDATE native_chat_sessions SET run_state = 'interrupted' WHERE run_state = 'running'",
+        "UPDATE native_chat_sessions SET run_state = 'interrupted'
+         WHERE run_state IN ('running','needs_input')",
         [],
     );
     let _ = tx.commit();
-}
-
-/// Set the run_state column on a native chat session.
-fn set_run_state(session_id: &str, state: &str) {
-    if let Ok(conn) = crate::services::storage_service::StorageService::connect() {
-        let _ = conn.execute(
-            "UPDATE native_chat_sessions SET run_state = ?1, updated_at = ?2 WHERE id = ?3",
-            rusqlite::params![state, now_millis(), session_id],
-        );
-    }
+    let _ = crate::services::plan_lifecycle_service::PlanLifecycleService::reconcile_stale_owners(
+        None, None,
+    );
 }
 
 fn run_loop_inner(
@@ -1150,13 +1148,16 @@ fn execute_ask_user(app: &AppHandle, session_id: &str, call: &ToolCallRequest) -
             Some("Open the chat to answer the pending question."),
         );
     }
+    let _ =
+        crate::services::plan_lifecycle_service::PlanLifecycleService::chat_needs_input(session_id);
     // Park the iteration on a channel until the UI resolves or cancels.
     let (tx, rx) = std::sync::mpsc::channel::<InteractionResolution>();
     {
         let mut pending = PENDING_INTERACTIONS.lock();
         pending.insert(interaction.id.clone(), tx);
     }
-    match await_interaction(&interaction.id, &rx, std::time::Duration::from_secs(600)) {
+    let result = match await_interaction(&interaction.id, &rx, std::time::Duration::from_secs(600))
+    {
         Ok(resolution) => {
             if resolution.cancelled {
                 ToolResult::success("User cancelled the interaction.".to_string())
@@ -1173,7 +1174,9 @@ fn execute_ask_user(app: &AppHandle, session_id: &str, call: &ToolCallRequest) -
                 crate::services::interaction_service::InteractionService::cancel(&interaction.id);
             ToolResult::failure("ask_user timed out waiting for user response (600s).".to_string())
         }
-    }
+    };
+    let _ = crate::services::plan_lifecycle_service::PlanLifecycleService::chat_running(session_id);
+    result
 }
 /// Execute a tool call through the approval gateway. When the gateway requires
 /// a prompt, blocks on `await_approval` until the UI resolves it. Tool events
@@ -1193,10 +1196,44 @@ fn execute_with_gateway(
     let mut decision =
         SettingsService::resolve_tool_call(project_path, &call.name, command, session_rules);
 
+    if call.name == "get_execution_advice" {
+        let is_external_provider =
+            crate::services::native_chat_service::NativeChatService::get_session(session_id)
+                .ok()
+                .flatten()
+                .is_none_or(|session| session.provider_id != "basebuild-local");
+        if is_external_provider {
+            let external_context = SettingsService::get_permission_rules()
+                .map(|rules| rules.allow_external_context)
+                .unwrap_or(PermissionDecision::Ask);
+            match external_context {
+                PermissionDecision::Allow => {}
+                PermissionDecision::Deny => {
+                    decision.decision = PermissionDecision::Deny;
+                    decision.requires_prompt = false;
+                    decision.reason =
+                        "External context delivery is disabled in Privacy settings.".to_string();
+                    decision.rule_source = Some("privacy:external-context".to_string());
+                }
+                PermissionDecision::Ask => {
+                    decision.decision = PermissionDecision::Ask;
+                    decision.requires_prompt = true;
+                    decision.reason = "Execution advice would be returned to the external model; explicit approval is required.".to_string();
+                    decision.rule_source = Some("privacy:external-context".to_string());
+                }
+            }
+        }
+    }
+
     // If the gateway requires a prompt, block on the UI's approval decision.
     if decision.requires_prompt {
+        let _ = crate::services::plan_lifecycle_service::PlanLifecycleService::chat_needs_input(
+            session_id,
+        );
         let resolution = await_approval(call, &args, app, session_id);
         decision.decision = resolution.decision;
+        let _ =
+            crate::services::plan_lifecycle_service::PlanLifecycleService::chat_running(session_id);
         decision.reason = match resolution.decision {
             PermissionDecision::Allow => "Approved by user.".to_string(),
             PermissionDecision::Deny => "Denied by user.".to_string(),
@@ -1391,13 +1428,6 @@ fn emit_system_row(app: &AppHandle, session_id: &str, kind: &str, value: usize) 
     );
 }
 
-/// Current time in milliseconds since epoch.
-fn now_millis() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or_default()
-}
 use std::sync::LazyLock;
 
 #[cfg(test)]

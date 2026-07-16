@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
+  Archive,
+  ClipboardCheck,
   CheckCircle,
   ChevronLeft,
   ChevronRight,
@@ -8,6 +10,7 @@ import {
   Download,
   MoreHorizontal,
   Pencil,
+  Play,
   RefreshCw,
   Rocket,
   Send,
@@ -16,6 +19,7 @@ import {
   Wrench,
 } from "lucide-react";
 import type { Plan, PlanStatus } from "../../lib/plans";
+import type { PlanRun } from "../../lib/planRuns";
 import { PLAN_STATUS_DISPLAY_ORDER, PLAN_STATUSES, PLAN_STATUS_LABEL, isTerminalStatus } from "../../lib/plans";
 import type {
   EngineKind,
@@ -63,6 +67,7 @@ type PlanPanelProps = {
   sessionId: string | null;
   projectPath: string | null;
   plans: Plan[];
+  planRuns?: PlanRun[];
   loading: boolean;
   collapsed: boolean;
   onToggleCollapse: () => void;
@@ -76,6 +81,9 @@ type PlanPanelProps = {
   onOpenChatSession: (chatSessionId: string) => void;
   onAssignPlan?: (plan: Plan, profile: LaunchProfile) => void;
   onShowToast?: (title: string, detail?: string, kind?: "success" | "error") => void;
+  onArchivePlan?: (plan: Plan) => void;
+  onResumeRun?: (run: PlanRun) => void | Promise<void>;
+  onReviewRun?: (run: PlanRun) => void;
   showHeader?: boolean;
 };
 
@@ -83,6 +91,7 @@ export function PlanPanel({
   sessionId,
   projectPath,
   plans,
+  planRuns,
   loading,
   collapsed,
   onToggleCollapse,
@@ -96,6 +105,9 @@ export function PlanPanel({
   onOpenChatSession,
   onAssignPlan,
   onShowToast,
+  onArchivePlan,
+  onResumeRun,
+  onReviewRun,
   showHeader = true,
 }: PlanPanelProps) {
   const [expandedFinished, setExpandedFinished] = useState(false);
@@ -223,6 +235,7 @@ export function PlanPanel({
                       {[...list, ...(plansByStatus.get("cancelled") ?? [])].map((plan) => (
                         <PlanCard
                           key={plan.id}
+                          run={planRuns?.find((candidate) => candidate.planId === plan.id)}
                           plan={plan}
                           projectPath={projectPath}
                           defaults={profileDefaults}
@@ -234,6 +247,9 @@ export function PlanPanel({
                           onOpenInTerminal={onOpenInTerminal}
                           onAssignPlan={onAssignPlan}
                           onShowToast={onShowToast}
+                          onResumeRun={onResumeRun}
+                          onReviewRun={onReviewRun}
+                          onArchive={onArchivePlan}
                         />
                       ))}
                     </div>
@@ -256,6 +272,7 @@ export function PlanPanel({
                       projectPath={projectPath}
                       defaults={profileDefaults}
                       onEdit={onEditPlan}
+                      run={planRuns?.find((candidate) => candidate.planId === plan.id)}
                       onFocus={onFocusPlan}
                       onSetStatus={onSetPlanStatus}
                       onDeletePlan={onDeletePlan}
@@ -263,6 +280,9 @@ export function PlanPanel({
                       onOpenInTerminal={onOpenInTerminal}
                       onAssignPlan={onAssignPlan}
                       onShowToast={onShowToast}
+                      onResumeRun={onResumeRun}
+                      onReviewRun={onReviewRun}
+                      onArchive={onArchivePlan}
                     />
                   ))}
                 </div>
@@ -287,6 +307,7 @@ export function PlanPanel({
 
 type PlanCardProps = {
   plan: Plan;
+  run?: PlanRun;
   projectPath: string | null;
   defaults: ProfileForm;
   onEdit: (plan: Plan) => void;
@@ -297,9 +318,13 @@ type PlanCardProps = {
   onOpenInTerminal: (plan: Plan) => void;
   onAssignPlan?: (plan: Plan, profile: LaunchProfile) => void;
   onShowToast?: (title: string, detail?: string, kind?: "success" | "error") => void;
+  onArchive?: (plan: Plan) => void;
+  onResumeRun?: (run: PlanRun) => void | Promise<void>;
+  onReviewRun?: (run: PlanRun) => void;
 };
 function PlanCard({
   plan,
+  run,
   projectPath,
   defaults,
   onEdit,
@@ -310,6 +335,9 @@ function PlanCard({
   onOpenInTerminal,
   onAssignPlan,
   onShowToast,
+  onArchive,
+  onResumeRun,
+  onReviewRun,
 }: PlanCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
@@ -322,8 +350,10 @@ function PlanCard({
     if (!plan.changeName || !projectPath) return;
     let cancelled = false;
     void openspecTaskProgress(projectPath, plan.changeName).then((progress) => {
-      if (!cancelled && progress.total > 0) setTaskProgress(progress);
-    }).catch(() => {});
+      if (!cancelled) setTaskProgress(progress);
+    }).catch(() => {
+      if (!cancelled) setTaskProgress(null);
+    });
     return () => { cancelled = true; };
   }, [plan.changeName, projectPath]);
 
@@ -342,8 +372,23 @@ function PlanCard({
     updatedAt: Date.now(),
   }), [projectPath, defaults]);
 
+  const archiveBlockedReason = !projectPath
+    ? "Cannot archive: no project is open."
+    : !plan.changeName
+      ? "Cannot archive: plan has no linked OpenSpec change."
+      : taskProgress === null
+        ? "Cannot archive: task progress is unavailable."
+        : taskProgress.total === 0
+          ? "Cannot archive: no required tasks were found."
+          : taskProgress.completed < taskProgress.total
+            ? `Cannot archive: ${taskProgress.completed}/${taskProgress.total} required tasks are complete.`
+            : null;
+  const resumeBlockedReason = !run?.chatSessionId
+    ? "Cannot resume: this run has no retained chat owner."
+    : null;
+
   return (
-    <div className={`plan-card${plan.status === "running" ? " is-active" : ""}`} data-status={plan.status}>
+    <div className={`plan-card${run?.status === "running" || run?.status === "pending" ? " is-active" : ""}`} data-status={plan.status}>
       <button
         className="plan-card-main"
         type="button"
@@ -369,7 +414,48 @@ function PlanCard({
         ) : null}
       </button>
       <div className="plan-card-actions">
-        {isReady && onAssignPlan ? (
+        {run?.status === "awaiting_review" && onResumeRun ? (
+          <button
+            className="btn btn-sm"
+            type="button"
+            title={resumeBlockedReason ?? "Resume this plan in its retained chat"}
+            disabled={resumeBlockedReason !== null}
+            onClick={(event) => {
+              event.stopPropagation();
+              void onResumeRun(run);
+            }}
+          >
+            <Play size={10} /> Resume
+          </button>
+        ) : null}
+        {run?.status === "awaiting_review" && onReviewRun ? (
+          <button
+            className="btn btn-sm"
+            type="button"
+            title="Review the linked OpenSpec tasks and retained artifacts"
+            onClick={(event) => {
+              event.stopPropagation();
+              onReviewRun(run);
+            }}
+          >
+            <ClipboardCheck size={10} /> Review
+          </button>
+        ) : null}
+        {(run?.status === "failed" || run?.status === "cancelled") && onResumeRun ? (
+          <button
+            className="btn btn-sm"
+            type="button"
+            title={resumeBlockedReason ?? "Retry this plan in its retained chat"}
+            disabled={resumeBlockedReason !== null}
+            onClick={(event) => {
+              event.stopPropagation();
+              void onResumeRun(run);
+            }}
+          >
+            <RefreshCw size={10} /> Retry
+          </button>
+        ) : null}
+        {isReady && !run && onAssignPlan ? (
           <button
             className="btn btn-sm btn-primary plan-assign-btn"
             title="Assign this ready plan to a chat session"
@@ -380,6 +466,20 @@ function PlanCard({
             }}
           >
             <Send size={10} /> Assign to chat
+          </button>
+        ) : null}
+        {isFinished && onArchive ? (
+          <button
+            className="btn btn-sm plan-archive-btn"
+            title={archiveBlockedReason ?? "Open the finished change to archive it"}
+            type="button"
+            disabled={archiveBlockedReason !== null}
+            onClick={(event) => {
+              event.stopPropagation();
+              onArchive(plan);
+            }}
+          >
+            <Archive size={10} /> Archive
           </button>
         ) : null}
         {!isFinished ? (
@@ -431,18 +531,6 @@ function PlanCard({
           </button>
           {menuOpen ? (
             <div className="context-menu" onMouseLeave={() => setMenuOpen(false)}>
-              {plan.status === "running" ? (
-                <button
-                  className="menu-item text-sm"
-                  type="button"
-                  onClick={() => {
-                    onSetStatus(plan.id, "finished");
-                    setMenuOpen(false);
-                  }}
-                >
-                  Mark complete
-                </button>
-              ) : null}
               <button
                 className="menu-item menu-item-danger text-sm"
                 type="button"

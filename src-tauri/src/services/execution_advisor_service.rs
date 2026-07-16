@@ -5,21 +5,18 @@ use rusqlite::{params, OptionalExtension};
 use crate::{
     models::{
         execution_advisor::{
-            AdviceFactor, CapacityEvidence, EvidenceConfidence, ExcludedRoute,
-            ExecutionAdviceBundle, ExecutionAdvisorInput, ExecutionRole, ExecutionRouteCandidate,
-            ExecutionSignalKind, ModelExecutionProfileV1, RoleExecutionAdvice,
+            AdviceFactor, AdvisorFeedbackConsent, AdvisorFeedbackEvent, AdvisorFeedbackOutcome,
+            CapacityEvidence, EvidenceConfidence, ExcludedRoute, ExecutionAdviceBundle,
+            ExecutionAdvisorInput, ExecutionRole, ExecutionRouteCandidate, ExecutionSignalKind,
+            ModelExecutionProfileV1, NewAdvisorFeedbackEvent, RoleExecutionAdvice,
             RouteRecommendation, EXECUTION_ADVICE_SCHEMA_VERSION,
         },
         planning_assessment::ImplementationAssessment,
     },
     services::{
-        native_chat_service::NativeChatService,
-        omp_telemetry_service::OmpTelemetryService,
-        plan_service::PlanService,
-        provider_model_catalog_service::ProviderModelCatalogService,
-        session_service::SessionService,
-        sync_service,
-        storage_service::StorageService,
+        native_chat_service::NativeChatService, omp_telemetry_service::OmpTelemetryService,
+        plan_service::PlanService, provider_model_catalog_service::ProviderModelCatalogService,
+        session_service::SessionService, storage_service::StorageService, sync_service,
     },
 };
 
@@ -44,7 +41,9 @@ impl ExecutionAdvisorService {
         idea_id: Option<&str>,
     ) -> DbResult<ExecutionAdviceBundle> {
         if project_path.trim().is_empty() || project_path.chars().count() > 4_000 {
-            return Err("projectPath is required and must be 4,000 characters or fewer".to_string());
+            return Err(
+                "projectPath is required and must be 4,000 characters or fewer".to_string(),
+            );
         }
         let (assessment, expected_context_tokens, assessment_source, assessment_stale) =
             Self::resolve_assessment(plan_id, idea_id)?;
@@ -66,6 +65,8 @@ impl ExecutionAdvisorService {
         Ok(ExecutionAdviceBundle {
             schema_version: EXECUTION_ADVICE_SCHEMA_VERSION,
             assessment_source,
+            difficulty_bucket: assessment.difficulty,
+            effort_bucket: effort_bucket(assessment.effort.max_hours).to_string(),
             assessment_stale,
             planner: Self::rank(planner_input),
             coder: Self::rank(coder_input),
@@ -86,7 +87,9 @@ impl ExecutionAdvisorService {
             .iter()
             .any(|model| model.provider_id == provider_id && model.id == model_id);
         if !exists {
-            return Err("The selected provider/model route is not in the local catalog".to_string());
+            return Err(
+                "The selected provider/model route is not in the local catalog".to_string(),
+            );
         }
         let conn = StorageService::connect()?;
         conn.execute(
@@ -97,7 +100,13 @@ impl ExecutionAdvisorService {
                 provider_id = excluded.provider_id,
                 model_id = excluded.model_id,
                 updated_at = excluded.updated_at",
-            params![project_path, role.as_str(), provider_id, model_id, now_seconds()],
+            params![
+                project_path,
+                role.as_str(),
+                provider_id,
+                model_id,
+                now_seconds()
+            ],
         )
         .map_err(|error| error.to_string())?;
         Ok(())
@@ -111,6 +120,164 @@ impl ExecutionAdvisorService {
         )
         .map_err(|error| error.to_string())?;
         Ok(())
+    }
+
+    pub fn feedback_consent() -> DbResult<AdvisorFeedbackConsent> {
+        let conn = StorageService::connect()?;
+        conn.query_row(
+            "SELECT enabled, updated_at
+             FROM execution_advisor_feedback_settings
+             WHERE key = 'consent'",
+            [],
+            |row| {
+                Ok(AdvisorFeedbackConsent {
+                    enabled: row.get::<_, i64>(0)? != 0,
+                    updated_at: row.get(1)?,
+                })
+            },
+        )
+        .optional()
+        .map(|consent| consent.unwrap_or_default())
+        .map_err(|error| error.to_string())
+    }
+
+    pub fn set_feedback_consent(enabled: bool) -> DbResult<AdvisorFeedbackConsent> {
+        let updated_at = now_seconds();
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO execution_advisor_feedback_settings (key, enabled, updated_at)
+             VALUES ('consent', ?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET
+                enabled = excluded.enabled,
+                updated_at = excluded.updated_at",
+            params![i64::from(enabled), updated_at],
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(AdvisorFeedbackConsent {
+            enabled,
+            updated_at: Some(updated_at),
+        })
+    }
+
+    pub fn record_feedback(input: NewAdvisorFeedbackEvent) -> DbResult<AdvisorFeedbackEvent> {
+        if !Self::feedback_consent()?.enabled {
+            return Err("Recommendation feedback is disabled".to_string());
+        }
+        let analytics = crate::services::analytics_service::AnalyticsService::get_consent()?;
+        if !analytics.collection_enabled {
+            return Err(
+                "Local analytics collection must be enabled before recommendation feedback can be queued"
+                    .to_string(),
+            );
+        }
+        validate_route_id("recommendedProviderId", &input.recommended_provider_id)?;
+        validate_route_id("recommendedModelId", &input.recommended_model_id)?;
+        validate_route_id("selectedProviderId", &input.selected_provider_id)?;
+        validate_route_id("selectedModelId", &input.selected_model_id)?;
+        if !(1..=5).contains(&input.difficulty_bucket) {
+            return Err("difficultyBucket must be between 1 and 5".to_string());
+        }
+        if !matches!(
+            input.effort_bucket.as_str(),
+            "under_4h" | "same_day" | "multi_day" | "multi_week"
+        ) {
+            return Err("effortBucket is not a supported fixed value".to_string());
+        }
+
+        let event = AdvisorFeedbackEvent {
+            id: feedback_id(),
+            schema_version: EXECUTION_ADVICE_SCHEMA_VERSION,
+            role: input.role,
+            recommended_provider_id: input.recommended_provider_id,
+            recommended_model_id: input.recommended_model_id,
+            selected_provider_id: input.selected_provider_id,
+            selected_model_id: input.selected_model_id,
+            outcome: input.outcome,
+            confidence: input.confidence,
+            difficulty_bucket: input.difficulty_bucket,
+            effort_bucket: input.effort_bucket,
+            created_at: now_seconds(),
+        };
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO execution_advisor_feedback_queue
+                (id, schema_version, role, recommended_provider_id, recommended_model_id,
+                 selected_provider_id, selected_model_id, outcome, confidence,
+                 difficulty_bucket, effort_bucket, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                event.id,
+                event.schema_version,
+                event.role.as_str(),
+                event.recommended_provider_id,
+                event.recommended_model_id,
+                event.selected_provider_id,
+                event.selected_model_id,
+                feedback_outcome_str(event.outcome),
+                confidence_str(event.confidence),
+                event.difficulty_bucket,
+                event.effort_bucket,
+                event.created_at,
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(event)
+    }
+
+    pub fn list_feedback() -> DbResult<Vec<AdvisorFeedbackEvent>> {
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, schema_version, role, recommended_provider_id,
+                        recommended_model_id, selected_provider_id, selected_model_id,
+                        outcome, confidence, difficulty_bucket, effort_bucket, created_at
+                 FROM execution_advisor_feedback_queue
+                 ORDER BY created_at DESC, id DESC",
+            )
+            .map_err(|error| error.to_string())?;
+        let mut rows = stmt.query([]).map_err(|error| error.to_string())?;
+        let mut events = Vec::new();
+        while let Some(row) = rows.next().map_err(|error| error.to_string())? {
+            events.push(AdvisorFeedbackEvent {
+                id: row.get(0).map_err(|error| error.to_string())?,
+                schema_version: row.get(1).map_err(|error| error.to_string())?,
+                role: parse_role(&row.get::<_, String>(2).map_err(|error| error.to_string())?)?,
+                recommended_provider_id: row.get(3).map_err(|error| error.to_string())?,
+                recommended_model_id: row.get(4).map_err(|error| error.to_string())?,
+                selected_provider_id: row.get(5).map_err(|error| error.to_string())?,
+                selected_model_id: row.get(6).map_err(|error| error.to_string())?,
+                outcome: parse_feedback_outcome(
+                    &row.get::<_, String>(7).map_err(|error| error.to_string())?,
+                )?,
+                confidence: parse_confidence(
+                    &row.get::<_, String>(8).map_err(|error| error.to_string())?,
+                )?,
+                difficulty_bucket: row.get(9).map_err(|error| error.to_string())?,
+                effort_bucket: row.get(10).map_err(|error| error.to_string())?,
+                created_at: row.get(11).map_err(|error| error.to_string())?,
+            });
+        }
+        Ok(events)
+    }
+
+    pub fn export_feedback() -> DbResult<String> {
+        serde_json::to_string_pretty(&Self::list_feedback()?).map_err(|error| error.to_string())
+    }
+
+    pub fn delete_feedback() -> DbResult<usize> {
+        let conn = StorageService::connect()?;
+        conn.execute("DELETE FROM execution_advisor_feedback_queue", [])
+            .map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn delete_feedback_event(id: &str) -> DbResult<bool> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "DELETE FROM execution_advisor_feedback_queue WHERE id = ?1",
+            params![id],
+        )
+        .map(|changed| changed > 0)
+        .map_err(|error| error.to_string())
     }
 
     pub fn rank(input: ExecutionAdvisorInput) -> RoleExecutionAdvice {
@@ -137,7 +304,9 @@ impl ExecutionAdvisorService {
             if requires_images && !route.supports_images {
                 hard_reasons.push("Plan requires image input support".to_string());
             }
-            if let (Some(required), Some(limit)) = (input.expected_context_tokens, route.context_window) {
+            if let (Some(required), Some(limit)) =
+                (input.expected_context_tokens, route.context_window)
+            {
                 if i64::from(required) > limit {
                     hard_reasons.push(format!(
                         "Estimated context {required} exceeds the {limit} token route limit"
@@ -148,7 +317,9 @@ impl ExecutionAdvisorService {
                 && input.assessment.difficulty >= 4
                 && !route.supports_reasoning
             {
-                hard_reasons.push("High-difficulty planning requires a reasoning-capable route".to_string());
+                hard_reasons.push(
+                    "High-difficulty planning requires a reasoning-capable route".to_string(),
+                );
             }
             if route
                 .capacity
@@ -158,7 +329,8 @@ impl ExecutionAdvisorService {
                 .is_some_and(|remaining| remaining <= 0.05)
                 && !route.user_override
             {
-                hard_reasons.push("Fresh local usage shows less than 5% capacity remaining".to_string());
+                hard_reasons
+                    .push("Fresh local usage shows less than 5% capacity remaining".to_string());
             }
             if !hard_reasons.is_empty() {
                 excluded.push(ExcludedRoute {
@@ -169,7 +341,12 @@ impl ExecutionAdvisorService {
                 continue;
             }
 
-            recommendations.push(score_route(input.role, &input.assessment, route, generated_at));
+            recommendations.push(score_route(
+                input.role,
+                &input.assessment,
+                route,
+                generated_at,
+            ));
         }
 
         recommendations.sort_by(|left, right| {
@@ -187,7 +364,11 @@ impl ExecutionAdvisorService {
         });
 
         let recommendation = recommendations.first().cloned();
-        let alternatives = recommendations.into_iter().skip(1).take(3).collect::<Vec<_>>();
+        let alternatives = recommendations
+            .into_iter()
+            .skip(1)
+            .take(3)
+            .collect::<Vec<_>>();
         let confidence = recommendation
             .as_ref()
             .map(|recommendation| recommendation.confidence)
@@ -219,18 +400,29 @@ impl ExecutionAdvisorService {
             if let Some(idea_id) = plan.idea_id.as_deref() {
                 if let Some(idea) = SessionService::get_idea(idea_id)? {
                     if let Some(assessment) = idea.assessment {
-                        return Ok((assessment, None, "source_idea_assessment".to_string(), false));
+                        return Ok((
+                            assessment,
+                            None,
+                            "source_idea_assessment".to_string(),
+                            false,
+                        ));
                     }
                 }
             }
-            return Err("This plan does not have a structured implementation assessment yet".to_string());
+            return Err(
+                "This plan does not have a structured implementation assessment yet".to_string(),
+            );
         }
         if let Some(idea_id) = idea_id {
-            let idea = SessionService::get_idea(idea_id)?.ok_or_else(|| "Idea not found".to_string())?;
+            let idea =
+                SessionService::get_idea(idea_id)?.ok_or_else(|| "Idea not found".to_string())?;
             return idea
                 .assessment
                 .map(|assessment| (assessment, None, "idea_assessment".to_string(), false))
-                .ok_or_else(|| "This legacy idea does not have a structured implementation assessment".to_string());
+                .ok_or_else(|| {
+                    "This legacy idea does not have a structured implementation assessment"
+                        .to_string()
+                });
         }
         Err("planId or ideaId is required".to_string())
     }
@@ -289,7 +481,12 @@ impl ExecutionAdvisorService {
             .into_iter()
             .map(|model| {
                 let provider = providers.get(model.provider_id.as_str());
-                let matched_profile = match_profile(&profiles, &model.provider_id, &model.id, model.model_api_id.as_deref());
+                let matched_profile = match_profile(
+                    &profiles,
+                    &model.provider_id,
+                    &model.id,
+                    model.model_api_id.as_deref(),
+                );
                 let capacity = if omp.provider.as_deref() == Some(model.provider_id.as_str()) {
                     Some(CapacityEvidence {
                         provider_id: model.provider_id.clone(),
@@ -314,10 +511,17 @@ impl ExecutionAdvisorService {
                         })
                 };
                 let (profile, profile_cached_at, profile_error) = matched_profile
-                    .map(|cached| (Some(cached.profile.clone()), Some(cached.fetched_at), cached.error.clone()))
+                    .map(|cached| {
+                        (
+                            Some(cached.profile.clone()),
+                            Some(cached.fetched_at),
+                            cached.error.clone(),
+                        )
+                    })
                     .unwrap_or((None, None, None));
                 ExecutionRouteCandidate {
-                    connected: provider.is_some_and(|provider| provider.configured || provider.local_only),
+                    connected: provider
+                        .is_some_and(|provider| provider.configured || provider.local_only),
                     blocked: blocked.contains(&model.provider_id),
                     supports_tools: model.supports_tools,
                     supports_reasoning: model.supports_reasoning,
@@ -333,9 +537,11 @@ impl ExecutionAdvisorService {
                     selected: selected.as_ref().is_some_and(|selected| {
                         selected.provider_id == model.provider_id && selected.model_id == model.id
                     }),
-                    user_override: override_route.as_ref().is_some_and(|(provider_id, model_id)| {
-                        provider_id == &model.provider_id && model_id == &model.id
-                    }),
+                    user_override: override_route.as_ref().is_some_and(
+                        |(provider_id, model_id)| {
+                            provider_id == &model.provider_id && model_id == &model.id
+                        },
+                    ),
                     provider_id: model.provider_id,
                     model_id: model.id,
                     label: model.label,
@@ -384,7 +590,10 @@ fn score_route(
         score: quality_score,
         max_score: 45.0,
         explanation: quality_value.map_or_else(
-            || "No comparable public quality signal; using a conservative capability fallback".to_string(),
+            || {
+                "No comparable public quality signal; using a conservative capability fallback"
+                    .to_string()
+            },
             |value| format!("Public role-fit evidence scores {:.0}%", value * 100.0),
         ),
     });
@@ -421,7 +630,12 @@ fn score_route(
         .capacity
         .as_ref()
         .and_then(|capacity| capacity.remaining_fraction)
-        .filter(|_| !route.capacity.as_ref().is_some_and(|capacity| capacity.stale));
+        .filter(|_| {
+            !route
+                .capacity
+                .as_ref()
+                .is_some_and(|capacity| capacity.stale)
+        });
     let capacity_score = capacity_value.map_or(5.0, |value| value.clamp(0.0, 1.0) * 15.0);
     factors.push(AdviceFactor {
         name: "capacity".to_string(),
@@ -509,12 +723,18 @@ fn score_route(
             profile
                 .signals
                 .iter()
-                .filter(|signal| signal.confidence == EvidenceConfidence::High && signal.normalized_value.is_some())
+                .filter(|signal| {
+                    signal.confidence == EvidenceConfidence::High
+                        && signal.normalized_value.is_some()
+                })
                 .count()
         })
         .unwrap_or_default();
     let confidence = if high_confidence_signals >= 2
-        && route.capacity.as_ref().is_some_and(|capacity| !capacity.stale)
+        && route
+            .capacity
+            .as_ref()
+            .is_some_and(|capacity| !capacity.stale)
     {
         EvidenceConfidence::High
     } else if route.profile.is_some() {
@@ -639,9 +859,68 @@ fn validate_route_id(name: &str, value: &str) -> DbResult<()> {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || b"._/@:-".contains(&byte))
     {
-        return Err(format!("{name} must be a bounded provider/model identifier"));
+        return Err(format!(
+            "{name} must be a bounded provider/model identifier"
+        ));
     }
     Ok(())
+}
+
+fn effort_bucket(max_hours: u16) -> &'static str {
+    match max_hours {
+        0..=4 => "under_4h",
+        5..=8 => "same_day",
+        9..=40 => "multi_day",
+        _ => "multi_week",
+    }
+}
+
+fn feedback_id() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    format!("advisor-feedback-{nanos:x}")
+}
+
+fn feedback_outcome_str(outcome: AdvisorFeedbackOutcome) -> &'static str {
+    match outcome {
+        AdvisorFeedbackOutcome::Accepted => "accepted",
+        AdvisorFeedbackOutcome::Overridden => "overridden",
+    }
+}
+
+fn confidence_str(confidence: EvidenceConfidence) -> &'static str {
+    match confidence {
+        EvidenceConfidence::Low => "low",
+        EvidenceConfidence::Medium => "medium",
+        EvidenceConfidence::High => "high",
+    }
+}
+
+fn parse_role(value: &str) -> DbResult<ExecutionRole> {
+    match value {
+        "planner" => Ok(ExecutionRole::Planner),
+        "coder" => Ok(ExecutionRole::Coder),
+        _ => Err(format!("Invalid feedback role: {value}")),
+    }
+}
+
+fn parse_feedback_outcome(value: &str) -> DbResult<AdvisorFeedbackOutcome> {
+    match value {
+        "accepted" => Ok(AdvisorFeedbackOutcome::Accepted),
+        "overridden" => Ok(AdvisorFeedbackOutcome::Overridden),
+        _ => Err(format!("Invalid feedback outcome: {value}")),
+    }
+}
+
+fn parse_confidence(value: &str) -> DbResult<EvidenceConfidence> {
+    match value {
+        "low" => Ok(EvidenceConfidence::Low),
+        "medium" => Ok(EvidenceConfidence::Medium),
+        "high" => Ok(EvidenceConfidence::High),
+        _ => Err(format!("Invalid feedback confidence: {value}")),
+    }
 }
 
 fn now_seconds() -> i64 {
@@ -779,7 +1058,10 @@ mod tests {
             role: ExecutionRole::Coder,
             assessment: assessment(),
             expected_context_tokens: None,
-            routes: vec![candidate("provider-b", "benchmarked", Some(1.0)), override_route],
+            routes: vec![
+                candidate("provider-b", "benchmarked", Some(1.0)),
+                override_route,
+            ],
         });
         let recommendation = advice.recommendation.unwrap();
         assert_eq!(recommendation.model_id, "manual");
@@ -834,5 +1116,51 @@ mod tests {
             ],
         });
         assert_eq!(advice.recommendation.unwrap().provider_id, "provider-a");
+    }
+
+    #[test]
+    fn feedback_is_separately_opted_in_and_exportable_without_free_text() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        assert!(!ExecutionAdvisorService::feedback_consent().unwrap().enabled);
+
+        crate::services::analytics_service::AnalyticsService::set_consent(
+            &crate::models::permission::AnalyticsConsent {
+                collection_enabled: true,
+                upload_enabled: false,
+                consent_version: Some("test".to_string()),
+                consented_at: Some(now_seconds()),
+            },
+        )
+        .unwrap();
+        let input = NewAdvisorFeedbackEvent {
+            role: ExecutionRole::Coder,
+            recommended_provider_id: "provider-a".to_string(),
+            recommended_model_id: "model-a".to_string(),
+            selected_provider_id: "provider-b".to_string(),
+            selected_model_id: "model-b".to_string(),
+            outcome: AdvisorFeedbackOutcome::Overridden,
+            confidence: EvidenceConfidence::Medium,
+            difficulty_bucket: 4,
+            effort_bucket: "multi_day".to_string(),
+        };
+        assert!(ExecutionAdvisorService::record_feedback(input.clone()).is_err());
+
+        ExecutionAdvisorService::set_feedback_consent(true).unwrap();
+        ExecutionAdvisorService::record_feedback(input).unwrap();
+        let exported = ExecutionAdvisorService::export_feedback().unwrap();
+        assert!(exported.contains("\"outcome\": \"overridden\""));
+        for forbidden in [
+            "project_path",
+            "account_id",
+            "prompt",
+            "questionnaire",
+            "credential",
+            "raw_usage",
+        ] {
+            assert!(!exported.contains(forbidden));
+        }
+        assert_eq!(ExecutionAdvisorService::delete_feedback().unwrap(), 1);
+        assert!(ExecutionAdvisorService::list_feedback().unwrap().is_empty());
     }
 }

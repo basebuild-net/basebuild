@@ -13,7 +13,7 @@ pub struct StorageService;
 // Increment whenever `initialize` gains a schema-changing migration. Existing
 // databases run the idempotent initializer once per version; current databases
 // skip its ~50 table/column probes entirely on normal launches.
-const CURRENT_SCHEMA_VERSION: i64 = 4;
+const CURRENT_SCHEMA_VERSION: i64 = 5;
 
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
@@ -457,6 +457,27 @@ impl StorageService {
                     error TEXT
                 );
 
+                CREATE TABLE IF NOT EXISTS execution_advisor_feedback_settings (
+                    key TEXT PRIMARY KEY NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    updated_at INTEGER
+                );
+
+                CREATE TABLE IF NOT EXISTS execution_advisor_feedback_queue (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    schema_version INTEGER NOT NULL,
+                    role TEXT NOT NULL,
+                    recommended_provider_id TEXT NOT NULL,
+                    recommended_model_id TEXT NOT NULL,
+                    selected_provider_id TEXT NOT NULL,
+                    selected_model_id TEXT NOT NULL,
+                    outcome TEXT NOT NULL,
+                    confidence TEXT NOT NULL,
+                    difficulty_bucket INTEGER NOT NULL,
+                    effort_bucket TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS native_request_metrics (
                     id TEXT PRIMARY KEY NOT NULL,
                     session_id TEXT NOT NULL,
@@ -582,6 +603,25 @@ impl StorageService {
                 );
                 CREATE INDEX IF NOT EXISTS idx_plan_runs_plan ON plan_runs(plan_id);
                 CREATE INDEX IF NOT EXISTS idx_plan_runs_status ON plan_runs(status);
+
+                CREATE TABLE IF NOT EXISTS plan_lifecycle_events (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    run_id TEXT,
+                    plan_id TEXT NOT NULL,
+                    chat_session_id TEXT,
+                    event_kind TEXT NOT NULL,
+                    from_run_status TEXT,
+                    to_run_status TEXT,
+                    from_plan_status TEXT,
+                    to_plan_status TEXT,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (run_id) REFERENCES plan_runs(id) ON DELETE SET NULL,
+                    FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_plan_lifecycle_events_run
+                    ON plan_lifecycle_events(run_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_plan_lifecycle_events_plan
+                    ON plan_lifecycle_events(plan_id, created_at);
 
                 CREATE TABLE IF NOT EXISTS final_touch_steps (
                     id TEXT PRIMARY KEY NOT NULL,
@@ -992,35 +1032,45 @@ impl StorageService {
             [],
         );
 
-        // Migration (plan-pipeline-harness): startup cleanup. Any pipeline or
-        // plan run left in 'running' from a crash is marked 'failed' with a
-        // restart note so the UI never shows a stale running state. The
-        // targeted plan/idea stays in its pre-stage status.
+        // Migration (coherent-planning-workbench): a process restart cannot
+        // retain execution ownership. Preserve plan-run history as reviewable
+        // interruption records instead of deleting rows or broadly rewriting
+        // every run to a generic failure. The event insert is idempotent.
         let now = unix_timestamp();
         let _ = connection.execute(
-            "UPDATE pipeline_runs SET status = 'failed', error = 'restart: marked failed on startup',
+            "UPDATE pipeline_runs SET status = 'failed', error = 'restart: execution owner unavailable',
                 completed_at = ?1
              WHERE status IN ('running','pending')",
             params![now],
         );
         let _ = connection.execute(
-            "UPDATE plan_runs SET status = 'failed', error = 'restart: marked failed on startup',
-                finished_at = ?1
+            "INSERT OR IGNORE INTO plan_lifecycle_events
+                (id, run_id, plan_id, chat_session_id, event_kind,
+                 from_run_status, to_run_status, from_plan_status, to_plan_status, created_at)
+             SELECT 'startup-reconcile-' || r.id, r.id, r.plan_id, r.chat_session_id,
+                    'restart_reconciled', r.status, 'awaiting_review', p.status, 'ready', ?1
+             FROM plan_runs r
+             JOIN plans p ON p.id = r.plan_id
+             WHERE r.status IN ('running','pending')",
+            params![now],
+        );
+        let _ = connection.execute(
+            "UPDATE plan_runs
+             SET status = 'awaiting_review',
+                 error = 'restart: execution owner unavailable; continuation required',
+                 finished_at = COALESCE(finished_at, ?1)
              WHERE status IN ('running','pending')",
             params![now],
         );
-        // Revert plans stuck in "running" to "ready" — their runs were just
-        // marked failed above, so the plan has no active agent. Without this,
-        // the UI shows a phantom "running" plan that can never be opened.
         let _ = connection.execute(
-            "UPDATE plans SET status = 'ready'
+            "UPDATE plans SET status = 'ready', updated_at = ?1
              WHERE status = 'running'
                AND NOT EXISTS (
                    SELECT 1 FROM plan_runs
                    WHERE plan_runs.plan_id = plans.id
                      AND plan_runs.status IN ('running','pending')
                )",
-            [],
+            params![now],
         );
 
         // Migration (background-agents): record which provider/model a
@@ -1551,9 +1601,9 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_marks_stale_running_pipeline_and_plan_runs_failed() {
-        // Stale 'running'/'pending' rows from a crash must be marked 'failed'
-        // on initialize so the UI never shows a phantom running state.
+    fn cleanup_marks_stale_pipeline_runs_failed_and_plan_runs_reviewable() {
+        // A restart loses execution ownership. Pipeline work becomes failed,
+        // while plan work remains reviewable and resumable without looking active.
         let conn = Connection::open_in_memory().unwrap();
         StorageService::initialize(&conn).expect("first initialize");
         conn.execute(
@@ -1597,14 +1647,17 @@ mod tests {
             pipeline_failed, 2,
             "stale running/pending pipeline runs -> failed"
         );
-        let plan_failed: i64 = conn
+        let plan_reviewable: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM plan_runs WHERE status = 'failed'",
+                "SELECT COUNT(*) FROM plan_runs WHERE status = 'awaiting_review'",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(plan_failed, 1, "stale running plan run -> failed");
+        assert_eq!(
+            plan_reviewable, 1,
+            "stale running plan run -> awaiting review"
+        );
         let plan_ok: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM plan_runs WHERE status = 'succeeded'",
@@ -1615,14 +1668,17 @@ mod tests {
         assert_eq!(plan_ok, 1, "already-succeeded run untouched");
         // Zombie plan reversion: p2 was "running" but its only run is
         // succeeded (not active) → must revert to "ready". p1 was "ready"
-        // and stays "ready" (its stale run was marked failed, not active).
+        // and stays "ready" while its interrupted run remains reviewable.
         let p1_status: String = conn
             .query_row("SELECT status FROM plans WHERE id = 'p1'", [], |r| r.get(0))
             .unwrap();
         let p2_status: String = conn
             .query_row("SELECT status FROM plans WHERE id = 'p2'", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(p1_status, "ready", "ready plan with failed run stays ready");
+        assert_eq!(
+            p1_status, "ready",
+            "ready plan with interrupted run stays ready"
+        );
         assert_eq!(
             p2_status, "ready",
             "zombie running plan with no active runs reverts to ready"
@@ -2082,5 +2138,90 @@ mod tests {
             zebra_ts, 200i64,
             "set_last_focused_project must NOT update last_opened_at"
         );
+    }
+
+    #[test]
+    fn lifecycle_migration_preserves_interrupted_chat_running_plan_shape() {
+        let conn = Connection::open_in_memory().unwrap();
+        StorageService::initialize(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+             VALUES ('s-restart', '/test/restart', 'Restart', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plans
+             (id, session_id, reference_id, title, description, status, priority, tags,
+              ai_enhanced, created_at, updated_at)
+             VALUES ('p-restart', 's-restart', 'bb-restart', 'Restart', 'd',
+                     'running', 50, '[]', 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO native_chat_sessions
+             (id, project_path, title, profile_id, provider_id, model_id, effort_level,
+              status, run_state, created_at, updated_at)
+             VALUES ('c-restart', '/test/restart', 'Restart chat', 'basebuild-native',
+                     'basebuild-local', 'local', 'low', 'ready', 'interrupted', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plan_runs
+             (id, plan_id, session_id, chat_session_id, status, runner_kind,
+              steps_output, created_at)
+             VALUES ('r-restart', 'p-restart', 's-restart', 'c-restart',
+                     'running', 'native', '[]', 0)",
+            [],
+        )
+        .unwrap();
+
+        StorageService::initialize(&conn).unwrap();
+        StorageService::initialize(&conn).unwrap();
+
+        let states = conn
+            .query_row(
+                "SELECT r.status, r.error, p.status, c.run_state
+                 FROM plan_runs r
+                 JOIN plans p ON p.id = r.plan_id
+                 JOIN native_chat_sessions c ON c.id = r.chat_session_id
+                 WHERE r.id = 'r-restart'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(states.0, "awaiting_review");
+        assert_eq!(
+            states.1.as_deref(),
+            Some("restart: execution owner unavailable; continuation required")
+        );
+        assert_eq!(states.2, "ready");
+        assert_eq!(states.3, "interrupted");
+        let preserved_rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM plan_runs WHERE id = 'r-restart'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(preserved_rows, 1);
+        let events: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM plan_lifecycle_events
+                 WHERE run_id = 'r-restart' AND event_kind = 'restart_reconciled'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(events, 1);
     }
 }

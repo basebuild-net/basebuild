@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronRight,
@@ -21,6 +21,14 @@ import type { LucideIcon } from "lucide-react";
 import type { Idea, IdeaCategory, IdeaStatus } from "../../lib/ideas";
 import type { Plan } from "../../lib/plans";
 import { PLAN_STATUS_LABEL, sortPlansForDisplay } from "../../lib/plans";
+import {
+  derivePlanRunViewState,
+  listPlanRuns,
+  listPlanRunsByProject,
+  type PlanRun,
+} from "../../lib/planRuns";
+import { nativeChatList, type NativeChatSession } from "../../lib/native-chat";
+import { usePlanningEvents } from "../../state/planningEvents";
 
 export type StageKey = "schematic" | "ideas" | "plans" | "running" | "finished";
 
@@ -41,12 +49,13 @@ const STAGE_META: Record<StageKey, StageMeta> = {
 
 type PlanningIndicatorsProps = {
   plans: Plan[];
+  sessionId: string | null;
+  projectPath: string | null;
   ideas: Idea[];
   categories: IdeaCategory[];
   schematicHealth: "complete" | "incomplete" | "none";
   onOpenStage: (stage: StageKey) => void;
   onOpenFullUI: (stage: StageKey) => void;
-  onMarkComplete: (planId: string) => void;
   onGenerateMoreIdeas: () => void;
   onCreateIdea: (title: string, description: string, categoryId: string | null) => Promise<void>;
   onUpdateIdea: (
@@ -76,12 +85,13 @@ type DropdownState = { stage: StageKey; rect: DOMRect } | null;
 
 export function PlanningIndicators({
   plans,
+  sessionId,
+  projectPath,
   ideas,
   categories,
   schematicHealth,
   onOpenStage,
   onOpenFullUI,
-  onMarkComplete,
   onGenerateMoreIdeas,
   onCreateIdea,
   onUpdateIdea,
@@ -100,7 +110,43 @@ export function PlanningIndicators({
   const containerRef = useRef<HTMLDivElement>(null);
   const prevRunningRef = useRef(0);
 
-  const runningCount = plans.filter((p) => p.status === "running").length;
+  const [planRuns, setPlanRuns] = useState<PlanRun[]>([]);
+  const [chatSessions, setChatSessions] = useState<NativeChatSession[]>([]);
+  const refreshRunSnapshots = useCallback(async () => {
+    if (!sessionId) {
+      setPlanRuns([]);
+      setChatSessions([]);
+      return;
+    }
+    const [nextRuns, nextChats] = await Promise.all([
+      projectPath
+        ? listPlanRunsByProject(projectPath).catch(() => [] as PlanRun[])
+        : listPlanRuns(sessionId).catch(() => [] as PlanRun[]),
+      projectPath
+        ? nativeChatList(projectPath).catch(() => [] as NativeChatSession[])
+        : Promise.resolve([] as NativeChatSession[]),
+    ]);
+    setPlanRuns(nextRuns);
+    setChatSessions(nextChats);
+  }, [projectPath, sessionId]);
+  useEffect(() => {
+    void refreshRunSnapshots();
+  }, [refreshRunSnapshots]);
+  usePlanningEvents(refreshRunSnapshots);
+
+  const activePlanRuns = useMemo(
+    () => planRuns.filter((run) => {
+      const chat = chatSessions.find((candidate) => candidate.id === run.chatSessionId);
+      const state = derivePlanRunViewState(run, chat?.runState).state;
+      return state === "queued" || state === "running" || state === "needs-input";
+    }),
+    [chatSessions, planRuns],
+  );
+  const activePlanIds = useMemo(
+    () => new Set(activePlanRuns.map((run) => run.planId)),
+    [activePlanRuns],
+  );
+  const runningCount = activePlanRuns.length;
   const finishedCount = plans.filter((p) => p.status === "finished").length;
   const ideaCount = ideas.filter((i) => i.status === "concept").length;
 
@@ -172,6 +218,7 @@ export function PlanningIndicators({
           stage={dropdown.stage}
           rect={dropdown.rect}
           plans={plans}
+          activePlanIds={activePlanIds}
           ideas={ideas}
           categories={categories}
           schematicHealth={schematicHealth}
@@ -188,7 +235,6 @@ export function PlanningIndicators({
           onRedoPlan={onRedoPlan}
           onDeletePlan={onDeletePlan}
           onOpenFullUI={() => { onOpenFullUI(dropdown.stage); closeDropdown(); }}
-          onMarkComplete={(planId) => { onMarkComplete(planId); }}
           onOpenStage={(stage) => { onOpenStage(stage); closeDropdown(); }}
         />
       ) : null}
@@ -202,11 +248,11 @@ type DropdownProps = {
   stage: StageKey;
   rect: DOMRect;
   plans: Plan[];
+  activePlanIds: ReadonlySet<string>;
   ideas: Idea[];
   categories: IdeaCategory[];
   schematicHealth: "complete" | "incomplete" | "none";
   onOpenFullUI: () => void;
-  onMarkComplete: (planId: string) => void;
   onOpenStage: (stage: StageKey) => void;
   onGenerateMoreIdeas: () => void;
   onCreateIdea: (title: string, description: string, categoryId: string | null) => Promise<void>;
@@ -231,11 +277,11 @@ function NotificationDropdown({
   stage,
   rect,
   plans,
+  activePlanIds,
   ideas,
   categories,
   schematicHealth,
   onOpenFullUI,
-  onMarkComplete,
   onOpenStage,
   onGenerateMoreIdeas,
   onCreateIdea,
@@ -294,7 +340,8 @@ function NotificationDropdown({
         ) : stage === "plans" ? (
           <PlanItems
             plans={plans}
-            filter={(p) => p.status !== "running" && p.status !== "finished" && p.status !== "cancelled"}
+            filter={(p) => !activePlanIds.has(p.id) && p.status !== "finished" && p.status !== "cancelled"}
+            openRunIds={activePlanIds}
             onOpenPlan={onOpenPlan}
             onOpenRunChat={onOpenRunChat}
             onAssignPlan={onAssignPlan}
@@ -305,7 +352,8 @@ function NotificationDropdown({
         ) : stage === "running" ? (
           <PlanItems
             plans={plans}
-            filter={(p) => p.status === "running"}
+            filter={(p) => activePlanIds.has(p.id)}
+            openRunIds={activePlanIds}
             onOpenPlan={onOpenPlan}
             onOpenRunChat={onOpenRunChat}
             onAssignPlan={onAssignPlan}
@@ -314,7 +362,7 @@ function NotificationDropdown({
             onDeletePlan={onDeletePlan}
           />
         ) : stage === "finished" ? (
-          <FinishedItems plans={plans} onMarkComplete={onMarkComplete} />
+          <FinishedItems plans={plans} />
         ) : null}
       </div>
     </div>
@@ -786,6 +834,7 @@ function IdeaQuickMenu({
 function PlanItems({
   plans,
   filter,
+  openRunIds,
   onOpenPlan,
   onOpenRunChat,
   onAssignPlan,
@@ -795,6 +844,7 @@ function PlanItems({
 }: {
   plans: Plan[];
   filter: (p: Plan) => boolean;
+  openRunIds: ReadonlySet<string>;
   onOpenPlan: (plan: Plan) => void;
   onOpenRunChat: (plan: Plan) => void;
   onAssignPlan: (plan: Plan) => void;
@@ -822,23 +872,23 @@ function PlanItems({
         <div
           key={plan.id}
           className="planning-notification-item planning-notification-item-plan"
-          data-status={plan.status}
+          data-status={openRunIds.has(plan.id) ? "running" : plan.status}
           title={plan.description || plan.goal || ""}
         >
           <button
             type="button"
             className="planning-notification-item-open"
             title={
-              plan.status === "running"
+              openRunIds.has(plan.id)
                 ? `Open the chat where the agent is working #${plan.referenceId}`
                 : `View plan #${plan.referenceId} ${plan.title}`
             }
-            onClick={() => (plan.status === "running" ? onOpenRunChat(plan) : onOpenPlan(plan))}
+            onClick={() => (openRunIds.has(plan.id) ? onOpenRunChat(plan) : onOpenPlan(plan))}
           >
             <span className="planning-notification-item-dot" />
             <span className="planning-notification-item-text">#{plan.referenceId} {plan.title}</span>
             <span className="planning-notification-item-meta planning-notification-item-status">
-              {PLAN_STATUS_LABEL[plan.status]}
+              {openRunIds.has(plan.id) ? PLAN_STATUS_LABEL.running : PLAN_STATUS_LABEL[plan.status]}
             </span>
           </button>
           <span className="planning-notification-item-actions">
@@ -903,36 +953,15 @@ function PlanItems({
   );
 }
 
-// ─── Finished items with Mark as Complete ───────────────────────────────────
+// ─── Finished items ─────────────────────────────────────────────────────────
 
-function FinishedItems({
-  plans,
-  onMarkComplete,
-}: {
-  plans: Plan[];
-  onMarkComplete: (planId: string) => void;
-}) {
-  const finished = plans.filter((p) => p.status === "finished");
-  const running = plans.filter((p) => p.status === "running");
-  if (finished.length === 0 && running.length === 0) {
+function FinishedItems({ plans }: { plans: Plan[] }) {
+  const finished = plans.filter((plan) => plan.status === "finished");
+  if (finished.length === 0) {
     return <div className="planning-notification-empty">No finished plans</div>;
   }
   return (
     <>
-      {running.map((plan) => (
-        <div key={plan.id} className="planning-notification-item planning-notification-item-running" title={plan.description || plan.goal || ""}>
-          <span className="planning-notification-item-dot" />
-          <span className="planning-notification-item-text">#{plan.referenceId} {plan.title}</span>
-          <button
-            type="button"
-            className="planning-notification-action"
-            title="Mark as complete"
-            onClick={(e) => { e.stopPropagation(); onMarkComplete(plan.id); }}
-          >
-            <Check size={10} />
-          </button>
-        </div>
-      ))}
       {finished.map((plan) => (
         <div key={plan.id} className="planning-notification-item planning-notification-item-done" title={plan.description || plan.goal || ""}>
           <span className="planning-notification-item-dot" />

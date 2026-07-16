@@ -50,6 +50,39 @@ export type PlanRun = {
   createdAt: number;
 };
 
+export type PlanRunViewState =
+  | "queued"
+  | "running"
+  | "needs-input"
+  | "awaiting-review"
+  | "interrupted"
+  | "failed"
+  | "complete"
+  | "cancelled";
+
+export function derivePlanRunViewState(
+  run: PlanRun,
+  chatRunState?: string,
+): { state: PlanRunViewState; label: string } {
+  if (run.status === "pending") return { state: "queued", label: "Queued" };
+  if (run.status === "running" && run.runnerKind === "native") {
+    if (chatRunState === "needs_input") return { state: "needs-input", label: "Needs input" };
+    if (chatRunState === "running") return { state: "running", label: "Working on plan" };
+    return { state: "interrupted", label: "Interrupted" };
+  }
+  if (run.status === "running") return { state: "running", label: "Working on plan" };
+  if (
+    chatRunState === "interrupted"
+    || (run.status === "awaiting_review" && run.error?.toLowerCase().includes("interrupt"))
+  ) {
+    return { state: "interrupted", label: "Interrupted" };
+  }
+  if (run.status === "awaiting_review") return { state: "awaiting-review", label: "Awaiting review" };
+  if (run.status === "failed") return { state: "failed", label: "Failed" };
+  if (run.status === "succeeded") return { state: "complete", label: "Complete" };
+  return { state: "cancelled", label: "Cancelled" };
+}
+
 export type PlanRunStepOutput = {
   stepId: string;
   kind: string;
@@ -147,6 +180,11 @@ export async function checkPlanRunCompletion(
 
 export async function listPlanRuns(sessionId: string): Promise<PlanRun[]> {
   return invoke<PlanRun[]>("plan_run_list", { sessionId });
+}
+
+/** List every run owned by a workspace or native-chat session in a project. */
+export async function listPlanRunsByProject(projectPath: string): Promise<PlanRun[]> {
+  return invoke<PlanRun[]>("plan_run_list_by_project", { projectPath });
 }
 
 /** List all runs for a plan, across all workspace sessions. Use this to

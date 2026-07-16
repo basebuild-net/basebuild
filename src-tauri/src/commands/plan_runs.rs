@@ -94,6 +94,11 @@ pub fn plan_run_list(session_id: String) -> Result<Vec<PlanRun>, String> {
 }
 
 #[tauri::command]
+pub fn plan_run_list_by_project(project_path: String) -> Result<Vec<PlanRun>, String> {
+    PlanRunnerService::list_runs_for_project(&project_path)
+}
+
+#[tauri::command]
 pub fn plan_run_list_by_plan(plan_id: String) -> Result<Vec<PlanRun>, String> {
     PlanRunnerService::list_runs_by_plan(&plan_id)
 }

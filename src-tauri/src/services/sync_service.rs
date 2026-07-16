@@ -15,7 +15,9 @@ use crate::models::usage_sync::{
     AutoSyncStatus, LiveUsage, LiveUsageRow, PlanSummaries, PlanSummary, PlanTimeline,
     PlanTimelineWindow, ProjectedUsage, SyncResult, UsageSnapshot, UsageSnapshotRow,
 };
+use crate::services::analytics_service::AnalyticsService;
 use crate::services::auth_service::AuthService;
+use crate::services::execution_advisor_service::ExecutionAdvisorService;
 use crate::services::omp_service::OmpService;
 use crate::services::settings_service::SettingsService;
 use crate::services::storage_service::StorageService;
@@ -520,7 +522,8 @@ pub fn fetch_projected_usage() -> Result<ProjectedUsage, String> {
     .count();
 
     if success_count == 0 {
-        let error = "All projected-usage reads failed; using the last-good local cache when available.";
+        let error =
+            "All projected-usage reads failed; using the last-good local cache when available.";
         mark_projected_usage_cache_error(error);
         if let Some((cached, _, _)) = cached_projected_usage()? {
             return Ok(cached);
@@ -533,9 +536,7 @@ pub fn fetch_projected_usage() -> Result<ProjectedUsage, String> {
             .map(parse_usage_snapshot)
             .unwrap_or_default(),
         plans: plans_result.map(parse_plan_summaries).unwrap_or_default(),
-        timeline: timeline_result
-            .map(parse_plan_timeline)
-            .unwrap_or_default(),
+        timeline: timeline_result.map(parse_plan_timeline).unwrap_or_default(),
         assembled_at: now_seconds(),
     };
     save_projected_usage_cache(&usage)?;
@@ -806,6 +807,53 @@ fn collect_omp_status() -> Value {
     })
 }
 
+fn advisor_feedback_upload_ready() -> bool {
+    AnalyticsService::upload_enabled()
+        && ExecutionAdvisorService::feedback_consent()
+            .map(|consent| consent.enabled)
+            .unwrap_or(false)
+        && ExecutionAdvisorService::list_feedback()
+            .map(|events| !events.is_empty())
+            .unwrap_or(false)
+}
+
+fn sync_execution_advisor_feedback_native() -> Result<usize, String> {
+    if !AnalyticsService::upload_enabled() {
+        return Ok(0);
+    }
+    if !ExecutionAdvisorService::feedback_consent()?.enabled {
+        return Ok(0);
+    }
+    let events = ExecutionAdvisorService::list_feedback()?;
+    if events.is_empty() {
+        return Ok(0);
+    }
+    let token = AuthService::get_access_token()?.ok_or_else(|| "Not signed in".to_string())?;
+    let mut submitted = 0;
+    for event in events {
+        call_mcp_tool(
+            &token,
+            "submit_execution_feedback",
+            json!({
+                "schemaVersion": event.schema_version,
+                "role": event.role,
+                "recommendedProviderId": event.recommended_provider_id,
+                "recommendedModelId": event.recommended_model_id,
+                "selectedProviderId": event.selected_provider_id,
+                "selectedModelId": event.selected_model_id,
+                "outcome": event.outcome,
+                "confidence": event.confidence,
+                "difficultyBucket": event.difficulty_bucket,
+                "effortBucket": event.effort_bucket,
+            }),
+        )?;
+        if ExecutionAdvisorService::delete_feedback_event(&event.id)? {
+            submitted += 1;
+        }
+    }
+    Ok(submitted)
+}
+
 // ─── Auto-sync driver ──────────────────────────────────────────────────────
 
 /// Check whether the gates currently allow a sync push: signed in AND
@@ -934,12 +982,16 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
         match AuthService::get_access_token() {
             Ok(Some(token)) => {
                 eprintln!("[SYNC] checking server freshness…");
-                let fresh = call_mcp_tool(&token, "get_my_live_usage", json!({}))
+                let usage_is_stale = call_mcp_tool(&token, "get_my_live_usage", json!({}))
                     .ok()
                     .and_then(|v| v.get("shouldSync").and_then(|v| v.as_bool()))
                     .unwrap_or(true);
-                eprintln!("[SYNC] server shouldSync={fresh}");
-                fresh
+                let feedback_is_pending = advisor_feedback_upload_ready();
+                let should_sync = usage_is_stale || feedback_is_pending;
+                eprintln!(
+                    "[SYNC] server shouldSync={usage_is_stale}, advisor feedback pending={feedback_is_pending}"
+                );
+                should_sync
             }
             _ => {
                 eprintln!("[SYNC] no token — aborting");
@@ -985,6 +1037,15 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
             }
         );
         let now = now_seconds();
+        eprintln!("[SYNC] calling sync_execution_advisor_feedback_native…");
+        let feedback_result = sync_execution_advisor_feedback_native();
+        eprintln!(
+            "[SYNC] advisor feedback sync: {}",
+            match &feedback_result {
+                Ok(count) => format!("ok: {count} submitted"),
+                Err(error) => format!("ERR: {error}"),
+            }
+        );
         let mut status = AUTOSYNC_STATUS.lock().clone();
         match result {
             Ok(msg) => {
@@ -1000,12 +1061,18 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
                     Ok(_) => " | env: ok".to_string(),
                     Err(e) => format!(" | env sync failed: {e}"),
                 };
-                eprintln!("[SYNC] ✅ all syncs complete: {reason_owned}: {msg}{extra}{env_extra}");
+                let feedback_extra = match &feedback_result {
+                    Ok(count) => format!(" | advisor feedback: {count}"),
+                    Err(error) => format!(" | advisor feedback sync failed: {error}"),
+                };
+                eprintln!(
+                    "[SYNC] ✅ all syncs complete: {reason_owned}: {msg}{extra}{env_extra}{feedback_extra}"
+                );
                 let _ = app2.emit(
                     USAGE_SYNC_STATUS,
                     &SyncResult {
                         ok: true,
-                        message: format!("{reason_owned}: {msg}{extra}{env_extra}"),
+                        message: format!("{reason_owned}: {msg}{extra}{env_extra}{feedback_extra}"),
                         completed_at: now,
                     },
                 );
@@ -1101,10 +1168,12 @@ pub fn sync_on_exit() {
     thread::spawn(move || {
         let raw = sync_raw_usage_native();
         let msgs = sync_envelope_native();
+        let feedback = sync_execution_advisor_feedback_native();
         eprintln!(
-            "[SYNC] sync_on_exit: raw={:?}, msgs={:?}",
+            "[SYNC] sync_on_exit: raw={:?}, msgs={:?}, advisor_feedback={:?}",
             raw.is_ok(),
-            msgs.is_ok()
+            msgs.is_ok(),
+            feedback.is_ok()
         );
         let _ = tx.send(());
     });

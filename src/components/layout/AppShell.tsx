@@ -772,10 +772,30 @@ export function AppShell({ updates }: AppShellProps) {
     openPlanningModal("plans");
   }, [openPlanningModal]);
 
-  const handleCloseChat = useCallback((chatId: string) => {
-    // The grid's onCloseChat handles the visual removal; the session is retained.
-    // AppShell's onCloseChat on the grid delegates here for any session-level cleanup.
-  }, []);
+  const handleDeleteChatPanel = useCallback(async (panelId: string, chatSessionId: string | null) => {
+    if (chatSessionId && session.activeSessionId) {
+      try {
+        const runs = await listPlanRuns(session.activeSessionId);
+        const owner = runs.find((run) =>
+          run.chatSessionId === chatSessionId &&
+          (run.status === "pending" || run.status === "running" || run.status === "paused")
+        );
+        if (owner) {
+          handleShowToast(
+            "Chat owns active work",
+            "Keep the chat with Close, or cancel the linked run from Background agents before removing it.",
+            "warning",
+          );
+          return;
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        handleShowToast("Could not verify chat ownership", message, "error");
+        return;
+      }
+    }
+    setPanelGridState((prev) => deletePanelFromHistory(prev, panelId));
+  }, [handleShowToast, session.activeSessionId]);
 
   const handleDuplicateChat = useCallback((sourceId: string) => {
     // Returns a new chat id; the grid handles layout. Session creation happens
@@ -1221,7 +1241,9 @@ export function AppShell({ updates }: AppShellProps) {
             onOpenPlanningInspector={handleOpenPlanningInspector}
             onOpenSchematic={handleOpenSchematic}
             onCloseChat={() => setPanelGridState((prev) => closePanel(prev, panel.id))}
-            onCloseAndDeleteChat={() => setPanelGridState((prev) => deletePanelFromHistory(prev, panel.id))}
+            onCloseAndDeleteChat={() => {
+              void handleDeleteChatPanel(panel.id, panel.chatSessionId ?? null);
+            }}
             onShowToast={handleShowToast}
             onDuplicateChat={() => {
               const newPanel = handleCreatePanel(panel.id, "right");
@@ -1568,6 +1590,7 @@ export function AppShell({ updates }: AppShellProps) {
             projectPath={activeProjectPath}
             plans={plans.plans}
             onOpenChatSession={handleOpenChatSession}
+            onOpenPlanning={(tab) => openPlanningModal(tab)}
           />
           <TaskbarNotifications onNavigate={handleNotificationNavigate} appToasts={appToasts} onDismissAppToast={dismissAppToast} />
           <WindowControls />
@@ -1626,6 +1649,8 @@ export function AppShell({ updates }: AppShellProps) {
               />
               <PlanningIndicators
                 plans={plans.plans}
+                sessionId={session.activeSessionId}
+                projectPath={activeProjectPath}
                 ideas={ideaState.ideas}
                 categories={ideaState.categories}
                 onGenerateMoreIdeas={() => handleStartIdeaRound()}
@@ -1678,9 +1703,6 @@ export function AppShell({ updates }: AppShellProps) {
                   } else {
                     openPlanningModal("runs");
                   }
-                }}
-                onMarkComplete={(planId: string) => {
-                  void plans.setPlanStatus(planId, "finished");
                 }}
                 onOpenPlan={handleFocusPlan}
                 onOpenRunChat={(p: Plan) => void handleOpenPlanRunChat(p)}
@@ -1872,7 +1894,6 @@ export function AppShell({ updates }: AppShellProps) {
           open={!!focusingPlan}
           projectPath={activeProjectPath ?? ""}
           onClose={() => setFocusingPlan(null)}
-          onSetStatus={plans.setPlanStatus}
           onCopyReference={handleCopyReference}
           onOpenInTerminal={handleOpenPlanInTerminal}
           onSetContext={(id, ctx: PlanFocusContext) => void plans.setPlanContext(id, ctx)}

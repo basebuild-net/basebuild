@@ -114,12 +114,16 @@ impl ModelExecutionProfileV1 {
             validate_text("route.apiId", &route.api_id, 240)?;
         }
         if self.signals.len() > 32 {
-            return Err("model execution profile signals must contain at most 32 entries".to_string());
+            return Err(
+                "model execution profile signals must contain at most 32 entries".to_string(),
+            );
         }
         for signal in &self.signals {
             if let Some(value) = signal.normalized_value {
                 if !value.is_finite() || !(0.0..=1.0).contains(&value) {
-                    return Err("signal normalizedValue must be finite and between 0 and 1".to_string());
+                    return Err(
+                        "signal normalizedValue must be finite and between 0 and 1".to_string()
+                    );
                 }
             }
             if signal.raw_value.is_some_and(|value| !value.is_finite()) {
@@ -128,7 +132,9 @@ impl ModelExecutionProfileV1 {
             validate_text("signal.unit", &signal.unit, 80)?;
             validate_text("signal.sourceName", &signal.source_name, 240)?;
             validate_text("signal.sourceUrl", &signal.source_url, 2_000)?;
-            if !signal.source_url.starts_with("https://") && !signal.source_url.starts_with("http://") {
+            if !signal.source_url.starts_with("https://")
+                && !signal.source_url.starts_with("http://")
+            {
                 return Err("signal sourceUrl must use http or https".to_string());
             }
             validate_text("signal.fetchedAt", &signal.fetched_at, 80)?;
@@ -137,13 +143,18 @@ impl ModelExecutionProfileV1 {
             }
         }
         if let Some(economics) = &self.economics {
-            for value in [economics.input_price, economics.output_price].into_iter().flatten() {
+            for value in [economics.input_price, economics.output_price]
+                .into_iter()
+                .flatten()
+            {
                 if !value.is_finite() || value < 0.0 {
                     return Err("economics prices must be finite and non-negative".to_string());
                 }
             }
             if economics.subscription_plans.len() > 32 {
-                return Err("economics subscriptionPlans must contain at most 32 entries".to_string());
+                return Err(
+                    "economics subscriptionPlans must contain at most 32 entries".to_string(),
+                );
             }
             for plan in &economics.subscription_plans {
                 validate_text("economics.subscriptionPlans", plan, 240)?;
@@ -247,8 +258,64 @@ pub struct ExecutionAdviceBundle {
     pub schema_version: u8,
     pub assessment_source: String,
     pub assessment_stale: bool,
+    pub difficulty_bucket: u8,
+    pub effort_bucket: String,
     pub planner: RoleExecutionAdvice,
     pub coder: RoleExecutionAdvice,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvisorFeedbackOutcome {
+    Accepted,
+    Overridden,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvisorFeedbackEvent {
+    pub id: String,
+    pub schema_version: u8,
+    pub role: ExecutionRole,
+    pub recommended_provider_id: String,
+    pub recommended_model_id: String,
+    pub selected_provider_id: String,
+    pub selected_model_id: String,
+    pub outcome: AdvisorFeedbackOutcome,
+    pub confidence: EvidenceConfidence,
+    pub difficulty_bucket: u8,
+    pub effort_bucket: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NewAdvisorFeedbackEvent {
+    pub role: ExecutionRole,
+    pub recommended_provider_id: String,
+    pub recommended_model_id: String,
+    pub selected_provider_id: String,
+    pub selected_model_id: String,
+    pub outcome: AdvisorFeedbackOutcome,
+    pub confidence: EvidenceConfidence,
+    pub difficulty_bucket: u8,
+    pub effort_bucket: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvisorFeedbackConsent {
+    pub enabled: bool,
+    pub updated_at: Option<i64>,
+}
+
+impl Default for AdvisorFeedbackConsent {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            updated_at: None,
+        }
+    }
 }
 
 fn validate_id(name: &str, value: &str) -> Result<(), String> {

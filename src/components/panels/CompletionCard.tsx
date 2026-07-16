@@ -1,27 +1,62 @@
-import { useState } from "react";
-import { Check, GitBranch, GitCommit, GitPullRequest, Loader2, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, GitBranch, GitCommit, GitPullRequest, ListChecks, Loader2, Play, X } from "lucide-react";
 
 import type { PlanRun, FinishOutcome } from "../../lib/planRuns";
+import { openspecTaskProgress } from "../../lib/openspec";
 
 type CompletionCardProps = {
   run: PlanRun;
   projectPath: string;
   finishOutcome?: FinishOutcome | null;
+  changeName?: string | null;
   onMarkComplete: (runId: string) => Promise<void>;
+  onReviewTasks?: () => void;
+  onResume?: () => void;
   onDismiss: () => void;
 };
 export function CompletionCard({
   run,
   projectPath,
   finishOutcome,
+  changeName,
   onMarkComplete,
+  onReviewTasks,
+  onResume,
   onDismiss,
 }: CompletionCardProps) {
   const [busy, setBusy] = useState<"complete" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [taskProgress, setTaskProgress] = useState<{ completed: number; total: number } | null>(null);
 
   const isAwaitingReview = run.status === "awaiting_review";
   const isSucceeded = run.status === "succeeded";
+
+  useEffect(() => {
+    if (!changeName || !projectPath) return;
+    let cancelled = false;
+    void openspecTaskProgress(projectPath, changeName)
+      .then((progress) => {
+        if (!cancelled) setTaskProgress(progress);
+      })
+      .catch(() => {
+        if (!cancelled) setTaskProgress(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [changeName, projectPath]);
+
+  const completionBlockedReason = !changeName
+    ? null
+    : !projectPath
+      ? "Cannot mark complete: no project is open."
+      : taskProgress === null
+        ? "Cannot mark complete: task progress is unavailable."
+        : taskProgress.total === 0
+          ? "Cannot mark complete: the linked OpenSpec change has no required tasks."
+          : taskProgress.completed < taskProgress.total
+            ? `Cannot mark complete: ${taskProgress.completed}/${taskProgress.total} required OpenSpec tasks are complete.`
+            : null;
 
   const handleMarkComplete = async () => {
     setBusy("complete");
@@ -61,7 +96,7 @@ export function CompletionCard({
 
         {isAwaitingReview ? (
           <div className="completion-card-notice">
-            Checklist incomplete. Review the remaining tasks, then mark complete or keep running.
+            {completionBlockedReason ?? "Checklist complete. Review the work or continue the plan before marking it complete."}
           </div>
         ) : null}
         {finishOutcome ? (
@@ -91,16 +126,38 @@ export function CompletionCard({
 
         <div className="completion-card-actions">
           {isAwaitingReview ? (
+            <>
+            {onReviewTasks ? (
+              <button
+                type="button"
+                className="btn btn-sm"
+                title="Review the linked OpenSpec tasks"
+                onClick={onReviewTasks}
+              >
+                <ListChecks size={11} /> Review tasks
+              </button>
+            ) : null}
+            {onResume ? (
+              <button
+                type="button"
+                className="btn btn-sm"
+                title="Open plan runs to resume this work"
+                onClick={onResume}
+              >
+                <Play size={11} /> Resume
+              </button>
+            ) : null}
             <button
               type="button"
               className="btn btn-sm btn-primary"
-              title="Mark this run as complete"
-              disabled={busy !== null}
+              title={completionBlockedReason ?? "Mark this run as complete"}
+              disabled={busy !== null || completionBlockedReason !== null}
               onClick={() => void handleMarkComplete()}
             >
               {busy === "complete" ? <Loader2 size={11} className="bb-spin" /> : <Check size={11} />}
               Mark complete
             </button>
+            </>
           ) : null}
 
         </div>

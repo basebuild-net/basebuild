@@ -64,6 +64,7 @@ pub async fn native_chat_get(session_id: String) -> Result<Option<NativeChatSess
         .await
         .map_err(|error| format!("Chat-session task panicked: {error}"))?
 }
+
 #[tauri::command]
 pub async fn native_chat_rename(session_id: String, title: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -155,8 +156,8 @@ pub fn native_request_tool_approval(
     NativeChatService::request_tool_approval(request)
 }
 #[tauri::command]
-pub fn native_chat_cancel(session_id: String) -> Result<bool, String> {
-    Ok(crate::services::agent_loop_service::cancel_run(&session_id))
+pub fn native_chat_cancel(app: AppHandle, session_id: String) -> Result<bool, String> {
+    crate::services::plan_lifecycle_service::PlanLifecycleService::stop_chat(&app, &session_id)
 }
 
 /// Resolve a pending tool-call approval. Called by the UI's inline approval

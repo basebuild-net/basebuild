@@ -12,8 +12,8 @@ use std::env;
 use rusqlite::params;
 use serde::Deserialize;
 
-use crate::services::storage_service::StorageService;
 use crate::models::execution_advisor::ModelExecutionProfileV1;
+use crate::services::storage_service::StorageService;
 
 /// The highest catalog response `version` this desktop understands. If the
 /// endpoint returns a higher version, sync refuses with an upgrade prompt.
@@ -135,7 +135,10 @@ fn sync_catalog_inner() -> Result<CatalogSyncResult, String> {
             } else {
                 "[]".to_string()
             };
-            let supports_images = model.input_modalities.split(',').any(|item| item.trim() == "image");
+            let supports_images = model
+                .input_modalities
+                .split(',')
+                .any(|item| item.trim() == "image");
             let changed = conn
                 .execute(
                     "INSERT INTO native_provider_model_cache

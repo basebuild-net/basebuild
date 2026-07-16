@@ -309,6 +309,26 @@ pub fn registry() -> Vec<ToolDef> {
         },
         ToolDef {
             schema: ToolSchema {
+                name: "get_execution_advice".to_string(),
+                description: "Read Basebuild's local planner/coder route recommendation for one persisted plan or idea. The result is computed locally from a bounded assessment, connected route metadata, coarse capacity, and public model evidence. It never includes credentials, account ids, project text, source, messages, questionnaire answers, raw usage, diffs, logs, or absolute paths. When this chat uses an external provider, returning the result crosses that provider boundary and is gated by Allow external context.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "planId": { "type": "string", "minLength": 1, "maxLength": 240 },
+                        "ideaId": { "type": "string", "minLength": 1, "maxLength": 240 }
+                    },
+                    "oneOf": [
+                        { "required": ["planId"] },
+                        { "required": ["ideaId"] }
+                    ]
+                }),
+            },
+            kind: ToolKind::ReadOnly,
+            execute: get_execution_advice,
+        },
+        ToolDef {
+            schema: ToolSchema {
                 name: "propose_ideas".to_string(),
                 description: "Capture a batch of distinct, grounded implementation ideas. Every idea requires a versioned bounded assessment; invalid items reject the complete batch. Inspect the repository and existing ideas/plans first, cite concrete evidence, and call this tool instead of printing an idea wall as prose.".to_string(),
                 parameters: json!({
@@ -1151,10 +1171,31 @@ fn run_command(workspace_root: &Path, args: &Value) -> ToolResult {
     }
 }
 
+/// Return the local, sanitized execution recommendation for one persisted
+/// planning artifact. The project path is used only as a local lookup key.
+fn get_execution_advice(workspace_root: &Path, args: &Value) -> ToolResult {
+    let plan_id = args.get("planId").and_then(Value::as_str);
+    let idea_id = args.get("ideaId").and_then(Value::as_str);
+    if plan_id.is_some() == idea_id.is_some() {
+        return ToolResult::failure("Provide exactly one bounded planId or ideaId.".to_string());
+    }
+    let project_path = workspace_root.to_string_lossy();
+    match crate::services::execution_advisor_service::ExecutionAdvisorService::get_advice(
+        &project_path,
+        plan_id,
+        idea_id,
+    ) {
+        Ok(advice) => serde_json::to_string_pretty(&advice)
+            .map(ToolResult::success)
+            .unwrap_or_else(|error| ToolResult::failure(error.to_string())),
+        Err(error) => ToolResult::failure(error),
+    }
+}
+
 /// Fallback executor for the propose_ideas tool. The agent loop intercepts
 /// this tool before it reaches the generic executor and calls
-/// SessionService::create_idea instead. This fn exists only so the ToolDef
-/// has a valid execute pointer; if called directly, it returns a notice.
+/// SessionService::create_idea instead. This function exists only so the
+/// ToolDef has a valid execute pointer.
 fn propose_ideas_fallback(_workspace_root: &Path, _args: &Value) -> ToolResult {
     ToolResult::failure(
         "propose_ideas must be intercepted by the agent loop. This fallback should never be called.".to_string(),
