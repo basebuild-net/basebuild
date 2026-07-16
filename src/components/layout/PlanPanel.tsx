@@ -21,6 +21,9 @@ import {
 import type { Plan, PlanStatus } from "../../lib/plans";
 import type { PlanRun } from "../../lib/planRuns";
 import { PLAN_STATUS_DISPLAY_ORDER, PLAN_STATUSES, PLAN_STATUS_LABEL, isTerminalStatus } from "../../lib/plans";
+import { formatRelativeTime } from "../../lib/timing";
+import type { Idea } from "../../lib/ideas";
+import { Disclosure } from "../Disclosure";
 import type {
   EngineKind,
   FinishPolicy,
@@ -48,6 +51,8 @@ import {
   nativeChatSetProjectModelDefault,
   type NativeProviderCatalog,
 } from "../../lib/native-chat";
+/** Epoch seconds (Rust) or milliseconds (JS) → milliseconds. */
+const toMs = (ts: number) => (ts < 1_000_000_000_000 ? ts * 1000 : ts);
 
 type EffortLevel = "low" | "medium" | "high";
 
@@ -68,6 +73,8 @@ type PlanPanelProps = {
   projectPath: string | null;
   plans: Plan[];
   planRuns?: PlanRun[];
+  /** Project ideas — used to show when a plan's source idea was captured. */
+  ideas?: Idea[];
   loading: boolean;
   collapsed: boolean;
   onToggleCollapse: () => void;
@@ -92,6 +99,7 @@ export function PlanPanel({
   projectPath,
   plans,
   planRuns,
+  ideas,
   loading,
   collapsed,
   onToggleCollapse,
@@ -112,6 +120,11 @@ export function PlanPanel({
 }: PlanPanelProps) {
   const [expandedFinished, setExpandedFinished] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const ideaCreatedAtById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const idea of ideas ?? []) map.set(idea.id, idea.createdAt);
+    return map;
+  }, [ideas]);
   const [profileDefaults, setProfileDefaults] = useState<ProfileForm>({
     engine: "openspec",
     providerId: "",
@@ -237,6 +250,7 @@ export function PlanPanel({
                           key={plan.id}
                           run={planRuns?.find((candidate) => candidate.planId === plan.id)}
                           plan={plan}
+                          ideaCreatedAt={plan.ideaId ? ideaCreatedAtById.get(plan.ideaId) ?? null : null}
                           projectPath={projectPath}
                           defaults={profileDefaults}
                           onEdit={onEditPlan}
@@ -269,6 +283,7 @@ export function PlanPanel({
                     <PlanCard
                       key={plan.id}
                       plan={plan}
+                      ideaCreatedAt={plan.ideaId ? ideaCreatedAtById.get(plan.ideaId) ?? null : null}
                       projectPath={projectPath}
                       defaults={profileDefaults}
                       onEdit={onEditPlan}
@@ -308,6 +323,7 @@ export function PlanPanel({
 type PlanCardProps = {
   plan: Plan;
   run?: PlanRun;
+  ideaCreatedAt?: number | null;
   projectPath: string | null;
   defaults: ProfileForm;
   onEdit: (plan: Plan) => void;
@@ -325,6 +341,7 @@ type PlanCardProps = {
 function PlanCard({
   plan,
   run,
+  ideaCreatedAt,
   projectPath,
   defaults,
   onEdit,
@@ -393,25 +410,38 @@ function PlanCard({
         className="plan-card-main"
         type="button"
         onClick={() => onFocus(plan)}
-        title={plan.description}
+        title={plan.description ? `${plan.title} — ${plan.description}` : plan.title}
       >
-        <span className="plan-card-ref">{plan.referenceId}</span>
-        <span className="plan-card-title">{plan.title}</span>
-        {validation ? (
-          <span
-            className={`plan-readiness-badge ${validation.errors.length > 0 ? "is-error" : validation.warnings.length > 0 ? "is-warn" : "is-valid"}`}
-            title={validation.errors.concat(validation.warnings).join("\n") || "Ready to promote"}
-          >
-            {validation.errors.length > 0 ? <AlertCircle size={10} /> : validation.warnings.length > 0 ? <AlertCircle size={10} /> : <CheckCircle size={10} />}
-            {validation.errors.length > 0 ? "Blocked" : validation.warnings.length > 0 ? "Warnings" : "Valid"}
+        <span className="plan-card-title-row">
+          <span className="plan-card-title">{plan.title}</span>
+          {validation ? (
+            <span
+              className={`plan-readiness-badge ${validation.errors.length > 0 ? "is-error" : validation.warnings.length > 0 ? "is-warn" : "is-valid"}`}
+              title={validation.errors.concat(validation.warnings).join("\n") || "Ready to promote"}
+            >
+              {validation.errors.length > 0 ? <AlertCircle size={10} /> : validation.warnings.length > 0 ? <AlertCircle size={10} /> : <CheckCircle size={10} />}
+              {validation.errors.length > 0 ? "Blocked" : validation.warnings.length > 0 ? "Warnings" : "Valid"}
+            </span>
+          ) : null}
+          {plan.aiEnhanced ? <span className="plan-card-ai" /> : null}
+          {taskProgress && taskProgress.total > 0 ? (
+            <span className="plan-card-progress" title={`${taskProgress.completed}/${taskProgress.total} tasks`}>
+              {taskProgress.completed}/{taskProgress.total}
+            </span>
+          ) : null}
+        </span>
+        {plan.description ? <span className="plan-card-desc">{plan.description}</span> : null}
+        <span className="plan-card-meta">
+          <span className="plan-card-ref" title={`Plan reference ${plan.referenceId}`}>{plan.referenceId}</span>
+          <span className="plan-card-date" title={`Plan created ${new Date(toMs(plan.createdAt)).toLocaleString()}`}>
+            {formatRelativeTime(plan.createdAt)}
           </span>
-        ) : null}
-        {plan.aiEnhanced ? <span className="plan-card-ai" /> : null}
-        {taskProgress && taskProgress.total > 0 ? (
-          <span className="plan-card-progress" title={`${taskProgress.completed}/${taskProgress.total} tasks`}>
-            {taskProgress.completed}/{taskProgress.total}
-          </span>
-        ) : null}
+          {ideaCreatedAt ? (
+            <span className="plan-card-date" title={`Promoted from an idea captured ${new Date(toMs(ideaCreatedAt)).toLocaleString()}`}>
+              · idea {formatRelativeTime(ideaCreatedAt)}
+            </span>
+          ) : null}
+        </span>
       </button>
       <div className="plan-card-actions">
         {run?.status === "awaiting_review" && onResumeRun ? (
@@ -482,45 +512,10 @@ function PlanCard({
             <Archive size={10} /> Archive
           </button>
         ) : null}
-        {!isFinished ? (
-          <button
-            className="btn-icon btn-icon-sm"
-            title="Open in terminal"
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenInTerminal(plan);
-            }}
-          >
-            <TerminalSquare size={10} />
-          </button>
-        ) : null}
-        <button
-          className="btn-icon btn-icon-sm"
-          title="Copy reference"
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onCopyReference(plan.referenceId);
-          }}
-        >
-          <Copy size={10} />
-        </button>
-        <button
-          className="btn-icon btn-icon-sm"
-          title="Edit"
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onEdit(plan);
-          }}
-        >
-          <Pencil size={10} />
-        </button>
         <div className="plan-card-menu-wrap">
           <button
             className="btn-icon btn-icon-sm"
-            title="More"
+            title="More plan actions"
             type="button"
             onClick={(e) => {
               e.stopPropagation();
@@ -532,12 +527,48 @@ function PlanCard({
           {menuOpen ? (
             <div className="context-menu" onMouseLeave={() => setMenuOpen(false)}>
               <button
-                className="menu-item menu-item-danger text-sm"
+                className="menu-item text-sm"
                 type="button"
+                title="Edit title, description, and details"
                 onClick={() => {
-                    onDeletePlan(plan.id);
+                  onEdit(plan);
+                  setMenuOpen(false);
+                }}
+              >
+                <Pencil size={12} /> Edit
+              </button>
+              {!isFinished ? (
+                <button
+                  className="menu-item text-sm"
+                  type="button"
+                  title="Open this plan in a terminal"
+                  onClick={() => {
+                    onOpenInTerminal(plan);
                     setMenuOpen(false);
                   }}
+                >
+                  <TerminalSquare size={12} /> Open in terminal
+                </button>
+              ) : null}
+              <button
+                className="menu-item text-sm"
+                type="button"
+                title="Copy the plan reference id"
+                onClick={() => {
+                  onCopyReference(plan.referenceId);
+                  setMenuOpen(false);
+                }}
+              >
+                <Copy size={12} /> Copy reference
+              </button>
+              <button
+                className="menu-item menu-item-danger text-sm"
+                type="button"
+                title="Delete this plan permanently"
+                onClick={() => {
+                  onDeletePlan(plan.id);
+                  setMenuOpen(false);
+                }}
               >
                 <Trash2 size={12} /> Delete
               </button>
@@ -798,11 +829,13 @@ function PlanPromotionForm({
 
   return (
     <div className="plan-promotion-form stack-sm">
-      <div className="plan-promotion-header">
-        <Rocket size={11} />
-        <span className="text-sm">OpenSpec launch profile</span>
-      </div>
-      <div className="plan-promotion-fields">
+      <Disclosure
+        className="plan-promotion-disclosure"
+        label={<><Rocket size={11} /> OpenSpec launch profile</>}
+        summary={`${plannerModelId || "planner unset"} · ${form.modelId || "coder unset"} · ${form.workerCount} worker${form.workerCount === 1 ? "" : "s"}`}
+        title="Planner and coding models, effort, skill, workers, workspace, and scheduling for this plan"
+      >
+        <div className="plan-promotion-fields">
         <label className="plan-promotion-field" title="Provider used to generate and revise OpenSpec artifacts">
           <span className="plan-promotion-label">Planner provider</span>
           <select
@@ -969,7 +1002,8 @@ function PlanPromotionForm({
             label="Scheduling mode"
           />
         </label>
-      </div>
+        </div>
+      </Disclosure>
       {validation ? (
         <div className="plan-promotion-validation stack-sm">
           {validation.errors.length > 0 ? (

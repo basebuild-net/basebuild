@@ -68,9 +68,32 @@ may obscure the chat: focused configuration is the current task.
 ## Reusable classes
 
 Current classes include `.btn`, `.btn-primary`, `.btn-update`, `.btn-ghost`,
-`.btn-icon`, `.btn-icon-sm`, `.btn-sm`, `.card`, `.badge`, `.pill`, `.input`,
+`.btn-icon`, `.btn-icon-sm`, `.card`, `.badge`, `.pill`, `.input`,
 `.pre`, `.stack`, `.stack-sm`, `.row`, `.row-between`, `.text-muted`,
 `.text-sm`, `.text-ok`, `.text-danger`, `.mono`, `.spin`.
+
+### Disclosure (`src/components/Disclosure.tsx`)
+
+`.disclosure` / `.disclosure-toggle` / `.disclosure-label` /
+`.disclosure-summary` / `.disclosure-body` — the collapsed-by-default section
+primitive. Dense configuration and detail groups (plan launch profile fields,
+flow-tab launch profile, category add form, Edit Plan details, idea
+assessment/evidence) render behind a chevron toggle with a one-line summary
+instead of always-visible flat inputs. Primary actions stay OUTSIDE the
+disclosure so the main path never requires expanding it.
+
+### Planning cards
+
+Plan cards prioritize content over identifiers: `.plan-card-title-row`
+(semibold title + readiness/progress badges), `.plan-card-desc` (one-line
+description), and `.plan-card-meta` (`.plan-card-ref` de-emphasized mono
+reference, `.plan-card-date` created/idea-origin relative times with exact
+timestamps in `title=`). Secondary actions (Edit, Open in terminal, Copy
+reference, Delete) live in the card's More menu; only the contextual primary
+action (Assign/Resume/Review/Retry/Archive) renders inline. Idea rows follow
+the same shape: `.chat-idea-title-toggle` expands assessment/evidence,
+`.chat-idea-date` shows capture time, and Pass/Defer/Delete live in a More
+menu beside the visible Make plan action.
 
 ## Panel grid + header classes (parallel-plan-workspaces)
 

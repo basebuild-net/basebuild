@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Archive, ClipboardCheck, FolderTree, LayoutGrid, Loader2, Play, Plus, RefreshCw, Rocket, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
+import { Archive, ClipboardCheck, FolderTree, LayoutGrid, Loader2, MoreHorizontal, Play, Plus, RefreshCw, Rocket, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import type { Plan, PlanStatus } from "../../lib/plans";
 import { isTerminalStatus } from "../../lib/plans";
 import { batchPromoteIdeas } from "../../lib/plans";
@@ -19,6 +19,8 @@ import { IdeaBatchPreview, IdeaReviewWorkbench, type ParsedIdeaBatch } from "../
 import { IdeaAssessmentSummary } from "../planning/IdeaAssessmentSummary";
 import { useProjectSchematic } from "../../state/schematic";
 import { useLogs } from "../../state/log";
+import { formatRelativeTime } from "../../lib/timing";
+import { Disclosure } from "../Disclosure";
 import { subscribeGrounding, getLastGrounding } from "../../state/grounding";
 import type { GroundingMetadata } from "../../lib/native-chat";
 import {
@@ -39,6 +41,8 @@ import {
 
 export type PlanningTab = "plans" | "ideas" | "categories" | "flow" | "runs" | "changes";
 
+/** Epoch seconds (Rust) or milliseconds (JS) → milliseconds. */
+const toMs = (ts: number) => (ts < 1_000_000_000_000 ? ts * 1000 : ts);
 const FINISH_POLICIES: readonly FinishPolicy[] = ["hold", "auto_commit", "auto_commit_pr", "queue_merge_review"];
 function normalizeFinishPolicy(value: string | undefined): FinishPolicy {
   return FINISH_POLICIES.find((p) => p === value) ?? "hold";
@@ -139,6 +143,8 @@ export function PlanningInspector({
   const [selectedIdeaIds, setSelectedIdeaIds] = useState<Set<string>>(new Set());
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [promotingIdeaId, setPromotingIdeaId] = useState<string | null>(null);
+  const [expandedIdeaId, setExpandedIdeaId] = useState<string | null>(null);
+  const [ideaMenuId, setIdeaMenuId] = useState<string | null>(null);
   const [openIdeaHistoryKey, setOpenIdeaHistoryKey] = useState<string | null>(null);
   const [openIdeaHistoryIndex, setOpenIdeaHistoryIndex] = useState(0);
   const [planRuns, setPlanRuns] = useState<PlanRun[]>([]);
@@ -1020,6 +1026,7 @@ export function PlanningInspector({
           sessionId={sessionId}
           projectPath={projectPath}
           plans={plans}
+          ideas={ideaState.ideas}
           planRuns={planRuns}
           loading={loading}
           collapsed={false}
@@ -1191,7 +1198,17 @@ export function PlanningInspector({
                       }}
                     />
                   ) : null}
-                  <span className="chat-idea-title">{idea.title}</span>
+                  <button
+                    className="chat-idea-title chat-idea-title-toggle"
+                    type="button"
+                    title={expandedIdeaId === idea.id ? "Collapse assessment and evidence" : "Show assessment and evidence"}
+                    onClick={() => setExpandedIdeaId((current) => (current === idea.id ? null : idea.id))}
+                  >
+                    {idea.title}
+                  </button>
+                  <span className="chat-idea-date text-muted" title={`Captured ${new Date(toMs(idea.createdAt)).toLocaleString()}`}>
+                    {formatRelativeTime(idea.createdAt)}
+                  </span>
                   {idea.status === "concept" ? (
                     <div className="chat-idea-card-actions">
                       <button
@@ -1204,54 +1221,87 @@ export function PlanningInspector({
                         {promotingIdeaId === idea.id ? <Loader2 size={11} className="is-spinning" /> : <Rocket size={11} />}
                         {promotingIdeaId === idea.id ? "Getting plan ready…" : "Make plan"}
                       </button>
-                      <button
-                        className="btn btn-sm"
-                        type="button"
-                        title={`Reject ${idea.title}`}
-                        disabled={promotingIdeaId === idea.id}
-                        onClick={() => void ideaState.rejectIdea(idea.id)}
-                      >
-                        Pass
-                      </button>
-                      <button
-                        className="btn btn-sm btn-ghost"
-                        type="button"
-                        title={`Defer ${idea.title} for later`}
-                        disabled={promotingIdeaId === idea.id}
-                        onClick={() => void ideaState.updateIdeaStatus(idea.id, "archived")}
-                      >
-                        <Archive size={11} /> Defer
-                      </button>
                     </div>
                   ) : (
                     <span className={`chat-idea-status ${idea.status === "rejected" ? "is-rejected" : ""}`}>
                       {idea.status === "picked" ? "Planned" : idea.status === "rejected" ? "Rejected" : idea.status}
                     </span>
                   )}
+                  <div className="plan-card-menu-wrap">
+                    <button
+                      className="btn-icon btn-icon-sm"
+                      title="More idea actions"
+                      type="button"
+                      onClick={() => setIdeaMenuId((current) => (current === idea.id ? null : idea.id))}
+                    >
+                      <MoreHorizontal size={10} />
+                    </button>
+                    {ideaMenuId === idea.id ? (
+                      <div className="context-menu" onMouseLeave={() => setIdeaMenuId(null)}>
+                        {idea.status === "concept" ? (
+                          <>
+                            <button
+                              className="menu-item text-sm"
+                              type="button"
+                              title={`Pass on ${idea.title}`}
+                              disabled={promotingIdeaId === idea.id}
+                              onClick={() => {
+                                setIdeaMenuId(null);
+                                void ideaState.rejectIdea(idea.id);
+                              }}
+                            >
+                              <X size={12} /> Pass
+                            </button>
+                            <button
+                              className="menu-item text-sm"
+                              type="button"
+                              title={`Defer ${idea.title} for later`}
+                              disabled={promotingIdeaId === idea.id}
+                              onClick={() => {
+                                setIdeaMenuId(null);
+                                void ideaState.updateIdeaStatus(idea.id, "archived");
+                              }}
+                            >
+                              <Archive size={12} /> Defer
+                            </button>
+                          </>
+                        ) : null}
+                        <button
+                          className="menu-item menu-item-danger text-sm"
+                          type="button"
+                          title="Delete this idea"
+                          onClick={() => {
+                            setIdeaMenuId(null);
+                            void ideaState.removeIdea(idea.id);
+                          }}
+                        >
+                          <Trash2 size={12} /> Delete
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-                {idea.description ? <p className="chat-idea-desc">{idea.description}</p> : null}
-                <IdeaAssessmentSummary
-                  assessment={idea.assessment}
-                  grounding={idea.grounding}
-                  anchor={idea.anchor}
-                  compact
-                />
-                {(idea.anchor || idea.grounding) ? (
-                  <span
-                    className="idea-card-evidence"
-                    title={idea.grounding || "Grounded in the project schematic"}
-                  >
-                    {idea.anchor || "Project grounded"}
-                  </span>
+                {idea.description ? (
+                  <p className={`chat-idea-desc${expandedIdeaId === idea.id ? " is-expanded" : ""}`}>{idea.description}</p>
                 ) : null}
-                <button
-                  className="btn-icon btn-icon-sm"
-                  title="Delete this idea"
-                  type="button"
-                  onClick={() => void ideaState.removeIdea(idea.id)}
-                >
-                  <Trash2 size={10} />
-                </button>
+                {expandedIdeaId === idea.id ? (
+                  <>
+                    <IdeaAssessmentSummary
+                      assessment={idea.assessment}
+                      grounding={idea.grounding}
+                      anchor={idea.anchor}
+                      compact
+                    />
+                    {(idea.anchor || idea.grounding) ? (
+                      <span
+                        className="idea-card-evidence"
+                        title={idea.grounding || "Grounded in the project schematic"}
+                      >
+                        {idea.anchor || "Project grounded"}
+                      </span>
+                    ) : null}
+                  </>
+                ) : null}
               </div>
             ))}
           </div>
@@ -1309,28 +1359,35 @@ export function PlanningInspector({
           ) : (
             <>
               <div className="inspector-category-add stack">
-                <input
-                  className="input"
-                  type="text"
-                  placeholder="Category name"
-                  value={newCategoryName}
-                  onChange={(e) => setNewCategoryName(e.target.value)}
-                />
-                <input
-                  className="input"
-                  type="text"
-                  placeholder="Description (optional)"
-                  value={newCategoryDesc}
-                  onChange={(e) => setNewCategoryDesc(e.target.value)}
-                />
-                <button
-                  className="btn btn-sm btn-primary"
-                  type="button"
-                  title="Add a category manually"
-                  onClick={handleCreateCategory}
+                <Disclosure
+                  label={<><Plus size={11} /> Add category</>}
+                  title="Manually add an idea category"
                 >
-                  <Plus size={11} /> Add category
-                </button>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="Category name"
+                    title="Category name"
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                  />
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="Description (optional)"
+                    title="Category description"
+                    value={newCategoryDesc}
+                    onChange={(e) => setNewCategoryDesc(e.target.value)}
+                  />
+                  <button
+                    className="btn btn-sm btn-primary"
+                    type="button"
+                    title="Add a category manually"
+                    onClick={handleCreateCategory}
+                  >
+                    <Plus size={11} /> Add category
+                  </button>
+                </Disclosure>
                 <button
                   className="btn btn-sm"
                   type="button"
@@ -1400,6 +1457,11 @@ export function PlanningInspector({
           />
           {/* Launch profile */}
           <div className="launch-profile-form" title="Configure how ready plans are launched">
+            <Disclosure
+              label="Launch profile"
+              summary={`${launchForm.workerCount} worker${launchForm.workerCount === 1 ? "" : "s"} · ${launchForm.workspacePolicy.replace(/_/g, " ")} · ${launchForm.schedulingMode} · ${FINISH_POLICY_LABELS[launchForm.finishPolicy]}`}
+              title="Workers, workspace, scheduling, engine, and finish policy for launched plans"
+            >
             <div className="launch-profile-row">
               <label className="launch-profile-field" title="Number of workers that may run simultaneously (1–8)">
                 <span>Workers</span>
@@ -1467,6 +1529,7 @@ export function PlanningInspector({
                 {launchSaving ? "Saving…" : "Save launch profile"}
               </button>
             </div>
+            </Disclosure>
           </div>
           {/* Schematic stage */}
           <div className="flow-stage" title="Project schematic — the steering document">

@@ -67,6 +67,8 @@ test.describe("Finish policy", () => {
     const modal = await openPlansModal(page);
     // Navigate to Flow tab where the launch profile form lives.
     await modal.locator(".inspector-tab", { hasText: "Flow" }).click();
+    // The launch profile fields are collapsed by default — expand first.
+    await modal.getByTitle("Workers, workspace, scheduling, engine, and finish policy for launched plans").click();
     // Set the finish policy to auto_commit via the option list.
     const finishList = modal.locator(".option-list[aria-label='Finish policy']").first();
     await finishList.getByRole("button", { name: "Auto-commit", exact: true }).click();

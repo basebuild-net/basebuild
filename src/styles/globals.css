@@ -3204,7 +3204,10 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .inspector-ideas-list .chat-idea-desc { display: -webkit-box; margin: 0; overflow: hidden; color: var(--bb-muted); font-size: 11px; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .inspector-ideas-list .chat-idea-status { color: var(--bb-positive); font-size: 9px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; }
 .inspector-ideas-list .chat-idea-status.is-rejected { color: var(--bb-muted); }
-.inspector-ideas-list .btn-icon { position: absolute; right: 8px; bottom: 8px; }
+.inspector-ideas-list .chat-idea-title-toggle { text-align: left; padding: 0; }
+.inspector-ideas-list .chat-idea-title-toggle:hover { color: var(--bb-cta); }
+.inspector-ideas-list .chat-idea-desc.is-expanded { display: block; -webkit-line-clamp: unset; }
+.chat-idea-date { flex-shrink: 0; font-size: 9px; white-space: nowrap; }
 .idea-card-evidence { align-self: flex-start; color: var(--bb-cta); font-family: var(--bb-mono); font-size: 9px; }
 .idea-batch-header {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;
@@ -3512,17 +3515,31 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .plan-card.is-active { border-left: 2px solid var(--bb-cta); }
 
 .plan-card-main {
-  flex: 1; display: flex; align-items: center; gap: 4px; padding: 4px 5px;
-  font-size: 11px; text-align: left; min-width: 0;
+  flex: 1; display: flex; flex-direction: column; align-items: stretch; gap: 2px;
+  padding: 5px 6px; font-size: 11px; text-align: left; min-width: 0;
 }
-.plan-card-ref {
-  flex-shrink: 0; font-family: var(--bb-mono); font-size: 9px; color: var(--bb-cta);
-  background: color-mix(in srgb, var(--bb-cta) 12%, transparent);
-  padding: 1px 3px;
+.plan-card-title-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.plan-card-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.plan-card-desc {
+  font-size: 10px; color: var(--bb-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.plan-card-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-card-meta { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.plan-card-ref { flex-shrink: 0; font-family: var(--bb-mono); font-size: 9px; color: var(--bb-muted); }
+.plan-card-date { font-size: 9px; color: var(--bb-muted); white-space: nowrap; }
 .plan-card-ai { flex-shrink: 0; color: var(--bb-cta); }
 .plan-card-progress { flex-shrink: 0; font-size: 9px; color: var(--bb-muted); font-variant-numeric: tabular-nums; }
+
+/* ─── Disclosure (collapsed-by-default config/detail sections) ─── */
+.disclosure { display: flex; flex-direction: column; min-width: 0; }
+.disclosure-toggle {
+  display: flex; align-items: center; gap: 5px; min-width: 0;
+  font-size: 11px; color: var(--bb-muted); padding: 3px 0; text-align: left;
+}
+.disclosure-toggle:hover { color: var(--bb-text); }
+.disclosure-label { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.disclosure-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.disclosure-body { display: flex; flex-direction: column; gap: 6px; padding-top: 2px; }
 
 .plan-card-actions {
   display: flex; align-items: center; gap: 1px;
