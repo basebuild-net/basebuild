@@ -7,6 +7,7 @@ import {
   Lightbulb,
   ListChecks,
   LoaderCircle,
+  MoreHorizontal,
   Plus,
   Play,
   RefreshCw,
@@ -880,18 +881,34 @@ function PlanItems({
             className="planning-notification-item-open"
             title={
               openRunIds.has(plan.id)
-                ? `Open the chat where the agent is working #${plan.referenceId}`
-                : `View plan #${plan.referenceId} ${plan.title}`
+                ? `Open the chat where the agent is working on ${plan.title}`
+                : `View plan: ${plan.title}`
             }
             onClick={() => (openRunIds.has(plan.id) ? onOpenRunChat(plan) : onOpenPlan(plan))}
           >
             <span className="planning-notification-item-dot" />
-            <span className="planning-notification-item-text">#{plan.referenceId} {plan.title}</span>
+            <span className="planning-notification-item-body">
+              <span className="planning-notification-item-title">{plan.title}</span>
+              {plan.description ? (
+                <span className="planning-notification-item-desc">{plan.description}</span>
+              ) : null}
+            </span>
             <span className="planning-notification-item-meta planning-notification-item-status">
               {openRunIds.has(plan.id) ? PLAN_STATUS_LABEL.running : PLAN_STATUS_LABEL[plan.status]}
             </span>
           </button>
           <span className="planning-notification-item-actions">
+            <button
+              type="button"
+              className="planning-notification-action"
+              title={`Copy plan id ${plan.referenceId}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                void navigator.clipboard.writeText(plan.referenceId);
+              }}
+            >
+              <MoreHorizontal size={10} />
+            </button>
             {plan.status === "ready" ? (
               <button
                 type="button"
@@ -965,8 +982,21 @@ function FinishedItems({ plans }: { plans: Plan[] }) {
       {finished.map((plan) => (
         <div key={plan.id} className="planning-notification-item planning-notification-item-done" title={plan.description || plan.goal || ""}>
           <span className="planning-notification-item-dot" />
-          <span className="planning-notification-item-text">#{plan.referenceId} {plan.title}</span>
+          <span className="planning-notification-item-body">
+            <span className="planning-notification-item-title">{plan.title}</span>
+            {plan.description ? (
+              <span className="planning-notification-item-desc">{plan.description}</span>
+            ) : null}
+          </span>
           <span className="planning-notification-item-meta">done</span>
+          <button
+            type="button"
+            className="planning-notification-action"
+            title={`Copy plan id ${plan.referenceId}`}
+            onClick={() => void navigator.clipboard.writeText(plan.referenceId)}
+          >
+            <MoreHorizontal size={10} />
+          </button>
         </div>
       ))}
     </>
