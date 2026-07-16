@@ -53,7 +53,7 @@ test.describe("Planning flow: schematic → categories → ideas → plans", () 
     if (cbCount > 0) {
       await checkboxes.first().check();
       // Batch bar should appear.
-      await expect(page.locator("text=selected")).toBeVisible({ timeout: 3000 });
+      await expect(page.locator("text=selected").first()).toBeVisible({ timeout: 3000 });
       // Click "Approve selected".
       await page.locator('[title="Promote selected ideas into plans"]').click();
       // Wait for a result message.

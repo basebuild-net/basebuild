@@ -1193,19 +1193,19 @@ export function PlanningInspector({
                 >
                   <Plus size={11} /> Add category
                 </button>
+                <button
+                  className="btn btn-sm"
+                  type="button"
+                  title="Generate categories from the project schematic"
+                  onClick={() => onGenerateCategories?.() ?? onSuggestForCategory?.(null)}
+                >
+                  <Sparkles size={11} /> Generate categories from project
+                </button>
               </div>
               {ideaState.categories.length === 0 ? (
                 <div className="empty-state empty-state-compact">
                   <FolderTree size={24} />
                   <p className="text-muted text-sm">No categories yet.</p>
-                  <button
-                    className="btn btn-sm btn-primary"
-                    type="button"
-                    title="Generate categories from the project schematic"
-                    onClick={() => onGenerateCategories?.() ?? onSuggestForCategory?.(null)}
-                  >
-                    <Sparkles size={11} /> Generate categories from project
-                  </button>
                 </div>
               ) : (
                 <div className="inspector-category-list">

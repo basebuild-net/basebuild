@@ -77,7 +77,7 @@ export const MVP_FIXTURE_SESSIONS: MvpFixtureSession[] = [
 export const MVP_FIXTURE_TABS: MvpFixtureTab[] = [
   { id: "mvp-tab-alpha-chat", sessionId: "mvp-session-alpha", kind: "chat", title: "Alpha chat", terminalId: null, filePath: null, chatSessionId: null, createdAt: T0 - 300 },
   { id: "mvp-tab-bravo-chat", sessionId: "mvp-session-bravo", kind: "chat", title: "Bravo chat", terminalId: null, filePath: null, chatSessionId: null, createdAt: T0 - 200 },
-  { id: "mvp-tab-charlie-chat", sessionId: "mvp-session-charlie", kind: "chat", title: "Charlie implementation chat", terminalId: null, filePath: null, chatSessionId: "mvp-native-charlie", createdAt: T0 - 100 },
+  { id: "mvp-tab-charlie-chat", sessionId: "mvp-session-charlie", kind: "chat", title: "Charlie implementation chat", terminalId: null, filePath: null, chatSessionId: "nchat_mvp-charlie", createdAt: T0 - 100 },
   { id: "mvp-tab-charlie-schematic", sessionId: "mvp-session-charlie", kind: "empty", title: "Project schematic", terminalId: null, filePath: null, chatSessionId: null, createdAt: T0 - 90 },
 ];
 

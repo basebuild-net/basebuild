@@ -282,7 +282,7 @@ function applyMvpFixture(s: E2eState): void {
       updatedAt: 1_800_000_000 - 180,
     },
     {
-      id: "mvp-native-charlie",
+      id: "nchat_mvp-charlie",
       projectPath: "C:\\basebuild-e2e\\charlie",
       title: "Charlie MVP chat",
       profileId: "basebuild-native",
@@ -320,7 +320,7 @@ function applyMvpFixture(s: E2eState): void {
     },
     {
       id: "mvp-msg-user",
-      sessionId: "mvp-native-charlie",
+      sessionId: "nchat_mvp-charlie",
       role: "user",
       content: "Start MVP baseline",
       sortOrder: 0,
@@ -360,7 +360,7 @@ function applyMvpFixture(s: E2eState): void {
     sidebarCollapsed: false,
     sideCollapsed: false,
     sideWidth: 260,
-    panelGrid: panelGridFor("mvp-panel-charlie", "mvp-native-charlie"),
+    panelGrid: panelGridFor("mvp-panel-charlie", "nchat_mvp-charlie"),
     updatedAt: 1_800_000_000,
   });
   s.auth = {
@@ -1086,7 +1086,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "native_chat_start": {
       const req = args.request as { projectPath: string; title?: string; providerId?: string; modelId?: string; effortLevel?: string };
-      const id = `nchat-${s.nextNativeChatId++}`;
+      const id = `nchat_${s.nextNativeChatId++}`;
       const ts = Math.floor(Date.now() / 1000);
       const session: NativeChatSession = {
         id,

@@ -887,7 +887,7 @@ export function AppShell({ updates }: AppShellProps) {
       return;
     }
     const health = schematic.report?.health ?? (schematic.exists ? "partial" : "missing");
-    const categories = ideaState.categories.filter((category) => setup.categoryIds.includes(category.id));
+    const categories = ideaState.categories.filter((category) => setup.categoryIds.includes(category.id) && category.sessionId === session.activeSessionId);
     setRoundSetupOpen(false);
     let roundId: string;
     try {
@@ -1707,7 +1707,6 @@ export function AppShell({ updates }: AppShellProps) {
               </div>
             ) : null}
             {activeProjectPath && projectRestoreError ? (
-              <>
               <div className="project-restore-error" role="alert">
                 <h3>Project restore failed</h3>
                 <p>{projectRestoreError}</p>
@@ -1716,8 +1715,9 @@ export function AppShell({ updates }: AppShellProps) {
                   <button className="btn" type="button" title="Switch to another project" onClick={() => setActiveProjectPath(null)}>Switch project</button>
                 </div>
               </div>
+            ) : null}
+            {activeProjectPath && !projectRestoreError && projectRestoreLoading ? (
               <ProjectSwitchingOverlay projectName={activeProjectPath.split(/[\\/]/).pop() ?? activeProjectPath} />
-              </>
             ) : null}
             {activeProjectPath && !projectRestoreError && !projectRestoreLoading ? (
               <>
@@ -2013,7 +2013,7 @@ export function AppShell({ updates }: AppShellProps) {
       />
       {roundSetupOpen ? (
         <IdeaRoundSetupModal
-          categories={ideaState.categories}
+          categories={ideaState.categories.filter((cat) => cat.sessionId === session.activeSessionId)}
           onConfirm={(setup) => { void handleConfirmIdeaRound(setup); }}
           onCancel={() => {
             addLog("debug", "Idea round setup cancelled", "no round started");
