@@ -32,6 +32,8 @@ type IdeaReviewWorkbenchProps = ParsedIdeaBatch & {
   onPromote?: (idea: Idea) => Promise<void>;
   onReject?: (idea: Idea) => Promise<void>;
   onDefer?: (idea: Idea) => Promise<void>;
+  /** Persist a proposal whose original capture failed, so decisions unlock. */
+  onCapture?: (proposal: ProposedIdea, categoryId: string | null) => Promise<void>;
   onContinue?: (categoryId: string | null) => void;
   onReviewed?: () => void;
 };
@@ -134,10 +136,11 @@ export function IdeaReviewWorkbench({
   onPromote,
   onReject,
   onDefer,
+  onCapture,
   onContinue,
   onReviewed,
 }: IdeaReviewWorkbenchProps) {
-  const [busyAction, setBusyAction] = useState<"promote" | "reject" | "defer" | null>(null);
+  const [busyAction, setBusyAction] = useState<"promote" | "reject" | "defer" | "capture" | null>(null);
   const isRunning = status === "running" || status === "pending";
   const linkedIdeas = useMemo(
     () => proposals.map((proposal) => findPersistedIdea(proposal, ideas)),
@@ -182,6 +185,17 @@ export function IdeaReviewWorkbench({
       setBusyAction(null);
     }
   };
+  // Recovery path: the proposal streamed in but its capture never persisted
+  // (e.g. the propose_ideas tool call failed), so no decisions can bind.
+  const runCapture = async () => {
+    if (!proposal || !onCapture) return;
+    setBusyAction("capture");
+    try {
+      await onCapture(proposal, categoryId);
+    } finally {
+      setBusyAction(null);
+    }
+  };
 
   const headerActions = (
     <button className="btn-icon" type="button" title={readOnly ? "Close idea history" : "Minimize idea review"} onClick={onMinimize}>
@@ -208,6 +222,18 @@ export function IdeaReviewWorkbench({
           </button>
           <button className="btn btn-sm btn-primary" type="button" title={`Create and prepare an OpenSpec plan for ${proposal?.title ?? "this idea"}`} disabled={busyAction !== null} onClick={() => void runAction("promote")}>
             {busyAction === "promote" ? <Loader2 size={12} className="is-spinning" /> : <Rocket size={12} />} {busyAction === "promote" ? "Preparing…" : "Make plan"}
+          </button>
+        </div>
+      ) : !isRunning && !readOnly && !idea && proposal && onCapture ? (
+        <div className="idea-review-actions" aria-label="Idea recovery actions">
+          <button
+            className="btn btn-sm btn-primary"
+            type="button"
+            title={`This proposal was not saved to the idea catalog (its capture failed). Save "${proposal.title}" to unlock Make plan / Pass / Defer.`}
+            disabled={busyAction !== null}
+            onClick={() => void runCapture()}
+          >
+            {busyAction === "capture" ? <Loader2 size={12} className="is-spinning" /> : <Lightbulb size={12} />} {busyAction === "capture" ? "Saving…" : "Save to ideas"}
           </button>
         </div>
       ) : allReviewed && showContinue ? (
@@ -247,6 +273,11 @@ export function IdeaReviewWorkbench({
             grounding={idea?.grounding ?? proposal.grounding}
             anchor={idea?.anchor ?? proposal.anchor}
           />
+          {!isRunning && !readOnly && !idea ? (
+            <p className="text-sm text-muted" title="The propose_ideas capture failed, so this option has no saved idea record yet.">
+              Not saved to the idea catalog yet — use Save to ideas below to unlock decisions.
+            </p>
+          ) : null}
           {projectPath && idea?.assessment ? (
             <ExecutionAdvisorCard projectPath={projectPath} ideaId={idea.id} />
           ) : null}

@@ -174,6 +174,11 @@ impl ProviderClient for DevinClient {
                 {
                     existing
                 } else {
+                    if !delta.name.is_empty() {
+                        // Announce the tool once so the UI can label the
+                        // argument stream ("Writing propose_ideas…").
+                        emit(&delta.name, "tool_call_name");
+                    }
                     tool_calls.push(ToolCallRequest {
                         id: id.clone(),
                         name: delta.name.clone(),
@@ -182,6 +187,9 @@ impl ProviderClient for DevinClient {
                     tool_calls.last_mut().expect("tool call was just inserted")
                 };
                 if !delta.name.is_empty() {
+                    if call.name.is_empty() {
+                        emit(&delta.name, "tool_call_name");
+                    }
                     call.name = delta.name;
                 }
                 if !delta.arguments.is_empty() {

@@ -22,7 +22,7 @@ import { ChatHeader, BranchDropdown } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
 import { QuestionCard } from "./QuestionCard";
 import { InteractionWorkbench } from "./InteractionWorkbench";
-import { IdeaBatchPreview, IdeaReviewWorkbench, parseIdeaBatch, type ParsedIdeaBatch } from "./IdeaReviewWorkbench";
+import { IdeaBatchPreview, IdeaReviewWorkbench, parseIdeaBatch, type ParsedIdeaBatch, type ProposedIdea } from "./IdeaReviewWorkbench";
 import { MarkdownView } from "./MarkdownView";
 import {
   AlertCircle,
@@ -90,7 +90,7 @@ import { resolveToolApproval } from "../../lib/native-chat";
 import { buildChatTimeline, type LiveSegment } from "../../lib/chatTimeline";
 import { useIdeaState } from "../../state/ideas";
 import { setLastGrounding } from "../../state/grounding";
-import type { Idea } from "../../lib/ideas";
+import { createIdea, type Idea } from "../../lib/ideas";
 import { inspectProjectSchematic, type SchematicReport } from "../../lib/schematic";
 import { schematicWizardAction } from "../../lib/planningActions";
 import { readSkill } from "../../lib/skills";
@@ -493,6 +493,14 @@ export function ChatPanel({
   const [lastToolKind, setLastToolKind] = useState("");
   const [stalled, setStalled] = useState(false);
   const [toolAgoSeconds, setToolAgoSeconds] = useState(0);
+  // Live tool-call argument stream: providers emit tool-call JSON on a
+  // hidden channel, so a large payload (an eight-idea propose_ideas batch)
+  // used to freeze the transcript for a minute with only a blinking cursor.
+  const [toolCallChars, setToolCallChars] = useState(0);
+  const [pendingToolName, setPendingToolName] = useState<string | null>(null);
+  // Seconds since ANY streamed delta (content/reasoning/tool_call) arrived.
+  // Powers the "provider is quiet" hint outside the tools phase.
+  const [quietSeconds, setQuietSeconds] = useState(0);
   const [isScrolledUp, setIsScrolledUp] = useState(false);
   const followLatestRef = useRef(true);
   const [showSearch, setShowSearch] = useState(false);
@@ -506,6 +514,8 @@ export function ChatPanel({
   const lastToolEventTimeRef = useRef(0);
   const streamBufRef = useRef("");
   const reasoningBufRef = useRef("");
+  const toolCallCharsRef = useRef(0);
+  const lastDeltaAtRef = useRef(0);
   // Idea turns can start immediately after a new chat binds. Await both
   // subscriptions before invoking the backend so the first thinking/tool
   // events cannot race ahead of the webview listeners.
@@ -858,6 +868,7 @@ export function ChatPanel({
         renderFrame = null;
         setStreamText(streamBufRef.current);
         setReasoningText(reasoningBufRef.current);
+        setToolCallChars(toolCallCharsRef.current);
       });
     };
     const unlisten = listen<{ sessionId: string; delta: string; channel?: string }>(
@@ -895,15 +906,32 @@ export function ChatPanel({
             reasoningBufRef.current = "";
             setStreamText("");
             setReasoningText("");
+            toolCallCharsRef.current = 0;
+            setToolCallChars(0);
+            setPendingToolName(null);
             setStreamPhase(phase === "tools" ? "tools" : "thinking");
           }
           return;
         }
         // Tool-call argument fragments are raw JSON — don't pollute the
-        // content stream. They render as tool cards via the tool-event
-        // channel instead.
-        if (channel === "tool_call") return;
+        // content stream (they render as tool cards via the tool-event
+        // channel), but do surface progress: a large payload can stream for
+        // a minute with no content deltas at all.
+        if (channel === "tool_call") {
+          lastDeltaAtRef.current = Date.now();
+          toolCallCharsRef.current += event.payload.delta.length;
+          scheduleStreamRender();
+          return;
+        }
+        // One-shot announcement of the tool being written, emitted when the
+        // provider names the tool-call slot.
+        if (channel === "tool_call_name") {
+          lastDeltaAtRef.current = Date.now();
+          setPendingToolName(event.payload.delta);
+          return;
+        }
         if (channel === "reasoning") {
+          lastDeltaAtRef.current = Date.now();
           reasoningBufRef.current += event.payload.delta;
           scheduleStreamRender();
           return;
@@ -913,6 +941,7 @@ export function ChatPanel({
         // must never leak into the transcript — the debug listener captures
         // every channel when debug mode is on.
         if (channel !== "content") return;
+        lastDeltaAtRef.current = Date.now();
         streamBufRef.current += event.payload.delta;
         scheduleStreamRender();
         setStreamPhase("streaming");
@@ -1269,6 +1298,11 @@ export function ChatPanel({
         setLastToolEventTime(0);
         setLastToolKind("");
         lastToolEventTimeRef.current = 0;
+        toolCallCharsRef.current = 0;
+        setToolCallChars(0);
+        setPendingToolName(null);
+        lastDeltaAtRef.current = Date.now();
+        setQuietSeconds(0);
         setStreaming(true);
         streamStartRef.current = Date.now();
         setElapsed(0);
@@ -1341,6 +1375,9 @@ export function ChatPanel({
             streamStartRef.current = null;
             streamBufRef.current = "";
             reasoningBufRef.current = "";
+            toolCallCharsRef.current = 0;
+            setToolCallChars(0);
+            setPendingToolName(null);
             setLoading(false);
           } else if (activeSendRef.current === gen + 1 && nativeSessionId) {
             // Stopped by the user, no newer send yet — reflect whatever the
@@ -1573,6 +1610,7 @@ export function ChatPanel({
     if (!streaming) {
       setStalled(false);
       setToolAgoSeconds(0);
+      setQuietSeconds(0);
       return;
     }
     const interval = window.setInterval(() => {
@@ -1584,6 +1622,14 @@ export function ChatPanel({
       } else {
         setStalled(false);
         setToolAgoSeconds(0);
+      }
+      // Quiet-provider detection outside the tools phase: deltas of every
+      // channel bump lastDeltaAtRef, so a rising count means true silence.
+      const lastDelta = lastDeltaAtRef.current;
+      if (streamPhase !== "tools" && lastDelta > 0) {
+        setQuietSeconds(Math.floor((Date.now() - lastDelta) / 1000));
+      } else {
+        setQuietSeconds(0);
       }
     }, 1000);
     return () => window.clearInterval(interval);
@@ -2182,6 +2228,11 @@ export function ChatPanel({
     setLastToolEventTime(0);
     setLastToolKind("");
     lastToolEventTimeRef.current = 0;
+    toolCallCharsRef.current = 0;
+    setToolCallChars(0);
+    setPendingToolName(null);
+    lastDeltaAtRef.current = Date.now();
+    setQuietSeconds(0);
     setStreaming(true);
     streamStartRef.current = Date.now();
     setElapsed(0);
@@ -2249,6 +2300,9 @@ export function ChatPanel({
         streamStartRef.current = null;
         streamBufRef.current = "";
         reasoningBufRef.current = "";
+        toolCallCharsRef.current = 0;
+        setToolCallChars(0);
+        setPendingToolName(null);
       }
       setGeneratingIdeas(false);
     }
@@ -2304,6 +2358,38 @@ export function ChatPanel({
       }
     },
     [ideaState, onShowToast],
+  );
+  // Recovery for proposals whose original propose_ideas capture failed:
+  // persist them into the planning session so decisions unlock. The batch
+  // category is only forwarded when it still exists — a stale category id is
+  // one of the ways the original capture can fail.
+  const handleCaptureProposal = useCallback(
+    async (proposal: ProposedIdea, categoryId: string | null) => {
+      try {
+        if (!activeSessionId) {
+          throw new Error("Open a project session to save ideas.");
+        }
+        const validCategory = categoryId && ideaState.categories.some((cat) => cat.id === categoryId)
+          ? categoryId
+          : undefined;
+        await createIdea(
+          activeSessionId,
+          proposal.title,
+          proposal.description,
+          validCategory,
+          proposal.grounding,
+          proposal.anchor,
+        );
+        await ideaState.refresh();
+        onShowToast?.("Idea saved", proposal.title, "info");
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        addLog("error", "Failed to save proposal to ideas", message);
+        onShowToast?.("Could not save idea", message, "error");
+        throw e;
+      }
+    },
+    [activeSessionId, ideaState, addLog, onShowToast],
   );
   // ── Chat header handlers ──
   const handleRename = useCallback((title: string) => {
@@ -2660,9 +2746,41 @@ export function ChatPanel({
             <div className="chat-message-content"><MarkdownView text={streamText} />{streaming ? <span className="chat-cursor" /> : null}</div>
           </div>
         ) : null}
+        {/* Provider is writing a tool call — its JSON streams on a hidden
+            channel, so without this row the transcript freezes mid-turn. */}
+        {streaming && streamPhase !== "tools" && toolCallChars > 0 ? (
+          <div
+            className="chat-loading chat-loading-active"
+            title={`The model is writing a ${pendingToolName ? pendingToolName.replace(/_/g, " ") : "tool"} call (${(toolCallChars / 1024).toFixed(1)} KB streamed). It appears as a tool card when complete.`}
+          >
+            <LogoPulse size={14} className="chat-loading-spinner" />
+            <span className="chat-loading-label">
+              Writing {pendingToolName ? pendingToolName.replace(/_/g, " ") : "tool call"}…
+            </span>
+            <span className="chat-loading-count" title={`${(toolCallChars / 1024).toFixed(1)} KB of tool arguments streamed`}>
+              {(toolCallChars / 1024).toFixed(1)} KB
+            </span>
+            <span className="chat-elapsed-badge" title={`Phase: ${formatElapsed(phaseElapsed)}`}>{formatElapsed(phaseElapsed)}</span>
+          </div>
+        ) : null}
+
+        {/* Quiet-provider hint: streaming but nothing arrived for 30s+. */}
+        {streaming && streamPhase !== "tools" && quietSeconds >= 30 ? (
+          <div className="chat-loading" title={`No streamed output for ${quietSeconds}s. The provider may be slow; keep waiting or stop the turn.`}>
+            <span className="chat-loading-label">Still waiting — no output for {quietSeconds}s…</span>
+            <button
+              className="chat-tool-stalled-cancel"
+              type="button"
+              title="Stop the current turn"
+              onClick={() => void handleStopNative()}
+            >
+              Stop
+            </button>
+          </div>
+        ) : null}
 
         {/* Waiting for first token with elapsed timer */}
-        {streaming && streamPhase === "thinking" && !streamText && !reasoningText ? (
+        {streaming && streamPhase === "thinking" && !streamText && !reasoningText && toolCallChars === 0 ? (
           <div className="chat-message chat-thinking-indicator" title={`Waiting for the model to start responding (${formatElapsed(phaseElapsed)})`}>
             <span className="chat-message-role">
               {selectedModel?.label ?? modelId}
@@ -3690,6 +3808,7 @@ export function ChatPanel({
                 onPromote={handlePromoteIdea}
                 onReject={handleRejectIdea}
                 onDefer={handleDeferIdea}
+                onCapture={handleCaptureProposal}
                 onContinue={(categoryId) => {
                   minimizedIdeaBatchIdsRef.current.add(focusedIdeaBatch.event.id);
                   setFocusedIdeaBatchId(null);

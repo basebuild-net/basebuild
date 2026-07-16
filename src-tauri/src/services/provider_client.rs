@@ -859,6 +859,11 @@ impl OpenAiStreamState {
                 }
                 if let Some(func) = call.get("function") {
                     if let Some(name) = func.get("name").and_then(Value::as_str) {
+                        if slot.name.is_empty() && !name.is_empty() {
+                            // Announce the tool once so the UI can label the
+                            // argument stream ("Writing propose_ideas…").
+                            emit(name, "tool_call_name");
+                        }
                         slot.name = name.to_string();
                     }
                     if let Some(args) = func.get("arguments").and_then(Value::as_str) {
@@ -1104,6 +1109,11 @@ impl AnthropicStreamState {
                             .to_string();
                         while self.tool_calls.len() <= idx {
                             self.tool_calls.push(ToolCallRequest::default());
+                        }
+                        if !name.is_empty() {
+                            // Announce the tool once so the UI can label the
+                            // argument stream ("Writing propose_ideas…").
+                            emit(&name, "tool_call_name");
                         }
                         self.tool_calls[idx] = ToolCallRequest {
                             id,

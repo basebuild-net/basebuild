@@ -909,6 +909,49 @@ fn execute_propose_ideas(session_id: &str, call: &ToolCallRequest) -> ToolResult
         .get("categoryId")
         .and_then(Value::as_str)
         .map(str::to_string);
+    // Guided idea rounds pass a planning-session id, but a plain chat message
+    // runs with the native-chat id, which is not a `sessions` row (the
+    // ideas.session_id FK target). Resolve native-chat ids to the project's
+    // planning session so "give me more ideas" typed in chat persists instead
+    // of failing with an opaque FOREIGN KEY error.
+    let capture_session_id = match resolve_idea_capture_session(session_id) {
+        Ok(id) => id,
+        Err(error) => return ToolResult::failure(error),
+    };
+    // Validate the category reference upfront: a stale or hallucinated id
+    // otherwise fails at INSERT time with "FOREIGN KEY constraint failed",
+    // which gives the model nothing to repair.
+    if let Some(requested) = category_id.as_deref() {
+        let project_path =
+            crate::services::session_service::SessionService::get(&capture_session_id)
+                .ok()
+                .flatten()
+                .map(|session| session.project_path)
+                .unwrap_or_default();
+        let categories =
+            match crate::services::session_service::SessionService::list_categories_for_project(
+                &project_path,
+            ) {
+                Ok(categories) => categories,
+                Err(error) => return ToolResult::failure(error),
+            };
+        if !categories.iter().any(|category| category.id == requested) {
+            let valid = categories
+                .iter()
+                .map(|category| format!("'{}' ({})", category.id, category.name))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return ToolResult::failure(if valid.is_empty() {
+                format!(
+                    "propose_ideas categoryId '{requested}' does not exist. This project has no categories yet; omit categoryId to capture uncategorized ideas."
+                )
+            } else {
+                format!(
+                    "propose_ideas categoryId '{requested}' does not exist. Valid ids: {valid}. Omit categoryId to capture uncategorized ideas."
+                )
+            });
+        }
+    }
     let batch_id = crate::services::idea_round_service::IdeaRoundService::active_round(session_id);
 
     struct ValidatedIdea {
@@ -996,7 +1039,7 @@ fn execute_propose_ideas(session_id: &str, call: &ToolCallRequest) -> ToolResult
     let mut captured = 0usize;
     for idea in validated {
         match crate::services::session_service::SessionService::create_idea(
-            session_id,
+            &capture_session_id,
             &idea.title,
             &idea.description,
             category_id.as_deref(),
@@ -1014,6 +1057,27 @@ fn execute_propose_ideas(session_id: &str, call: &ToolCallRequest) -> ToolResult
         }
     }
     ToolResult::success(format!("Captured {captured} assessed idea(s)."))
+}
+/// Resolve the session that owns propose_ideas captures. Planning-session ids
+/// pass through; native-chat ids map to the newest planning session of the
+/// chat's project (created on demand) because `ideas.session_id` references
+/// `sessions(id)`, not `native_chat_sessions(id)`.
+fn resolve_idea_capture_session(session_id: &str) -> Result<String, String> {
+    use crate::services::session_service::SessionService;
+    if SessionService::get(session_id)?.is_some() {
+        return Ok(session_id.to_string());
+    }
+    let chat = crate::services::native_chat_service::NativeChatService::get_session(session_id)?
+        .ok_or_else(|| {
+            format!("propose_ideas: session '{session_id}' does not exist in this workspace.")
+        })?;
+    if let Some(existing) = SessionService::list_sessions(&chat.project_path)?
+        .into_iter()
+        .next()
+    {
+        return Ok(existing.id);
+    }
+    SessionService::create_session(&chat.project_path, "Planning").map(|session| session.id)
 }
 
 /// Intercept the ask_user tool: parse questions, persist a pending
@@ -1645,5 +1709,100 @@ mod tests {
         assert_eq!(assessment.effort.min_hours, 2);
         assert_eq!(assessment.effort.max_hours, 5);
         assert_eq!(assessment.impact, 4);
+    }
+    /// Reproduces the observed failure: a plain "give me more ideas" chat
+    /// message runs the agent loop with the native-chat id, which is not a
+    /// `sessions` row, so idea INSERTs hit the ideas.session_id FK. The
+    /// intercept must map the native-chat id to the project's planning
+    /// session instead of failing with an opaque FOREIGN KEY error.
+    #[test]
+    fn propose_ideas_maps_native_chat_id_to_project_planning_session() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        let planning = crate::services::session_service::SessionService::create_session(
+            "/test/nchat-capture",
+            "Planning",
+        )
+        .unwrap();
+        let conn = crate::services::storage_service::StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO native_chat_sessions (id, project_path, title, profile_id, provider_id, model_id, effort_level, status, created_at, updated_at)
+             VALUES ('nchat-capture', '/test/nchat-capture', 'Chat', 'basebuild-native', 'anthropic', 'claude', 'high', 'ready', 0, 0)",
+            [],
+        )
+        .unwrap();
+        let call = ToolCallRequest {
+            id: "call-nchat-capture".to_string(),
+            name: "propose_ideas".to_string(),
+            arguments: json!({
+                "ideas": [{
+                    "title": "Improve routing",
+                    "description": "Choose a compatible route.",
+                    "grounding": "src/service.rs::run",
+                    "assessment": valid_idea_assessment()
+                }]
+            })
+            .to_string(),
+        };
+
+        let result = execute_propose_ideas("nchat-capture", &call);
+
+        assert_eq!(result.status, "succeeded", "content: {}", result.content);
+        let ideas =
+            crate::services::session_service::SessionService::list_ideas(&planning.id).unwrap();
+        assert_eq!(
+            ideas.len(),
+            1,
+            "the capture must land in the project's planning session"
+        );
+    }
+
+    /// A stale or hallucinated categoryId used to surface as a raw
+    /// "FOREIGN KEY constraint failed" from the INSERT. The intercept must
+    /// reject it upfront with a repairable message and persist nothing.
+    #[test]
+    fn propose_ideas_rejects_unknown_category_before_persisting() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        let session = crate::services::session_service::SessionService::create_session(
+            "/test/bad-category",
+            "Planning",
+        )
+        .unwrap();
+        let category = crate::services::session_service::SessionService::create_category(
+            &session.id,
+            "Simpler UX",
+            "UX simplification",
+        )
+        .unwrap();
+        let call = ToolCallRequest {
+            id: "call-bad-category".to_string(),
+            name: "propose_ideas".to_string(),
+            arguments: json!({
+                "categoryId": "cat-stale",
+                "ideas": [{
+                    "title": "Improve routing",
+                    "description": "Choose a compatible route.",
+                    "grounding": "src/service.rs::run",
+                    "assessment": valid_idea_assessment()
+                }]
+            })
+            .to_string(),
+        };
+
+        let result = execute_propose_ideas(&session.id, &call);
+
+        assert_eq!(result.status, "failed");
+        assert!(
+            result.content.contains("'cat-stale'") && result.content.contains(&category.id),
+            "error must name the invalid id and the valid ones: {}",
+            result.content
+        );
+        assert!(
+            crate::services::session_service::SessionService::list_ideas(&session.id)
+                .unwrap()
+                .is_empty(),
+            "category validation failure must not leave a partial batch"
+        );
     }
 }
