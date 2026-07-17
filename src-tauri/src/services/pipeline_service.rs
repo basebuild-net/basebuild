@@ -94,6 +94,27 @@ impl PipelineService {
             ));
         }
 
+        // A generate_openspec run gets a dedicated native chat session so the
+        // user can open the background agent and watch each artifact stream
+        // in. Best-effort: a provisioning failure degrades to a chat-less run
+        // instead of blocking generation.
+        let mut request = request;
+        if kind == PipelineStageKind::GenerateOpenspec && request.chat_session_id.is_none() {
+            let plan = request.plan_id.as_deref().and_then(|id| {
+                crate::services::plan_service::PlanService::get(id)
+                    .ok()
+                    .flatten()
+            });
+            if let Some(plan) = plan {
+                match NativeChatService::create_session_for_openspec_generation(&plan) {
+                    Ok(chat) => request.chat_session_id = Some(chat.id),
+                    Err(e) => {
+                        eprintln!("[pipeline] OpenSpec chat session provisioning failed: {e}");
+                    }
+                }
+            }
+        }
+
         // Record the run row as pending.
         let run_id = gen_id();
         let created = now();
@@ -151,6 +172,8 @@ impl PipelineService {
             map.remove(&run_id);
         }
 
+        let failure = result.as_ref().err().cloned();
+
         // Check cancellation first — a cancelled run that also errored is
         // recorded as cancelled (the user's intent), not failed.
         if token.is_cancelled() {
@@ -188,6 +211,23 @@ impl PipelineService {
                     )?;
                 }
             }
+        }
+
+        // Settle the bound chat session: record the terminal outcome as an
+        // assistant message and clear the live-run indicator so the chat
+        // panel stops showing a phantom thinking state.
+        if let Some(chat_id) = request.chat_session_id.as_deref() {
+            let note = if token.is_cancelled() {
+                Some("OpenSpec generation was cancelled.".to_string())
+            } else {
+                failure.map(|e| format!("**OpenSpec generation failed.**\n\n{e}"))
+            };
+            if let Some(note) = note {
+                let _ = NativeChatService::insert_message(
+                    chat_id, "assistant", &note, None, None, None, None,
+                );
+            }
+            let _ = NativeChatService::set_session_run_state(chat_id, "idle");
         }
 
         Self::get_run(&run_id)?.ok_or_else(|| "Pipeline run not found after completion".to_string())
@@ -647,34 +687,90 @@ impl PipelineService {
         let schematic = Self::load_schematic(&request.project_path);
         let system = NativeChatService::system_prompt(&request.project_path, schematic.as_deref());
 
+        // When the run is bound to a chat session, stream deltas there on the
+        // content channel (the chat panel renders them live) and persist each
+        // artifact as an assistant message so the transcript survives reload.
+        let chat_id = request.chat_session_id.as_deref();
+        let stream_session: &str = chat_id.unwrap_or(&request.session_id);
+
         // Derive a unique change name.
         let change_name = crate::services::openspec_service::resolve_unique_change_name(
             &request.project_path,
             &plan.title,
         );
 
+        // Prerequisite context: artifacts must acknowledge upstream plans so
+        // the generated proposal/design/tasks build on prerequisite outputs
+        // instead of re-planning their scope.
+        let prereq_context =
+            crate::services::plan_dependency_service::PlanDependencyService::get_dependencies(
+                plan_id,
+            )
+            .map(|deps| deps.prerequisites)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|id| {
+                crate::services::plan_service::PlanService::get(id)
+                    .ok()
+                    .flatten()
+            })
+            .map(|p| format!("{} (status: {})", p.title, p.status.as_str()))
+            .collect::<Vec<_>>()
+            .join("; ");
+        let prereq_context = if prereq_context.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\n\nPrerequisite plans (planned separately and guaranteed to finish before this \
+                 plan runs — treat their outputs as available, do NOT re-plan their scope): \
+                 {prereq_context}"
+            )
+        };
+
+        // Generate each artifact with the same model. When chat-bound, a
+        // status boundary is emitted before each artifact so the chat panel
+        // promotes the previous stream into its own completed segment.
+        let generate = |heading: &str, prompt: String, channel: &str| -> DbResult<String> {
+            if let Some(chat) = chat_id {
+                Self::emit_status(app, chat, run_id, "next");
+            }
+            let content = Self::call_model(
+                app,
+                stream_session,
+                run_id,
+                token,
+                &provider_id,
+                &model_id,
+                &effort_level,
+                system.clone(),
+                prompt,
+                if chat_id.is_some() { "content" } else { channel },
+            )?;
+            if let Some(chat) = chat_id {
+                let _ = NativeChatService::insert_message(
+                    chat,
+                    "assistant",
+                    &format!("## {heading}\n\n{content}"),
+                    None,
+                    Some(&provider_id),
+                    Some(&model_id),
+                    Some(&effort_level),
+                );
+            }
+            Ok(content)
+        };
+
         // Generate proposal.md
         let proposal_prompt = format!(
             "Generate an OpenSpec proposal for the following plan. The proposal should include \
              '## Why', '## What Changes', '## Capabilities' (### New Capabilities and ### \
              Modified Capabilities), and '## Impact' sections.\nRespond with ONLY the markdown \
-             content, no code fences.\n\nPlan title: {}\nDescription: {}\nGoal: {}",
+             content, no code fences.\n\nPlan title: {}\nDescription: {}\nGoal: {}{prereq_context}",
             plan.title,
             plan.description,
             plan.goal.as_deref().unwrap_or("Not specified"),
         );
-        let proposal = Self::call_model(
-            app,
-            &request.session_id,
-            run_id,
-            token,
-            &provider_id,
-            &model_id,
-            &effort_level,
-            system.clone(),
-            proposal_prompt,
-            "openspec-proposal",
-        )?;
+        let proposal = generate("Proposal", proposal_prompt, "openspec-proposal")?;
 
         // Generate specs (single capability spec for now).
         let spec_prompt = format!(
@@ -684,18 +780,7 @@ impl PipelineService {
              markdown content, no code fences.\n\nPlan: {} — {}",
             plan.title, plan.description,
         );
-        let spec_content = Self::call_model(
-            app,
-            &request.session_id,
-            run_id,
-            token,
-            &provider_id,
-            &model_id,
-            &effort_level,
-            system.clone(),
-            spec_prompt,
-            "openspec-specs",
-        )?;
+        let spec_content = generate("Spec", spec_prompt, "openspec-specs")?;
         let capability_name = crate::services::openspec_service::derive_change_name(&plan.title);
         let specs = vec![(capability_name, spec_content)];
 
@@ -703,42 +788,20 @@ impl PipelineService {
         let design_prompt = format!(
             "Generate a design document for this plan. Include '## Context', '## Goals / \
              Non-Goals', '## Decisions', and '## Risks / Trade-offs' sections.\nRespond with ONLY \
-             the markdown content, no code fences.\n\nPlan: {} — {}",
+             the markdown content, no code fences.\n\nPlan: {} — {}{prereq_context}",
             plan.title, plan.description,
         );
-        let design = Self::call_model(
-            app,
-            &request.session_id,
-            run_id,
-            token,
-            &provider_id,
-            &model_id,
-            &effort_level,
-            system.clone(),
-            design_prompt,
-            "openspec-design",
-        )?;
+        let design = generate("Design", design_prompt, "openspec-design")?;
 
         // Generate tasks.md
         let tasks_prompt = format!(
             "Generate a tasks.md checklist for this plan. Group tasks into numbered phases with \
              '## N. Phase Name' headings. Each task is a checkbox: '- [ ] N.M Task \
              description'.\nRespond with ONLY the markdown content, no code fences.\n\nPlan: {} — \
-             {}",
+             {}{prereq_context}",
             plan.title, plan.description,
         );
-        let tasks = Self::call_model(
-            app,
-            &request.session_id,
-            run_id,
-            token,
-            &provider_id,
-            &model_id,
-            &effort_level,
-            system,
-            tasks_prompt,
-            "openspec-tasks",
-        )?;
+        let tasks = generate("Tasks", tasks_prompt, "openspec-tasks")?;
 
         // Write artifacts atomically.
         crate::services::openspec_service::write_artifacts_atomic(
@@ -798,22 +861,12 @@ impl PipelineService {
                 .map(|(_, content)| content.as_str())
                 .unwrap_or("")
         );
-        let assessment_response = Self::call_model(
-            app,
-            &request.session_id,
-            run_id,
-            token,
-            &provider_id,
-            &model_id,
-            &effort_level,
-            NativeChatService::system_prompt(&request.project_path, schematic.as_deref()),
-            assessment_prompt,
-            "openspec-assessment",
-        )?;
-        let generated: GeneratedPlanAssessment = serde_json::from_str(assessment_response.trim())
-            .map_err(|error| {
-            format!("Plan assessment returned invalid JSON ({error}); artifacts remain draft.")
-        })?;
+        let assessment_response =
+            generate("Assessment", assessment_prompt, "openspec-assessment")?;
+        let generated: GeneratedPlanAssessment =
+            serde_json::from_str(extract_json_object(&assessment_response)).map_err(|error| {
+                format!("Plan assessment returned invalid JSON ({error}); artifacts remain draft.")
+            })?;
         generated
             .implementation
             .validate()
@@ -882,6 +935,25 @@ impl PipelineService {
         // Link the plan to the change.
         crate::services::openspec_service::link_plan_to_change(&plan.id, &change_name)?;
 
+        // Chat-bound runs get a final summary message so the transcript ends
+        // with the outcome instead of the raw assessment JSON.
+        if let Some(chat) = chat_id {
+            let _ = NativeChatService::insert_message(
+                chat,
+                "assistant",
+                &format!(
+                    "**OpenSpec change `{change_name}` created** — {task_count} task(s) across \
+                     proposal.md, specs/, design.md, and tasks.md under \
+                     `openspec/changes/{change_name}/`. The plan is linked to this change and \
+                     its assessment is saved."
+                ),
+                None,
+                Some(&provider_id),
+                Some(&model_id),
+                Some(&effort_level),
+            );
+        }
+
         Ok(vec![change_name])
     }
 
@@ -922,6 +994,21 @@ impl PipelineService {
         } else {
             convo
         }
+    }
+
+    /// Emit a status-phase chunk on the native chat channel. The chat panel
+    /// promotes buffered stream text into a completed live segment on
+    /// "next", so each pipeline artifact renders as its own block.
+    fn emit_status<R: Runtime>(app: &AppHandle<R>, session_id: &str, run_id: &str, phase: &str) {
+        let _ = app.emit(
+            NATIVE_CHAT_CHUNK,
+            serde_json::json!({
+                "sessionId": session_id,
+                "runId": run_id,
+                "delta": phase,
+                "channel": "status",
+            }),
+        );
     }
 
     /// Call the model with streaming, checking the cancellation token between
@@ -1001,6 +1088,25 @@ impl PipelineService {
             return Err("Cancelled by user".to_string());
         }
         Ok(response.content)
+    }
+}
+
+/// Extract the outermost JSON object from a model response. Models routinely
+/// wrap "ONLY JSON" answers in a ```json fence or a prose preamble; strict
+/// parsing of the raw response then fails at line 1 column 1. Fences are
+/// stripped first, then the span from the first `{` to the last `}` is taken.
+fn extract_json_object(response: &str) -> &str {
+    let trimmed = response.trim();
+    let unfenced = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```JSON"))
+        .or_else(|| trimmed.strip_prefix("```"))
+        .and_then(|rest| rest.trim_end().strip_suffix("```"))
+        .map(str::trim)
+        .unwrap_or(trimmed);
+    match (unfenced.find('{'), unfenced.rfind('}')) {
+        (Some(start), Some(end)) if start < end => &unfenced[start..=end],
+        _ => unfenced,
     }
 }
 
@@ -1416,5 +1522,30 @@ mod tests {
         let result = PipelineService::list_runs("no-such-session");
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn extract_json_object_passes_plain_json_through() {
+        assert_eq!(extract_json_object(r#"{"a":1}"#), r#"{"a":1}"#);
+        assert_eq!(extract_json_object("  {\"a\":1}\n"), "{\"a\":1}");
+    }
+
+    #[test]
+    fn extract_json_object_strips_markdown_fences() {
+        assert_eq!(extract_json_object("```json\n{\"a\":1}\n```"), "{\"a\":1}");
+        assert_eq!(extract_json_object("```\n{\"a\":1}\n```"), "{\"a\":1}");
+    }
+
+    #[test]
+    fn extract_json_object_takes_outermost_braces_from_prose() {
+        assert_eq!(
+            extract_json_object("Here is the assessment:\n{\"a\":{\"b\":2}}\nDone."),
+            "{\"a\":{\"b\":2}}"
+        );
+    }
+
+    #[test]
+    fn extract_json_object_returns_input_when_no_object_found() {
+        assert_eq!(extract_json_object("no json here"), "no json here");
     }
 }

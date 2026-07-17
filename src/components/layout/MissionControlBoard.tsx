@@ -193,20 +193,31 @@ export function MissionControlBoard({ sessionId, projectPath, plans, chatPanels,
                   ) : null}
                 </div>
                 {progress ? (
-                  <div className="mission-card-progress" title={`${progress.completed}/${progress.total} tasks`}>
+                  <div className="mission-card-progress" title={`${progress.completed}/${progress.total} tasks (${pct}%)`}>
                     <div className="mission-card-progress-bar">
                       <div className="mission-card-progress-fill" style={{ width: `${pct}%` }} />
                     </div>
                     <span className="mission-card-progress-label">{progress.completed}/{progress.total}</span>
+                    {progress.total > 0 ? (
+                      <span className="mission-card-progress-pct" title={`${pct}% of tasks complete`}>{pct}%</span>
+                    ) : null}
                   </div>
                 ) : null}
                 <div className="mission-card-timing">
+                  {run.startedAt ? (
+                    <span
+                      className="mission-card-started"
+                      title={`Started ${new Date(run.startedAt * 1000).toLocaleString()}`}
+                    >
+                      started {new Date(run.startedAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  ) : null}
                   {elapsedMs !== null ? (
                     <span title={run.finishedAt ? "Actual duration" : "Elapsed"}>{formatElapsedMs(elapsedMs)}</span>
                   ) : null}
                   {eta ? (
                     eta.kind === "estimate" ? (
-                      <span className="mission-card-eta" title="Estimate from observed task velocity — display only">{eta.label}</span>
+                      <span className="mission-card-eta" title="Expected time until finished — estimated from observed task velocity, display only">{eta.label}</span>
                     ) : eta.kind === "estimating" ? (
                       <span className="mission-card-eta text-muted" title="No task ticks observed yet">estimating…</span>
                     ) : null

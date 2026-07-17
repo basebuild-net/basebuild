@@ -3223,6 +3223,8 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .mission-card-progress-bar { flex: 1; height: 4px; background: var(--bb-surface-high); border: 1px solid var(--bb-border); border-radius: var(--bb-radius-sm); overflow: hidden; }
 .mission-card-progress-fill { height: 100%; background: var(--bb-cta); }
 .mission-card-progress-label { font-family: var(--bb-mono); font-size: 10px; color: var(--bb-muted); }
+.mission-card-progress-pct { font-family: var(--bb-mono); font-size: 10px; font-weight: 600; color: var(--bb-cta); }
+.mission-card-started { color: var(--bb-muted); }
 .mission-card-timing { display: flex; align-items: center; gap: 8px; font-family: var(--bb-mono); font-size: 10px; color: var(--bb-muted); }
 .mission-card-eta { color: var(--bb-cta); }
 .mission-card-attention { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; padding: 2px 6px; font-size: 10px; font-weight: 600; color: var(--bb-warning, #d69e2e); background: transparent; border: 1px solid var(--bb-warning, #d69e2e); border-radius: var(--bb-radius-full); cursor: pointer; }

@@ -665,6 +665,92 @@ impl NativeChatService {
         }
         parts.join("\n\n")
     }
+    /// Provision a native chat session for a background `generate_openspec`
+    /// pipeline run so the user can open the agent and watch each artifact
+    /// stream in. The session is created in the `running` state and primed
+    /// with a system message explaining what is being generated.
+    pub fn create_session_for_openspec_generation(plan: &Plan) -> DbResult<NativeChatSession> {
+        let session = SessionService::get(&plan.session_id)
+            .map_err(|e| format!("Failed to load plan's session: {e}"))?
+            .ok_or_else(|| "Plan's session not found".to_string())?;
+        let project_path = session.project_path;
+
+        let resolved = Self::resolve_model_default(&project_path)?;
+        Self::validate_provider_model(&resolved.provider_id, &resolved.model_id, true)?;
+
+        let title = format!("{} — OpenSpec: {}", plan.reference_id, plan.title);
+        let now = now_seconds();
+        let chat_session = NativeChatSession {
+            id: gen_id("nchat"),
+            project_path: project_path.clone(),
+            title,
+            profile_id: NATIVE_PROFILE_ID.to_string(),
+            provider_id: resolved.provider_id,
+            model_id: resolved.model_id,
+            effort_level: resolved.effort_level,
+            status: "ready".to_string(),
+            run_state: "running".to_string(),
+            created_at: now,
+            updated_at: now,
+        };
+
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO native_chat_sessions (id, project_path, title, profile_id, provider_id, model_id, effort_level, status, run_state, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                chat_session.id,
+                chat_session.project_path,
+                chat_session.title,
+                chat_session.profile_id,
+                chat_session.provider_id,
+                chat_session.model_id,
+                chat_session.effort_level,
+                chat_session.status,
+                chat_session.run_state,
+                chat_session.created_at,
+                chat_session.updated_at,
+            ],
+        )
+        .map_err(|e| format!("Failed to create OpenSpec chat session: {e}"))?;
+
+        let goal = plan
+            .goal
+            .as_ref()
+            .filter(|g| !g.trim().is_empty())
+            .map(|g| format!("**Goal:** {g}\n\n"))
+            .unwrap_or_default();
+        let opening = format!(
+            "# Plan: {}\n{}\n\n{goal}Basebuild is generating OpenSpec artifacts for this plan \
+             (proposal, spec, design, tasks, then an implementation assessment). Each artifact \
+             streams below as it is generated.",
+            plan.title, plan.description,
+        );
+        Self::insert_message(
+            &chat_session.id,
+            "system",
+            &opening,
+            None,
+            Some(&chat_session.provider_id),
+            Some(&chat_session.model_id),
+            Some(&chat_session.effort_level),
+        )?;
+
+        Ok(chat_session)
+    }
+
+    /// Set a session's `run_state` (`running`, `idle`, …). Used by background
+    /// pipeline stages bound to a chat session so the chat panel shows a live
+    /// thinking indicator when opened mid-run and settles when the run ends.
+    pub fn set_session_run_state(session_id: &str, run_state: &str) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "UPDATE native_chat_sessions SET run_state = ?2, updated_at = ?3 WHERE id = ?1",
+            params![session_id, run_state, now_seconds()],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
     pub fn get_session(session_id: &str) -> DbResult<Option<NativeChatSession>> {
         let conn = StorageService::connect()?;
         conn.query_row(

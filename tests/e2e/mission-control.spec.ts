@@ -56,6 +56,8 @@ test.describe("Mission control", () => {
     await expect(card.locator(".mission-card-title")).toHaveText("Board plan");
     await expect(card.locator(".mission-card-state")).toHaveText("Running");
     await expect(card.locator(".mission-card-progress-label")).toHaveText("2/10", { timeout: 10_000 });
+    await expect(card.locator(".mission-card-progress-pct")).toHaveText("20%");
+    await expect(card.locator(".mission-card-started")).toContainText("started");
     await expect(card.locator(".mission-card-worktree")).toContainText("bb-");
     // One observed tick → honest "estimating", never a fabricated number.
     await expect(card.locator(".mission-card-eta")).toContainText("estimating", { timeout: 10_000 });
