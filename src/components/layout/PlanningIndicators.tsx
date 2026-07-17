@@ -151,6 +151,9 @@ export function PlanningIndicators({
   );
   const runningCount = activePlanRuns.length;
   const finishedCount = plans.filter((p) => p.status === "finished").length;
+  const plansCount = plans.filter(
+    (p) => !activePlanIds.has(p.id) && p.status !== "finished" && p.status !== "cancelled",
+  ).length;
   const ideaCount = ideas.filter((i) => i.status === "concept").length;
 
   useEffect(() => {
@@ -165,7 +168,7 @@ export function PlanningIndicators({
   const stages: { key: StageKey; count: number }[] = [
     { key: "schematic", count: schematicHealth === "complete" ? 1 : 0 },
     { key: "ideas", count: ideaCount },
-    { key: "plans", count: plans.length },
+    { key: "plans", count: plansCount },
     { key: "running", count: runningCount },
     { key: "finished", count: finishedCount },
   ];
