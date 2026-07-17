@@ -93,16 +93,17 @@ test.describe("Visual planning command center", () => {
     await dropdown.getByTitle("Save idea changes").click();
     await expect(dropdown.locator(".planning-notification-item-title")).toHaveText("Updated quick menu idea");
 
-    // All row actions live in the shared `…` menu.
+    // All row actions live in the shared `…` menu (portaled to the body).
     await dropdown.getByTitle("More actions for Updated quick menu idea").click();
-    await dropdown.getByRole("button", { name: "Upgrade to plan" }).click();
+    const menu = page.locator(".context-menu-portal");
+    await menu.getByRole("menuitem", { name: "Upgrade to plan" }).click();
     await expect(dropdown.locator(".planning-quick-idea[data-status='picked']")).toHaveCount(1);
     await expect(page.locator(".planning-indicator[data-stage='plans']")).toHaveAttribute("title", /Plans: 1/);
 
     // Delete is a two-step confirm inside the menu.
     await dropdown.getByTitle("More actions for Updated quick menu idea").click();
-    await dropdown.getByRole("button", { name: "Delete idea" }).click();
-    await dropdown.getByRole("button", { name: "Confirm delete" }).click();
+    await menu.getByRole("menuitem", { name: "Delete idea" }).click();
+    await menu.getByRole("menuitem", { name: "Confirm delete" }).click();
     await expect(dropdown.locator(".planning-quick-idea")).toHaveCount(0);
 
     await dropdown.getByRole("button", { name: "Generate more ideas" }).click();

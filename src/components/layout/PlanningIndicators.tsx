@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { ActionMenu, type ActionMenuItem } from "../ActionMenu";
 
 import type { Idea, IdeaCategory, IdeaStatus } from "../../lib/ideas";
 import type { Plan } from "../../lib/plans";
@@ -176,6 +177,9 @@ export function PlanningIndicators({
     const onDown = (e: PointerEvent) => {
       const el = e.target as Element | null;
       if (el && containerRef.current?.contains(el)) return;
+      // Row action menus portal to the body — clicking them (e.g. a two-step
+      // delete confirm) must not close the hosting dropdown.
+      if (el && el.closest?.(".context-menu-portal")) return;
       closeDropdown();
     };
     const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") closeDropdown(); };
@@ -397,18 +401,7 @@ function SchematicItems({
 // ─── Shared dropdown row ─────────────────────────────────────────────────────
 
 /** One entry in a planning dropdown row's `…` menu. */
-type PlanningDropdownMenuItem = {
-  key: string;
-  label: string;
-  title: string;
-  icon?: ReactNode;
-  danger?: boolean;
-  disabled?: boolean;
-  busy?: boolean;
-  /** Keep the menu open after selection (two-step delete confirms). */
-  keepOpen?: boolean;
-  onSelect: () => void;
-};
+type PlanningDropdownMenuItem = ActionMenuItem;
 
 /** Shared row for every planning dropdown (Ideas, Plans, Running, Done):
  *  status dot · title with one-line description · status label · `…` menu.
@@ -437,7 +430,6 @@ function PlanningDropdownRow({
   leading?: ReactNode;
   extraClassName?: string;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div
       className={`planning-notification-item planning-dropdown-row${extraClassName ? ` ${extraClassName}` : ""}`}
@@ -455,36 +447,12 @@ function PlanningDropdownRow({
           <span className="planning-notification-item-meta planning-notification-item-status">{statusLabel}</span>
         ) : null}
       </button>
-      <span className="planning-notification-item-actions plan-card-menu-wrap">
-        <button
-          type="button"
-          className="planning-notification-action"
-          title={`More actions for ${title}`}
-          aria-label={`More actions for ${title}`}
-          onClick={() => setMenuOpen((v) => !v)}
-        >
-          <MoreHorizontal size={11} />
-        </button>
-        {menuOpen ? (
-          <div className="context-menu" onMouseLeave={() => setMenuOpen(false)}>
-            {menuItems.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                className={`menu-item text-sm${item.danger ? " menu-item-danger" : ""}`}
-                title={item.title}
-                disabled={item.disabled || item.busy}
-                onClick={() => {
-                  if (!item.keepOpen) setMenuOpen(false);
-                  item.onSelect();
-                }}
-              >
-                {item.busy ? <LoaderCircle size={12} className="spin" /> : item.icon}
-                {item.label}
-              </button>
-            ))}
-          </div>
-        ) : null}
+      <span className="planning-notification-item-actions">
+        <ActionMenu
+          items={menuItems}
+          triggerTitle={`More actions for ${title}`}
+          triggerClassName="planning-notification-action"
+        />
       </span>
     </div>
   );

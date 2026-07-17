@@ -8,7 +8,6 @@ import {
   ChevronRight,
   Copy,
   Download,
-  MoreHorizontal,
   Pencil,
   Play,
   RefreshCw,
@@ -24,6 +23,7 @@ import { PLAN_STATUS_DISPLAY_ORDER, PLAN_STATUSES, PLAN_STATUS_LABEL, isTerminal
 import { formatRelativeTime } from "../../lib/timing";
 import type { Idea } from "../../lib/ideas";
 import { Disclosure } from "../Disclosure";
+import { ActionMenu } from "../ActionMenu";
 import type {
   EngineKind,
   FinishPolicy,
@@ -356,7 +356,6 @@ function PlanCard({
   onResumeRun,
   onReviewRun,
 }: PlanCardProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [taskProgress, setTaskProgress] = useState<{ completed: number; total: number } | null>(null);
   const isFinished = plan.status === "finished";
@@ -512,69 +511,40 @@ function PlanCard({
             <Archive size={10} /> Archive
           </button>
         ) : null}
-        <div className="plan-card-menu-wrap">
-          <button
-            className="btn-icon btn-icon-sm"
-            title="More plan actions"
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setMenuOpen((v) => !v);
-            }}
-          >
-            <MoreHorizontal size={10} />
-          </button>
-          {menuOpen ? (
-            <div className="context-menu" onMouseLeave={() => setMenuOpen(false)}>
-              <button
-                className="menu-item text-sm"
-                type="button"
-                title="Edit title, description, and details"
-                onClick={() => {
-                  onEdit(plan);
-                  setMenuOpen(false);
-                }}
-              >
-                <Pencil size={12} /> Edit
-              </button>
-              {!isFinished ? (
-                <button
-                  className="menu-item text-sm"
-                  type="button"
-                  title="Open this plan in a terminal"
-                  onClick={() => {
-                    onOpenInTerminal(plan);
-                    setMenuOpen(false);
-                  }}
-                >
-                  <TerminalSquare size={12} /> Open in terminal
-                </button>
-              ) : null}
-              <button
-                className="menu-item text-sm"
-                type="button"
-                title="Copy the plan reference id"
-                onClick={() => {
-                  onCopyReference(plan.referenceId);
-                  setMenuOpen(false);
-                }}
-              >
-                <Copy size={12} /> Copy reference
-              </button>
-              <button
-                className="menu-item menu-item-danger text-sm"
-                type="button"
-                title="Delete this plan permanently"
-                onClick={() => {
-                  onDeletePlan(plan.id);
-                  setMenuOpen(false);
-                }}
-              >
-                <Trash2 size={12} /> Delete
-              </button>
-            </div>
-          ) : null}
-        </div>
+        <ActionMenu
+          triggerTitle="More plan actions"
+          items={[
+            {
+              key: "edit",
+              label: "Edit",
+              title: "Edit title, description, and details",
+              icon: <Pencil size={12} />,
+              onSelect: () => onEdit(plan),
+            },
+            ...(!isFinished ? [{
+              key: "terminal",
+              label: "Open in terminal",
+              title: "Open this plan in a terminal",
+              icon: <TerminalSquare size={12} />,
+              onSelect: () => onOpenInTerminal(plan),
+            }] : []),
+            {
+              key: "copy",
+              label: "Copy reference",
+              title: "Copy the plan reference id",
+              icon: <Copy size={12} />,
+              onSelect: () => onCopyReference(plan.referenceId),
+            },
+            {
+              key: "delete",
+              label: "Delete",
+              title: "Delete this plan permanently",
+              icon: <Trash2 size={12} />,
+              danger: true,
+              onSelect: () => onDeletePlan(plan.id),
+            },
+          ]}
+        />
       </div>
       {projectPath && plan.assessment ? (
         <ExecutionAdvisorCard projectPath={projectPath} planId={plan.id} compact />

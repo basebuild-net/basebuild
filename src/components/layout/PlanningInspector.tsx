@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Archive, ClipboardCheck, FolderTree, LayoutGrid, Loader2, MoreHorizontal, Play, Plus, RefreshCw, Rocket, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
+import { AlertTriangle, Archive, ClipboardCheck, FolderTree, LayoutGrid, Loader2, Play, Plus, RefreshCw, Rocket, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import type { Plan, PlanStatus } from "../../lib/plans";
 import { isTerminalStatus } from "../../lib/plans";
 import { batchPromoteIdeas, planningIntegrityCheck, type PlanningIntegrityIssue } from "../../lib/plans";
@@ -21,6 +21,7 @@ import { useProjectSchematic } from "../../state/schematic";
 import { useLogs } from "../../state/log";
 import { formatRelativeTime } from "../../lib/timing";
 import { Disclosure } from "../Disclosure";
+import { ActionMenu } from "../ActionMenu";
 import { subscribeGrounding, getLastGrounding } from "../../state/grounding";
 import type { GroundingMetadata } from "../../lib/native-chat";
 import {
@@ -144,7 +145,6 @@ export function PlanningInspector({
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [promotingIdeaId, setPromotingIdeaId] = useState<string | null>(null);
   const [expandedIdeaId, setExpandedIdeaId] = useState<string | null>(null);
-  const [ideaMenuId, setIdeaMenuId] = useState<string | null>(null);
   const [integrityIssues, setIntegrityIssues] = useState<PlanningIntegrityIssue[]>([]);
   const [openIdeaHistoryKey, setOpenIdeaHistoryKey] = useState<string | null>(null);
   const [openIdeaHistoryIndex, setOpenIdeaHistoryIndex] = useState(0);
@@ -1269,59 +1269,37 @@ export function PlanningInspector({
                       {idea.status === "picked" ? "Planned" : idea.status === "rejected" ? "Rejected" : idea.status}
                     </span>
                   )}
-                  <div className="plan-card-menu-wrap">
-                    <button
-                      className="btn-icon btn-icon-sm"
-                      title="More idea actions"
-                      type="button"
-                      onClick={() => setIdeaMenuId((current) => (current === idea.id ? null : idea.id))}
-                    >
-                      <MoreHorizontal size={10} />
-                    </button>
-                    {ideaMenuId === idea.id ? (
-                      <div className="context-menu" onMouseLeave={() => setIdeaMenuId(null)}>
-                        {idea.status === "concept" ? (
-                          <>
-                            <button
-                              className="menu-item text-sm"
-                              type="button"
-                              title={`Pass on ${idea.title}`}
-                              disabled={promotingIdeaId === idea.id}
-                              onClick={() => {
-                                setIdeaMenuId(null);
-                                void ideaState.rejectIdea(idea.id);
-                              }}
-                            >
-                              <X size={12} /> Pass
-                            </button>
-                            <button
-                              className="menu-item text-sm"
-                              type="button"
-                              title={`Defer ${idea.title} for later`}
-                              disabled={promotingIdeaId === idea.id}
-                              onClick={() => {
-                                setIdeaMenuId(null);
-                                void ideaState.updateIdeaStatus(idea.id, "archived");
-                              }}
-                            >
-                              <Archive size={12} /> Defer
-                            </button>
-                          </>
-                        ) : null}
-                        <button
-                          className="menu-item menu-item-danger text-sm"
-                          type="button"
-                          title="Delete this idea"
-                          onClick={() => {
-                            setIdeaMenuId(null);
-                            void ideaState.removeIdea(idea.id);
-                          }}
-                        >
-                          <Trash2 size={12} /> Delete
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
+                  <ActionMenu
+                    triggerTitle="More idea actions"
+                    items={[
+                      ...(idea.status === "concept" ? [
+                        {
+                          key: "pass",
+                          label: "Pass",
+                          title: `Pass on ${idea.title}`,
+                          icon: <X size={12} />,
+                          disabled: promotingIdeaId === idea.id,
+                          onSelect: () => void ideaState.rejectIdea(idea.id),
+                        },
+                        {
+                          key: "defer",
+                          label: "Defer",
+                          title: `Defer ${idea.title} for later`,
+                          icon: <Archive size={12} />,
+                          disabled: promotingIdeaId === idea.id,
+                          onSelect: () => void ideaState.updateIdeaStatus(idea.id, "archived"),
+                        },
+                      ] : []),
+                      {
+                        key: "delete",
+                        label: "Delete",
+                        title: "Delete this idea",
+                        icon: <Trash2 size={12} />,
+                        danger: true,
+                        onSelect: () => void ideaState.removeIdea(idea.id),
+                      },
+                    ]}
+                  />
                 </div>
                 {idea.description ? (
                   <p className={`chat-idea-desc${expandedIdeaId === idea.id ? " is-expanded" : ""}`}>{idea.description}</p>

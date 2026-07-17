@@ -96,10 +96,12 @@ test.describe("UI scale (zoom)", () => {
     await expect(dropdown).toBeVisible();
     const row = dropdown.locator(".planning-dropdown-row").first();
     await expect(row.locator(".planning-notification-item-title")).toBeVisible();
-    // No inline action icons — a single `…` menu carries the actions.
+    // No inline action icons — a single `…` menu carries the actions,
+    // portaled to the body so small panels cannot clip it.
     const rowTitle = (await row.locator(".planning-notification-item-title").textContent()) ?? "";
     await row.getByTitle(`More actions for ${rowTitle}`).click();
-    await expect(dropdown.getByRole("button", { name: "Copy plan id" })).toBeVisible();
-    await expect(dropdown.getByRole("button", { name: "Delete plan" })).toBeVisible();
+    const menu = page.locator(".context-menu-portal");
+    await expect(menu.getByRole("menuitem", { name: "Copy plan id" })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Delete plan" })).toBeVisible();
   });
 });

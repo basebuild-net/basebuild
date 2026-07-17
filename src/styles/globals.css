@@ -849,13 +849,18 @@ a { color: inherit; text-decoration: none; }
   position: absolute;
   right: 0;
   top: 100%;
-  z-index: 50;
+  z-index: 400;
   min-width: 160px;
   background: var(--bb-surface-high);
   border: 1px solid var(--bb-border-strong);
   padding: 2px;
   border-radius: var(--bb-radius-md);
 }
+/* Portaled variant: fixed to the viewport (coordinates set inline from the
+   trigger rect) so overflow:hidden panels and small popups can never clip
+   or shrink it. */
+.context-menu-portal { position: fixed; right: auto; top: auto; z-index: 1000; }
+.context-menu-portal.is-measuring { visibility: hidden; }
 
 .menu-item {
   display: flex;
@@ -2581,7 +2586,7 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .planning-notification-item-meta { font-size: 9px; color: var(--bb-muted); flex-shrink: 0; text-transform: uppercase; }
 .planning-notification-item-running .planning-notification-item-meta { color: var(--bb-status-running, #f97316); }
 .planning-notification-item-done .planning-notification-item-meta { color: var(--bb-positive, #4ade80); }
-.planning-notification-action { border: none; background: none; color: var(--bb-muted); cursor: pointer; padding: 2px; display: flex; align-items: center; border-radius: 0; flex-shrink: 0; transition: color 0.08s; }
+.planning-notification-action { border: none; background: none; color: var(--bb-muted); cursor: pointer; padding: 4px; display: flex; align-items: center; border-radius: 0; flex-shrink: 0; transition: color 0.08s; }
 .planning-notification-action:hover { color: var(--bb-positive, #4ade80); }
 .planning-notification-empty { padding: 12px 8px; text-align: center; font-size: 10px; color: var(--bb-muted); }
 .planning-notification-more { padding: 2px 6px; font-size: 9px; color: var(--bb-muted); text-align: center; }
@@ -2625,10 +2630,7 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .planning-notification-item-actions {
   display: flex; align-items: center; gap: 1px;
   padding-right: 2px; flex-shrink: 0;
-  opacity: 0; transition: opacity 0.08s;
 }
-.planning-dropdown-row:hover .planning-notification-item-actions,
-.planning-dropdown-row:focus-within .planning-notification-item-actions { opacity: 1; }
 .planning-notification-dropdown[data-stage="ideas"] .planning-notification-list {
   min-height: 0;
   overflow: hidden;
@@ -3478,9 +3480,7 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 
 .plan-card-actions {
   display: flex; align-items: center; gap: 1px;
-  opacity: 0; transition: opacity 0.08s;
 }
-.plan-card:hover .plan-card-actions { opacity: 1; }
 .plan-card-menu-wrap { position: relative; }
 
 .app-shell[data-rail="collapsed"] .plan-panel-list,
