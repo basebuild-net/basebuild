@@ -60,6 +60,12 @@ export function ActionMenu({
     const onDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
       if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
+      // If the user clicked another ActionMenu trigger, hide the portal
+      // synchronously so it doesn't intercept the subsequent click event.
+      // setAnchor(null) is async (React re-renders later), but the browser
+      // fires `click` immediately after `pointerdown` — the portal would
+      // still be in the DOM and steal the click.
+      if (menuRef.current) menuRef.current.style.display = "none";
       setAnchor(null);
     };
     const onKey = (event: KeyboardEvent) => {

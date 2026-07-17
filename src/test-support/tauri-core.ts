@@ -1747,7 +1747,10 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "list_ideas":
       return s.ideas.filter((idea) => idea.sessionId === args.sessionId) as T;
     case "list_project_ideas":
-      return (args.projectPath === s.projectPath ? s.ideas : []) as T;
+      // Return a shallow copy so React detects the change after in-place
+      // mutations like reject_idea/update_idea_status (which don't create
+      // a new array reference, unlike delete_idea's .filter()).
+      return (args.projectPath === s.projectPath ? s.ideas.map((idea) => ({ ...idea })) : []) as T;
     case "create_idea": {
       const ts = Math.floor(Date.now() / 1000);
       const idea: Idea = {

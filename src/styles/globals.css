@@ -859,7 +859,8 @@ a { color: inherit; text-decoration: none; }
 /* Portaled variant: fixed to the viewport (coordinates set inline from the
    trigger rect) so overflow:hidden panels and small popups can never clip
    or shrink it. */
-.context-menu-portal { position: fixed; right: auto; top: auto; z-index: 1000; }
+.context-menu-portal { position: fixed; right: auto; top: auto; z-index: 1000; pointer-events: none; }
+.context-menu-portal .menu-item { pointer-events: auto; }
 .context-menu-portal.is-measuring { visibility: hidden; }
 
 .menu-item {
