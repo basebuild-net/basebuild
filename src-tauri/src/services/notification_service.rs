@@ -1,4 +1,5 @@
 use rusqlite::params;
+use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::{
     models::notification::{
@@ -57,8 +58,7 @@ impl NotificationService {
         // Prune oldest read entries beyond the cap.
         Self::prune_read(&conn)?;
 
-        Self::get(&id)?
-            .ok_or_else(|| "Notification not found after insert".to_string())
+        Self::get(&id)?.ok_or_else(|| "Notification not found after insert".to_string())
     }
 
     /// Insert a notification only if the delivery setting allows it.
@@ -79,6 +79,38 @@ impl NotificationService {
         Self::insert(kind, entity_id, entity_kind, project_path, title, detail).map(Some)
     }
 
+    /// Persist and broadcast a notification using the user's delivery
+    /// preference. `toast_and_center` also emits an attention event; the
+    /// frontend owns sound and platform window-attention behavior.
+    pub fn deliver<R: Runtime>(
+        app: &AppHandle<R>,
+        kind: NotificationKind,
+        entity_id: &str,
+        entity_kind: &str,
+        project_path: &str,
+        title: &str,
+        detail: Option<&str>,
+    ) -> DbResult<Option<Notification>> {
+        let settings = Self::get_settings()?;
+        let delivery = settings.effective(kind);
+        let notification = Self::insert_if_delivered(
+            &settings,
+            kind,
+            entity_id,
+            entity_kind,
+            project_path,
+            title,
+            detail,
+        )?;
+        if let Some(notification) = &notification {
+            let _ = app.emit("notifications://changed", ());
+            if delivery == NotificationDelivery::ToastAndCenter {
+                let _ = app.emit("notifications://attention", notification.clone());
+            }
+        }
+        Ok(notification)
+    }
+
     pub fn list(limit: i64, offset: i64) -> DbResult<Vec<Notification>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn
@@ -90,7 +122,8 @@ impl NotificationService {
         let rows = stmt
             .query_map(params![limit, offset], Self::row_to_notification)
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     pub fn list_unread() -> DbResult<Vec<Notification>> {
@@ -104,13 +137,18 @@ impl NotificationService {
         let rows = stmt
             .query_map([], Self::row_to_notification)
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     pub fn unread_count() -> DbResult<i64> {
         let conn = StorageService::connect()?;
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM notifications WHERE read = 0", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM notifications WHERE read = 0",
+                [],
+                |r| r.get(0),
+            )
             .map_err(|e| e.to_string())?;
         Ok(count)
     }
@@ -155,8 +193,11 @@ impl NotificationService {
 
     pub fn mark_read(id: &str) -> DbResult<()> {
         let conn = StorageService::connect()?;
-        conn.execute("UPDATE notifications SET read = 1 WHERE id = ?1", params![id])
-            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE notifications SET read = 1 WHERE id = ?1",
+            params![id],
+        )
+        .map_err(|e| e.to_string())?;
         Self::prune_read(&conn)?;
         Ok(())
     }
@@ -297,7 +338,11 @@ mod tests {
         // Count total read rows — should be capped at MAX_READ.
         let conn = StorageService::connect().unwrap();
         let total_read: i64 = conn
-            .query_row("SELECT COUNT(*) FROM notifications WHERE read = 1", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM notifications WHERE read = 1",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(total_read, MAX_READ_NOTIFICATIONS);
     }

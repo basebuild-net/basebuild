@@ -6,8 +6,8 @@ use crate::{
             ApprovalMode, ApprovalRule, AuditEntry, GatewayDecision, PermissionDecision,
             PermissionRules, SessionRule, UsageSyncSettings,
         },
+        run_concurrency::{ConcurrencyLimits, RunConcurrencyEntry, RunConcurrencyLimits},
         runtime::{RuntimeDefaults, RuntimeProfile, RuntimeProfileKind, WorkingDirectoryMode},
-        run_concurrency::{RunConcurrencyEntry, RunConcurrencyLimits},
     },
     services::process_helpers::hidden_command,
     services::storage_service::StorageService,
@@ -15,7 +15,7 @@ use crate::{
 type DbResult<T> = Result<T, String>;
 
 #[allow(dead_code)]
- fn gen_id() -> String {
+fn gen_id() -> String {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
@@ -24,7 +24,7 @@ type DbResult<T> = Result<T, String>;
 }
 
 #[allow(dead_code)]
- fn now() -> i64 {
+fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -54,20 +54,23 @@ impl SettingsService {
                     label: row.get(2)?,
                     executable: row.get(3)?,
                     args: serde_json::from_str(&args_str).unwrap_or_default(),
-                    working_directory_mode: WorkingDirectoryMode::from_str(&row.get::<_, String>(5)?),
+                    working_directory_mode: WorkingDirectoryMode::from_str(
+                        &row.get::<_, String>(5)?,
+                    ),
                     default_model: row.get(6)?,
                     capabilities: serde_json::from_str(&caps_str).unwrap_or_default(),
                     built_in: row.get::<_, i32>(8)? != 0,
                 })
             })
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     #[allow(dead_code)]
-     pub fn get_profile(id: &str) -> DbResult<Option<RuntimeProfile>> {
+    pub fn get_profile(id: &str) -> DbResult<Option<RuntimeProfile>> {
         Ok(Self::list_profiles()?.into_iter().find(|p| p.id == id))
-     }
+    }
 
     pub fn upsert_profile(profile: &RuntimeProfile) -> DbResult<()> {
         let conn = StorageService::connect()?;
@@ -96,8 +99,11 @@ impl SettingsService {
 
     pub fn delete_profile(id: &str) -> DbResult<()> {
         let conn = StorageService::connect()?;
-        conn.execute("DELETE FROM runtime_profiles WHERE id = ?1 AND built_in = 0", params![id])
-            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM runtime_profiles WHERE id = ?1 AND built_in = 0",
+            params![id],
+        )
+        .map_err(|e| e.to_string())?;
         Ok(())
     }
     /// Built-in adapters whose chat runs inside this process (no external
@@ -129,7 +135,11 @@ impl SettingsService {
         // as a script expression and exits 1 with a ParserError. Use the
         // correct flag per shell, falling back to `--version` for everything else.
         let version_args: &[&str] = match profile.executable.as_str() {
-            "powershell" | "powershell.exe" => &["-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"],
+            "powershell" | "powershell.exe" => &[
+                "-NoProfile",
+                "-Command",
+                "$PSVersionTable.PSVersion.ToString()",
+            ],
             "pwsh" | "pwsh.exe" => &["--version"],
             _ => &["--version"],
         };
@@ -255,7 +265,7 @@ impl SettingsService {
     // ─── Audit Trail ───
 
     #[allow(dead_code)]
-     pub fn record_audit(
+    pub fn record_audit(
         action: &str,
         scope: Option<&str>,
         decision: &str,
@@ -289,7 +299,8 @@ impl SettingsService {
                 })
             })
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     pub fn clear_audit() -> DbResult<()> {
@@ -379,7 +390,10 @@ impl SettingsService {
         conn.execute(
             "INSERT INTO app_defaults (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![format!("milestone_auto_commit:{project_path}"), if enabled { "true" } else { "false" }],
+            params![
+                format!("milestone_auto_commit:{project_path}"),
+                if enabled { "true" } else { "false" }
+            ],
         )
         .map_err(|e| e.to_string())?;
         Ok(())
@@ -409,7 +423,8 @@ impl SettingsService {
                 })
             })
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     /// Add a persistent per-project approval rule.
@@ -499,10 +514,7 @@ impl SettingsService {
         }
 
         // Default by mode.
-        let is_read_only = matches!(
-            tool_name,
-            "read_file" | "list_files" | "search_files"
-        );
+        let is_read_only = matches!(tool_name, "read_file" | "list_files" | "search_files");
         match mode {
             ApprovalMode::Safe => GatewayDecision {
                 decision: PermissionDecision::Ask,
@@ -590,7 +602,10 @@ impl SettingsService {
             let (provider_id, entry) = row.map_err(|e| e.to_string())?;
             providers.insert(provider_id, entry);
         }
-        Ok(RunConcurrencyLimits { providers })
+        Ok(RunConcurrencyLimits {
+            providers,
+            ..Default::default()
+        })
     }
 
     /// Upsert a single provider's override for a project. Replaces the
@@ -624,10 +639,7 @@ impl SettingsService {
     }
 
     /// Remove a provider's override for a project (revert to global default).
-    pub fn remove_run_concurrency_override(
-        project_path: &str,
-        provider_id: &str,
-    ) -> DbResult<()> {
+    pub fn remove_run_concurrency_override(project_path: &str, provider_id: &str) -> DbResult<()> {
         let conn = StorageService::connect()?;
         conn.execute(
             "DELETE FROM run_concurrency_overrides WHERE project_path = ?1 AND provider_id = ?2",
@@ -647,6 +659,39 @@ impl SettingsService {
         let project = Self::get_run_concurrency_overrides(project_path)?;
         Ok(project.effective_for(provider_id, &global))
     }
+
+    // ─── Cross-Provider Concurrency Caps (planning_max / global_max) ───
+
+    /// Read the cross-provider caps (`planning_max`, `global_max`) from the
+    /// `run_concurrency` blob. Absent → `None` (reads as the defaults).
+    pub fn get_concurrency_limits() -> DbResult<ConcurrencyLimits> {
+        Ok((&Self::get_run_concurrency_defaults()?).into())
+    }
+
+    /// Write the cross-provider caps into the `run_concurrency` blob,
+    /// preserving the per-provider `providers` map.
+    pub fn set_concurrency_limits(limits: &ConcurrencyLimits) -> DbResult<()> {
+        let mut existing = Self::get_run_concurrency_defaults()?;
+        existing.planning_max = limits.planning_max;
+        existing.global_max = limits.global_max;
+        Self::set_run_concurrency_defaults(&existing)
+    }
+
+    /// Effective planning concurrency cap across all providers: the
+    /// configured value or `DEFAULT_PLANNING_MAX` (3) when unset.
+    pub fn effective_planning_max() -> u32 {
+        Self::get_run_concurrency_defaults()
+            .map(|l| l.effective_planning_max())
+            .unwrap_or(crate::models::run_concurrency::DEFAULT_PLANNING_MAX)
+    }
+
+    /// Effective global concurrency cap across all providers: the
+    /// configured value or `DEFAULT_GLOBAL_MAX` (4) when unset.
+    pub fn effective_global_max() -> u32 {
+        Self::get_run_concurrency_defaults()
+            .map(|l| l.effective_global_max())
+            .unwrap_or(crate::models::run_concurrency::DEFAULT_GLOBAL_MAX)
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -656,5 +701,3 @@ pub struct ProfileValidation {
     pub version: Option<String>,
     pub error: Option<String>,
 }
-
-

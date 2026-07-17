@@ -8,10 +8,7 @@ pub fn list_slash_commands(project_path: String) -> Result<Vec<SlashCommand>, St
 }
 
 #[tauri::command]
-pub fn expand_slash_command(
-    body: String,
-    args: String,
-) -> Result<ExpandedCommand, String> {
+pub fn expand_slash_command(body: String, args: String) -> Result<ExpandedCommand, String> {
     let parsed_args = parse_arguments(&args);
     let prompt = expand_template(&body, &parsed_args);
     Ok(ExpandedCommand {

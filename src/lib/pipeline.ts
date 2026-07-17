@@ -28,6 +28,10 @@ export type PipelineRun = {
   startedAt: number | null;
   completedAt: number | null;
   createdAt: number;
+  /** Provider the stage runs with; null for legacy rows. */
+  providerId: string | null;
+  /** Model the stage runs with; null for legacy rows. */
+  modelId: string | null;
 };
 
 export type PipelineStartRequest = {
@@ -54,6 +58,10 @@ export async function pipelineCancel(runId: string): Promise<void> {
 
 export async function pipelineListRuns(sessionId: string): Promise<PipelineRun[]> {
   return invoke<PipelineRun[]>("pipeline_list_runs", { sessionId });
+}
+
+export async function pipelineListRunsByProject(projectPath: string): Promise<PipelineRun[]> {
+  return invoke<PipelineRun[]>("pipeline_list_runs_by_project", { projectPath });
 }
 
 export async function pipelineGetRun(runId: string): Promise<PipelineRun | null> {

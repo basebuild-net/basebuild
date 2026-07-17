@@ -8,18 +8,44 @@ use std::collections::HashMap;
 /// subagents off). The global defaults live in `app_defaults` under the
 /// `run_concurrency` key; per-project overrides live in
 /// `run_concurrency_overrides`.
+///
+/// `planning_max` and `global_max` are optional cross-provider caps stored
+/// alongside the provider map. When `None` they read as the defaults
+/// (`planning_max = 3`, `global_max = 4`). `planning_max` caps the total
+/// concurrent plan runs across all providers; `global_max` caps the total
+/// concurrent runs of any kind (plan + pipeline).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunConcurrencyLimits {
     /// Map of provider id → limit. Absent providers read as the default.
     #[serde(default)]
     pub providers: HashMap<String, RunConcurrencyEntry>,
+    /// Cap on the total concurrent plan runs across all providers. `None`
+    /// reads as `DEFAULT_PLANNING_MAX` (3). When the active plan-run count
+    /// (running + pending) reaches this, new plan runs are queued as
+    /// `pending` instead of started.
+    #[serde(default)]
+    pub planning_max: Option<u32>,
+    /// Cap on the total concurrent runs of any kind (plan + pipeline) across
+    /// all providers. `None` reads as `DEFAULT_GLOBAL_MAX` (4). When the
+    /// active run count reaches this, new runs (plan or pipeline) are
+    /// queued/refused instead of started.
+    #[serde(default)]
+    pub global_max: Option<u32>,
 }
+
+/// Default planning concurrency cap: at most 3 plan runs running at once.
+pub const DEFAULT_PLANNING_MAX: u32 = 3;
+/// Default global concurrency cap: at most 4 runs (plan + pipeline) at once,
+/// leaving 1 slot of headroom for non-planning work.
+pub const DEFAULT_GLOBAL_MAX: u32 = 4;
 
 impl Default for RunConcurrencyLimits {
     fn default() -> Self {
         Self {
             providers: HashMap::new(),
+            planning_max: None,
+            global_max: None,
         }
     }
 }
@@ -43,6 +69,67 @@ impl RunConcurrencyLimits {
             .cloned()
             .or_else(|| global.providers.get(provider_id).cloned())
             .unwrap_or_default()
+    }
+
+    /// Effective planning concurrency cap: the configured value or the
+    /// default (`DEFAULT_PLANNING_MAX`) when `None`.
+    pub fn effective_planning_max(&self) -> u32 {
+        self.planning_max.unwrap_or(DEFAULT_PLANNING_MAX)
+    }
+
+    /// Effective global concurrency cap: the configured value or the
+    /// default (`DEFAULT_GLOBAL_MAX`) when `None`.
+    pub fn effective_global_max(&self) -> u32 {
+        self.global_max.unwrap_or(DEFAULT_GLOBAL_MAX)
+    }
+}
+
+/// Cross-provider concurrency caps surfaced by the `get_concurrency_limits`
+/// / `set_concurrency_limits` commands. Mirrors the `planning_max` /
+/// `global_max` fields on `RunConcurrencyLimits`; `None` reads as the
+/// defaults (`planning_max = 3`, `global_max = 4`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConcurrencyLimits {
+    #[serde(default)]
+    pub global_max: Option<u32>,
+    #[serde(default)]
+    pub planning_max: Option<u32>,
+}
+
+impl Default for ConcurrencyLimits {
+    fn default() -> Self {
+        Self {
+            global_max: None,
+            planning_max: None,
+        }
+    }
+}
+
+impl ConcurrencyLimits {
+    /// Conservative default — both caps unset, so the effective defaults
+    /// (`planning_max = 3`, `global_max = 4`) apply.
+    pub fn conservative() -> Self {
+        Self::default()
+    }
+
+    /// Effective planning cap (configured or `DEFAULT_PLANNING_MAX`).
+    pub fn effective_planning_max(&self) -> u32 {
+        self.planning_max.unwrap_or(DEFAULT_PLANNING_MAX)
+    }
+
+    /// Effective global cap (configured or `DEFAULT_GLOBAL_MAX`).
+    pub fn effective_global_max(&self) -> u32 {
+        self.global_max.unwrap_or(DEFAULT_GLOBAL_MAX)
+    }
+}
+
+impl From<&RunConcurrencyLimits> for ConcurrencyLimits {
+    fn from(limits: &RunConcurrencyLimits) -> Self {
+        Self {
+            global_max: limits.global_max,
+            planning_max: limits.planning_max,
+        }
     }
 }
 
@@ -141,5 +228,42 @@ mod tests {
         let eff = project.effective_for("unknown", &global);
         assert_eq!(eff.max_concurrency, 1);
         assert!(!eff.subagents_enabled);
+    }
+
+    #[test]
+    fn planning_global_max_default_when_unset() {
+        let limits = RunConcurrencyLimits::default();
+        assert_eq!(limits.effective_planning_max(), DEFAULT_PLANNING_MAX);
+        assert_eq!(limits.effective_global_max(), DEFAULT_GLOBAL_MAX);
+    }
+
+    #[test]
+    fn planning_global_max_respect_configured() {
+        let limits = RunConcurrencyLimits {
+            planning_max: Some(5),
+            global_max: Some(8),
+            ..Default::default()
+        };
+        assert_eq!(limits.effective_planning_max(), 5);
+        assert_eq!(limits.effective_global_max(), 8);
+    }
+
+    #[test]
+    fn concurrency_limits_command_shape_defaults() {
+        let cmd = ConcurrencyLimits::default();
+        assert_eq!(cmd.effective_planning_max(), DEFAULT_PLANNING_MAX);
+        assert_eq!(cmd.effective_global_max(), DEFAULT_GLOBAL_MAX);
+    }
+
+    #[test]
+    fn concurrency_limits_projected_from_run_limits() {
+        let limits = RunConcurrencyLimits {
+            planning_max: Some(2),
+            global_max: Some(6),
+            ..Default::default()
+        };
+        let cmd: ConcurrencyLimits = (&limits).into();
+        assert_eq!(cmd.planning_max, Some(2));
+        assert_eq!(cmd.global_max, Some(6));
     }
 }

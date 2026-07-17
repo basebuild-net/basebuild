@@ -1,16 +1,22 @@
-use std::{env, time::Duration};
+use std::{
+    env,
+    sync::{LazyLock, RwLock},
+    time::Duration,
+};
 
 use rusqlite::{params, OptionalExtension};
 use serde_json::Value;
 
 use crate::{
     models::{
-        native_chat::{NativeEffortLevel, NativeModel, NativeProvider, NativeProviderCatalog, NativeProviderCredential},
+        native_chat::{
+            NativeEffortLevel, NativeModel, NativeProvider, NativeProviderCatalog,
+            NativeProviderCredential,
+        },
         omp_catalog,
     },
     services::{
-        native_chat_service::NativeChatService,
-        provider_client::OMP_CODEX_BASE_URL,
+        native_chat_service::NativeChatService, provider_client::OMP_CODEX_BASE_URL,
         storage_service::StorageService,
     },
 };
@@ -21,6 +27,8 @@ const LOCAL_PROVIDER_ID: &str = "basebuild-local";
 const LOCAL_MODEL_ID: &str = "basebuild-local-coordinator";
 const DEFAULT_EFFORT: &str = "medium";
 const CACHE_MAX_AGE_SECONDS: i64 = 24 * 60 * 60;
+static CATALOG_CACHE: LazyLock<RwLock<Option<NativeProviderCatalog>>> =
+    LazyLock::new(|| RwLock::new(None));
 
 /// Provider-level metadata overlaid on the OMP catalog. OMP carries the
 /// model list and wire-protocol kind; Basebuild adds the auth/UI metadata.
@@ -47,7 +55,6 @@ struct ProviderSpec {
     default_base_url: Option<String>,
 }
 
-
 #[derive(Debug, Clone)]
 struct CachedModel {
     model: NativeModel,
@@ -60,16 +67,27 @@ pub struct ProviderModelCatalogService;
 
 impl ProviderModelCatalogService {
     pub fn catalog() -> NativeProviderCatalog {
-        let credentials = NativeChatService::list_credentials().unwrap_or_default();
+        if let Ok(cache) = CATALOG_CACHE.read() {
+            if let Some(catalog) = cache.as_ref() {
+                return catalog.clone();
+            }
+        }
+
+        let configured_provider_ids =
+            NativeChatService::configured_provider_ids().unwrap_or_default();
         let now = now_seconds();
         let cached = Self::cached_models().unwrap_or_default();
+        let specs = provider_specs();
         let mut models = Vec::new();
         let mut stale = false;
-        for spec in provider_specs() {
-            let provider_cached: Vec<&CachedModel> = cached.iter().filter(|m| m.model.provider_id == spec.id).collect();
+        for spec in &specs {
+            let provider_cached: Vec<&CachedModel> = cached
+                .iter()
+                .filter(|m| m.model.provider_id == spec.id)
+                .collect();
             if provider_cached.is_empty() {
                 models.extend(bundled_models(&spec.id));
-                if !spec.local_only && is_configured(&spec.id, &credentials) {
+                if !spec.local_only && configured_provider_ids.contains(&spec.id) {
                     stale = true;
                 }
                 continue;
@@ -78,8 +96,7 @@ impl ProviderModelCatalogService {
             // Stamp-mismatch check: if cached rows are bundled-source and
             // their catalog version doesn't match the current vendored
             // catalog, replace them with current bundled models. This
-            // self-heals stale bundled rows (e.g. an old `devin-2.0` row
-            // from a prior catalog version) without manual DB surgery.
+            // self-heals stale bundled rows without manual DB surgery.
             let current_version = omp_catalog::CATALOG_VERSION.trim();
             let bundled_stale = provider_cached.iter().any(|item| {
                 item.model.source == "bundled"
@@ -87,31 +104,37 @@ impl ProviderModelCatalogService {
             });
             if bundled_stale {
                 let fresh = bundled_models(&spec.id);
-                let _ = Self::replace_provider_cache(&spec.id, fresh, "bundled", None);
-                models.extend(bundled_models(&spec.id));
+                let _ = Self::replace_provider_cache(&spec.id, fresh.clone(), "bundled", None);
+                models.extend(fresh);
                 continue;
             }
 
             for item in &provider_cached {
-                if !spec.local_only && is_configured(&spec.id, &credentials) && now - item.synced_at > CACHE_MAX_AGE_SECONDS {
+                if !spec.local_only
+                    && configured_provider_ids.contains(&spec.id)
+                    && now - item.synced_at > CACHE_MAX_AGE_SECONDS
+                {
                     stale = true;
                 }
                 models.push(item.model.clone());
             }
         }
 
-        let providers = provider_specs()
+        let providers = specs
             .iter()
             .map(|spec| {
-                let provider_models: Vec<&NativeModel> = models.iter().filter(|m| m.provider_id == spec.id).collect();
-                let provider_cached: Vec<&CachedModel> = cached.iter().filter(|m| m.model.provider_id == spec.id).collect();
-                let configured = spec.local_only || is_configured(&spec.id, &credentials);
-                // Compute transport_unavailable: a configured non-local provider
-                // whose models all use bespoke api_kinds (not native HTTP) and
-                // none have a custom base_url. These can only use OMP RPC, not
-                // the native agent loop transport.
-                let all_bespoke = !spec.local_only && !provider_models.is_empty()
-                    && provider_models.iter().all(|m| is_bespoke_api_kind(&m.api_kind));
+                let provider_models: Vec<&NativeModel> =
+                    models.iter().filter(|m| m.provider_id == spec.id).collect();
+                let provider_cached: Vec<&CachedModel> = cached
+                    .iter()
+                    .filter(|m| m.model.provider_id == spec.id)
+                    .collect();
+                let configured = spec.local_only || configured_provider_ids.contains(&spec.id);
+                let all_bespoke = !spec.local_only
+                    && !provider_models.is_empty()
+                    && provider_models
+                        .iter()
+                        .all(|m| is_bespoke_api_kind(&m.api_kind));
                 let has_base_url = provider_models.iter().any(|m| !m.base_url.is_empty());
                 let transport_unavailable = all_bespoke && !has_base_url && configured;
                 let last_synced_at = provider_cached.iter().map(|m| m.synced_at).max();
@@ -122,8 +145,8 @@ impl ProviderModelCatalogService {
                     .map(|m| m.source.clone())
                     .unwrap_or_else(|| "bundled".to_string());
                 NativeProvider {
-                    id: spec.id.to_string(),
-                    label: spec.label.to_string(),
+                    id: spec.id.clone(),
+                    label: spec.label.clone(),
                     status: if !configured {
                         "setup_required".to_string()
                     } else if transport_unavailable {
@@ -131,11 +154,11 @@ impl ProviderModelCatalogService {
                     } else {
                         "ready".to_string()
                     },
-                    credential_owner: spec.credential_owner.to_string(),
+                    credential_owner: spec.credential_owner.clone(),
                     configured,
                     local_only: spec.local_only,
-                    detail: spec.detail.to_string(),
-                    auth_method: spec.auth_method.to_string(),
+                    detail: spec.detail.clone(),
+                    auth_method: spec.auth_method.clone(),
                     api_key_url: spec.api_key_url.clone(),
                     model_count: provider_models.len() as i64,
                     last_synced_at,
@@ -145,7 +168,7 @@ impl ProviderModelCatalogService {
             })
             .collect();
 
-        NativeProviderCatalog {
+        let catalog = NativeProviderCatalog {
             providers,
             models,
             effort_levels: effort_levels(),
@@ -154,13 +177,20 @@ impl ProviderModelCatalogService {
             default_effort_level: DEFAULT_EFFORT.to_string(),
             fetched_at: now,
             stale,
+        };
+        if let Ok(mut cache) = CATALOG_CACHE.write() {
+            *cache = Some(catalog.clone());
         }
+        catalog
     }
 
     pub fn refresh(provider_id: Option<String>, force: bool) -> DbResult<NativeProviderCatalog> {
         let credentials = NativeChatService::list_credentials().unwrap_or_default();
         let targets: Vec<ProviderSpec> = match provider_id.as_deref() {
-            Some(id) => provider_specs().into_iter().filter(|p| p.id == id).collect(),
+            Some(id) => provider_specs()
+                .into_iter()
+                .filter(|p| p.id == id)
+                .collect(),
             None => provider_specs(),
         };
 
@@ -168,6 +198,7 @@ impl ProviderModelCatalogService {
             Self::refresh_provider_spec(spec, &credentials, force)?;
         }
 
+        Self::invalidate();
         Ok(Self::catalog())
     }
 
@@ -175,9 +206,24 @@ impl ProviderModelCatalogService {
         Self::refresh(Some(provider_id.to_string()), force)
     }
 
-    fn refresh_provider_spec(spec: ProviderSpec, credentials: &[NativeProviderCredential], force: bool) -> DbResult<()> {
+    pub fn invalidate() {
+        if let Ok(mut cache) = CATALOG_CACHE.write() {
+            *cache = None;
+        }
+    }
+
+    fn refresh_provider_spec(
+        spec: ProviderSpec,
+        credentials: &[NativeProviderCredential],
+        force: bool,
+    ) -> DbResult<()> {
         if spec.local_only {
-            return Self::replace_provider_cache(&spec.id, bundled_models(&spec.id), "bundled", None);
+            return Self::replace_provider_cache(
+                &spec.id,
+                bundled_models(&spec.id),
+                "bundled",
+                None,
+            );
         }
 
         let credential = credentials.iter().find(|c| c.provider_id == spec.id);
@@ -185,7 +231,12 @@ impl ProviderModelCatalogService {
             if Self::has_cached_provider(&spec.id)? {
                 return Ok(());
             }
-            return Self::replace_provider_cache(&spec.id, bundled_models(&spec.id), "bundled", None);
+            return Self::replace_provider_cache(
+                &spec.id,
+                bundled_models(&spec.id),
+                "bundled",
+                None,
+            );
         }
 
         if !force && Self::provider_cache_fresh(&spec.id)? {
@@ -198,7 +249,9 @@ impl ProviderModelCatalogService {
         // basebuild.net catalog first; if it has rows for this provider,
         // skip per-provider /v1/models discovery entirely.
         let catalog_synced = crate::services::catalog_sync_service::sync_catalog();
-        if catalog_synced.error.is_none() && Self::has_cached_provider_with_source(&spec.id, "catalog_sync")? {
+        if catalog_synced.error.is_none()
+            && Self::has_cached_provider_with_source(&spec.id, "catalog_sync")?
+        {
             return Ok(());
         }
 
@@ -219,13 +272,18 @@ impl ProviderModelCatalogService {
         };
 
         match discovered {
-            Ok(models) if !models.is_empty() => Self::replace_provider_cache(&spec.id, models, "provider_discovered", None),
+            Ok(models) if !models.is_empty() => {
+                Self::replace_provider_cache(&spec.id, models, "provider_discovered", None)
+            }
             Ok(_) => Self::fallback_or_preserve(spec, "Provider returned no models."),
             Err(error) => Self::fallback_or_preserve(spec, &error),
         }
     }
 
-    fn discover_openai_compatible(spec: ProviderSpec, credential: &NativeProviderCredential) -> DbResult<Vec<NativeModel>> {
+    fn discover_openai_compatible(
+        spec: ProviderSpec,
+        credential: &NativeProviderCredential,
+    ) -> DbResult<Vec<NativeModel>> {
         let base_url = credential
             .base_url
             .as_deref()
@@ -252,40 +310,76 @@ impl ProviderModelCatalogService {
             ));
         }
 
-        let payload: Value = response
-            .json()
-            .map_err(|e| format!("Failed to parse {label} model payload: {e}", label = spec.label))?;
+        let payload: Value = response.json().map_err(|e| {
+            format!(
+                "Failed to parse {label} model payload: {e}",
+                label = spec.label
+            )
+        })?;
         let entries = payload
             .get("data")
             .and_then(Value::as_array)
-            .ok_or_else(|| format!("{label} model payload did not include a data array.", label = spec.label))?;
+            .ok_or_else(|| {
+                format!(
+                    "{label} model payload did not include a data array.",
+                    label = spec.label
+                )
+            })?;
 
         let mut models = Vec::new();
         for entry in entries {
-            let id = entry.get("id").and_then(Value::as_str).unwrap_or_default().trim();
+            let id = entry
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim();
             if id.is_empty() {
                 continue;
             }
-            models.push(model_with_source(NativeModel {
-                id: id.to_string(),
-                provider_id: spec.id.to_string(),
-                label: model_label(&spec.id, id),
-                supports_effort: supports_reasoning(&spec.id, id),
-                supports_streaming: true,
-                supports_tools: true,
-                local_only: false,
-                context_window: extract_i64(entry, &["context_window", "contextWindow", "context_length", "max_context_window", "maxContextWindow"]),
-                max_tokens: extract_i64(entry, &["max_output_tokens", "maxOutputTokens", "max_tokens", "maxTokens"]),
-                supports_reasoning: supports_reasoning(&spec.id, id),
-                supported_efforts: if supports_reasoning(&spec.id, id) { effort_ids() } else { Vec::new() },
-                supports_images: supports_images(id),
-                source: "provider_discovered".to_string(),
-                model_api_id: None,
-                api_kind: String::new(),
-                base_url: String::new(),
-                cost_input: None,
-                cost_output: None,
-            }, "provider_discovered"));
+            models.push(model_with_source(
+                NativeModel {
+                    id: id.to_string(),
+                    provider_id: spec.id.to_string(),
+                    label: model_label(&spec.id, id),
+                    supports_effort: supports_reasoning(&spec.id, id),
+                    supports_streaming: true,
+                    supports_tools: true,
+                    local_only: false,
+                    context_window: extract_i64(
+                        entry,
+                        &[
+                            "context_window",
+                            "contextWindow",
+                            "context_length",
+                            "max_context_window",
+                            "maxContextWindow",
+                        ],
+                    ),
+                    max_tokens: extract_i64(
+                        entry,
+                        &[
+                            "max_output_tokens",
+                            "maxOutputTokens",
+                            "max_tokens",
+                            "maxTokens",
+                        ],
+                    ),
+                    supports_reasoning: supports_reasoning(&spec.id, id),
+                    supported_efforts: if supports_reasoning(&spec.id, id) {
+                        effort_ids()
+                    } else {
+                        Vec::new()
+                    },
+                    supports_images: supports_images(id),
+                    source: "provider_discovered".to_string(),
+                    model_api_id: None,
+                    api_kind: String::new(),
+                    base_url: String::new(),
+                    cost_input: None,
+                    cost_output: None,
+                },
+                "provider_discovered",
+            ));
         }
 
         models.sort_by(|a, b| a.label.cmp(&b.label));
@@ -318,46 +412,83 @@ impl ProviderModelCatalogService {
 
         let mut models = Vec::new();
         for entry in entries {
-            let id = entry.get("id").and_then(Value::as_str).unwrap_or_default().trim();
+            let id = entry
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim();
             if id.is_empty() {
                 continue;
             }
-            let reasoning = entry.get("reasoning").and_then(Value::as_bool).unwrap_or(false);
+            let reasoning = entry
+                .get("reasoning")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             let supported_efforts = if reasoning { effort_ids() } else { Vec::new() };
-            let context_window = entry.get("contextWindow").and_then(Value::as_i64)
+            let context_window = entry
+                .get("contextWindow")
+                .and_then(Value::as_i64)
                 .or_else(|| entry.get("context_window").and_then(Value::as_i64));
-            let max_tokens = entry.get("maxTokens").and_then(Value::as_i64)
+            let max_tokens = entry
+                .get("maxTokens")
+                .and_then(Value::as_i64)
                 .or_else(|| entry.get("max_tokens").and_then(Value::as_i64));
-            let api_kind = entry.get("api").and_then(Value::as_str).unwrap_or_default().to_string();
-            let base_url = entry.get("baseUrl").and_then(Value::as_str).unwrap_or_default().to_string();
-            let input_modalities: Vec<String> = entry.get("input")
+            let api_kind = entry
+                .get("api")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let base_url = entry
+                .get("baseUrl")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let input_modalities: Vec<String> = entry
+                .get("input")
                 .and_then(Value::as_array)
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             let supports_images = input_modalities.iter().any(|m| m == "image");
-            let cost_input = entry.get("cost").and_then(|c| c.get("input")).and_then(Value::as_f64);
-            let cost_output = entry.get("cost").and_then(|c| c.get("output")).and_then(Value::as_f64);
-            let label = entry.get("name").and_then(Value::as_str).unwrap_or(id).to_string();
-            models.push(model_with_source(NativeModel {
-                id: id.to_string(),
-                provider_id: provider_id.to_string(),
-                label,
-                supports_effort: reasoning,
-                supports_streaming: true,
-                supports_tools: true,
-                local_only: false,
-                context_window,
-                max_tokens,
-                supports_reasoning: reasoning,
-                supported_efforts,
-                supports_images,
-                source: "omp_cli".to_string(),
-                model_api_id: None,
-                api_kind,
-                base_url,
-                cost_input,
-                cost_output,
-            }, "omp_cli"));
+            let cost_input = entry
+                .get("cost")
+                .and_then(|c| c.get("input"))
+                .and_then(Value::as_f64);
+            let cost_output = entry
+                .get("cost")
+                .and_then(|c| c.get("output"))
+                .and_then(Value::as_f64);
+            let label = entry
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or(id)
+                .to_string();
+            models.push(model_with_source(
+                NativeModel {
+                    id: id.to_string(),
+                    provider_id: provider_id.to_string(),
+                    label,
+                    supports_effort: reasoning,
+                    supports_streaming: true,
+                    supports_tools: true,
+                    local_only: false,
+                    context_window,
+                    max_tokens,
+                    supports_reasoning: reasoning,
+                    supported_efforts,
+                    supports_images,
+                    source: "omp_cli".to_string(),
+                    model_api_id: None,
+                    api_kind,
+                    base_url,
+                    cost_input,
+                    cost_output,
+                },
+                "omp_cli",
+            ));
         }
         models.sort_by(|a, b| a.label.cmp(&b.label));
         models.dedup_by(|a, b| a.id == b.id && a.provider_id == b.provider_id);
@@ -367,14 +498,24 @@ impl ProviderModelCatalogService {
     fn fallback_or_preserve(spec: ProviderSpec, error: &str) -> DbResult<()> {
         if let Some(models) = Self::hosted_fallback(spec.clone())? {
             if !models.is_empty() {
-                return Self::replace_provider_cache(&spec.id, models, "hosted_fallback", Some(error.to_string()));
+                return Self::replace_provider_cache(
+                    &spec.id,
+                    models,
+                    "hosted_fallback",
+                    Some(error.to_string()),
+                );
             }
         }
 
         if Self::has_cached_provider(&spec.id)? {
             Self::mark_provider_error(&spec.id, error)
         } else {
-            Self::replace_provider_cache(&spec.id, bundled_models(&spec.id), "bundled", Some(error.to_string()))
+            Self::replace_provider_cache(
+                &spec.id,
+                bundled_models(&spec.id),
+                "bundled",
+                Some(error.to_string()),
+            )
         }
     }
 
@@ -406,7 +547,11 @@ impl ProviderModelCatalogService {
                 .iter()
                 .find(|provider| {
                     provider.get("slug").and_then(Value::as_str) == Some(spec.id.as_str())
-                        || provider.get("name").and_then(Value::as_str).map(|name| name.eq_ignore_ascii_case(&spec.label)).unwrap_or(false)
+                        || provider
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .map(|name| name.eq_ignore_ascii_case(&spec.label))
+                            .unwrap_or(false)
                 })
                 .and_then(|provider| provider.get("models").and_then(Value::as_array).cloned())
                 .unwrap_or_default()
@@ -416,7 +561,11 @@ impl ProviderModelCatalogService {
         let models = entries
             .iter()
             .filter_map(|entry| {
-                let id = entry.get("id").or_else(|| entry.get("key")).and_then(Value::as_str)?.trim();
+                let id = entry
+                    .get("id")
+                    .or_else(|| entry.get("key"))
+                    .and_then(Value::as_str)?
+                    .trim();
                 if id.is_empty() {
                     return None;
                 }
@@ -426,31 +575,64 @@ impl ProviderModelCatalogService {
                     .and_then(Value::as_str)
                     .map(str::to_string)
                     .unwrap_or_else(|| model_label(&spec.id, id));
-                let reasoning = entry.get("supportsReasoning").and_then(Value::as_bool).unwrap_or_else(|| supports_reasoning(&spec.id, id));
-                let supported = entry.get("supportedEfforts")
+                let reasoning = entry
+                    .get("supportsReasoning")
+                    .and_then(Value::as_bool)
+                    .unwrap_or_else(|| supports_reasoning(&spec.id, id));
+                let supported = entry
+                    .get("supportedEfforts")
                     .and_then(Value::as_array)
-                    .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
                     .unwrap_or_else(|| if reasoning { effort_ids() } else { Vec::new() });
-                Some(model_with_source(NativeModel {
-                    id: id.to_string(),
-                    provider_id: spec.id.to_string(),
-                    label,
-                    supports_effort: reasoning,
-                    supports_streaming: true,
-                    supports_tools: true,
-                    local_only: false,
-                    context_window: extract_i64(entry, &["context_window", "contextWindow", "context_length", "max_context_window", "maxContextWindow"]),
-                    max_tokens: extract_i64(entry, &["max_output_tokens", "maxOutputTokens", "max_tokens", "maxTokens"]),
-                    supports_reasoning: reasoning,
-                    supported_efforts: supported,
-                    supports_images: entry.get("supportsImages").and_then(Value::as_bool).unwrap_or_else(|| supports_images(id)),
-                    source: "hosted_fallback".to_string(),
-                    model_api_id: None,
-                    api_kind: String::new(),
-                    base_url: String::new(),
-                    cost_input: None,
-                    cost_output: None,
-                }, "hosted_fallback"))
+                Some(model_with_source(
+                    NativeModel {
+                        id: id.to_string(),
+                        provider_id: spec.id.to_string(),
+                        label,
+                        supports_effort: reasoning,
+                        supports_streaming: true,
+                        supports_tools: true,
+                        local_only: false,
+                        context_window: extract_i64(
+                            entry,
+                            &[
+                                "context_window",
+                                "contextWindow",
+                                "context_length",
+                                "max_context_window",
+                                "maxContextWindow",
+                            ],
+                        ),
+                        max_tokens: extract_i64(
+                            entry,
+                            &[
+                                "max_output_tokens",
+                                "maxOutputTokens",
+                                "max_tokens",
+                                "maxTokens",
+                            ],
+                        ),
+                        supports_reasoning: reasoning,
+                        supported_efforts: supported,
+                        supports_images: entry
+                            .get("supportsImages")
+                            .and_then(Value::as_bool)
+                            .unwrap_or_else(|| supports_images(id)),
+                        source: "hosted_fallback".to_string(),
+                        model_api_id: None,
+                        api_kind: String::new(),
+                        base_url: String::new(),
+                        cost_input: None,
+                        cost_output: None,
+                    },
+                    "hosted_fallback",
+                ))
             })
             .collect();
         Ok(Some(models))
@@ -471,7 +653,8 @@ impl ProviderModelCatalogService {
                 let provider_id: String = row.get(0)?;
                 let model_id: String = row.get(1)?;
                 let supported_raw: String = row.get(6)?;
-                let supported_efforts = serde_json::from_str::<Vec<String>>(&supported_raw).unwrap_or_default();
+                let supported_efforts =
+                    serde_json::from_str::<Vec<String>>(&supported_raw).unwrap_or_default();
                 let local_only = provider_id == LOCAL_PROVIDER_ID;
                 let api_kind = row.get::<_, Option<String>>(12)?.unwrap_or_default();
                 Ok(CachedModel {
@@ -482,8 +665,11 @@ impl ProviderModelCatalogService {
                         supports_effort: row.get::<_, i64>(5)? != 0,
                         supports_streaming: !local_only,
                         supports_tools: !local_only && {
-                            let base_url: String = row.get::<_, Option<String>>(13)?.unwrap_or_default();
-                            crate::services::provider_client::transport_supports_tools_with_base(&api_kind, &base_url)
+                            let base_url: String =
+                                row.get::<_, Option<String>>(13)?.unwrap_or_default();
+                            crate::services::provider_client::transport_supports_tools_with_base(
+                                &api_kind, &base_url,
+                            )
                         },
                         local_only,
                         context_window: row.get(3)?,
@@ -504,14 +690,23 @@ impl ProviderModelCatalogService {
                 })
             })
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
-    fn replace_provider_cache(provider_id: &str, models: Vec<NativeModel>, source: &str, error: Option<String>) -> DbResult<()> {
+    fn replace_provider_cache(
+        provider_id: &str,
+        models: Vec<NativeModel>,
+        source: &str,
+        error: Option<String>,
+    ) -> DbResult<()> {
         let conn = StorageService::connect()?;
         let now = now_seconds();
-        conn.execute("DELETE FROM native_provider_model_cache WHERE provider_id = ?1", params![provider_id])
-            .map_err(|e| format!("Failed to clear model cache: {e}"))?;
+        conn.execute(
+            "DELETE FROM native_provider_model_cache WHERE provider_id = ?1",
+            params![provider_id],
+        )
+        .map_err(|e| format!("Failed to clear model cache: {e}"))?;
         for model in models {
             let bundled_version = if source == "bundled" {
                 Some(omp_catalog::CATALOG_VERSION.trim().to_string())
@@ -602,97 +797,163 @@ impl ProviderModelCatalogService {
 
 fn provider_overlays() -> &'static [(&'static str, ProviderOverlay)] {
     &[
-        ("umans", ProviderOverlay {
-            label: "Umans", credential_owner: "user", local_only: false,
-            auth_method: "api_key",
-            api_key_url: Some("https://app.umans.ai/billing?context=personal&tab=api-keys"),
-            detail: "Umans API — OpenAI-compatible. Enter your API key to connect.",
-            default_base_url: Some("https://api.code.umans.ai/v1"),
-        }),
-        ("openai", ProviderOverlay {
-            label: "OpenAI", credential_owner: "user", local_only: false,
-            auth_method: "api_key",
-            api_key_url: Some("https://platform.openai.com/api-keys"),
-            detail: "OpenAI API — enter your API key to connect.",
-            default_base_url: Some("https://api.openai.com/v1"),
-        }),
-        ("anthropic", ProviderOverlay {
-            label: "Anthropic", credential_owner: "user", local_only: false,
-            auth_method: "api_key",
-            api_key_url: Some("https://console.anthropic.com/settings/keys"),
-            detail: "Anthropic API — enter your API key to connect.",
-            default_base_url: Some("https://api.anthropic.com/v1"),
-        }),
-        ("devin", ProviderOverlay {
-            label: "Devin.ai", credential_owner: "user", local_only: false,
-            auth_method: "api_key",
-            api_key_url: Some("https://app.devin.ai/settings/api-keys"),
-            detail: "Devin.ai (Codeium Cascade) — enter your API key to connect.",
-            default_base_url: Some("https://server.codeium.com"),
-        }),
-        ("google", ProviderOverlay {
-            label: "Google Gemini", credential_owner: "user", local_only: false,
-            auth_method: "api_key",
-            api_key_url: Some("https://aistudio.google.com/apikey"),
-            detail: "Google Gemini API — OpenAI-compatible endpoint. Enter your API key to connect.",
-            default_base_url: Some("https://generativelanguage.googleapis.com/v1beta/openai"),
-        }),
-        ("groq", ProviderOverlay {
-            label: "Groq", credential_owner: "user", local_only: false,
-            auth_method: "api_key",
-            api_key_url: Some("https://console.groq.com/keys"),
-            detail: "Groq API — OpenAI-compatible. Enter your API key to connect.",
-            default_base_url: Some("https://api.groq.com/openai/v1"),
-        }),
-        ("openrouter", ProviderOverlay {
-            label: "OpenRouter", credential_owner: "user", local_only: false,
-            auth_method: "api_key",
-            api_key_url: Some("https://openrouter.ai/keys"),
-            detail: "OpenRouter API — OpenAI-compatible. Enter your API key to connect.",
-            default_base_url: Some("https://openrouter.ai/api/v1"),
-        }),
-        ("deepseek", ProviderOverlay {
-            label: "DeepSeek", credential_owner: "user", local_only: false,
-            auth_method: "api_key",
-            api_key_url: Some("https://platform.deepseek.com/api_keys"),
-            detail: "DeepSeek API — enter your API key to connect.",
-            default_base_url: Some("https://api.deepseek.com/v1"),
-        }),
-        ("mistral", ProviderOverlay {
-            label: "Mistral", credential_owner: "user", local_only: false,
-            auth_method: "api_key",
-            api_key_url: Some("https://console.mistral.ai/api-keys"),
-            detail: "Mistral API — enter your API key to connect.",
-            default_base_url: Some("https://api.mistral.ai/v1"),
-        }),
-        ("xai", ProviderOverlay {
-            label: "xAI (Grok)", credential_owner: "user", local_only: false,
-            auth_method: "api_key",
-            api_key_url: Some("https://console.x.ai"),
-            detail: "xAI (Grok) API — enter your API key to connect.",
-            default_base_url: Some("https://api.x.ai/v1"),
-        }),
-        ("together", ProviderOverlay {
-            label: "Together AI", credential_owner: "user", local_only: false,
-            auth_method: "api_key",
-            api_key_url: Some("https://api.together.ai/settings/api-keys"),
-            detail: "Together AI API — enter your API key to connect.",
-            default_base_url: Some("https://api.together.xyz/v1"),
-        }),
-        ("fireworks", ProviderOverlay {
-            label: "Fireworks AI", credential_owner: "user", local_only: false,
-            auth_method: "api_key",
-            api_key_url: Some("https://fireworks.ai/api-keys"),
-            detail: "Fireworks AI API — enter your API key to connect.",
-            default_base_url: Some("https://api.fireworks.ai/inference/v1"),
-        }),
-        ("cerebras", ProviderOverlay {
-            label: "Cerebras", credential_owner: "user", local_only: false,
-            auth_method: "api_key",
-            api_key_url: Some("https://cloud.cerebras.ai"),
-            detail: "Cerebras API — enter your API key to connect.",
-            default_base_url: Some("https://api.cerebras.ai/v1"),
-        }),
+        (
+            "umans",
+            ProviderOverlay {
+                label: "Umans",
+                credential_owner: "user",
+                local_only: false,
+                auth_method: "api_key",
+                api_key_url: Some("https://app.umans.ai/billing?context=personal&tab=api-keys"),
+                detail: "Umans API — OpenAI-compatible. Enter your API key to connect.",
+                default_base_url: Some("https://api.code.umans.ai/v1"),
+            },
+        ),
+        (
+            "openai",
+            ProviderOverlay {
+                label: "OpenAI",
+                credential_owner: "user",
+                local_only: false,
+                auth_method: "api_key",
+                api_key_url: Some("https://platform.openai.com/api-keys"),
+                detail: "OpenAI API — enter your API key to connect.",
+                default_base_url: Some("https://api.openai.com/v1"),
+            },
+        ),
+        (
+            "anthropic",
+            ProviderOverlay {
+                label: "Anthropic",
+                credential_owner: "user",
+                local_only: false,
+                auth_method: "api_key",
+                api_key_url: Some("https://console.anthropic.com/settings/keys"),
+                detail: "Anthropic API — enter your API key to connect.",
+                default_base_url: Some("https://api.anthropic.com/v1"),
+            },
+        ),
+        (
+            "devin",
+            ProviderOverlay {
+                label: "Devin.ai",
+                credential_owner: "user",
+                local_only: false,
+                auth_method: "api_key",
+                api_key_url: Some("https://app.devin.ai/settings/api-keys"),
+                detail: "Devin.ai (Codeium Cascade) — enter your API key to connect.",
+                default_base_url: Some("https://server.codeium.com"),
+            },
+        ),
+        (
+            "google",
+            ProviderOverlay {
+                label: "Google Gemini",
+                credential_owner: "user",
+                local_only: false,
+                auth_method: "api_key",
+                api_key_url: Some("https://aistudio.google.com/apikey"),
+                detail:
+                    "Google Gemini API — OpenAI-compatible endpoint. Enter your API key to connect.",
+                default_base_url: Some("https://generativelanguage.googleapis.com/v1beta/openai"),
+            },
+        ),
+        (
+            "groq",
+            ProviderOverlay {
+                label: "Groq",
+                credential_owner: "user",
+                local_only: false,
+                auth_method: "api_key",
+                api_key_url: Some("https://console.groq.com/keys"),
+                detail: "Groq API — OpenAI-compatible. Enter your API key to connect.",
+                default_base_url: Some("https://api.groq.com/openai/v1"),
+            },
+        ),
+        (
+            "openrouter",
+            ProviderOverlay {
+                label: "OpenRouter",
+                credential_owner: "user",
+                local_only: false,
+                auth_method: "api_key",
+                api_key_url: Some("https://openrouter.ai/keys"),
+                detail: "OpenRouter API — OpenAI-compatible. Enter your API key to connect.",
+                default_base_url: Some("https://openrouter.ai/api/v1"),
+            },
+        ),
+        (
+            "deepseek",
+            ProviderOverlay {
+                label: "DeepSeek",
+                credential_owner: "user",
+                local_only: false,
+                auth_method: "api_key",
+                api_key_url: Some("https://platform.deepseek.com/api_keys"),
+                detail: "DeepSeek API — enter your API key to connect.",
+                default_base_url: Some("https://api.deepseek.com/v1"),
+            },
+        ),
+        (
+            "mistral",
+            ProviderOverlay {
+                label: "Mistral",
+                credential_owner: "user",
+                local_only: false,
+                auth_method: "api_key",
+                api_key_url: Some("https://console.mistral.ai/api-keys"),
+                detail: "Mistral API — enter your API key to connect.",
+                default_base_url: Some("https://api.mistral.ai/v1"),
+            },
+        ),
+        (
+            "xai",
+            ProviderOverlay {
+                label: "xAI (Grok)",
+                credential_owner: "user",
+                local_only: false,
+                auth_method: "api_key",
+                api_key_url: Some("https://console.x.ai"),
+                detail: "xAI (Grok) API — enter your API key to connect.",
+                default_base_url: Some("https://api.x.ai/v1"),
+            },
+        ),
+        (
+            "together",
+            ProviderOverlay {
+                label: "Together AI",
+                credential_owner: "user",
+                local_only: false,
+                auth_method: "api_key",
+                api_key_url: Some("https://api.together.ai/settings/api-keys"),
+                detail: "Together AI API — enter your API key to connect.",
+                default_base_url: Some("https://api.together.xyz/v1"),
+            },
+        ),
+        (
+            "fireworks",
+            ProviderOverlay {
+                label: "Fireworks AI",
+                credential_owner: "user",
+                local_only: false,
+                auth_method: "api_key",
+                api_key_url: Some("https://fireworks.ai/api-keys"),
+                detail: "Fireworks AI API — enter your API key to connect.",
+                default_base_url: Some("https://api.fireworks.ai/inference/v1"),
+            },
+        ),
+        (
+            "cerebras",
+            ProviderOverlay {
+                label: "Cerebras",
+                credential_owner: "user",
+                local_only: false,
+                auth_method: "api_key",
+                api_key_url: Some("https://cloud.cerebras.ai"),
+                detail: "Cerebras API — enter your API key to connect.",
+                default_base_url: Some("https://api.cerebras.ai/v1"),
+            },
+        ),
     ]
 }
 
@@ -733,10 +994,12 @@ fn provider_specs() -> Vec<ProviderSpec> {
             .unwrap_or_else(|| {
                 // Providers whose models all use bespoke api kinds typically
                 // require OAuth (delegated to OMP). Default others to api_key.
-                let all_bespoke = models
-                    .iter()
-                    .all(|m| is_bespoke_api_kind(&m.api_kind));
-                if all_bespoke { "oauth".to_string() } else { "api_key".to_string() }
+                let all_bespoke = models.iter().all(|m| is_bespoke_api_kind(&m.api_kind));
+                if all_bespoke {
+                    "oauth".to_string()
+                } else {
+                    "api_key".to_string()
+                }
             });
         specs.push(ProviderSpec {
             id: pid.to_string(),
@@ -795,26 +1058,29 @@ fn is_bespoke_provider(provider_id: &str) -> bool {
 
 fn bundled_models(provider_id: &str) -> Vec<NativeModel> {
     match provider_id {
-        LOCAL_PROVIDER_ID => vec![model_with_source(NativeModel {
-            id: LOCAL_MODEL_ID.to_string(),
-            provider_id: LOCAL_PROVIDER_ID.to_string(),
-            label: "None".to_string(),
-            supports_effort: true,
-            supports_streaming: false,
-            supports_tools: false,
-            local_only: true,
-            context_window: None,
-            max_tokens: None,
-            supports_reasoning: true,
-            supported_efforts: effort_ids(),
-            supports_images: false,
-            source: "bundled".to_string(),
-            model_api_id: None,
-            api_kind: String::new(),
-            base_url: String::new(),
-            cost_input: None,
-            cost_output: None,
-        }, "bundled")],
+        LOCAL_PROVIDER_ID => vec![model_with_source(
+            NativeModel {
+                id: LOCAL_MODEL_ID.to_string(),
+                provider_id: LOCAL_PROVIDER_ID.to_string(),
+                label: "None".to_string(),
+                supports_effort: true,
+                supports_streaming: false,
+                supports_tools: false,
+                local_only: true,
+                context_window: None,
+                max_tokens: None,
+                supports_reasoning: true,
+                supported_efforts: effort_ids(),
+                supports_images: false,
+                source: "bundled".to_string(),
+                model_api_id: None,
+                api_kind: String::new(),
+                base_url: String::new(),
+                cost_input: None,
+                cost_output: None,
+            },
+            "bundled",
+        )],
         "custom" => Vec::new(),
         _ => {
             let catalog_models = omp_catalog::models_for(provider_id);
@@ -833,29 +1099,47 @@ fn bundled_models(provider_id: &str) -> Vec<NativeModel> {
 fn bundled_from_catalog(provider_id: &str, cm: &omp_catalog::CatalogModel) -> NativeModel {
     let supports_reasoning = cm.reasoning;
     let supports_images = cm.input.iter().any(|m| m == "image");
-    let supported_efforts = if supports_reasoning { effort_ids() } else { Vec::new() };
-    let cost_input = if cm.cost.input != 0.0 { Some(cm.cost.input) } else { None };
-    let cost_output = if cm.cost.output != 0.0 { Some(cm.cost.output) } else { None };
-    model_with_source(NativeModel {
-        id: cm.id.clone(),
-        provider_id: provider_id.to_string(),
-        label: cm.name.clone(),
-        supports_tools: crate::services::provider_client::transport_supports_tools_with_base(&cm.api_kind, &cm.base_url),
-        supports_effort: supports_reasoning,
-        supports_streaming: true,
-        local_only: false,
-        context_window: cm.context_window,
-        max_tokens: cm.max_tokens,
-        supports_reasoning,
-        supported_efforts,
-        supports_images,
-        source: "bundled".to_string(),
-        model_api_id: None,
-        api_kind: cm.api_kind.clone(),
-        base_url: cm.base_url.clone(),
-        cost_input,
-        cost_output,
-    }, "bundled")
+    let supported_efforts = if supports_reasoning {
+        effort_ids()
+    } else {
+        Vec::new()
+    };
+    let cost_input = if cm.cost.input != 0.0 {
+        Some(cm.cost.input)
+    } else {
+        None
+    };
+    let cost_output = if cm.cost.output != 0.0 {
+        Some(cm.cost.output)
+    } else {
+        None
+    };
+    model_with_source(
+        NativeModel {
+            id: cm.id.clone(),
+            provider_id: provider_id.to_string(),
+            label: cm.name.clone(),
+            supports_tools: crate::services::provider_client::transport_supports_tools_with_base(
+                &cm.api_kind,
+                &cm.base_url,
+            ),
+            supports_effort: supports_reasoning,
+            supports_streaming: true,
+            local_only: false,
+            context_window: cm.context_window,
+            max_tokens: cm.max_tokens,
+            supports_reasoning,
+            supported_efforts,
+            supports_images,
+            source: "bundled".to_string(),
+            model_api_id: None,
+            api_kind: cm.api_kind.clone(),
+            base_url: cm.base_url.clone(),
+            cost_input,
+            cost_output,
+        },
+        "bundled",
+    )
 }
 
 fn omp_codex_oauth_models() -> Vec<NativeModel> {
@@ -869,22 +1153,34 @@ fn omp_codex_oauth_models() -> Vec<NativeModel> {
         .collect()
 }
 
-
 fn model_with_source(mut model: NativeModel, source: &str) -> NativeModel {
     model.source = source.to_string();
     model
 }
 
-fn is_configured(provider_id: &str, credentials: &[NativeProviderCredential]) -> bool {
-    credentials.iter().any(|c| c.provider_id == provider_id)
-}
-
 fn effort_levels() -> Vec<NativeEffortLevel> {
     vec![
-        NativeEffortLevel { id: "low".to_string(), label: "Low".to_string(), description: "Fast, shallow planning.".to_string() },
-        NativeEffortLevel { id: "medium".to_string(), label: "Medium".to_string(), description: "Balanced reliability and speed.".to_string() },
-        NativeEffortLevel { id: "high".to_string(), label: "High".to_string(), description: "Deeper reasoning for implementation planning.".to_string() },
-        NativeEffortLevel { id: "xhigh".to_string(), label: "XHigh".to_string(), description: "Maximum local planning budget before provider-backed execution.".to_string() },
+        NativeEffortLevel {
+            id: "low".to_string(),
+            label: "Low".to_string(),
+            description: "Fast, shallow planning.".to_string(),
+        },
+        NativeEffortLevel {
+            id: "medium".to_string(),
+            label: "Medium".to_string(),
+            description: "Balanced reliability and speed.".to_string(),
+        },
+        NativeEffortLevel {
+            id: "high".to_string(),
+            label: "High".to_string(),
+            description: "Deeper reasoning for implementation planning.".to_string(),
+        },
+        NativeEffortLevel {
+            id: "xhigh".to_string(),
+            label: "XHigh".to_string(),
+            description: "Maximum local planning budget before provider-backed execution."
+                .to_string(),
+        },
     ]
 }
 
@@ -895,7 +1191,9 @@ fn effort_ids() -> Vec<String> {
 fn model_label(provider_id: &str, id: &str) -> String {
     match provider_id {
         "openai" if id.starts_with("gpt-") => id.replace('-', " ").replace("gpt", "GPT"),
-        "anthropic" if id.starts_with("claude-") => id.replace('-', " ").replace("claude", "Claude"),
+        "anthropic" if id.starts_with("claude-") => {
+            id.replace('-', " ").replace("claude", "Claude")
+        }
         _ => id
             .split(['-', '_', '.'])
             .filter(|part| !part.is_empty())
@@ -918,16 +1216,32 @@ fn model_label(provider_id: &str, id: &str) -> String {
 fn supports_reasoning(provider_id: &str, id: &str) -> bool {
     let id = id.to_ascii_lowercase();
     match provider_id {
-        "openai" => ["gpt-5", "o1", "o3", "o4", "codex"].iter().any(|prefix| id == *prefix || id.starts_with(&format!("{prefix}-"))),
-        "anthropic" => id.starts_with("claude-") || id.contains("sonnet") || id.contains("opus") || id.contains("haiku"),
+        "openai" => ["gpt-5", "o1", "o3", "o4", "codex"]
+            .iter()
+            .any(|prefix| id == *prefix || id.starts_with(&format!("{prefix}-"))),
+        "anthropic" => {
+            id.starts_with("claude-")
+                || id.contains("sonnet")
+                || id.contains("opus")
+                || id.contains("haiku")
+        }
         "google" => id.contains("pro") || id.contains("thinking") || id.contains("2.5"),
-        _ => id.contains("reason") || id.contains("glm") || id.contains("thinking") || id.contains("pro"),
+        _ => {
+            id.contains("reason")
+                || id.contains("glm")
+                || id.contains("thinking")
+                || id.contains("pro")
+        }
     }
 }
 
 fn supports_images(id: &str) -> bool {
     let id = id.to_ascii_lowercase();
-    id.contains("gpt-4") || id.contains("gpt-5") || id.contains("vision") || id.contains("omni") || id.contains("claude")
+    id.contains("gpt-4")
+        || id.contains("gpt-5")
+        || id.contains("vision")
+        || id.contains("omni")
+        || id.contains("claude")
 }
 
 fn extract_i64(value: &Value, keys: &[&str]) -> Option<i64> {
@@ -967,8 +1281,10 @@ mod tests {
     fn bundled_devin_models_match_catalog() {
         // The bundled devin models should come from the OMP catalog and
         // include swe-1-6 and glm-5-2 (the stale `devin-2.0` row is gone).
+        // The bundled catalog auto-refreshes (upstream OMP + basebuild
+        // overlay), so assert a floor, never an exact count.
         let models = bundled_models("devin");
-        assert_eq!(models.len(), 48, "devin should have 48 bundled models");
+        assert!(models.len() >= 48, "devin should have >= 48 bundled models");
         let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
         assert!(ids.contains(&"swe-1-6"), "devin should include swe-1-6");
         assert!(ids.contains(&"glm-5-2"), "devin should include glm-5-2");
@@ -1012,9 +1328,15 @@ mod tests {
         // Devin uses devin-agent (bespoke), not openai-completions.
         assert!(is_bespoke_provider("devin"), "devin should be bespoke");
         // OpenAI uses openai-completions (native).
-        assert!(!is_bespoke_provider("openai"), "openai should not be bespoke");
+        assert!(
+            !is_bespoke_provider("openai"),
+            "openai should not be bespoke"
+        );
         // Anthropic uses anthropic-messages (native).
-        assert!(!is_bespoke_provider("anthropic"), "anthropic should not be bespoke");
+        assert!(
+            !is_bespoke_provider("anthropic"),
+            "anthropic should not be bespoke"
+        );
     }
 
     #[test]
@@ -1028,8 +1350,14 @@ mod tests {
                 "provider {pid} from OMP catalog should be in provider_specs"
             );
         }
-        assert!(spec_ids.contains(&"basebuild-local"), "local provider should be present");
-        assert!(spec_ids.contains(&"custom"), "custom provider should be present");
+        assert!(
+            spec_ids.contains(&"basebuild-local"),
+            "local provider should be present"
+        );
+        assert!(
+            spec_ids.contains(&"custom"),
+            "custom provider should be present"
+        );
     }
 
     #[test]
@@ -1038,7 +1366,10 @@ mod tests {
         // return Ok(bundled) not Err. We verify the bundled models are
         // non-empty and have the correct source.
         let models = bundled_models("devin");
-        assert!(!models.is_empty(), "bundled devin models should be non-empty");
+        assert!(
+            !models.is_empty(),
+            "bundled devin models should be non-empty"
+        );
         assert!(
             models.iter().all(|m| m.source == "bundled"),
             "all bundled devin models should have source=bundled"
@@ -1054,82 +1385,132 @@ mod tests {
         let all_bespoke = devin.iter().all(|m| is_bespoke_api_kind(&m.api_kind));
         let has_base_url = devin.iter().any(|m| !m.base_url.is_empty());
         assert!(all_bespoke, "devin should be all bespoke");
-        assert!(has_base_url, "devin models should have base_url from catalog");
-        assert!(!(all_bespoke && !has_base_url), "devin with base_url should not be transport_unavailable");
+        assert!(
+            has_base_url,
+            "devin models should have base_url from catalog"
+        );
+        assert!(
+            !(all_bespoke && !has_base_url),
+            "devin with base_url should not be transport_unavailable"
+        );
     }
 
     #[test]
     fn transport_unavailable_logic_bespoke_without_base_url() {
         // Simulate a bespoke model with no base_url → transport_unavailable.
-        let models = vec![
-            NativeModel {
-                id: "test-bespoke".to_string(),
-                provider_id: "test-provider".to_string(),
-                label: "Test Bespoke".to_string(),
-                supports_tools: false,
-                supports_effort: false,
-                supports_streaming: true,
-                local_only: false,
-                context_window: None,
-                max_tokens: None,
-                supports_reasoning: false,
-                supported_efforts: vec![],
-                supports_images: false,
-                source: "bundled".to_string(),
-                model_api_id: None,
-                api_kind: "devin-agent".to_string(),
-                base_url: String::new(),
-                cost_input: None,
-                cost_output: None,
-            },
-        ];
+        let models = vec![NativeModel {
+            id: "test-bespoke".to_string(),
+            provider_id: "test-provider".to_string(),
+            label: "Test Bespoke".to_string(),
+            supports_tools: false,
+            supports_effort: false,
+            supports_streaming: true,
+            local_only: false,
+            context_window: None,
+            max_tokens: None,
+            supports_reasoning: false,
+            supported_efforts: vec![],
+            supports_images: false,
+            source: "bundled".to_string(),
+            model_api_id: None,
+            api_kind: "devin-agent".to_string(),
+            base_url: String::new(),
+            cost_input: None,
+            cost_output: None,
+        }];
         let all_bespoke = models.iter().all(|m| is_bespoke_api_kind(&m.api_kind));
         let has_base_url = models.iter().any(|m| !m.base_url.is_empty());
         assert!(all_bespoke, "bespoke model should be detected as bespoke");
-        assert!(!has_base_url, "model without base_url should have no base_url");
-        assert!(all_bespoke && !has_base_url, "bespoke without base_url should be transport_unavailable");
+        assert!(
+            !has_base_url,
+            "model without base_url should have no base_url"
+        );
+        assert!(
+            all_bespoke && !has_base_url,
+            "bespoke without base_url should be transport_unavailable"
+        );
     }
 
     #[test]
     fn transport_unavailable_flips_when_base_url_added() {
         // Same bespoke model but with a base_url → transport available.
-        let models = vec![
-            NativeModel {
-                id: "test-bespoke-base".to_string(),
-                provider_id: "test-provider".to_string(),
-                label: "Test Bespoke With Base".to_string(),
-                supports_tools: true,
-                supports_effort: false,
-                supports_streaming: true,
-                local_only: false,
-                context_window: None,
-                max_tokens: None,
-                supports_reasoning: false,
-                supported_efforts: vec![],
-                supports_images: false,
-                source: "bundled".to_string(),
-                model_api_id: None,
-                api_kind: "devin-agent".to_string(),
-                base_url: "https://custom.api.com/v1".to_string(),
-                cost_input: None,
-                cost_output: None,
-            },
-        ];
+        let models = vec![NativeModel {
+            id: "test-bespoke-base".to_string(),
+            provider_id: "test-provider".to_string(),
+            label: "Test Bespoke With Base".to_string(),
+            supports_tools: true,
+            supports_effort: false,
+            supports_streaming: true,
+            local_only: false,
+            context_window: None,
+            max_tokens: None,
+            supports_reasoning: false,
+            supported_efforts: vec![],
+            supports_images: false,
+            source: "bundled".to_string(),
+            model_api_id: None,
+            api_kind: "devin-agent".to_string(),
+            base_url: "https://custom.api.com/v1".to_string(),
+            cost_input: None,
+            cost_output: None,
+        }];
         let all_bespoke = models.iter().all(|m| is_bespoke_api_kind(&m.api_kind));
         let has_base_url = models.iter().any(|m| !m.base_url.is_empty());
         assert!(all_bespoke, "still bespoke api_kind");
         assert!(has_base_url, "now has base_url");
-        assert!(!(all_bespoke && !has_base_url), "bespoke with base_url should NOT be transport_unavailable");
+        assert!(
+            !(all_bespoke && !has_base_url),
+            "bespoke with base_url should NOT be transport_unavailable"
+        );
     }
 
     #[test]
     fn native_provider_not_transport_unavailable() {
         // Native api_kinds are not bespoke → never transport_unavailable.
-        assert!(!is_bespoke_api_kind("openai-completions"), "openai-completions is not bespoke");
-        assert!(!is_bespoke_api_kind("anthropic-messages"), "anthropic-messages is not bespoke");
-        assert!(is_bespoke_api_kind(""), "empty api_kind is bespoke (not in native list)");
+        assert!(
+            !is_bespoke_api_kind("openai-completions"),
+            "openai-completions is not bespoke"
+        );
+        assert!(
+            !is_bespoke_api_kind("anthropic-messages"),
+            "anthropic-messages is not bespoke"
+        );
+        assert!(
+            is_bespoke_api_kind(""),
+            "empty api_kind is bespoke (not in native list)"
+        );
         // Bespoke kinds.
         assert!(is_bespoke_api_kind("devin-agent"), "devin-agent is bespoke");
-        assert!(is_bespoke_api_kind("cursor-agent"), "cursor-agent is bespoke");
+        assert!(
+            is_bespoke_api_kind("cursor-agent"),
+            "cursor-agent is bespoke"
+        );
+    }
+
+    #[test]
+    fn cached_catalog_is_startup_safe_and_reused() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        ProviderModelCatalogService::invalidate();
+
+        let started = std::time::Instant::now();
+        let first = ProviderModelCatalogService::catalog();
+        let first_elapsed = started.elapsed();
+        assert!(!first.providers.is_empty());
+        assert!(!first.models.is_empty());
+        assert!(
+            first_elapsed < Duration::from_secs(5),
+            "cached startup catalog took {first_elapsed:?}"
+        );
+
+        let started = std::time::Instant::now();
+        let second = ProviderModelCatalogService::catalog();
+        let second_elapsed = started.elapsed();
+        assert_eq!(second.fetched_at, first.fetched_at);
+        assert_eq!(second.models.len(), first.models.len());
+        assert!(
+            second_elapsed < Duration::from_secs(1),
+            "in-process catalog reuse took {second_elapsed:?}"
+        );
     }
 }

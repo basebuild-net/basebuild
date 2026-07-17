@@ -169,7 +169,9 @@ const ALLOWED_FIELDS: &[&str] = &[
 /// the row contains only permitted fields, or an error describing the
 /// violation.
 pub fn validate_row(row: &Value) -> Result<(), String> {
-    let obj = row.as_object().ok_or_else(|| "usage row must be a JSON object".to_string())?;
+    let obj = row
+        .as_object()
+        .ok_or_else(|| "usage row must be a JSON object".to_string())?;
 
     // Check for forbidden fields first (defense in depth).
     // Use exact match only — the allowlist below is the authoritative check.
@@ -226,7 +228,10 @@ pub fn validate_envelope(envelope: &UsageEnvelope) -> Result<(), String> {
 /// Build an envelope from validated batches. The builder validates before
 /// returning, so a successful return guarantees the envelope is safe to
 /// transport.
-pub fn build_envelope(batches: Vec<UsageBatch>, assembled_at: i64) -> Result<UsageEnvelope, String> {
+pub fn build_envelope(
+    batches: Vec<UsageBatch>,
+    assembled_at: i64,
+) -> Result<UsageEnvelope, String> {
     let envelope = UsageEnvelope {
         version: ENVELOPE_VERSION,
         assembled_at,

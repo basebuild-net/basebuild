@@ -8,13 +8,19 @@ use crate::{
     events::PLAN_RUN_EVENT,
     models::plan::PlanStatus,
     models::plan_run::{
-        EnqueuePlanRequest, ExecutionProfile, PlanQueueEntry, PlanRun, PlanRunEvent,
-        PlanRunStatus, RunnerKind, StartQueueRequest,
+        EnqueuePlanRequest, ExecutionProfile, PlanQueueEntry, PlanRun, PlanRunEvent, PlanRunStatus,
+        RunnerKind, StartQueueRequest,
     },
     models::planning_event::PlanningEventKind,
     services::{
-        native_chat_service::NativeChatService, openspec_service, plan_service::PlanService,
-        planning_events, session_service::SessionService, storage_service::StorageService,
+        final_touches_service::FinalTouchStepResult,
+        native_chat_service::NativeChatService,
+        openspec_service,
+        plan_lifecycle_service::{PlanCompletionState, PlanLifecycleService},
+        plan_service::PlanService,
+        planning_events,
+        session_service::SessionService,
+        storage_service::StorageService,
     },
 };
 
@@ -26,6 +32,20 @@ fn gen_id() -> String {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     format!("{ts:x}")
+}
+
+fn normalize_final_touch_results(
+    result: DbResult<Vec<FinalTouchStepResult>>,
+) -> Vec<FinalTouchStepResult> {
+    result.unwrap_or_else(|error| {
+        vec![FinalTouchStepResult {
+            step_id: "final-touches".to_string(),
+            kind: "system".to_string(),
+            status: "failed".to_string(),
+            output: None,
+            error: Some(error.chars().take(500).collect()),
+        }]
+    })
 }
 
 fn now() -> i64 {
@@ -57,13 +77,18 @@ impl RunCancellationToken {
 
 static RUNNING_RUNS: std::sync::LazyLock<Mutex<HashMap<String, RunCancellationToken>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
-/// Per-provider in-flight semaphores (`run-concurrency-limits`). Each
-/// provider gets a semaphore sized to its effective concurrency limit
-/// (project override else global default else conservative `1`). Runs +
-/// subagents both acquire here, so they count together against the provider
-/// cap. Replaces the former single-`N` semaphore.
-static PROVIDER_SEMAPHORES: std::sync::LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Semaphore>>>> =
-    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Per-project, per-provider in-flight semaphores (`run-concurrency-limits`).
+/// Keeping the configured limit beside the semaphore prevents an exhausted
+/// semaphore from being mistaken for a changed limit and replaced.
+#[derive(Debug)]
+struct ProviderSemaphore {
+    limit: usize,
+    semaphore: Arc<tokio::sync::Semaphore>,
+}
+
+static PROVIDER_SEMAPHORES: std::sync::LazyLock<
+    Mutex<HashMap<(String, String), ProviderSemaphore>>,
+> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Per-session queue state: whether the queue is paused and the active
 /// execution profile. Held in memory so the scheduler loop can read it
@@ -71,6 +96,7 @@ static PROVIDER_SEMAPHORES: std::sync::LazyLock<Mutex<HashMap<String, Arc<tokio:
 #[derive(Debug, Default, Clone)]
 struct QueueState {
     paused: bool,
+    generation: String,
     profile: Option<ExecutionProfile>,
     overrides: HashMap<String, ExecutionProfile>,
 }
@@ -134,7 +160,13 @@ impl PlanRunnerService {
         conn.execute(
             "INSERT INTO plan_queue (id, session_id, plan_id, sort_order, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![entry.id, entry.session_id, entry.plan_id, entry.sort_order, entry.created_at],
+            params![
+                entry.id,
+                entry.session_id,
+                entry.plan_id,
+                entry.sort_order,
+                entry.created_at
+            ],
         )
         .map_err(|e| format!("Failed to enqueue plan: {e}"))?;
         Ok(entry)
@@ -183,7 +215,12 @@ impl PlanRunnerService {
     /// the existing `PLAN_RUN_EVENT`. Best-effort: fetches plan title + project
     /// path from the run's session; missing data degrades to empty strings
     /// rather than failing the run.
-    fn emit_planning_event<R: Runtime>(app: &AppHandle<R>, run: &PlanRun, kind: PlanningEventKind, detail: Option<String>) {
+    fn emit_planning_event<R: Runtime>(
+        app: &AppHandle<R>,
+        run: &PlanRun,
+        kind: PlanningEventKind,
+        detail: Option<String>,
+    ) {
         let title = PlanService::get(&run.plan_id)
             .ok()
             .flatten()
@@ -230,12 +267,14 @@ impl PlanRunnerService {
             })
             .collect::<HashMap<_, _>>();
 
+        let generation = gen_id();
         // Store queue state for the scheduler loop.
         if let Ok(mut states) = QUEUE_STATE.lock() {
             states.insert(
                 session_id.clone(),
                 QueueState {
                     paused: false,
+                    generation: generation.clone(),
                     profile: Some(profile.clone()),
                     overrides,
                 },
@@ -251,15 +290,11 @@ impl PlanRunnerService {
             .map(|s| s.project_path)
             .unwrap_or_default();
         let worktrees_enabled = Self::worktrees_enabled_for(&project_path);
-        let concurrency = profile.concurrency.max(1).min(if worktrees_enabled {
-            profile.concurrency
-        } else {
-            1
-        });
+        let concurrency = Self::effective_queue_concurrency(profile.concurrency, worktrees_enabled);
         let app_clone = app.clone();
         let sid = session_id.clone();
         std::thread::spawn(move || {
-            Self::dispatch_loop(app_clone, sid, concurrency);
+            Self::dispatch_loop(app_clone, sid, concurrency, generation);
         });
 
         Ok(())
@@ -285,13 +320,7 @@ impl PlanRunnerService {
                 token.cancel();
             }
         }
-        let now = now();
-        let conn = StorageService::connect()?;
-        conn.execute(
-            "UPDATE plan_runs SET status = 'cancelled', finished_at = ?1 WHERE id = ?2",
-            params![now, run_id],
-        )
-        .map_err(|e| format!("Failed to cancel plan run: {e}"))?;
+        PlanLifecycleService::user_stop(run_id, cancel_plan)?;
 
         // Emit the cancelled event.
         let run = Self::get_run(run_id)?;
@@ -313,13 +342,6 @@ impl PlanRunnerService {
                 PlanningEventKind::StageCancelled,
                 Some("Run cancelled by user".to_string()),
             );
-            // Return the plan to ready (or cancelled if the user chose).
-            let new_status = if cancel_plan {
-                PlanStatus::Cancelled
-            } else {
-                PlanStatus::Ready
-            };
-            let _ = PlanService::set_status(&run.plan_id, new_status);
         }
         Ok(())
     }
@@ -328,136 +350,96 @@ impl PlanRunnerService {
     /// checked or explicit user done). Stamps `finished_at` and transitions
     /// the plan to `finished` if final-touches (phase 8) succeeds.
     pub fn complete_run(app: &AppHandle, run_id: &str, succeeded: bool) -> DbResult<()> {
-        let now = now();
-        let conn = StorageService::connect()?;
-        let status = if succeeded { "succeeded" } else { "failed" };
-        conn.execute(
-            "UPDATE plan_runs SET status = ?1, finished_at = ?2 WHERE id = ?3",
-            params![status, now, run_id],
-        )
-        .map_err(|e| format!("Failed to complete plan run: {e}"))?;
+        let run = Self::get_run(run_id)?.ok_or_else(|| "Run not found".to_string())?;
+        let session = SessionService::get(&run.session_id).ok().flatten();
+        let project_path = session
+            .as_ref()
+            .map(|session| session.project_path.as_str())
+            .unwrap_or("");
 
-        let run = Self::get_run(run_id)?;
-        if let Some(run) = &run {
-            // If succeeded, run final-touches before transitioning.
-            let new_plan_status = if succeeded {
-                // Run the final-touches pipeline.
-                let session = SessionService::get(&run.session_id)
-                    .ok()
-                    .flatten();
-                let project_path = session
-                    .as_ref()
-                    .map(|s| s.project_path.as_str())
-                    .unwrap_or("");
-                let step_results = if !project_path.is_empty() {
+        let completion = if succeeded {
+            let step_results = if project_path.is_empty() {
+                Vec::new()
+            } else {
+                normalize_final_touch_results(
                     crate::services::final_touches_service::FinalTouchesService::execute_steps(
                         project_path,
-                    )
-                    .unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
-                let _ = Self::update_run_steps(run_id, &step_results);
-                let any_failed = step_results.iter().any(|r| r.status == "failed");
-                if any_failed {
-                    let _ = conn.execute(
-                        "UPDATE plan_runs SET status = 'failed' WHERE id = ?1",
-                        params![run_id],
-                    );
-                    PlanStatus::Ready
-                } else if !Self::evaluate_checklist_completion(&run) {
-                    // Checklist incomplete → park in awaiting_review.
-                    let _ = conn.execute(
-                        "UPDATE plan_runs SET status = 'awaiting_review' WHERE id = ?1",
-                        params![run_id],
-                    );
-                    // Emit a planning event for the review prompt.
-                    let _ = crate::services::planning_events::emit(
-                        app,
-                        PlanningEventKind::RunFinished,
-                        &run.plan_id,
-                        project_path,
-                        Some(run.session_id.clone()),
-                        "Run awaiting review".to_string(),
-                        Some("Checklist incomplete — mark as complete or keep running.".to_string()),
-                    );
-                    PlanStatus::Running // Keep plan running while awaiting review.
-                } else {
-                    PlanStatus::Finished
-                }
-            } else {
-                PlanStatus::Ready
-            };
-            let _ = PlanService::set_status(&run.plan_id, new_plan_status);
-            let _ = app.emit(
-                PLAN_RUN_EVENT,
-                PlanRunEvent {
-                    run_id: run.id.clone(),
-                    session_id: run.session_id.clone(),
-                    plan_id: run.plan_id.clone(),
-                    status: if succeeded {
-                        PlanRunStatus::Succeeded
-                    } else {
-                        PlanRunStatus::Failed
-                    },
-                    chat_session_id: run.chat_session_id.clone(),
-                    error: if succeeded {
-                        None
-                    } else {
-                        Some("Run failed".to_string())
-                    },
-                },
-            );
-            let (run_kind, run_detail) = if succeeded {
-                (PlanningEventKind::RunFinished, None)
-            } else {
-                (
-                    PlanningEventKind::RunFailed,
-                    Some("Run failed".to_string()),
+                    ),
                 )
             };
-            Self::emit_planning_event(app, run, run_kind, run_detail);
-            // Re-align nudge: if the plan finished and the schematic mtime
-            // predates the run start, emit a drift-suspected notification.
-            if succeeded && new_plan_status == PlanStatus::Finished {
-                let session = SessionService::get(&run.session_id).ok().flatten();
-                let project_path = session.as_ref().map(|s| s.project_path.as_str()).unwrap_or("");
-                if !project_path.is_empty() {
-                    let schematic_mtime = std::fs::metadata(
-                        std::path::Path::new(project_path).join(".basebuild/project-schematic.md"),
-                    )
-                    .ok()
-                    .and_then(|m| m.modified().ok())
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(0);
-                    let run_start = run.started_at.unwrap_or(0);
-                    if schematic_mtime > 0 && run_start > 0 && schematic_mtime < run_start {
-                        // Schematic is older than the run — drift suspected.
-                        let _ = crate::services::planning_events::emit(
-                            app,
-                            PlanningEventKind::SchematicUpdated,
-                            run.plan_id.clone(),
-                            project_path,
-                            Some(run.session_id.clone()),
-                            "Schematic drift suspected".to_string(),
-                            Some("Plan finished but schematic predates the run. Consider re-aligning the schematic.".to_string()),
-                        );
-                        let _ = crate::services::notification_service::NotificationService::insert(
-                            crate::models::notification::NotificationKind::SchematicDriftSuspected,
-                            &run.plan_id,
-                            "plan",
-                            project_path,
-                            "Schematic drift suspected",
-                            Some("Plan finished but the schematic hasn't been updated since before the run. Re-align the schematic to reflect completed work."),
-                        );
-                    }
-                }
+            Self::update_run_steps(run_id, &step_results)?;
+            if step_results.iter().any(|result| result.status == "failed") {
+                PlanCompletionState::Failed
+            } else if Self::evaluate_checklist_completion(&run) {
+                PlanCompletionState::Succeeded
+            } else {
+                PlanCompletionState::AwaitingReview
             }
-            // Apply finish policy (auto-commit, PR, merge review) if configured.
-            if succeeded && new_plan_status == PlanStatus::Finished {
-                let _ = Self::apply_finish_policy(app, run_id);
+        } else {
+            PlanCompletionState::Failed
+        };
+
+        PlanLifecycleService::finish_run(run_id, completion)?;
+        if completion == PlanCompletionState::AwaitingReview {
+            let _ = crate::services::planning_events::emit(
+                app,
+                PlanningEventKind::RunFinished,
+                &run.plan_id,
+                project_path,
+                Some(run.session_id.clone()),
+                "Run awaiting review".to_string(),
+                Some("Checklist incomplete — continue the plan or mark it complete.".to_string()),
+            );
+        }
+
+        let updated = Self::get_run(run_id)?.ok_or_else(|| "Run not found".to_string())?;
+        let error = match completion {
+            PlanCompletionState::Succeeded => None,
+            PlanCompletionState::Failed => Some("Run failed".to_string()),
+            PlanCompletionState::AwaitingReview => {
+                Some("Checklist incomplete; continuation or review required".to_string())
             }
+        };
+        let _ = app.emit(
+            PLAN_RUN_EVENT,
+            PlanRunEvent {
+                run_id: updated.id.clone(),
+                session_id: updated.session_id.clone(),
+                plan_id: updated.plan_id.clone(),
+                status: updated.status.clone(),
+                chat_session_id: updated.chat_session_id.clone(),
+                error: error.clone(),
+            },
+        );
+        let event_kind = if completion == PlanCompletionState::Failed {
+            PlanningEventKind::RunFailed
+        } else {
+            PlanningEventKind::RunFinished
+        };
+        Self::emit_planning_event(app, &updated, event_kind, error);
+
+        if completion == PlanCompletionState::Succeeded {
+            let schematic_mtime = std::fs::metadata(
+                std::path::Path::new(project_path).join(".basebuild/project-schematic.md"),
+            )
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs() as i64)
+            .unwrap_or(0);
+            let run_start = run.started_at.unwrap_or(0);
+            if schematic_mtime > 0 && run_start > 0 && schematic_mtime < run_start {
+                let _ = crate::services::notification_service::NotificationService::deliver(
+                    app,
+                    crate::models::notification::NotificationKind::SchematicDriftSuspected,
+                    &run.plan_id,
+                    "plan",
+                    project_path,
+                    "Schematic drift suspected",
+                    Some("Plan finished but the schematic hasn't been updated since before the run. Re-align the schematic to reflect completed work."),
+                );
+            }
+            let _ = Self::apply_finish_policy(app, run_id);
         }
         Ok(())
     }
@@ -466,25 +448,20 @@ impl PlanRunnerService {
     /// or `succeeded` run to fully finished, sets the plan to `Finished`,
     /// and emits events. Used by the completion card "Mark as complete" action.
     pub fn mark_complete(app: &AppHandle, run_id: &str) -> DbResult<()> {
-        let conn = StorageService::connect()?;
-        let now = now();
         // Verify the run exists and is in a completable state.
         let run = Self::get_run(run_id)?;
         let run = run.ok_or("Run not found")?;
-        if !matches!(run.status, PlanRunStatus::AwaitingReview | PlanRunStatus::Succeeded) {
+        if !matches!(
+            run.status,
+            PlanRunStatus::AwaitingReview | PlanRunStatus::Succeeded
+        ) {
             return Err(format!(
                 "Cannot mark complete: run is {} (must be awaiting_review or succeeded).",
                 run.status.as_str()
             ));
         }
-        // Update run status to succeeded.
-        conn.execute(
-            "UPDATE plan_runs SET status = 'succeeded', finished_at = ?1 WHERE id = ?2",
-            params![now, run_id],
-        )
-        .map_err(|e| format!("Failed to mark run complete: {e}"))?;
-        // Set plan to finished.
-        let _ = PlanService::set_status(&run.plan_id, PlanStatus::Finished);
+        Self::require_checklist_completion(&run)?;
+        PlanLifecycleService::finish_run(run_id, PlanCompletionState::Succeeded)?;
         // Emit run event.
         let _ = app.emit(
             PLAN_RUN_EVENT,
@@ -500,17 +477,13 @@ impl PlanRunnerService {
         Ok(())
     }
 
-
     /// Apply the project's finish policy to a completed run and persist the
     /// outcome on the run row. Called ONCE from `complete_run` after the run
     /// transitions to `succeeded` and the plan is `Finished`. Reads go through
     /// `get_finish_outcome` — they never re-execute policy side effects.
     /// Non-git or primary-checkout hard-fallbacks to hold. Failures surface
     /// without retry.
-    pub fn apply_finish_policy(
-        app: &AppHandle,
-        run_id: &str,
-    ) -> DbResult<FinishResult> {
+    pub fn apply_finish_policy(app: &AppHandle, run_id: &str) -> DbResult<FinishResult> {
         let result = Self::apply_finish_policy_inner(app, run_id)?;
         Self::persist_finish_outcome(run_id, &result)?;
         Ok(result)
@@ -562,18 +535,17 @@ impl PlanRunnerService {
         }
     }
 
-    fn apply_finish_policy_inner(
-        app: &AppHandle,
-        run_id: &str,
-    ) -> DbResult<FinishResult> {
-        let run = Self::get_run(run_id)?
-            .ok_or("Run not found")?;
+    fn apply_finish_policy_inner(app: &AppHandle, run_id: &str) -> DbResult<FinishResult> {
+        let run = Self::get_run(run_id)?.ok_or("Run not found")?;
         let session = SessionService::get(&run.session_id)
             .ok()
             .flatten()
             .ok_or("Session not found")?;
         let project_path = &session.project_path;
-        let profile = crate::services::plan_dependency_service::PlanDependencyService::get_launch_profile(project_path)
+        let profile =
+            crate::services::plan_dependency_service::PlanDependencyService::get_launch_profile(
+                project_path,
+            )
             .ok()
             .flatten();
         let policy = profile
@@ -593,7 +565,8 @@ impl PlanRunnerService {
         // Check if the directory is a git repo. Non-git → fallback to hold.
         if !work_dir.join(".git").exists() {
             let msg = format!("Finish policy '{policy}' not applied: not a git repository.");
-            let _ = crate::services::notification_service::NotificationService::insert(
+            let _ = crate::services::notification_service::NotificationService::deliver(
+                app,
                 crate::models::notification::NotificationKind::IntegrationAction,
                 run_id,
                 "plan_run",
@@ -609,7 +582,10 @@ impl PlanRunnerService {
             .map(|p| p.reference_id.clone())
             .unwrap_or_else(|| run.plan_id.clone());
         let commit_msg = format!("Auto-commit: plan {plan_ref} completed (run {run_id})");
-        let mk = |commit_sha: Option<String>, pr_url: Option<String>, merge_ready: bool, error: Option<String>| {
+        let mk = |commit_sha: Option<String>,
+                  pr_url: Option<String>,
+                  merge_ready: bool,
+                  error: Option<String>| {
             FinishOutcome {
                 run_id: run_id.to_string(),
                 policy: policy.to_string(),
@@ -623,17 +599,35 @@ impl PlanRunnerService {
             "auto_commit" => {
                 match crate::services::git_service::GitService::commit_all(&work_dir, &commit_msg) {
                     Ok(sha) if !sha.is_empty() => mk(Some(sha), None, false, None),
-                    Ok(_) => mk(None, None, false, Some("Nothing to commit — working tree clean.".to_string())),
+                    Ok(_) => mk(
+                        None,
+                        None,
+                        false,
+                        Some("Nothing to commit — working tree clean.".to_string()),
+                    ),
                     Err(e) => mk(None, None, false, Some(format!("git commit failed: {e}"))),
                 }
             }
             "auto_commit_pr" => {
                 match crate::services::git_service::GitService::commit_all(&work_dir, &commit_msg) {
-                    Ok(sha) if sha.is_empty() => mk(None, None, false, Some("Nothing to commit — working tree clean.".to_string())),
+                    Ok(sha) if sha.is_empty() => mk(
+                        None,
+                        None,
+                        false,
+                        Some("Nothing to commit — working tree clean.".to_string()),
+                    ),
                     Ok(sha) => {
-                        let branch = crate::services::git_service::GitService::current_branch(&work_dir);
+                        let branch =
+                            crate::services::git_service::GitService::current_branch(&work_dir);
                         match branch {
-                            None => mk(Some(sha), None, false, Some("Cannot determine current branch — detached HEAD?".to_string())),
+                            None => mk(
+                                Some(sha),
+                                None,
+                                false,
+                                Some(
+                                    "Cannot determine current branch — detached HEAD?".to_string(),
+                                ),
+                            ),
                             Some(b) => {
                                 let pr_result = crate::services::pull_request_service::PullRequestService::create_pr(
                                     project_path,
@@ -643,8 +637,21 @@ impl PlanRunnerService {
                                 );
                                 match pr_result {
                                     Ok(pr) if pr.success => mk(Some(sha), pr.url, false, None),
-                                    Ok(pr) => mk(Some(sha), None, false, Some(format!("PR creation failed: {}", pr.error.unwrap_or_default()))),
-                                    Err(e) => mk(Some(sha), None, false, Some(format!("PR creation error: {e}"))),
+                                    Ok(pr) => mk(
+                                        Some(sha),
+                                        None,
+                                        false,
+                                        Some(format!(
+                                            "PR creation failed: {}",
+                                            pr.error.unwrap_or_default()
+                                        )),
+                                    ),
+                                    Err(e) => mk(
+                                        Some(sha),
+                                        None,
+                                        false,
+                                        Some(format!("PR creation error: {e}")),
+                                    ),
                                 }
                             }
                         }
@@ -654,9 +661,15 @@ impl PlanRunnerService {
             }
             "queue_merge_review" => {
                 // Commit, then add to merge-review queue with merge-ready flag.
-                let (sha, commit_err) = match crate::services::git_service::GitService::commit_all(&work_dir, &commit_msg) {
+                let (sha, commit_err) = match crate::services::git_service::GitService::commit_all(
+                    &work_dir,
+                    &commit_msg,
+                ) {
                     Ok(s) if !s.is_empty() => (Some(s), None),
-                    Ok(_) => (None, Some("Nothing to commit — working tree clean.".to_string())),
+                    Ok(_) => (
+                        None,
+                        Some("Nothing to commit — working tree clean.".to_string()),
+                    ),
                     Err(e) => (None, Some(format!("git commit failed: {e}"))),
                 };
                 let _ = crate::services::plan_dependency_service::PlanDependencyService::add_to_merge_queue(
@@ -668,7 +681,12 @@ impl PlanRunnerService {
                 );
                 mk(sha, None, true, commit_err)
             }
-            _ => mk(None, None, false, Some(format!("Unknown finish policy: {policy}"))),
+            _ => mk(
+                None,
+                None,
+                false,
+                Some(format!("Unknown finish policy: {policy}")),
+            ),
         };
         // Emit a planning event with the outcome.
         let detail = if let Some(ref err) = outcome.error {
@@ -688,35 +706,44 @@ impl PlanRunnerService {
         Ok(FinishResult::Applied(outcome))
     }
 
-    /// Evaluate checklist completion at run end. If the linked change has an
-    /// incomplete tasks.md, park the run in `awaiting_review` instead of
-    /// auto-completing. Returns true if the run should auto-complete, false
-    /// if it should park.
-    fn evaluate_checklist_completion(run: &PlanRun) -> bool {
-        // Get the linked plan's change_name.
-        let plan = PlanService::get(&run.plan_id).ok().flatten();
-        let plan = match plan {
-            Some(p) => p,
-            None => return true, // No plan → auto-complete.
-        };
-        let change_name = match &plan.change_name {
-            Some(c) => c,
-            None => return true, // No change → auto-complete.
-        };
-        let session = SessionService::get(&run.session_id).ok().flatten();
-        let project_path = session
-            .as_ref()
-            .map(|s| s.project_path.as_str())
-            .unwrap_or("");
-        if project_path.is_empty() {
-            return true;
+    /// Return task progress for a linked OpenSpec change. `None` means the
+    /// plan has no linked checklist and therefore follows the manual lifecycle.
+    fn checklist_progress(run: &PlanRun) -> Option<(u32, u32)> {
+        let plan = PlanService::get(&run.plan_id).ok().flatten()?;
+        let change_name = plan.change_name.as_deref()?;
+        let session = SessionService::get(&run.session_id).ok().flatten()?;
+        if session.project_path.is_empty() {
+            return None;
         }
-        let (completed, total) =
-            crate::services::openspec_service::read_task_progress(project_path, change_name);
+        Some(crate::services::openspec_service::read_task_progress(
+            &session.project_path,
+            change_name,
+        ))
+    }
+
+    fn require_checklist_completion(run: &PlanRun) -> DbResult<()> {
+        let Some((completed, total)) = Self::checklist_progress(run) else {
+            return Ok(());
+        };
         if total == 0 {
-            return true; // No tasks → auto-complete.
+            return Err(
+                "Cannot mark complete: the linked OpenSpec change has no required tasks."
+                    .to_string(),
+            );
         }
-        completed == total // All tasks done → auto-complete.
+        if completed < total {
+            return Err(format!(
+                "Cannot mark complete: {completed}/{total} required OpenSpec tasks are complete."
+            ));
+        }
+        Ok(())
+    }
+
+    fn evaluate_checklist_completion(run: &PlanRun) -> bool {
+        match Self::checklist_progress(run) {
+            Some((completed, total)) => total > 0 && completed == total,
+            None => true,
+        }
     }
 
     /// Update the steps_output JSON on a plan_run row.
@@ -734,7 +761,26 @@ impl PlanRunnerService {
         Ok(())
     }
 
+    /// Repair persisted "running" claims whose linked chat no longer has a live
+    /// execution owner. The transition is atomic; in-memory tokens are released
+    /// only after commit. This is safe to call repeatedly at read boundaries.
+    pub fn reconcile_stale_owners(
+        session_id: Option<&str>,
+        project_path: Option<&str>,
+    ) -> DbResult<usize> {
+        let stale = PlanLifecycleService::reconcile_stale_owners(session_id, project_path)?;
+        if let Ok(mut running) = RUNNING_RUNS.lock() {
+            for run_id in &stale {
+                if let Some(token) = running.remove(run_id) {
+                    token.cancel();
+                }
+            }
+        }
+        Ok(stale.len())
+    }
+
     pub fn list_runs(session_id: &str) -> DbResult<Vec<PlanRun>> {
+        Self::reconcile_stale_owners(Some(session_id), None)?;
         let conn = StorageService::connect()?;
         let mut stmt = conn
             .prepare(
@@ -745,6 +791,50 @@ impl PlanRunnerService {
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map(params![session_id], Self::map_run)
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
+    }
+
+    /// List all plan runs owned by sessions in a project. Planning surfaces
+    /// are project-scoped, so session-only queries can hide retained runs
+    /// created from another workspace or native-chat session.
+    pub fn list_runs_for_project(project_path: &str) -> DbResult<Vec<PlanRun>> {
+        Self::reconcile_stale_owners(None, Some(project_path))?;
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, plan_id, session_id, chat_session_id, workspace_path, status,
+                        runner_kind, error, steps_output, started_at, finished_at, created_at
+                 FROM plan_runs
+                 WHERE session_id IN (
+                   SELECT id FROM sessions WHERE project_path = ?1
+                   UNION
+                   SELECT id FROM native_chat_sessions WHERE project_path = ?1
+                 )
+                 ORDER BY created_at DESC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![project_path], Self::map_run)
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
+    }
+
+    /// List all runs for a plan, across all workspace sessions. Used by the
+    /// UI to resolve a plan's active chat session regardless of which session
+    /// originally assigned it (plans are project-scoped, not session-scoped).
+    pub fn list_runs_by_plan(plan_id: &str) -> DbResult<Vec<PlanRun>> {
+        Self::reconcile_stale_owners(None, None)?;
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, plan_id, session_id, chat_session_id, workspace_path, status,
+                        runner_kind, error, steps_output, started_at, finished_at, created_at
+                 FROM plan_runs WHERE plan_id = ?1 ORDER BY created_at DESC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![plan_id], Self::map_run)
             .map_err(|e| e.to_string())?;
         rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
     }
@@ -767,13 +857,11 @@ impl PlanRunnerService {
     /// completed == total), the run is auto-completed as succeeded. Returns
     /// the (completed, total) counts so the UI can display progress.
     pub fn check_run_completion(app: &AppHandle, run_id: &str) -> DbResult<(u32, u32)> {
-        let run = Self::get_run(run_id)?
-            .ok_or_else(|| "Plan run not found".to_string())?;
+        let run = Self::get_run(run_id)?.ok_or_else(|| "Plan run not found".to_string())?;
         if run.status != PlanRunStatus::Running {
             return Ok((0, 0));
         }
-        let plan = PlanService::get(&run.plan_id)?
-            .ok_or_else(|| "Plan not found".to_string())?;
+        let plan = PlanService::get(&run.plan_id)?.ok_or_else(|| "Plan not found".to_string())?;
         let session = SessionService::get(&plan.session_id)?
             .ok_or_else(|| "Session not found".to_string())?;
         let project_path = &session.project_path;
@@ -801,13 +889,15 @@ impl PlanRunnerService {
         conn.execute(
             "INSERT INTO plan_runs (id, plan_id, session_id, chat_session_id, workspace_path,
              status, runner_kind, error, steps_output, started_at, finished_at, created_at)
-             VALUES (?1, ?2, ?3, NULL, NULL, 'running', 'omp', NULL, '[]', ?4, NULL, ?5)",
-            params![run_id, plan_id, session_id, created, created],
+             VALUES (?1, ?2, ?3, NULL, NULL, 'pending', 'omp', NULL, '[]', NULL, NULL, ?4)",
+            params![run_id, plan_id, session_id, created],
         )
         .map_err(|e| format!("Failed to insert OMP plan run: {e}"))?;
 
-        // Transition the plan to running.
-        let _ = PlanService::set_status(plan_id, PlanStatus::Running);
+        if let Err(error) = PlanLifecycleService::kickoff_started(&run_id, None) {
+            let _ = PlanLifecycleService::kickoff_failed(&run_id, &error);
+            return Err(format!("Failed to start OMP plan run: {error}"));
+        }
 
         // Emit the running event so the frontend opens the OMP tab.
         let _ = app.emit(
@@ -827,14 +917,13 @@ impl PlanRunnerService {
             Self::emit_planning_event(app, &run, PlanningEventKind::RunStarted, None);
         }
 
-        Self::get_run(&run_id)?
-            .ok_or_else(|| "OMP plan run not found after creation".to_string())
+        Self::get_run(&run_id)?.ok_or_else(|| "OMP plan run not found after creation".to_string())
     }
     // ── Dispatcher ──────────────────────────────────────────────────────
 
     /// Dispatch loop: pulls the next pending queue entry, provisions a
     /// session, and runs the plan. Respects pause and cancellation.
-    fn dispatch_loop(app: AppHandle, session_id: String, concurrency: u32) {
+    fn dispatch_loop(app: AppHandle, session_id: String, concurrency: u32, generation: String) {
         let runtime = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -842,28 +931,39 @@ impl PlanRunnerService {
             Ok(rt) => rt,
             Err(_) => return,
         };
-        // Legacy single-N semaphore kept as a fallback ceiling; the real
-        // bound is per-provider (below). This preserves the old behavior for
-        // callers that never set per-provider limits.
-        let _legacy_cap = concurrency.max(1);
+        let session_semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency.max(1) as usize));
 
         loop {
-            // Check pause state.
-            let paused = QUEUE_STATE
+            // A resumed queue gets a new generation. Retire the old paused
+            // dispatcher before it can race the replacement.
+            let queue_status = QUEUE_STATE
                 .lock()
                 .ok()
-                .and_then(|s| s.get(&session_id).map(|q| q.paused))
-                .unwrap_or(true);
-            if paused {
+                .and_then(|states| {
+                    states
+                        .get(&session_id)
+                        .map(|state| (state.generation == generation, state.paused))
+                })
+                .unwrap_or((false, true));
+            if !queue_status.0 {
+                return;
+            }
+            if queue_status.1 {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 continue;
             }
+
+            let _ = Self::reconcile_stale_owners(Some(&session_id), None);
 
             // Find the next pending queue entry that doesn't already have a
             // running/succeeded/failed plan_run.
             let next = match Self::next_pending_entry(&session_id) {
                 Ok(Some(entry)) => entry,
-                Ok(None) => break, // Queue empty or all dispatched.
+                Ok(None) if Self::has_pending_entries(&session_id).unwrap_or(false) => {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    continue;
+                }
+                Ok(None) => break,
                 Err(_) => break,
             };
 
@@ -885,6 +985,20 @@ impl PlanRunnerService {
                     model_id: String::new(),
                     effort_level: None,
                 });
+
+            // Concurrency pre-check: when the planning or global cap is
+            // saturated, wait for a running slot to free instead of pulling
+            // a permit and queueing the run. Counts only `running` runs so a
+            // queued (`pending`) run can start the moment capacity frees.
+            if !Self::plan_start_capacity_available().unwrap_or(false) {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                continue;
+            }
+
+            let session_permit = match runtime.block_on(session_semaphore.clone().acquire_owned()) {
+                Ok(permit) => permit,
+                Err(_) => break,
+            };
 
             // Acquire a per-provider permit (blocks if at the provider's
             // effective concurrency limit). Falls back to a single permit
@@ -912,6 +1026,7 @@ impl PlanRunnerService {
             let sid = session_id.clone();
             std::thread::spawn(move || {
                 let _permit = permit; // Released on drop.
+                let _session_permit = session_permit;
                 let _ = Self::execute_run(&app_clone, &sid, &next, &profile);
             });
         }
@@ -926,21 +1041,27 @@ impl PlanRunnerService {
         _runtime: &tokio::runtime::Runtime,
     ) -> Arc<tokio::sync::Semaphore> {
         let entry = crate::services::settings_service::SettingsService::effective_run_concurrency(
-            project_path, provider_id,
-        ).unwrap_or_default();
+            project_path,
+            provider_id,
+        )
+        .unwrap_or_default();
         let limit = entry.max_concurrency.max(1) as usize;
         if let Ok(mut map) = PROVIDER_SEMAPHORES.lock() {
-            // Rebuild if the limit changed. tokio Semaphore can't be resized
-            // after creation, so we replace it when the configured limit differs.
-            let needs_rebuild = map
-                .get(provider_id)
-                .map(|sem| sem.available_permits() > limit || sem.available_permits() == 0)
-                .unwrap_or(true);
-            if needs_rebuild || !map.contains_key(provider_id) {
-                let sem = Arc::new(tokio::sync::Semaphore::new(limit));
-                map.insert(provider_id.to_string(), sem);
+            let key = (project_path.to_string(), provider_id.to_string());
+            if let Some(existing) = map.get(&key) {
+                if existing.limit == limit {
+                    return existing.semaphore.clone();
+                }
             }
-            map.get(provider_id).unwrap().clone()
+            let semaphore = Arc::new(tokio::sync::Semaphore::new(limit));
+            map.insert(
+                key,
+                ProviderSemaphore {
+                    limit,
+                    semaphore: semaphore.clone(),
+                },
+            );
+            semaphore
         } else {
             Arc::new(tokio::sync::Semaphore::new(limit))
         }
@@ -957,52 +1078,93 @@ impl PlanRunnerService {
         entry: &PlanQueueEntry,
         profile: &ExecutionProfile,
     ) -> DbResult<PlanRun> {
-        let run_id = gen_id();
-        let created = now();
-
-        // Insert the plan_run row as pending.
+        // Reuse an existing pending (queued) plan_run for this plan+session,
+        // or insert a fresh one. Reuse avoids duplicate rows when the
+        // dispatcher re-pulls a run that was queued by a prior capacity check.
         let conn = StorageService::connect()?;
-        conn.execute(
-            "INSERT INTO plan_runs (id, plan_id, session_id, chat_session_id, workspace_path,
-             status, runner_kind, error, steps_output, started_at, finished_at, created_at)
-             VALUES (?1, ?2, ?3, NULL, NULL, 'pending', 'native', NULL, '[]', NULL, NULL, ?4)",
-            params![run_id, entry.plan_id, session_id, created],
-        )
-        .map_err(|e| format!("Failed to insert plan run: {e}"))?;
+        let run_id: String = {
+            let existing: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM plan_runs
+                     WHERE plan_id = ?1 AND session_id = ?2 AND status = 'pending'
+                     ORDER BY created_at DESC LIMIT 1",
+                    params![entry.plan_id, session_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(|e| format!("Failed to look up queued plan run: {e}"))?;
+            match existing {
+                Some(id) => id,
+                None => {
+                    let id = gen_id();
+                    conn.execute(
+                        "INSERT INTO plan_runs (id, plan_id, session_id, chat_session_id, workspace_path,
+                         status, runner_kind, error, steps_output, started_at, finished_at, created_at)
+                         VALUES (?1, ?2, ?3, NULL, NULL, 'pending', 'native', NULL, '[]', NULL, NULL, ?4)",
+                        params![id, entry.plan_id, session_id, now()],
+                    )
+                    .map_err(|e| format!("Failed to insert plan run: {e}"))?;
+                    id
+                }
+            }
+        };
 
-        // Register the cancellation token.
-        let token = RunCancellationToken::new();
-        if let Ok(mut map) = RUNNING_RUNS.lock() {
-            map.insert(run_id.clone(), token.clone());
+        // Concurrency gate: count active runs (running + pending) excluding
+        // this run. When planning_max or global_max is reached, leave the run
+        // queued as `pending` — the dispatcher re-pulls it once capacity
+        // frees (queued runs stay selectable in `pending_entries`).
+        if !Self::plan_run_can_start(Some(&run_id))? {
+            return Self::get_run(&run_id)?.ok_or_else(|| "Queued plan run not found".to_string());
         }
 
-        // Mark running.
-        let now = now();
-        conn.execute(
-            "UPDATE plan_runs SET status = 'running', started_at = ?1 WHERE id = ?2",
-            params![now, run_id],
-        )
-        .map_err(|e| format!("Failed to mark run running: {e}"))?;
+        // Guard against double-start: the dispatcher may re-pull a queued
+        // run before it transitions to running. The RUNNING_RUNS token
+        // insert is atomic — a racing caller sees the token and returns the
+        // run as-is instead of starting it twice.
+        let token = RunCancellationToken::new();
+        let already_starting = {
+            let mut map = RUNNING_RUNS.lock().map_err(|e| e.to_string())?;
+            if map.contains_key(&run_id) {
+                true
+            } else {
+                map.insert(run_id.clone(), token.clone());
+                false
+            }
+        };
+        if already_starting {
+            return Self::get_run(&run_id)?.ok_or_else(|| "Plan run already starting".to_string());
+        }
 
-        // Transition the plan to running.
-        let _ = PlanService::set_status(&entry.plan_id, PlanStatus::Running);
-
-        // Provision a native chat session for the plan.
-        let plan = PlanService::get(&entry.plan_id)?
-            .ok_or_else(|| "Plan not found".to_string())?;
-        let chat_session = NativeChatService::create_session_for_plan(
+        // Provision a native chat session for the plan. If this fails, clean
+        // up the zombie run row (mark failed) and revert the plan to ready so
+        // the user can re-assign instead of being stuck with a "running" plan
+        // that has no chat session.
+        let plan = PlanService::get(&entry.plan_id)?.ok_or_else(|| "Plan not found".to_string())?;
+        let chat_session = match NativeChatService::create_session_for_plan(
             &plan,
             &profile.provider_id,
             &profile.model_id,
             profile.effort_level.as_deref(),
-        )?;
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                let err_msg = format!("Failed to create chat session: {e}");
+                let _ = PlanLifecycleService::kickoff_failed(&run_id, &err_msg);
+                if let Ok(mut map) = RUNNING_RUNS.lock() {
+                    map.remove(&run_id);
+                }
+                return Err(err_msg);
+            }
+        };
 
-        // Link the chat session to the run.
-        conn.execute(
-            "UPDATE plan_runs SET chat_session_id = ?1 WHERE id = ?2",
-            params![chat_session.id, run_id],
-        )
-        .map_err(|e| format!("Failed to link chat session: {e}"))?;
+        // Link chat, run, and plan in one lifecycle transition.
+        if let Err(error) = PlanLifecycleService::kickoff_started(&run_id, Some(&chat_session.id)) {
+            let _ = PlanLifecycleService::kickoff_failed(&run_id, &error);
+            if let Ok(mut map) = RUNNING_RUNS.lock() {
+                map.remove(&run_id);
+            }
+            return Err(format!("Failed to start plan run: {error}"));
+        }
 
         // Emit the running event.
         let _ = app.emit(
@@ -1027,8 +1189,7 @@ impl PlanRunnerService {
             map.remove(&run_id);
         }
 
-        Self::get_run(&run_id)?
-            .ok_or_else(|| "Plan run not found after execution".to_string())
+        Self::get_run(&run_id)?.ok_or_else(|| "Plan run not found after execution".to_string())
     }
 
     /// Assign a plan to an *existing* chat session and start the run.
@@ -1043,15 +1204,21 @@ impl PlanRunnerService {
     ) -> DbResult<PlanRun> {
         // Validate the plan exists and is ready (or running — re-assign is
         // allowed only if the prior run was cancelled).
-        let plan = PlanService::get(plan_id)?
-            .ok_or_else(|| "Plan not found".to_string())?;
-        if plan.status != PlanStatus::Ready && plan.status != PlanStatus::Draft && plan.status != PlanStatus::Openspec {
-            return Err(format!("Plan must be ready to assign, but is {}.", plan.status.as_str()));
+        let plan = PlanService::get(plan_id)?.ok_or_else(|| "Plan not found".to_string())?;
+        if plan.status != PlanStatus::Ready
+            && plan.status != PlanStatus::Draft
+            && plan.status != PlanStatus::Openspec
+        {
+            return Err(format!(
+                "Plan must be ready to assign, but is {}.",
+                plan.status.as_str()
+            ));
         }
 
         // Validate the chat session exists.
-        let chat_session = crate::services::native_chat_service::NativeChatService::get_session(chat_session_id)?
-            .ok_or_else(|| "Chat session not found".to_string())?;
+        let chat_session =
+            crate::services::native_chat_service::NativeChatService::get_session(chat_session_id)?
+                .ok_or_else(|| "Chat session not found".to_string())?;
 
         // Check no active run is already bound to this chat session.
         let conn = StorageService::connect()?;
@@ -1086,7 +1253,11 @@ impl PlanRunnerService {
         };
 
         // Seed the opening context into the existing chat session.
-        let opening = crate::services::native_chat_service::NativeChatService::build_plan_opening_context(&plan, &chat_session.project_path);
+        let opening =
+            crate::services::native_chat_service::NativeChatService::build_plan_opening_context(
+                &plan,
+                &chat_session.project_path,
+            );
         if !opening.is_empty() {
             let _ = crate::services::native_chat_service::NativeChatService::insert_message(
                 chat_session_id,
@@ -1103,20 +1274,22 @@ impl PlanRunnerService {
         conn.execute(
             "INSERT INTO plan_runs (id, plan_id, session_id, chat_session_id, workspace_path,
              status, runner_kind, error, steps_output, started_at, finished_at, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'running', 'native', NULL, '[]', ?6, NULL, ?7)",
-            params![run_id, plan_id, plan.session_id, chat_session_id, workspace_path, created, created],
+             VALUES (?1, ?2, ?3, ?4, ?5, 'pending', 'native', NULL, '[]', NULL, NULL, ?6)",
+            params![
+                run_id,
+                plan_id,
+                plan.session_id,
+                chat_session_id,
+                workspace_path,
+                created
+            ],
         )
         .map_err(|e| format!("Failed to insert plan run: {e}"))?;
 
-        // Mark running.
-        conn.execute(
-            "UPDATE plan_runs SET started_at = ?1 WHERE id = ?2",
-            params![created, run_id],
-        )
-        .map_err(|e| format!("Failed to mark run started: {e}"))?;
-
-        // Transition the plan to running.
-        let _ = PlanService::set_status(plan_id, PlanStatus::Running);
+        if let Err(error) = PlanLifecycleService::kickoff_started(&run_id, Some(chat_session_id)) {
+            let _ = PlanLifecycleService::kickoff_failed(&run_id, &error);
+            return Err(format!("Failed to start assigned plan run: {error}"));
+        }
 
         // Register the cancellation token.
         let token = RunCancellationToken::new();
@@ -1142,8 +1315,46 @@ impl PlanRunnerService {
             Self::emit_planning_event(app, &run, PlanningEventKind::RunStarted, None);
         }
 
-        Self::get_run(&run_id)?
-            .ok_or_else(|| "Plan run not found after assignment".to_string())
+        Self::get_run(&run_id)?.ok_or_else(|| "Plan run not found after assignment".to_string())
+    }
+
+    /// Kick the agent loop for a chat session that just had a plan assigned.
+    /// The assign path only seeds a *system* context message; without a user
+    /// turn the agent never starts. This sends the kickoff turn on a detached
+    /// thread (the loop is blocking and can run for minutes) so the assign
+    /// command returns immediately. Concrete `AppHandle` because the agent
+    /// loop's event surface is wry-specific; commands own that type.
+    pub fn kickoff_assigned_run(app: &tauri::AppHandle, chat_session_id: &str) {
+        let app = app.clone();
+        let session_id = chat_session_id.to_string();
+        std::thread::spawn(move || {
+            let request = crate::models::native_chat::NativeChatSendRequest {
+                session_id: session_id.clone(),
+                content: "Begin working on the assigned plan now. Use the opening context \
+                          above: if an OpenSpec change is referenced, read its proposal, \
+                          design, specs, and tasks.md, then work tasks.md top to bottom and \
+                          check off each task as you complete it. Report what you finished."
+                    .to_string(),
+                provider_id: None,
+                model_id: None,
+                effort_level: None,
+            };
+            match NativeChatService::send_message(&app, request) {
+                Ok(result) if result.setup_required.is_some() => {
+                    let error = "Assigned plan requires provider setup";
+                    let _ = PlanLifecycleService::fail_linked_chat(&session_id, error);
+                    eprintln!("[plan-run] kickoff turn failed: {error}");
+                }
+                Err(error) => {
+                    let _ = PlanLifecycleService::fail_linked_chat(
+                        &session_id,
+                        "Assigned plan kickoff failed",
+                    );
+                    eprintln!("[plan-run] kickoff turn failed: {error}");
+                }
+                Ok(_) => {}
+            }
+        });
     }
 
     /// Worktrees are enabled when the project is a git repo. Called by
@@ -1152,11 +1363,147 @@ impl PlanRunnerService {
         crate::services::worktree_service::WorktreeService::is_supported(project_path)
     }
 
+    fn effective_queue_concurrency(requested: u32, worktrees_enabled: bool) -> u32 {
+        if worktrees_enabled {
+            requested.max(1)
+        } else {
+            1
+        }
+    }
+
+    // ── Concurrency Caps (planning_max / global_max) ───────────────────
+
+    /// Count plan runs in an active state (`running` or `pending`). When
+    /// `exclude_run_id` is given, the run being evaluated is omitted so it
+    /// does not count against its own start decision.
+    pub fn count_active_plan_runs(exclude_run_id: Option<&str>) -> DbResult<i64> {
+        let conn = StorageService::connect()?;
+        match exclude_run_id {
+            Some(id) => conn
+                .query_row(
+                    "SELECT COUNT(*) FROM plan_runs
+                     WHERE status IN ('running', 'pending') AND id <> ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string()),
+            None => conn
+                .query_row(
+                    "SELECT COUNT(*) FROM plan_runs WHERE status IN ('running', 'pending')",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string()),
+        }
+    }
+
+    /// Count pipeline runs in an active state (`running` or `pending`).
+    pub fn count_active_pipeline_runs() -> DbResult<i64> {
+        let conn = StorageService::connect()?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM pipeline_runs WHERE status IN ('running', 'pending')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    /// Count plan runs currently `running` (excludes queued `pending`).
+    pub fn count_running_plan_runs() -> DbResult<i64> {
+        let conn = StorageService::connect()?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM plan_runs WHERE status = 'running'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    /// Count pipeline runs currently `running`.
+    pub fn count_running_pipeline_runs() -> DbResult<i64> {
+        let conn = StorageService::connect()?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM pipeline_runs WHERE status = 'running'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    /// Total active runs (plan + pipeline) in `running` or `pending` state.
+    /// `exclude_plan_run` omits a plan run being evaluated from the plan count.
+    pub fn count_active_runs(exclude_plan_run: Option<&str>) -> DbResult<i64> {
+        Ok(Self::count_active_plan_runs(exclude_plan_run)? + Self::count_active_pipeline_runs()?)
+    }
+
+    /// Total runs currently `running` (plan + pipeline).
+    pub fn count_running_runs() -> DbResult<i64> {
+        Ok(Self::count_running_plan_runs()? + Self::count_running_pipeline_runs()?)
+    }
+
+    /// Dispatcher pre-check: is there running capacity for a new plan run?
+    /// Counts only `running` runs so a queued (`pending`) run can be started
+    /// the moment a running slot frees. Returns `false` when either the
+    /// planning cap or the global cap is saturated.
+    fn plan_start_capacity_available() -> DbResult<bool> {
+        let planning_max =
+            crate::services::settings_service::SettingsService::effective_planning_max() as i64;
+        if Self::count_running_plan_runs()? >= planning_max {
+            return Ok(false);
+        }
+        let global_max =
+            crate::services::settings_service::SettingsService::effective_global_max() as i64;
+        if Self::count_running_runs()? >= global_max {
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
+    /// Authoritative start gate used by `execute_run`: counts active runs
+    /// (`running` + `pending`) excluding the run being evaluated. Returns
+    /// `false` (queue as pending) when the planning or global cap is reached.
+    fn plan_run_can_start(exclude_run_id: Option<&str>) -> DbResult<bool> {
+        let planning_max =
+            crate::services::settings_service::SettingsService::effective_planning_max() as i64;
+        let active_plan = Self::count_active_plan_runs(exclude_run_id)?;
+        if active_plan >= planning_max {
+            return Ok(false);
+        }
+        let global_max =
+            crate::services::settings_service::SettingsService::effective_global_max() as i64;
+        if active_plan + Self::count_active_pipeline_runs()? >= global_max {
+            return Ok(false);
+        }
+        Ok(true)
+    }
     // ── Helpers ─────────────────────────────────────────────────────────
 
-    /// Find the next queue entry whose plan has no run yet (or only
-    /// cancelled runs). Returns None when the queue is exhausted.
+    /// Find the next queue entry whose plan has no active run yet, or whose
+    /// only run is `pending` (queued by the concurrency gate — eligible for
+    /// re-dispatch once capacity frees). Returns None when the queue is
+    /// exhausted.
     fn next_pending_entry(session_id: &str) -> DbResult<Option<PlanQueueEntry>> {
+        let pending = Self::pending_entries(session_id)?;
+        if pending.is_empty() {
+            return Ok(None);
+        }
+        let graph = crate::services::plan_dependency_service::PlanDependencyService::build_graph(
+            session_id,
+        )?;
+        Ok(pending.into_iter().find(|entry| {
+            graph
+                .nodes
+                .iter()
+                .find(|node| node.plan_id == entry.plan_id)
+                .is_some_and(|node| node.dispatchable)
+        }))
+    }
+
+    fn has_pending_entries(session_id: &str) -> DbResult<bool> {
+        Ok(!Self::pending_entries(session_id)?.is_empty())
+    }
+
+    fn pending_entries(session_id: &str) -> DbResult<Vec<PlanQueueEntry>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn
             .prepare(
@@ -1167,13 +1514,13 @@ impl PlanRunnerService {
                      SELECT 1 FROM plan_runs r
                      WHERE r.plan_id = q.plan_id
                        AND r.session_id = q.session_id
-                       AND r.status IN ('running', 'succeeded', 'pending')
+                       AND r.status IN ('running', 'succeeded')
                  )
-                 ORDER BY q.sort_order ASC LIMIT 1",
+                 ORDER BY q.sort_order ASC",
             )
             .map_err(|e| e.to_string())?;
-        let row = stmt
-            .query_row(params![session_id], |row| {
+        let rows = stmt
+            .query_map(params![session_id], |row| {
                 Ok(PlanQueueEntry {
                     id: row.get(0)?,
                     session_id: row.get(1)?,
@@ -1182,11 +1529,10 @@ impl PlanRunnerService {
                     created_at: row.get(4)?,
                 })
             })
-            .optional()
             .map_err(|e| e.to_string())?;
-        Ok(row)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
-
 
     fn map_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<PlanRun> {
         let steps_json: String = row.get(8)?;
@@ -1215,7 +1561,15 @@ mod tests {
 
     #[test]
     fn plan_run_status_round_trip() {
-        for s in ["pending", "running", "succeeded", "failed", "cancelled", "paused", "awaiting_review"] {
+        for s in [
+            "pending",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled",
+            "paused",
+            "awaiting_review",
+        ] {
             assert_eq!(PlanRunStatus::from_str(s).as_str(), s);
         }
     }
@@ -1229,11 +1583,92 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_token_signals() {
-        let token = RunCancellationToken::new();
-        assert!(!token.is_cancelled());
-        token.cancel();
-        assert!(token.is_cancelled());
+    fn mark_complete_requires_linked_openspec_tasks_to_be_complete() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        let project_path = dir.path().to_string_lossy().into_owned();
+        let change_dir = dir.path().join("openspec/changes/strict-completion");
+        std::fs::create_dir_all(&change_dir).unwrap();
+        std::fs::write(
+            change_dir.join("tasks.md"),
+            "# Tasks\n\n- [x] Implement lifecycle\n- [ ] Verify lifecycle\n",
+        )
+        .unwrap();
+
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+             VALUES ('s1', ?1, 'Test', 0, 0)",
+            rusqlite::params![project_path],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plans (
+                id, session_id, reference_id, title, description, status, priority,
+                tags, ai_enhanced, change_name, created_at, updated_at
+             ) VALUES (
+                'p1', 's1', 'bb-strict', 'Strict completion', '', 'ready', 50,
+                '[]', 0, 'strict-completion', 0, 0
+             )",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plan_runs (
+                id, plan_id, session_id, status, runner_kind, created_at
+             ) VALUES ('r1', 'p1', 's1', 'awaiting_review', 'native', 0)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let run = PlanRunnerService::get_run("r1").unwrap().unwrap();
+        let error = PlanRunnerService::require_checklist_completion(&run).unwrap_err();
+        assert_eq!(
+            error,
+            "Cannot mark complete: 1/2 required OpenSpec tasks are complete."
+        );
+
+        std::fs::write(
+            change_dir.join("tasks.md"),
+            "# Tasks\n\n- [x] Implement lifecycle\n- [x] Verify lifecycle\n",
+        )
+        .unwrap();
+        PlanRunnerService::require_checklist_completion(&run).unwrap();
+    }
+
+    #[test]
+    fn queue_concurrency_requires_worktree_isolation() {
+        assert_eq!(PlanRunnerService::effective_queue_concurrency(0, true), 1);
+        assert_eq!(PlanRunnerService::effective_queue_concurrency(4, true), 4);
+        assert_eq!(PlanRunnerService::effective_queue_concurrency(4, false), 1);
+    }
+
+    #[test]
+    fn exhausted_provider_semaphore_is_reused() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let first = PlanRunnerService::provider_semaphore(
+            "/semaphore-regression",
+            "semaphore-regression-provider",
+            &runtime,
+        );
+        let permit = runtime
+            .block_on(first.clone().acquire_owned())
+            .expect("first provider permit");
+        assert_eq!(first.available_permits(), 0);
+
+        let second = PlanRunnerService::provider_semaphore(
+            "/semaphore-regression",
+            "semaphore-regression-provider",
+            &runtime,
+        );
+        assert!(Arc::ptr_eq(&first, &second));
+        drop(permit);
     }
 
     #[test]
@@ -1293,11 +1728,94 @@ mod tests {
     }
 
     #[test]
+    fn queue_selects_ready_prerequisite_before_blocked_plan() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+             VALUES ('s1', '/test', 'Test', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plans (id, session_id, reference_id, title, description, status, priority, tags, ai_enhanced, created_at, updated_at)
+             VALUES ('dependent', 's1', 'bb-dep', 'Dependent', 'desc', 'ready', 50, '[]', 0, 0, 0),
+                    ('prerequisite', 's1', 'bb-pre', 'Prerequisite', 'desc', 'ready', 50, '[]', 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plan_dependency_meta
+                (plan_id, prerequisites, affected_paths, scheduling_mode, workspace_policy, updated_at)
+             VALUES ('dependent', '[\"prerequisite\"]', '[]', 'safe', 'isolated_worktrees', 0)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        PlanRunnerService::enqueue(EnqueuePlanRequest {
+            session_id: "s1".into(),
+            plan_id: "dependent".into(),
+        })
+        .unwrap();
+        PlanRunnerService::enqueue(EnqueuePlanRequest {
+            session_id: "s1".into(),
+            plan_id: "prerequisite".into(),
+        })
+        .unwrap();
+
+        let first = PlanRunnerService::next_pending_entry("s1")
+            .unwrap()
+            .expect("dispatchable prerequisite");
+        assert_eq!(first.plan_id, "prerequisite");
+
+        PlanService::set_status("prerequisite", PlanStatus::Finished).unwrap();
+        let second = PlanRunnerService::next_pending_entry("s1")
+            .unwrap()
+            .expect("unblocked dependent");
+        assert_eq!(second.plan_id, "dependent");
+    }
+
+    #[test]
     fn list_runs_empty_session_returns_empty() {
         let dir = tempfile::TempDir::new().unwrap();
         let _g = crate::test_util::test::lock_db(&dir);
         let runs = PlanRunnerService::list_runs("no-such-session").unwrap();
         assert!(runs.is_empty());
+    }
+
+    #[test]
+    fn list_runs_for_project_excludes_other_projects() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+             VALUES ('s1', '/target', 'Target', 0, 0),
+                    ('s2', '/other', 'Other', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plans (id, session_id, reference_id, title, description, status, priority, tags, ai_enhanced, created_at, updated_at)
+             VALUES ('p1', 's1', 'bb-one', 'One', 'desc', 'finished', 50, '[]', 0, 0, 0),
+                    ('p2', 's2', 'bb-two', 'Two', 'desc', 'finished', 50, '[]', 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plan_runs (id, plan_id, session_id, status, runner_kind, steps_output, created_at)
+             VALUES ('r1', 'p1', 's1', 'succeeded', 'native', '[]', 0),
+                    ('r2', 'p2', 's2', 'succeeded', 'native', '[]', 0)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let runs = PlanRunnerService::list_runs_for_project("/target").unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].id, "r1");
     }
 
     #[test]
@@ -1328,7 +1846,9 @@ mod tests {
         drop(conn);
 
         // No outcome persisted yet — read returns None (frontend maps to hold).
-        assert!(PlanRunnerService::get_finish_outcome("r1").unwrap().is_none());
+        assert!(PlanRunnerService::get_finish_outcome("r1")
+            .unwrap()
+            .is_none());
 
         // Persist an applied outcome; read returns the wrapped JSON verbatim.
         let applied = FinishResult::Applied(FinishOutcome {
@@ -1340,19 +1860,25 @@ mod tests {
             error: None,
         });
         PlanRunnerService::persist_finish_outcome("r1", &applied).unwrap();
-        let read = PlanRunnerService::get_finish_outcome("r1").unwrap().unwrap();
+        let read = PlanRunnerService::get_finish_outcome("r1")
+            .unwrap()
+            .unwrap();
         assert_eq!(read["kind"], "applied");
         assert_eq!(read["outcome"]["commitSha"], "abc123");
         assert_eq!(read["outcome"]["policy"], "auto_commit");
 
         // Reading twice is a pure read — same value, no state change.
-        let read2 = PlanRunnerService::get_finish_outcome("r1").unwrap().unwrap();
+        let read2 = PlanRunnerService::get_finish_outcome("r1")
+            .unwrap()
+            .unwrap();
         assert_eq!(read, read2);
 
         // Fallback-hold persists with its message.
         let fallback = FinishResult::FallbackHold("not a git repository".to_string());
         PlanRunnerService::persist_finish_outcome("r1", &fallback).unwrap();
-        let read3 = PlanRunnerService::get_finish_outcome("r1").unwrap().unwrap();
+        let read3 = PlanRunnerService::get_finish_outcome("r1")
+            .unwrap()
+            .unwrap();
         assert_eq!(read3["kind"], "fallback_hold");
         assert_eq!(read3["message"], "not a git repository");
     }
@@ -1383,7 +1909,9 @@ mod tests {
     #[test]
     fn worktrees_not_supported_for_nonexistent_path() {
         // A non-git path returns false from worktrees_enabled_for.
-        assert!(!PlanRunnerService::worktrees_enabled_for("/nonexistent/path/that/does/not/exist"));
+        assert!(!PlanRunnerService::worktrees_enabled_for(
+            "/nonexistent/path/that/does/not/exist"
+        ));
     }
 
     #[test]
@@ -1393,7 +1921,8 @@ mod tests {
         #[cfg(not(target_os = "windows"))]
         {
             let app = tauri::test::mock_app().app_handle().clone();
-            let result = PlanRunnerService::assign_to_chat(&app, "nonexistent-plan", "nonexistent-chat");
+            let result =
+                PlanRunnerService::assign_to_chat(&app, "nonexistent-plan", "nonexistent-chat");
             assert!(result.is_err());
             assert!(result.unwrap_err().contains("Plan not found"));
         }
@@ -1463,9 +1992,317 @@ mod tests {
 
     #[test]
     fn slugify_handles_titles() {
-        assert_eq!(crate::services::worktree_service::WorktreeService::slugify("My Plan Title"), "my-plan-title");
-        assert_eq!(crate::services::worktree_service::WorktreeService::slugify("  spaces  "), "spaces");
-        assert_eq!(crate::services::worktree_service::WorktreeService::slugify("!!!"), "plan");
-        assert_eq!(crate::services::worktree_service::WorktreeService::slugify("a-b_c"), "a-b-c");
+        assert_eq!(
+            crate::services::worktree_service::WorktreeService::slugify("My Plan Title"),
+            "my-plan-title"
+        );
+        assert_eq!(
+            crate::services::worktree_service::WorktreeService::slugify("  spaces  "),
+            "spaces"
+        );
+        assert_eq!(
+            crate::services::worktree_service::WorktreeService::slugify("!!!"),
+            "plan"
+        );
+        assert_eq!(
+            crate::services::worktree_service::WorktreeService::slugify("a-b_c"),
+            "a-b-c"
+        );
     }
- }
+    // ── Concurrency cap helpers (tests) ────────────────────────────────
+
+    fn seed_session_and_plans(conn: &rusqlite::Connection) {
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+             VALUES ('s1', '/test', 'Test', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plans (id, session_id, reference_id, title, description, status, priority, tags, ai_enhanced, created_at, updated_at)
+             VALUES ('p1', 's1', 'bb-1', 'P1', 'd', 'ready', 50, '[]', 0, 0, 0),
+                    ('p2', 's1', 'bb-2', 'P2', 'd', 'ready', 50, '[]', 0, 0, 0),
+                    ('p3', 's1', 'bb-3', 'P3', 'd', 'ready', 50, '[]', 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+    }
+
+    fn insert_plan_run(conn: &rusqlite::Connection, id: &str, plan_id: &str, status: &str) {
+        conn.execute(
+            "INSERT INTO plan_runs (id, plan_id, session_id, status, runner_kind, steps_output, created_at)
+             VALUES (?1, ?2, 's1', ?3, 'native', '[]', 0)",
+            params![id, plan_id, status],
+        )
+        .unwrap();
+    }
+
+    fn insert_pipeline_run(conn: &rusqlite::Connection, id: &str, status: &str) {
+        conn.execute(
+            "INSERT INTO pipeline_runs (id, session_id, project_path, kind, status, created_at)
+             VALUES (?1, 's1', '/test', 'generate_categories', ?2, 0)",
+            params![id, status],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn listing_runs_reconciles_interrupted_chat_owner() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        seed_session_and_plans(&conn);
+        conn.execute("UPDATE plans SET status = 'running' WHERE id = 'p1'", [])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO native_chat_sessions
+             (id, project_path, title, profile_id, provider_id, model_id, effort_level,
+              status, created_at, updated_at, run_state)
+             VALUES ('c-interrupted', '/test', 'Plan chat', 'basebuild-native',
+                     'basebuild-local', 'local', 'low', 'ready', 0, 0, 'interrupted')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plan_runs
+             (id, plan_id, session_id, chat_session_id, status, runner_kind,
+              steps_output, started_at, created_at)
+             VALUES ('r-interrupted', 'p1', 's1', 'c-interrupted', 'running',
+                     'native', '[]', 1, 1)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let runs = PlanRunnerService::list_runs("s1").unwrap();
+        let run = runs
+            .iter()
+            .find(|candidate| candidate.id == "r-interrupted")
+            .unwrap();
+        assert_eq!(run.status, PlanRunStatus::AwaitingReview);
+        assert_eq!(run.error.as_deref(), Some("Linked chat was interrupted"));
+
+        let plan = PlanService::get("p1").unwrap().unwrap();
+        assert_eq!(plan.status, PlanStatus::Ready);
+    }
+
+    #[test]
+    fn concurrency_defaults_are_planning_3_global_4() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        // No run_concurrency config → defaults apply.
+        assert_eq!(
+            crate::services::settings_service::SettingsService::effective_planning_max(),
+            3
+        );
+        assert_eq!(
+            crate::services::settings_service::SettingsService::effective_global_max(),
+            4
+        );
+    }
+
+    #[test]
+    fn get_set_concurrency_limits_round_trip() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        use crate::models::run_concurrency::ConcurrencyLimits;
+        let limits = ConcurrencyLimits {
+            planning_max: Some(5),
+            global_max: Some(7),
+        };
+        crate::services::settings_service::SettingsService::set_concurrency_limits(&limits)
+            .unwrap();
+        let got =
+            crate::services::settings_service::SettingsService::get_concurrency_limits().unwrap();
+        assert_eq!(got.planning_max, Some(5));
+        assert_eq!(got.global_max, Some(7));
+        assert_eq!(
+            crate::services::settings_service::SettingsService::effective_planning_max(),
+            5
+        );
+        assert_eq!(
+            crate::services::settings_service::SettingsService::effective_global_max(),
+            7
+        );
+    }
+
+    #[test]
+    fn count_active_runs_counts_plan_and_pipeline() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        seed_session_and_plans(&conn);
+        insert_plan_run(&conn, "r1", "p1", "running");
+        insert_plan_run(&conn, "r2", "p2", "pending");
+        insert_pipeline_run(&conn, "pr1", "running");
+        insert_pipeline_run(&conn, "pr2", "succeeded"); // terminal — not active
+        assert_eq!(PlanRunnerService::count_active_plan_runs(None).unwrap(), 2);
+        assert_eq!(PlanRunnerService::count_active_pipeline_runs().unwrap(), 1);
+        assert_eq!(PlanRunnerService::count_active_runs(None).unwrap(), 3);
+        // Excluding r1 leaves one active plan run (r2).
+        assert_eq!(
+            PlanRunnerService::count_active_plan_runs(Some("r1")).unwrap(),
+            1
+        );
+        assert_eq!(PlanRunnerService::count_running_plan_runs().unwrap(), 1);
+        assert_eq!(PlanRunnerService::count_running_runs().unwrap(), 2);
+    }
+
+    #[test]
+    fn plan_run_can_start_queues_at_planning_max() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        seed_session_and_plans(&conn);
+        // 2 running plan runs → a 3rd can start (planning_max default 3).
+        insert_plan_run(&conn, "r1", "p1", "running");
+        insert_plan_run(&conn, "r2", "p2", "running");
+        assert!(PlanRunnerService::plan_run_can_start(Some("r-new")).unwrap());
+        // 3 running → a 4th is queued.
+        insert_plan_run(&conn, "r3", "p3", "running");
+        assert!(!PlanRunnerService::plan_run_can_start(Some("r-new")).unwrap());
+    }
+
+    #[test]
+    fn plan_run_can_start_queues_at_global_max_with_pipeline() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        use crate::models::run_concurrency::ConcurrencyLimits;
+        // Raise planning_max so only the global cap can block.
+        crate::services::settings_service::SettingsService::set_concurrency_limits(
+            &ConcurrencyLimits {
+                planning_max: Some(10),
+                global_max: Some(2),
+            },
+        )
+        .unwrap();
+        let conn = StorageService::connect().unwrap();
+        seed_session_and_plans(&conn);
+        insert_plan_run(&conn, "r1", "p1", "running");
+        insert_pipeline_run(&conn, "pr1", "running");
+        // 1 plan + 1 pipeline = 2 active >= global_max 2 → queue.
+        assert!(!PlanRunnerService::plan_run_can_start(Some("r-new")).unwrap());
+        // Free the pipeline slot → 1 active < 2 → can start.
+        conn.execute("DELETE FROM pipeline_runs WHERE id = 'pr1'", [])
+            .unwrap();
+        assert!(PlanRunnerService::plan_run_can_start(Some("r-new")).unwrap());
+    }
+
+    #[test]
+    fn pending_entries_re_selects_queued_pending_runs() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        seed_session_and_plans(&conn);
+        PlanRunnerService::enqueue(EnqueuePlanRequest {
+            session_id: "s1".into(),
+            plan_id: "p1".into(),
+        })
+        .unwrap();
+        // A queued (pending) plan_run must NOT exclude the entry — it stays
+        // selectable for re-dispatch once capacity frees.
+        insert_plan_run(&conn, "r1", "p1", "pending");
+        let pending = PlanRunnerService::pending_entries("s1").unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].plan_id, "p1");
+        // A running plan_run excludes the entry.
+        conn.execute(
+            "UPDATE plan_runs SET status = 'running' WHERE id = 'r1'",
+            [],
+        )
+        .unwrap();
+        assert!(PlanRunnerService::pending_entries("s1").unwrap().is_empty());
+    }
+
+    #[test]
+    fn pipeline_start_refuses_at_global_max() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        use crate::models::pipeline::PipelineStartRequest;
+        use crate::models::run_concurrency::ConcurrencyLimits;
+        crate::services::settings_service::SettingsService::set_concurrency_limits(
+            &ConcurrencyLimits {
+                planning_max: Some(10),
+                global_max: Some(1),
+            },
+        )
+        .unwrap();
+        let conn = StorageService::connect().unwrap();
+        seed_session_and_plans(&conn);
+        insert_plan_run(&conn, "r1", "p1", "running");
+        drop(conn);
+        #[cfg(not(target_os = "windows"))]
+        {
+            let app = tauri::test::mock_app().app_handle().clone();
+            let req = PipelineStartRequest {
+                session_id: "s1".into(),
+                project_path: "/test".into(),
+                kind: "generate_categories".into(),
+                idea_id: None,
+                plan_id: None,
+                input: None,
+                chat_session_id: None,
+            };
+            let result = crate::services::pipeline_service::PipelineService::start_stage(&app, req);
+            assert!(result.is_err());
+            assert!(result.unwrap_err().contains("Global concurrency limit"));
+        }
+    }
+
+    #[test]
+    fn final_touch_setup_error_becomes_a_failed_step() {
+        let results =
+            normalize_final_touch_results(Err("final-touch database unavailable".to_string()));
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].step_id, "final-touches");
+        assert_eq!(results[0].kind, "system");
+        assert_eq!(results[0].status, "failed");
+        assert_eq!(
+            results[0].error.as_deref(),
+            Some("final-touch database unavailable")
+        );
+    }
+
+    #[test]
+    fn checklist_completion_distinguishes_partial_and_complete_work() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+             VALUES ('s-checklist', ?1, 'Checklist', 0, 0)",
+            params![dir.path().to_string_lossy().to_string()],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plans
+             (id, session_id, reference_id, title, description, status, priority, tags,
+              ai_enhanced, change_name, created_at, updated_at)
+             VALUES ('p-checklist', 's-checklist', 'bb-checklist', 'Checklist', 'd',
+                     'running', 50, '[]', 0, 'checklist-change', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO plan_runs
+             (id, plan_id, session_id, status, runner_kind, steps_output, created_at)
+             VALUES ('r-checklist', 'p-checklist', 's-checklist', 'running', 'native', '[]', 0)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let change_dir = dir
+            .path()
+            .join("openspec")
+            .join("changes")
+            .join("checklist-change");
+        std::fs::create_dir_all(&change_dir).unwrap();
+        std::fs::write(change_dir.join("tasks.md"), "- [x] Done\n- [ ] Remaining\n").unwrap();
+        let run = PlanRunnerService::get_run("r-checklist").unwrap().unwrap();
+        assert!(!PlanRunnerService::evaluate_checklist_completion(&run));
+
+        std::fs::write(change_dir.join("tasks.md"), "- [x] Done\n- [x] Remaining\n").unwrap();
+        assert!(PlanRunnerService::evaluate_checklist_completion(&run));
+    }
+}

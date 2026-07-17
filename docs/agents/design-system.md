@@ -68,9 +68,32 @@ may obscure the chat: focused configuration is the current task.
 ## Reusable classes
 
 Current classes include `.btn`, `.btn-primary`, `.btn-update`, `.btn-ghost`,
-`.btn-icon`, `.btn-icon-sm`, `.btn-sm`, `.card`, `.badge`, `.pill`, `.input`,
+`.btn-icon`, `.btn-icon-sm`, `.card`, `.badge`, `.pill`, `.input`,
 `.pre`, `.stack`, `.stack-sm`, `.row`, `.row-between`, `.text-muted`,
 `.text-sm`, `.text-ok`, `.text-danger`, `.mono`, `.spin`.
+
+### Disclosure (`src/components/Disclosure.tsx`)
+
+`.disclosure` / `.disclosure-toggle` / `.disclosure-label` /
+`.disclosure-summary` / `.disclosure-body` — the collapsed-by-default section
+primitive. Dense configuration and detail groups (plan launch profile fields,
+flow-tab launch profile, category add form, Edit Plan details, idea
+assessment/evidence) render behind a chevron toggle with a one-line summary
+instead of always-visible flat inputs. Primary actions stay OUTSIDE the
+disclosure so the main path never requires expanding it.
+
+### Planning cards
+
+Plan cards prioritize content over identifiers: `.plan-card-title-row`
+(semibold title + readiness/progress badges), `.plan-card-desc` (one-line
+description), and `.plan-card-meta` (`.plan-card-ref` de-emphasized mono
+reference, `.plan-card-date` created/idea-origin relative times with exact
+timestamps in `title=`). Secondary actions (Edit, Open in terminal, Copy
+reference, Delete) live in the card's More menu; only the contextual primary
+action (Assign/Resume/Review/Retry/Archive) renders inline. Idea rows follow
+the same shape: `.chat-idea-title-toggle` expands assessment/evidence,
+`.chat-idea-date` shows capture time, and Pass/Defer/Delete live in a More
+menu beside the visible Make plan action.
 
 ## Panel grid + header classes (parallel-plan-workspaces)
 
@@ -98,6 +121,9 @@ dependencies are NOT adopted.
   for the closed-panel count.
 - `.history-drawer` — overlay drawer listing closed panels
   (`.history-drawer-item` with Re-open / Delete permanently actions).
+- `.bg-agents-item-open` — full content target for a chat-bound background run;
+  clicking it opens the owning chat transcript, while cancellation remains a
+  separate sibling button.
 - `.chat-column-header` — sticky per-chat configuration rail: title, clickable
   model chip, effort dropdown, textual permission dropdown, run state, circular
   context usage, agent mode, plan badge, compact branch, commands, history, and
@@ -115,7 +141,23 @@ dependencies are NOT adopted.
 - `.settings-table` — concurrency settings grid (provider, global max,
   project max, subagents, subagent cap).
 - `.settings-modal .modal-body` — always a row: fixed `.settings-sidebar`
-  beside flexible, independently scrolling `.settings-content`.
+  beside flexible, independently scrolling `.settings-content`. The sidebar
+  is grouped: `.settings-group` sections with non-interactive
+  `.settings-group-label` headers (Appearance leads, then General,
+  Providers & Models, Execution, Integrations, Privacy & Data). Every tab
+  belongs to exactly one group.
+- Appearance tab hosts theme (`.theme-picker`) and UI scale
+  (`.ui-scale-control` + `.ui-scale-value`). The scale is a bounded root
+  zoom multiplier (80–150% in tens) from `src/lib/uiScale.ts`, persisted in
+  localStorage (`basebuild.zoom`, exact-allowlisted, applied pre-paint in
+  `index.html`) with CTRL+= / CTRL+- / CTRL+0 shortcuts via `useZoom`.
+- `.planning-dropdown-row` — the shared row for ALL planning dropdowns
+  (Ideas, Plans, Running, Done): status dot, `.planning-notification-item-title`
+  with a one-line `.planning-notification-item-desc`, right-aligned status
+  label, and a `…` menu (`.context-menu`) holding every secondary action
+  (Assign/Approve/Generate OpenSpec/status changes/Copy id/two-step Delete).
+  Dropdown panels share one width (`.planning-notification-dropdown`,
+  340px); rows never grow inline button clusters.
 - `.chat-env-context` + `.chat-context-badge` — compact chat context badges;
   truncate with tooltip text rather than wrapping over header actions.
 - `.provider-catalog-modal` — two-pane provider/model configuration workspace.
@@ -178,10 +220,10 @@ The composer must be structurally impossible to clip:
   transcript (title, description, `.chat-idea-card-actions` with `Promote` /
   `Reject`). Promoted cards show a `Planned` status badge; rejected cards
   show `Rejected`. Cards are append-only and reload with the session.
-- The Planning Inspector (`.planning-inspector`) has five tabs
-  (`.inspector-tab`): Plans, Ideas, Categories, Flow, and Changes. In a modal,
-  `.planning-inspector-modal` stays column-oriented even when wide container
-  queries make docked inspectors master-detail. The Ideas tab has
+- The Planning Inspector (`.planning-inspector`) has six tabs
+  (`.inspector-tab`): Plans, Ideas, Categories, Flow, Runs, and Changes. In a
+  modal, `.planning-inspector-modal` stays column-oriented even when wide
+  container queries make docked inspectors master-detail. The Ideas tab has
   status filter chips (`.inspector-filter-chip`) and per-idea promote/reject
   actions. The Categories tab lists `.inspector-category-card` entries with
   idea counts and drill-down detail.
@@ -212,9 +254,9 @@ as a structured section-card view by default, with a raw-markdown toggle:
   first.
 
 The Schematic stage always opens this modal; starting the current wizard may
-still route a skill-driven turn through the destination chooser. The
-`ai-workbench-course-correction` change tracks moving the managed questionnaire
-and activity into the modal itself. The chat soft-gate notice is a full-width button
+still route a skill-driven turn through the destination chooser. Managed
+questions use the composer-owned interaction workbench described below rather
+than a surrogate modal chat. The chat soft-gate notice is a full-width button
 (`.chat-command-notice-button`) that opens the schematic tab.
 
 Idea grounding/anchor flags on idea cards and inspector rows:
@@ -285,13 +327,25 @@ Rendering contract:
 - Reasoning/thinking tokens render in `.reasoning-fold` above the assistant
   reply; the fold auto-expands while streaming and collapses on completion.
   Reasoning is never concatenated into the persisted content string.
-- Question and approval items remain inline and block the run visibly. Use
-  `.question-card` (`.question-card-pending`, `.question-card-success`,
-  `.question-card-error`) for these cards.
+- A pending question becomes the composer's primary
+  `.interaction-workbench`: the normal textarea is unavailable, title and
+  progress are prominent, multi-page Back/Next navigation preserves values,
+  rating choices expose a five-level keyboard-accessible scale, and Exit
+  collapses to `.chat-question-preview`. Answered questions remain as
+  compact `.question-card` history and reopen read-only detail. Use
+  `.question-card-pending`, `.question-card-success`, and
+  `.question-card-error` only for transcript state, not a second answer path.
 - Captured ideas render as `.chat-idea-card` rows; notices and errors use
   `.chat-command-notice`, `.chat-notice-bar`, and `.chat-error-bar`.
 - Unsupported transports produce an explicit capability state before launch, not
   a fake tools-capable run.
+
+Planning state color follows backend run state, not plan-label inference:
+orange is only live/queued/needs-input work; awaiting-review and interrupted use
+warning treatment; failed is negative; complete is positive; archived is muted.
+The full `.bg-agents-item-open` row reopens the retained owner chat. Resume,
+Review, Retry, Archive, and Cancel are explicit sibling actions with `title=`
+reasons when blocked.
 
 ## Screenshot verification
 

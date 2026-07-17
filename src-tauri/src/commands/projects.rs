@@ -11,11 +11,15 @@ pub async fn pick_project_directory(app: tauri::AppHandle) -> Result<Option<Stri
         app.dialog()
             .file()
             .set_title("Open Basebuild project")
-            .set_directory(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+            .set_directory(
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            )
             .blocking_pick_folder()
     });
 
-    let result = handle.await.map_err(|e| format!("Dialog task failed: {e}"))?;
+    let result = handle
+        .await
+        .map_err(|e| format!("Dialog task failed: {e}"))?;
     Ok(result.and_then(|fp| match fp {
         FilePath::Path(p) => Some(p.to_string_lossy().to_string()),
         FilePath::Url(_) => None,
@@ -25,16 +29,24 @@ pub async fn pick_project_directory(app: tauri::AppHandle) -> Result<Option<Stri
 #[tauri::command]
 pub async fn pick_context_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let handle = tauri::async_runtime::spawn_blocking(move || {
-        let result: Option<FilePath> = app.dialog()
+        let result: Option<FilePath> = app
+            .dialog()
             .file()
             .set_title("Select context file or folder")
-            .add_filter("Basebuild files", &["md", "json", "yaml", "yml", "toml", "txt"])
-            .set_directory(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+            .add_filter(
+                "Basebuild files",
+                &["md", "json", "yaml", "yml", "toml", "txt"],
+            )
+            .set_directory(
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            )
             .blocking_pick_file();
         result
     });
 
-    let result = handle.await.map_err(|e| format!("Dialog task failed: {e}"))?;
+    let result = handle
+        .await
+        .map_err(|e| format!("Dialog task failed: {e}"))?;
     Ok(result.and_then(|fp| match fp {
         FilePath::Path(p) => Some(p.to_string_lossy().to_string()),
         FilePath::Url(_) => None,
@@ -44,15 +56,20 @@ pub async fn pick_context_file(app: tauri::AppHandle) -> Result<Option<String>, 
 #[tauri::command]
 pub async fn pick_context_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let handle = tauri::async_runtime::spawn_blocking(move || {
-        let result: Option<FilePath> = app.dialog()
+        let result: Option<FilePath> = app
+            .dialog()
             .file()
             .set_title("Select context folder")
-            .set_directory(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+            .set_directory(
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            )
             .blocking_pick_folder();
         result
     });
 
-    let result = handle.await.map_err(|e| format!("Dialog task failed: {e}"))?;
+    let result = handle
+        .await
+        .map_err(|e| format!("Dialog task failed: {e}"))?;
     Ok(result.and_then(|fp| match fp {
         FilePath::Path(p) => Some(p.to_string_lossy().to_string()),
         FilePath::Url(_) => None,
@@ -138,4 +155,37 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
 pub fn basebuild_data_dir() -> Result<String, String> {
     let paths = crate::services::storage_paths::StoragePathService::ensure_global_layout()?;
     Ok(paths.global_dir.to_string_lossy().to_string())
+}
+
+/// Initialize a test project for "Test Run Mode": creates an empty folder
+/// with a basic `index.html` and the Basebuild config, then remembers it as
+/// a recent project. If the folder already exists (from a prior test run),
+/// it is reused as-is so the user can re-run the workflow without recreating
+/// it. Returns the absolute project path.
+#[tauri::command]
+pub fn test_run_mode_init() -> Result<String, String> {
+    let base_dir = std::env::temp_dir().join("basebuild-test-project");
+    // Create the project folder if it doesn't exist. Reuse if present so the
+    // user can re-run the workflow without recreating the project.
+    std::fs::create_dir_all(&base_dir)
+        .map_err(|e| format!("Failed to create test project directory: {e}"))?;
+
+    // Write a basic index.html if it doesn't exist.
+    let index_path = base_dir.join("index.html");
+    if !index_path.exists() {
+        std::fs::write(
+            &index_path,
+            "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>Test Project</title>\n</head>\n<body>\n  <h1>Hello from Test Project</h1>\n  <p>This project was created by Basebuild's Test Run Mode.</p>\n</body>\n</html>\n",
+        )
+        .map_err(|e| format!("Failed to write index.html: {e}"))?;
+    }
+
+    // Create the Basebuild config (.basebuild/config.toml + prompts/ + etc.).
+    ProjectService::create_project_config(&base_dir)?;
+
+    // Remember it as a recent project so it appears in the sidebar.
+    let path_str = base_dir.to_string_lossy().to_string();
+    let _ = StorageService::remember_recent_project(&path_str);
+
+    Ok(path_str)
 }

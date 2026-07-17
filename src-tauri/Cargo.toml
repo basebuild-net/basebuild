@@ -38,6 +38,7 @@ http = "1.4.2"
 oauth2 = "5.0"
 regex = "1"
 base64 = "0.22.1"
+flate2 = "1"
 
 [target.'cfg(windows)'.dependencies]
 # Console attach for debug builds (main.rs) — the app itself is windowless.

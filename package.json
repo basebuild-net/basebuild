@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test:e2e": "playwright test",
     "check:ui-invariants": "node scripts/check-ui-invariants.mjs",
+    "check:release-config": "node scripts/check-release-config.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

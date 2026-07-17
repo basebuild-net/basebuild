@@ -22,7 +22,7 @@ workspace contains the command strip, chat context, workspace tabs, transcript,
 and composer. Project-owned surfaces open as modals; there is no persistent right
 side panel.
 
-The **Planning** modal has five tabs: Plans, Ideas, Categories, Flow, and
+The **Planning** modal has six tabs: Plans, Ideas, Categories, Flow, Runs, and
 Changes. The **Plans** tab exposes an **Import** action
 (`plan_import_detect` / `plan_import_apply`): it scans `openspec/changes/`
 for change folders not already linked to a `.basebuild` plan, lists them as
@@ -30,19 +30,48 @@ candidates (title from `proposal.md`, status derived from `tasks.md` progress),
 and on explicit confirm writes `.basebuild/plans/<slug>/plan.md` records
 (`engine: openspec`, `external:` pointer, no duplicated task list). Detection
 never writes; re-import skips already-linked sources; malformed sources are
-reported and skipped. Plans otherwise originate from the promotion of one or
-more structured ideas into an AI generation run; the UI has no blank-create
-affordance.
+reported and skipped.
 
-The **Flow** tab shows a board with per-stage counts (schematic, ideas, plans,
-running, finished) and completion cards for runs in `awaiting_review` or
-`succeeded` status. It also shows a **launch profile form** (worker count,
-provider cap, workspace policy, scheduling mode) and a **run board** with
-dependency graph nodes showing plan, priority, prerequisites, owner chat,
-branch/worktree, affected-path claims, progress, blockers, and merge
-readiness. A **merge-review queue** lists finished workers awaiting review
-with approve/reject/merge actions. The **Changes** tab shows the OpenSpec
-change catalog (see `docs/agents/openspec.md`).
+New planning work starts with a guided idea round. The user can select multiple
+categories or a project-wide pass, request five to eight ideas (eight by
+default), and route the prompt to an existing chat or a dedicated new chat.
+Approving ideas creates one draft plan per idea. **Generate OpenSpec** performs
+the local artifact-generation transition; **Approve plan** is a separate
+validation decision before the plan becomes ready.
+
+Before launch, idea and plan detail can show a local execution assessment:
+estimated time, difficulty, uncertainty, risk, parallelism, and an explainable
+planner/coder route recommendation. Stale, offline, or missing provider
+evidence is labeled and reduces confidence. Apply is explicit and opens the
+normal route controls; recommendations never start work or override a user's
+persisted model choice silently.
+
+Planning catalogs use creation-recency order: newly added ideas, categories,
+and plans appear first, with older records naturally moving toward the bottom.
+
+The compact planning indicators above the chat are working quick menus, not
+read-only counters. The Ideas lightbulb puts **Generate more ideas** first and
+supports manual creation, status/category filtering, inline title/description/
+category editing, status management, single or multi-idea upgrade to draft
+plans, and confirmation-gated deletion. **Full UI** remains available for the
+larger planning workspace without being required for these common actions.
+
+The **Flow** tab is the compact coordinator: stage counts, planner/coding model
+routing, worker count, safe dependency scheduling, workspace policy, queue
+pause/start, completion review, merge review, and archive/sync navigation.
+The **Runs** tab is mission control for owner chat, branch/worktree, task
+progress, blockers, elapsed time, and supported run controls. The **Changes**
+tab shows the OpenSpec change catalog and explicit archive action (see
+`docs/agents/openspec.md`).
+
+Background agents and Runs share backend truth from pipeline, run, owner-chat,
+pending-interaction, and pending-approval snapshots. `active`, `queued`,
+`needs input`, `awaiting review`, `interrupted`, `failed`, and `complete` are
+separate states. Closing a panel does not stop its retained chat. Clicking the
+run body reopens that owner chat; Stop/Cancel remains a separate action. Ready
+plans with an awaiting-review or continuation run do not inflate Running counts.
+Available next actions are state-specific (`Resume`, `Review`, `Retry`,
+`Archive`) and disabled actions state the backend reason.
 
 Account and update controls live at the bottom of the left sidebar. The update indicator
 checks on startup and every 5 minutes; when an update is available it becomes a
@@ -344,10 +373,12 @@ that guarantees exactly-once delivery by `actionId`.
 
 ## Completion card
 
-When a run ends, the backend evaluates the linked change's `tasks.md`:
-- **All tasks complete** → run auto-completes, plan transitions to `finished`.
-- **Incomplete tasks** → run parks in `awaiting_review`, plan stays `running`,
-  a planning event prompts the user to review.
+When a run ends or its owner chat becomes idle, the backend lifecycle authority
+evaluates the linked change's `tasks.md`:
+- **All tasks complete** → run succeeds and the plan transitions to `finished`.
+- **Incomplete tasks** → run parks in `awaiting_review` with a
+  `needs_continuation` outcome, the plan returns to `ready`, and a planning event
+  prompts Review/Resume rather than claiming work is live.
 
 The `CompletionCard` renders in the Flow board's Finished stage for
 `awaiting_review` and `succeeded` runs. It shows:
@@ -360,3 +391,10 @@ The `CompletionCard` renders in the Flow board's Finished stage for
 - **Dismiss** button — hides the card for this run.
 
 All confirm-gated actions use `ConfirmDialog`, never `window.confirm`.
+
+Assignment, kickoff failure, stop, error, interaction/approval blocking, idle,
+review, completion, cancellation, restart, and chat deletion all transition
+through `PlanLifecycleService`. Startup and list/dispatch boundaries reconcile
+contradictory persisted rows idempotently without deleting terminal history.
+Deleting a run-owned chat is blocked until the user explicitly cancels, keeps,
+or reassigns the run; ordinary panel close remains presentation-only.

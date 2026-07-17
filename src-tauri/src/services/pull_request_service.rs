@@ -63,7 +63,8 @@ impl PullRequestService {
         }
         let (ahead, behind) = Self::ahead_behind(project, branch)?;
         let changed_files = Self::changed_file_count(project, branch)?;
-        let default_branch = GitService::default_branch(project).unwrap_or_else(|| "main".to_string());
+        let default_branch =
+            GitService::default_branch(project).unwrap_or_else(|| "main".to_string());
         let (gh_available, gh_authed) = Self::gh_status();
         let compare_url = Self::compare_url(project, branch, &default_branch)?;
         Ok(PrRecommendation {
@@ -80,7 +81,12 @@ impl PullRequestService {
     /// Create a pull request: push the branch, then `gh pr create` if
     /// available+authed, else open the compare URL in the browser. The caller
     /// MUST confirm before calling this — it performs remote writes (push).
-    pub fn create_pr(project_path: &str, branch: &str, title: &str, body: &str) -> DbResult<PrCreateResult> {
+    pub fn create_pr(
+        project_path: &str,
+        branch: &str,
+        title: &str,
+        body: &str,
+    ) -> DbResult<PrCreateResult> {
         let project = Path::new(project_path);
         // Push the branch first (remote write — confirm-gated by caller).
         let push = hidden_command("git")
@@ -100,9 +106,21 @@ impl PullRequestService {
         let (gh_available, gh_authed) = Self::gh_status();
         if gh_available && gh_authed {
             // gh pr create --title <title> --body <body> --base <default>
-            let default_branch = GitService::default_branch(project).unwrap_or_else(|| "main".to_string());
+            let default_branch =
+                GitService::default_branch(project).unwrap_or_else(|| "main".to_string());
             let gh = hidden_command("gh")
-                .args(["pr", "create", "--title", title, "--body", body, "--base", &default_branch, "--head", branch])
+                .args([
+                    "pr",
+                    "create",
+                    "--title",
+                    title,
+                    "--body",
+                    body,
+                    "--base",
+                    &default_branch,
+                    "--head",
+                    branch,
+                ])
                 .current_dir(project)
                 .output()
                 .map_err(|e| format!("Failed to run gh pr create: {e}"))?;
@@ -125,7 +143,8 @@ impl PullRequestService {
             }
         } else {
             // Browser fallback: open the compare URL.
-            let default_branch = GitService::default_branch(project).unwrap_or_else(|| "main".to_string());
+            let default_branch =
+                GitService::default_branch(project).unwrap_or_else(|| "main".to_string());
             let compare_url = Self::compare_url(project, branch, &default_branch)?;
             // Open in the system browser (best-effort).
             if let Some(ref url) = compare_url {
@@ -200,15 +219,21 @@ impl PullRequestService {
 fn open_url(url: &str) -> std::io::Result<()> {
     #[cfg(target_os = "windows")]
     {
-        crate::services::process_helpers::hidden_command("cmd").args(["/C", "start", url]).spawn()?;
+        crate::services::process_helpers::hidden_command("cmd")
+            .args(["/C", "start", url])
+            .spawn()?;
     }
     #[cfg(target_os = "macos")]
     {
-        crate::services::process_helpers::hidden_command("open").arg(url).spawn()?;
+        crate::services::process_helpers::hidden_command("open")
+            .arg(url)
+            .spawn()?;
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        crate::services::process_helpers::hidden_command("xdg-open").arg(url).spawn()?;
+        crate::services::process_helpers::hidden_command("xdg-open")
+            .arg(url)
+            .spawn()?;
     }
     Ok(())
 }
@@ -227,9 +252,15 @@ fn parse_github_repo(url: &str) -> DbResult<String> {
     // Generic fallback: take the last two path segments.
     let parts: Vec<&str> = trimmed.split(['/', ':']).collect();
     if parts.len() >= 2 {
-        return Ok(format!("{}/{}", parts[parts.len() - 2], parts[parts.len() - 1]));
+        return Ok(format!(
+            "{}/{}",
+            parts[parts.len() - 2],
+            parts[parts.len() - 1]
+        ));
     }
-    Err(format!("Could not parse GitHub repo from remote URL: {url}"))
+    Err(format!(
+        "Could not parse GitHub repo from remote URL: {url}"
+    ))
 }
 
 #[cfg(test)]
@@ -238,18 +269,33 @@ mod tests {
 
     #[test]
     fn parse_https_github_url() {
-        assert_eq!(parse_github_repo("https://github.com/owner/repo.git").unwrap(), "owner/repo");
-        assert_eq!(parse_github_repo("https://github.com/owner/repo").unwrap(), "owner/repo");
+        assert_eq!(
+            parse_github_repo("https://github.com/owner/repo.git").unwrap(),
+            "owner/repo"
+        );
+        assert_eq!(
+            parse_github_repo("https://github.com/owner/repo").unwrap(),
+            "owner/repo"
+        );
     }
 
     #[test]
     fn parse_ssh_github_url() {
-        assert_eq!(parse_github_repo("git@github.com:owner/repo.git").unwrap(), "owner/repo");
-        assert_eq!(parse_github_repo("git@github.com:owner/repo").unwrap(), "owner/repo");
+        assert_eq!(
+            parse_github_repo("git@github.com:owner/repo.git").unwrap(),
+            "owner/repo"
+        );
+        assert_eq!(
+            parse_github_repo("git@github.com:owner/repo").unwrap(),
+            "owner/repo"
+        );
     }
 
     #[test]
     fn parse_url_strips_git_suffix() {
-        assert_eq!(parse_github_repo("https://github.com/basebuild-net/app.git").unwrap(), "basebuild-net/app");
+        assert_eq!(
+            parse_github_repo("https://github.com/basebuild-net/app.git").unwrap(),
+            "basebuild-net/app"
+        );
     }
 }

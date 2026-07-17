@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ImplementationAssessment } from "./planning-assessment";
 
 export type IdeaStatus = "concept" | "picked" | "rejected" | "archived";
 
@@ -20,6 +21,7 @@ export type Idea = {
   grounding: string;
   anchor: string | null;
   batchId: string | null;
+  assessment?: ImplementationAssessment;
   createdAt: number;
   updatedAt: number;
 };
@@ -30,6 +32,10 @@ export async function createCategory(sessionId: string, name: string, descriptio
 
 export async function listCategories(sessionId: string): Promise<IdeaCategory[]> {
   return invoke<IdeaCategory[]>("list_categories", { sessionId });
+}
+
+export async function listProjectCategories(projectPath: string): Promise<IdeaCategory[]> {
+  return invoke<IdeaCategory[]>("list_project_categories", { projectPath });
 }
 
 export async function deleteCategory(id: string): Promise<void> {
@@ -56,6 +62,19 @@ export async function createIdea(
 
 export async function listIdeas(sessionId: string): Promise<Idea[]> {
   return invoke<Idea[]>("list_ideas", { sessionId });
+}
+
+export async function listProjectIdeas(projectPath: string): Promise<Idea[]> {
+  return invoke<Idea[]>("list_project_ideas", { projectPath });
+}
+
+export async function updateIdea(
+  id: string,
+  title: string,
+  description: string,
+  categoryId: string | null,
+): Promise<Idea> {
+  return invoke<Idea>("update_idea", { id, title, description, categoryId });
 }
 
 export async function updateIdeaStatus(id: string, status: IdeaStatus): Promise<void> {

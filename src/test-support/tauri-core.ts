@@ -9,6 +9,7 @@ import {
   MVP_FIXTURE_TABS,
 } from "./fixture-data";
 import { __emit } from "./tauri-event";
+import type { ImplementationAssessment } from "../lib/planning-assessment";
 
 type Session = {
   id: string;
@@ -102,6 +103,7 @@ type Idea = {
   grounding?: string;
   anchor?: string | null;
   batchId?: string | null;
+  assessment?: ImplementationAssessment;
   createdAt: number;
   updatedAt: number;
 };
@@ -196,6 +198,7 @@ type E2eState = {
   nextRoundId: number;
   nextPlanningEventSeq?: number;
   taskProgressByChange?: Map<string, [number, number]>;
+  archivedChanges?: Set<string>;
   launchProfile?: LaunchProfile;
   mergeQueue: MergeReviewEntry[];
   planQueue: { id: string; sessionId: string; planId: string; sortOrder: number; createdAt: number }[];
@@ -224,7 +227,7 @@ type E2eState = {
   notificationSettings: { overrides: Record<string, string> };
 };
 
-const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState; __BASEBUILD_E2E_FIXTURE__?: string; __BASEBUILD_E2E_PICK_PROJECT_PATH__?: string; __BASEBUILD_E2E_PICKER_DELAY_MS__?: number; __BASEBUILD_E2E_RESTORE_DELAY_MS__?: number };
+const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState; __BASEBUILD_E2E_FIXTURE__?: string; __BASEBUILD_E2E_PICK_PROJECT_PATH__?: string; __BASEBUILD_E2E_PICKER_DELAY_MS__?: number; __BASEBUILD_E2E_RESTORE_DELAY_MS__?: number; __BASEBUILD_E2E_BOOTSTRAP_DELAY_MS__?: number };
 
 
 function panelGridFor(panelId: string, chatSessionId: string | null = null): string {
@@ -282,7 +285,7 @@ function applyMvpFixture(s: E2eState): void {
       updatedAt: 1_800_000_000 - 180,
     },
     {
-      id: "mvp-native-charlie",
+      id: "nchat_mvp-charlie",
       projectPath: "C:\\basebuild-e2e\\charlie",
       title: "Charlie MVP chat",
       profileId: "basebuild-native",
@@ -320,7 +323,7 @@ function applyMvpFixture(s: E2eState): void {
     },
     {
       id: "mvp-msg-user",
-      sessionId: "mvp-native-charlie",
+      sessionId: "nchat_mvp-charlie",
       role: "user",
       content: "Start MVP baseline",
       sortOrder: 0,
@@ -360,7 +363,7 @@ function applyMvpFixture(s: E2eState): void {
     sidebarCollapsed: false,
     sideCollapsed: false,
     sideWidth: 260,
-    panelGrid: panelGridFor("mvp-panel-charlie", "mvp-native-charlie"),
+    panelGrid: panelGridFor("mvp-panel-charlie", "nchat_mvp-charlie"),
     updatedAt: 1_800_000_000,
   });
   s.auth = {
@@ -450,6 +453,23 @@ function makePlan(sessionId: string, input: Partial<Plan> & { title: string; des
     updatedAt: ts,
     finishedAt: null,
   };
+}
+
+function reconcileMockPlanRunOwners(
+  s: E2eState,
+  runs: E2eState["planRuns"],
+): E2eState["planRuns"] {
+  for (const run of runs) {
+    if (run.status !== "running" || run.runnerKind !== "native") continue;
+    const chat = s.nativeChatSessions.find((candidate) => candidate.id === run.chatSessionId);
+    if (chat?.runState === "running" || chat?.runState === "needs_input") continue;
+    run.status = "awaiting_review";
+    run.error = "Linked chat is not executing; continuation required";
+    run.finishedAt = Math.floor(Date.now() / 1000);
+    const plan = s.plans.find((candidate) => candidate.id === run.planId);
+    if (plan) plan.status = "ready";
+  }
+  return runs;
 }
 
 export async function invoke<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -554,10 +574,23 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       }
       return [] as T;
     }
+    case "native_interaction_save_draft": {
+      const w = globalThis as unknown as { __basebuildMockInteraction?: { [k: string]: unknown } };
+      const request = args.request as { answers?: unknown; currentPage?: number } | undefined;
+      if (w.__basebuildMockInteraction && request) {
+        w.__basebuildMockInteraction.draftAnswers = request.answers ?? [];
+        w.__basebuildMockInteraction.currentPage = request.currentPage ?? 0;
+      }
+      return w.__basebuildMockInteraction as T;
+    }
     case "native_interaction_resolve": {
       const w = globalThis as unknown as { __basebuildMockInteraction?: { id: string; status: string; [k: string]: unknown } };
-      if (w.__basebuildMockInteraction) w.__basebuildMockInteraction.status = "answered";
-      return (w.__basebuildMockInteraction ?? { id: args.id as string, status: "answered" }) as T;
+      const request = args.request as { answers?: unknown } | undefined;
+      if (w.__basebuildMockInteraction) {
+        w.__basebuildMockInteraction.status = "answered";
+        w.__basebuildMockInteraction.answers = request?.answers ?? [];
+      }
+      return (w.__basebuildMockInteraction ?? { id: args.id as string, status: "answered", answers: request?.answers ?? [] }) as T;
     }
     case "native_interaction_cancel": {
       const w = globalThis as unknown as { __basebuildMockInteraction?: { id: string; status: string; [k: string]: unknown } };
@@ -687,6 +720,24 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return { content: s.fixtureName === "mvp-baseline" ? MVP_FIXTURE_SCHEMATIC : "# Project Schematic: E2E Fixture\n\n## Purpose\nExercise plan context generation." } as T;
     case "list_plans":
       return s.plans.filter((plan) => plan.sessionId === args.sessionId) as T;
+    case "list_project_plans":
+      return (args.projectPath === s.projectPath ? s.plans : []) as T;
+    case "planning_integrity_check": {
+      // Self-consistent with the fixture state: report plans whose source
+      // idea no longer exists, matching the backend check's primary case.
+      const ideaIds = new Set(s.ideas.map((idea) => idea.id));
+      return s.plans
+        .filter((plan) => {
+          const ideaId = (plan as { ideaId?: string | null }).ideaId;
+          return typeof ideaId === "string" && ideaId.length > 0 && !ideaIds.has(ideaId);
+        })
+        .map((plan) => ({
+          kind: "plan_missing_idea",
+          entityId: plan.id,
+          title: plan.title,
+          detail: `Plan '${plan.title}' references a source idea that no longer exists.`,
+        })) as T;
+    }
     case "create_plan": {
       const input = args.input as { sessionId: string; title: string; description: string };
       const plan = makePlan(input.sessionId, input);
@@ -725,11 +776,27 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       }
       return { created, errors } as T;
     }
-    case "update_plan":
-    case "set_plan_status":
+    case "update_plan": {
+      const plan = s.plans.find((item) => item.id === args.id);
+      if (!plan) throw new Error(`Plan not found: ${String(args.id)}`);
+      Object.assign(plan, args.input as Partial<Plan>, { updatedAt: Math.floor(Date.now() / 1000) });
+      return plan as T;
+    }
+    case "set_plan_status": {
+      const plan = s.plans.find((item) => item.id === args.id);
+      if (!plan) throw new Error(`Plan not found: ${String(args.id)}`);
+      plan.status = args.status as Plan["status"];
+      if (plan.status === "openspec" && !plan.changeName) {
+        plan.changeName = plan.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      }
+      plan.updatedAt = Math.floor(Date.now() / 1000);
+      return plan as T;
+    }
     case "set_plan_context": {
       const plan = s.plans.find((item) => item.id === args.id);
       if (!plan) throw new Error(`Plan not found: ${String(args.id)}`);
+      plan.context = args.context as Plan["context"];
+      plan.updatedAt = Math.floor(Date.now() / 1000);
       return plan as T;
     }
     case "delete_plan":
@@ -762,18 +829,53 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       const nowSecs = Math.floor(Date.now() / 1000);
       const run = { id: `run-${Date.now()}`, planId, sessionId: typeof args.sessionId === "string" && args.sessionId ? args.sessionId : (plan?.sessionId ?? ""), chatSessionId, workspacePath: `worktrees/bb-${planId}`, status: "running", runnerKind: "native", error: undefined, stepsOutput: [], startedAt: nowSecs, finishedAt: undefined, createdAt: Date.now() };
       s.planRuns.push(run);
+      if (plan) plan.status = "running";
+      const chat = s.nativeChatSessions.find((candidate) => candidate.id === chatSessionId);
+      if (chat) chat.runState = "running";
       return run as T;
     }
-    case "openspec_list_changes":
-      return [] as T;
+    case "openspec_list_changes": {
+      const entries = new Map<string, {
+        name: string;
+        hasProposal: boolean;
+        hasDesign: boolean;
+        hasTasks: boolean;
+        hasSpecs: boolean;
+        completed: number;
+        total: number;
+        linkedPlanReferenceId?: string;
+        archived: boolean;
+        createdAt: number;
+      }>();
+      for (const plan of s.plans) {
+        if (!plan.changeName) continue;
+        const [completed, total] = s.taskProgressByChange?.get(plan.changeName) ?? [0, 0];
+        entries.set(plan.changeName, {
+          name: plan.changeName,
+          hasProposal: true,
+          hasDesign: true,
+          hasTasks: total > 0,
+          hasSpecs: true,
+          completed,
+          total,
+          linkedPlanReferenceId: plan.referenceId,
+          archived: s.archivedChanges?.has(plan.changeName) ?? false,
+          createdAt: plan.createdAt,
+        });
+      }
+      return [...entries.values()] as T;
+    }
     case "openspec_parse_tasks_structured":
       return { phases: [], total: 0, completed: 0 } as T;
     case "openspec_read_tasks_structured":
       return { phases: [], total: 0, completed: 0 } as T;
     case "openspec_toggle_task":
       return undefined as T;
-    case "openspec_archive_change":
+    case "openspec_archive_change": {
+      const archived = (s.archivedChanges ??= new Set<string>());
+      archived.add(args.changeName as string);
       return undefined as T;
+    }
     case "openspec_link_change_to_plan":
       return undefined as T;
     case "openspec_unlink_plan_from_change":
@@ -794,14 +896,36 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "plan_run_pause":
       return undefined as T;
-    case "plan_run_cancel":
+    case "plan_run_cancel": {
+      const run = s.planRuns.find((candidate) => candidate.id === args.runId);
+      if (run) {
+        run.status = "cancelled";
+        run.finishedAt = Math.floor(Date.now() / 1000);
+        const plan = s.plans.find((candidate) => candidate.id === run.planId);
+        if (plan && !args.cancelPlan) plan.status = "ready";
+      }
       return undefined as T;
+    }
     case "plan_run_complete": {
       const runId = args.runId as string;
       const run = s.planRuns.find((r) => r.id === runId);
+      const plan = run ? s.plans.find((candidate) => candidate.id === run.planId) : undefined;
+      const progress = plan?.changeName
+        ? (s.taskProgressByChange?.get(plan.changeName) ?? [0, 0])
+        : null;
+      const checklistComplete = progress === null || (progress[1] > 0 && progress[0] === progress[1]);
       if (run) {
+        if (args.succeeded && !checklistComplete) {
+          run.status = "awaiting_review";
+          run.error = progress?.[1] === 0
+            ? "Checklist has no required tasks; review required"
+            : `Checklist incomplete: ${progress?.[0]}/${progress?.[1]} tasks complete`;
+          if (plan) plan.status = "ready";
+          return undefined as T;
+        }
         run.status = args.succeeded ? "succeeded" : "failed";
         run.finishedAt = Math.floor(Date.now() / 1000);
+        if (plan) plan.status = args.succeeded ? "finished" : "ready";
         // Mirror the backend: the finish policy is applied EXACTLY ONCE at
         // completion and its outcome persisted on the run. Reads via
         // plan_run_finish_outcome never re-apply.
@@ -843,16 +967,54 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       }
       return undefined as T;
     }
-    case "plan_run_mark_complete":
+    case "plan_run_mark_complete": {
+      const run = s.planRuns.find((candidate) => candidate.id === args.runId);
+      if (!run) throw new Error("Run not found");
+      const plan = s.plans.find((candidate) => candidate.id === run.planId);
+      const progress = plan?.changeName
+        ? (s.taskProgressByChange?.get(plan.changeName) ?? [0, 0])
+        : null;
+      if (progress && progress[1] === 0) {
+        throw new Error("Cannot mark complete: the linked OpenSpec change has no required tasks.");
+      }
+      if (progress && progress[0] < progress[1]) {
+        throw new Error(`Cannot mark complete: ${progress[0]}/${progress[1]} required OpenSpec tasks are complete.`);
+      }
+      run.status = "succeeded";
+      run.error = undefined;
+      run.finishedAt = Math.floor(Date.now() / 1000);
+      if (plan) plan.status = "finished";
       return undefined as T;
+    }
     case "plan_run_finish_outcome": {
       const run = s.planRuns.find((r) => r.id === args.runId);
       return (run?.finishOutcome ?? { kind: "hold" }) as T;
     }
     case "plan_run_check_completion":
       return [0, 0] as T;
-    case "plan_run_list":
-      return s.planRuns.filter((r) => r.sessionId === args.sessionId) as T;
+    case "pipeline_list_runs":
+      return [] as T;
+    case "pipeline_get_run":
+      return null as T;
+    case "pipeline_cancel":
+      return undefined as T;
+    case "plan_run_list": {
+      return reconcileMockPlanRunOwners(
+        s,
+        s.planRuns.filter((run) => run.sessionId === args.sessionId),
+      ) as T;
+    }
+    case "plan_run_list_by_project": {
+      const projectPath = args.projectPath as string;
+      const sessionIds = new Set([
+        ...s.sessions.filter((session) => session.projectPath === projectPath).map((session) => session.id),
+        ...s.nativeChatSessions.filter((chat) => chat.projectPath === projectPath).map((chat) => chat.id),
+      ]);
+      return reconcileMockPlanRunOwners(
+        s,
+        s.planRuns.filter((run) => sessionIds.has(run.sessionId)),
+      ) as T;
+    }
     case "plan_run_get":
       return (s.planRuns.find((r) => r.id === args.runId) ?? null) as T;
     case "plan_run_start_omp": {
@@ -905,7 +1067,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
           const cp = s.plans.find((pp) => pp.id === cid);
           return cp?.status === "running";
         });
-        const readiness = p.status === "finished" ? "finished" : p.status === "cancelled" ? "cancelled" : p.status === "running" ? "running" : unmet.length > 0 ? "blocked" : (schedulingMode !== "yolo" && runningCollisions.length > 0) ? "blocked" : "ready";
+        const readiness = p.status === "finished" ? "finished" : p.status === "cancelled" ? "cancelled" : unmet.length > 0 ? "blocked" : (schedulingMode !== "yolo" && runningCollisions.length > 0) ? "blocked" : p.status === "running" ? "running" : "ready";
         const blockReason = readiness === "blocked" ? (unmet.length > 0 ? `Waiting on prerequisites: ${unmet.join(", ")}` : `File collision with running plan(s): ${runningCollisions.join(", ")}`) : undefined;
         return { planId: p.id, referenceId: p.referenceId, title: p.title, status: p.status, priority: p.priority, prerequisites, affectedPaths, readiness, blockReason, collisions, dispatchable: readiness === "ready", yoloConfirmed: schedulingMode === "yolo" };
       });
@@ -993,6 +1155,94 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return s.terminals as T;
     case "agent_start":
       return 1 as T;
+    case "native_chat_bootstrap": {
+      const delayMs = globalState.__BASEBUILD_E2E_BOOTSTRAP_DELAY_MS__ ?? 0;
+      if (delayMs > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      }
+      const catalog = await invoke<Record<string, unknown>>("native_provider_catalog");
+      const resolved = await invoke<Record<string, unknown>>("native_chat_model_default", {
+        projectPath: args.projectPath,
+      });
+      return { catalog, resolved } as T;
+    }
+    case "native_catalog_sync":
+      return { synced: 4, skipped: 0, error: null } as T;
+    case "execution_advice_get": {
+      const roleAdvice = (role: "planner" | "coder") => ({
+        role,
+        recommendation: {
+          providerId: "umans",
+          modelId: "umans-glm-5.2",
+          label: "Umans GLM 5.2",
+          score: role === "planner" ? 84.2 : 88.6,
+          confidence: "medium",
+          factors: [
+            { name: "quality_fit", score: 35, maxScore: 45, explanation: "Public role-fit evidence scores 78%" },
+            { name: "capacity", score: 11, maxScore: 15, explanation: "Local telemetry reports 73% remaining" },
+          ],
+          reasons: [],
+          sourceFreshness: ["public_profile_age_seconds:3600", "capacity:omp_live:fresh"],
+          userOverride: false,
+        },
+        alternatives: [{
+          providerId: "openai",
+          modelId: "gpt-5.1",
+          label: "GPT-5.1",
+          score: 80.1,
+          confidence: "medium",
+          factors: [],
+          reasons: [],
+          sourceFreshness: ["public_profile_age_seconds:3600", "capacity:missing"],
+          userOverride: false,
+        }],
+        excluded: [],
+        confidence: "medium",
+        generatedAt: Math.floor(Date.now() / 1000),
+      });
+      return {
+        schemaVersion: 1,
+        assessmentSource: "idea_assessment",
+        difficultyBucket: 4,
+        effortBucket: "same_day",
+        assessmentStale: false,
+        planner: roleAdvice("planner"),
+        coder: roleAdvice("coder"),
+      } as T;
+    }
+    case "execution_advice_set_override":
+    case "execution_advice_clear_override":
+      return undefined as T;
+    case "execution_advice_feedback_consent":
+      return { enabled: false, updatedAt: null } as T;
+    case "execution_advice_set_feedback_consent": {
+      const input = args.input;
+      const enabled = Boolean(
+        input && typeof input === "object" && "enabled" in input && input.enabled,
+      );
+      return { enabled, updatedAt: Math.floor(Date.now() / 1000) } as T;
+    }
+    case "execution_advice_list_feedback":
+      return [] as T;
+    case "execution_advice_export_feedback":
+      return "[]" as T;
+    case "execution_advice_delete_feedback":
+      return 0 as T;
+    case "execution_advice_record_feedback":
+      return {
+        id: `advisor-feedback-${Date.now()}`,
+        schemaVersion: 1,
+        role: "planner",
+        recommendedProviderId: "umans",
+        recommendedModelId: "umans-glm-5.2",
+        selectedProviderId: "umans",
+        selectedModelId: "umans-glm-5.2",
+        outcome: "accepted",
+        confidence: "medium",
+        difficultyBucket: 4,
+        effortBucket: "same_day",
+        createdAt: Math.floor(Date.now() / 1000),
+      } as T;
     case "native_provider_catalog":
     case "native_provider_catalog_refresh": {
       // Build provider list dynamically — check credentials/blocked state
@@ -1051,7 +1301,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "native_chat_start": {
       const req = args.request as { projectPath: string; title?: string; providerId?: string; modelId?: string; effortLevel?: string };
-      const id = `nchat-${s.nextNativeChatId++}`;
+      const id = `nchat_${s.nextNativeChatId++}`;
       const ts = Math.floor(Date.now() / 1000);
       const session: NativeChatSession = {
         id,
@@ -1484,6 +1734,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "list_categories":
       return s.categories.filter((category) => category.sessionId === args.sessionId) as T;
+    case "list_project_categories":
+      return (args.projectPath === s.projectPath ? s.categories : []) as T;
     case "create_category": {
       const category: Category = { id: `cat-${s.nextCategoryId++}`, sessionId: args.sessionId as string, name: args.name as string, description: args.description as string, createdAt: Math.floor(Date.now() / 1000) };
       s.categories.push(category);
@@ -1494,6 +1746,11 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return undefined as T;
     case "list_ideas":
       return s.ideas.filter((idea) => idea.sessionId === args.sessionId) as T;
+    case "list_project_ideas":
+      // Return a shallow copy so React detects the change after in-place
+      // mutations like reject_idea/update_idea_status (which don't create
+      // a new array reference, unlike delete_idea's .filter()).
+      return (args.projectPath === s.projectPath ? s.ideas.map((idea) => ({ ...idea })) : []) as T;
     case "create_idea": {
       const ts = Math.floor(Date.now() / 1000);
       const idea: Idea = {
@@ -1506,10 +1763,20 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         grounding: (args.grounding as string | undefined) ?? "",
         anchor: (args.anchor as string | null | undefined) ?? null,
         batchId: s.activeRoundBySession.get(args.sessionId as string) ?? null,
+        assessment: args.assessment as Idea["assessment"],
         createdAt: ts,
         updatedAt: ts,
       };
       s.ideas.push(idea);
+      return idea as T;
+    }
+    case "update_idea": {
+      const idea = s.ideas.find((item) => item.id === args.id);
+      if (!idea) throw new Error(`Idea not found: ${String(args.id)}`);
+      idea.title = args.title as string;
+      idea.description = args.description as string;
+      idea.categoryId = (args.categoryId as string | null) ?? null;
+      idea.updatedAt = Math.floor(Date.now() / 1000);
       return idea as T;
     }
     case "start_idea_round": {
@@ -1562,25 +1829,209 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       if (idea) idea.status = args.status as string;
       return undefined as T;
     }
+    case "reject_idea": {
+      const idea = s.ideas.find((item) => item.id === args.id);
+      if (idea) {
+        idea.status = "rejected";
+        idea.updatedAt = Math.floor(Date.now() / 1000);
+      }
+      return undefined as T;
+    }
     case "delete_idea":
       s.ideas = s.ideas.filter((idea) => idea.id !== args.id);
       return undefined as T;
+    case "promote_ideas": {
+      const input = args.input as { sessionId: string; ideaIds: string[] };
+      const promoted: Plan[] = [];
+      for (const ideaId of input.ideaIds) {
+        const idea = s.ideas.find((item) => item.id === ideaId);
+        if (!idea) throw new Error(`Idea not found: ${ideaId}`);
+        const plan = makePlan(input.sessionId, {
+          title: idea.title,
+          description: idea.description,
+        });
+        s.plans.push(plan);
+        idea.status = "picked";
+        idea.updatedAt = Math.floor(Date.now() / 1000);
+        promoted.push(plan);
+      }
+      return promoted as T;
+    }
     case "native_generate_ideas": {
-      const req = args.request as { providerId?: string };
+      const req = args.request as {
+        sessionId: string;
+        planningSessionId: string;
+        providerId?: string;
+        modelId?: string;
+        effortLevel?: string;
+        categoryIds?: string[];
+        ideaCount?: number;
+        displayMessage?: string;
+        direction?: string | null;
+      };
       const providerId = req.providerId ?? "basebuild-local";
+      const ts = Math.floor(Date.now() / 1000);
+      const displayMessage = req.displayMessage
+        ?? `Idea Studio · basebuild-planning\n\nAuto-generate ${req.ideaCount ?? 8} project-wide ideas.`;
+      const userMessage: NativeChatMessage = {
+        id: `nmsg-${s.nextNativeMessageId++}`,
+        sessionId: req.sessionId,
+        role: "user",
+        content: displayMessage,
+        sortOrder: s.nativeChatMessages.filter((message) => message.sessionId === req.sessionId).length,
+        providerId,
+        modelId: req.modelId ?? "claude-sonnet-4",
+        effortLevel: req.effortLevel ?? "medium",
+        createdAt: ts,
+      };
+      s.nativeChatMessages.push(userMessage);
+
       // Only configured, non-local providers generate ideas in the fixture.
       if (providerId === "basebuild-local" || providerId === "openai") {
         return {
           ideas: [],
-          setupRequired: { providerId, providerLabel: providerId === "openai" ? "OpenAI" : "Basebuild Local", message: "Connect a model provider to generate ideas from this chat." },
+          setupRequired: { providerId, providerLabel: providerId === "openai" ? "OpenAI" : "Basebuild Local", message: "Choose a connected provider to run the native Idea Studio skill." },
           grounding: null,
+          userMessage,
+          assistantMessage: null,
         } as T;
       }
+
+      const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+      __emit("native-chat://chunk", { sessionId: req.sessionId, delta: "thinking", channel: "status" });
+      await sleep(350);
+      __emit("native-chat://chunk", { sessionId: req.sessionId, delta: "I’ll inspect the project and ground the ideas.", channel: "content" });
+      __emit("native-chat://chunk", { sessionId: req.sessionId, delta: "tools", channel: "status" });
+      const toolEvent: NativeToolEvent = {
+        id: `ntool-idea-studio-${ts}-${s.nativeToolEvents.length}`,
+        sessionId: req.sessionId,
+        messageId: null,
+        kind: "read_file",
+        status: "succeeded",
+        summary: "Read the project schematic.",
+        arguments: JSON.stringify({ path: ".basebuild/project-schematic.md" }),
+        diff: null,
+        decision: "auto",
+        ruleSource: null,
+        sequence: s.nativeToolEvents.filter((event) => event.sessionId === req.sessionId).length + 1,
+        createdAt: ts,
+      };
+      __emit("native-chat://tool-event", {
+        sessionId: req.sessionId,
+        toolCallId: toolEvent.id,
+        toolName: toolEvent.kind,
+        status: toolEvent.status,
+        summary: toolEvent.summary,
+        arguments: toolEvent.arguments,
+        decision: toolEvent.decision,
+        sequence: toolEvent.sequence,
+      });
+      s.nativeToolEvents.push(toolEvent);
+      await sleep(250);
+
+      const generated = [
+        {
+          title: "Improve onboarding",
+          description: "Add a guided first-run tour.",
+          grounding: "The existing first-run route has no guided state.",
+          anchor: "src/components/onboarding",
+          assessment: {
+            schemaVersion: 1 as const,
+            effort: { minHours: 4, maxHours: 8 },
+            difficulty: 2,
+            impact: 4,
+            risk: 2,
+            confidence: 4,
+            rationale: "The flow is bounded to an existing component and persisted preference.",
+            grounding: ["Existing onboarding components and preference storage."],
+            requiredCapabilities: ["React", "Tauri settings"],
+            constraints: ["Must remain dismissible and keyboard accessible."],
+            missingEvidence: [],
+            alternatives: ["Improve the empty state without a tour."],
+          },
+        },
+        {
+          title: "Cache provider catalog",
+          description: "Avoid refetching on every mount.",
+          grounding: "Catalog refresh currently runs when the provider view mounts.",
+          anchor: "src/lib/providerCatalog",
+          assessment: {
+            schemaVersion: 1 as const,
+            effort: { minHours: 3, maxHours: 6 },
+            difficulty: 3,
+            impact: 3,
+            risk: 3,
+            confidence: 3,
+            rationale: "A last-good cache is small, but freshness and invalidation need explicit rules.",
+            grounding: ["Existing provider catalog fetch and local persistence paths."],
+            requiredCapabilities: ["Rust", "SQLite", "TypeScript"],
+            constraints: ["Offline startup must preserve the last-good catalog."],
+            missingEvidence: ["Observed catalog response size."],
+            alternatives: ["Keep session-only memory caching."],
+          },
+        },
+      ];
+      for (const generatedIdea of generated) {
+        const idea: Idea = {
+          id: `idea-${s.nextIdeaId++}`,
+          sessionId: req.planningSessionId,
+          categoryId: req.categoryIds?.[0] ?? null,
+          title: generatedIdea.title,
+          description: generatedIdea.description,
+          status: "concept",
+          grounding: generatedIdea.grounding,
+          anchor: generatedIdea.anchor,
+          batchId: s.activeRoundBySession.get(req.planningSessionId) ?? null,
+          assessment: generatedIdea.assessment,
+          createdAt: ts,
+          updatedAt: ts,
+        };
+        s.ideas.push(idea);
+      }
+      const proposalToolEvent: NativeToolEvent = {
+        id: `ntool-idea-review-${ts}-${s.nativeToolEvents.length}`,
+        sessionId: req.sessionId,
+        messageId: null,
+        kind: "propose_ideas",
+        status: "success",
+        summary: `Captured ${generated.length} grounded ideas.`,
+        arguments: JSON.stringify({
+          categoryId: req.categoryIds?.[0] ?? null,
+          ideas: generated,
+        }),
+        diff: null,
+        decision: "auto",
+        ruleSource: null,
+        sequence: s.nativeToolEvents.filter((event) => event.sessionId === req.sessionId).length + 1,
+        createdAt: ts,
+      };
+      __emit("native-chat://tool-event", {
+        sessionId: req.sessionId,
+        toolCallId: proposalToolEvent.id,
+        toolName: proposalToolEvent.kind,
+        status: proposalToolEvent.status,
+        summary: proposalToolEvent.summary,
+        arguments: proposalToolEvent.arguments,
+        decision: proposalToolEvent.decision,
+        sequence: proposalToolEvent.sequence,
+      });
+      const assistantMessage: NativeChatMessage = {
+        id: `nmsg-${s.nextNativeMessageId++}`,
+        sessionId: req.sessionId,
+        role: "assistant",
+        content: `Captured ${generated.length} grounded ideas in Idea Studio.`,
+        sortOrder: userMessage.sortOrder + 1,
+        providerId,
+        modelId: req.modelId ?? "claude-sonnet-4",
+        effortLevel: req.effortLevel ?? "medium",
+        createdAt: ts,
+      };
+      toolEvent.messageId = assistantMessage.id;
+      proposalToolEvent.messageId = assistantMessage.id;
+      s.nativeChatMessages.push(assistantMessage);
+      s.nativeToolEvents.push(proposalToolEvent);
       return {
-        ideas: [
-          { title: "Improve onboarding", description: "Add a guided first-run tour." },
-          { title: "Cache provider catalog", description: "Avoid refetching on every mount." },
-        ],
+        ideas: generated,
         setupRequired: null,
         grounding: {
           schematicSections: ["Project Schematic", "Goals", "Vision"],
@@ -1590,6 +2041,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
           rejectedCount: 0,
           digestEmpty: false,
         },
+        userMessage,
+        assistantMessage,
       } as T;
     }
     case "native_provider_login_start":
@@ -1598,6 +2051,15 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return { status: "success", message: null } as T;
     case "native_provider_login_cancel":
       return undefined as T;
+    case "openspec_runtime_status":
+      return {
+        state: "ready",
+        version: "1.0.0-e2e",
+        executablePath: "C:\\basebuild-e2e\\openspec.exe",
+        schema: "spec-driven",
+        projectReady: true,
+        message: null,
+      } as T;
     case "omp_status":
       return { installed: true, version: "omp 1.2.3", configPath: "C:\\basebuild-e2e\\.omp\\config.yml", message: null } as T;
     case "omp_debug_context":

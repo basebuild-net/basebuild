@@ -50,7 +50,10 @@ fn set_status(provider_id: &str, status: LoginStatus) {
 }
 
 fn is_cancelled(provider_id: &str) -> bool {
-    matches!(SESSIONS.lock().get(provider_id), Some(LoginStatus::Cancelled))
+    matches!(
+        SESSIONS.lock().get(provider_id),
+        Some(LoginStatus::Cancelled)
+    )
 }
 
 pub struct ProviderLoginService;
@@ -67,10 +70,7 @@ impl ProviderLoginService {
         listener
             .set_nonblocking(true)
             .map_err(|e| format!("Failed to configure login listener: {e}"))?;
-        let port = listener
-            .local_addr()
-            .map_err(|e| e.to_string())?
-            .port();
+        let port = listener.local_addr().map_err(|e| e.to_string())?.port();
 
         set_status(provider_id, LoginStatus::Pending);
 
@@ -78,7 +78,12 @@ impl ProviderLoginService {
         let label_owned = label.to_string();
         let provider_url_owned = provider_url.to_string();
         std::thread::spawn(move || {
-            Self::run_capture(listener, &provider_id_owned, &label_owned, &provider_url_owned);
+            Self::run_capture(
+                listener,
+                &provider_id_owned,
+                &label_owned,
+                &provider_url_owned,
+            );
         });
 
         let landing_url = format!("http://127.0.0.1:{port}/");
@@ -135,19 +140,17 @@ impl ProviderLoginService {
         set_status(provider_id, LoginStatus::Cancelled);
     }
 
-    fn run_capture(
-        listener: TcpListener,
-        provider_id: &str,
-        label: &str,
-        provider_url: &str,
-    ) {
+    fn run_capture(listener: TcpListener, provider_id: &str, label: &str, provider_url: &str) {
         let deadline = Instant::now() + LOGIN_TIMEOUT;
         loop {
             if is_cancelled(provider_id) {
                 return;
             }
             if Instant::now() >= deadline {
-                set_status(provider_id, LoginStatus::Error("Login timed out.".to_string()));
+                set_status(
+                    provider_id,
+                    LoginStatus::Error("Login timed out.".to_string()),
+                );
                 return;
             }
             match listener.accept() {
@@ -199,10 +202,7 @@ impl ProviderLoginService {
             if trimmed.is_empty() {
                 break;
             }
-            if let Some(value) = trimmed
-                .to_ascii_lowercase()
-                .strip_prefix("content-length:")
-            {
+            if let Some(value) = trimmed.to_ascii_lowercase().strip_prefix("content-length:") {
                 content_length = value.trim().parse().unwrap_or(0);
             }
         }
@@ -215,7 +215,10 @@ impl ProviderLoginService {
             }
             let body_str = String::from_utf8_lossy(&body);
             let fields = parse_form(&body_str);
-            let api_key = fields.get("api_key").map(|s| s.trim().to_string()).unwrap_or_default();
+            let api_key = fields
+                .get("api_key")
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
             let base_url = fields
                 .get("base_url")
                 .map(|s| s.trim().to_string())
@@ -300,8 +303,12 @@ fn parse_form(body: &str) -> HashMap<String, String> {
             let key = it.next()?;
             let value = it.next().unwrap_or("");
             Some((
-                urlencoding::decode(key).map(|c| c.into_owned()).unwrap_or_default(),
-                urlencoding::decode(value).map(|c| c.into_owned()).unwrap_or_default(),
+                urlencoding::decode(key)
+                    .map(|c| c.into_owned())
+                    .unwrap_or_default(),
+                urlencoding::decode(value)
+                    .map(|c| c.into_owned())
+                    .unwrap_or_default(),
             ))
         })
         .collect()
@@ -346,7 +353,10 @@ mod tests {
     fn parse_form_decodes_pairs() {
         let form = parse_form("api_key=sk-abc%20123&base_url=https%3A%2F%2Fx.dev%2Fv1");
         assert_eq!(form.get("api_key").map(String::as_str), Some("sk-abc 123"));
-        assert_eq!(form.get("base_url").map(String::as_str), Some("https://x.dev/v1"));
+        assert_eq!(
+            form.get("base_url").map(String::as_str),
+            Some("https://x.dev/v1")
+        );
     }
 
     #[test]

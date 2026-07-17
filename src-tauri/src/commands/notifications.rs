@@ -12,7 +12,10 @@ fn emit_changed(app: &AppHandle) {
 }
 
 #[tauri::command]
-pub fn notification_list(limit: Option<i64>, offset: Option<i64>) -> Result<Vec<Notification>, String> {
+pub fn notification_list(
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<Notification>, String> {
     NotificationService::list(limit.unwrap_or(100), offset.unwrap_or(0))
 }
 
@@ -48,7 +51,10 @@ pub fn notification_get_settings() -> Result<NotificationSettings, String> {
 }
 
 #[tauri::command]
-pub fn notification_set_settings(app: AppHandle, settings: NotificationSettings) -> Result<(), String> {
+pub fn notification_set_settings(
+    app: AppHandle,
+    settings: NotificationSettings,
+) -> Result<(), String> {
     NotificationService::set_settings(&settings)?;
     emit_changed(&app);
     Ok(())

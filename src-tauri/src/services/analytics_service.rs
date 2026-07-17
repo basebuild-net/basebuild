@@ -26,9 +26,9 @@ const CONSENT_KEY: &str = "analytics_consent";
 
 /// Privacy-safe analytics event names. Adding a name here is required before
 /// any emitter can record it. This prevents ad-hoc events from leaking.
- #[derive(Debug, Clone)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
- pub enum AnalyticsEventName {
+pub enum AnalyticsEventName {
     GenerateContextRequested,
     ChatDraftInjected,
     AdapterStartFailed,
@@ -54,12 +54,14 @@ pub struct AnalyticsService;
 impl AnalyticsService {
     /// Returns true only if the user has explicitly opted in to local collection.
     pub fn collection_enabled() -> bool {
-        Self::get_consent().map(|c| c.collection_enabled).unwrap_or(false)
+        Self::get_consent()
+            .map(|c| c.collection_enabled)
+            .unwrap_or(false)
     }
 
-     /// Returns true only if the user has opted in to both collection and upload.
+    /// Returns true only if the user has opted in to both collection and upload.
     #[allow(dead_code)]
-     pub fn upload_enabled() -> bool {
+    pub fn upload_enabled() -> bool {
         Self::get_consent()
             .map(|c| c.collection_enabled && c.upload_enabled)
             .unwrap_or(false)
@@ -85,7 +87,10 @@ impl AnalyticsService {
         conn.execute(
             "INSERT INTO app_defaults (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![CONSENT_KEY, serde_json::to_string(consent).map_err(|e| e.to_string())?],
+            params![
+                CONSENT_KEY,
+                serde_json::to_string(consent).map_err(|e| e.to_string())?
+            ],
         )
         .map_err(|e| e.to_string())?;
         // Keep the permission-rule gate in sync with the user's consent. The
@@ -93,10 +98,13 @@ impl AnalyticsService {
         // collection path read the permission rules, NOT this consent blob;
         // without this propagation the visible Privacy toggle never opens the
         // gate and sync silently never runs.
-        if let Ok(mut rules) = crate::services::settings_service::SettingsService::get_permission_rules() {
+        if let Ok(mut rules) =
+            crate::services::settings_service::SettingsService::get_permission_rules()
+        {
             rules.allow_usage_analytics_collection = consent.collection_enabled;
             rules.allow_usage_analytics_upload = consent.upload_enabled;
-            let _ = crate::services::settings_service::SettingsService::set_permission_rules(&rules);
+            let _ =
+                crate::services::settings_service::SettingsService::set_permission_rules(&rules);
         }
         Ok(())
     }
@@ -154,7 +162,8 @@ impl AnalyticsService {
                 })
             })
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     pub fn event_count() -> DbResult<i64> {
@@ -184,35 +193,82 @@ mod tests {
     #[test]
     fn test_consent_defaults_disabled() {
         let consent = AnalyticsConsent::default();
-        assert!(!consent.collection_enabled, "collection must be disabled by default");
-        assert!(!consent.upload_enabled, "upload must be disabled by default");
-        assert!(consent.consented_at.is_none(), "consented_at must be None by default");
+        assert!(
+            !consent.collection_enabled,
+            "collection must be disabled by default"
+        );
+        assert!(
+            !consent.upload_enabled,
+            "upload must be disabled by default"
+        );
+        assert!(
+            consent.consented_at.is_none(),
+            "consented_at must be None by default"
+        );
     }
 
     #[test]
     fn test_permission_rules_conservative() {
         let rules = crate::models::permission::PermissionRules::conservative();
-        assert!(!rules.allow_usage_analytics_collection, "analytics collection must be off in conservative defaults");
-        assert!(!rules.allow_usage_analytics_upload, "analytics upload must be off in conservative defaults");
-        assert!(!rules.allow_detailed_diagnostics, "detailed diagnostics must be off in conservative defaults");
+        assert!(
+            !rules.allow_usage_analytics_collection,
+            "analytics collection must be off in conservative defaults"
+        );
+        assert!(
+            !rules.allow_usage_analytics_upload,
+            "analytics upload must be off in conservative defaults"
+        );
+        assert!(
+            !rules.allow_detailed_diagnostics,
+            "detailed diagnostics must be off in conservative defaults"
+        );
     }
 
     #[test]
     fn test_runtime_defaults_conservative() {
         let defaults = crate::models::runtime::RuntimeDefaults::conservative();
-        assert!(!defaults.auto_send_generated_prompts, "auto-send must be off in conservative defaults");
-        assert_eq!(defaults.default_chat_profile_id.as_deref(), Some("basebuild-native"), "default chat profile must be the native harness");
-        assert_eq!(defaults.default_terminal_profile_id.as_deref(), Some("default-terminal"));
-        assert_eq!(defaults.default_model.as_deref(), Some("basebuild-local-coordinator"), "default model must match the native coordinator");
+        assert!(
+            !defaults.auto_send_generated_prompts,
+            "auto-send must be off in conservative defaults"
+        );
+        assert_eq!(
+            defaults.default_chat_profile_id.as_deref(),
+            Some("basebuild-native"),
+            "default chat profile must be the native harness"
+        );
+        assert_eq!(
+            defaults.default_terminal_profile_id.as_deref(),
+            Some("default-terminal")
+        );
+        assert_eq!(
+            defaults.default_model.as_deref(),
+            Some("basebuild-local-coordinator"),
+            "default model must match the native coordinator"
+        );
     }
 
     #[test]
     fn test_analytics_event_name_taxonomy() {
-        assert_eq!(AnalyticsEventName::GenerateContextRequested.as_str(), "generate_context_requested");
-        assert_eq!(AnalyticsEventName::ChatDraftInjected.as_str(), "chat_draft_injected");
-        assert_eq!(AnalyticsEventName::AdapterStartFailed.as_str(), "adapter_start_failed");
-        assert_eq!(AnalyticsEventName::PermissionDecisionRecorded.as_str(), "permission_decision_recorded");
-        assert_eq!(AnalyticsEventName::Custom("custom_event".to_string()).as_str(), "custom_event");
+        assert_eq!(
+            AnalyticsEventName::GenerateContextRequested.as_str(),
+            "generate_context_requested"
+        );
+        assert_eq!(
+            AnalyticsEventName::ChatDraftInjected.as_str(),
+            "chat_draft_injected"
+        );
+        assert_eq!(
+            AnalyticsEventName::AdapterStartFailed.as_str(),
+            "adapter_start_failed"
+        );
+        assert_eq!(
+            AnalyticsEventName::PermissionDecisionRecorded.as_str(),
+            "permission_decision_recorded"
+        );
+        assert_eq!(
+            AnalyticsEventName::Custom("custom_event".to_string()).as_str(),
+            "custom_event"
+        );
     }
 
     #[test]
@@ -229,9 +285,22 @@ mod tests {
     #[test]
     fn test_runtime_profile_built_ins() {
         let built_ins = crate::models::runtime::RuntimeProfile::built_ins();
-        assert_eq!(built_ins.len(), 3, "should have native + OMP + terminal built-ins");
-        assert!(built_ins.iter().any(|p| p.id == "basebuild-native"), "native harness profile must exist");
-        assert!(built_ins.iter().any(|p| p.id == "omp"), "OMP profile must exist");
-        assert!(built_ins.iter().any(|p| p.id == "default-terminal"), "terminal profile must exist");
+        assert_eq!(
+            built_ins.len(),
+            3,
+            "should have native + OMP + terminal built-ins"
+        );
+        assert!(
+            built_ins.iter().any(|p| p.id == "basebuild-native"),
+            "native harness profile must exist"
+        );
+        assert!(
+            built_ins.iter().any(|p| p.id == "omp"),
+            "OMP profile must exist"
+        );
+        assert!(
+            built_ins.iter().any(|p| p.id == "default-terminal"),
+            "terminal profile must exist"
+        );
     }
 }

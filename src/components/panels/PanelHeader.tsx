@@ -11,9 +11,12 @@ import {
   Zap,
   LayoutTemplate,
   X,
+  Minus,
+  Bot,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Panel, PanelType } from "../../lib/panelGrid";
+import { humanizeChatTitle } from "../../lib/titles";
 import type { PanelStatus } from "./PanelStatusContext";
 
 const typeIcons: Record<PanelType, LucideIcon> = {
@@ -49,12 +52,17 @@ export type PanelHeaderProps = {
   onDragEnd: () => void;
   onDragMove: () => void;
   onDragCancel: () => void;
+  /** When true, the panel hosts a background agent — show a minimize
+   *  button instead of close, since closing would kill the agent's UI. */
+  minimizable?: boolean;
+  /** Chat session ids owned by an active background agent — their tabs get
+   *  the bot icon + accent title and closing-keeps-running affordances. */
+  backgroundChatIds?: Set<string>;
 };
-
 const TAB_DRAG_THRESHOLD = 4;
 
 export function PanelHeader(props: PanelHeaderProps) {
-  const { panel, status, isActive, onFocus, onClose, onSplitRight, onAddTab, onSplitDown, onDuplicate, onRename, onSwitchTab, onCloseTab, onReorderTabs, onDragStart, onDragEnd, onDragMove, onDragCancel } = props;
+  const { panel, status, isActive, onFocus, onClose, onSplitRight, onAddTab, onSplitDown, onDuplicate, onRename, onSwitchTab, onCloseTab, onReorderTabs, onDragStart, onDragEnd, onDragMove, onDragCancel, minimizable, backgroundChatIds } = props;
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(panel.title);
@@ -151,14 +159,18 @@ export function PanelHeader(props: PanelHeaderProps) {
         onPointerCancel={() => { tabDragData.current = null; setTabDragOver(null); }}
       >
         {tabs.map((tab, index) => {
-          const TabIcon = typeIcons[tab.type] ?? FileText;
+          const isBgTab = !!tab.chatSessionId && !!backgroundChatIds?.has(tab.chatSessionId);
+          const TabIcon = isBgTab ? Bot : (typeIcons[tab.type] ?? FileText);
           const isActiveTab = tab.id === activeTabId;
           const isDragOverTarget = tabDragOver === index;
+          const displayTitle = humanizeChatTitle(tab.title);
           return (
             <div
               key={tab.id}
-              className={`panel-header-tab${isActiveTab ? " is-active" : ""}${isDragOverTarget ? " is-drop-target" : ""}`}
-              title={tab.title}
+              className={`panel-header-tab${isActiveTab ? " is-active" : ""}${isDragOverTarget ? " is-drop-target" : ""}${isBgTab ? " is-background-agent" : ""}`}
+              title={isBgTab
+                ? `${displayTitle} — a background agent is working in this chat. Closing the tab keeps it running in the background.`
+                : displayTitle}
               data-tab-index={index}
               onPointerDown={(e) => onTabPointerDown(e, index)}
               onClick={(e) => { e.stopPropagation(); onSwitchTab?.(tab.id); }}
@@ -183,14 +195,28 @@ export function PanelHeader(props: PanelHeaderProps) {
                 <span
                   className="panel-header-tab-title"
                   onDoubleClick={(e) => { e.stopPropagation(); setEditValue(tab.title); setEditing(true); }}
+                  onMouseEnter={(e) => {
+                    // Train-display scroll: when the title overflows, animate
+                    // it horizontally so the whole text is readable on hover.
+                    const el = e.currentTarget;
+                    const overflow = el.scrollWidth - el.clientWidth;
+                    if (overflow > 4) {
+                      el.style.setProperty("--marquee-px", `-${overflow}px`);
+                      el.style.setProperty("--marquee-secs", `${Math.max(1.5, overflow / 30)}s`);
+                      el.classList.add("is-marquee");
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.classList.remove("is-marquee");
+                  }}
                 >
-                  {tab.title}
+                  {displayTitle}
                 </span>
               )}
               <button
                 className="panel-header-tab-close"
                 type="button"
-                title="Close tab"
+                title={isBgTab ? "Close tab — the background agent keeps running" : "Close tab"}
                 onClick={(e) => { e.stopPropagation(); onCloseTab?.(tab.id); }}
               >
                 <X size={8} />
@@ -244,8 +270,8 @@ export function PanelHeader(props: PanelHeaderProps) {
               <button type="button" title="Split down (add panel below)" onClick={() => { setMenuOpen(false); onSplitDown(); }}>
                 <SplitSquareVertical size={11} /> Split down
               </button>
-              <button type="button" title="Close and move to history" onClick={() => { setMenuOpen(false); onClose(); }}>
-                <X size={11} /> Close
+              <button type="button" title={minimizable ? "Send to background agents" : "Close and move to history"} onClick={() => { setMenuOpen(false); onClose(); }}>
+                {minimizable ? <Minus size={11} /> : <X size={11} />} {minimizable ? "Minimize" : "Close"}
               </button>
             </div>
           ) : null}

@@ -30,7 +30,14 @@ fn now() -> i64 {
 
 const VALID_SCHEDULING_MODES: [&str; 2] = ["safe", "yolo"];
 const VALID_WORKSPACE_POLICIES: [&str; 2] = ["isolated_worktrees", "sequential_primary"];
-const VALID_EVENT_KINDS: [&str; 6] = ["progress", "blocker", "claim", "release", "artifact", "completion"];
+const VALID_EVENT_KINDS: [&str; 6] = [
+    "progress",
+    "blocker",
+    "claim",
+    "release",
+    "artifact",
+    "completion",
+];
 const VALID_MERGE_DECISIONS: [&str; 3] = ["approved", "rejected", "merged"];
 const VALID_CLAIM_ACTIONS: [&str; 2] = ["claim", "release"];
 
@@ -57,8 +64,7 @@ impl PlanDependencyService {
     /// Set/update dependency metadata for a plan. Merges with existing:
     /// omitted fields preserve the current value.
     pub fn set_dependencies(req: &SetDependenciesRequest) -> DbResult<Plan> {
-        let plan = PlanService::get(&req.plan_id)?
-            .ok_or("Plan not found")?;
+        let plan = PlanService::get(&req.plan_id)?.ok_or("Plan not found")?;
         if let Some(mode) = &req.scheduling_mode {
             if !VALID_SCHEDULING_MODES.contains(&mode.as_str()) {
                 return Err(format!("Invalid scheduling_mode: '{mode}'"));
@@ -117,7 +123,9 @@ impl PlanDependencyService {
     }
 
     /// Get dependency metadata for a plan.
-    pub fn get_dependencies(plan_id: &str) -> DbResult<crate::models::plan_dependency::PlanDependencies> {
+    pub fn get_dependencies(
+        plan_id: &str,
+    ) -> DbResult<crate::models::plan_dependency::PlanDependencies> {
         let conn = StorageService::connect()?;
         conn.query_row(
             "SELECT plan_id, prerequisites, affected_paths, scheduling_mode, workspace_policy
@@ -177,7 +185,8 @@ impl PlanDependencyService {
         let conn = StorageService::connect()?;
 
         // Load all dependency metadata for these plans.
-        let mut deps_map: HashMap<String, crate::models::plan_dependency::PlanDependencies> = HashMap::new();
+        let mut deps_map: HashMap<String, crate::models::plan_dependency::PlanDependencies> =
+            HashMap::new();
         for plan in &plans {
             if let Ok(d) = Self::get_dependencies(&plan.id) {
                 deps_map.insert(plan.id.clone(), d);
@@ -213,12 +222,8 @@ impl PlanDependencyService {
         let mut nodes = Vec::new();
         for plan in &plans {
             let deps = deps_map.get(&plan.id);
-            let prerequisites = deps
-                .map(|d| d.prerequisites.clone())
-                .unwrap_or_default();
-            let affected_paths = deps
-                .map(|d| d.affected_paths.clone())
-                .unwrap_or_default();
+            let prerequisites = deps.map(|d| d.prerequisites.clone()).unwrap_or_default();
+            let affected_paths = deps.map(|d| d.affected_paths.clone()).unwrap_or_default();
             let scheduling_mode = deps
                 .map(|d| d.scheduling_mode.clone())
                 .unwrap_or_else(|| "safe".to_string());
@@ -236,8 +241,13 @@ impl PlanDependencyService {
             }
 
             // Compute readiness.
-            let (readiness, block_reason, dispatchable) =
-                Self::compute_readiness(plan, &prerequisites, &collisions, &plans, &scheduling_mode);
+            let (readiness, block_reason, dispatchable) = Self::compute_readiness(
+                plan,
+                &prerequisites,
+                &collisions,
+                &plans,
+                &scheduling_mode,
+            );
 
             nodes.push(DependencyNode {
                 plan_id: plan.id.clone(),
@@ -280,9 +290,6 @@ impl PlanDependencyService {
         if plan.status == PlanStatus::Cancelled {
             return ("cancelled".to_string(), None, false);
         }
-        if plan.status == PlanStatus::Running {
-            return ("running".to_string(), None, false);
-        }
 
         // Check prerequisites: all must be finished.
         let unmet: Vec<String> = prerequisites
@@ -298,10 +305,7 @@ impl PlanDependencyService {
             .collect();
 
         if !unmet.is_empty() {
-            let reason = format!(
-                "Waiting on prerequisites: {}",
-                unmet.join(", ")
-            );
+            let reason = format!("Waiting on prerequisites: {}", unmet.join(", "));
             return ("blocked".to_string(), Some(reason), false);
         }
 
@@ -329,6 +333,12 @@ impl PlanDependencyService {
             }
         }
 
+        // A live run with newly unmet prerequisites or a safe-mode collision
+        // is blocked, not healthy-running. Preserve that reason so recovery
+        // surfaces can explain the inconsistency.
+        if plan.status == PlanStatus::Running {
+            return ("running".to_string(), None, false);
+        }
         // Ready to dispatch.
         ("ready".to_string(), None, true)
     }
@@ -370,14 +380,7 @@ impl PlanDependencyService {
 
             if let Some(deps) = deps_map.get(plan_id) {
                 for prereq in &deps.prerequisites {
-                    dfs(
-                        prereq,
-                        deps_map,
-                        visited,
-                        rec_stack,
-                        in_stack,
-                        cycles,
-                    );
+                    dfs(prereq, deps_map, visited, rec_stack, in_stack, cycles);
                 }
             }
 
@@ -404,8 +407,7 @@ impl PlanDependencyService {
     /// Validate that a plan is ready for dispatch: check artifact
     /// completeness, dependency cycles, and status.
     pub fn validate_readiness(plan_id: &str) -> DbResult<ValidationResult> {
-        let plan = PlanService::get(plan_id)?
-            .ok_or("Plan not found")?;
+        let plan = PlanService::get(plan_id)?.ok_or("Plan not found")?;
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
 
@@ -468,9 +470,10 @@ impl PlanDependencyService {
             if let Err(e) = validate_change_name(change_name) {
                 errors.push(e);
             } else {
-                let session = crate::services::session_service::SessionService::get(&plan.session_id)
-                    .ok()
-                    .flatten();
+                let session =
+                    crate::services::session_service::SessionService::get(&plan.session_id)
+                        .ok()
+                        .flatten();
                 if let Some(s) = session {
                     let change_dir = std::path::Path::new(&s.project_path)
                         .join("openspec/changes")
@@ -482,7 +485,8 @@ impl PlanDependencyService {
                         ));
                     } else {
                         // Fold in artifact validation: errors → errors, warnings → warnings.
-                        let validation = crate::services::openspec_service::validate_artifacts(&change_dir);
+                        let validation =
+                            crate::services::openspec_service::validate_artifacts(&change_dir);
                         for err in validation.errors {
                             errors.push(format!("Artifact: {}", err));
                         }
@@ -842,8 +846,7 @@ mod tests {
     use crate::test_util::test::isolated_home;
 
     fn make_session(project_path: &str) -> String {
-        let session = SessionService::create_session(project_path, "test")
-            .expect("create session");
+        let session = SessionService::create_session(project_path, "test").expect("create session");
         session.id
     }
 
@@ -920,10 +923,48 @@ mod tests {
         .expect("set deps");
 
         let graph = PlanDependencyService::build_graph(&session_id).expect("build graph");
-        let node_b = graph.nodes.iter().find(|n| n.plan_id == plan_b).expect("node b");
+        let node_b = graph
+            .nodes
+            .iter()
+            .find(|n| n.plan_id == plan_b)
+            .expect("node b");
         assert_eq!(node_b.readiness, "blocked");
         assert!(!node_b.dispatchable);
-        assert!(node_b.block_reason.as_ref().unwrap().contains("prerequisites"));
+        assert!(node_b
+            .block_reason
+            .as_ref()
+            .unwrap()
+            .contains("prerequisites"));
+    }
+
+    #[test]
+    fn test_running_plan_preserves_new_prerequisite_blocker() {
+        let (_dir, _guard) = isolated_home();
+        let session_id = make_session("/test/project");
+        let prerequisite = make_plan(&session_id, "Plan A", PlanStatus::Ready);
+        let running = make_plan(&session_id, "Plan B", PlanStatus::Running);
+
+        PlanDependencyService::set_dependencies(&SetDependenciesRequest {
+            plan_id: running.clone(),
+            prerequisites: vec![prerequisite],
+            affected_paths: vec![],
+            priority: None,
+            scheduling_mode: None,
+            workspace_policy: None,
+        })
+        .expect("set deps");
+
+        let graph = PlanDependencyService::build_graph(&session_id).expect("build graph");
+        let node = graph
+            .nodes
+            .iter()
+            .find(|candidate| candidate.plan_id == running)
+            .expect("running node");
+        assert_eq!(node.readiness, "blocked");
+        assert!(node
+            .block_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("prerequisites")));
     }
 
     #[test]
@@ -947,7 +988,11 @@ mod tests {
         }
 
         let graph = PlanDependencyService::build_graph(&session_id).expect("build graph");
-        let node_a = graph.nodes.iter().find(|n| n.plan_id == plan_a).expect("node a");
+        let node_a = graph
+            .nodes
+            .iter()
+            .find(|n| n.plan_id == plan_a)
+            .expect("node a");
         assert!(node_a.collisions.contains(&plan_b));
     }
 
@@ -1011,9 +1056,15 @@ mod tests {
         .expect("release");
 
         let claims = PlanDependencyService::list_file_claims(&session_id).expect("list claims");
-        let a_claim = claims.iter().find(|c| c.path == "src/a.rs").expect("a claim");
+        let a_claim = claims
+            .iter()
+            .find(|c| c.path == "src/a.rs")
+            .expect("a claim");
         assert!(a_claim.released_at.is_some());
-        let b_claim = claims.iter().find(|c| c.path == "src/b.rs").expect("b claim");
+        let b_claim = claims
+            .iter()
+            .find(|c| c.path == "src/b.rs")
+            .expect("b claim");
         assert!(b_claim.released_at.is_none());
     }
 
@@ -1109,8 +1160,8 @@ mod tests {
         let queue = PlanDependencyService::list_merge_queue(&session_id).expect("list queue");
         assert_eq!(queue.len(), 1);
 
-        let reviewed = PlanDependencyService::review_merge_entry(&entry.id, "approved")
-            .expect("review");
+        let reviewed =
+            PlanDependencyService::review_merge_entry(&entry.id, "approved").expect("review");
         assert_eq!(reviewed.status, "approved");
         assert!(reviewed.reviewed_at.is_some());
     }

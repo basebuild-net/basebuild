@@ -84,7 +84,8 @@ pub fn read_skill_content(skill_name: &str) -> Option<String> {
 }
 
 #[tauri::command]
-pub fn list_resolved_skills() -> Result<Vec<crate::services::skill_registry_service::ResolvedSkill>, String> {
+pub fn list_resolved_skills(
+) -> Result<Vec<crate::services::skill_registry_service::ResolvedSkill>, String> {
     crate::services::skill_registry_service::SkillRegistryService::list()
 }
 
@@ -126,7 +127,9 @@ mod tests {
 
     #[test]
     fn read_skill_rejects_traversal_name() {
-        let err = read_skill("../../outside".to_string()).err().expect("traversal name must be rejected");
+        let err = read_skill("../../outside".to_string())
+            .err()
+            .expect("traversal name must be rejected");
         assert!(err.contains("Invalid skill name"));
         assert!(read_skill_content("../../outside").is_none());
     }

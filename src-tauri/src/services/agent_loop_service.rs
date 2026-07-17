@@ -18,11 +18,12 @@ use tauri::{AppHandle, Emitter};
 
 use crate::models::permission::{PermissionDecision, SessionRule};
 use crate::services::provider_client::{
-    resolve_client_for_model, ChatMsg, ProviderRequest, ToolCallRequest,
-    ToolSchema,
+    resolve_client_for_model, ChatMsg, ProviderRequest, ToolCallRequest, ToolSchema,
 };
 use crate::services::settings_service::SettingsService;
-use crate::services::tool_runtime_service::{redact_tool_arguments, registry, ToolDef, ToolKind, ToolResult};
+use crate::services::tool_runtime_service::{
+    redact_tool_arguments, registry, ToolDef, ToolKind, ToolResult,
+};
 
 /// Maximum loop iterations before stopping.
 const MAX_ITERATIONS: usize = 25;
@@ -62,8 +63,9 @@ static PENDING_APPROVALS: LazyLock<Mutex<std::collections::HashMap<String, Pendi
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
 /// `native_interaction_resolve` command removes and resolves.
-pub(crate) static PENDING_INTERACTIONS: LazyLock<Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<InteractionResolution>>>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+pub(crate) static PENDING_INTERACTIONS: LazyLock<
+    Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<InteractionResolution>>>,
+> = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
 /// The UI's resolution of a pending ask_user interaction.
 #[derive(Debug, Clone)]
@@ -88,7 +90,10 @@ pub fn resolve_interaction(
     let Some(tx) = tx else {
         return Err(format!("No pending interaction for id: {interaction_id}"));
     };
-    let _ = tx.send(InteractionResolution { answers, cancelled: false });
+    let _ = tx.send(InteractionResolution {
+        answers,
+        cancelled: false,
+    });
     Ok(())
 }
 
@@ -100,12 +105,27 @@ pub fn cancel_interaction(interaction_id: &str) -> Result<(), String> {
         pending.remove(interaction_id)
     };
     if let Some(tx) = tx {
-        let _ = tx.send(InteractionResolution { answers: vec![], cancelled: true });
+        let _ = tx.send(InteractionResolution {
+            answers: vec![],
+            cancelled: true,
+        });
     }
     Ok(())
 }
 
- /// Register a pending approval and block until the UI resolves it (or timeout).
+fn await_interaction(
+    interaction_id: &str,
+    receiver: &std::sync::mpsc::Receiver<InteractionResolution>,
+    timeout: std::time::Duration,
+) -> Result<InteractionResolution, std::sync::mpsc::RecvTimeoutError> {
+    let result = receiver.recv_timeout(timeout);
+    if result.is_err() {
+        PENDING_INTERACTIONS.lock().remove(interaction_id);
+    }
+    result
+}
+
+/// Register a pending approval and block until the UI resolves it (or timeout).
 /// Register a pending approval and block until the UI resolves it (or timeout).
 /// Returns the resolution, or a timeout denial if no response within 10 minutes.
 fn await_approval(
@@ -115,7 +135,10 @@ fn await_approval(
     session_id: &str,
 ) -> ApprovalResolution {
     let (tx, rx) = std::sync::mpsc::channel::<ApprovalResolution>();
-    let command = args.get("command").and_then(Value::as_str).map(str::to_string);
+    let command = args
+        .get("command")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     {
         let mut pending = PENDING_APPROVALS.lock();
         pending.insert(
@@ -253,6 +276,8 @@ pub struct TurnSegment {
     pub reasoning: Option<String>,
     /// 1-based loop iteration this segment came from.
     pub iteration: usize,
+    /// Pre-created assistant row checkpointed while this iteration streams.
+    pub message_id: Option<String>,
 }
 
 /// A tool event recorded during a run (persisted to native_tool_events by the caller).
@@ -271,6 +296,8 @@ pub struct ToolEventRecord {
     /// 1-based loop iteration this event was executed in, so the caller can
     /// bind it to the assistant message that preceded it.
     pub iteration: usize,
+    /// Stable provider tool-call id used to upsert live status transitions.
+    pub tool_call_id: String,
 }
 
 /// Run an agentic loop for a session. This is the entry point for both
@@ -284,6 +311,8 @@ pub struct ToolEventRecord {
 /// `messages` is the full conversation history (user + assistant + tool turns).
 /// `app` is the Tauri handle for emitting streaming events.
 /// `supports_tools` gates whether tools are offered (false = plain chat).
+/// `planning_session_id` redirects structured planning captures while keeping
+/// chat events and cancellation scoped to `session_id`.
 ///
 /// Returns the final `RunResult`. The loop runs on the calling thread (blocking).
 pub fn run_agent_turn(
@@ -298,6 +327,7 @@ pub fn run_agent_turn(
     messages: Vec<ChatMsg>,
     app: AppHandle,
     supports_tools: bool,
+    planning_session_id: Option<&str>,
 ) -> RunResult {
     let handle = Arc::new(RunHandle {
         token: CancellationToken::new(),
@@ -307,8 +337,8 @@ pub fn run_agent_turn(
         let mut active = ACTIVE_RUNS.lock();
         active.insert(session_id.to_string(), handle.clone());
     }
-    // Mark run state as running.
-    set_run_state(session_id, "running");
+    // The lifecycle authority owns chat/run/plan coherence.
+    let _ = crate::services::plan_lifecycle_service::PlanLifecycleService::chat_running(session_id);
 
     let result = run_loop_inner(
         session_id,
@@ -322,6 +352,7 @@ pub fn run_agent_turn(
         messages,
         &app,
         supports_tools,
+        planning_session_id,
         &handle.token,
     );
 
@@ -330,8 +361,16 @@ pub fn run_agent_turn(
         let mut active = ACTIVE_RUNS.lock();
         active.remove(session_id);
     }
-    let final_state = if result.cancelled { "cancelled" } else { "idle" };
-    set_run_state(session_id, final_state);
+    let terminal = if result.cancelled {
+        crate::services::plan_lifecycle_service::ChatTerminalState::Cancelled
+    } else if result.completed || result.hit_cap {
+        crate::services::plan_lifecycle_service::ChatTerminalState::Idle
+    } else {
+        crate::services::plan_lifecycle_service::ChatTerminalState::Failed
+    };
+    let _ = crate::services::plan_lifecycle_service::PlanLifecycleService::chat_terminal(
+        &app, session_id, terminal,
+    );
 
     result
 }
@@ -350,24 +389,31 @@ pub fn cancel_run(session_id: &str) -> bool {
 /// On startup, sweep any sessions left in 'running' state and mark them
 /// 'interrupted' so the UI shows a recovery notice.
 pub fn sweep_interrupted_runs() {
-    let conn = match crate::services::storage_service::StorageService::connect() {
+    let mut conn = match crate::services::storage_service::StorageService::connect() {
         Ok(c) => c,
         Err(_) => return,
     };
-    let _ = conn.execute(
-        "UPDATE native_chat_sessions SET run_state = 'interrupted' WHERE run_state = 'running'",
+    let Ok(tx) = conn.transaction() else {
+        return;
+    };
+    let _ = tx.execute(
+        "UPDATE native_tool_events
+         SET status = 'interrupted'
+         WHERE status IN ('running', 'pending')
+           AND session_id IN (
+             SELECT id FROM native_chat_sessions WHERE run_state IN ('running','needs_input')
+           )",
         [],
     );
-}
-
-/// Set the run_state column on a native chat session.
-fn set_run_state(session_id: &str, state: &str) {
-    if let Ok(conn) = crate::services::storage_service::StorageService::connect() {
-        let _ = conn.execute(
-            "UPDATE native_chat_sessions SET run_state = ?1, updated_at = ?2 WHERE id = ?3",
-            rusqlite::params![state, now_millis(), session_id],
-        );
-    }
+    let _ = tx.execute(
+        "UPDATE native_chat_sessions SET run_state = 'interrupted'
+         WHERE run_state IN ('running','needs_input')",
+        [],
+    );
+    let _ = tx.commit();
+    let _ = crate::services::plan_lifecycle_service::PlanLifecycleService::reconcile_stale_owners(
+        None, None,
+    );
 }
 
 fn run_loop_inner(
@@ -382,6 +428,7 @@ fn run_loop_inner(
     mut messages: Vec<ChatMsg>,
     app: &AppHandle,
     supports_tools: bool,
+    planning_session_id: Option<&str>,
     token: &CancellationToken,
 ) -> RunResult {
     let tools: Vec<ToolSchema> = if supports_tools {
@@ -430,13 +477,29 @@ fn run_loop_inner(
 
         // Context budget guard: trim old turns if over budget.
         let budget = context_budget(model_id);
-        let (trimmed_messages, did_truncate) =
-            trim_to_budget(&messages, system, &tools, budget);
+        let (trimmed_messages, did_truncate) = trim_to_budget(&messages, system, &tools, budget);
         if did_truncate {
             truncated = true;
             emit_system_row(app, session_id, "truncated", 0);
         }
         messages = trimmed_messages;
+
+        // Create the assistant row before contacting the provider. Streaming
+        // callbacks update this row, preserving partial text/reasoning if the
+        // app exits before the provider turn completes.
+        let draft_message =
+            crate::services::native_chat_service::NativeChatService::insert_message(
+                session_id,
+                "assistant",
+                "",
+                None,
+                Some(provider_id),
+                Some(model_id),
+                Some(effort_level),
+            )
+            .ok();
+        let draft_message_id = draft_message.as_ref().map(|message| message.id.clone());
+        let live_progress = Arc::new(Mutex::new((String::new(), String::new())));
 
         // Build the request.
         let req = ProviderRequest {
@@ -449,15 +512,41 @@ fn run_loop_inner(
             tools: tools.clone(),
         };
 
-        let (api_kind, model_base_url) = crate::services::native_chat_service::NativeChatService::resolve_model_routing(provider_id, model_id);
-        let client = resolve_client_for_model(provider_id, &api_kind, base_url.as_deref(), &model_base_url);
+        let (api_kind, model_base_url) =
+            crate::services::native_chat_service::NativeChatService::resolve_model_routing(
+                provider_id,
+                model_id,
+            );
+        let client =
+            resolve_client_for_model(provider_id, &api_kind, base_url.as_deref(), &model_base_url);
         let session_id_for_emit = session_id.to_string();
         let app_for_emit = app.clone();
+        let draft_id_for_emit = draft_message_id.clone();
+        let progress_for_emit = live_progress.clone();
         let emit = move |delta: &str, channel: &str| {
             let _ = app_for_emit.emit(
                 "native-chat://chunk",
                 json!({ "sessionId": session_id_for_emit, "delta": delta, "channel": channel }),
             );
+            if channel != "content" && channel != "reasoning" {
+                return;
+            }
+            let Some(message_id) = draft_id_for_emit.as_deref() else {
+                return;
+            };
+            let mut progress = progress_for_emit.lock();
+            if channel == "reasoning" {
+                progress.1.push_str(delta);
+            } else {
+                progress.0.push_str(delta);
+            }
+            let reasoning = (!progress.1.is_empty()).then_some(progress.1.as_str());
+            let _ =
+                crate::services::native_chat_service::NativeChatService::update_message_progress(
+                    message_id,
+                    &progress.0,
+                    reasoning,
+                );
         };
 
         // Signal the UI that the model is thinking (streaming will follow).
@@ -468,16 +557,32 @@ fn run_loop_inner(
         let response = match client.generate(&req, &emit) {
             Ok(r) => r,
             Err(e) => {
-                // Surface the error as a segment so it persists like any other
-                // iteration text; earlier segments are preserved alongside it.
+                // Preserve any streamed checkpoint and append the terminal
+                // error instead of replacing the partial response.
+                let progress = live_progress.lock();
+                let error = format!("Error: {e}");
+                let content = if progress.0.trim().is_empty() {
+                    error
+                } else {
+                    format!("{}\n\n{error}", progress.0)
+                };
+                let reasoning = (!progress.1.trim().is_empty()).then_some(progress.1.clone());
+                if let Some(message_id) = draft_message_id.as_deref() {
+                    let _ = crate::services::native_chat_service::NativeChatService::update_message_progress(
+                        message_id,
+                        &content,
+                        reasoning.as_deref(),
+                    );
+                }
                 segments.push(TurnSegment {
-                    content: format!("Error: {e}"),
-                    reasoning: None,
+                    content: content.clone(),
+                    reasoning: reasoning.clone(),
                     iteration,
+                    message_id: draft_message_id,
                 });
                 return RunResult {
-                    content: format!("Error: {e}"),
-                    reasoning: None,
+                    content,
+                    reasoning,
                     segments,
                     completed: false,
                     cancelled: false,
@@ -487,6 +592,15 @@ fn run_loop_inner(
                 };
             }
         };
+
+        if let Some(message_id) = draft_message_id.as_deref() {
+            let _ =
+                crate::services::native_chat_service::NativeChatService::update_message_progress(
+                    message_id,
+                    &response.content,
+                    response.reasoning.as_deref(),
+                );
+        }
 
         // Record this iteration's assistant output as a segment so the caller
         // can persist one message per iteration. Iterations that produced only
@@ -501,9 +615,12 @@ fn run_loop_inner(
                 content: response.content.clone(),
                 reasoning: response.reasoning.clone(),
                 iteration,
+                message_id: draft_message_id.clone(),
             });
+        } else if let Some(message_id) = draft_message_id.as_deref() {
+            let _ =
+                crate::services::native_chat_service::NativeChatService::delete_message(message_id);
         }
-
         // Append the assistant message to history.
         let mut assistant_msg = ChatMsg::text("assistant", response.content.clone());
         assistant_msg.tool_calls = response.tool_calls.clone();
@@ -526,7 +643,8 @@ fn run_loop_inner(
         // Signal the UI that tool execution is starting (clears streaming text).
         emit("tools", "status");
 
-        // Process tool calls.
+        // Process tool calls. The draft message id binds live tool status to
+        // the assistant iteration that requested each tool.
         let tool_results = process_tool_calls(
             &response.tool_calls,
             &tool_defs,
@@ -536,7 +654,9 @@ fn run_loop_inner(
             token,
             app,
             session_id,
+            planning_session_id,
             iteration,
+            draft_message_id.as_deref(),
             &mut tool_events,
         );
 
@@ -564,10 +684,32 @@ fn process_tool_calls(
     token: &CancellationToken,
     app: &AppHandle,
     session_id: &str,
+    planning_session_id: Option<&str>,
     iteration: usize,
+    message_id: Option<&str>,
     tool_events: &mut Vec<ToolEventRecord>,
 ) -> Vec<(ToolCallRequest, ToolResult)> {
     let mut results: Vec<(ToolCallRequest, ToolResult)> = Vec::with_capacity(calls.len());
+    // Surface and checkpoint every tool before execution. This makes the
+    // active tool name visible immediately and leaves a recoverable running
+    // record if the process exits inside the tool.
+    for call in calls {
+        let summary = format!("Running {}", call.name.replace('_', " "));
+        let _ = app.emit(
+            "native-chat://tool-event",
+            json!({
+                "sessionId": session_id,
+                "toolCallId": call.id,
+                "toolName": call.name,
+                "status": "running",
+                "summary": summary,
+            }),
+        );
+        let _ = crate::services::native_chat_service::NativeChatService::upsert_tool_event(
+            &call.id, session_id, message_id, &call.name, "running", &summary, None, None, None,
+            None,
+        );
+    }
 
     // Intercept propose_ideas calls: capture structured ideas to the catalog
     // (ideas table) as concept ideas, optionally category-tagged. This tool is
@@ -575,8 +717,16 @@ fn process_tool_calls(
     // for generate-ideas runs. One tool event per capture so cards stream in.
     for (idx, call) in calls.iter().enumerate() {
         if call.name == "propose_ideas" {
-            let result = execute_propose_ideas(session_id, call);
-            record_tool_event(app, session_id, call, &result, iteration, tool_events);
+            let result = execute_propose_ideas(planning_session_id.unwrap_or(session_id), call);
+            record_tool_event(
+                app,
+                session_id,
+                message_id,
+                call,
+                &result,
+                iteration,
+                tool_events,
+            );
             results.push((calls[idx].clone(), result));
         }
     }
@@ -586,7 +736,15 @@ fn process_tool_calls(
     for (idx, call) in calls.iter().enumerate() {
         if call.name == "ask_user" {
             let result = execute_ask_user(app, session_id, call);
-            record_tool_event(app, session_id, call, &result, iteration, tool_events);
+            record_tool_event(
+                app,
+                session_id,
+                message_id,
+                call,
+                &result,
+                iteration,
+                tool_events,
+            );
             results.push((calls[idx].clone(), result));
         }
     }
@@ -599,12 +757,20 @@ fn process_tool_calls(
 
     let read_only: Vec<(usize, &ToolCallRequest)> = remaining
         .iter()
-        .filter(|(_, c)| tool_def_for(&c.name, tool_defs).map(|d| d.kind == ToolKind::ReadOnly).unwrap_or(false))
+        .filter(|(_, c)| {
+            tool_def_for(&c.name, tool_defs)
+                .map(|d| d.kind == ToolKind::ReadOnly)
+                .unwrap_or(false)
+        })
         .cloned()
         .collect();
     let mutating: Vec<(usize, &ToolCallRequest)> = remaining
         .iter()
-        .filter(|(_, c)| tool_def_for(&c.name, tool_defs).map(|d| d.kind == ToolKind::Mutating).unwrap_or(false))
+        .filter(|(_, c)| {
+            tool_def_for(&c.name, tool_defs)
+                .map(|d| d.kind == ToolKind::Mutating)
+                .unwrap_or(false)
+        })
         .cloned()
         .collect();
     // Read-only: spawn threads for concurrency. Each thread gets its own
@@ -640,13 +806,7 @@ fn process_tool_calls(
                 }
             } else if let Some(def) = def {
                 execute_with_gateway(
-                    &def,
-                    &call,
-                    &workspace,
-                    &project,
-                    &mut rules,
-                    &app,
-                    &session,
+                    &def, &call, &workspace, &project, &mut rules, &app, &session,
                 )
             } else {
                 ToolResult {
@@ -669,7 +829,15 @@ fn process_tool_calls(
     read_results.sort_by_key(|(i, _)| *i);
     for (idx, result) in read_results {
         let call = &calls[idx];
-        record_tool_event(app, session_id, call, &result, iteration, tool_events);
+        record_tool_event(
+            app,
+            session_id,
+            message_id,
+            call,
+            &result,
+            iteration,
+            tool_events,
+        );
         results.push((calls[idx].clone(), result));
     }
 
@@ -691,7 +859,15 @@ fn process_tool_calls(
         }
         let def = tool_def_for(&call.name, tool_defs);
         let result = if let Some(def) = def {
-            execute_with_gateway(def, call, workspace_root, project_path, session_rules, app, session_id)
+            execute_with_gateway(
+                def,
+                call,
+                workspace_root,
+                project_path,
+                session_rules,
+                app,
+                session_id,
+            )
         } else {
             ToolResult {
                 content: format!("Unknown tool: {}", call.name),
@@ -703,7 +879,15 @@ fn process_tool_calls(
                 sensitive: false,
             }
         };
-        record_tool_event(app, session_id, call, &result, iteration, tool_events);
+        record_tool_event(
+            app,
+            session_id,
+            message_id,
+            call,
+            &result,
+            iteration,
+            tool_events,
+        );
         results.push((calls[*idx].clone(), result));
     }
 
@@ -715,29 +899,96 @@ fn process_tool_calls(
 /// incrementally as the agent streams them.
 fn execute_propose_ideas(session_id: &str, call: &ToolCallRequest) -> ToolResult {
     let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
-    let ideas = args.get("ideas").and_then(Value::as_array);
-    let Some(ideas) = ideas else {
+    let Some(ideas) = args.get("ideas").and_then(Value::as_array) else {
         return ToolResult::failure("propose_ideas requires an 'ideas' array.".to_string());
     };
-    let category_id: Option<String> = args
+    if ideas.is_empty() {
+        return ToolResult::failure("propose_ideas requires at least one idea.".to_string());
+    }
+    let category_id = args
         .get("categoryId")
         .and_then(Value::as_str)
-        .map(|s| s.to_string());
-    // Captures during an active generation round are tagged with the round id
-    // so the round review and history can group them.
+        .map(str::to_string);
+    // Guided idea rounds pass a planning-session id, but a plain chat message
+    // runs with the native-chat id, which is not a `sessions` row (the
+    // ideas.session_id FK target). Resolve native-chat ids to the project's
+    // planning session so "give me more ideas" typed in chat persists instead
+    // of failing with an opaque FOREIGN KEY error.
+    let capture_session_id = match resolve_idea_capture_session(session_id) {
+        Ok(id) => id,
+        Err(error) => return ToolResult::failure(error),
+    };
+    // Validate the category reference upfront: a stale or hallucinated id
+    // otherwise fails at INSERT time with "FOREIGN KEY constraint failed",
+    // which gives the model nothing to repair.
+    if let Some(requested) = category_id.as_deref() {
+        let project_path =
+            crate::services::session_service::SessionService::get(&capture_session_id)
+                .ok()
+                .flatten()
+                .map(|session| session.project_path)
+                .unwrap_or_default();
+        let categories =
+            match crate::services::session_service::SessionService::list_categories_for_project(
+                &project_path,
+            ) {
+                Ok(categories) => categories,
+                Err(error) => return ToolResult::failure(error),
+            };
+        if !categories.iter().any(|category| category.id == requested) {
+            let valid = categories
+                .iter()
+                .map(|category| format!("'{}' ({})", category.id, category.name))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return ToolResult::failure(if valid.is_empty() {
+                format!(
+                    "propose_ideas categoryId '{requested}' does not exist. This project has no categories yet; omit categoryId to capture uncategorized ideas."
+                )
+            } else {
+                format!(
+                    "propose_ideas categoryId '{requested}' does not exist. Valid ids: {valid}. Omit categoryId to capture uncategorized ideas."
+                )
+            });
+        }
+    }
     let batch_id = crate::services::idea_round_service::IdeaRoundService::active_round(session_id);
-    let mut captured = 0usize;
-    let mut rejected = 0usize;
-    for idea in ideas {
-        let title = idea.get("title").and_then(Value::as_str).unwrap_or("");
-        if title.trim().is_empty() {
-            continue;
+
+    struct ValidatedIdea {
+        title: String,
+        description: String,
+        grounding: String,
+        anchor: Option<String>,
+        assessment: crate::models::planning_assessment::ImplementationAssessment,
+    }
+
+    // Validate the complete provider payload before writing any row. A weak
+    // item fails the tool call with a repairable path instead of leaving a
+    // partially-persisted batch.
+    let mut validated = Vec::with_capacity(ideas.len());
+    for (index, idea) in ideas.iter().enumerate() {
+        let title = idea
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if title.is_empty() || title.chars().count() > 240 {
+            return ToolResult::failure(format!(
+                "propose_ideas ideas[{index}].title must contain 1-240 characters."
+            ));
         }
         let description = idea
             .get("description")
             .and_then(Value::as_str)
             .unwrap_or("")
+            .trim()
             .to_string();
+        if description.is_empty() || description.chars().count() > 20_000 {
+            return ToolResult::failure(format!(
+                "propose_ideas ideas[{index}].description must contain 1-20,000 characters."
+            ));
+        }
         let grounding = idea
             .get("grounding")
             .and_then(Value::as_str)
@@ -745,34 +996,88 @@ fn execute_propose_ideas(session_id: &str, call: &ToolCallRequest) -> ToolResult
             .trim()
             .to_string();
         if grounding.is_empty() {
-            // Grounding is required: an idea with no concrete evidence is
-            // rejected, no row created.
-            rejected += 1;
-            continue;
+            return ToolResult::failure(format!(
+                "propose_ideas ideas[{index}].grounding is required and must cite concrete evidence."
+            ));
+        }
+        let assessment_value = idea.get("assessment").cloned().ok_or_else(|| {
+            format!(
+                "propose_ideas ideas[{index}].assessment is required; include schemaVersion, effort, 1-5 ratings, rationale, grounding, capabilities, constraints, missing evidence, and alternatives."
+            )
+        });
+        let assessment_value = match assessment_value {
+            Ok(value) => value,
+            Err(message) => return ToolResult::failure(message),
+        };
+        let assessment: crate::models::planning_assessment::ImplementationAssessment =
+            match serde_json::from_value(assessment_value) {
+                Ok(value) => value,
+                Err(error) => {
+                    return ToolResult::failure(format!(
+                        "propose_ideas ideas[{index}].assessment is malformed: {error}"
+                    ));
+                }
+            };
+        if let Err(error) = assessment.validate() {
+            return ToolResult::failure(format!("propose_ideas ideas[{index}].{error}"));
         }
         let anchor = idea
             .get("anchor")
             .and_then(Value::as_str)
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        let result = crate::services::session_service::SessionService::create_idea(
-            session_id,
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        validated.push(ValidatedIdea {
             title,
-            &description,
+            description,
+            grounding,
+            anchor,
+            assessment,
+        });
+    }
+
+    let mut captured = 0usize;
+    for idea in validated {
+        match crate::services::session_service::SessionService::create_idea(
+            &capture_session_id,
+            &idea.title,
+            &idea.description,
             category_id.as_deref(),
-            &grounding,
-            anchor.as_deref(),
+            &idea.grounding,
+            idea.anchor.as_deref(),
             batch_id.as_deref(),
-        );
-        if result.is_ok() {
-            captured += 1;
+            Some(&idea.assessment),
+        ) {
+            Ok(_) => captured += 1,
+            Err(error) => {
+                return ToolResult::failure(format!(
+                    "propose_ideas persistence failed after {captured} capture(s): {error}"
+                ));
+            }
         }
     }
-    if rejected > 0 {
-        ToolResult::success(format!("Captured {captured} idea(s); rejected {rejected} without grounding."))
-    } else {
-        ToolResult::success(format!("Captured {captured} idea(s)."))
+    ToolResult::success(format!("Captured {captured} assessed idea(s)."))
+}
+/// Resolve the session that owns propose_ideas captures. Planning-session ids
+/// pass through; native-chat ids map to the newest planning session of the
+/// chat's project (created on demand) because `ideas.session_id` references
+/// `sessions(id)`, not `native_chat_sessions(id)`.
+fn resolve_idea_capture_session(session_id: &str) -> Result<String, String> {
+    use crate::services::session_service::SessionService;
+    if SessionService::get(session_id)?.is_some() {
+        return Ok(session_id.to_string());
     }
+    let chat = crate::services::native_chat_service::NativeChatService::get_session(session_id)?
+        .ok_or_else(|| {
+            format!("propose_ideas: session '{session_id}' does not exist in this workspace.")
+        })?;
+    if let Some(existing) = SessionService::list_sessions(&chat.project_path)?
+        .into_iter()
+        .next()
+    {
+        return Ok(existing.id);
+    }
+    SessionService::create_session(&chat.project_path, "Planning").map(|session| session.id)
 }
 
 /// Intercept the ask_user tool: parse questions, persist a pending
@@ -782,6 +1087,8 @@ fn execute_propose_ideas(session_id: &str, call: &ToolCallRequest) -> ToolResult
 /// string the model can consume. On cancel/timeout, returns a notice.
 fn execute_ask_user(app: &AppHandle, session_id: &str, call: &ToolCallRequest) -> ToolResult {
     let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
+    let title = args.get("title").and_then(Value::as_str);
+    let description = args.get("description").and_then(Value::as_str);
     let Some(questions) = args.get("questions").and_then(Value::as_array) else {
         return ToolResult::failure("ask_user requires a 'questions' array.".to_string());
     };
@@ -791,8 +1098,16 @@ fn execute_ask_user(app: &AppHandle, session_id: &str, call: &ToolCallRequest) -
     // Parse questions into the interaction model.
     let mut parsed: Vec<crate::models::interaction::Question> = Vec::with_capacity(questions.len());
     for q in questions {
-        let id = q.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-        let prompt = q.get("prompt").and_then(Value::as_str).unwrap_or("").to_string();
+        let id = q
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let prompt = q
+            .get("prompt")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         let kind_str = q.get("kind").and_then(Value::as_str).unwrap_or("text");
         let kind = crate::models::interaction::QuestionKind::from_str(kind_str);
         let options: Vec<crate::models::interaction::QuestionOption> = q
@@ -801,17 +1116,54 @@ fn execute_ask_user(app: &AppHandle, session_id: &str, call: &ToolCallRequest) -
             .map(|arr| {
                 arr.iter()
                     .filter_map(|o| {
-                        let label = o.get("label").and_then(Value::as_str).unwrap_or("").to_string();
-                        if label.is_empty() { return None; }
-                        let description = o.get("description").and_then(Value::as_str).map(str::to_string);
+                        let label = o
+                            .get("label")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        if label.is_empty() {
+                            return None;
+                        }
+                        let description = o
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .map(str::to_string);
                         Some(crate::models::interaction::QuestionOption { label, description })
                     })
                     .collect()
             })
             .unwrap_or_default();
-        let recommended = q.get("recommended").and_then(Value::as_i64).map(|i| i as usize);
-        let allow_free_text = q.get("allowFreeText").and_then(Value::as_bool).unwrap_or(false);
+        let recommended = q
+            .get("recommended")
+            .and_then(Value::as_i64)
+            .map(|i| i as usize);
+        let allow_free_text = q
+            .get("allowFreeText")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let detail = q.get("detail").and_then(Value::as_str).map(str::to_string);
+        let page_id = q.get("pageId").and_then(Value::as_str).map(str::to_string);
+        let page_title = q
+            .get("pageTitle")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let page_description = q
+            .get("pageDescription")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let required = q.get("required").and_then(Value::as_bool).unwrap_or(false);
+        let multiline = q.get("multiline").and_then(Value::as_bool).unwrap_or(false);
+        let scale = match q.get("scale") {
+            Some(value) => match serde_json::from_value(value.clone()) {
+                Ok(scale) => Some(scale),
+                Err(error) => {
+                    return ToolResult::failure(format!(
+                        "Question {id} has invalid rating scale metadata: {error}"
+                    ));
+                }
+            },
+            None => None,
+        };
         parsed.push(crate::models::interaction::Question {
             id,
             prompt,
@@ -820,17 +1172,25 @@ fn execute_ask_user(app: &AppHandle, session_id: &str, call: &ToolCallRequest) -
             recommended,
             allow_free_text,
             detail,
+            page_id,
+            page_title,
+            page_description,
+            required,
+            multiline,
+            scale,
         });
     }
-    // Persist the pending interaction.
-    let interaction = match crate::services::interaction_service::InteractionService::create(
-        session_id,
-        Some(&call.id),
-        &parsed,
-    ) {
-        Ok(i) => i,
-        Err(e) => return ToolResult::failure(format!("Failed to create interaction: {e}")),
-    };
+    let interaction =
+        match crate::services::interaction_service::InteractionService::create_with_metadata(
+            session_id,
+            Some(&call.id),
+            title,
+            description,
+            &parsed,
+        ) {
+            Ok(i) => i,
+            Err(e) => return ToolResult::failure(format!("Failed to create interaction: {e}")),
+        };
     let _ = app.emit(
         "native-chat://interactive-request",
         json!({
@@ -839,28 +1199,48 @@ fn execute_ask_user(app: &AppHandle, session_id: &str, call: &ToolCallRequest) -
             "toolCallId": call.id,
         }),
     );
+    if let Ok(Some(session)) =
+        crate::services::native_chat_service::NativeChatService::get_session(session_id)
+    {
+        let _ = crate::services::notification_service::NotificationService::deliver(
+            app,
+            crate::models::notification::NotificationKind::PendingQuestion,
+            &interaction.id,
+            "interaction",
+            &session.project_path,
+            "Agent needs your input",
+            Some("Open the chat to answer the pending question."),
+        );
+    }
+    let _ =
+        crate::services::plan_lifecycle_service::PlanLifecycleService::chat_needs_input(session_id);
     // Park the iteration on a channel until the UI resolves or cancels.
     let (tx, rx) = std::sync::mpsc::channel::<InteractionResolution>();
     {
         let mut pending = PENDING_INTERACTIONS.lock();
         pending.insert(interaction.id.clone(), tx);
     }
-    match rx.recv_timeout(std::time::Duration::from_secs(600)) {
+    let result = match await_interaction(&interaction.id, &rx, std::time::Duration::from_secs(600))
+    {
         Ok(resolution) => {
             if resolution.cancelled {
                 ToolResult::success("User cancelled the interaction.".to_string())
             } else {
                 // Serialize answers as a JSON string the model can consume.
-                let answers_json = serde_json::to_string(&resolution.answers).unwrap_or_else(|_| "[]".to_string());
+                let answers_json =
+                    serde_json::to_string(&resolution.answers).unwrap_or_else(|_| "[]".to_string());
                 ToolResult::success(answers_json)
             }
         }
         Err(_) => {
             // Timeout: clean up and return a notice.
-            let _ = crate::services::interaction_service::InteractionService::cancel(&interaction.id);
+            let _ =
+                crate::services::interaction_service::InteractionService::cancel(&interaction.id);
             ToolResult::failure("ask_user timed out waiting for user response (600s).".to_string())
         }
-    }
+    };
+    let _ = crate::services::plan_lifecycle_service::PlanLifecycleService::chat_running(session_id);
+    result
 }
 /// Execute a tool call through the approval gateway. When the gateway requires
 /// a prompt, blocks on `await_approval` until the UI resolves it. Tool events
@@ -877,17 +1257,47 @@ fn execute_with_gateway(
     let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
     let command = args.get("command").and_then(Value::as_str);
 
-    let mut decision = SettingsService::resolve_tool_call(
-        project_path,
-        &call.name,
-        command,
-        session_rules,
-    );
+    let mut decision =
+        SettingsService::resolve_tool_call(project_path, &call.name, command, session_rules);
+
+    if call.name == "get_execution_advice" {
+        let is_external_provider =
+            crate::services::native_chat_service::NativeChatService::get_session(session_id)
+                .ok()
+                .flatten()
+                .is_none_or(|session| session.provider_id != "basebuild-local");
+        if is_external_provider {
+            let external_context = SettingsService::get_permission_rules()
+                .map(|rules| rules.allow_external_context)
+                .unwrap_or(PermissionDecision::Ask);
+            match external_context {
+                PermissionDecision::Allow => {}
+                PermissionDecision::Deny => {
+                    decision.decision = PermissionDecision::Deny;
+                    decision.requires_prompt = false;
+                    decision.reason =
+                        "External context delivery is disabled in Privacy settings.".to_string();
+                    decision.rule_source = Some("privacy:external-context".to_string());
+                }
+                PermissionDecision::Ask => {
+                    decision.decision = PermissionDecision::Ask;
+                    decision.requires_prompt = true;
+                    decision.reason = "Execution advice would be returned to the external model; explicit approval is required.".to_string();
+                    decision.rule_source = Some("privacy:external-context".to_string());
+                }
+            }
+        }
+    }
 
     // If the gateway requires a prompt, block on the UI's approval decision.
     if decision.requires_prompt {
+        let _ = crate::services::plan_lifecycle_service::PlanLifecycleService::chat_needs_input(
+            session_id,
+        );
         let resolution = await_approval(call, &args, app, session_id);
         decision.decision = resolution.decision;
+        let _ =
+            crate::services::plan_lifecycle_service::PlanLifecycleService::chat_running(session_id);
         decision.reason = match resolution.decision {
             PermissionDecision::Allow => "Approved by user.".to_string(),
             PermissionDecision::Deny => "Denied by user.".to_string(),
@@ -959,17 +1369,15 @@ fn execute_with_gateway(
                 sensitive: false,
             }
         }
-        PermissionDecision::Ask => {
-            ToolResult {
-                content: "Approval required but not handled.".to_string(),
-                status: "denied".to_string(),
-                full_content: None,
-                diff: None,
-                decision: None,
-                rule_source: None,
-                sensitive: false,
-            }
-        }
+        PermissionDecision::Ask => ToolResult {
+            content: "Approval required but not handled.".to_string(),
+            status: "denied".to_string(),
+            full_content: None,
+            diff: None,
+            decision: None,
+            rule_source: None,
+            sensitive: false,
+        },
     };
     result
 }
@@ -977,26 +1385,45 @@ fn execute_with_gateway(
 /// Record a tool event in the tool_events list (caller persists to DB).
 fn record_tool_event(
     _app: &AppHandle,
-    _session_id: &str,
+    session_id: &str,
+    message_id: Option<&str>,
     call: &ToolCallRequest,
     result: &ToolResult,
     iteration: usize,
     tool_events: &mut Vec<ToolEventRecord>,
 ) {
+    let arguments = if result.sensitive {
+        redact_tool_arguments(&call.arguments)
+    } else {
+        call.arguments.clone()
+    };
+    let summary = &result.content[..result.content.len().min(200)];
+    let _ = crate::services::native_chat_service::NativeChatService::upsert_tool_event(
+        &call.id,
+        session_id,
+        message_id,
+        &call.name,
+        &result.status,
+        summary,
+        Some(&arguments),
+        result.diff.as_deref(),
+        result.decision.as_deref(),
+        result.rule_source.as_deref(),
+    );
     tool_events.push(ToolEventRecord {
         tool_name: call.name.clone(),
         status: result.status.clone(),
-        summary: result.content[..result.content.len().min(200)].to_string(),
-        arguments: Some(if result.sensitive {
-            redact_tool_arguments(&call.arguments)
-        } else {
-            call.arguments.clone()
-        }),
+        summary: summary.to_string(),
+        arguments: Some(arguments),
         duration_ms: 0,
-        decision: result.decision.clone().unwrap_or_else(|| "approved".to_string()),
+        decision: result
+            .decision
+            .clone()
+            .unwrap_or_else(|| "approved".to_string()),
         rule_source: result.rule_source.clone(),
         diff: result.diff.clone(),
         iteration,
+        tool_call_id: call.id.clone(),
     });
 }
 
@@ -1065,18 +1492,27 @@ fn emit_system_row(app: &AppHandle, session_id: &str, kind: &str, value: usize) 
     );
 }
 
-/// Current time in milliseconds since epoch.
-fn now_millis() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or_default()
-}
 use std::sync::LazyLock;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn valid_idea_assessment() -> Value {
+        json!({
+            "schemaVersion": 1,
+            "effort": { "minHours": 2, "maxHours": 5 },
+            "difficulty": 3,
+            "impact": 4,
+            "risk": 2,
+            "confidence": 4,
+            "rationale": "The target is bounded by an existing service.",
+            "grounding": ["src/service.rs::run"],
+            "requiredCapabilities": ["Rust"],
+            "constraints": ["No new dependency"],
+            "missingEvidence": [],
+            "alternatives": ["Keep current behavior"]
+        })
+    }
 
     #[test]
     fn trim_to_budget_drops_oldest_turns() {
@@ -1090,7 +1526,10 @@ mod tests {
         let (trimmed, did_truncate) = trim_to_budget(&messages, system, &[], 500);
         assert!(did_truncate);
         assert!(trimmed.len() < messages.len());
-        assert!(trimmed.last().map(|m| m.content.contains("latest")).unwrap_or(false));
+        assert!(trimmed
+            .last()
+            .map(|m| m.content.contains("latest"))
+            .unwrap_or(false));
     }
 
     #[test]
@@ -1125,18 +1564,46 @@ mod tests {
             question_id: "q1".to_string(),
             selected: vec![],
             text: Some("yes".to_string()),
+            value: None,
         }];
         let result = resolve_interaction(&interaction_id, answers.clone());
         assert!(result.is_ok(), "resolve_interaction should succeed");
         // The parked channel should receive the resolution.
-        let resolution = rx.recv_timeout(std::time::Duration::from_secs(1)).expect("should receive resolution");
+        let resolution = rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("should receive resolution");
         assert!(!resolution.cancelled, "should not be cancelled");
         assert_eq!(resolution.answers.len(), 1);
         assert_eq!(resolution.answers[0].question_id, "q1");
         assert_eq!(resolution.answers[0].text.as_deref(), Some("yes"));
+        assert!(resolve_interaction(&interaction_id, answers).is_err());
+        assert!(
+            rx.try_recv().is_err(),
+            "duplicate submit must not deliver again"
+        );
         // The pending entry should be removed.
         let pending = PENDING_INTERACTIONS.lock();
-        assert!(!pending.contains_key(&interaction_id), "pending entry should be removed");
+        assert!(
+            !pending.contains_key(&interaction_id),
+            "pending entry should be removed"
+        );
+    }
+
+    #[test]
+    fn interaction_timeout_removes_parked_channel() {
+        let interaction_id = format!("test-timeout-{}", std::process::id());
+        let (tx, rx) = std::sync::mpsc::channel::<InteractionResolution>();
+        PENDING_INTERACTIONS
+            .lock()
+            .insert(interaction_id.clone(), tx);
+
+        let result = await_interaction(&interaction_id, &rx, std::time::Duration::from_millis(0));
+
+        assert!(matches!(
+            result,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        assert!(!PENDING_INTERACTIONS.lock().contains_key(&interaction_id));
     }
 
     #[test]
@@ -1155,8 +1622,187 @@ mod tests {
         }
         let result = cancel_interaction(&interaction_id);
         assert!(result.is_ok(), "cancel_interaction should succeed");
-        let resolution = rx.recv_timeout(std::time::Duration::from_secs(1)).expect("should receive resolution");
+        let resolution = rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("should receive resolution");
         assert!(resolution.cancelled, "should be cancelled");
-        assert!(resolution.answers.is_empty(), "cancelled resolution should have no answers");
+        assert!(
+            resolution.answers.is_empty(),
+            "cancelled resolution should have no answers"
+        );
+    }
+    #[test]
+    fn propose_ideas_rejects_weak_batch_before_persisting_any_item() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        let session = crate::services::session_service::SessionService::create_session(
+            "/test/assessed-ideas",
+            "Assessed ideas",
+        )
+        .unwrap();
+        let assessment = valid_idea_assessment();
+        let mut invalid = assessment.clone();
+        invalid["confidence"] = json!(6);
+        let call = ToolCallRequest {
+            id: "call-assessed-ideas".to_string(),
+            name: "propose_ideas".to_string(),
+            arguments: json!({
+                "ideas": [
+                    {
+                        "title": "Improve routing",
+                        "description": "Choose a compatible route.",
+                        "grounding": "src/service.rs::run",
+                        "assessment": assessment
+                    },
+                    {
+                        "title": "Invalid estimate",
+                        "description": "This item must reject the batch.",
+                        "grounding": "Explicit validation fixture.",
+                        "assessment": invalid
+                    }
+                ]
+            })
+            .to_string(),
+        };
+
+        let result = execute_propose_ideas(&session.id, &call);
+
+        assert_eq!(result.status, "failed");
+        assert!(result.content.contains("ideas[1]"));
+        assert!(
+            crate::services::session_service::SessionService::list_ideas(&session.id,)
+                .unwrap()
+                .is_empty(),
+            "validation failure must not leave a partial batch"
+        );
+    }
+    #[test]
+    fn propose_ideas_persists_a_valid_assessment() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        let session = crate::services::session_service::SessionService::create_session(
+            "/test/valid-assessed-idea",
+            "Valid assessment",
+        )
+        .unwrap();
+        let call = ToolCallRequest {
+            id: "call-valid-assessment".to_string(),
+            name: "propose_ideas".to_string(),
+            arguments: json!({
+                "ideas": [{
+                    "title": "Improve routing",
+                    "description": "Choose a compatible route.",
+                    "grounding": "src/service.rs::run",
+                    "assessment": valid_idea_assessment()
+                }]
+            })
+            .to_string(),
+        };
+
+        let result = execute_propose_ideas(&session.id, &call);
+        let ideas =
+            crate::services::session_service::SessionService::list_ideas(&session.id).unwrap();
+
+        assert_eq!(result.status, "succeeded");
+        assert_eq!(ideas.len(), 1);
+        let assessment = ideas[0].assessment.as_ref().expect("assessment");
+        assert_eq!(assessment.effort.min_hours, 2);
+        assert_eq!(assessment.effort.max_hours, 5);
+        assert_eq!(assessment.impact, 4);
+    }
+    /// Reproduces the observed failure: a plain "give me more ideas" chat
+    /// message runs the agent loop with the native-chat id, which is not a
+    /// `sessions` row, so idea INSERTs hit the ideas.session_id FK. The
+    /// intercept must map the native-chat id to the project's planning
+    /// session instead of failing with an opaque FOREIGN KEY error.
+    #[test]
+    fn propose_ideas_maps_native_chat_id_to_project_planning_session() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        let planning = crate::services::session_service::SessionService::create_session(
+            "/test/nchat-capture",
+            "Planning",
+        )
+        .unwrap();
+        let conn = crate::services::storage_service::StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO native_chat_sessions (id, project_path, title, profile_id, provider_id, model_id, effort_level, status, created_at, updated_at)
+             VALUES ('nchat-capture', '/test/nchat-capture', 'Chat', 'basebuild-native', 'anthropic', 'claude', 'high', 'ready', 0, 0)",
+            [],
+        )
+        .unwrap();
+        let call = ToolCallRequest {
+            id: "call-nchat-capture".to_string(),
+            name: "propose_ideas".to_string(),
+            arguments: json!({
+                "ideas": [{
+                    "title": "Improve routing",
+                    "description": "Choose a compatible route.",
+                    "grounding": "src/service.rs::run",
+                    "assessment": valid_idea_assessment()
+                }]
+            })
+            .to_string(),
+        };
+
+        let result = execute_propose_ideas("nchat-capture", &call);
+
+        assert_eq!(result.status, "succeeded", "content: {}", result.content);
+        let ideas =
+            crate::services::session_service::SessionService::list_ideas(&planning.id).unwrap();
+        assert_eq!(
+            ideas.len(),
+            1,
+            "the capture must land in the project's planning session"
+        );
+    }
+
+    /// A stale or hallucinated categoryId used to surface as a raw
+    /// "FOREIGN KEY constraint failed" from the INSERT. The intercept must
+    /// reject it upfront with a repairable message and persist nothing.
+    #[test]
+    fn propose_ideas_rejects_unknown_category_before_persisting() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        let session = crate::services::session_service::SessionService::create_session(
+            "/test/bad-category",
+            "Planning",
+        )
+        .unwrap();
+        let category = crate::services::session_service::SessionService::create_category(
+            &session.id,
+            "Simpler UX",
+            "UX simplification",
+        )
+        .unwrap();
+        let call = ToolCallRequest {
+            id: "call-bad-category".to_string(),
+            name: "propose_ideas".to_string(),
+            arguments: json!({
+                "categoryId": "cat-stale",
+                "ideas": [{
+                    "title": "Improve routing",
+                    "description": "Choose a compatible route.",
+                    "grounding": "src/service.rs::run",
+                    "assessment": valid_idea_assessment()
+                }]
+            })
+            .to_string(),
+        };
+
+        let result = execute_propose_ideas(&session.id, &call);
+
+        assert_eq!(result.status, "failed");
+        assert!(
+            result.content.contains("'cat-stale'") && result.content.contains(&category.id),
+            "error must name the invalid id and the valid ones: {}",
+            result.content
+        );
+        assert!(
+            crate::services::session_service::SessionService::list_ideas(&session.id)
+                .unwrap()
+                .is_empty(),
+            "category validation failure must not leave a partial batch"
+        );
     }
 }

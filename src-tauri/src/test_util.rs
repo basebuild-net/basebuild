@@ -13,8 +13,8 @@
 
 #[cfg(test)]
 pub mod test {
-    use std::sync::LazyLock;
     use parking_lot::Mutex;
+    use std::sync::LazyLock;
 
     /// Global lock for serializing all tests that set BASEBUILD_HOME.
     pub static DB_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));

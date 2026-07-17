@@ -98,4 +98,27 @@ test.describe("Idea grounding: batch header provenance and generate-from-finishe
     const ideasList = page.locator(".inspector-ideas-list").first();
     await expect(ideasList).toBeVisible();
   });
+
+  test("finished idea decisions collapse into a reopenable history preview", async ({ page }) => {
+    await openFixtureProject(page);
+    await page.evaluate(async () => {
+      const w = window as unknown as {
+        __basebuildInvoke?: (cmd: string, args: Record<string, unknown>) => Promise<unknown>;
+      };
+      const first = await w.__basebuildInvoke?.("create_idea", {
+        sessionId: "session-1",
+        title: "Model advisor",
+        description: "Recommend an available model.",
+        grounding: "Provider catalog",
+      }) as { id: string };
+      await w.__basebuildInvoke?.("update_idea_status", { id: first.id, status: "rejected" });
+    });
+    await openPlanningInspectorIdeas(page);
+
+    const preview = page.locator(".idea-history-preview").filter({ hasText: "1 passed" });
+    await expect(preview).toBeVisible({ timeout: 5_000 });
+    await preview.click();
+    await expect(page.locator(".idea-proposal-card").filter({ hasText: "Model advisor" })).toBeVisible();
+    await expect(page.locator(".idea-proposal-card").filter({ hasText: "Model advisor" })).toContainText("Passed");
+  });
 });

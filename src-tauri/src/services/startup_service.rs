@@ -293,7 +293,6 @@ mod tests {
         let _ = platform_supported();
     }
 
-
     #[test]
     fn test_unsupported_status_is_consistent() {
         let status = StartupService::unsupported_status();

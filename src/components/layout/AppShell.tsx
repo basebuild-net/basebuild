@@ -1,30 +1,27 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle, Info, LayoutTemplate, Settings2, TerminalSquare, X, XCircle } from "lucide-react";
+import { LayoutTemplate, Settings2, TerminalSquare, X } from "lucide-react";
 import { deliverPrompt, type DeliveryAction, type PromptMode } from "../../lib/promptDelivery";
 import { markStart, markEnd } from "../../lib/timing";
-import { generateCategoriesAction, generateFromFinishedPlansAction, generateIdeasAction, schematicWizardAction, type PlanningAction } from "../../lib/planningActions";
+import { generateCategoriesAction, generateFromFinishedPlansAction, generateIdeaRoundAction, generateIdeasAction, schematicWizardAction, type PlanningAction } from "../../lib/planningActions";
 import { DestinationPicker, type DestinationChoice } from "./DestinationPicker";
 import { WorkspaceSplash, type RestorePhase } from "./WorkspaceSplash";
 import { ProjectSwitchingOverlay } from "./ProjectSwitchingOverlay";
 import { ModalPortal } from "../ModalPortal";
 import { IdeaRoundGate } from "./IdeaRoundGate";
+import { IdeaRoundSetupModal, type IdeaRoundSetup } from "./IdeaRoundSetupModal";
 import { startIdeaRound, finishIdeaRound } from "../../lib/ideaRounds";
 
 export type ToastKind = "success" | "warning" | "error" | "info";
 
-const TOAST_ICONS: Record<ToastKind, { icon: typeof CheckCircle; className: string }> = {
-  success: { icon: CheckCircle, className: "toast-icon-success" },
-  warning: { icon: AlertTriangle, className: "toast-icon-warning" },
-  error: { icon: XCircle, className: "toast-icon-error" },
-  info: { icon: Info, className: "toast-icon-info" },
-};
 
 import { useSessionState } from "../../state/sessions";
 import { useZoom } from "../../state/useZoom";
 import { usePlans } from "../../state/plans";
 import { ProjectSidebar, useProjectSidebar } from "./ProjectSidebar";
+import { TestRunModeModal } from "./TestRunModeModal";
 import { ActivitySidebar } from "./ActivitySidebar";
 import { ChatEnvironmentPanel } from "./ChatEnvironmentPanel";
+import { BackgroundAgents } from "./BackgroundAgents";
 const FileExplorerModal = lazy(() => import("./FileExplorerModal").then((m) => ({ default: m.FileExplorerModal })));
 import { PlanningInspector } from "./PlanningInspector";
 import type { PlanningTab } from "./PlanningInspector";
@@ -34,10 +31,10 @@ const SourcePanel = lazy(() => import("../panels/SourcePanel").then((m) => ({ de
 const SettingsModal = lazy(() => import("./SettingsModal").then((m) => ({ default: m.SettingsModal })));
 const ProjectDescriptionModal = lazy(() => import("./ProjectDescriptionModal").then((m) => ({ default: m.ProjectDescriptionModal })));
 import { PlanningIndicators, type StageKey } from "./PlanningIndicators";
-import { ToastStack } from "./ToastStack";
+import { TaskbarNotifications } from "./TaskbarNotifications";
 import { useProjectSchematic } from "../../state/schematic";
-import { getLastFocusedProject, revealInExplorer, setLastFocusedProject } from "../../lib/projects";
-import { onPlanRunEvent } from "../../lib/planRuns";
+import { getLastFocusedProject, revealInExplorer, setLastFocusedProject, testRunModeInit } from "../../lib/projects";
+import { assignPlanToChat, cancelPlanRun, completePlanRun, listPlanRuns, listPlanRunsByPlan, onPlanRunEvent } from "../../lib/planRuns";
 import { generateSessionTitle, readSkill } from "../../lib/skills";
 import { getWorkspaceRestoreState, saveWorkspaceRestoreState, type WorkspaceRestoreState } from "../../lib/workspace";
 import { FirstRunModal } from "./FirstRunModal";
@@ -49,6 +46,7 @@ const FileViewer = lazy(() => import("../panels/FileViewer").then((m) => ({ defa
 import { ProjectSchematicTab } from "../panels/ProjectSchematicTab";
 import { ChatPanel } from "../panels/ChatPanel";
 import { PanelGrid } from "../panels/PanelGrid";
+import { listen } from "@tauri-apps/api/event";
 import { PanelStatusProvider } from "../panels/PanelStatusContext";
 const HistoryDrawer = lazy(() => import("../panels/HistoryDrawer").then((m) => ({ default: m.HistoryDrawer })));
 import {
@@ -63,6 +61,7 @@ import {
   parsePanelGridWithDiagnostics,
   removePanelFromGrid,
   reopenPanel,
+  reopenPanelChecked,
   repairActivePanelId,
   serializePanelGrid,
   singlePanelGrid,
@@ -80,21 +79,34 @@ const OmpTerminalTab = lazy(() => import("../panels/OmpTerminalTab").then((m) =>
 import { ModalLoading } from "./ModalLoading";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { WindowControls } from "./WindowControls";
+import { type Notification } from "../../lib/notifications";
+import { QuestionCard } from "../panels/QuestionCard";
+import { nativeInteractionListPending, nativeInteractionResolve, type PendingInteraction, type QuestionAnswer } from "../../lib/interactions";
 const LogPanel = lazy(() => import("./LogPanel").then((m) => ({ default: m.LogPanel })));
 import { CrashReportNotice } from "./CrashReportNotice";
 const DebugPanel = lazy(() => import("../panels/DebugPanel").then((m) => ({ default: m.DebugPanel })));
 import { useLogs } from "../../state/log";
 import { useAccount } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
-import type { Plan, NewPlan, PlanFocusContext } from "../../lib/plans";
-import type { IdeaCategory } from "../../lib/ideas";
+import { batchPromoteIdeas, setPlanStatus, type Plan, type NewPlan, type PlanFocusContext } from "../../lib/plans";
+import { createIdea, ensureDefaultCategories, type Idea, type IdeaCategory } from "../../lib/ideas";
 import { useIdeaState } from "../../state/ideas";
 import type { SessionTab, TabKind } from "../../lib/sessions";
-import { deleteSession } from "../../lib/sessions";
-import { renameNativeChatSession } from "../../lib/native-chat";
-import { assignPlanWithProfile, type LaunchProfile } from "../../lib/planDependencies";
+import { createSession, deleteSession } from "../../lib/sessions";
+import { nativeChatCancel, nativeChatGet, nativeChatSend, nativeChatSetProjectModelDefault, nativeChatStart, nativeChatUpdateSessionModel, renameNativeChatSession, type ChatModelDefault } from "../../lib/native-chat";
+import { assignPlanWithProfile, getLaunchProfile, validateReadiness, type LaunchProfile } from "../../lib/planDependencies";
+import { isTerminalRunStatus, pipelineListRunsByProject } from "../../lib/pipeline";
+import { usePlanningEvents } from "../../state/planningEvents";
+import { humanizeChatTitle } from "../../lib/titles";
 export type ToolId = "terminal";
 
+
+/** Promise-based delay for polling loops. */
+function sleep(ms: number): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, ms);
+  return promise;
+}
 
 const DEFAULT_SHELL = () => {
   if (typeof window !== "undefined" && window.navigator.platform.includes("Win")) return "powershell.exe";
@@ -119,6 +131,14 @@ export function AppShell({ updates }: AppShellProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logPanelOpen, setLogPanelOpen] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
+  const [testRunModalOpen, setTestRunModalOpen] = useState(false);
+  const [testRunLogs, setTestRunLogs] = useState<string[]>([]);
+  const [testRunRunning, setTestRunRunning] = useState(false);
+  // Cancellation flag + run/session ids for cleanup. Refs so the async loop
+  // reads the latest value without re-creating the callback on every toggle.
+  const testRunCancelRef = useRef(false);
+  const testRunChatSessionIdRef = useRef<string | null>(null);
+  const testRunPlanRunIdRef = useRef<string | null>(null);
   const { addLog } = useLogs();
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [focusingPlan, setFocusingPlan] = useState<Plan | null>(null);
@@ -133,12 +153,17 @@ export function AppShell({ updates }: AppShellProps) {
   // Plan assignment destination picker state — a ready plan + profile waiting
   // for the user to choose a chat session.
   const [pendingAssign, setPendingAssign] = useState<{ plan: Plan; profile: LaunchProfile } | null>(null);
-  const [appToast, setAppToast] = useState<{ title: string; detail?: string; kind: ToastKind } | null>(null);
+  const [appToasts, setAppToasts] = useState<{ id: string; title: string; detail?: string; kind: ToastKind }[]>([]);
+  const [globalInteraction, setGlobalInteraction] = useState<PendingInteraction | null>(null);
 
-  // Toast helper — defined early so all handlers can use it.
+  // Toast helper — defined early so all handlers can use it. Pushes a toast
+  // to the array; ToastStack auto-removes it after 5 seconds.
   const handleShowToast = useCallback((title: string, detail?: string, kind: ToastKind = "success") => {
-    setAppToast({ title, detail, kind });
-    window.setTimeout(() => setAppToast(null), 4000);
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    setAppToasts((prev) => [...prev, { id, title, detail, kind }]);
+  }, []);
+  const dismissAppToast = useCallback((id: string) => {
+    setAppToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
   const [pendingDelivery, setPendingDelivery] = useState<{ text: string; mode: PromptMode; action?: DeliveryAction } | null>(null);
   // Idea round awaiting destination delivery — abandoned (finished) if the
@@ -147,13 +172,20 @@ export function AppShell({ updates }: AppShellProps) {
   // one click, and the close handler must observe the cleared value.
   const pendingRoundRef = useRef<string | null>(null);
   const [roundGateOpen, setRoundGateOpen] = useState(false);
+  const [roundSetupOpen, setRoundSetupOpen] = useState(false);
   // Escape-to-close for inline modals that don't have their own hook.
   useEscapeKey(changesModalOpen, () => setChangesModalOpen(false));
   useEscapeKey(plansModalOpen, () => setPlansModalOpen(false));
   useEscapeKey(schematicModalOpen, () => setSchematicModalOpen(false));
+  useEscapeKey(roundSetupOpen, () => setRoundSetupOpen(false));
   useEscapeKey(debugPanelOpen, () => setDebugPanelOpen(false));
   const [focusedChatId, setFocusedChatId] = useState<string | null>(null);
   const [panelGridState, setPanelGridState] = useState<PanelGridState>(emptyGrid());
+  const [backgroundChatSessionIds, setBackgroundChatSessionIds] = useState<Set<string>>(new Set());
+  // Chats owned by active *pipeline* stages (e.g. OpenSpec generation). Plan
+  // runs feed `backgroundChatSessionIds` via plan-run events; pipeline runs
+  // have no such event payload, so they are polled on planning events.
+  const [pipelineBgChatIds, setPipelineBgChatIds] = useState<Set<string>>(new Set());
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const [terminalOutputBuffer, setTerminalOutputBuffer] = useState("");
   const titleDebounceRef = useRef<number | null>(null);
@@ -180,9 +212,9 @@ export function AppShell({ updates }: AppShellProps) {
   const sidebar = useProjectSidebar(activeProjectPath);
   const activeProject = sidebar.projects.find((p) => p.path === activeProjectPath);
   const session = useSessionState(activeProjectPath, activeProject?.lastActiveSessionId);
-  const plans = usePlans(session.activeSessionId);
+  const plans = usePlans(session.activeSessionId, activeProjectPath);
   const schematic = useProjectSchematic(activeProjectPath);
-  const ideaState = useIdeaState(session.activeSessionId);
+  const ideaState = useIdeaState(session.activeSessionId, activeProjectPath);
   const account = useAccount();
   const [ompInstalled, setOmpInstalled] = useState(false);
   useEffect(() => {
@@ -376,37 +408,122 @@ export function AppShell({ updates }: AppShellProps) {
     };
   }, [activeProjectPath, addLog, restoreRetryToken]);
   // Plan-run event listener: when a run starts with a chat session, surface
-  // it as a new panel in the panel grid (per `panel-grid`).
+  // it as a new panel in the panel grid (per `panel-grid`) and focus it.
+  // Subscribed once; the existing-panel check runs inside the state updater
+  // so re-emits or overlapping subscriptions can never double-insert.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
+    let disposed = false;
     void onPlanRunEvent((event) => {
-      if (event.status !== "running" || !event.chatSessionId) return;
-      // If the chat session is already a panel in the grid, just focus it.
-      const existingPanel = flattenPanels(panelGridState.root).find((p) => p.chatSessionId === event.chatSessionId);
-      if (existingPanel) {
-        setPanelGridState((prev) => ({ ...prev, activePanelId: existingPanel.id }));
-        return;
+      const chatSessionId = event.chatSessionId;
+      // Track background chat sessions for minimize-button display.
+      if (chatSessionId) {
+        setBackgroundChatSessionIds((prev) => {
+          if (event.status === "running" || event.status === "pending") {
+            if (prev.has(chatSessionId)) return prev;
+            return new Set(prev).add(chatSessionId);
+          }
+          if (!prev.has(chatSessionId)) return prev;
+          const next = new Set(prev);
+          next.delete(chatSessionId);
+          return next;
+        });
       }
-      // Add as a new panel through the checked insertion contract.
-      const newPanel: Panel = {
-        id: event.chatSessionId ?? newPanelId(),
-        type: "chat",
-        title: event.chatSessionId ? `Run ${event.chatSessionId.slice(-6)}` : "Plan Run",
-        chatSessionId: event.chatSessionId ?? null,
-        terminalId: null,
-        filePath: null,
-      };
+      if (event.status !== "running" || !chatSessionId) return;
       setPanelGridState((prev) => {
+        // Already surfaced — just focus it (idempotent under duplicate events).
+        const existingPanel = flattenPanels(prev.root).find((p) => p.id === chatSessionId || p.chatSessionId === chatSessionId);
+        if (existingPanel) {
+          return prev.activePanelId === existingPanel.id ? prev : { ...prev, activePanelId: existingPanel.id };
+        }
+        const newPanel: Panel = {
+          id: chatSessionId,
+          type: "chat",
+          title: `Run ${chatSessionId.slice(-6)}`,
+          chatSessionId,
+          terminalId: null,
+          filePath: null,
+        };
         const result = insertPanel(prev, newPanel, { side: "right", anchorId: prev.activePanelId });
         if (!result.ok) {
           addLog("error", "Plan-run panel creation failed", result.reason);
           return prev;
         }
-        return result.state;
+        return { ...result.state, activePanelId: newPanel.id };
       });
-    }).then((fn) => { unlisten = fn; });
-    return () => { if (unlisten) unlisten(); };
-  }, [panelGridState.root]);
+    }).then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      if (unlisten) unlisten();
+    };
+  }, [addLog]);
+  // Track chats owned by active pipeline stages (OpenSpec generation). The
+  // set drives the background-agent tab styling and the composer gate.
+  const refreshPipelineBgChats = useCallback(async () => {
+    if (!activeProjectPath) {
+      setPipelineBgChatIds(new Set());
+      return;
+    }
+    try {
+      const runs = await pipelineListRunsByProject(activeProjectPath);
+      setPipelineBgChatIds(new Set(
+        runs
+          .filter((r) => (r.status === "running" || r.status === "pending") && r.sessionChatId)
+          .map((r) => r.sessionChatId as string),
+      ));
+    } catch {
+      // Transient query failure — keep the previous set.
+    }
+  }, [activeProjectPath]);
+  useEffect(() => {
+    void refreshPipelineBgChats();
+  }, [refreshPipelineBgChats]);
+  usePlanningEvents(refreshPipelineBgChats);
+  const allBackgroundChatIds = useMemo(
+    () => new Set([...backgroundChatSessionIds, ...pipelineBgChatIds]),
+    [backgroundChatSessionIds, pipelineBgChatIds],
+  );
+  // Global interactive-request listener: when a background pipeline stage
+  // (e.g. openspec generation) calls ask_user, the event arrives with the
+  // workspace session ID — not a chat session ID — so no ChatPanel handles
+  // it. This listener catches those and surfaces a modal so the user can
+  // answer. ChatPanel filters by its own nchat_ session ID, so there's no
+  // double-handling.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+    void listen<{ sessionId: string; interactionId?: string }>(
+      "native-chat://interactive-request",
+      (event) => {
+        const { sessionId } = event.payload;
+        // Only handle events for workspace sessions (not chat sessions).
+        // Chat sessions start with "nchat_" and are handled by ChatPanel.
+        if (sessionId.startsWith("nchat_")) return;
+        // Fetch pending interactions for the workspace session and show
+        // the first one in a modal.
+        void (async () => {
+          try {
+            const pending = await nativeInteractionListPending(sessionId);
+            if (pending.length > 0) {
+              setGlobalInteraction(pending[0]);
+            }
+          } catch {
+            // Best-effort — the notification still points the user to act.
+          }
+        })();
+      },
+    ).then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
   // Hydrate per-tab grid states from the workspace restore snapshot.
   useEffect(() => {
     if (!workspaceRestore?.tabGridStates) return;
@@ -599,6 +716,206 @@ export function AppShell({ updates }: AppShellProps) {
     [handleShowToast],
   );
 
+  const handleTestRunMode = useCallback(async (model: ChatModelDefault) => {
+    // Reset cancellation + logs, mark running. The modal stays open and
+    // streams progress via testRunLogs until the user closes or cancels.
+    testRunCancelRef.current = false;
+    testRunChatSessionIdRef.current = null;
+    testRunPlanRunIdRef.current = null;
+    setTestRunLogs([]);
+    setTestRunRunning(true);
+    handleShowToast("Test Run Mode", "Initializing test project and running the full plan lifecycle…", "info");
+    // Mirror log lines to both the global log store and the modal's terminal.
+    const log = (msg: string) => {
+      addLog("debug", "Test Run Mode", msg);
+      setTestRunLogs((prev) => [...prev, msg]);
+    };
+    const cancelled = () => {
+      if (testRunCancelRef.current) throw new Error("Test run cancelled by user");
+    };
+    try {
+      // ── 1. Initialize (or reuse) the test project ──────────────────────
+      log("Initializing test project…");
+      const projectPath = await testRunModeInit();
+      cancelled();
+      await sidebar.refreshProjects();
+
+      // ── 2. Set the chosen model as the project default ─────────────────
+      //    so generate_openspec (which calls resolve_model_default) uses
+      //    the user's choice instead of falling back to a broken provider.
+      await nativeChatSetProjectModelDefault(projectPath, model);
+      cancelled();
+
+      // ── 3. Create a workspace session + concept idea ───────────────────
+      log("Creating session + idea…");
+      const wsSession = await createSession(projectPath, "Test Run Mode");
+      await ensureDefaultCategories(wsSession.id);
+      const idea = await createIdea(
+        wsSession.id,
+        "Test Run Mode smoke test",
+        "Automated idea created by Test Run Mode to verify the full plan lifecycle.",
+      );
+
+      // ── 4. Promote idea → plan (draft) ─────────────────────────────────
+      log("Promoting idea → plan…");
+      const promoteResult = await batchPromoteIdeas(wsSession.id, [idea.id]);
+      if (promoteResult.errors.length > 0) {
+        throw new Error(`Promote failed: ${promoteResult.errors[0].error}`);
+      }
+      const plan = promoteResult.created[0];
+      if (!plan) throw new Error("No plan created during promotion");
+
+      // ── 5. Move to openspec — kicks off generate_openspec pipeline ─────
+      //    in the background. We must WAIT for it to finish before
+      //    proceeding, otherwise the chat agent won't find any artifacts.
+      log("Transitioning plan → openspec (waiting for generation)…");
+      await setPlanStatus(plan.id, "openspec");
+
+      // Poll the pipeline runs until the generate_openspec run reaches a
+      // terminal status. Timeout after 120 seconds.
+      const pipelineDeadline = Date.now() + 120_000;
+      let openspecDone = false;
+      while (Date.now() < pipelineDeadline) {
+        await sleep(2000);
+        cancelled();
+        const runs = await pipelineListRunsByProject(projectPath);
+        const openspecRun = runs.find((r) => r.kind === "generate_openspec" && r.planId === plan.id);
+        if (openspecRun && isTerminalRunStatus(openspecRun.status)) {
+          if (openspecRun.status !== "succeeded") {
+            throw new Error(`OpenSpec generation ${openspecRun.status}: ${openspecRun.error ?? "unknown error"}`);
+          }
+          openspecDone = true;
+          break;
+        }
+      }
+      if (!openspecDone) throw new Error("Timed out waiting for OpenSpec generation to complete");
+      log("OpenSpec generation complete");
+
+      // ── 6. Approve: openspec → ready ───────────────────────────────────
+      log("Approving plan (→ ready)…");
+      await setPlanStatus(plan.id, "ready");
+
+      // ── 7. Create a native chat session + assign the plan to it ────────
+      log("Starting chat session + assigning plan…");
+      const chatSession = await nativeChatStart({
+        projectPath,
+        title: "Test Run Mode",
+        providerId: model.providerId,
+        modelId: model.modelId,
+        effortLevel: model.effortLevel,
+      });
+      testRunChatSessionIdRef.current = chatSession.id;
+      const run = await assignPlanToChat(plan.id, chatSession.id);
+      testRunPlanRunIdRef.current = run.id;
+      log(`Run created: ${run.id} (status=${run.status})`);
+
+      // ── 8. Send a message to start the agent loop ──────────────────────
+      //    assignPlanToChat seeds an opening context message but does NOT
+      //    start the agent loop. We send a message to kick it off.
+      log("Sending start message to agent…");
+      await nativeChatSend({
+        sessionId: chatSession.id,
+        content: "You are running in FULLY AUTONOMOUS test mode. Do NOT ask the user any questions. Do NOT use the ask_user tool. Make reasonable decisions on your own and proceed. Begin working on the assigned plan now. Read the OpenSpec change artifacts (proposal.md, design.md, specs/, tasks.md) and work through tasks.md top to bottom. Check off each task as you complete it. When all tasks are done, report what you finished. If you encounter ambiguity, pick the most reasonable option and continue — never stop to ask.",
+        providerId: model.providerId,
+        modelId: model.modelId,
+        effortLevel: model.effortLevel,
+      });
+
+      // ── 9. Poll for the agent to finish, auto-resolving questions ──────
+      //    The agent loop runs async. We poll the chat session's run_state:
+      //    - "running" → agent is working, keep waiting
+      //    - "needs_input" → agent called ask_user, creating a pending
+      //      interaction that parks the loop on a channel. We must resolve
+      //      it with nativeInteractionResolve (NOT send a new message) to
+      //      unpark the agent. We auto-pick the recommended option or
+      //      "continue" for free-text questions.
+      //    - "idle" → agent finished, proceed to complete the run
+      //    Timeout after 300 seconds (5 minutes) for the full agent run.
+      log("Waiting for agent to finish (auto-resolving questions)…");
+      const agentDeadline = Date.now() + 300_000;
+      let agentDone = false;
+      let autoReplyCount = 0;
+      while (Date.now() < agentDeadline) {
+        await sleep(3000);
+        cancelled();
+        const session = await nativeChatGet(chatSession.id);
+        if (!session) throw new Error("Chat session disappeared during agent run");
+        if (session.runState === "needs_input") {
+          autoReplyCount++;
+          log(`Agent needs input (auto-resolving #${autoReplyCount})…`);
+          if (autoReplyCount > 20) {
+            throw new Error("Agent asked for input too many times — aborting test run");
+          }
+          // List pending interactions and resolve them all.
+          const pending = await nativeInteractionListPending(chatSession.id);
+          for (const interaction of pending) {
+            if (interaction.status !== "pending") continue;
+            const answers: QuestionAnswer[] = interaction.questions.map((q) => {
+              if (q.kind === "options" || q.kind === "multi") {
+                // Pick the recommended option, or the first option.
+                const idx = q.recommended ?? 0;
+                const opt = q.options?.[idx]?.label ?? q.options?.[0]?.label ?? "Continue";
+                return { questionId: q.id, selected: [opt] };
+              }
+              if (q.kind === "confirm") {
+                return { questionId: q.id, selected: ["yes"] };
+              }
+              if (q.kind === "rating") {
+                return { questionId: q.id, value: q.scale?.min ?? 1 };
+              }
+              // text — tell the agent to proceed autonomously.
+              return { questionId: q.id, text: "Proceed autonomously. Make a reasonable decision and continue working on the plan." };
+            });
+            log(`Resolving interaction "${interaction.title ?? "(untitled)"}" with ${answers.length} answer(s)…`);
+            await nativeInteractionResolve(interaction.id, answers);
+          }
+        } else if (session.runState === "idle") {
+          agentDone = true;
+          break;
+        }
+        // runState === "running" → keep polling
+      }
+      if (!agentDone) throw new Error("Timed out waiting for agent to finish");
+      log("Agent finished");
+
+      // ── 10. Complete the run ───────────────────────────────────────────
+      log("Completing run…");
+      await completePlanRun(run.id, true);
+
+      // ── 11. Activate the test project in the sidebar ───────────────────
+      await setLastFocusedProject(projectPath);
+      setActiveProjectPath(projectPath);
+
+      log("Test Run Mode complete — plan reached finished");
+      handleShowToast("Test Run Mode complete", "Plan reached finished — check the Plans tab.", "success");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog("error", "Test Run Mode failed", msg);
+      setTestRunLogs((prev) => [...prev, `✗ ${msg}`]);
+      handleShowToast("Test Run Mode failed", msg, "error");
+    } finally {
+      setTestRunRunning(false);
+      testRunChatSessionIdRef.current = null;
+      testRunPlanRunIdRef.current = null;
+    }
+  }, [sidebar, addLog, handleShowToast]);
+
+  /** Cancel an in-progress Test Run Mode lifecycle. Signals the async loop
+   *  to stop at its next checkpoint, then calls the backend cancel APIs so
+   *  the agent loop and plan run are terminated cleanly. */
+  const handleCancelTestRun = useCallback(async () => {
+    testRunCancelRef.current = true;
+    setTestRunLogs((prev) => [...prev, "Cancelling test run…"]);
+    const sessionId = testRunChatSessionIdRef.current;
+    const runId = testRunPlanRunIdRef.current;
+    const tasks: Promise<unknown>[] = [];
+    if (sessionId) tasks.push(nativeChatCancel(sessionId).catch((e) => addLog("warn", "nativeChatCancel failed", e instanceof Error ? e.message : String(e))));
+    if (runId) tasks.push(cancelPlanRun(runId, false).catch((e) => addLog("warn", "cancelPlanRun failed", e instanceof Error ? e.message : String(e))));
+    await Promise.all(tasks);
+    setTestRunLogs((prev) => [...prev, "Test run cancelled."]);
+    setTestRunRunning(false);
+  }, [addLog]);
+
   const handleClearChats = useCallback(
     async (path: string) => {
       const sessions = sidebar.sessionsByProject.get(path) ?? [];
@@ -666,17 +983,32 @@ export function AppShell({ updates }: AppShellProps) {
 
 
   const handleCreatePlanFromIdea = useCallback(
-    async (title: string, description: string, chatSessionId: string | null) => {
-      if (!session.activeSessionId) return;
-      await plans.createPlan({
-        title,
-        description,
-        status: "openspec",
-        priority: 50,
-        tags: chatSessionId ? [`chat:${chatSessionId}`] : [],
-      });
+    async (idea: Idea, _chatSessionId: string | null) => {
+      if (!session.activeSessionId) {
+        throw new Error("Open a project before preparing a plan.");
+      }
+      const result = await batchPromoteIdeas(session.activeSessionId, [idea.id]);
+      const created = result.created[0];
+      if (!created) {
+        throw new Error(result.errors[0]?.error ?? "The idea could not be promoted.");
+      }
+
+      await plans.refreshPlans();
+      setPlansModalTab("plans");
+      setPlansModalOpen(true);
+      handleShowToast("Getting plan ready", `${created.referenceId} ${created.title}`, "info");
+
+      void Promise.resolve(plans.setPlanStatus(created.id, "openspec"))
+        .then(() => {
+          handleShowToast("OpenSpec plan ready", `${created.referenceId} ${created.title}`, "success");
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          addLog("error", "OpenSpec plan preparation failed", message);
+          handleShowToast("Plan preparation failed", message, "error");
+        });
     },
-    [plans, session.activeSessionId],
+    [plans, session.activeSessionId, addLog, handleShowToast],
   );
   const openPlanningModal = useCallback((tab: PlanningTab) => {
     addLog("debug", "Planning modal opened", `tab=${tab}`);
@@ -690,10 +1022,30 @@ export function AppShell({ updates }: AppShellProps) {
     openPlanningModal("plans");
   }, [openPlanningModal]);
 
-  const handleCloseChat = useCallback((chatId: string) => {
-    // The grid's onCloseChat handles the visual removal; the session is retained.
-    // AppShell's onCloseChat on the grid delegates here for any session-level cleanup.
-  }, []);
+  const handleDeleteChatPanel = useCallback(async (panelId: string, chatSessionId: string | null) => {
+    if (chatSessionId && session.activeSessionId) {
+      try {
+        const runs = await listPlanRuns(session.activeSessionId);
+        const owner = runs.find((run) =>
+          run.chatSessionId === chatSessionId &&
+          (run.status === "pending" || run.status === "running" || run.status === "paused")
+        );
+        if (owner) {
+          handleShowToast(
+            "Chat owns active work",
+            "Keep the chat with Close, or cancel the linked run from Background agents before removing it.",
+            "warning",
+          );
+          return;
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        handleShowToast("Could not verify chat ownership", message, "error");
+        return;
+      }
+    }
+    setPanelGridState((prev) => deletePanelFromHistory(prev, panelId));
+  }, [handleShowToast, session.activeSessionId]);
 
   const handleDuplicateChat = useCallback((sourceId: string) => {
     // Returns a new chat id; the grid handles layout. Session creation happens
@@ -780,36 +1132,49 @@ export function AppShell({ updates }: AppShellProps) {
     handleShowToast("Generating from finished plans", `${grounding.finishedPlanCount} finished plan${grounding.finishedPlanCount > 1 ? "s" : ""} since last schematic update.`, "info");
   }, [addLog, handleShowToast]);
 
-  // One-click zero-input idea round: soft-gate on schematic health, start the
-  // round (captures during the turn get tagged), then deliver the generation
-  // prompt through the destination picker.
-  const handleStartIdeaRound = useCallback(async (proceedDespiteGate = false) => {
+  // Guided idea rounds keep the existing schematic soft gate, then collect a
+  // bounded category scope before any provider turn or chat creation occurs.
+  const handleStartIdeaRound = useCallback((proceedDespiteGate = false) => {
     if (!session.activeSessionId) {
+      addLog("debug", "Idea round setup skipped", "no active session");
       handleShowToast("No active session", "Open a project first to run an idea round.", "warning");
       return;
     }
     const health = schematic.report?.health ?? (schematic.exists ? "partial" : "missing");
     if (health !== "complete" && !proceedDespiteGate) {
+      addLog("debug", "Idea round soft gate opened", `health=${health}`);
       setRoundGateOpen(true);
       return;
     }
+    addLog("debug", "Idea round setup opened", `health=${health}; categories=${ideaState.categories.length}`);
     setRoundGateOpen(false);
-    let roundId: string | null = null;
+    setRoundSetupOpen(true);
+  }, [session.activeSessionId, schematic.report, schematic.exists, ideaState.categories.length, addLog, handleShowToast]);
+
+  const handleConfirmIdeaRound = useCallback(async (setup: IdeaRoundSetup) => {
+    if (!session.activeSessionId) {
+      addLog("debug", "Idea round confirmation skipped", "no active session");
+      return;
+    }
+    const health = schematic.report?.health ?? (schematic.exists ? "partial" : "missing");
+    const categories = ideaState.categories.filter((category) => setup.categoryIds.includes(category.id) && category.sessionId === session.activeSessionId);
+    setRoundSetupOpen(false);
+    let roundId: string;
     try {
       roundId = await startIdeaRound(session.activeSessionId);
-      addLog("info", "Idea round started", `round=${roundId} gate=${health}${proceedDespiteGate ? " (proceeded despite gate)" : ""}`);
+      addLog("info", "Idea round started", `round=${roundId} gate=${health} categories=${categories.map((category) => category.id).join(",") || "project-wide"} ideas=${setup.ideaCount}`);
     } catch (e) {
       addLog("error", "Failed to start idea round", e instanceof Error ? e.message : String(e));
       handleShowToast("Round failed to start", "Could not start the idea round. See logs.", "error");
       return;
     }
     pendingRoundRef.current = roundId;
-    const action = generateIdeasAction();
+    const action = generateIdeaRoundAction(categories, setup.ideaCount, setup.direction);
     setPendingDelivery({ text: action.text, mode: action.mode, action: action.action });
     setDestinationPickerOpen(true);
     setPlansModalOpen(false);
-    handleShowToast("Idea round started", "Pick a destination chat — captured ideas are collected into this round.", "info");
-  }, [session.activeSessionId, schematic.report, schematic.exists, addLog, handleShowToast]);
+    handleShowToast("Idea round ready", "Choose an existing chat or create a dedicated one.", "info");
+  }, [session.activeSessionId, schematic.report, schematic.exists, ideaState.categories, addLog, handleShowToast]);
 
   const handleOpenSchematic = useCallback(() => {
     addLog("debug", "Project schematic opened", activeProjectPath ?? "no project");
@@ -855,6 +1220,70 @@ export function AppShell({ updates }: AppShellProps) {
     setPendingAssign({ plan, profile });
     setDestinationPickerOpen(true);
   }, []);
+
+  /** Quick-assign from the indicators dropdown: load the saved launch profile
+   *  (or a sane default) and open the destination picker. */
+  const handleQuickAssignPlan = useCallback((plan: Plan) => {
+    if (!activeProjectPath) return;
+    void (async () => {
+      let profile: LaunchProfile | null = null;
+      try {
+        profile = await getLaunchProfile(activeProjectPath);
+      } catch {
+        // fall through to defaults
+      }
+      handleAssignPlan(plan, profile ?? {
+        projectPath: activeProjectPath,
+        engine: "openspec",
+        providerId: "",
+        modelId: "",
+        workerCount: 1,
+        workspacePolicy: "isolated_worktrees",
+        schedulingMode: "safe",
+        finishPolicy: "hold",
+        updatedAt: Date.now(),
+      });
+    })();
+  }, [activeProjectPath, handleAssignPlan]);
+
+  /** Approve an openspec plan from the indicators dropdown: validate readiness,
+   *  then mark it ready so it can be applied to a chat. */
+  const handleApprovePlan = useCallback((plan: Plan) => {
+    return (async () => {
+      try {
+        const result = await validateReadiness(plan.id);
+        if (result.errors.length > 0) {
+          handleShowToast("Plan is not ready", result.errors[0], "error");
+          return;
+        }
+        await plans.setPlanStatus(plan.id, "ready");
+        handleShowToast("Plan approved", `#${plan.referenceId} is ready — apply it to a chat.`, "success");
+      } catch (e) {
+        handleShowToast("Approve failed", e instanceof Error ? e.message : String(e), "error");
+      }
+    })();
+  }, [plans, handleShowToast]);
+
+  /** Generate (draft) or regenerate (openspec) a plan's OpenSpec artifacts.
+   *  The backend only runs the generate stage on a non-openspec → openspec
+   *  transition, so a redo drops the plan back to draft first. */
+  const handleRedoPlan = useCallback((plan: Plan) => {
+    return (async () => {
+      try {
+        if (plan.status !== "draft") {
+          await plans.setPlanStatus(plan.id, "draft");
+        }
+        await plans.setPlanStatus(plan.id, "openspec");
+        handleShowToast(
+          plan.status === "draft" ? "Generating plan" : "Redoing plan",
+          "OpenSpec is generating in the background — check the agents icon in the taskbar for progress.",
+          "info",
+        );
+      } catch (e) {
+        handleShowToast("Plan generation failed", e instanceof Error ? e.message : String(e), "error");
+      }
+    })();
+  }, [plans, handleShowToast]);
 
 
   const activeTab = session.tabs.find((t) => t.id === session.activeTabId) ?? null;
@@ -1028,7 +1457,13 @@ export function AppShell({ updates }: AppShellProps) {
             projectPath={activeProjectPath ?? ""}
             activeSessionId={session.activeSessionId}
             chatSessionId={panel.chatSessionId ?? tab?.chatSessionId ?? null}
+            backgroundAgent={(() => {
+              const chatId = panel.chatSessionId ?? tab?.chatSessionId ?? null;
+              return !!chatId && allBackgroundChatIds.has(chatId);
+            })()}
             chatTitle={panel.title}
+            schematicContent={schematic.content}
+            onCreatePlanFromIdea={handleCreatePlanFromIdea}
             onChatSessionCreated={(chatSessionId) => {
               addLog("debug", "Chat session created", `panel=${panel.id} chatSessionId=${chatSessionId} tab=${tab?.id ?? "none"}`);
               if (tab) {
@@ -1060,7 +1495,9 @@ export function AppShell({ updates }: AppShellProps) {
             onOpenPlanningInspector={handleOpenPlanningInspector}
             onOpenSchematic={handleOpenSchematic}
             onCloseChat={() => setPanelGridState((prev) => closePanel(prev, panel.id))}
-            onCloseAndDeleteChat={() => setPanelGridState((prev) => deletePanelFromHistory(prev, panel.id))}
+            onCloseAndDeleteChat={() => {
+              void handleDeleteChatPanel(panel.id, panel.chatSessionId ?? null);
+            }}
             onShowToast={handleShowToast}
             onDuplicateChat={() => {
               const newPanel = handleCreatePanel(panel.id, "right");
@@ -1233,26 +1670,139 @@ export function AppShell({ updates }: AppShellProps) {
     [panelGridState.closedPanels, session],
   );
 
+  /** Open a chat session as a visible panel in the grid: focus it when it is
+   *  already surfaced, otherwise insert a new chat panel bound to the
+   *  session. Panels — not backing tabs — are what the workspace renders;
+   *  the old tab-only path changed nothing on screen and left orphaned tabs. */
   const handleOpenChatSession = useCallback(
     async (chatSessionId: string) => {
       if (!session.activeSessionId) return;
-      const existing = session.tabs.find(
-        (t) => t.kind === "chat" && t.chatSessionId === chatSessionId,
-      );
-      if (existing) {
-        session.setActiveTabId(existing.id);
-        return;
+      // Resolve a human title for the panel; fall back to the session id tail.
+      let title = `Chat ${chatSessionId.slice(-6)}`;
+      try {
+        const chat = await nativeChatGet(chatSessionId);
+        if (chat?.title) title = humanizeChatTitle(chat.title);
+      } catch {
+        // Title lookup is cosmetic — keep the fallback.
       }
-      // Create a new chat tab and link it to the chat session.
-      await session.createTab("chat", `Plan Run`);
-      const newTab = session.tabs[session.tabs.length - 1];
-      if (newTab) {
-        await session.setTabChatSession(newTab.id, chatSessionId);
-      }
+      setPanelGridState((prev) => {
+        const existingPanel = flattenPanels(prev.root).find(
+          (p) => p.id === chatSessionId || p.chatSessionId === chatSessionId,
+        );
+        if (existingPanel) {
+          return prev.activePanelId === existingPanel.id ? prev : { ...prev, activePanelId: existingPanel.id };
+        }
+        // The panel may live in closed history (the user opened this chat
+        // before and closed the tab). `insertPanel` rejects duplicate ids
+        // against history, so reopen the history entry instead — this was a
+        // silent dead-end for background agent chats after their run ended.
+        const closed = prev.closedPanels.find(
+          (p) => p.id === chatSessionId || p.chatSessionId === chatSessionId,
+        );
+        if (closed) {
+          const reopened = reopenPanelChecked(prev, closed.id);
+          if (!reopened.ok) {
+            addLog("error", "Chat panel reopen failed", reopened.reason);
+            return prev;
+          }
+          return { ...reopened.state, activePanelId: closed.id };
+        }
+        const newPanel: Panel = {
+          id: chatSessionId,
+          type: "chat",
+          title,
+          chatSessionId,
+          terminalId: null,
+          filePath: null,
+        };
+        const result = insertPanel(prev, newPanel, { side: "right", anchorId: prev.activePanelId });
+        if (!result.ok) {
+          addLog("error", "Chat panel creation failed", result.reason);
+          return prev;
+        }
+        return { ...result.state, activePanelId: newPanel.id };
+      });
     },
-    [session],
+    [session.activeSessionId, addLog],
   );
 
+  /** Open the chat hosting a plan's most recent run. Queries by plan_id
+   *  (not session_id) so runs assigned from a different workspace session
+   *  are still found. If the plan is "running" but no run has a chat
+   *  session (zombie — execute_run crashed before linking), offer to
+   *  re-assign instead of showing a dead-end toast. */
+  const handleOpenPlanRunChat = useCallback(
+    async (plan: Plan) => {
+      try {
+        const runs = await listPlanRunsByPlan(plan.id);
+        const candidates = runs
+          .filter((r) => r.chatSessionId)
+          .sort((a, b) => {
+            const activeA = a.status === "running" || a.status === "pending" ? 1 : 0;
+            const activeB = b.status === "running" || b.status === "pending" ? 1 : 0;
+            return activeB - activeA || b.createdAt - a.createdAt;
+          });
+        const run = candidates[0];
+        if (run?.chatSessionId) {
+          await handleOpenChatSession(run.chatSessionId);
+          return;
+        }
+        // No chat-bound run. If the plan is running, it's a zombie — the run
+        // row exists but execute_run crashed before linking a chat session.
+        // Offer re-assign so the user can restart the agent.
+        if (plan.status === "running") {
+          handleShowToast(
+            "Plan has no active chat",
+            `#${plan.referenceId} is marked running but its run never linked a chat session. Re-assigning will start a fresh agent.`,
+            "info",
+          );
+          handleQuickAssignPlan(plan);
+        } else {
+          handleShowToast(
+            "No run chat",
+            `#${plan.referenceId} has no chat session bound to a run yet.`,
+            "info",
+          );
+        }
+      } catch (e) {
+        handleShowToast("Could not open run chat", e instanceof Error ? e.message : String(e), "error");
+      }
+    },
+    [handleOpenChatSession, handleShowToast, handleQuickAssignPlan],
+  );
+
+  /** Handle notification clicks: pending_question opens the global
+   *  interaction modal; plan/stage notifications open the plan focus modal. */
+  const handleNotificationNavigate = useCallback(
+    (n: Notification) => {
+      if (n.kind === "pending_question") {
+        // The entityId is the interaction ID — fetch pending interactions
+        // for the active workspace session and find the matching one.
+        if (!session.activeSessionId) return;
+        const sid = session.activeSessionId;
+        void (async () => {
+          try {
+            const pending = await nativeInteractionListPending(sid);
+            const match = pending.find((p) => p.id === n.entityId) ?? pending[0];
+            if (match) {
+              setGlobalInteraction(match);
+            } else {
+              handleShowToast("Question resolved", "This question was already answered or cancelled.", "info");
+            }
+          } catch (e) {
+            handleShowToast("Could not open question", e instanceof Error ? e.message : String(e), "error");
+          }
+        })();
+      } else if (n.kind === "plan_status_changed" || n.kind === "plan_created") {
+        // entityId is the plan ID — find it and open the focus modal.
+        const plan = plans.plans.find((p) => p.id === n.entityId);
+        if (plan) {
+          setFocusingPlan(plan);
+        }
+      }
+    },
+    [session.activeSessionId, plans.plans, handleShowToast],
+  );
   const handleOpenFileInTab = useCallback(
     async (filePath: string) => {
       if (!session.activeSessionId) return;
@@ -1304,6 +1854,14 @@ export function AppShell({ updates }: AppShellProps) {
       <div className="window-taskbar" role="banner">
         <span className="window-taskbar-title" title="Basebuild">Basebuild</span>
         <div className="window-taskbar-right">
+          <TaskbarNotifications onNavigate={handleNotificationNavigate} appToasts={appToasts} onDismissAppToast={dismissAppToast} />
+          <BackgroundAgents
+            sessionId={session.activeSessionId}
+            projectPath={activeProjectPath}
+            plans={plans.plans}
+            onOpenChatSession={handleOpenChatSession}
+            onOpenPlanning={(tab) => openPlanningModal(tab)}
+          />
           <WindowControls />
         </div>
       </div>
@@ -1316,11 +1874,13 @@ export function AppShell({ updates }: AppShellProps) {
           root={panelGridState.root}
           activePanelId={panelGridState.activePanelId}
           closedPanelCount={panelGridState.closedPanels.length}
+          backgroundChatIds={allBackgroundChatIds}
           projects={sidebar.projects}
           account={account}
           updates={updates}
           onSelectProject={handleSelectProject}
           onOpenFolder={handleOpenFolder}
+          onTestRunMode={() => setTestRunModalOpen(true)}
           onRemoveProject={handleRemoveProject}
           onOpenInExplorer={handleRevealProject}
           onCopyProjectPath={handleCopyProjectPath}
@@ -1360,7 +1920,35 @@ export function AppShell({ updates }: AppShellProps) {
               />
               <PlanningIndicators
                 plans={plans.plans}
+                sessionId={session.activeSessionId}
+                projectPath={activeProjectPath}
                 ideas={ideaState.ideas}
+                categories={ideaState.categories}
+                onGenerateMoreIdeas={() => handleStartIdeaRound()}
+                onCreateIdea={async (title, description, categoryId) => {
+                  await ideaState.createIdea(title, description, categoryId ?? undefined);
+                  handleShowToast("Idea created", title, "success");
+                }}
+                onUpdateIdea={async (id, title, description, categoryId) => {
+                  await ideaState.updateIdea(id, title, description, categoryId);
+                  handleShowToast("Idea updated", title, "success");
+                }}
+                onSetIdeaStatus={async (id, status) => {
+                  await ideaState.updateIdeaStatus(id, status);
+                }}
+                onDeleteIdea={async (id) => {
+                  await ideaState.removeIdea(id);
+                  handleShowToast("Idea deleted", "The idea was removed.", "info");
+                }}
+                onPromoteIdeas={async (ids) => {
+                  await ideaState.promoteIdeas(ids);
+                  await plans.refreshPlans();
+                  handleShowToast(
+                    ids.length === 1 ? "Idea upgraded" : "Ideas upgraded",
+                    `${ids.length} draft plan${ids.length === 1 ? "" : "s"} created.`,
+                    "success",
+                  );
+                }}
                 schematicHealth={schematic.report ? (schematic.report.health === "complete" ? "complete" : "incomplete") : "none"}
                 onOpenStage={(stage: StageKey) => {
                   addLog("debug", "Planning stage opened", stage);
@@ -1387,8 +1975,17 @@ export function AppShell({ updates }: AppShellProps) {
                     openPlanningModal("runs");
                   }
                 }}
-                onMarkComplete={(planId: string) => {
-                  void plans.setPlanStatus(planId, "finished");
+                onOpenPlan={handleFocusPlan}
+                onOpenRunChat={(p: Plan) => void handleOpenPlanRunChat(p)}
+                onAssignPlan={handleQuickAssignPlan}
+                onApprovePlan={handleApprovePlan}
+                onRedoPlan={handleRedoPlan}
+                onDeletePlan={(planId: string) => {
+                  return plans.deletePlan(planId).then(() => {
+                    handleShowToast("Plan deleted", "The plan was removed.", "info");
+                  }).catch((e: unknown) => {
+                    handleShowToast("Delete failed", e instanceof Error ? e.message : String(e), "error");
+                  });
                 }}
               />
             </div>
@@ -1425,6 +2022,8 @@ export function AppShell({ updates }: AppShellProps) {
                   onCreatePanel={handleCreatePanel}
                   viewportWidth={typeof window !== "undefined" ? window.innerWidth - 80 : 1200}
                   viewportHeight={typeof window !== "undefined" ? window.innerHeight - 120 : 700}
+                  onDropExternalChat={handleOpenChatSession}
+                  backgroundChatSessionIds={allBackgroundChatIds}
                 />
                 {historyDrawerOpen ? (
                   <Suspense fallback={<ModalLoading />}>
@@ -1549,6 +2148,14 @@ export function AppShell({ updates }: AppShellProps) {
           </div>
         </div>
       ) : null}
+      <TestRunModeModal
+        open={testRunModalOpen}
+        onClose={() => setTestRunModalOpen(false)}
+        onRun={(model) => { void handleTestRunMode(model); }}
+        onCancel={() => { void handleCancelTestRun(); }}
+        logs={testRunLogs}
+        running={testRunRunning}
+      />
       <Suspense fallback={<ModalLoading />}>
         <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} account={account} updates={updates} />
       </Suspense>
@@ -1566,10 +2173,10 @@ export function AppShell({ updates }: AppShellProps) {
           open={!!focusingPlan}
           projectPath={activeProjectPath ?? ""}
           onClose={() => setFocusingPlan(null)}
-          onSetStatus={plans.setPlanStatus}
           onCopyReference={handleCopyReference}
           onOpenInTerminal={handleOpenPlanInTerminal}
           onSetContext={(id, ctx: PlanFocusContext) => void plans.setPlanContext(id, ctx)}
+          onOpenRunChat={(p) => void handleOpenPlanRunChat(p)}
         />
       </Suspense>
       <Suspense fallback={<ModalLoading />}>
@@ -1586,29 +2193,6 @@ export function AppShell({ updates }: AppShellProps) {
         onComplete={() => firstRun.complete()}
         onSkip={() => firstRun.skip()}
       />
-      <ToastStack />
-      {appToast ? (() => {
-        const { icon: ToastIcon, className: iconClassName } = TOAST_ICONS[appToast.kind];
-        return (
-          <div className="toast-stack">
-            <div className={`toast toast-${appToast.kind}`} role="status" aria-live="polite">
-              <ToastIcon size={13} className={`toast-icon ${iconClassName}`} />
-              <div className="toast-content">
-                <span className="toast-title">{appToast.title}</span>
-                {appToast.detail ? <span className="toast-detail">{appToast.detail}</span> : null}
-              </div>
-              <button
-                className="toast-dismiss btn-icon"
-                title="Dismiss"
-                type="button"
-                onClick={() => setAppToast(null)}
-              >
-                <X size={12} />
-              </button>
-            </div>
-          </div>
-        );
-      })() : null}
       <DestinationPicker
         open={destinationPickerOpen}
         onClose={() => {
@@ -1624,22 +2208,57 @@ export function AppShell({ updates }: AppShellProps) {
         }}
         panels={flattenPanels(panelGridState.root)}
         title={pendingAssign ? "Assign plan to chat" : "Send to…"}
+        projectPath={activeProjectPath}
+        mode={pendingAssign ? "assign" : "deliver"}
         onSelect={(choice: DestinationChoice) => {
           if (pendingAssign) {
-            if (choice.kind !== "existing" || !choice.chatSessionId) {
-              addLog("warn", "Assign plan", "Select an existing chat to assign a plan");
-              setAppToast({ title: "Select an existing chat", detail: "New chats cannot be assigned directly.", kind: "error" });
-              return;
-            }
-            void (async () => {
+            const assign = pendingAssign;
+            // Returned to the picker so it shows a busy state until done.
+            return (async () => {
               try {
+                // Model confirmation: an explicit pick overrides both the
+                // launch profile and the destination chat's session model.
+                const profile = choice.model
+                  ? { ...assign.profile, providerId: choice.model.providerId, modelId: choice.model.modelId, effortLevel: choice.model.effortLevel, updatedAt: Date.now() }
+                  : assign.profile;
+                let chatSessionId: string;
+                let focusPanelId: string | null = null;
+                if (choice.kind === "existing") {
+                  chatSessionId = choice.chatSessionId;
+                  focusPanelId = choice.panelId;
+                  if (choice.model) {
+                    await nativeChatUpdateSessionModel({
+                      sessionId: chatSessionId,
+                      providerId: choice.model.providerId,
+                      modelId: choice.model.modelId,
+                      effortLevel: choice.model.effortLevel,
+                    });
+                  }
+                } else {
+                  // New conversation — create a chat session for the plan
+                  // (with the confirmed model), then assign and open it.
+                  if (!activeProjectPath) throw new Error("No active project");
+                  const chat = await nativeChatStart({
+                    projectPath: activeProjectPath,
+                    title: `Plan: ${assign.plan.title}`,
+                    providerId: choice.model?.providerId ?? null,
+                    modelId: choice.model?.modelId ?? null,
+                    effortLevel: choice.model?.effortLevel ?? null,
+                  });
+                  chatSessionId = chat.id;
+                }
                 await assignPlanWithProfile({
-                  planId: pendingAssign.plan.id,
-                  chatSessionId: choice.chatSessionId,
-                  profile: pendingAssign.profile,
+                  planId: assign.plan.id,
+                  chatSessionId,
+                  profile,
                 });
-                handleShowToast("Plan assigned to chat", `${pendingAssign.plan.referenceId} ${pendingAssign.plan.title}`, "success");
-                setPanelGridState((prev) => ({ ...prev, activePanelId: choice.panelId }));
+                handleShowToast("Plan assigned to chat", `${assign.plan.referenceId} ${assign.plan.title}`, "success");
+                if (focusPanelId) {
+                  setPanelGridState((prev) => ({ ...prev, activePanelId: focusPanelId }));
+                }
+                // New conversation: the plan-run "running" event inserts and
+                // focuses the run panel — no extra tab here (a second surface
+                // caused duplicate-panel errors and orphaned tabs).
               } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
                 handleShowToast("Failed to assign plan", msg, "error");
@@ -1648,7 +2267,6 @@ export function AppShell({ updates }: AppShellProps) {
                 setDestinationPickerOpen(false);
               }
             })();
-            return;
           }
           if (!pendingDelivery) {
             addLog("debug", "DestinationPicker onSelect", "no pending delivery — skipping");
@@ -1656,12 +2274,30 @@ export function AppShell({ updates }: AppShellProps) {
           }
           if (choice.kind === "existing") {
             addLog("debug", "DestinationPicker existing", `chatSessionId=${choice.chatSessionId} panel=${choice.panelId}`);
-            deliverPrompt({
-              chatSessionId: choice.chatSessionId,
-              text: pendingDelivery.text,
-              mode: pendingDelivery.mode,
-              action: pendingDelivery.action,
-            });
+            const delivery = pendingDelivery;
+            void (async () => {
+              // Model confirmation for existing chats: persist the pick on the
+              // session before the prompt lands. Best-effort — a failure still
+              // delivers on the chat's current model.
+              if (choice.model) {
+                try {
+                  await nativeChatUpdateSessionModel({
+                    sessionId: choice.chatSessionId,
+                    providerId: choice.model.providerId,
+                    modelId: choice.model.modelId,
+                    effortLevel: choice.model.effortLevel,
+                  });
+                } catch (e) {
+                  addLog("warn", "Model override failed", e instanceof Error ? e.message : String(e));
+                }
+              }
+              deliverPrompt({
+                chatSessionId: choice.chatSessionId,
+                text: delivery.text,
+                mode: delivery.mode,
+                action: delivery.action,
+              });
+            })();
             // Focus the panel that hosts this chat.
             setPanelGridState((prev) => ({ ...prev, activePanelId: choice.panelId }));
           } else {
@@ -1675,6 +2311,16 @@ export function AppShell({ updates }: AppShellProps) {
           pendingRoundRef.current = null;
         }}
       />
+      {roundSetupOpen ? (
+        <IdeaRoundSetupModal
+          categories={ideaState.categories.filter((cat) => cat.sessionId === session.activeSessionId)}
+          onConfirm={(setup) => { void handleConfirmIdeaRound(setup); }}
+          onCancel={() => {
+            addLog("debug", "Idea round setup cancelled", "no round started");
+            setRoundSetupOpen(false);
+          }}
+        />
+      ) : null}
       <IdeaRoundGate
         open={roundGateOpen}
         health={schematic.exists ? "partial" : "missing"}
@@ -1682,6 +2328,27 @@ export function AppShell({ updates }: AppShellProps) {
         onProceed={() => { void handleStartIdeaRound(true); }}
         onCancel={() => setRoundGateOpen(false)}
       />
+      {globalInteraction ? (
+        <ModalPortal>
+          <div className="modal-overlay" role="dialog" aria-label="Background agent question" onClick={() => setGlobalInteraction(null)}>
+            <div className="modal modal-interaction" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <span className="modal-title">Background agent needs your input</span>
+                <button className="btn-icon" type="button" title="Close" onClick={() => setGlobalInteraction(null)}>
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="modal-body">
+                <QuestionCard
+                  interaction={globalInteraction}
+                  onResolved={() => setGlobalInteraction(null)}
+                  onCancelled={() => setGlobalInteraction(null)}
+                />
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      ) : null}
     </div>
     </PanelStatusProvider>
   );

@@ -112,10 +112,7 @@ impl UsageSource for NativeSource {
 
 /// The registry of all known usage sources.
 pub fn registered_sources() -> Vec<Box<dyn UsageSource>> {
-    vec![
-        Box::new(OmpSource),
-        Box::new(NativeSource),
-    ]
+    vec![Box::new(OmpSource), Box::new(NativeSource)]
 }
 
 /// Collect from all available sources independently. A failure in one

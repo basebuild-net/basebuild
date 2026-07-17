@@ -1,36 +1,62 @@
-import { useState } from "react";
-import { Check, GitBranch, GitCommit, GitPullRequest, Loader2, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, GitBranch, GitCommit, GitPullRequest, ListChecks, Loader2, Play, X } from "lucide-react";
 
 import type { PlanRun, FinishOutcome } from "../../lib/planRuns";
+import { openspecTaskProgress } from "../../lib/openspec";
 
 type CompletionCardProps = {
   run: PlanRun;
   projectPath: string;
   finishOutcome?: FinishOutcome | null;
+  changeName?: string | null;
   onMarkComplete: (runId: string) => Promise<void>;
-  onCommit: (runId: string, message: string) => Promise<void>;
-  onCreatePR: (runId: string, title: string, body: string) => Promise<void>;
+  onReviewTasks?: () => void;
+  onResume?: () => void;
   onDismiss: () => void;
 };
 export function CompletionCard({
   run,
   projectPath,
   finishOutcome,
+  changeName,
   onMarkComplete,
-  onCommit,
-  onCreatePR,
+  onReviewTasks,
+  onResume,
   onDismiss,
 }: CompletionCardProps) {
-  const [commitMessage, setCommitMessage] = useState("");
-  const [prTitle, setPrTitle] = useState("");
-  const [prBody, setPrBody] = useState("");
-  const [busy, setBusy] = useState<"commit" | "pr" | "complete" | null>(null);
+  const [busy, setBusy] = useState<"complete" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [committed, setCommitted] = useState(false);
-  const [prCreated, setPrCreated] = useState(false);
+  const [taskProgress, setTaskProgress] = useState<{ completed: number; total: number } | null>(null);
 
   const isAwaitingReview = run.status === "awaiting_review";
   const isSucceeded = run.status === "succeeded";
+
+  useEffect(() => {
+    if (!changeName || !projectPath) return;
+    let cancelled = false;
+    void openspecTaskProgress(projectPath, changeName)
+      .then((progress) => {
+        if (!cancelled) setTaskProgress(progress);
+      })
+      .catch(() => {
+        if (!cancelled) setTaskProgress(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [changeName, projectPath]);
+
+  const completionBlockedReason = !changeName
+    ? null
+    : !projectPath
+      ? "Cannot mark complete: no project is open."
+      : taskProgress === null
+        ? "Cannot mark complete: task progress is unavailable."
+        : taskProgress.total === 0
+          ? "Cannot mark complete: the linked OpenSpec change has no required tasks."
+          : taskProgress.completed < taskProgress.total
+            ? `Cannot mark complete: ${taskProgress.completed}/${taskProgress.total} required OpenSpec tasks are complete.`
+            : null;
 
   const handleMarkComplete = async () => {
     setBusy("complete");
@@ -44,33 +70,6 @@ export function CompletionCard({
     }
   };
 
-  const handleCommit = async () => {
-    if (!commitMessage.trim()) return;
-    setBusy("commit");
-    setError(null);
-    try {
-      await onCommit(run.id, commitMessage.trim());
-      setCommitted(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const handleCreatePR = async () => {
-    if (!prTitle.trim()) return;
-    setBusy("pr");
-    setError(null);
-    try {
-      await onCreatePR(run.id, prTitle.trim(), prBody.trim());
-      setPrCreated(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  };
 
   return (
     <div className="completion-card">
@@ -97,7 +96,7 @@ export function CompletionCard({
 
         {isAwaitingReview ? (
           <div className="completion-card-notice">
-            Checklist incomplete. Review the remaining tasks, then mark complete or keep running.
+            {completionBlockedReason ?? "Checklist complete. Review the work or continue the plan before marking it complete."}
           </div>
         ) : null}
         {finishOutcome ? (
@@ -127,77 +126,40 @@ export function CompletionCard({
 
         <div className="completion-card-actions">
           {isAwaitingReview ? (
+            <>
+            {onReviewTasks ? (
+              <button
+                type="button"
+                className="btn btn-sm"
+                title="Review the linked OpenSpec tasks"
+                onClick={onReviewTasks}
+              >
+                <ListChecks size={11} /> Review tasks
+              </button>
+            ) : null}
+            {onResume ? (
+              <button
+                type="button"
+                className="btn btn-sm"
+                title="Open plan runs to resume this work"
+                onClick={onResume}
+              >
+                <Play size={11} /> Resume
+              </button>
+            ) : null}
             <button
               type="button"
               className="btn btn-sm btn-primary"
-              title="Mark this run as complete"
-              disabled={busy !== null}
+              title={completionBlockedReason ?? "Mark this run as complete"}
+              disabled={busy !== null || completionBlockedReason !== null}
               onClick={() => void handleMarkComplete()}
             >
               {busy === "complete" ? <Loader2 size={11} className="bb-spin" /> : <Check size={11} />}
               Mark complete
             </button>
+            </>
           ) : null}
 
-          <details className="completion-card-section">
-            <summary className="completion-card-section-summary" title="Commit changes">
-              <GitCommit size={11} /> Commit
-            </summary>
-            <div className="completion-card-section-body">
-              <textarea
-                className="completion-card-textarea"
-                placeholder="Commit message"
-                value={commitMessage}
-                onChange={(e) => setCommitMessage(e.target.value)}
-                disabled={committed || busy !== null}
-                title="Commit message"
-              />
-              <button
-                type="button"
-                className="btn btn-sm"
-                title="Commit staged changes"
-                disabled={!commitMessage.trim() || committed || busy !== null}
-                onClick={() => void handleCommit()}
-              >
-                {busy === "commit" ? <Loader2 size={11} className="bb-spin" /> : <GitCommit size={11} />}
-                {committed ? "Committed" : "Commit"}
-              </button>
-            </div>
-          </details>
-
-          <details className="completion-card-section">
-            <summary className="completion-card-section-summary" title="Create pull request">
-              <GitPullRequest size={11} /> Pull request
-            </summary>
-            <div className="completion-card-section-body">
-              <input
-                className="completion-card-input"
-                placeholder="PR title"
-                value={prTitle}
-                onChange={(e) => setPrTitle(e.target.value)}
-                disabled={prCreated || busy !== null}
-                title="PR title"
-              />
-              <textarea
-                className="completion-card-textarea"
-                placeholder="PR body (markdown)"
-                value={prBody}
-                onChange={(e) => setPrBody(e.target.value)}
-                disabled={prCreated || busy !== null}
-                title="PR body"
-              />
-              <button
-                type="button"
-                className="btn btn-sm btn-primary"
-                title="Create pull request"
-                disabled={!prTitle.trim() || prCreated || busy !== null}
-                onClick={() => void handleCreatePR()}
-              >
-                {busy === "pr" ? <Loader2 size={11} className="bb-spin" /> : <GitPullRequest size={11} />}
-                {prCreated ? "Created" : "Create PR"}
-              </button>
-            </div>
-          </details>
         </div>
 
         {error ? (

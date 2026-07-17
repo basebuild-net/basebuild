@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Lock, LogOut, Moon, Plug, RefreshCw, Settings2, Shield, Sparkles, Sun, Trash2, Unplug, User, Wrench, X } from "lucide-react";
+import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Loader2, Lock, LogOut, Moon, Plug, RefreshCw, Settings2, Shield, Sparkles, Sun, Trash2, Unplug, User, Wrench, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { CopyButton } from "./CopyButton";
 import { FinalTouchesTab } from "./FinalTouchesTab";
@@ -67,6 +67,14 @@ import {
   exportAnalyticsJson,
   type AnalyticsConsent,
 } from "../../lib/analytics";
+import {
+  deleteExecutionAdviceFeedback,
+  exportExecutionAdviceFeedback,
+  getExecutionAdviceFeedbackConsent,
+  listExecutionAdviceFeedback,
+  setExecutionAdviceFeedbackConsent,
+  type AdvisorFeedbackConsent,
+} from "../../lib/execution-advisor";
 import { startupGetStatus, startupEnable, startupDisable, startupReconcile, type StartupRegistrationStatus } from "../../lib/startup";
 import {
   mcpReload,
@@ -83,13 +91,25 @@ import {
   setRunConcurrencyDefaults,
   getRunConcurrencyOverrides,
   setRunConcurrencyOverride,
+  getConcurrencyLimits,
+  setConcurrencyLimits,
+  DEFAULT_CONCURRENCY_LIMITS,
   DEFAULT_RUN_CONCURRENCY_ENTRY,
   type RunConcurrencyEntry,
+  type ConcurrencyLimits,
 } from "../../lib/runConcurrency";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { listResolvedSkills, readResolvedSkill, type ResolvedSkill } from "../../lib/skillRegistry";
 import { useTheme, type AppTheme } from "../../state/useTheme";
 import { ModalPortal } from "../ModalPortal";
+import {
+  getUiScale,
+  resetUiScale,
+  stepUiScale,
+  subscribeUiScale,
+  UI_SCALE_STEPS,
+  type UiScale,
+} from "../../lib/uiScale";
 
 type SettingsModalProps = {
   open: boolean;
@@ -99,7 +119,7 @@ type SettingsModalProps = {
   updates: UpdaterState;
 };
 
-type Tab = "updates" | "defaults" | "permissions" | "privacy" | "theme" | "account" | "configs" | "mcp" | "planning" | "openspec" | "final_touches" | "concurrency" | "notifications" | "skills" | "about";
+type Tab = "updates" | "defaults" | "permissions" | "privacy" | "appearance" | "account" | "configs" | "mcp" | "planning" | "openspec" | "final_touches" | "concurrency" | "notifications" | "skills" | "about";
 
 export function SettingsModal({ open, onClose, projectPath, account, updates }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
@@ -133,6 +153,8 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
   // Analytics state
   const [consent, setConsent] = useState<AnalyticsConsent | null>(null);
   const [eventCount, setEventCount] = useState(0);
+  const [advisorFeedbackConsent, setAdvisorFeedbackConsent] = useState<AdvisorFeedbackConsent | null>(null);
+  const [advisorFeedbackCount, setAdvisorFeedbackCount] = useState(0);
 
   // MCP state
   const [mcpServers, setMcpServers] = useState<McpServerState[]>([]);
@@ -227,9 +249,16 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
 
   async function refreshAnalytics() {
     try {
-      const [c, count] = await Promise.all([getAnalyticsConsent(), analyticsEventCount()]);
+      const [c, count, feedbackConsent, feedback] = await Promise.all([
+        getAnalyticsConsent(),
+        analyticsEventCount(),
+        getExecutionAdviceFeedbackConsent(),
+        listExecutionAdviceFeedback(),
+      ]);
       setConsent(c);
       setEventCount(count);
+      setAdvisorFeedbackConsent(feedbackConsent);
+      setAdvisorFeedbackCount(feedback.length);
     } catch {
       // ignore
     }
@@ -321,27 +350,87 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
     }
   }
 
+  async function saveAdvisorFeedbackConsent(enabled: boolean) {
+    try {
+      setAdvisorFeedbackConsent(await setExecutionAdviceFeedbackConsent(enabled));
+    } catch {
+      // ignore
+    }
+  }
+
+  async function deleteAdvisorFeedback() {
+    try {
+      await deleteExecutionAdviceFeedback();
+      setAdvisorFeedbackCount(0);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function exportAdvisorFeedback() {
+    try {
+      const json = await exportExecutionAdviceFeedback();
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "basebuild-execution-advisor-feedback.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // ignore
+    }
+  }
+
   const chatProfiles = profiles.filter((p) => p.kind === "chat");
   const terminalProfiles = profiles.filter((p) => p.kind === "terminal");
 
   if (!open) return null;
 
-  const tabs: { id: Tab; label: string; icon: typeof Settings2 }[] = [
-    { id: "updates", label: "Updates", icon: RefreshCw },
-    { id: "defaults", label: "Defaults", icon: Settings2 },
-    { id: "permissions", label: "Permissions", icon: Lock },
-    { id: "privacy", label: "Privacy", icon: Shield },
-    { id: "theme", label: "Theme", icon: Sun },
-    { id: "account", label: "Account", icon: User },
-    { id: "configs", label: "Config Packs", icon: Settings2 },
-    { id: "mcp", label: "MCP Servers", icon: Plug },
-    { id: "planning", label: "Planning", icon: Lightbulb },
-    { id: "openspec", label: "OpenSpec", icon: Wrench },
-    { id: "final_touches", label: "Final Touches", icon: Settings2 },
-    { id: "notifications", label: "Notifications", icon: Bell },
-    { id: "concurrency", label: "Concurrency", icon: Settings2 },
-    { id: "skills", label: "Skills", icon: Sparkles },
-    { id: "about", label: "About", icon: Globe },
+  // Grouped sidebar: every tab belongs to exactly one named group;
+  // Appearance leads so theme and UI scale are one click away.
+  const tabGroups: { group: string; tabs: { id: Tab; label: string; icon: typeof Settings2 }[] }[] = [
+    {
+      group: "Appearance",
+      tabs: [
+        { id: "appearance", label: "Appearance", icon: Sun },
+        { id: "notifications", label: "Notifications", icon: Bell },
+      ],
+    },
+    {
+      group: "General",
+      tabs: [
+        { id: "updates", label: "Updates", icon: RefreshCw },
+        { id: "account", label: "Account", icon: User },
+        { id: "about", label: "About", icon: Globe },
+      ],
+    },
+    {
+      group: "Providers & Models",
+      tabs: [{ id: "defaults", label: "Defaults", icon: Settings2 }],
+    },
+    {
+      group: "Execution",
+      tabs: [
+        { id: "permissions", label: "Permissions", icon: Lock },
+        { id: "planning", label: "Planning", icon: Lightbulb },
+        { id: "openspec", label: "OpenSpec", icon: Wrench },
+        { id: "final_touches", label: "Final Touches", icon: Settings2 },
+        { id: "concurrency", label: "Concurrency", icon: Settings2 },
+      ],
+    },
+    {
+      group: "Integrations",
+      tabs: [
+        { id: "mcp", label: "MCP Servers", icon: Plug },
+        { id: "configs", label: "Config Packs", icon: Settings2 },
+        { id: "skills", label: "Skills", icon: Sparkles },
+      ],
+    },
+    {
+      group: "Privacy & Data",
+      tabs: [{ id: "privacy", label: "Privacy", icon: Shield }],
+    },
   ];
 
   const updateChecking = updates.status === "checking";
@@ -364,21 +453,26 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
         </div>
         <div className="modal-body">
           <div className="settings-sidebar">
-            {tabs.map((t) => {
-              const Icon = t.icon;
-              return (
-                <button
-                  key={t.id}
-                  className={`settings-tab${tab === t.id ? " is-active" : ""}`}
-                  type="button"
-                  title={t.label}
-                  onClick={() => setTab(t.id)}
-                >
-                  <Icon size={14} />
-                  {t.label}
-                </button>
-              );
-            })}
+            {tabGroups.map((group) => (
+              <div key={group.group} className="settings-group">
+                <span className="settings-group-label" title={`${group.group} settings`}>{group.group}</span>
+                {group.tabs.map((t) => {
+                  const Icon = t.icon;
+                  return (
+                    <button
+                      key={t.id}
+                      className={`settings-tab${tab === t.id ? " is-active" : ""}`}
+                      type="button"
+                      title={t.label}
+                      onClick={() => setTab(t.id)}
+                    >
+                      <Icon size={14} />
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </div>
           <div className="settings-content">
             {/* ─── Updates ─── */}
@@ -887,7 +981,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                       <span className="text-sm">Enable anonymous upload</span>
                     </label>
                     <p className="text-muted text-sm mt-n4">
-                      Upload is disabled until a reviewed endpoint is configured. No upload code runs unless this is enabled.
+                      Upload stays off unless you enable it. Only reviewed, fixed-field endpoints receive supported analytics.
                     </p>
 
                     <div className="mt-8">
@@ -914,6 +1008,49 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                         </button>
                       </div>
                     </div>
+
+                    <div className="mt-8">
+                      <h4 className="text-sm text-muted mb-6">Execution recommendation feedback</h4>
+                      <label className="row gap-sm">
+                        <input
+                          type="checkbox"
+                          title="Separately opt in to fixed-field execution recommendation feedback"
+                          checked={advisorFeedbackConsent?.enabled ?? false}
+                          disabled={!consent.collectionEnabled || !advisorFeedbackConsent}
+                          onChange={(event) => void saveAdvisorFeedbackConsent(event.target.checked)}
+                        />
+                        <span className="text-sm">Collect recommendation choices</span>
+                      </label>
+                      <p className="text-muted text-sm mt-n4">
+                        Off by default. Stores only model/provider ids, role, fixed estimate buckets,
+                        confidence, and accepted/overridden outcome. No free text, project content, paths,
+                        account ids, credentials, or raw usage.
+                      </p>
+                      <p className="text-muted text-sm">
+                        Remote upload additionally requires anonymous upload above; queued choices remain local until both gates are enabled.
+                      </p>
+                      <div className="row gap-sm">
+                        <span className="text-sm mono">{advisorFeedbackCount} choices stored</span>
+                        <button
+                          className="btn btn-sm"
+                          type="button"
+                          title="Inspect execution recommendation feedback by exporting its fixed-field JSON"
+                          onClick={() => void exportAdvisorFeedback()}
+                          disabled={advisorFeedbackCount === 0}
+                        >
+                          <Download size={12} /> Export
+                        </button>
+                        <button
+                          className="btn btn-sm"
+                          type="button"
+                          title="Delete all local execution recommendation feedback"
+                          onClick={() => void deleteAdvisorFeedback()}
+                          disabled={advisorFeedbackCount === 0}
+                        >
+                          <Trash2 size={12} /> Delete
+                        </button>
+                      </div>
+                    </div>
                   </>
                 ) : (
                   <p className="text-muted">Loading analytics consent…</p>
@@ -931,8 +1068,8 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
               </div>
             ) : null}
 
-            {/* ─── Theme ─── */}
-            {tab === "theme" ? <ThemeTab /> : null}
+            {/* ─── Appearance ─── */}
+            {tab === "appearance" ? <AppearanceTab /> : null}
 
             {/* ─── Config Packs ─── */}
             {tab === "configs" ? <ConfigPanel projectPath={projectPath} /> : null}
@@ -1794,26 +1931,29 @@ function ModelProvidersPanel() {
 
 function ConcurrencyTab({ projectPath }: { projectPath: string | null }) {
   const projectPathNonNull = projectPath ?? "";
+  const [concurrencyLimits, setConcurrencyLimitsState] = useState<ConcurrencyLimits>(DEFAULT_CONCURRENCY_LIMITS);
+  const [savingLimits, setSavingLimits] = useState(false);
   const [globalLimits, setGlobalLimits] = useState<Record<string, RunConcurrencyEntry>>({});
   const [projectLimits, setProjectLimits] = useState<Record<string, RunConcurrencyEntry>>({});
-  const [providers, setProviders] = useState<{ id: string; label: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
-
+  const [providers, setProviders] = useState<{ id: string; label: string }[]>([]);
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
       try {
-        const [global, project, catalog] = await Promise.all([
+        const [global, project, catalog, limits] = await Promise.all([
           getRunConcurrencyDefaults(),
           getRunConcurrencyOverrides(projectPathNonNull),
           nativeProviderCatalog(),
+          getConcurrencyLimits(),
         ]);
         if (cancelled) return;
         setGlobalLimits(global.providers);
         setProjectLimits(project.providers);
         setProviders(catalog.providers.map((p) => ({ id: p.id, label: p.label })));
+        setConcurrencyLimitsState(limits);
       } catch {
         // ignore — empty state shows
       } finally {
@@ -1842,6 +1982,18 @@ function ConcurrencyTab({ projectPath }: { projectPath: string | null }) {
     }
   }
 
+  async function saveConcurrencyLimits(limits: ConcurrencyLimits) {
+    setSavingLimits(true);
+    try {
+      await setConcurrencyLimits(limits);
+      setConcurrencyLimitsState(limits);
+    } catch {
+      // ignore
+    } finally {
+      setSavingLimits(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="stack">
@@ -1858,6 +2010,48 @@ function ConcurrencyTab({ projectPath }: { projectPath: string | null }) {
   return (
     <div className="stack">
       <h3>Run Concurrency</h3>
+      <div className="settings-concurrency-limits">
+        <h4 className="settings-concurrency-limits-heading">Category Limits</h4>
+        <p className="text-muted text-sm" title="Global caps across all providers; planning cap reserves slots for non-planning work">
+          Global caps across all providers. Planning cap reserves slots for non-planning work (background agents, etc.).
+        </p>
+        <div className="settings-concurrency-limits-row">
+          <label className="settings-concurrency-limit-field" title="Max concurrent runs across all providers (plan + pipeline). Default 4.">
+            <span className="settings-concurrency-limit-label">Global max</span>
+            <input
+              type="number"
+              min={1}
+              max={16}
+              value={concurrencyLimits.globalMax}
+              disabled={savingLimits}
+              title="Max concurrent runs across all providers (plan + pipeline). Default 4."
+              onChange={(e) => {
+                const v = Math.max(1, Math.min(16, Number(e.target.value) || 4));
+                setConcurrencyLimitsState((prev) => ({ ...prev, globalMax: v }));
+              }}
+              onBlur={() => void saveConcurrencyLimits(concurrencyLimits)}
+            />
+          </label>
+          <label className="settings-concurrency-limit-field" title="Max concurrent planning runs. Default 3 (reserves 1 slot for non-planning).">
+            <span className="settings-concurrency-limit-label">Planning max</span>
+            <input
+              type="number"
+              min={1}
+              max={16}
+              value={concurrencyLimits.planningMax}
+              disabled={savingLimits}
+              title="Max concurrent planning runs. Default 3 (reserves 1 slot for non-planning)."
+              onChange={(e) => {
+                const v = Math.max(1, Math.min(16, Number(e.target.value) || 3));
+                setConcurrencyLimitsState((prev) => ({ ...prev, planningMax: v }));
+              }}
+              onBlur={() => void saveConcurrencyLimits(concurrencyLimits)}
+            />
+          </label>
+          {savingLimits ? <Loader2 size={12} className="is-spinning" /> : null}
+        </div>
+      </div>
+      <h4 className="settings-concurrency-limits-heading">Per-Provider Limits</h4>
       <p className="text-muted text-sm">
         Per-provider max concurrency for plan runs + subagents. Default is 1 (most providers meter concurrency).
         Project overrides take precedence over global defaults. Subagents are off by default.
@@ -2131,12 +2325,16 @@ function SkillsTab() {
   );
 }
 
-function ThemeTab() {
+function AppearanceTab() {
   const { theme, setTheme } = useTheme();
+  const [scale, setScale] = useState<UiScale>(() => getUiScale());
+  useEffect(() => subscribeUiScale(setScale), []);
   const themes: { id: AppTheme; label: string; icon: typeof Sun; title: string }[] = [
     { id: "dark", label: "Dark", icon: Moon, title: "Graphite canvas with orange accent — the default Basebuild theme." },
     { id: "light", label: "Light", icon: Sun, title: "Soft neutral canvas with deeper accent for contrast." },
   ];
+  const minScale = UI_SCALE_STEPS[0];
+  const maxScale = UI_SCALE_STEPS[UI_SCALE_STEPS.length - 1];
   return (
     <div className="stack">
       <h3>Theme</h3>
@@ -2159,6 +2357,41 @@ function ThemeTab() {
             </button>
           );
         })}
+      </div>
+      <h3>UI scale</h3>
+      <p className="text-muted text-sm">
+        Scales the whole interface proportionally — text, padding, and layout together.
+        Keyboard: CTRL+= to zoom in, CTRL+- to zoom out, CTRL+0 to reset. Stored locally.
+      </p>
+      <div className="row ui-scale-control" role="group" aria-label="UI scale">
+        <button
+          className="btn btn-sm"
+          type="button"
+          title="Decrease UI scale (CTRL+-)"
+          disabled={scale <= minScale}
+          onClick={() => stepUiScale(-1)}
+        >
+          −
+        </button>
+        <span className="mono ui-scale-value" title={`Current UI scale: ${scale}%`}>{scale}%</span>
+        <button
+          className="btn btn-sm"
+          type="button"
+          title="Increase UI scale (CTRL+=)"
+          disabled={scale >= maxScale}
+          onClick={() => stepUiScale(1)}
+        >
+          +
+        </button>
+        <button
+          className="btn btn-sm btn-ghost"
+          type="button"
+          title="Reset UI scale to 100% (CTRL+0)"
+          disabled={scale === 100}
+          onClick={() => resetUiScale()}
+        >
+          Reset
+        </button>
       </div>
     </div>
   );

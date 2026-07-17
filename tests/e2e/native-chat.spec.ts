@@ -2,6 +2,21 @@ import { expect, test, type Page } from "@playwright/test";
 import { ensureChatPanel, openFixtureProject, selectLocalProvider } from "./helpers";
 
 test.describe("native chat workspace", () => {
+  test("shows catalog readiness while preserving the chat surface", async ({ page }) => {
+    await page.addInitScript(() => {
+      (window as typeof window & { __BASEBUILD_E2E_BOOTSTRAP_DELAY_MS__?: number })
+        .__BASEBUILD_E2E_BOOTSTRAP_DELAY_MS__ = 2_000;
+    });
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+
+    const modelChip = page.locator(".chat-column-model-chip").first();
+    await expect(modelChip).toHaveAttribute("title", /Provider catalog is loading/);
+    await expect(modelChip.locator(".spin")).toBeVisible();
+    await expect(modelChip).not.toContainText("No model selected");
+    await expect(modelChip).not.toHaveAttribute("title", /Provider catalog is loading/, { timeout: 5_000 });
+  });
+
   test("creates a native chat tab and records a structured turn", async ({ page }) => {
     const consoleErrors: string[] = [];
     const pageErrors: string[] = [];
@@ -77,7 +92,7 @@ test.describe("native chat workspace", () => {
     expect(consoleErrors).toEqual([]);
   });
 
-  test.fixme("generates ideas with a connected provider and promotes one to a plan", async ({ page }) => {
+  test("keeps idea generation live in the selected chat", async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on("console", (message) => {
       if (message.type() === "error") consoleErrors.push(message.text());
@@ -89,17 +104,80 @@ test.describe("native chat workspace", () => {
     // Select the connected Umans provider and generate ideas from the overflow menu.
     await page.locator(".chat-column-model-chip").click();
     await page.locator(".provider-card", { hasText: "Umans" }).click();
-    await page.getByTitle("Idea generation actions").click();
-    await page.getByTitle("Quick freeform idea generation in the chat").click();
-    // Two idea cards render with promote actions.
-    await expect(page.locator(".chat-idea-card")).toHaveCount(2);
-    await expect(page.locator(".chat-idea-title").first()).toHaveText("Improve onboarding");
+    await page.locator(".provider-model-row", { hasText: "Umans GLM 5.2" }).first().click();
+    await page.getByTitle(/Chat input/).first().fill("/idea generate");
+    await page.getByTitle("Send message").click();
 
-    // Promote the first idea → it becomes planned and appears in the plan pipeline.
-    await page.locator(".chat-idea-card button", { hasText: "Promote" }).first().click();
-    await expect(page.locator(".chat-idea-status", { hasText: "Planned" })).toBeVisible();
+    // The first synchronous backend status event must be visible in this chat,
+    // and chat-owned generation must not consume a background-agent slot.
+    await expect(page.locator(".chat-thinking-indicator")).toBeVisible();
+    await expect(page.locator(".bg-agents-badge")).toHaveCount(0);
+    await expect(page.locator(".chat-message-assistant", { hasText: "inspect the project" })).toBeVisible();
+    await expect(page.locator(".tool-card", { hasText: "Read the project schematic" })).toBeVisible();
+
 
     expect(consoleErrors).toEqual([]);
+  });
+
+  test("opens a chat-bound background run from the full run row", async ({ page }) => {
+    await openFixtureProject(page);
+    await ensureChatPanel(page);
+    const activeChatId = await page.locator(".chat-panel").first().getAttribute("data-native-session-id");
+    if (!activeChatId) throw new Error("Active native chat is unavailable");
+
+    const backgroundChatId = await page.evaluate(async ({ activeChatId }) => {
+      const w = window as typeof window & {
+        __basebuildInvoke?: (cmd: string, args: Record<string, unknown>) => Promise<unknown>;
+        __emit?: (event: string, payload: unknown) => void;
+      };
+      const invoke = w.__basebuildInvoke;
+      if (!invoke) throw new Error("E2E fixture unavailable");
+      const activeChat = await invoke("native_chat_get", { sessionId: activeChatId }) as { projectPath: string };
+      const projectPath = activeChat.projectPath;
+      const sessions = await invoke("list_sessions", { projectPath }) as { id: string }[];
+      const sessionId = sessions[0]?.id;
+      if (!sessionId) throw new Error("Active workspace session is unavailable");
+
+      const chat = await invoke("native_chat_start", {
+        request: {
+          projectPath,
+          title: "Background plan chat",
+          providerId: "umans",
+          modelId: "umans-glm-5.2",
+          effortLevel: "medium",
+        },
+      }) as { id: string };
+      const plan = await invoke("create_plan", {
+        input: {
+          sessionId,
+          title: "Background plan",
+          description: "Inspect this run from the taskbar.",
+        },
+      }) as { id: string };
+      await invoke("plan_assign_to_chat", {
+        planId: plan.id,
+        chatSessionId: chat.id,
+      });
+      w.__emit?.("planning://event", {
+        kind: "plan_updated",
+        entityId: plan.id,
+        projectPath,
+        sessionId,
+        title: "Background plan",
+        seq: 1,
+        ts: Math.floor(Date.now() / 1000),
+      });
+      return chat.id;
+    }, { activeChatId });
+
+    const taskbarButton = page.locator(".bg-agents-btn");
+    await expect(taskbarButton).toHaveAttribute("title", "1 background agent active", { timeout: 5_000 });
+    await taskbarButton.click();
+    const running = page.locator(".bg-agents-item.is-running").filter({ hasText: "Background plan" });
+    await expect(running).toBeVisible({ timeout: 5_000 });
+    await running.getByTitle("Open the chat where this agent is working").click();
+
+    await expect(page.locator(`.chat-panel[data-native-session-id="${backgroundChatId}"]`)).toBeVisible();
   });
 
   test.fixme("handles slash commands locally", async ({ page }) => {

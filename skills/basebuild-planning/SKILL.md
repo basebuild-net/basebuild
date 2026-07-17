@@ -101,19 +101,39 @@ an idea serves as its anchor; ideas with no anchor are "outside current focus"
 
 Run in rounds until the user stops:
 
-1. Ask which category (or categories) to draw from — or freeform.
-2. Generate 5–8 ideas for the selection. Each idea, numbered:
-   - **Title** — short, imperative.
-   - One–two sentences: what, why, and the concrete grounding (real path,
-     function, or observed gap).
-   - Scoped to roughly 1–4 hours of focused work; most impactful first.
-   - Exclude anything already in `ideas/` (any status) and anything already
-     presented this session.
-3. The user picks by number. Write each pick to `ideas/<slug>.md` with
-   `status: picked` (schema.md format, grounding section required). Unpicked
-   ideas are NOT persisted unless the user asks to keep some as `concept`.
-4. Offer: more in the same category / another category / freeform / stop.
-5. On stop: summarize picks and offer Promote.
+1. Inspect current code, the schematic, every idea status, active and archived
+   plans, and recent decisions before proposing anything. Compare normalized
+   outcomes, not just titles: exclude semantically duplicate work unless the
+   new boundary is materially different and the rationale names that difference.
+2. Ask which category (or categories) to draw from — or use the focus already
+   supplied by the native Idea Studio. Do not ask the same question twice.
+3. Generate 5–8 concise, goal-aligned alternatives, strongest first. Prefer
+   fewer decision-complete options over filler. Every idea must be bounded and
+   include:
+   - a 2–5 word imperative title and one concrete user-visible outcome;
+   - real file/symbol/behavior evidence; unverified claims belong in
+     `missingEvidence`, never in grounding;
+   - an end-to-end implementation range in whole hours, including migration,
+     verification, and required cleanup, with `1 <= minHours <= maxHours`;
+   - separate 1–5 ratings: difficulty (technical complexity), impact (expected
+     goal value), risk (regression/security/operational exposure), and
+     confidence (strength of evidence), never a blended "overall" score;
+   - a short rationale tying the range and ratings to evidence and explaining
+     why the idea outranks a smaller alternative;
+   - concrete required capabilities and constraints; explicit missing evidence;
+     and at least one real alternative when a meaningful one exists.
+4. In the native app, call `propose_ideas` once with the complete batch,
+   `assessment.schemaVersion = 1`, and the exact assessment shape required by
+   the tool. Treat schema rejection as a request to repair the complete batch;
+   never fall back to an unstructured prose idea wall. Confidence 1–2 requires
+   non-empty `missingEvidence`. Never manufacture precision to raise a rating.
+5. In file-only mode, the user picks by number. Persist picks to
+   `ideas/<slug>.md` with `status: picked`; do not persist unpicked options
+   unless asked. In the native app, `propose_ideas` persists the review batch as
+   concepts and Idea Studio owns Make plan / Pass / Defer decisions.
+6. Offer: more in the same category / another category / freeform / stop.
+7. On stop: summarize decisions, unresolved evidence, and the strongest next
+   action; offer Promote without silently starting it.
 
 ## Promote — idea to plan
 
@@ -192,15 +212,21 @@ user to type a response. Use it to present clickable options instead of prose
 questions:
 
 - **Category confirmation**: after generating categories, call `ask_user` with
-  an `options` question per category (keep / rename / remove) or a single
-  `multi` question to select which to keep.
-- **Idea picking**: in the picking loop, call `ask_user` with an `options`
-  question listing the generated idea titles; mark the recommended one.
-  Fall back to numbered prose if `ask_user` is not available.
-- **Promote gate**: before promoting, call `ask_user` to confirm which ideas to
-  promote and whether to bundle.
-- **Plan approval**: before setting `status: planned`, call `ask_user` with a
-  `confirm` question to get explicit approval.
+  a focused multi-page questionnaire only when the native Idea Studio has not
+  already supplied category focus. Do not duplicate an existing UI decision.
+- **Idea review**: after `propose_ideas`, let the native Idea Review Workbench
+  own Make plan / Pass / Defer. Do not open a second questionnaire containing
+  the same titles. In file-only mode, use one options question and mark the
+  evidence-backed recommendation.
+- **Trade-off calibration**: use a typed 1–5 `rating` question only for a real
+  user preference the repository cannot answer (for example delivery urgency
+  or risk tolerance). State the endpoints; do not ask users to rate facts the
+  planner should inspect.
+- **Promote gate**: use a concise required confirmation page for which ideas to
+  promote and whether to bundle; preserve the user's prior review decisions.
+- **Plan approval**: present a final page summarizing scope, estimate range,
+  major risk, missing evidence, and verification before a required `confirm`.
+  Approval changes state; minimizing or navigating pages does not.
 
 When `ask_user` is NOT available (CLI-only sessions, no native loop), fall back
 to prose questions and wait for the user's typed response. The skill works

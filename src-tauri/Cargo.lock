@@ -263,6 +263,7 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "flate2",
  "http",
  "oauth2",
  "open",

@@ -6,7 +6,9 @@
 //! `reset` deletes the row. `list` returns the effective value (override or
 //! default) plus the default and a modified flag for the UI.
 use crate::{
-    models::planning_prompt::{PlanningPromptEntry, CATEGORY_GENERATION, CHAT_SYSTEM, IDEA_GENERATION, PLAN_GENERATION},
+    models::planning_prompt::{
+        PlanningPromptEntry, CATEGORY_GENERATION, CHAT_SYSTEM, IDEA_GENERATION, PLAN_GENERATION,
+    },
     services::{skill_registry_service::SkillRegistryService, storage_service::StorageService},
 };
 
@@ -24,9 +26,8 @@ pub struct PlanningPromptService;
 /// Resolved skill content (bundled + user, user-wins). Read once at first
 /// access via the skill registry; user-directory changes take effect on
 /// restart. The registry resolves both bundled and user `skills/` roots.
-static PLANNING_SKILL: LazyLock<Option<String>> = LazyLock::new(|| {
-    SkillRegistryService::read_content("basebuild-planning")
-});
+static PLANNING_SKILL: LazyLock<Option<String>> =
+    LazyLock::new(|| SkillRegistryService::read_content("basebuild-planning"));
 
 /// Compiled-in fallbacks used when the skill file is unavailable (e.g. running
 /// from a dev build before skills are copied). The skill file is the source of
@@ -67,21 +68,30 @@ fn default_for(key: &str) -> Option<String> {
         IDEA_GENERATION | PLAN_GENERATION | CATEGORY_GENERATION => {
             // Skill is the source of truth; fall back to compiled string if
             // the skill file is unavailable (dev without skills copied, etc.).
-            PLANNING_SKILL.as_ref().map(|s| s.as_str()).or_else(|| compiled_fallback(key)).map(|s| s.to_string())
+            PLANNING_SKILL
+                .as_ref()
+                .map(|s| s.as_str())
+                .or_else(|| compiled_fallback(key))
+                .map(|s| s.to_string())
         }
         _ => None,
     }
 }
 
 /// All known prompt keys.
-pub const ALL_KEYS: &[&str] = &[CHAT_SYSTEM, IDEA_GENERATION, PLAN_GENERATION, CATEGORY_GENERATION];
+pub const ALL_KEYS: &[&str] = &[
+    CHAT_SYSTEM,
+    IDEA_GENERATION,
+    PLAN_GENERATION,
+    CATEGORY_GENERATION,
+];
 
 impl PlanningPromptService {
     /// Get the effective prompt for a key: the saved override if present,
     /// otherwise the compiled default. Returns an error for unknown keys.
     pub fn get(key: &str) -> DbResult<String> {
-        let default = default_for(key)
-            .ok_or_else(|| format!("Unknown planning prompt key: {key}"))?;
+        let default =
+            default_for(key).ok_or_else(|| format!("Unknown planning prompt key: {key}"))?;
         let conn = StorageService::connect()?;
         let override_value: Option<String> = conn
             .query_row(
@@ -137,7 +147,9 @@ impl PlanningPromptService {
             .prepare("SELECT key, value FROM planning_prompts")
             .map_err(|e| e.to_string())?;
         let overrides: std::collections::HashMap<String, String> = stmt
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
             .map_err(|e| e.to_string())?
             .filter_map(|r| r.ok())
             .collect();
@@ -225,7 +237,10 @@ impl PlanningPromptService {
     /// Return structured grounding metadata for idea/category generation.
     /// This is the same data as `decision_digest` but in structured form,
     /// suitable for returning to the frontend.
-    pub fn grounding_metadata(session_id: &str, project_path: &str) -> crate::models::native_chat::GroundingMetadata {
+    pub fn grounding_metadata(
+        session_id: &str,
+        project_path: &str,
+    ) -> crate::models::native_chat::GroundingMetadata {
         let conn = match StorageService::connect() {
             Ok(c) => c,
             Err(_) => {
@@ -277,12 +292,11 @@ impl PlanningPromptService {
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-        let finished_plans: Vec<String> = match conn
-            .prepare(
-                "SELECT reference_id FROM plans
+        let finished_plans: Vec<String> = match conn.prepare(
+            "SELECT reference_id FROM plans
                  WHERE session_id = ?1 AND status = 'finished' AND finished_at > ?2
                  ORDER BY finished_at DESC LIMIT 10",
-            ) {
+        ) {
             Ok(mut stmt) => stmt
                 .query_map(params![session_id, schematic_mtime], |row| row.get(0))
                 .ok()
@@ -357,9 +371,13 @@ mod tests {
         let _g = crate::test_util::test::lock_db(&dir);
         let _ = StorageService::connect().unwrap();
         PlanningPromptService::set(PLAN_GENERATION, "Custom").unwrap();
-        assert!(PlanningPromptService::get(PLAN_GENERATION).unwrap().contains("Custom"));
+        assert!(PlanningPromptService::get(PLAN_GENERATION)
+            .unwrap()
+            .contains("Custom"));
         PlanningPromptService::set(PLAN_GENERATION, "   ").unwrap();
-        assert!(!PlanningPromptService::get(PLAN_GENERATION).unwrap().contains("Custom"));
+        assert!(!PlanningPromptService::get(PLAN_GENERATION)
+            .unwrap()
+            .contains("Custom"));
     }
 
     #[test]
@@ -377,8 +395,12 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let _g = crate::test_util::test::lock_db(&dir);
         let _ = StorageService::connect().unwrap();
-        let meta = PlanningPromptService::grounding_metadata("test-session-empty", "/nonexistent/path");
-        assert!(meta.digest_empty, "digest should be empty when no ideas or plans");
+        let meta =
+            PlanningPromptService::grounding_metadata("test-session-empty", "/nonexistent/path");
+        assert!(
+            meta.digest_empty,
+            "digest should be empty when no ideas or plans"
+        );
         assert_eq!(meta.picked_count, 0);
         assert_eq!(meta.rejected_count, 0);
         assert_eq!(meta.finished_plan_count, 0);
@@ -404,10 +426,14 @@ mod tests {
              ('i3', 'test-session-gm', 'Idea C', 'desc', 'rejected', 0, 0)",
             [],
         ).unwrap();
-        let meta = PlanningPromptService::grounding_metadata("test-session-gm", "/nonexistent/path");
+        let meta =
+            PlanningPromptService::grounding_metadata("test-session-gm", "/nonexistent/path");
         assert_eq!(meta.picked_count, 2);
         assert_eq!(meta.rejected_count, 1);
-        assert!(!meta.digest_empty, "digest should not be empty with picked/rejected ideas");
+        assert!(
+            !meta.digest_empty,
+            "digest should not be empty with picked/rejected ideas"
+        );
     }
 
     #[test]
@@ -418,9 +444,18 @@ mod tests {
         // Write a schematic file in the temp dir.
         let schematic_path = dir.path().join(".basebuild/project-schematic.md");
         std::fs::create_dir_all(schematic_path.parent().unwrap()).unwrap();
-        std::fs::write(&schematic_path, "# Project Schematic\n\n## Goals\n- Build the thing\n\n## Vision\nBe the best\n").unwrap();
-        let meta = PlanningPromptService::grounding_metadata("test-session-ss", dir.path().to_str().unwrap());
-        assert!(meta.schematic_sections.contains(&"Project Schematic".to_string()));
+        std::fs::write(
+            &schematic_path,
+            "# Project Schematic\n\n## Goals\n- Build the thing\n\n## Vision\nBe the best\n",
+        )
+        .unwrap();
+        let meta = PlanningPromptService::grounding_metadata(
+            "test-session-ss",
+            dir.path().to_str().unwrap(),
+        );
+        assert!(meta
+            .schematic_sections
+            .contains(&"Project Schematic".to_string()));
         assert!(meta.schematic_sections.contains(&"Goals".to_string()));
         assert!(meta.schematic_sections.contains(&"Vision".to_string()));
     }
@@ -430,7 +465,8 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let _g = crate::test_util::test::lock_db(&dir);
         let _ = StorageService::connect().unwrap();
-        let digest = PlanningPromptService::decision_digest("test-session-none", "/nonexistent/path");
+        let digest =
+            PlanningPromptService::decision_digest("test-session-none", "/nonexistent/path");
         assert!(digest.is_none(), "digest should be None when no data");
     }
 

@@ -1,4 +1,6 @@
-use crate::services::final_touches_service::{FinalTouchStep, FinalTouchStepInput, FinalTouchesService};
+use crate::services::final_touches_service::{
+    FinalTouchStep, FinalTouchStepInput, FinalTouchesService,
+};
 
 #[tauri::command]
 pub fn final_touch_list_steps(project_path: String) -> Result<Vec<FinalTouchStep>, String> {

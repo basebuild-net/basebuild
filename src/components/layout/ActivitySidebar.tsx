@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Bot,
   ChevronLeft,
   ChevronRight,
   Copy,
@@ -7,6 +8,7 @@ import {
   FileText,
   GitBranch,
   FolderPlus,
+  FlaskConical,
   LayoutTemplate,
   Loader2,
   MessageSquare,
@@ -28,6 +30,7 @@ import { StatusBar } from "./StatusBar";
 import { UpdateButton } from "./UpdateButton";
 import { RepoIcon } from "./RepoIcon";
 import { getRepoIdentity, type RepoHost, type RepoIdentity } from "../../lib/repoIdentity";
+import { humanizeChatTitle } from "../../lib/titles";
 import { getProjectAgentStatus, type AgentStatus } from "../../lib/agentStatus";
 import { nativeChatList, type NativeChatSession } from "../../lib/native-chat";
 import { getWorkspaceRestoreState } from "../../lib/workspace";
@@ -133,8 +136,8 @@ const statusWordLabel: Record<PanelStatus, string> = {
   thinking: "thinking",
   running: "running",
   asking: "asking",
-  error: "error",
-  succeeded: "done",
+  error: "failed",
+  succeeded: "finished",
 };
 
 export type ActivitySidebarProps = {
@@ -142,11 +145,15 @@ export type ActivitySidebarProps = {
   root: SplitNode | null;
   activePanelId: string | null;
   closedPanelCount: number;
+  /** Chat session ids owned by an active background agent — their rows get
+   *  the bot icon + accent styling matching the chat tab. */
+  backgroundChatIds?: Set<string>;
   projects: RecentProject[];
   account: AccountState;
   updates: UpdaterState;
   onSelectProject: (path: string) => void;
   onOpenFolder: () => void;
+  onTestRunMode?: () => void;
   onRemoveProject?: (path: string) => void;
   onOpenInExplorer?: (path: string) => void;
   onCopyProjectPath?: (path: string) => void;
@@ -279,11 +286,13 @@ export function ActivitySidebar({
   root,
   activePanelId,
   closedPanelCount,
+  backgroundChatIds,
   projects,
   account,
   updates,
   onSelectProject,
   onOpenFolder,
+  onTestRunMode,
   onRemoveProject,
   onOpenInExplorer,
   onCopyProjectPath,
@@ -419,6 +428,11 @@ export function ActivitySidebar({
           <button className="btn-icon" type="button" title={pickerInFlight ? "Opening folder picker…" : "Add project folder"} onClick={onOpenFolder} disabled={pickerInFlight}>
             <FolderPlus size={14} />
           </button>
+          {onTestRunMode ? (
+            <button className="btn-icon" type="button" title="Test Run Mode: create a test project and run the full plan lifecycle" onClick={onTestRunMode}>
+              <FlaskConical size={14} />
+            </button>
+          ) : null}
           <button className="btn-icon" type="button" title="Expand sidebar" onClick={onToggleCollapse}>
             <ChevronRight size={14} />
           </button>
@@ -449,7 +463,7 @@ export function ActivitySidebar({
   const activeBranch = activeIdentity?.branch ?? null;
   const activeHost = activeIdentity?.host ?? "folder";
   const activeAgentStatus = getProjectAgentStatus(panels.map((p) => statuses[p.id]?.status ?? "idle"));
-  function renderPanelMeta(panelId: string) {
+  function renderPanelMeta(panelId: string, backgroundAgent: boolean) {
     const entry = statuses[panelId];
     const status = entry?.status ?? "idle";
     const since = entry?.since;
@@ -458,6 +472,18 @@ export function ActivitySidebar({
         <span className="activity-sidebar-row-meta" title={`Status: ${statusWordLabel[status]}`}>
           {statusWordLabel[status]}
           <Loader2 size={9} className="is-spinning" />
+        </span>
+      );
+    }
+    // Terminal outcomes read as words, not timestamps: "finished" (green) or
+    // "Background agent failed" (red) for agent-owned chats.
+    if (status === "error" || status === "succeeded") {
+      const label = status === "error"
+        ? (backgroundAgent ? "Background agent failed" : "failed")
+        : "finished";
+      return (
+        <span className={`activity-sidebar-row-meta is-${status}`} title={`Status: ${label}`}>
+          {label}
         </span>
       );
     }
@@ -480,6 +506,11 @@ export function ActivitySidebar({
         <button className="btn-icon" type="button" title={pickerInFlight ? "Opening folder picker…" : "Add project folder"} onClick={onOpenFolder} disabled={pickerInFlight}>
           <FolderPlus size={14} />
         </button>
+        {onTestRunMode ? (
+          <button className="btn-icon" type="button" title="Test Run Mode: create a test project and run the full plan lifecycle" onClick={onTestRunMode}>
+            <FlaskConical size={14} />
+          </button>
+        ) : null}
         <button className="btn-icon" type="button" title="Collapse sidebar" onClick={onToggleCollapse}>
           <ChevronLeft size={14} />
         </button>
@@ -548,17 +579,21 @@ export function ActivitySidebar({
                   {/* Active project: show open panels (chats) underneath */}
                   {isActive && panels.length > 0 ? (
                     panels.map((panel) => {
-                      const Icon = typeIcons[panel.type] ?? FileText;
+                      const isBgPanel = !!panel.chatSessionId && !!backgroundChatIds?.has(panel.chatSessionId);
+                      const Icon = isBgPanel ? Bot : (typeIcons[panel.type] ?? FileText);
+                      const rowTitle = humanizeChatTitle(panel.title);
                       return (
                         <div
                           key={panel.id}
-                          className={`activity-sidebar-row${panel.id === activePanelId ? " is-active" : ""}`}
-                          title={panel.title}
+                          className={`activity-sidebar-row${panel.id === activePanelId ? " is-active" : ""}${isBgPanel ? " is-background-agent" : ""}`}
+                          title={isBgPanel
+                            ? `${rowTitle} — a background agent is working in this chat`
+                            : rowTitle}
                           onClick={() => onFocusPanel(panel.id)}
                         >
                           <Icon size={11} className="activity-sidebar-row-icon" />
-                          <span className="activity-sidebar-row-title">{panel.title}</span>
-                          {renderPanelMeta(panel.id)}
+                          <span className="activity-sidebar-row-title">{rowTitle}</span>
+                          {renderPanelMeta(panel.id, isBgPanel)}
                           <span className={`activity-sidebar-row-status panel-status-indicator ${statusDotClass[statuses[panel.id]?.status ?? "idle"]}`} />
                         </div>
                       );
@@ -584,7 +619,7 @@ export function ActivitySidebar({
                             onClick={() => onSelectProject(project.path)}
                           >
                             <MessageSquare size={10} className="activity-sidebar-row-icon" />
-                            <span className="activity-sidebar-project-chat-title">{session.title}</span>
+                            <span className="activity-sidebar-project-chat-title">{humanizeChatTitle(session.title)}</span>
                             {session.runState === "running" ? (
                               <span className="activity-sidebar-project-chat-running" title="Chat is running" />
                             ) : null}

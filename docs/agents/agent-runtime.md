@@ -81,12 +81,16 @@ advertise planning support or start a fake tools-capable run.
 
 ## Chat loading and streaming performance
 
-Existing-session messages, tool events, and interactions begin loading without
-waiting for provider catalog, permission, branch/worktree, or global request
-metadata. Content and reasoning fragments accumulate in order and flush to
-React once per animation frame, bounding renderer work during high-frequency
-streams. The transcript follows output while pinned to the bottom and preserves
-the reader's position after an upward scroll.
+Existing-session messages, tool events, interactions, and the persisted model
+identity begin loading without waiting for provider metadata. A single
+`native_chat_bootstrap` request resolves one cache-first catalog snapshot and
+the project model default; the model chip shows a spinner and keeps the stored
+model id visible until that request becomes `ready` or `error`. Permission,
+branch/worktree, and global request metadata also load independently. Content
+and reasoning fragments accumulate in order and flush to React once per
+animation frame, bounding renderer work during high-frequency streams. The
+transcript follows output while pinned to the bottom and preserves the reader's
+position after an upward scroll.
 
 The context circle uses the latest completed metric for the current session
 (`input_tokens + output_tokens`) against the selected model's `contextWindow`.
@@ -159,14 +163,18 @@ the effort selector.
 
 ## In-chat idea generation
 
-`native_generate_ideas` runs idea generation as a chat turn through the agent
-loop. The conversation plus the project schematic is sent to a **configured**
-provider with a category-aware system prompt. A `propose_ideas` tool is exposed
-to the agent loop; when the model calls it, each idea is persisted via the
-existing ideas store (`create_idea`) and rendered incrementally as a card in
-the chat transcript. A fallback structured-output parser captures ideas if the
-model emits proposal-shaped JSON in its text response instead of calling the
-tool.
+`native_generate_ideas` runs the bundled `basebuild-planning` skill through the
+native agent loop. The destination chat exclusively owns cancellation,
+streaming, messages, and tool-event cards; chat-native idea turns do not create
+pipeline-run or Background agents entries. The planning session separately owns
+categories, rounds, and captured ideas. Before invoking the backend, the chat
+waits for its chunk and tool-event subscriptions so immediate provider activity
+cannot race ahead of the transcript; remounts recover persisted running
+messages and tool events. The visible user turn is a compact
+`/skill:basebuild-planning` invocation. The model receives conversation,
+schematic, category, and direction context in the internal system prompt, then
+must call `propose_ideas` to persist structured output. Disconnected, OMP-only,
+and non-tool-capable model routes stop with a capability-specific setup result.
 
 Idea generation is **schematic-grounded** (schematic-grounded-planning):
 - Generation system prompts derive from the bundled `basebuild-planning` skill
@@ -193,6 +201,16 @@ hidden from the active concept list. The offline local coordinator does not
 fabricate ideas — with no configured provider the command returns a setup
 prompt. Categories organize ideas and can be managed in the Planning Inspector.
 
+Idea and plan cards can request a local execution assessment. The assessment
+combines the work's structured scope, duration, difficulty, uncertainty, risk,
+and parallelism with the currently available provider/model routes. The
+`ExecutionAdvisorService` applies hard capability/context/capacity gates before
+scoring planner and coder candidates. It returns alternatives, exclusions,
+factor explanations, evidence freshness, and confidence; a missing or stale
+signal lowers confidence and never becomes an invented zero or unlimited
+capacity. Recommendations are advisory: the user must explicitly apply or
+override a route, and refresh never launches work.
+
 ## Defaults
 
 `RuntimeDefaults` (persisted in SQLite):
@@ -210,6 +228,9 @@ prompt. Categories organize ideas and can be managed in the Planning Inspector.
 - `allowUsageAnalyticsCollection`: default `false`.
 - `allowUsageAnalyticsUpload`: default `false`.
 - `allowDetailedDiagnostics`: default `false`.
+- Execution recommendation feedback has separate consent, defaults to `false`,
+  and also requires analytics collection before a bounded event can be queued
+  and analytics upload before it can leave the device.
 
 Permission checks happen before backend action, not only in UI. All permission
 decisions are recorded in the audit trail.
@@ -418,14 +439,18 @@ Every activity item carries:
 
 ### Blocking questions and approvals
 
-`question` and `approval` cards render inline in their owning surface (Schematic
-or planning) and visibly block the run. The run resumes the exact pending turn
-once, after the user answers or resolves the approval gate; duplicate or stale
-answers are ignored.
+Pending questions move into the composer-owned `.interaction-workbench`, disable
+the normal message input, and visibly block their run. One interaction may have
+multiple pages; Next validates the current page and Back preserves answers.
+Rating prompts use a keyboard-accessible five-level scale. Exit collapses the
+workbench to a compact pending preview without answering; reopening restores the
+same page and values. After submission, the transcript keeps a compact answered
+summary that can reopen read-only detail. The backend resumes the exact pending
+turn once; duplicate or stale answers are ignored.
 
 ## Tool Runtime
 
-The `ToolRuntimeService` provides six built-in tools:
+The `ToolRuntimeService` provides seven built-in tools:
 
 | Tool | Kind | Description |
 |------|------|-------------|
@@ -435,10 +460,18 @@ The `ToolRuntimeService` provides six built-in tools:
 | `list_files` | ReadOnly | Glob-based file listing |
 | `search_files` | ReadOnly | Rust regex content search, workspace-scoped |
 | `run_command` | Mutating | Supervised child process with timeout and output capping |
+| `get_execution_advice` | ReadOnly | Return a bounded local planner/coder route recommendation for one persisted plan or idea |
 
 All file tools enforce workspace scoping: paths are canonicalized and
 symlink-resolved before a prefix check against the project root. Denials are
 recorded as audit events.
+
+`get_execution_advice` is allowlisted output, not a general planning-data read.
+It excludes credentials, account ids, project/source text, paths, messages,
+questionnaire answers, raw usage, diffs, and logs. Local UI advice remains
+available without external-context permission; returning advice to an external
+provider crosses that provider boundary and preserves the
+`allowExternalContext` gate.
 
 ## Approval Gateway
 
@@ -616,8 +649,8 @@ never as chat prose alone:
   categoryId?, anchor?}` and persists each as an idea row. `grounding`
   (concrete evidence) is required; captures without it are rejected.
   `anchor` optionally names the schematic element served.
-- Fallback: if the model emits idea-shaped JSON in its text response
-  instead of calling the tool, the structured-output parser captures them.
+- Prose or JSON in the assistant response is not parsed as a hidden fallback;
+  the `propose_ideas` tool is the single structured-capture contract.
 - Promoted ideas create a draft plan (tagged `chat:<id>`). Rejected ideas
   persist for history (append-only across regenerations).
 - Idea state reloads with the session across restarts.
@@ -637,21 +670,25 @@ get/set/reset/list operations.
 
 ## Planning Inspector
 
-The project Planning modal is a five-tab inspector:
+The project Planning modal is a six-tab coordinator:
 
-- **Plans** — the existing plan pipeline (edit, focus, queue). The blank/manual
-  Create plan affordance, Generate plans modal, and input boxes are removed;
-  generation begins from AI ideas and existing plan metadata remains editable.
-- **Ideas** — filterable idea history (all/concept/picked/rejected/archived)
-  with promote, reject, and delete actions. Each idea card shows its
-  `grounding` evidence and `anchor` (or an "outside current focus" flag when
-  no anchor is set).
-- **Categories** — list with idea counts, drill-down detail, add-category
-  form, and "Suggest more ideas" which opens a chat turn scoped to the
-  category. The empty state offers "Generate categories from project"
-  (no hardcoded seeds).
-- **Flow** — lifecycle counts, launch policy, run board, and merge queue.
-- **Changes** — the OpenSpec change catalog.
+- **Plans** — draft plans expose an explicit **Generate OpenSpec** action.
+  Artifact generation must succeed before status becomes `openspec`; a separate
+  **Approve plan** validation action moves the plan to `ready`. Planner and
+  coding provider/model routes are labeled independently.
+- **Ideas** — filterable idea history plus guided rounds. A round accepts
+  multiple categories (or project-wide scope), requests five to eight ideas
+  with eight as the default, then uses the shared destination picker for an
+  existing or dedicated new chat. Selected ideas become independent draft
+  plans; generating more starts another reviewable round.
+- **Categories** — category counts, drill-down, creation, and scoped idea
+  generation.
+- **Flow** — live stage counts, launch profile, queue controls, completion
+  review, merge review, and archive/sync navigation. Stage cards drill into
+  their owning tab rather than invoking placeholder actions.
+- **Runs** — mission-control cards for owner chat, branch/worktree, checklist
+  progress, elapsed time, blockers, attention, and supported run controls.
+- **Changes** — the OpenSpec change catalog and explicit archive actions.
 
 A schematic health badge appears in the inspector header when health is not
 `complete`, with a tooltip naming incomplete sections.

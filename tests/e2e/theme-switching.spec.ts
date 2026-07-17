@@ -8,7 +8,7 @@ test.describe("Theme switching via Settings", () => {
     if (await settingsBtn.isVisible()) {
       await settingsBtn.click();
       // Look for the Theme tab
-      const themeTab = page.locator(".settings-tab", { hasText: "Theme" });
+      const themeTab = page.locator(".settings-tab", { hasText: "Appearance" });
       await expect(themeTab).toBeVisible({ timeout: 5000 });
     }
   });
@@ -27,7 +27,7 @@ test.describe("Theme switching via Settings", () => {
     const settingsBtn = page.locator('[title*="Settings"], [title*="settings"]').first();
     if (await settingsBtn.isVisible()) {
       await settingsBtn.click();
-      const themeTab = page.locator(".settings-tab", { hasText: "Theme" });
+      const themeTab = page.locator(".settings-tab", { hasText: "Appearance" });
       if (await themeTab.isVisible({ timeout: 3000 })) {
         await themeTab.click();
         // Click the Light theme button
@@ -59,7 +59,7 @@ test.describe("Theme switching via Settings", () => {
     const settingsBtn = page.locator('[title*="Settings"], [title*="settings"]').first();
     if (await settingsBtn.isVisible()) {
       await settingsBtn.click();
-      const themeTab = page.locator(".settings-tab", { hasText: "Theme" });
+      const themeTab = page.locator(".settings-tab", { hasText: "Appearance" });
       if (await themeTab.isVisible({ timeout: 3000 })) {
         await themeTab.click();
         // Click the Dark theme button

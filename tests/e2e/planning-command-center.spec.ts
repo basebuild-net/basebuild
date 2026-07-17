@@ -46,11 +46,13 @@ test.describe("Visual planning command center", () => {
     const flowTab = page.locator(".inspector-tab", { hasText: "Flow" }).first();
     await flowTab.click();
 
-    // Primary actions should be visible.
+    // Every visible action is wired to a concrete coordinator surface.
     await expect(page.locator(".planning-command-actions button", { hasText: "Generate ideas" })).toBeVisible();
-    await expect(page.locator(".planning-command-actions button", { hasText: "Run through OpenSpec" })).toBeVisible();
-    await expect(page.locator(".planning-command-actions button", { hasText: "Add worker" })).toBeVisible();
+    await expect(page.locator(".planning-command-actions button", { hasText: "Review ideas" })).toBeVisible();
+    await expect(page.getByTitle("Review finished runs awaiting review")).toBeVisible();
     await expect(page.locator(".planning-command-actions button", { hasText: "Archive/Sync" })).toBeVisible();
+    await page.locator(".planning-stage-card", { hasText: "Running" }).click();
+    await expect(page.locator(".inspector-tab.is-active", { hasText: "Runs" })).toBeVisible();
   });
 
   test("stage cards have title tooltips with count and action", async ({ page }) => {
@@ -68,5 +70,43 @@ test.describe("Visual planning command center", () => {
       expect(title).toBeTruthy();
       expect(title!.length).toBeGreaterThan(0);
     }
+  });
+
+  test("ideas indicator provides complete quick management actions", async ({ page }) => {
+    await openFixtureProject(page);
+
+    await page.locator(".planning-indicator[data-stage='ideas']").click();
+    const dropdown = page.locator(".planning-notification-dropdown[data-stage='ideas']");
+    await expect(dropdown).toBeVisible();
+    await expect(
+      dropdown.getByRole("button", { name: "Generate more ideas" }),
+    ).toBeVisible();
+
+    await dropdown.getByRole("button", { name: "New idea" }).click();
+    await dropdown.getByTitle("Create idea title").fill("Quick menu idea");
+    await dropdown.getByTitle("Create idea description").fill("Created without opening the full planning modal.");
+    await dropdown.getByRole("button", { name: "Create", exact: true }).click();
+    await expect(dropdown.locator(".planning-notification-item-title")).toHaveText("Quick menu idea");
+
+    await dropdown.locator(".planning-notification-item-open", { hasText: "Quick menu idea" }).click();
+    await dropdown.getByTitle("Edit idea title").fill("Updated quick menu idea");
+    await dropdown.getByTitle("Save idea changes").click();
+    await expect(dropdown.locator(".planning-notification-item-title")).toHaveText("Updated quick menu idea");
+
+    // All row actions live in the shared `…` menu (portaled to the body).
+    await dropdown.getByTitle("More actions for Updated quick menu idea").click();
+    const menu = page.locator(".context-menu-portal");
+    await menu.getByRole("menuitem", { name: "Upgrade to plan" }).click();
+    await expect(dropdown.locator(".planning-quick-idea[data-status='picked']")).toHaveCount(1);
+    await expect(page.locator(".planning-indicator[data-stage='plans']")).toHaveAttribute("title", /Plans: 1/);
+
+    // Delete is a two-step confirm inside the menu.
+    await dropdown.getByTitle("More actions for Updated quick menu idea").click();
+    await menu.getByRole("menuitem", { name: "Delete idea" }).click();
+    await menu.getByRole("menuitem", { name: "Confirm delete" }).click();
+    await expect(dropdown.locator(".planning-quick-idea")).toHaveCount(0);
+
+    await dropdown.getByRole("button", { name: "Generate more ideas" }).click();
+    await expect(page.getByRole("dialog", { name: "Schematic incomplete" })).toBeVisible();
   });
 });

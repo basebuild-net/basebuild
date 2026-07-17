@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ensureChatPanel, openMvpFixtureProject, waitForAppReady } from "./helpers";
+import { ensureChatPanel, openMvpFixtureProject, openPlanningModal, waitForAppReady } from "./helpers";
 
 /** Get the native session id from the chat panel's data attribute. */
 async function getNativeSessionId(page: Page): Promise<string> {
@@ -102,13 +102,179 @@ test.describe("Agent status indicators", () => {
     }, { sessionId });
 
     // Project dot bounces as questioning; the panel row dot shows asking.
-    await expect(page.locator(".question-card-pending")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".interaction-workbench")).toBeVisible({ timeout: 5_000 });
     await expect(activeDot).toHaveClass(/agent-status-questioning/, { timeout: 5_000 });
     await expect(page.locator(".activity-sidebar-row-status.panel-status-asking").first()).toBeVisible({ timeout: 5_000 });
 
     // Answering the question clears the questioning state.
-    await page.locator(".question-card-option", { hasText: "Yes" }).click();
-    await page.locator(".question-card-actions button", { hasText: "Submit" }).click();
+    await page.getByRole("button", { name: "Yes" }).click();
+    await page.getByRole("button", { name: "Submit answers" }).click();
     await expect(activeDot).not.toHaveClass(/agent-status-questioning/, { timeout: 5_000 });
+  });
+
+  test("closed plan chat stays active and reopens at needs input", async ({ page }) => {
+    await openMvpFixtureProject(page);
+    await waitForAppReady(page);
+    await ensureChatPanel(page);
+    const chatSessionId = await getNativeSessionId(page);
+
+    await page.evaluate(({ chatSessionId }) => {
+      const state = (globalThis as {
+        __BASEBUILD_E2E_STATE__?: {
+          sessions: { id: string; projectPath: string }[];
+          nativeChatSessions: { id: string; projectPath: string; runState: string }[];
+          planRuns: {
+            id: string;
+            planId: string;
+            sessionId: string;
+            chatSessionId: string;
+            status: string;
+            runnerKind: string;
+            stepsOutput: unknown[];
+            startedAt: number;
+            createdAt: number;
+          }[];
+        };
+      }).__BASEBUILD_E2E_STATE__;
+      if (!state) return;
+      const chat = state.nativeChatSessions.find((candidate) => candidate.id === chatSessionId);
+      if (!chat) return;
+      chat.runState = "needs_input";
+      for (const session of state.sessions) {
+        state.planRuns.push({
+          id: `run-needs-input-${session.id}`,
+          planId: "plan-fixture",
+          sessionId: session.id,
+          chatSessionId,
+          status: "running",
+          runnerKind: "native",
+          stepsOutput: [],
+          startedAt: Math.floor(Date.now() / 1000),
+          createdAt: Date.now(),
+        });
+      }
+    }, { chatSessionId });
+
+    const owningPanel = page.locator(`.chat-panel[data-native-session-id="${chatSessionId}"]`);
+    await owningPanel.getByTitle("More actions").click();
+    await page.getByRole("button", { name: "Close chat", exact: true }).click();
+    await expect(owningPanel).toHaveCount(0);
+
+    await page.getByTitle(/background agents?/i).click();
+    const needsInput = page.locator(".bg-agents-item.is-needs-input").first();
+    await expect(needsInput).toBeVisible({ timeout: 5_000 });
+    await expect(needsInput.locator(".bg-agents-item-kind")).toHaveText("Needs input");
+    await needsInput.locator(".bg-agents-item-open").click();
+
+    const reopened = page.locator(`.chat-panel[data-native-session-id="${chatSessionId}"]`);
+    await expect(reopened).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("active run prevents permanent deletion of its owning chat", async ({ page }) => {
+    await openMvpFixtureProject(page);
+    await waitForAppReady(page);
+    await ensureChatPanel(page);
+    const chatSessionId = await getNativeSessionId(page);
+
+    await page.evaluate(({ chatSessionId }) => {
+      const state = (globalThis as {
+        __BASEBUILD_E2E_STATE__?: {
+          sessions: { id: string }[];
+          nativeChatSessions: { id: string; runState: string }[];
+          planRuns: {
+            id: string;
+            planId: string;
+            sessionId: string;
+            chatSessionId: string;
+            status: string;
+            runnerKind: string;
+            stepsOutput: unknown[];
+            startedAt: number;
+            createdAt: number;
+          }[];
+        };
+      }).__BASEBUILD_E2E_STATE__;
+      if (!state) return;
+      const chat = state.nativeChatSessions.find((candidate) => candidate.id === chatSessionId);
+      if (chat) chat.runState = "running";
+      for (const session of state.sessions) {
+        state.planRuns.push({
+          id: `run-delete-guard-${session.id}`,
+          planId: "plan-fixture",
+          sessionId: session.id,
+          chatSessionId,
+          status: "running",
+          runnerKind: "native",
+          stepsOutput: [],
+          startedAt: Math.floor(Date.now() / 1000),
+          createdAt: Date.now(),
+        });
+      }
+    }, { chatSessionId });
+
+    const owningPanel = page.locator(`.chat-panel[data-native-session-id="${chatSessionId}"]`);
+    await owningPanel.getByTitle("More actions").click();
+    await page.getByRole("button", { name: "Close chat and delete session" }).click();
+
+    await expect(owningPanel).toBeVisible();
+    await expect(page.getByText("Chat owns active work")).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("stale native run is reviewable and never counted as running", async ({ page }) => {
+    await openMvpFixtureProject(page);
+    await waitForAppReady(page);
+    await ensureChatPanel(page);
+    const chatSessionId = await getNativeSessionId(page);
+
+    await page.evaluate(({ chatSessionId }) => {
+      const state = (globalThis as {
+        __BASEBUILD_E2E_STATE__?: {
+          sessions: { id: string; projectPath: string }[];
+          nativeChatSessions: { id: string; runState: string }[];
+          planRuns: {
+            id: string;
+            planId: string;
+            sessionId: string;
+            chatSessionId: string;
+            status: string;
+            runnerKind: string;
+            stepsOutput: unknown[];
+            startedAt: number;
+            createdAt: number;
+          }[];
+        };
+      }).__BASEBUILD_E2E_STATE__;
+      if (!state) return;
+      const chat = state.nativeChatSessions.find((candidate) => candidate.id === chatSessionId);
+      if (!chat) return;
+      chat.runState = "idle";
+      for (const session of state.sessions) {
+        state.planRuns.push({
+          id: `run-stale-owner-${session.id}`,
+          planId: "plan-stale-owner",
+          sessionId: session.id,
+          chatSessionId,
+          status: "running",
+          runnerKind: "native",
+          stepsOutput: [],
+          startedAt: Math.floor(Date.now() / 1000),
+          createdAt: Date.now(),
+        });
+      }
+    }, { chatSessionId });
+
+    await page.getByTitle(/background agents?/i).click();
+    await expect(page.locator(".bg-agents-summary")).toHaveText("Nothing running");
+    const reviewable = page.locator(".bg-agents-item.is-awaiting-review").first();
+    await expect(reviewable).toBeVisible({ timeout: 5_000 });
+    await expect(reviewable.locator(".bg-agents-item-kind")).toHaveText("Awaiting review");
+    await page.locator(".bg-agents-panel").getByTitle("Close").click();
+    await openPlanningModal(page);
+    const modal = page.locator('.modal-overlay[aria-label="Plans & Ideas"]');
+    await modal.getByRole("button", { name: "Flow", exact: true }).click();
+    const running = modal.locator(".planning-stage-card", { hasText: "Running" });
+    await expect(running.locator(".planning-stage-count")).toHaveText("0");
+    const review = modal.locator(".planning-stage-card", { hasText: "Review" });
+    await expect(review.locator(".planning-stage-count")).toHaveText("2");
   });
 });

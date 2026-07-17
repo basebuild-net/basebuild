@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { openMvpFixtureProject, waitForAppReady } from "./helpers";
+import { parseImplementationAssessment } from "../../src/lib/planning-assessment";
 
 async function openFixtureProject(page: Page) {
   await page.addInitScript(() => {
@@ -31,6 +33,20 @@ async function injectInteraction(page: Page, interaction: Record<string, unknown
   }, { interaction, sessionId });
 }
 
+test("shared planning contract fixture parses in TypeScript", () => {
+  const fixture = JSON.parse(
+    readFileSync(new URL("../fixtures/planning-contract-v1.json", import.meta.url), "utf8"),
+  ) as Record<string, unknown>;
+  expect(Object.keys(fixture).sort()).toEqual([
+    "assessmentV1",
+    "interactionV1",
+    "legacyInteraction",
+    "modelProfilesV1",
+  ]);
+  expect(parseImplementationAssessment(fixture.assessmentV1)?.confidence).toBe(4);
+  expect(parseImplementationAssessment({ ...fixture.assessmentV1 as object, confidence: 6 })).toBeUndefined();
+});
+
 test.describe("Interactive elements: ask_user question card", () => {
   test("agent asks → card renders → click option → answered state persists", async ({ page }) => {
     await openFixtureProject(page);
@@ -55,24 +71,24 @@ test.describe("Interactive elements: ask_user question card", () => {
       createdAt: Math.floor(Date.now() / 1000),
     }, sessionId);
 
-    // The QuestionCard should render with the prompt and options.
-    await expect(page.locator(".question-card-pending")).toBeVisible({ timeout: 5_000 });
-    await expect(page.locator(".question-card-prompt", { hasText: "Which approach" })).toBeVisible();
-    await expect(page.locator(".question-card-option", { hasText: "Option A" })).toBeVisible();
-    await expect(page.locator(".question-card-option", { hasText: "Option B" })).toBeVisible();
+    // The pending interaction takes over the composer as the focused workbench.
+    await expect(page.locator(".interaction-workbench")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".interaction-question-heading", { hasText: "Which approach" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Option A/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Option B/ })).toBeVisible();
+    await expect(page.locator(".interaction-option-recommended")).toBeVisible();
 
-    // The recommended option should be marked.
-    await expect(page.locator(".question-card-recommended")).toBeVisible();
+    await page.getByRole("button", { name: /Option A/ }).click();
+    await page.getByRole("button", { name: "Submit answers" }).click();
 
-    // Click Option A to select it.
-    await page.locator(".question-card-option", { hasText: "Option A" }).click();
-
-    // Submit the answer.
-    await page.locator(".question-card-actions button", { hasText: "Submit" }).click();
-
-    // The card should transition to answered state.
+    // Answered interactions collapse into a read-only transcript preview.
     await expect(page.locator(".question-card-success")).toBeVisible({ timeout: 5_000 });
-    await expect(page.locator(".question-card-status", { hasText: "Answered" })).toBeVisible();
+    await expect(page.locator(".question-card-success")).toContainText("Answered");
+    await page.locator(".question-card-success").click();
+    await expect(page.locator(".interaction-workbench.is-read-only")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Submit answers" })).toHaveCount(0);
+    await expect(page.locator(".interaction-answer-value")).toContainText("Option A");
+    await page.getByTitle("Close questionnaire detail").click();
   });
 
   test("cancel resolves pending card", async ({ page }) => {
@@ -98,18 +114,17 @@ test.describe("Interactive elements: ask_user question card", () => {
       createdAt: Math.floor(Date.now() / 1000),
     }, sessionId);
 
-    // The QuestionCard should render.
-    await expect(page.locator(".question-card-pending")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".interaction-workbench")).toBeVisible({ timeout: 5_000 });
 
-    // Click Cancel.
-    await page.locator(".question-card-actions button", { hasText: "Cancel" }).click();
+    // Cancellation is confirmation-gated.
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await page.getByRole("button", { name: "Confirm cancel" }).click();
 
-    // The card should transition to cancelled state.
     await expect(page.locator(".question-card-muted")).toBeVisible({ timeout: 5_000 });
-    await expect(page.locator(".question-card-status", { hasText: "Cancelled" })).toBeVisible();
+    await expect(page.locator(".question-card-muted")).toContainText("Cancelled");
   });
 
-  test("text question captures composer with answering indicator", async ({ page }) => {
+  test("text question hides the composer and answers in the card", async ({ page }) => {
     await openFixtureProject(page);
     const sessionId = await getNativeSessionId(page);
 
@@ -128,19 +143,16 @@ test.describe("Interactive elements: ask_user question card", () => {
       createdAt: Math.floor(Date.now() / 1000),
     }, sessionId);
 
-    // The answering banner should appear above the composer.
-    await expect(page.locator(".chat-answering-banner")).toBeVisible({ timeout: 5_000 });
-    await expect(page.locator(".chat-answering-text", { hasText: "Answering" })).toBeVisible();
-
-    // The QuestionCard should also render with a text input.
-    await expect(page.locator(".question-card-input")).toBeVisible();
+    // A pending question replaces the normal composer with focused controls.
+    await expect(page.locator(".interaction-workbench .interaction-answer-input")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".chat-input")).toHaveCount(0);
+    await expect(page.locator(".chat-composer-locked")).toHaveCount(0);
+    await expect(page.locator(".chat-answering-banner")).toHaveCount(0);
   });
 
-  test("pending question is docked above the composer and always reachable", async ({ page }) => {
-    // Regression: the pending question card lived inline in the transcript and
-    // scrolled out of view behind streamed content, leaving only the cryptic
-    // "/send to escape" banner. It now docks above the composer, outside the
-    // scroll container, so its controls are always on screen.
+  test("pending question replaces the composer and remains reachable", async ({ page }) => {
+    // Regression: pending controls used to live in the transcript and could
+    // scroll out of view. The focused workbench occupies the composer slot.
     await openFixtureProject(page);
     const sessionId = await getNativeSessionId(page);
 
@@ -160,24 +172,118 @@ test.describe("Interactive elements: ask_user question card", () => {
       createdAt: Math.floor(Date.now() / 1000),
     }, sessionId);
 
-    // The pending card renders inside the dock (a sibling of the scroll
-    // container, not inside it) and is in the viewport.
-    const dockedCard = page.locator(".chat-question-dock .question-card-pending");
-    await expect(dockedCard).toBeVisible({ timeout: 5_000 });
-    await expect(dockedCard).toBeInViewport({ timeout: 5_000 });
+    const focusedWorkbench = page.locator(".chat-interaction-workbench-slot .interaction-workbench");
+    await expect(focusedWorkbench).toBeVisible({ timeout: 5_000 });
+    await expect(focusedWorkbench).toBeInViewport({ timeout: 5_000 });
 
-    // The dock is NOT inside the scrollable transcript.
-    const dockOutsideScroller = await page.evaluate(() => {
-      const dock = document.querySelector(".chat-question-dock");
+    // The workbench is not inside the scrollable transcript.
+    const workbenchOutsideScroller = await page.evaluate(() => {
+      const workbench = document.querySelector(".chat-interaction-workbench-slot");
       const scroller = document.querySelector(".chat-messages");
-      return !!dock && !!scroller && !scroller.contains(dock);
+      return !!workbench && !!scroller && !scroller.contains(workbench);
     });
-    expect(dockOutsideScroller).toBe(true);
+    expect(workbenchOutsideScroller).toBe(true);
 
-    // Its Submit control is clickable and resolves the question.
-    await page.locator(".question-card-option", { hasText: "Next.js" }).click();
-    await page.locator(".question-card-actions button", { hasText: "Submit" }).click();
+    await page.getByRole("button", { name: /Next.js/ }).click();
+    await page.getByRole("button", { name: "Submit answers" }).click();
     await expect(page.locator(".question-card-success")).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("question workbench minimizes and restores the pending draft", async ({ page }) => {
+    await openFixtureProject(page);
+    const sessionId = await getNativeSessionId(page);
+    await injectInteraction(page, {
+      id: "test-intr-minimize",
+      title: "Choose the implementation",
+      description: "The agent is waiting for this decision.",
+      questions: [{
+        id: "q1",
+        prompt: "What matters most?",
+        kind: "text",
+        required: true,
+        options: [],
+        allowFreeText: true,
+      }],
+      status: "pending",
+      createdAt: Math.floor(Date.now() / 1000),
+    }, sessionId);
+
+    const workbench = page.locator(".interaction-workbench");
+    await expect(workbench).toBeVisible({ timeout: 5_000 });
+    await workbench.locator("textarea, input").fill("Reliable recovery");
+    await workbench.getByTitle("Minimize questionnaire").click();
+    await expect(page.locator(".chat-question-preview")).toContainText("Choose the implementation");
+    await expect(page.locator(".chat-input")).toBeVisible();
+    await page.locator(".chat-question-preview").click();
+    await expect(workbench.locator("textarea, input")).toHaveValue("Reliable recovery");
+  });
+
+  test("multi-page questionnaire returns a typed five-star rating", async ({ page }) => {
+    await openFixtureProject(page);
+    const sessionId = await getNativeSessionId(page);
+    await injectInteraction(page, {
+      id: "test-intr-pages",
+      title: "Review the proposal",
+      questions: [
+        {
+          id: "scope",
+          prompt: "Approve the proposed scope?",
+          kind: "confirm",
+          pageId: "scope-page",
+          pageTitle: "Scope",
+          required: true,
+          options: [{ label: "Approve" }, { label: "Revise" }],
+          recommended: 0,
+        },
+        {
+          id: "confidence",
+          prompt: "How confident are you?",
+          kind: "rating",
+          pageId: "rating-page",
+          pageTitle: "Confidence",
+          required: true,
+          scale: { min: 1, max: 5, lowLabel: "Low", highLabel: "High", style: "stars" },
+          options: [],
+        },
+      ],
+      status: "pending",
+      createdAt: Math.floor(Date.now() / 1000),
+    }, sessionId);
+
+    await expect(page.locator(".interaction-workbench-progress")).toContainText("1 of 2");
+    await page.getByRole("button", { name: "Approve" }).click();
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(page.locator(".interaction-workbench-progress")).toContainText("2 of 2");
+    await page.getByRole("radio", { name: "4 of 5" }).click();
+    await page.getByRole("button", { name: "Submit answers" }).click();
+    await expect(page.locator(".question-card-success")).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("workbench remains usable in light theme at compact width", async ({ page }) => {
+    await page.setViewportSize({ width: 720, height: 640 });
+    await page.addInitScript(() => localStorage.setItem("basebuild.theme", "light"));
+    await openFixtureProject(page);
+    const sessionId = await getNativeSessionId(page);
+    await injectInteraction(page, {
+      id: "test-intr-compact",
+      title: "Compact questionnaire",
+      questions: [{
+        id: "q1",
+        prompt: "Choose a responsive option",
+        kind: "options",
+        options: [{ label: "First", description: "First choice" }, { label: "Second", description: "Second choice" }],
+        required: true,
+      }],
+      status: "pending",
+      createdAt: Math.floor(Date.now() / 1000),
+    }, sessionId);
+
+    await expect(page.locator("html")).toHaveAttribute("data-bb-theme", "light");
+    const workbench = page.locator(".interaction-workbench");
+    await expect(workbench).toBeVisible({ timeout: 5_000 });
+    await expect(workbench).toBeInViewport();
+    expect(await workbench.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    expect(await page.locator(".interaction-option-grid").evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(1);
   });
 });
 
@@ -246,12 +352,12 @@ test.describe("Planning model regression: tool → question → capture → comp
       createdAt: Math.floor(Date.now() / 1000),
     } });
 
-    // The question card should render inline (blocking the run).
-    await expect(page.locator(".question-card-pending")).toBeVisible({ timeout: 5_000 });
+    // The question workbench should replace the composer and block the run.
+    await expect(page.locator(".interaction-workbench")).toBeVisible({ timeout: 5_000 });
 
     // Step 3: answer the question (captures structured output).
-    await page.locator(".question-card-option", { hasText: "Next.js" }).click();
-    await page.locator(".question-card-actions button", { hasText: "Submit" }).click();
+    await page.getByRole("button", { name: /Next.js/ }).click();
+    await page.getByRole("button", { name: "Submit answers" }).click();
 
     // The answer is captured.
     await expect(page.locator(".question-card-success")).toBeVisible({ timeout: 5_000 });

@@ -29,17 +29,16 @@ pub async fn agent_send(
 }
 
 #[tauri::command]
-pub fn agent_stop(
-    state: State<'_, std::sync::Mutex<AgentManager>>,
-    id: u64,
-) -> Result<(), String> {
+pub fn agent_stop(state: State<'_, std::sync::Mutex<AgentManager>>, id: u64) -> Result<(), String> {
     let mut manager = state.lock().map_err(|e| format!("Lock error: {e}"))?;
     manager.stop(id)
 }
 
 /// Returns the capabilities supported by a given runtime profile.
 #[tauri::command]
-pub fn agent_capabilities(profile_id: String) -> Result<Vec<crate::models::runtime::AgentCapability>, String> {
+pub fn agent_capabilities(
+    profile_id: String,
+) -> Result<Vec<crate::models::runtime::AgentCapability>, String> {
     let profiles = crate::services::settings_service::SettingsService::list_profiles()?;
     let profile = profiles
         .into_iter()

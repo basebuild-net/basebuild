@@ -3,6 +3,7 @@ import {
   createPlan as createPlanApi,
   deletePlan as deletePlanApi,
   listPlans,
+  listProjectPlans,
   setPlanContext as setPlanContextApi,
   setPlanStatus as setPlanStatusApi,
   updatePlan as updatePlanApi,
@@ -25,34 +26,36 @@ export type PlansState = {
 };
 
 
-export function usePlans(sessionId: string | null): PlansState {
+export function usePlans(sessionId: string | null, projectPath?: string | null): PlansState {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(false);
 
   const refreshPlans = useCallback(async () => {
-    if (!sessionId) {
+    if (!projectPath && !sessionId) {
       setPlans([]);
       return;
     }
     setLoading(true);
     try {
-      const list = await listPlans(sessionId);
-      setPlans(list);
+      setPlans(
+        projectPath
+          ? await listProjectPlans(projectPath)
+          : await listPlans(sessionId!),
+      );
     } catch {
       setPlans([]);
     } finally {
       setLoading(false);
     }
-  }, [sessionId]);
-
+  }, [projectPath, sessionId]);
   const createPlan = useCallback(
     async (plan: NewPlan) => {
       if (!sessionId) return null;
       const created = await createPlanApi(sessionId, plan);
-      setPlans((prev) => [created, ...prev]);
+      await refreshPlans();
       return created;
     },
-    [sessionId],
+    [refreshPlans, sessionId],
   );
 
   const updatePlan = useCallback(

@@ -6,6 +6,7 @@ import {
   Command,
   GitBranch,
   GitPullRequest,
+  Loader2,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -31,6 +32,8 @@ type PlanBadge = {
 type ChatHeaderProps = {
   modelChip: string;
   modelId: string;
+  modelCatalogStatus: "loading" | "refreshing" | "ready" | "stale" | "error";
+  modelCatalogError?: string | null;
   effortChip: string;
   effortOptions: Array<{ id: string; label: string }>;
   onPickModel: () => void;
@@ -194,13 +197,29 @@ export function ChatHeader(props: ChatHeaderProps) {
     >
       <div className="chat-column-header-left">
         <button
-          className="chat-column-model-chip"
+          className={`chat-column-model-chip is-catalog-${props.modelCatalogStatus}`}
           type="button"
-          title={`Model: ${props.modelChip || props.modelId}. Click to change provider or model.`}
+          title={
+            props.modelCatalogStatus === "loading" || props.modelCatalogStatus === "refreshing"
+              ? `Model: ${props.modelChip || props.modelId}. Provider catalog is ${props.modelCatalogStatus}.`
+              : props.modelCatalogStatus === "error" || props.modelCatalogStatus === "stale"
+                ? `Model: ${props.modelChip || props.modelId}. Catalog ${props.modelCatalogStatus === "stale" ? "refresh failed; showing cached models" : "failed to load"}: ${props.modelCatalogError ?? "Unknown error"}. Click to retry or change model.`
+                : `Model: ${props.modelChip || props.modelId}. Click to change provider or model.`
+          }
           onClick={props.onPickModel}
         >
-          {truncate(props.modelChip || props.modelId, 14)}
+          {props.modelCatalogStatus === "loading" || props.modelCatalogStatus === "refreshing" ? <Loader2 size={10} className="spin" aria-hidden="true" /> : null}
+          <span>{truncate(props.modelChip || props.modelId || "Model", 14)}</span>
           <ChevronDown size={9} />
+          <span className="sr-only" aria-live="polite">
+            {props.modelCatalogStatus === "loading" || props.modelCatalogStatus === "refreshing"
+              ? "Provider catalog loading"
+              : props.modelCatalogStatus === "stale"
+                ? "Provider catalog refresh failed; cached models available"
+                : props.modelCatalogStatus === "error"
+                  ? "Provider catalog failed to load"
+                  : ""}
+          </span>
         </button>
         {props.effortOptions.length > 1 ? (
           <select

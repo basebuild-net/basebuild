@@ -1,7 +1,8 @@
-# OMP Catalog (vendored)
+# OMP Catalog (vendored, with basebuild overlay)
 
-This directory contains a vendored copy of Oh My Pi's model catalog. It is the
-source of truth for Basebuild's bundled provider/model list.
+This directory contains the bundled provider/model catalog: a vendored copy of
+Oh My Pi's model catalog with basebuild.net's desktop catalog overlaid on top.
+It is the source of truth for Basebuild's bundled provider/model list.
 
 ## Source
 
@@ -22,7 +23,12 @@ has: `id`, `name`, `api` (wire-protocol kind), `provider`, `baseUrl`,
 node scripts/update-omp-catalog.mjs
 ```
 
-Re-pulls the upstream catalog, writes `models.json`, and stamps a content-hash
-version used by the cache-invalidation logic in
-`provider_model_catalog_service.rs`. Review the diff before committing —
+Re-pulls the upstream OMP catalog, overlays `GET basebuild.net/api/catalog/desktop`
+(additive only — models missing from OMP whose provider has a known wire kind
+and base URL), writes a deterministic tab-indented serialization, and stamps a
+content-hash version used by the cache-invalidation logic in
+`provider_model_catalog_service.rs`. The GitHub Action
+`.github/workflows/update-model-catalog.yml` runs this on every push to `main`
+and daily, committing the diff — so new model launches (e.g. a fresh Kimi
+release) land without a manual step. Review diffs before hand-committing;
 upstream adds/removes models frequently.

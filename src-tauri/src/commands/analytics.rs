@@ -1,6 +1,6 @@
 // Commands are stateless; analytics state lives in AnalyticsService.
- use crate::models::permission::{AnalyticsConsent, AnalyticsEvent};
- use crate::services::analytics_service::{AnalyticsEventName, AnalyticsService};
+use crate::models::permission::{AnalyticsConsent, AnalyticsEvent};
+use crate::services::analytics_service::{AnalyticsEventName, AnalyticsService};
 
 #[tauri::command]
 pub fn get_analytics_consent() -> Result<AnalyticsConsent, String> {

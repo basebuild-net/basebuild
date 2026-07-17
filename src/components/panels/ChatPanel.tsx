@@ -21,21 +21,26 @@ import {
 import { ChatHeader, BranchDropdown } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
 import { QuestionCard } from "./QuestionCard";
+import { InteractionWorkbench } from "./InteractionWorkbench";
+import { IdeaBatchPreview, IdeaReviewWorkbench, parseIdeaBatch, type ParsedIdeaBatch, type ProposedIdea } from "./IdeaReviewWorkbench";
 import { MarkdownView } from "./MarkdownView";
 import {
   AlertCircle,
   Brain,
+  Bot,
   ChevronDown,
   ChevronUp,
   Copy,
   Edit2,
   GitBranch as GitBranchIcon,
   FolderTree,
+  HelpCircle,
   Key,
   LayoutGrid,
   Lightbulb,
   Loader2,
   RefreshCw,
+  Rocket,
   Send,
   Sparkles,
   Square,
@@ -55,11 +60,11 @@ import { nativeInteractionListAll, nativeInteractionResolve } from "../../lib/in
 import type { PendingInteraction } from "../../lib/interactions";
 import { getApprovalMode, getRuntimeDefaults, setApprovalMode as setApprovalModeBackend, type ApprovalMode } from "../../lib/settings";
 import {
+  nativeChatBootstrap,
   nativeChatCancel,
   nativeChatClearMessages,
   nativeChatGet,
   nativeChatMessages,
-  nativeChatModelDefault,
   nativeChatSend,
   nativeChatSetProjectModelDefault,
   nativeChatUpdateSessionModel,
@@ -86,7 +91,7 @@ import { resolveToolApproval } from "../../lib/native-chat";
 import { buildChatTimeline, type LiveSegment } from "../../lib/chatTimeline";
 import { useIdeaState } from "../../state/ideas";
 import { setLastGrounding } from "../../state/grounding";
-import type { Idea } from "../../lib/ideas";
+import { createIdea, type Idea } from "../../lib/ideas";
 import { inspectProjectSchematic, type SchematicReport } from "../../lib/schematic";
 import { schematicWizardAction } from "../../lib/planningActions";
 import { readSkill } from "../../lib/skills";
@@ -147,8 +152,8 @@ type ChatPanelProps = {
   activeSessionId?: string | null;
   /** Project schematic content, sent to the provider for idea generation. */
   schematicContent?: string | null;
-  /** Promote a generated idea into the plan pipeline (owned by AppShell). */
-  onCreatePlanFromIdea?: (title: string, description: string, chatSessionId: string | null) => Promise<void> | void;
+  /** Promote a generated idea and start preparing its OpenSpec plan. */
+  onCreatePlanFromIdea?: (idea: Idea, chatSessionId: string | null) => Promise<void> | void;
   /** Open the planning inspector (side panel). */
   onOpenPlanningInspector?: () => void;
   /** Open the schematic tab (focus or create). */
@@ -169,6 +174,9 @@ type ChatPanelProps = {
   onShowToast?: (title: string, detail?: string, kind?: "success" | "warning" | "error" | "info") => void;
   /** Open the history drawer (closed panels). */
   onOpenHistory?: () => void;
+  /** True when an active background agent (plan run or pipeline stage) owns
+   *  this chat — gates the composer until the user explicitly enables it. */
+  backgroundAgent?: boolean;
 };
 
 
@@ -247,7 +255,22 @@ function UserMessageContent({
 // expanded as the event updates from pending → running → success.
 const toolCardExpanded = new Map<string, boolean>();
 
-function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode }: { event: NativeToolEvent; onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void; debugMode?: boolean; onSetApprovalMode?: (mode: "safe" | "balanced" | "auto") => void; }) {
+
+function ToolEventCard({
+  event,
+  onResolveApproval,
+  debugMode,
+  onSetApprovalMode,
+  ideas = [],
+  onOpenIdeaBatch,
+}: {
+  event: NativeToolEvent;
+  onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void;
+  debugMode?: boolean;
+  onSetApprovalMode?: (mode: "safe" | "balanced" | "auto") => void;
+  ideas?: Idea[];
+  onOpenIdeaBatch?: (toolId: string) => void;
+}) {
   const [expanded, setExpanded] = useState(() => toolCardExpanded.get(event.id) ?? false);
   const toggleExpanded = useCallback(() => {
     setExpanded((prev) => {
@@ -276,6 +299,9 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
   const timeStr = event.createdAt
     ? new Date(event.createdAt * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })
     : null;
+  const activeDuration = isRunning && event.createdAt
+    ? formatElapsed(Math.max(0, Math.floor(Date.now() / 1000) - event.createdAt))
+    : null;
 
   // Parse arguments for structured display.
   const parsedArgs = (() => {
@@ -286,6 +312,18 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
       return null;
     }
   })();
+
+  const ideaBatch = event.kind === "propose_ideas" ? parseIdeaBatch(parsedArgs) : null;
+  if (ideaBatch) {
+    return (
+      <IdeaBatchPreview
+        {...ideaBatch}
+        status={event.status}
+        ideas={ideas}
+        onOpen={() => onOpenIdeaBatch?.(event.id)}
+      />
+    );
+  }
 
   // Extract key fields from parsed args depending on tool kind.
   const argDisplay = (() => {
@@ -334,7 +372,9 @@ function ToolEventCard({ event, onResolveApproval, debugMode, onSetApprovalMode 
         <span className="tool-card-icon">{icon}</span>
         <span className={`tool-card-name is-${event.kind.replace(/_/g, "-")}`}>{event.kind.replace(/_/g, " ")}</span>
         {argDisplay ? <code className="tool-card-arg-value" title={`${argDisplay.label}: ${argDisplay.value}`}>{argDisplay.value}</code> : null}
-        <span className={`tool-card-status tool-card-status-${statusClass}`}>{event.status}</span>
+        <span className={`tool-card-status tool-card-status-${statusClass}`}>
+          {event.status}{activeDuration ? ` · ${activeDuration}` : ""}
+        </span>
         {timeStr ? <span className="tool-card-time text-muted">{timeStr}</span> : null}
         {!isApproval ? <span className="tool-card-expand">{expanded ? "▼" : "▶"}</span> : null}
       </div>
@@ -413,11 +453,25 @@ export function ChatPanel({
   onNewChat,
   onShowToast,
   onOpenHistory,
+  backgroundAgent,
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
+  const [catalogStatus, setCatalogStatus] = useState<"loading" | "refreshing" | "ready" | "stale" | "error">("loading");
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [contextUsedTokens, setContextUsedTokens] = useState(0);
   const [nativeSessionId, setNativeSessionId] = useState<string | null>(chatSessionId ?? null);
+  // Composer gate for background-agent chats: input stays locked until the
+  // user explicitly opts in, since sending into the agent's session can
+  // derail its original task. Reset when the panel rebinds to another chat.
+  const [bgInputUnlocked, setBgInputUnlocked] = useState(false);
+  // Terminal outcome of a background agent run bound to this chat; drives
+  // the sidebar status word ("finished" / "Background agent failed").
+  const [bgOutcome, setBgOutcome] = useState<"succeeded" | "failed" | "cancelled" | null>(null);
+  useEffect(() => {
+    setBgInputUnlocked(false);
+    setBgOutcome(null);
+  }, [nativeSessionId]);
   const [nativeMessages, setNativeMessages] = useState<NativeChatMessage[]>([]);
   const [toolEvents, setToolEvents] = useState<NativeToolEvent[]>([]);
   // Completed live-turn segments — text/reasoning of finished agent-loop
@@ -427,6 +481,10 @@ export function ChatPanel({
   // segments; orders items within the in-flight turn.
   const liveOrderRef = useRef(0);
   const [interactions, setInteractions] = useState<PendingInteraction[]>([]);
+  const [minimizedQuestions, setMinimizedQuestions] = useState<Set<string>>(() => new Set());
+  const [focusedIdeaBatchId, setFocusedIdeaBatchId] = useState<string | null>(null);
+  const [ideaReviewIndexes, setIdeaReviewIndexes] = useState<Record<string, number>>({});
+  const minimizedIdeaBatchIdsRef = useRef(new Set<string>());
   const [legacyMessages, setLegacyMessages] = useState<LegacyChatMessage[]>([]);
   const [providerId, setProviderId] = useState(LOCAL_PROVIDER_ID);
   const [modelId, setModelId] = useState("basebuild-local-coordinator");
@@ -436,6 +494,7 @@ export function ChatPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stuck, setStuck] = useState(false);
+  const [interruptedRun, setInterruptedRun] = useState(false);
   const [agentId, setAgentId] = useState<number | null>(null);
   const [debugMode, setDebugMode] = useState(() => localStorage.getItem("basebuild.debug-mode") === "true");
   const [debugEvents, setDebugEvents] = useState<Array<{ ts: number; channel: string; data: unknown }>>([]);
@@ -446,6 +505,18 @@ export function ChatPanel({
   const [streamText, setStreamText] = useState("");
   const [reasoningText, setReasoningText] = useState("");
   const [streamPhase, setStreamPhase] = useState<"idle" | "thinking" | "streaming" | "tools">("idle");
+  const [lastToolEventTime, setLastToolEventTime] = useState(0);
+  const [lastToolKind, setLastToolKind] = useState("");
+  const [stalled, setStalled] = useState(false);
+  const [toolAgoSeconds, setToolAgoSeconds] = useState(0);
+  // Live tool-call argument stream: providers emit tool-call JSON on a
+  // hidden channel, so a large payload (an eight-idea propose_ideas batch)
+  // used to freeze the transcript for a minute with only a blinking cursor.
+  const [toolCallChars, setToolCallChars] = useState(0);
+  const [pendingToolName, setPendingToolName] = useState<string | null>(null);
+  // Seconds since ANY streamed delta (content/reasoning/tool_call) arrived.
+  // Powers the "provider is quiet" hint outside the tools phase.
+  const [quietSeconds, setQuietSeconds] = useState(0);
   const [isScrolledUp, setIsScrolledUp] = useState(false);
   const followLatestRef = useRef(true);
   const [showSearch, setShowSearch] = useState(false);
@@ -454,8 +525,18 @@ export function ChatPanel({
   const [searchActiveIndex, setSearchActiveIndex] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const streamStartRef = useRef<number | null>(null);
+  const [phaseElapsed, setPhaseElapsed] = useState(0);
+  const phaseStartRef = useRef<number | null>(null);
+  const lastToolEventTimeRef = useRef(0);
   const streamBufRef = useRef("");
   const reasoningBufRef = useRef("");
+  const toolCallCharsRef = useRef(0);
+  const lastDeltaAtRef = useRef(0);
+  // Idea turns can start immediately after a new chat binds. Await both
+  // subscriptions before invoking the backend so the first thinking/tool
+  // events cannot race ahead of the webview listeners.
+  const chunkListenerReadyRef = useRef<Promise<void>>(Promise.resolve());
+  const toolListenerReadyRef = useRef<Promise<void>>(Promise.resolve());
   // Publish live panel status to the activity sidebar (project status dot).
   const publishPanelStatus = usePanelStatusPublisher(panelId ?? "");
   const lastPublishedStatusRef = useRef<PanelStatus | null>(null);
@@ -468,11 +549,15 @@ export function ChatPanel({
         ? (streamPhase === "tools" ? "running" : streamPhase === "thinking" ? "thinking" : "streaming")
         : loading
           ? "running"
-          : "idle";
+          : bgOutcome === "failed"
+            ? "error"
+            : bgOutcome === "succeeded"
+              ? "succeeded"
+              : "idle";
     if (lastPublishedStatusRef.current === status) return;
     lastPublishedStatusRef.current = status;
     publishPanelStatus(status);
-  }, [panelId, interactions, streaming, streamPhase, loading, publishPanelStatus]);
+  }, [panelId, interactions, streaming, streamPhase, loading, bgOutcome, publishPanelStatus]);
   // Monotonic id for the in-flight native send. Bumped on stop or on a new
   // send so a superseded send's async resolution can't revive the spinner
   // or duplicate messages.
@@ -489,7 +574,6 @@ export function ChatPanel({
   // Idea generation.
   const [generatingIdeas, setGeneratingIdeas] = useState(false);
   // Grounding metadata is written to the shared store (src/state/grounding.ts).
-  const [, setCatalogRefreshing] = useState(false);
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
   const [showPlanningMenu, setShowPlanningMenu] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
@@ -556,7 +640,13 @@ export function ChatPanel({
     }
   }, [showPlanningMenu, projectPath]);
   const { addLog } = useLogs();
-  const ideaState = useIdeaState(activeSessionId ?? null);
+  const ideaState = useIdeaState(activeSessionId ?? null, projectPath);
+  const ideaRefreshRef = useRef(ideaState.refresh);
+  ideaRefreshRef.current = ideaState.refresh;
+  const sessionCategories = useMemo(
+    () => ideaState.categories.filter((cat) => cat.sessionId === activeSessionId),
+    [ideaState.categories, activeSessionId],
+  );
 
   const filteredModels = useMemo(() => {
     const models = catalog?.models.filter((m) => m.providerId === providerId) ?? [];
@@ -602,30 +692,49 @@ export function ChatPanel({
     [catalog, providerId],
   );
 
-  // Load config on mount
+  // Restore persisted session identity immediately, then hydrate catalog
+  // metadata and the effective project default from one backend snapshot.
   useEffect(() => {
     let cancelled = false;
+    setCatalogStatus("loading");
+    setCatalogError(null);
+
+    const storedSessionPromise = nativeSessionId
+      ? nativeChatGet(nativeSessionId)
+      : Promise.resolve(null);
+    void storedSessionPromise
+      .then((storedSession) => {
+        if (cancelled || !storedSession) return;
+        setProviderId(storedSession.providerId);
+        setModelId(storedSession.modelId);
+        setEffortLevel(storedSession.effortLevel);
+        setModelNotice(null);
+      })
+      .catch(() => {
+        // The full bootstrap below reports a single actionable error.
+      });
+
     async function load() {
       try {
         markStart("provider-model-restore");
         addLog("debug", "Chat config loading", `projectPath=${projectPath}`);
-        const [defaults, cat, resolved, storedSession] = await Promise.all([
+        const [defaults, bootstrap, storedSession] = await Promise.all([
           getRuntimeDefaults(),
-          nativeProviderCatalog(),
-          nativeChatModelDefault(projectPath),
-          nativeSessionId ? nativeChatGet(nativeSessionId) : Promise.resolve(null),
+          nativeChatBootstrap(projectPath),
+          storedSessionPromise,
         ]);
         if (cancelled) return;
         setProfileId(defaults.defaultChatProfileId ?? NATIVE_PROFILE_ID);
-        setCatalog(cat);
-        const effectiveProviderId = storedSession?.providerId ?? resolved.providerId;
-        const effectiveModelId = storedSession?.modelId ?? resolved.modelId;
-        const effectiveEffortLevel = storedSession?.effortLevel ?? resolved.effortLevel;
+        setCatalog(bootstrap.catalog);
+        setCatalogStatus("ready");
+        const effectiveProviderId = storedSession?.providerId ?? bootstrap.resolved.providerId;
+        const effectiveModelId = storedSession?.modelId ?? bootstrap.resolved.modelId;
+        const effectiveEffortLevel = storedSession?.effortLevel ?? bootstrap.resolved.effortLevel;
         setProviderId(effectiveProviderId);
         setModelId(effectiveModelId);
         setEffortLevel(effectiveEffortLevel);
-        setModelNotice(storedSession ? null : resolved.notice);
-        addLog("debug", "Chat config loaded", `source=${storedSession ? "session" : resolved.source} provider=${effectiveProviderId} model=${effectiveModelId} models=${cat.models.length}`);
+        setModelNotice(storedSession ? null : bootstrap.resolved.notice);
+        addLog("debug", "Chat config loaded", `source=${storedSession ? "session" : bootstrap.resolved.source} provider=${effectiveProviderId} model=${effectiveModelId} models=${bootstrap.catalog.models.length}`);
         markEnd("provider-model-restore");
         void getApprovalMode(projectPath)
           .then((nextMode) => {
@@ -637,7 +746,8 @@ export function ChatPanel({
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         addLog("error", "Failed to load chat config", msg);
-        setError(msg);
+        setCatalogStatus("error");
+        setCatalogError(msg);
       }
     }
     void load();
@@ -657,8 +767,10 @@ export function ChatPanel({
   // Sync chatSessionId prop
   useEffect(() => {
     setNativeSessionId(chatSessionId ?? null);
+    setFocusedIdeaBatchId(null);
+    setIdeaReviewIndexes({});
+    minimizedIdeaBatchIdsRef.current.clear();
   }, [chatSessionId]);
-
   // Load session title when the native session changes.
   useEffect(() => {
     if (!nativeSessionId) { setSessionTitle(null); return; }
@@ -705,12 +817,19 @@ export function ChatPanel({
           setToolEvents(events);
           setInteractions(intrs);
           setLiveSegments([]);
-          // Restore streaming state if the chat is still running in the
-          // backend (e.g., user switched projects and switched back).
-          if (sessionInfo?.runState === "running") {
+          // A live run can be reattached after switching panels. A run swept
+          // as interrupted after process restart is shown as recoverable
+          // history instead of a phantom thinking indicator.
+          const isRunning = sessionInfo?.runState === "running";
+          setInterruptedRun(sessionInfo?.runState === "interrupted");
+          if (isRunning) {
             setStreaming(true);
             setStreamPhase("thinking");
             streamStartRef.current = Date.now();
+          } else {
+            setStreaming(false);
+            setStreamPhase("idle");
+            streamStartRef.current = null;
           }
           void latestMetric.then((metric) => {
             if (!cancelled) {
@@ -759,6 +878,49 @@ export function ChatPanel({
       if (timer) window.clearTimeout(timer);
     };
   }, [nativeMode, catalog, nativeSessionId, projectPath, providerId, modelId, effortLevel, addLog]);
+  // Background pipeline runs persist artifacts and terminal outcomes into
+  // this chat from outside any user send. Reload the transcript when the
+  // backend signals an update, and settle the streaming UI on the terminal
+  // outcome so the panel never shows a phantom "still waiting" state.
+  const loadingRef = useRef(false);
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+  useEffect(() => {
+    if (!nativeSessionId) return;
+    const unlisten = listen<{ sessionId: string; outcome?: "succeeded" | "failed" | "cancelled" }>(
+      "native-chat://transcript-updated",
+      (event) => {
+        if (event.payload.sessionId !== nativeSessionId) return;
+        // Never clobber an in-flight user send — its own finally block reloads.
+        if (!loadingRef.current) {
+          void Promise.all([
+            nativeChatMessages(nativeSessionId),
+            nativeChatToolEvents(nativeSessionId),
+          ]).then(([msgs, events]) => {
+            setNativeMessages(msgs);
+            setToolEvents(events);
+            setLiveSegments([]);
+            streamBufRef.current = "";
+            reasoningBufRef.current = "";
+            setStreamText("");
+            setReasoningText("");
+          }).catch(() => {});
+        }
+        const outcome = event.payload.outcome;
+        if (outcome) {
+          setBgOutcome(outcome);
+          setStreaming(false);
+          setStreamPhase("idle");
+          streamStartRef.current = null;
+        }
+      },
+    );
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [nativeSessionId]);
+
 
   // Native mode: listen for streamed assistant chunks for this session
   useEffect(() => {
@@ -769,6 +931,7 @@ export function ChatPanel({
         renderFrame = null;
         setStreamText(streamBufRef.current);
         setReasoningText(reasoningBufRef.current);
+        setToolCallChars(toolCallCharsRef.current);
       });
     };
     const unlisten = listen<{ sessionId: string; delta: string; channel?: string }>(
@@ -806,18 +969,34 @@ export function ChatPanel({
             reasoningBufRef.current = "";
             setStreamText("");
             setReasoningText("");
+            toolCallCharsRef.current = 0;
+            setToolCallChars(0);
+            setPendingToolName(null);
             setStreamPhase(phase === "tools" ? "tools" : "thinking");
           }
           return;
         }
         // Tool-call argument fragments are raw JSON — don't pollute the
-        // content stream. They render as tool cards via the tool-event
-        // channel instead.
-        if (channel === "tool_call") return;
+        // content stream (they render as tool cards via the tool-event
+        // channel), but do surface progress: a large payload can stream for
+        // a minute with no content deltas at all.
+        if (channel === "tool_call") {
+          lastDeltaAtRef.current = Date.now();
+          toolCallCharsRef.current += event.payload.delta.length;
+          scheduleStreamRender();
+          return;
+        }
+        // One-shot announcement of the tool being written, emitted when the
+        // provider names the tool-call slot.
+        if (channel === "tool_call_name") {
+          lastDeltaAtRef.current = Date.now();
+          setPendingToolName(event.payload.delta);
+          return;
+        }
         if (channel === "reasoning") {
+          lastDeltaAtRef.current = Date.now();
           reasoningBufRef.current += event.payload.delta;
           scheduleStreamRender();
-          setStreamPhase((prev) => prev === "thinking" ? "streaming" : prev);
           return;
         }
         // Only the content channel accumulates into the visible stream.
@@ -825,11 +1004,13 @@ export function ChatPanel({
         // must never leak into the transcript — the debug listener captures
         // every channel when debug mode is on.
         if (channel !== "content") return;
+        lastDeltaAtRef.current = Date.now();
         streamBufRef.current += event.payload.delta;
         scheduleStreamRender();
         setStreamPhase("streaming");
       },
     );
+    chunkListenerReadyRef.current = unlisten.then(() => undefined);
     return () => {
       if (renderFrame !== null) window.cancelAnimationFrame(renderFrame);
       void unlisten.then((fn) => fn());
@@ -877,6 +1058,9 @@ export function ChatPanel({
       ruleSource?: string;
     }>("native-chat://tool-event", (event) => {
       if (event.payload.sessionId !== nativeSessionId) return;
+      lastToolEventTimeRef.current = Date.now();
+      setLastToolEventTime(Date.now());
+      setLastToolKind(event.payload.toolName);
       if (firstActivityRef.current) {
         firstActivityRef.current = false;
         markEnd("first-activity-event");
@@ -916,7 +1100,19 @@ export function ChatPanel({
           createdAt: Math.floor(Date.now() / 1000),
         }];
       });
+      if (event.payload.toolName === "propose_ideas") {
+        const terminalError = event.payload.status === "error"
+          || event.payload.status === "failed"
+          || event.payload.status === "denied";
+        if (!terminalError && !minimizedIdeaBatchIdsRef.current.has(id)) {
+          setFocusedIdeaBatchId(id);
+        }
+        if (event.payload.status !== "running" && event.payload.status !== "pending") {
+          void ideaRefreshRef.current();
+        }
+      }
     });
+    toolListenerReadyRef.current = unlistenTool.then(() => undefined);
     const unlistenApproval = listen<{
       sessionId: string;
       toolCallId: string;
@@ -1153,6 +1349,7 @@ export function ChatPanel({
         if (chatInputRef.current) chatInputRef.current.style.setProperty("--chat-input-height", "auto");
         setError(null);
         setSetupRequired(null);
+        setInterruptedRun(false);
         setLoading(true);
         setStuck(false);
         streamBufRef.current = "";
@@ -1160,6 +1357,15 @@ export function ChatPanel({
         setStreamText("");
         setReasoningText("");
         setLiveSegments([]);
+        setStalled(false);
+        setLastToolEventTime(0);
+        setLastToolKind("");
+        lastToolEventTimeRef.current = 0;
+        toolCallCharsRef.current = 0;
+        setToolCallChars(0);
+        setPendingToolName(null);
+        lastDeltaAtRef.current = Date.now();
+        setQuietSeconds(0);
         setStreaming(true);
         streamStartRef.current = Date.now();
         setElapsed(0);
@@ -1232,6 +1438,9 @@ export function ChatPanel({
             streamStartRef.current = null;
             streamBufRef.current = "";
             reasoningBufRef.current = "";
+            toolCallCharsRef.current = 0;
+            setToolCallChars(0);
+            setPendingToolName(null);
             setLoading(false);
           } else if (activeSendRef.current === gen + 1 && nativeSessionId) {
             // Stopped by the user, no newer send yet — reflect whatever the
@@ -1312,7 +1521,8 @@ export function ChatPanel({
     if (delivery.action?.kind === "generate_ideas") {
       consume();
       void generateIdeasRef.current?.({
-        categoryId: delivery.action.categoryId ?? undefined,
+        categoryIds: delivery.action.categoryIds ?? [],
+        ideaCount: delivery.action.ideaCount ?? 8,
         direction: delivery.action.direction ?? undefined,
       });
       return;
@@ -1438,6 +1648,56 @@ export function ChatPanel({
     return () => clearInterval(interval);
   }, [streaming]);
 
+  // Phase timer answers "how long has it been thinking/running tools?" rather
+  // than showing only the total turn duration.
+  useEffect(() => {
+    if (!streaming || streamPhase === "idle") {
+      phaseStartRef.current = null;
+      setPhaseElapsed(0);
+      return;
+    }
+    phaseStartRef.current = Date.now();
+    setPhaseElapsed(0);
+    const interval = window.setInterval(() => {
+      if (phaseStartRef.current) {
+        setPhaseElapsed(Math.floor((Date.now() - phaseStartRef.current) / 1000));
+      }
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [streaming, streamPhase]);
+
+  // Stalled detection: if streaming in the tools phase and no tool event has
+  // arrived for 60s, flag the turn as stalled. Also ticks the "Xs ago"
+  // elapsed counter shown next to the tool names.
+  useEffect(() => {
+    if (!streaming) {
+      setStalled(false);
+      setToolAgoSeconds(0);
+      setQuietSeconds(0);
+      return;
+    }
+    const interval = window.setInterval(() => {
+      const lastTime = lastToolEventTimeRef.current;
+      if (streamPhase === "tools" && lastTime > 0) {
+        const agoMs = Date.now() - lastTime;
+        setToolAgoSeconds(Math.floor(agoMs / 1000));
+        setStalled(agoMs > 60_000);
+      } else {
+        setStalled(false);
+        setToolAgoSeconds(0);
+      }
+      // Quiet-provider detection outside the tools phase: deltas of every
+      // channel bump lastDeltaAtRef, so a rising count means true silence.
+      const lastDelta = lastDeltaAtRef.current;
+      if (streamPhase !== "tools" && lastDelta > 0) {
+        setQuietSeconds(Math.floor((Date.now() - lastDelta) / 1000));
+      } else {
+        setQuietSeconds(0);
+      }
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [streaming, streamPhase]);
+
   // Clear stuck timer
   useEffect(() => {
     if (!loading && sendTimerRef.current) {
@@ -1458,43 +1718,12 @@ export function ChatPanel({
   const persistSelectionRef = useRef<(providerId: string, modelId: string, effort: string) => void>(() => {});
   // Ref to handleGenerateIdeas so /idea generate can call it without a TDZ
   // issue (handleGenerateIdeas is defined after handleSend).
-  const generateIdeasRef = useRef<((opts?: { categoryId?: string | null; direction?: string | null }) => Promise<void>) | null>(null);
+  const generateIdeasRef = useRef<((opts?: { categoryIds?: string[]; ideaCount?: number; direction?: string | null }) => Promise<void>) | null>(null);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
     addLog("debug", "Chat send", `text=${text.slice(0, 80)} nativeMode=${nativeMode} session=${nativeSessionId ?? "none"}`);
     if (!text) return;
-    // Composer answer routing: if there's a pending text/free-text question,
-    // capture the next send as the answer (unless escaped with /send).
-    const pendingInteraction = interactions.find((i) => i.status === "pending");
-    if (nativeMode && pendingInteraction) {
-      const textQuestion = pendingInteraction.questions.find(
-        (q) => q.kind === "text" || (q.kind === "options" && q.allowFreeText),
-      );
-      if (textQuestion) {
-        // /send escape: send as a normal message instead of answering.
-        if (text.startsWith("/send ")) {
-          setInput(text.slice(6));
-          return;
-        }
-        // Route the text as the answer.
-        try {
-          const answers = pendingInteraction.questions.map((q) => ({
-            questionId: q.id,
-            selected: q.kind === "text" || (q.kind === "options" && q.allowFreeText)
-              ? undefined
-              : [],
-            text: q.id === textQuestion.id ? text : undefined,
-          }));
-          const resolved = await nativeInteractionResolve(pendingInteraction.id, answers);
-          setInteractions((prev) => prev.map((i) => i.id === resolved.id ? resolved : i));
-          setInput("");
-        } catch (e) {
-          addLog("error", "Failed to submit answer", e instanceof Error ? e.message : String(e));
-        }
-        return;
-      }
-    }
     if (nativeMode && text.startsWith("/")) {
       const [rawCommand, ...parts] = text.slice(1).split(/\s+/);
       const command = rawCommand.toLowerCase();
@@ -1625,19 +1854,21 @@ export function ChatPanel({
 
       // /models refresh — special-cased because it's async.
       if (command === "models" && rest.toLowerCase() === "refresh") {
-        setCatalogRefreshing(true);
+        setCatalogStatus(catalog ? "refreshing" : "loading");
+        setCatalogError(null);
         try {
           const refreshed = await nativeProviderCatalogRefresh({ force: true });
           setCatalog(refreshed);
+          setCatalogStatus("ready");
           setCommandNotice("Model catalog refreshed.");
           setCommandRecency(recordCommandUse("models refresh"));
           setInput("");
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
+          setCatalogStatus(catalog ? "stale" : "error");
+          setCatalogError(msg);
           setCommandNotice(`Model refresh failed: ${msg}`);
           addLog("error", "Failed to refresh model catalog", msg);
-        } finally {
-          setCatalogRefreshing(false);
         }
         return;
       }
@@ -1721,7 +1952,7 @@ export function ChatPanel({
       return;
     }
     await sendMessage(text);
-  }, [input, nativeMode, sendMessage, catalog, addLog, interactions, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId, onOpenSchematic, projectPath, selectedModel]);
+  }, [input, nativeMode, sendMessage, catalog, addLog, nativeMessages, toolEvents, loading, streaming, onNewChat, effortLevel, modelId, onOpenSchematic, projectPath, selectedModel]);
 
   // Merged chronological timeline (messages + tool events + interactions).
   // Memoized so it is rebuilt only when the underlying lists change — not on
@@ -1865,20 +2096,23 @@ export function ChatPanel({
   }, [nativeSessionId, addLog]);
 
   const refreshCatalog = useCallback(async (force = false, targetProviderId?: string) => {
-    setCatalogRefreshing(true);
+    setCatalogStatus(catalog ? "refreshing" : "loading");
+    setCatalogError(null);
     try {
       const refreshed = force
         ? await nativeProviderCatalogRefresh({ providerId: targetProviderId ?? null, force: true })
         : await nativeProviderCatalog();
       setCatalog(refreshed);
+      setCatalogStatus("ready");
       return refreshed;
     } catch (e) {
-      addLog("error", "Failed to refresh provider catalog", e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      setCatalogStatus(catalog ? "stale" : "error");
+      setCatalogError(message);
+      addLog("error", "Failed to refresh provider catalog", message);
       return null;
-    } finally {
-      setCatalogRefreshing(false);
     }
-  }, [addLog]);
+  }, [addLog, catalog]);
 
   const handleSaveCredential = useCallback(async () => {
     if (!apiKey.trim() || !providerId) return;
@@ -1986,8 +2220,17 @@ export function ChatPanel({
   );
   persistSelectionRef.current = persistSelection;
 
-  const handleGenerateIdeas = useCallback(async (opts?: { categoryId?: string | null; direction?: string | null }) => {
-    if (!nativeSessionId || generatingIdeas) return;
+  const handleGenerateIdeas = useCallback(async (opts?: { categoryIds?: string[]; ideaCount?: number; direction?: string | null }) => {
+    addLog("debug", "Idea generation requested", `chat=${nativeSessionId ?? "none"} planningSession=${activeSessionId ?? "none"}`);
+    if (!nativeSessionId || generatingIdeas) {
+      addLog("debug", "Idea generation skipped", !nativeSessionId ? "chat session unavailable" : "generation already running");
+      return;
+    }
+    if (!activeSessionId) {
+      addLog("debug", "Idea generation skipped", "planning session unavailable");
+      setError("Open a project session to save generated ideas.");
+      return;
+    }
     // Guard: non-local provider without a credential can't generate — show
     // connect prompt instead of silently failing.
     if (selectedProvider && !selectedProvider.configured && selectedProvider.id !== LOCAL_PROVIDER_ID) {
@@ -1999,16 +2242,60 @@ export function ChatPanel({
       setShowLogin(true);
       return;
     }
+
+    const ideaCount = Math.min(8, Math.max(5, opts?.ideaCount ?? 8));
+    const categoryIds = (opts?.categoryIds ?? []).filter(
+      (id) => ideaState.categories.find((c) => c.id === id)?.sessionId === activeSessionId,
+    );
+    const direction = opts?.direction?.trim() ?? "";
+    const categoryNames = categoryIds
+      .map((id) => ideaState.categories.find((category) => category.id === id)?.name)
+      .filter((name): name is string => !!name);
+    const scope = categoryNames.length > 0 ? categoryNames.join(", ") : "project-wide";
+    const invocationSummary = direction
+      ? `${direction}\n\n${ideaCount} ideas · ${scope}`
+      : `Auto-generate ${ideaCount} ${scope} ideas.`;
+    const displayMessage = `<command name="/skill:basebuild-planning">\n${invocationSummary}\n</command>`;
+
+    try {
+      await Promise.all([chunkListenerReadyRef.current, toolListenerReadyRef.current]);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      addLog("error", "Idea activity listeners unavailable", message);
+      setError("Chat activity streaming is unavailable. Reopen the chat and try again.");
+      return;
+    }
     setGeneratingIdeas(true);
     setError(null);
     setSetupRequired(null);
-    // Set up streaming UI state so the user sees the thinking indicator,
-    // elapsed timer, and streamed content — matching sendMessage.
+    // Render the compact skill invocation before starting provider work. The
+    // persisted transcript replaces this optimistic row when the turn settles.
+    const tempUser: NativeChatMessage = {
+      id: `temp-idea-${Date.now()}`,
+      sessionId: nativeSessionId,
+      role: "user",
+      content: displayMessage,
+      sortOrder: Number.MAX_SAFE_INTEGER,
+      providerId,
+      modelId,
+      effortLevel,
+      createdAt: Math.floor(Date.now() / 1000),
+    };
+    setNativeMessages((current) => [...current, tempUser]);
     streamBufRef.current = "";
     reasoningBufRef.current = "";
     setStreamText("");
     setReasoningText("");
     setLiveSegments([]);
+    setStalled(false);
+    setLastToolEventTime(0);
+    setLastToolKind("");
+    lastToolEventTimeRef.current = 0;
+    toolCallCharsRef.current = 0;
+    setToolCallChars(0);
+    setPendingToolName(null);
+    lastDeltaAtRef.current = Date.now();
+    setQuietSeconds(0);
     setStreaming(true);
     streamStartRef.current = Date.now();
     setElapsed(0);
@@ -2021,54 +2308,40 @@ export function ChatPanel({
     try {
       const result = await nativeGenerateIdeas({
         sessionId: nativeSessionId,
+        planningSessionId: activeSessionId,
         schematic: schematicContent ?? null,
         providerId,
         modelId,
         effortLevel,
-        categoryId: opts?.categoryId ?? null,
-        direction: opts?.direction ?? null,
+        categoryIds,
+        ideaCount,
+        displayMessage,
+        direction: direction || null,
       });
       if (activeSendRef.current !== gen) return;
       if (result.setupRequired) {
         setSetupRequired(result.setupRequired);
-        setShowLogin(!!selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID);
+        setShowLogin(result.setupRequired.message.startsWith("Connect "));
       }
       setLastGrounding(result.grounding ?? null);
-      // The unified backend captures ideas via the propose_ideas tool during
-      // the chat turn. Some code paths (and tests) still return ideas
-      // directly in the result — create them locally if the backend didn't.
-      if (result.ideas && result.ideas.length > 0 && activeSessionId) {
-        for (const idea of result.ideas) {
-          try {
-            await ideaState.createIdea(idea.title, idea.description ?? "", undefined);
-          } catch {
-            // ignore duplicate or creation errors
-          }
-        }
-      } else if (activeSessionId) {
-        await ideaState.refresh();
-      } else {
-        setError("Open a project session to save generated ideas.");
-      }
-      // Reload the full persisted transcript — the backend now persists both
-      // the user prompt and the assistant response as messages.
-      if (result.userMessage || result.assistantMessage) {
-        const [msgs, events] = await Promise.all([
-          nativeChatMessages(nativeSessionId),
-          nativeChatToolEvents(nativeSessionId),
-        ]);
-        if (activeSendRef.current !== gen) return;
-        setNativeMessages(msgs);
-        setToolEvents(events);
-        setLiveSegments([]);
-      }
+      await ideaState.refresh();
+      // Reload the persisted compact invocation, assistant segments, and
+      // expandable native-tool arguments.
+      const [msgs, events] = await Promise.all([
+        nativeChatMessages(nativeSessionId),
+        nativeChatToolEvents(nativeSessionId),
+      ]);
+      if (activeSendRef.current !== gen) return;
+      setNativeMessages(msgs);
+      setToolEvents(events);
+      setLiveSegments([]);
     } catch (e) {
       if (activeSendRef.current !== gen) return;
       const msg = e instanceof Error ? e.message : String(e);
       addLog("error", "Failed to generate ideas", msg);
       setError(msg);
-      // Reload whatever the backend persisted (user prompt may have been
-      // saved before the error).
+      // Reload whatever the backend persisted (the compact skill invocation
+      // is saved before provider work begins).
       try {
         const [msgs, events] = await Promise.all([
           nativeChatMessages(nativeSessionId),
@@ -2090,31 +2363,96 @@ export function ChatPanel({
         streamStartRef.current = null;
         streamBufRef.current = "";
         reasoningBufRef.current = "";
+        toolCallCharsRef.current = 0;
+        setToolCallChars(0);
+        setPendingToolName(null);
       }
       setGeneratingIdeas(false);
     }
-  }, [nativeSessionId, generatingIdeas, schematicContent, providerId, modelId, effortLevel, activeSessionId, ideaState, addLog, selectedProvider]);
-  useEffect(() => {
-    generateIdeasRef.current = handleGenerateIdeas;
-  }, [handleGenerateIdeas]);
+  }, [nativeSessionId, generatingIdeas, activeSessionId, selectedProvider, ideaState, providerId, modelId, effortLevel, schematicContent, addLog]);
+  generateIdeasRef.current = handleGenerateIdeas;
 
   const handleGenerateForCategory = useCallback(async (categoryId: string | undefined) => {
     if (!nativeSessionId || generatingIdeas) return;
     setShowCategoryPicker(false);
-    void generateIdeasRef.current?.({ categoryId: categoryId ?? null });
+    void generateIdeasRef.current?.({ categoryIds: categoryId ? [categoryId] : [], ideaCount: 8 });
   }, [nativeSessionId, generatingIdeas]);
 
 
   const handlePromoteIdea = useCallback(
     async (idea: Idea) => {
       try {
-        await onCreatePlanFromIdea?.(idea.title, idea.description, nativeSessionId);
-        await ideaState.updateIdeaStatus(idea.id, "picked");
+        if (!onCreatePlanFromIdea) {
+          throw new Error("Plan promotion is unavailable in this chat.");
+        }
+        await onCreatePlanFromIdea(idea, nativeSessionId);
+        await ideaState.refresh();
       } catch (e) {
-        addLog("error", "Failed to promote idea to plan", e instanceof Error ? e.message : String(e));
+        const message = e instanceof Error ? e.message : String(e);
+        addLog("error", "Failed to promote idea to plan", message);
+        onShowToast?.("Could not prepare plan", message, "error");
+        throw e;
       }
     },
-    [onCreatePlanFromIdea, ideaState, addLog, nativeSessionId],
+    [onCreatePlanFromIdea, ideaState, addLog, nativeSessionId, onShowToast],
+  );
+  const handleRejectIdea = useCallback(
+    async (idea: Idea) => {
+      try {
+        await ideaState.rejectIdea(idea.id);
+        onShowToast?.("Idea passed", idea.title, "info");
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        onShowToast?.("Could not reject idea", message, "error");
+        throw e;
+      }
+    },
+    [ideaState, onShowToast],
+  );
+  const handleDeferIdea = useCallback(
+    async (idea: Idea) => {
+      try {
+        await ideaState.updateIdeaStatus(idea.id, "archived");
+        onShowToast?.("Idea deferred", idea.title, "info");
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        onShowToast?.("Could not defer idea", message, "error");
+        throw e;
+      }
+    },
+    [ideaState, onShowToast],
+  );
+  // Recovery for proposals whose original propose_ideas capture failed:
+  // persist them into the planning session so decisions unlock. The batch
+  // category is only forwarded when it still exists — a stale category id is
+  // one of the ways the original capture can fail.
+  const handleCaptureProposal = useCallback(
+    async (proposal: ProposedIdea, categoryId: string | null) => {
+      try {
+        if (!activeSessionId) {
+          throw new Error("Open a project session to save ideas.");
+        }
+        const validCategory = categoryId && ideaState.categories.some((cat) => cat.id === categoryId)
+          ? categoryId
+          : undefined;
+        await createIdea(
+          activeSessionId,
+          proposal.title,
+          proposal.description,
+          validCategory,
+          proposal.grounding,
+          proposal.anchor,
+        );
+        await ideaState.refresh();
+        onShowToast?.("Idea saved", proposal.title, "info");
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        addLog("error", "Failed to save proposal to ideas", message);
+        onShowToast?.("Could not save idea", message, "error");
+        throw e;
+      }
+    },
+    [activeSessionId, ideaState, addLog, onShowToast],
   );
   // ── Chat header handlers ──
   const handleRename = useCallback((title: string) => {
@@ -2192,10 +2530,45 @@ export function ChatPanel({
     setShowPrCard(false);
   }, []);
   const renderMessages = nativeMode ? nativeMessages : legacyMessages;
-  const inputDisabled = nativeMode ? !nativeSessionId : agentId === null;
-  const sendDisabled = loading || !input.trim() || (nativeMode ? !nativeSessionId : agentId === null);
+  const bgGateActive = !!backgroundAgent && !bgInputUnlocked;
+  const inputDisabled = bgGateActive || (nativeMode ? !nativeSessionId : agentId === null);
+  const sendDisabled = bgGateActive || loading || !input.trim() || (nativeMode ? !nativeSessionId : agentId === null);
 
   const modelName = selectedModel?.label ?? modelId;
+  // Pending ask_user questions own the composer until resolved or explicitly
+  // minimized. A minimized question becomes a compact preview; restoring it
+  // returns to the same page and draft answers.
+  const pendingInteractions = interactions.filter((i) => i.status === "pending");
+  const activeQuestions = pendingInteractions.filter((i) => !minimizedQuestions.has(i.id));
+  const minimizedPending = pendingInteractions.filter((i) => minimizedQuestions.has(i.id));
+  const focusedIdeaEvent = focusedIdeaBatchId
+    ? toolEvents.find((event) => event.id === focusedIdeaBatchId && event.kind === "propose_ideas")
+    : undefined;
+  let focusedIdeaBatch: { event: NativeToolEvent; batch: ParsedIdeaBatch } | null = null;
+  if (focusedIdeaEvent?.arguments) {
+    try {
+      const batch = parseIdeaBatch(JSON.parse(focusedIdeaEvent.arguments));
+      if (batch) focusedIdeaBatch = { event: focusedIdeaEvent, batch };
+    } catch {
+      focusedIdeaBatch = null;
+    }
+  }
+  const latestIdeaToolId = [...toolEvents]
+    .reverse()
+    .find((event) => event.kind === "propose_ideas")
+    ?.id ?? null;
+  const minimizeQuestion = (id: string) => {
+    addLog("debug", "Question minimized", id);
+    setMinimizedQuestions((prev) => new Set(prev).add(id));
+  };
+  const restoreQuestion = (id: string) => {
+    addLog("debug", "Question reopened", id);
+    setMinimizedQuestions((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  };
   return (
     <div className="chat-panel" ref={panelRef} tabIndex={-1} onKeyDown={(e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "f") {
@@ -2232,10 +2605,10 @@ export function ChatPanel({
                   key={p.id}
                   className="btn"
                   type="button"
-                  title={`Assign ${p.referenceId}: ${p.title}`}
+                  title={`Assign "${p.title}" (${p.referenceId}) to this chat`}
                   onClick={() => void handleAssignPlan(p.id)}
                 >
-                  <span>#{p.referenceId} {p.title}</span>
+                  <span>{p.title}</span>
                   <span className="text-muted text-sm plan-status-inline">{p.status}</span>
                 </button>
               ))}
@@ -2261,7 +2634,6 @@ export function ChatPanel({
                 if (ev.kind === "assistant") lastAssistantId = ev.id;
               }
 
-
               // Render the flat chronological list — consecutive tool
               // events are grouped into a compact grid.
               const rendered: React.ReactNode[] = [];
@@ -2277,6 +2649,11 @@ export function ChatPanel({
                       debugMode={debugMode}
                       onResolveApproval={ev.event.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined}
                       onSetApprovalMode={handleSetApprovalMode}
+                      ideas={ideaState.ideas}
+                      onOpenIdeaBatch={(toolId) => {
+                        minimizedIdeaBatchIdsRef.current.delete(toolId);
+                        setFocusedIdeaBatchId(toolId);
+                      }}
                     />
                   );
                 } else {
@@ -2289,6 +2666,11 @@ export function ChatPanel({
                           debugMode={debugMode}
                           onResolveApproval={ev.event.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined}
                           onSetApprovalMode={handleSetApprovalMode}
+                          ideas={ideaState.ideas}
+                          onOpenIdeaBatch={(toolId) => {
+                            minimizedIdeaBatchIdsRef.current.delete(toolId);
+                            setFocusedIdeaBatchId(toolId);
+                          }}
                         />
                       ))}
                     </div>
@@ -2303,9 +2685,8 @@ export function ChatPanel({
                 }
                 flushToolBatch();
                 if (ev.kind === "interaction") {
-                  // Pending questions render in the sticky dock above the
-                  // composer (always visible); only answered/cancelled ones
-                  // render inline here as conversation history.
+                  // Pending questions replace the composer in the focused
+                  // workbench; answered/cancelled items render inline here.
                   if (ev.interaction.status === "pending") continue;
                   rendered.push(
                     <QuestionCard
@@ -2382,15 +2763,6 @@ export function ChatPanel({
               }
               flushToolBatch();
 
-              // Loading row for streaming/thinking state.
-              if (streaming) {
-                rendered.push(
-                  <div key="loading-streaming" className="chat-loading-row" title="Assistant is responding">
-                    <Loader2 size={12} className="is-spinning" />
-                    <span className="text-sm text-muted">Thinking…</span>
-                  </div>,
-                );
-              }
               // Loading row for queued state.
               if (loading && !streaming) {
                 rendered.push(
@@ -2422,7 +2794,7 @@ export function ChatPanel({
           <div className="chat-message chat-message-assistant chat-message-reasoning" title="Live chain-of-thought from the model. Final answer follows.">
             <span className="chat-message-role">
               Thinking{streaming ? "…" : " (stopped)"}
-              {streaming ? <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span> : null}
+              {streaming ? <span className="chat-elapsed-badge" title={`Thinking for ${formatElapsed(phaseElapsed)}`}>{formatElapsed(phaseElapsed)}</span> : null}
             </span>
             <pre className="chat-message-content chat-reasoning-live">{reasoningText}{streaming ? <span className="chat-cursor" /> : null}</pre>
           </div>
@@ -2438,13 +2810,45 @@ export function ChatPanel({
             <div className="chat-message-content"><MarkdownView text={streamText} />{streaming ? <span className="chat-cursor" /> : null}</div>
           </div>
         ) : null}
+        {/* Provider is writing a tool call — its JSON streams on a hidden
+            channel, so without this row the transcript freezes mid-turn. */}
+        {streaming && streamPhase !== "tools" && toolCallChars > 0 ? (
+          <div
+            className="chat-loading chat-loading-active"
+            title={`The model is writing a ${pendingToolName ? pendingToolName.replace(/_/g, " ") : "tool"} call (${(toolCallChars / 1024).toFixed(1)} KB streamed). It appears as a tool card when complete.`}
+          >
+            <LogoPulse size={14} className="chat-loading-spinner" />
+            <span className="chat-loading-label">
+              Writing {pendingToolName ? pendingToolName.replace(/_/g, " ") : "tool call"}…
+            </span>
+            <span className="chat-loading-count" title={`${(toolCallChars / 1024).toFixed(1)} KB of tool arguments streamed`}>
+              {(toolCallChars / 1024).toFixed(1)} KB
+            </span>
+            <span className="chat-elapsed-badge" title={`Phase: ${formatElapsed(phaseElapsed)}`}>{formatElapsed(phaseElapsed)}</span>
+          </div>
+        ) : null}
+
+        {/* Quiet-provider hint: streaming but nothing arrived for 30s+. */}
+        {streaming && streamPhase !== "tools" && quietSeconds >= 30 ? (
+          <div className="chat-loading" title={`No streamed output for ${quietSeconds}s. The provider may be slow; keep waiting or stop the turn.`}>
+            <span className="chat-loading-label">Still waiting — no output for {quietSeconds}s…</span>
+            <button
+              className="chat-tool-stalled-cancel"
+              type="button"
+              title="Stop the current turn"
+              onClick={() => void handleStopNative()}
+            >
+              Stop
+            </button>
+          </div>
+        ) : null}
 
         {/* Waiting for first token with elapsed timer */}
-        {streaming && streamPhase === "thinking" && !streamText && !reasoningText ? (
-          <div className="chat-message chat-thinking-indicator" title={`Waiting for the model to start responding (${formatElapsed(elapsed)})`}>
+        {streaming && streamPhase === "thinking" && !streamText && !reasoningText && toolCallChars === 0 ? (
+          <div className="chat-message chat-thinking-indicator" title={`Waiting for the model to start responding (${formatElapsed(phaseElapsed)})`}>
             <span className="chat-message-role">
               {selectedModel?.label ?? modelId}
-              <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
+              <span className="chat-elapsed-badge" title={`Thinking for ${formatElapsed(phaseElapsed)}`}>{formatElapsed(phaseElapsed)}</span>
             </span>
             <div className="chat-thinking-dots">
               <span className="chat-thinking-dot" />
@@ -2464,13 +2868,38 @@ export function ChatPanel({
             ? activeTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")
             : "tools";
           const isWaitingApproval = pendingTools.length > 0;
+          // Search scope: extract query/pattern from the latest running search tool.
+          const searchToolKinds = ["search_files", "search_files_in_workspace", "grep", "search"];
+          const searchTool = runningTools.find((e) =>
+            searchToolKinds.some((k) => e.kind.toLowerCase().includes(k))
+          );
+          const searchScope = (() => {
+            if (!searchTool || !searchTool.arguments) return null;
+            try {
+              const parsed = JSON.parse(searchTool.arguments);
+              if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+                const q = (parsed as Record<string, unknown>).query
+                  ?? (parsed as Record<string, unknown>).pattern
+                  ?? (parsed as Record<string, unknown>).search
+                  ?? null;
+                return q ? String(q) : null;
+              }
+            } catch { /* ignore malformed JSON */ }
+            return null;
+          })();
+          // "Xs ago" elapsed since the last tool event.
+          const toolAgoText = toolAgoSeconds > 0
+            ? toolAgoSeconds < 60
+              ? `${toolAgoSeconds}s ago`
+              : `${Math.floor(toolAgoSeconds / 60)}m ${toolAgoSeconds % 60}s ago`
+            : null;
           return (
             <div
               className={`chat-loading chat-loading-active chat-loading-tools${isWaitingApproval ? " chat-loading-approval" : ""}`}
               title={
                 isWaitingApproval
-                  ? `Waiting for approval: ${pendingTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")}. Click the approval card to allow or deny. Elapsed: ${formatElapsed(elapsed)}.`
-                  : `Executing: ${toolNames} (${activeTools.length} running, ${completedTools.length} done). Elapsed: ${formatElapsed(elapsed)}.`
+                  ? `Waiting for approval: ${pendingTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")}. Click the approval card to allow or deny. Waiting for ${formatElapsed(phaseElapsed)}.`
+                  : `Executing: ${toolNames} (${activeTools.length} running, ${completedTools.length} done). Running for ${formatElapsed(phaseElapsed)}.`
               }
             >
               <LogoPulse size={14} className="chat-loading-spinner" />
@@ -2481,6 +2910,29 @@ export function ChatPanel({
                     ? `${toolNames}…`
                     : "Running tools…"}
               </span>
+              {stalled ? (
+                <span className="chat-tool-stalled" title={`Stalled: no tool events for ${toolAgoSeconds}s. Last tool: ${lastToolKind.replace(/_/g, " ")}. Click Cancel to stop.`}>
+                  Stalled · {lastToolKind.replace(/_/g, " ")}
+                  <button
+                    className="chat-tool-stalled-cancel"
+                    type="button"
+                    title="Cancel the stalled agent run"
+                    onClick={() => void handleStopNative()}
+                  >
+                    Cancel
+                  </button>
+                </span>
+              ) : null}
+              {searchScope ? (
+                <span className="chat-tool-scope" title={`Searching: ${searchScope}`}>
+                  Searching: {searchScope}
+                </span>
+              ) : null}
+              {toolAgoText ? (
+                <span className="chat-tool-elapsed" title={`Last tool event ${toolAgoText}`}>
+                  {toolAgoText}
+                </span>
+              ) : null}
               {activeTools.length > 0 || completedTools.length > 0 ? (
                 <span className="chat-loading-count" title={`${pendingTools.length} pending, ${runningTools.length} running, ${completedTools.length} completed`}>
                   {pendingTools.length > 0 ? `${pendingTools.length} pending` : ""}
@@ -2490,13 +2942,30 @@ export function ChatPanel({
                   {completedTools.length > 0 ? `${completedTools.length} done` : ""}
                 </span>
               ) : null}
-              <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
+              <span className="chat-elapsed-badge" title={`Tool phase: ${formatElapsed(phaseElapsed)}`}>{formatElapsed(phaseElapsed)}</span>
             </div>
           );
         })() : null}
 
         {loading && !streaming ? (
           <div className="chat-loading">{nativeMode ? "Working…" : "Agent is typing…"}</div>
+        ) : null}
+        {interruptedRun && !streaming ? (
+          <div className="chat-stuck-bar chat-recovery-bar" role="status">
+            <AlertCircle size={12} />
+            <span className="text-sm">Previous run was interrupted. Saved messages, thinking, and tool progress are shown above.</span>
+            <button
+              className="btn btn-sm"
+              type="button"
+              title="Prepare a safe continuation message without automatically repeating tools"
+              onClick={() => {
+                setInput("Continue from the saved checkpoint. Review what completed before retrying any tool.");
+                window.requestAnimationFrame(() => chatInputRef.current?.focus());
+              }}
+            >
+              Continue
+            </button>
+          </div>
         ) : null}
         {stuck ? (
           <div className="chat-stuck-bar">
@@ -2560,24 +3029,28 @@ export function ChatPanel({
           </div>
         );
       })() : null}
-      {/* Pending-question dock — the active ask_user question is pinned here
-          above the composer so its options / text input / Submit / Cancel are
-          always visible, instead of scrolling out of view up in the transcript
-          (which left only the cryptic "/send to escape" banner). Answered and
-          cancelled questions fall back into the transcript as history. */}
-      {nativeMode
-        ? interactions
-            .filter((i) => i.status === "pending")
-            .map((intr) => (
-              <div className="chat-question-dock" key={`dock-${intr.id}`}>
-                <QuestionCard
-                  interaction={intr}
-                  onResolved={(resolved) => setInteractions((prev) => prev.map((i) => i.id === resolved.id ? resolved : i))}
-                  onCancelled={(id) => setInteractions((prev) => prev.map((i) => i.id === id ? { ...i, status: "cancelled" } : i))}
-                />
-              </div>
-            ))
-        : null}
+      {/* Pending-question previews remain beside the composer. Active questions
+          replace the composer below; resolved/cancelled questions remain in
+          transcript history. */}
+      {nativeMode ? (
+        <>
+          {minimizedPending.map((intr) => (
+            <button
+              className="chat-question-preview"
+              type="button"
+              key={`preview-${intr.id}`}
+              title="Reopen the agent's question"
+              onClick={() => restoreQuestion(intr.id)}
+            >
+              <HelpCircle size={13} className="chat-question-preview-icon" />
+              <span className="chat-question-preview-text">
+                {intr.title ?? intr.questions[0]?.prompt ?? "Agent is asking a question"}
+              </span>
+              <span className="chat-question-preview-action">Answer</span>
+            </button>
+          ))}
+        </>
+      ) : null}
       {/* Scroll-to-bottom button */}
       {isScrolledUp ? (
         <button
@@ -2658,45 +3131,6 @@ export function ChatPanel({
         </div>
       ) : null}
 
-      {/* Generated ideas surface */}
-      {nativeMode && ideaState.ideas.length > 0 ? (
-        <div className="chat-ideas">
-          <div className="chat-ideas-header">
-            <Lightbulb size={12} />
-            <span>Ideas ({ideaState.ideas.length})</span>
-          </div>
-          {ideaState.ideas.map((idea) => (
-            <div key={idea.id} className="chat-idea-card">
-              <div className="chat-idea-card-top">
-                <span className="chat-idea-title">{idea.title}</span>
-                {idea.status === "concept" ? (
-                  <div className="chat-idea-card-actions">
-                    <button
-                      className="btn btn-sm"
-                      type="button"
-                      title="Promote this idea into the plan pipeline"
-                      onClick={() => void handlePromoteIdea(idea)}
-                    >
-                      Promote to Plan
-                    </button>
-                    <button
-                      className="btn btn-sm"
-                      type="button"
-                      title="Reject this idea"
-                      onClick={() => void ideaState.rejectIdea(idea.id)}
-                    >
-                      Reject
-                    </button>
-                  </div>
-                ) : (
-                  <span className="chat-idea-status">{idea.status === "picked" ? "Planned" : idea.status === "rejected" ? "Rejected" : idea.status}</span>
-                )}
-              </div>
-              {idea.description ? <p className="chat-idea-desc">{idea.description}</p> : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
       {/* Model default notice (unavailable default fell back) */}
       {nativeMode && modelNotice ? (
         <div className="chat-notice-bar" title={modelNotice}>
@@ -2921,10 +3355,10 @@ export function ChatPanel({
                     </button>
                   </div>
                   <div className="modal-body stack">
-                    {ideaState.categories.length === 0 ? (
+                    {sessionCategories.length === 0 ? (
                       <p className="text-muted text-sm">No categories yet.</p>
                     ) : null}
-                    {ideaState.categories.map((cat) => (
+                    {sessionCategories.map((cat) => (
                       <button
                         key={cat.id}
                         className="btn"
@@ -2968,7 +3402,15 @@ export function ChatPanel({
                   <div className="modal-header">
                     <div className="provider-catalog-title">
                       <h2>Provider &amp; model</h2>
-                      <span>{catalog ? `${connectedProviders.length} connected · ${catalog.providers.length} providers · ${catalog.models.length} models` : "Loading…"}</span>
+                      <span>
+                        {catalogStatus === "loading" || catalogStatus === "refreshing"
+                          ? `${catalog ? "Refreshing" : "Loading"} provider catalog…`
+                          : catalogStatus === "error"
+                            ? "Catalog unavailable"
+                            : catalogStatus === "stale"
+                              ? `Refresh failed · showing ${catalog?.models.length ?? 0} cached models`
+                              : `${connectedProviders.length} connected · ${catalog?.providers.length ?? 0} providers · ${catalog?.models.length ?? 0} models`}
+                      </span>
                     </div>
                     <button
                       className="btn-icon"
@@ -3148,9 +3590,23 @@ export function ChatPanel({
                       </div>
                     </section>
                   </div>
+                  ) : catalogStatus === "error" ? (
+                    <div className="modal-loading" role="alert">
+                      <AlertCircle size={20} />
+                      <span>Provider catalog could not load.</span>
+                      <span className="text-muted text-sm">{catalogError ?? "Unknown catalog error"}</span>
+                      <button
+                        className="btn btn-sm btn-primary"
+                        type="button"
+                        title="Retry loading the provider catalog"
+                        onClick={() => void refreshCatalog()}
+                      >
+                        <RefreshCw size={12} /> Retry
+                      </button>
+                    </div>
                   ) : (
                     <div className="modal-loading" role="status" aria-live="polite">
-                      <LogoPulse size={20} />
+                      <Loader2 size={20} className="spin" />
                       <span>Loading provider catalog…</span>
                     </div>
                   )}
@@ -3221,20 +3677,22 @@ export function ChatPanel({
             ) : null}
           </>
         ) : null}
-        {(() => {
-          const pending = interactions.find((i) => i.status === "pending");
-          if (!pending) return null;
-          const textQ = pending.questions.find((q) => q.kind === "text" || (q.kind === "options" && q.allowFreeText));
-          if (!textQ) return null;
-          return (
-            <div className="chat-answering-banner" title="Your next send will be submitted as the answer. Use /send <text> to send a normal message instead.">
-              <span className="chat-answering-icon">?</span>
-              <span className="chat-answering-text">Answering: {textQ.prompt}</span>
-              <span className="chat-answering-hint text-muted">/send to escape</span>
-            </div>
-          );
-        })()}
+        {activeQuestions.length === 0 && !focusedIdeaBatch ? (
         <div className="chat-composer-box">
+          {bgGateActive ? (
+            <button
+              className="chat-bg-agent-gate"
+              type="button"
+              title="Enable the chat input for this session — the background agent keeps running either way"
+              onClick={() => setBgInputUnlocked(true)}
+            >
+              <Bot size={12} className="chat-bg-agent-gate-icon" />
+              <span>
+                A background agent is running. Click here to enable the chat input —
+                interrupting may cause the background agent to fail its original task.
+              </span>
+            </button>
+          ) : null}
           <div className="chat-composer-textarea-wrap">
             <textarea
               ref={chatInputRef}
@@ -3307,6 +3765,8 @@ export function ChatPanel({
             <ChatHeader
               modelChip={modelName}
               modelId={modelId}
+              modelCatalogStatus={catalogStatus}
+              modelCatalogError={catalogError}
               effortChip={effortLevel}
               effortOptions={(catalog?.effortLevels ?? [])
                 .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
@@ -3396,6 +3856,55 @@ export function ChatPanel({
             )}
           </div>
         </div>
+        ) : (
+          <div className="chat-interaction-workbench-slot">
+            {activeQuestions.length > 0 ? activeQuestions.map((interaction) => (
+              <InteractionWorkbench
+                key={interaction.id}
+                interaction={interaction}
+                onMinimize={() => minimizeQuestion(interaction.id)}
+                onResolved={(resolved) => setInteractions((current) => current.map((item) => item.id === resolved.id ? resolved : item))}
+                onCancelled={(id) => setInteractions((current) => current.map((item) => item.id === id ? { ...item, status: "cancelled" } : item))}
+                onAction={(action, detail) => addLog(action.endsWith("failed") ? "error" : "debug", action, detail)}
+                onDraftChange={(answers, currentPage) => setInteractions((current) => current.map((item) => item.id === interaction.id ? { ...item, draftAnswers: answers, currentPage } : item))}
+              />
+            )) : focusedIdeaBatch ? (
+              <IdeaReviewWorkbench
+                {...focusedIdeaBatch.batch}
+                toolId={focusedIdeaBatch.event.id}
+                status={focusedIdeaBatch.event.status}
+                ideas={ideaState.ideas}
+                projectPath={projectPath}
+                currentIndex={ideaReviewIndexes[focusedIdeaBatch.event.id] ?? 0}
+                showContinue={focusedIdeaBatch.event.id === latestIdeaToolId}
+                onCurrentIndexChange={(index) => setIdeaReviewIndexes((current) => ({ ...current, [focusedIdeaBatch.event.id]: index }))}
+                onMinimize={() => {
+                  minimizedIdeaBatchIdsRef.current.add(focusedIdeaBatch.event.id);
+                  setFocusedIdeaBatchId(null);
+                  addLog("debug", "Idea review minimized", focusedIdeaBatch.event.id);
+                }}
+                onPromote={handlePromoteIdea}
+                onReject={handleRejectIdea}
+                onDefer={handleDeferIdea}
+                onCapture={handleCaptureProposal}
+                onContinue={(categoryId) => {
+                  minimizedIdeaBatchIdsRef.current.add(focusedIdeaBatch.event.id);
+                  setFocusedIdeaBatchId(null);
+                  void generateIdeasRef.current?.({
+                    categoryIds: categoryId ? [categoryId] : [],
+                    ideaCount: 8,
+                    direction: "Find more grounded, distinct improvements. Avoid semantic duplicates and explain each estimate.",
+                  });
+                }}
+                onReviewed={() => {
+                  minimizedIdeaBatchIdsRef.current.add(focusedIdeaBatch.event.id);
+                  setFocusedIdeaBatchId(null);
+                  addLog("debug", "Idea batch review completed", focusedIdeaBatch.event.id);
+                }}
+              />
+            ) : null}
+          </div>
+        )}
         <div className="chat-composer-meta">
           <div className="chat-composer-meta-left">
             {projectPath ? (

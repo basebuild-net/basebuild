@@ -1,11 +1,12 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use rusqlite::params;
 
 use crate::{
-    models::openspec_catalog::{
-        ChangeCatalogEntry, StructuredTask, StructuredTasks, TaskPhase,
-    },
+    models::openspec_catalog::{ChangeCatalogEntry, StructuredTask, StructuredTasks, TaskPhase},
     models::plan::Plan,
     services::storage_service::StorageService,
 };
@@ -137,12 +138,11 @@ pub fn write_artifacts_atomic(
 
     // Atomic rename: temp_dir → final_dir. On Windows, the target must not
     // exist (we already ensured uniqueness via resolve_unique_change_name).
-    std::fs::rename(&temp_dir, &final_dir)
-        .map_err(|e| {
-            // Clean up the temp dir on rename failure.
-            let _ = std::fs::remove_dir_all(&temp_dir);
-            format!("Failed to finalize change directory: {e}")
-        })?;
+    std::fs::rename(&temp_dir, &final_dir).map_err(|e| {
+        // Clean up the temp dir on rename failure.
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        format!("Failed to finalize change directory: {e}")
+    })?;
 
     Ok(final_dir)
 }
@@ -185,6 +185,65 @@ pub fn read_task_progress(project_path: &str, change_name: &str) -> (u32, u32) {
         Err(_) => (0, 0),
     }
 }
+/// Fingerprint the planning artifacts that inform a plan assessment.
+///
+/// Task checkbox state is intentionally included: recommendations describe
+/// the work remaining at assessment time, so progress can make an earlier
+/// capacity recommendation stale. Files are read in a stable path order.
+pub fn assessment_artifact_fingerprint(project_path: &str, change_name: &str) -> DbResult<String> {
+    if change_name.contains('/') || change_name.contains('\\') || change_name.contains("..") {
+        return Err("Invalid change name.".to_string());
+    }
+    let root = change_dir(project_path, change_name);
+    let mut paths = vec![
+        root.join("proposal.md"),
+        root.join("design.md"),
+        root.join("tasks.md"),
+    ];
+    let specs_root = root.join("specs");
+    let entries = std::fs::read_dir(&specs_root)
+        .map_err(|error| format!("Failed to read {}: {error}", specs_root.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        if path.is_dir() {
+            let spec = path.join("spec.md");
+            if spec.is_file() {
+                paths.push(spec);
+            }
+        } else if path.extension().and_then(|value| value.to_str()) == Some("md") {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    let contents = paths
+        .iter()
+        .map(|path| {
+            std::fs::read_to_string(path)
+                .map_err(|error| format!("Failed to read {}: {error}", path.display()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let refs = contents.iter().map(String::as_str).collect::<Vec<_>>();
+    Ok(crate::models::planning_assessment::artifact_fingerprint(
+        &refs,
+    ))
+}
+
+/// Mark the linked plan's assessment stale when its artifact evidence changed.
+/// Missing assessments remain valid legacy state.
+pub fn refresh_assessment_staleness(project_path: &str, change_name: &str) -> DbResult<bool> {
+    let Some(plan) = find_plan_by_change(change_name)? else {
+        return Ok(false);
+    };
+    if plan.assessment.is_none() {
+        return Ok(false);
+    }
+    let fingerprint = assessment_artifact_fingerprint(project_path, change_name)?;
+    crate::services::plan_service::PlanService::mark_assessment_stale_if_fingerprint_changed(
+        &plan.id,
+        &fingerprint,
+    )
+}
 
 /// Link a plan to its generated OpenSpec change directory. Updates the
 /// `change_name` column on the plan row.
@@ -218,8 +277,7 @@ pub fn unlink_plan_from_change(plan_id: &str) -> DbResult<()> {
         let plan_status = crate::models::plan::PlanStatus::from_str(&status);
         if matches!(
             plan_status,
-            crate::models::plan::PlanStatus::Running
-                | crate::models::plan::PlanStatus::Ready
+            crate::models::plan::PlanStatus::Running | crate::models::plan::PlanStatus::Ready
         ) {
             return Err(format!(
                 "Cannot unlink: plan is {status} (must be finished, cancelled, draft, or openspec)."
@@ -264,6 +322,7 @@ pub fn refresh_task_progress(
     last_total: u32,
 ) -> DbResult<bool> {
     let (completed, total) = read_task_progress(project_path, change_name);
+    let _ = refresh_assessment_staleness(project_path, change_name)?;
     if completed == last_completed && total == last_total {
         return Ok(false);
     }
@@ -286,7 +345,7 @@ pub fn find_plan_by_change(change_name: &str) -> DbResult<Option<Plan>> {
         .prepare(
             "SELECT id, session_id, reference_id, title, description, goal, status,
                     priority, tags, ai_enhanced, context, idea_id, change_name,
-                    created_at, updated_at, finished_at
+                    assessment_json, created_at, updated_at, finished_at
              FROM plans WHERE change_name = ?1 LIMIT 1",
         )
         .map_err(|e| e.to_string())?;
@@ -295,6 +354,7 @@ pub fn find_plan_by_change(change_name: &str) -> DbResult<Option<Plan>> {
             let status_str: String = row.get(6)?;
             let tags_json: String = row.get(8)?;
             let context_json: Option<String> = row.get(10)?;
+            let assessment_json: Option<String> = row.get(13)?;
             Ok(Plan {
                 id: row.get(0)?,
                 session_id: row.get(1)?,
@@ -309,15 +369,14 @@ pub fn find_plan_by_change(change_name: &str) -> DbResult<Option<Plan>> {
                 context: context_json.and_then(|j| serde_json::from_str(&j).ok()),
                 idea_id: row.get(11)?,
                 change_name: row.get(12)?,
-                created_at: row.get(13)?,
-                updated_at: row.get(14)?,
-                finished_at: row.get(15)?,
+                assessment: assessment_json.and_then(|json| serde_json::from_str(&json).ok()),
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
+                finished_at: row.get(16)?,
             })
         })
         .map_err(|e| e.to_string())?;
-    rows.next()
-        .transpose()
-        .map_err(|e| e.to_string())
+    rows.next().transpose().map_err(|e| e.to_string())
 }
 
 /// Parse a `tasks.md` string into structured phases + tasks with line
@@ -433,7 +492,9 @@ pub fn list_changes(project_path: &str) -> DbResult<Vec<ChangeCatalogEntry>> {
     let mut entries = Vec::new();
 
     if changes_dir.exists() {
-        for entry in std::fs::read_dir(&changes_dir).map_err(|e| format!("Failed to read changes dir: {e}"))? {
+        for entry in std::fs::read_dir(&changes_dir)
+            .map_err(|e| format!("Failed to read changes dir: {e}"))?
+        {
             let entry = match entry {
                 Ok(e) => e,
                 Err(_) => continue,
@@ -451,7 +512,9 @@ pub fn list_changes(project_path: &str) -> DbResult<Vec<ChangeCatalogEntry>> {
     }
 
     if archive_dir.exists() {
-        for entry in std::fs::read_dir(&archive_dir).map_err(|e| format!("Failed to read archive dir: {e}"))? {
+        for entry in std::fs::read_dir(&archive_dir)
+            .map_err(|e| format!("Failed to read archive dir: {e}"))?
+        {
             let entry = match entry {
                 Ok(e) => e,
                 Err(_) => continue,
@@ -474,13 +537,16 @@ pub fn list_changes(project_path: &str) -> DbResult<Vec<ChangeCatalogEntry>> {
     Ok(entries)
 }
 
-fn catalog_entry(path: &Path, name: &str, archived: bool, project_path: &str) -> ChangeCatalogEntry {
+fn catalog_entry(
+    path: &Path,
+    name: &str,
+    archived: bool,
+    project_path: &str,
+) -> ChangeCatalogEntry {
     let has_proposal = path.join("proposal.md").exists();
     let has_design = path.join("design.md").exists();
     let has_tasks = path.join("tasks.md").exists();
-    let has_specs = path
-        .join("specs")
-        .is_dir()
+    let has_specs = path.join("specs").is_dir()
         && std::fs::read_dir(path.join("specs"))
             .map(|mut d| d.next().is_some())
             .unwrap_or(false);
@@ -491,8 +557,10 @@ fn catalog_entry(path: &Path, name: &str, archived: bool, project_path: &str) ->
         (0, 0)
     };
 
-    let linked_plan_reference_id =
-        find_plan_by_change(name).ok().flatten().map(|p| p.reference_id);
+    let linked_plan_reference_id = find_plan_by_change(name)
+        .ok()
+        .flatten()
+        .map(|p| p.reference_id);
 
     let created_at = parse_openspec_created_at(path);
 
@@ -615,7 +683,10 @@ pub fn toggle_task<R: tauri::Runtime>(
     let lines: Vec<&str> = content.lines().collect();
     let idx = line_no as usize;
     if idx == 0 || idx > lines.len() {
-        return Err(format!("Line {line_no} is out of range (1..={}).", lines.len()));
+        return Err(format!(
+            "Line {line_no} is out of range (1..={}).",
+            lines.len()
+        ));
     }
 
     let target = lines[idx - 1];
@@ -665,19 +736,282 @@ pub fn toggle_task<R: tauri::Runtime>(
         &format!("{change_name}/tasks.md"),
         Some(format!("{completed}/{total}")),
     );
+    let _ = refresh_assessment_staleness(project_path, change_name)?;
 
     Ok(())
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DeltaOperation {
+    Added,
+    Modified,
+    Removed,
+}
+
+fn requirement_name(line: &str) -> Option<&str> {
+    line.trim().strip_prefix("### Requirement:").map(str::trim)
+}
+
+fn parse_requirement_blocks(content: &str) -> Vec<(String, String)> {
+    let lines = content.lines().collect::<Vec<_>>();
+    let mut blocks = Vec::new();
+    let mut index = 0;
+    while index < lines.len() {
+        let Some(name) = requirement_name(lines[index]) else {
+            index += 1;
+            continue;
+        };
+        let start = index;
+        index += 1;
+        while index < lines.len()
+            && requirement_name(lines[index]).is_none()
+            && !lines[index].trim().starts_with("## ")
+        {
+            index += 1;
+        }
+        let block = lines[start..index].join("\n").trim_end().to_string();
+        blocks.push((name.to_string(), block));
+    }
+    blocks
+}
+
+fn parse_delta_requirements(content: &str) -> DbResult<Vec<(DeltaOperation, String, String)>> {
+    let lines = content.lines().collect::<Vec<_>>();
+    let mut operation = None;
+    let mut parsed = Vec::new();
+    let mut index = 0;
+    while index < lines.len() {
+        let trimmed = lines[index].trim();
+        operation = match trimmed {
+            "## ADDED Requirements" => Some(DeltaOperation::Added),
+            "## MODIFIED Requirements" => Some(DeltaOperation::Modified),
+            "## REMOVED Requirements" => Some(DeltaOperation::Removed),
+            value if value.starts_with("## ") => None,
+            _ => operation,
+        };
+        let Some(name) = requirement_name(lines[index]) else {
+            index += 1;
+            continue;
+        };
+        let Some(current_operation) = operation else {
+            return Err(format!(
+                "Requirement '{name}' is outside an ADDED, MODIFIED, or REMOVED section."
+            ));
+        };
+        let start = index;
+        index += 1;
+        while index < lines.len()
+            && requirement_name(lines[index]).is_none()
+            && !lines[index].trim().starts_with("## ")
+        {
+            index += 1;
+        }
+        parsed.push((
+            current_operation,
+            name.to_string(),
+            lines[start..index].join("\n").trim_end().to_string(),
+        ));
+    }
+    Ok(parsed)
+}
+
+fn parse_delta_renames(content: &str) -> DbResult<Vec<(String, String)>> {
+    let mut in_renames = false;
+    let mut from = None;
+    let mut renames = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("## ") {
+            in_renames = trimmed == "## RENAMED Requirements";
+            continue;
+        }
+        if !in_renames {
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("- FROM:") {
+            from = Some(value.trim().trim_matches('`').to_string());
+        } else if let Some(value) = trimmed.strip_prefix("- TO:") {
+            let Some(source) = from.take() else {
+                return Err("RENAMED Requirements contains TO without FROM.".to_string());
+            };
+            renames.push((source, value.trim().trim_matches('`').to_string()));
+        }
+    }
+    if from.is_some() {
+        return Err("RENAMED Requirements contains FROM without TO.".to_string());
+    }
+    Ok(renames)
+}
+
+fn canonical_spec_title(capability: &str) -> String {
+    let words = capability
+        .split('-')
+        .filter(|word| !word.is_empty())
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("# {words} Specification")
+}
+
+fn merge_delta_spec(capability: &str, canonical: Option<&str>, delta: &str) -> DbResult<String> {
+    let canonical = canonical.unwrap_or("");
+    let first_requirement = canonical
+        .lines()
+        .position(|line| requirement_name(line).is_some());
+    let header = match first_requirement {
+        Some(index) => canonical.lines().take(index).collect::<Vec<_>>().join("\n"),
+        None if canonical.trim().is_empty() => canonical_spec_title(capability),
+        None => canonical.trim_end().to_string(),
+    };
+    let mut blocks = parse_requirement_blocks(canonical);
+    let mut positions = blocks
+        .iter()
+        .enumerate()
+        .map(|(index, (name, _))| (name.clone(), index))
+        .collect::<HashMap<_, _>>();
+
+    for (operation, name, block) in parse_delta_requirements(delta)? {
+        match operation {
+            DeltaOperation::Added => {
+                if let Some(index) = positions.get(&name).copied() {
+                    if blocks[index].1 != block {
+                        return Err(format!(
+                            "Cannot sync ADDED requirement '{name}': it already exists with different content."
+                        ));
+                    }
+                } else {
+                    positions.insert(name.clone(), blocks.len());
+                    blocks.push((name, block));
+                }
+            }
+            DeltaOperation::Modified => {
+                let Some(index) = positions.get(&name).copied() else {
+                    return Err(format!(
+                        "Cannot sync MODIFIED requirement '{name}': canonical requirement not found."
+                    ));
+                };
+                blocks[index].1 = block;
+            }
+            DeltaOperation::Removed => {
+                let Some(index) = positions.get(&name).copied() else {
+                    return Err(format!(
+                        "Cannot sync REMOVED requirement '{name}': canonical requirement not found."
+                    ));
+                };
+                blocks.remove(index);
+                positions = blocks
+                    .iter()
+                    .enumerate()
+                    .map(|(position, (existing, _))| (existing.clone(), position))
+                    .collect();
+            }
+        }
+    }
+
+    for (from, to) in parse_delta_renames(delta)? {
+        let Some(index) = positions.get(&from).copied() else {
+            return Err(format!(
+                "Cannot sync RENAMED requirement '{from}': canonical requirement not found."
+            ));
+        };
+        if positions.contains_key(&to) {
+            return Err(format!(
+                "Cannot rename requirement '{from}' to '{to}': target already exists."
+            ));
+        }
+        let body = blocks[index]
+            .1
+            .lines()
+            .skip(1)
+            .collect::<Vec<_>>()
+            .join("\n");
+        blocks[index] = (
+            to.clone(),
+            format!("### Requirement: {to}\n{body}")
+                .trim_end()
+                .to_string(),
+        );
+        positions.remove(&from);
+        positions.insert(to, index);
+    }
+
+    let mut output = header.trim_end().to_string();
+    if !blocks.is_empty() {
+        output.push_str("\n\n");
+        output.push_str(
+            &blocks
+                .into_iter()
+                .map(|(_, block)| block)
+                .collect::<Vec<_>>()
+                .join("\n\n"),
+        );
+    }
+    output.push('\n');
+    Ok(output)
+}
+
+fn sync_delta_specs(project_path: &str, change_name: &str) -> DbResult<()> {
+    let delta_root = change_dir(project_path, change_name).join("specs");
+    if !delta_root.is_dir() {
+        return Ok(());
+    }
+    let canonical_root = Path::new(project_path).join("openspec/specs");
+    let mut pending = Vec::new();
+    for entry in std::fs::read_dir(&delta_root)
+        .map_err(|error| format!("Failed to read delta specs: {error}"))?
+    {
+        let entry = entry.map_err(|error| format!("Failed to read delta spec entry: {error}"))?;
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let capability = entry.file_name().to_string_lossy().into_owned();
+        let delta_path = entry.path().join("spec.md");
+        if !delta_path.is_file() {
+            continue;
+        }
+        let delta = std::fs::read_to_string(&delta_path)
+            .map_err(|error| format!("Failed to read {}: {error}", delta_path.display()))?;
+        let canonical_path = canonical_root.join(&capability).join("spec.md");
+        let canonical =
+            if canonical_path.is_file() {
+                Some(std::fs::read_to_string(&canonical_path).map_err(|error| {
+                    format!("Failed to read {}: {error}", canonical_path.display())
+                })?)
+            } else {
+                None
+            };
+        let merged = merge_delta_spec(&capability, canonical.as_deref(), &delta)?;
+        pending.push((canonical_path, merged));
+    }
+
+    for (canonical_path, merged) in pending {
+        let parent = canonical_path
+            .parent()
+            .ok_or_else(|| "Canonical spec path has no parent.".to_string())?;
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create {}: {error}", parent.display()))?;
+        std::fs::write(&canonical_path, merged)
+            .map_err(|error| format!("Failed to write {}: {error}", canonical_path.display()))?;
+    }
+    Ok(())
+}
+
 /// Archive a change by moving its directory to `openspec/changes/archive/`.
-/// Refuses if the linked plan is in a non-terminal status. The archive
-/// directory is created if it doesn't exist.
+/// Refuses if the linked plan is non-terminal. Terminal linked plans receive a
+/// durable archive record and leave active plan lists without deleting history.
 pub fn archive_change(project_path: &str, change_name: &str) -> DbResult<()> {
     if change_name.contains('/') || change_name.contains('\\') || change_name.contains("..") {
         return Err("Invalid change name.".to_string());
     }
 
-    if let Some(plan) = find_plan_by_change(change_name)? {
+    let linked_plan = find_plan_by_change(change_name)?;
+    if let Some(plan) = linked_plan.as_ref() {
         let status = plan.status;
         if !matches!(
             status,
@@ -689,11 +1023,31 @@ pub fn archive_change(project_path: &str, change_name: &str) -> DbResult<()> {
                 status.as_str()
             ));
         }
+        if status == crate::models::plan::PlanStatus::Finished {
+            let (completed, total) = read_task_progress(project_path, change_name);
+            if total == 0 {
+                return Err(
+                    "Cannot archive: the finished change has no required tasks to validate."
+                        .to_string(),
+                );
+            }
+            if completed != total {
+                return Err(format!(
+                    "Cannot archive: {completed}/{total} required tasks are complete."
+                ));
+            }
+        }
     }
 
     let src = change_dir(project_path, change_name);
     if !src.exists() {
         return Err(format!("Change directory not found: {change_name}"));
+    }
+    if linked_plan
+        .as_ref()
+        .is_none_or(|plan| plan.status != crate::models::plan::PlanStatus::Cancelled)
+    {
+        sync_delta_specs(project_path, change_name)?;
     }
 
     let archive_dir = changes_dir(project_path).join("archive");
@@ -704,8 +1058,33 @@ pub fn archive_change(project_path: &str, change_name: &str) -> DbResult<()> {
     let archived_name = format!("{date}-{change_name}");
     let dest = archive_dir.join(&archived_name);
 
-    std::fs::rename(&src, &dest)
-        .map_err(|e| format!("Failed to move change to archive: {e}"))?;
+    let archive_connection = if let Some(plan) = linked_plan.as_ref() {
+        let connection = StorageService::connect()?;
+        let archived_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs() as i64)
+            .unwrap_or_default();
+        connection
+            .execute(
+                "INSERT OR REPLACE INTO plan_archives (plan_id, archived_at) VALUES (?1, ?2)",
+                params![plan.id, archived_at],
+            )
+            .map_err(|error| format!("Failed to archive linked plan: {error}"))?;
+        Some(connection)
+    } else {
+        None
+    };
+
+    if let Err(error) = std::fs::rename(&src, &dest) {
+        if let (Some(plan), Some(connection)) = (linked_plan.as_ref(), archive_connection.as_ref())
+        {
+            let _ = connection.execute(
+                "DELETE FROM plan_archives WHERE plan_id = ?1",
+                params![plan.id],
+            );
+        }
+        return Err(format!("Failed to move change to archive: {error}"));
+    }
 
     Ok(())
 }
@@ -746,7 +1125,10 @@ pub fn validate_artifacts(change_dir: &std::path::Path) -> ArtifactValidation {
         if !lower.contains("## why") && !lower.contains("# why") {
             errors.push("proposal.md missing '## Why' section".to_string());
         }
-        if !lower.contains("## what-changes") && !lower.contains("## what changes") && !lower.contains("# what-changes") {
+        if !lower.contains("## what-changes")
+            && !lower.contains("## what changes")
+            && !lower.contains("# what-changes")
+        {
             errors.push("proposal.md missing '## What-Changes' section".to_string());
         }
         // Warning for thin proposal (< 100 chars of content).
@@ -770,15 +1152,22 @@ pub fn validate_artifacts(change_dir: &std::path::Path) -> ArtifactValidation {
                         spec_count += 1;
                         if let Ok(spec_content) = std::fs::read_to_string(&spec_md) {
                             let lower = spec_content.to_lowercase();
-                            if lower.contains("### requirement") || lower.contains("## requirement") {
+                            if lower.contains("### requirement") || lower.contains("## requirement")
+                            {
                                 found_requirement = true;
                             }
-                            if lower.contains("### scenario") || lower.contains("## scenario") || lower.contains("#### scenario") {
+                            if lower.contains("### scenario")
+                                || lower.contains("## scenario")
+                                || lower.contains("#### scenario")
+                            {
                                 found_scenario = true;
                             }
                             // Warning for thin spec (< 50 chars).
                             if spec_content.trim().len() < 50 {
-                                warnings.push(format!("spec '{}' is very thin", entry.file_name().to_string_lossy()));
+                                warnings.push(format!(
+                                    "spec '{}' is very thin",
+                                    entry.file_name().to_string_lossy()
+                                ));
                             }
                         }
                     }
@@ -812,12 +1201,18 @@ pub fn validate_artifacts(change_dir: &std::path::Path) -> ArtifactValidation {
             errors.push("tasks.md has no task checkboxes".to_string());
         }
         if completed > 0 {
-            warnings.push(format!("tasks.md has {completed} pre-checked task(s); expected 0 for a new change"));
+            warnings.push(format!(
+                "tasks.md has {completed} pre-checked task(s); expected 0 for a new change"
+            ));
         }
     }
 
     let valid = errors.is_empty();
-    ArtifactValidation { errors, warnings, valid }
+    ArtifactValidation {
+        errors,
+        warnings,
+        valid,
+    }
 }
 
 #[cfg(test)]
@@ -829,7 +1224,10 @@ mod tests {
     fn derive_change_name_kebab_cases_titles() {
         assert_eq!(derive_change_name("Add Dark Mode"), "add-dark-mode");
         assert_eq!(derive_change_name("Fix SSL & Auth"), "fix-ssl-auth");
-        assert_eq!(derive_change_name("  Multiple   Spaces  "), "multiple-spaces");
+        assert_eq!(
+            derive_change_name("  Multiple   Spaces  "),
+            "multiple-spaces"
+        );
         assert_eq!(derive_change_name("API_v2 Refactor"), "api-v2-refactor");
         assert_eq!(derive_change_name(""), "untitled-change");
         assert_eq!(derive_change_name("   "), "untitled-change");
@@ -859,7 +1257,10 @@ mod tests {
     #[test]
     fn parse_task_progress_handles_empty_and_no_checkboxes() {
         assert_eq!(parse_task_progress(""), (0, 0));
-        assert_eq!(parse_task_progress("# Just a heading\n\nNo checkboxes here."), (0, 0));
+        assert_eq!(
+            parse_task_progress("# Just a heading\n\nNo checkboxes here."),
+            (0, 0)
+        );
     }
 
     #[test]
@@ -868,6 +1269,95 @@ mod tests {
         let (completed, total) = parse_task_progress(tasks);
         assert_eq!(completed, 2);
         assert_eq!(total, 3);
+    }
+
+    #[test]
+    fn assessment_fingerprint_stays_stable_then_marks_changed_artifacts_stale() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        let project = directory.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let project_path = project.to_string_lossy().to_string();
+        let specs = vec![(
+            "routing".to_string(),
+            "## ADDED Requirements\n### Requirement: Route\n#### Scenario: Choose\n- **WHEN** planning\n- **THEN** choose".to_string(),
+        )];
+        write_artifacts_atomic(
+            &project_path,
+            "assessed-change",
+            "## Why\nNeed route\n## What Changes\nChoose route",
+            &specs,
+            Some("## Context\nExisting route\n## Decisions\nUse evidence"),
+            "## 1. Work\n- [ ] 1.1 Implement route",
+        )
+        .unwrap();
+        let session = crate::services::session_service::SessionService::create_session(
+            &project_path,
+            "Assessment",
+        )
+        .unwrap();
+        let plan = crate::services::plan_service::PlanService::create(
+            &session.id,
+            &crate::models::plan::NewPlan {
+                title: "Assessed plan".to_string(),
+                description: "Test staleness".to_string(),
+                goal: None,
+                status: crate::models::plan::PlanStatus::Draft,
+                priority: None,
+                tags: vec![],
+                idea_id: None,
+            },
+        )
+        .unwrap();
+        link_plan_to_change(&plan.id, "assessed-change").unwrap();
+        let original = assessment_artifact_fingerprint(&project_path, "assessed-change").unwrap();
+        let assessment = crate::models::planning_assessment::PlanAssessment {
+            schema_version: crate::models::planning_assessment::ASSESSMENT_SCHEMA_VERSION,
+            implementation: crate::models::planning_assessment::ImplementationAssessment {
+                schema_version: crate::models::planning_assessment::ASSESSMENT_SCHEMA_VERSION,
+                effort: crate::models::planning_assessment::EffortRange {
+                    min_hours: 2,
+                    max_hours: 6,
+                },
+                difficulty: 3,
+                impact: 4,
+                risk: 2,
+                confidence: 4,
+                rationale: "Validated artifact fixture.".to_string(),
+                grounding: vec!["design.md".to_string()],
+                required_capabilities: vec![],
+                constraints: vec![],
+                missing_evidence: vec![],
+                alternatives: vec![],
+            },
+            artifact_fingerprint: original.clone(),
+            source_idea_id: None,
+            estimate_drift: "No source idea estimate.".to_string(),
+            expected_context_tokens: 128,
+            parallelism: crate::models::planning_assessment::ParallelismGuidance {
+                max_parallel_tasks: 1,
+                rationale: "One ordered task.".to_string(),
+            },
+            assessed_at: 1,
+            stale: false,
+        };
+        crate::services::plan_service::PlanService::save_assessment(&plan.id, &assessment).unwrap();
+
+        assert!(!refresh_assessment_staleness(&project_path, "assessed-change").unwrap());
+        std::fs::write(
+            change_dir(&project_path, "assessed-change").join("design.md"),
+            "## Context\nChanged evidence\n## Decisions\nUse a different route",
+        )
+        .unwrap();
+        assert!(refresh_assessment_staleness(&project_path, "assessed-change").unwrap());
+        let refreshed = crate::services::plan_service::PlanService::get(&plan.id)
+            .unwrap()
+            .unwrap();
+        assert!(refreshed.assessment.unwrap().stale);
+        assert_ne!(
+            original,
+            assessment_artifact_fingerprint(&project_path, "assessed-change").unwrap()
+        );
     }
 
     #[test]
@@ -883,7 +1373,10 @@ mod tests {
         std::fs::create_dir_all(&tmp).unwrap();
         let project_path = tmp.to_string_lossy().to_string();
 
-        let specs = vec![("test-capability".to_string(), "## ADDED Requirements\n...".to_string())];
+        let specs = vec![(
+            "test-capability".to_string(),
+            "## ADDED Requirements\n...".to_string(),
+        )];
         let result = write_artifacts_atomic(
             &project_path,
             "test-change",
@@ -892,15 +1385,28 @@ mod tests {
             Some("# Design: Test"),
             "# Tasks: Test\n- [x] 1.1 Task",
         );
-        assert!(result.is_ok(), "write_artifacts_atomic failed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "write_artifacts_atomic failed: {:?}",
+            result
+        );
 
         let change_dir = change_dir(&project_path, "test-change");
         assert!(change_dir.exists(), "change dir exists");
-        assert!(change_dir.join("proposal.md").exists(), "proposal.md exists");
-        assert!(change_dir.join("specs/test-capability/spec.md").exists(), "spec.md exists");
+        assert!(
+            change_dir.join("proposal.md").exists(),
+            "proposal.md exists"
+        );
+        assert!(
+            change_dir.join("specs/test-capability/spec.md").exists(),
+            "spec.md exists"
+        );
         assert!(change_dir.join("design.md").exists(), "design.md exists");
         assert!(change_dir.join("tasks.md").exists(), "tasks.md exists");
-        assert!(change_dir.join(".openspec.yaml").exists(), ".openspec.yaml exists");
+        assert!(
+            change_dir.join(".openspec.yaml").exists(),
+            ".openspec.yaml exists"
+        );
 
         let (completed, total) = read_task_progress(&project_path, "test-change");
         assert_eq!(completed, 1);
@@ -923,15 +1429,28 @@ mod tests {
         let project_path = tmp.to_string_lossy().to_string();
 
         // First "test-change" is unique.
-        assert_eq!(resolve_unique_change_name(&project_path, "Test Change"), "test-change");
+        assert_eq!(
+            resolve_unique_change_name(&project_path, "Test Change"),
+            "test-change"
+        );
 
         // Create the first change dir.
         let specs: Vec<(String, String)> = vec![];
-        write_artifacts_atomic(&project_path, "test-change", "# Proposal", &specs, None, "# Tasks")
-            .unwrap();
+        write_artifacts_atomic(
+            &project_path,
+            "test-change",
+            "# Proposal",
+            &specs,
+            None,
+            "# Tasks",
+        )
+        .unwrap();
 
         // Second "test-change" collision gets -2 suffix.
-        assert_eq!(resolve_unique_change_name(&project_path, "Test Change"), "test-change-2");
+        assert_eq!(
+            resolve_unique_change_name(&project_path, "Test Change"),
+            "test-change-2"
+        );
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&tmp);
@@ -1043,7 +1562,10 @@ mod tests {
         let result = link_change_to_plan("test-change", "plan-b");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.contains("already linked"), "Expected double-link error, got: {err}");
+        assert!(
+            err.contains("already linked"),
+            "Expected double-link error, got: {err}"
+        );
     }
 
     #[test]
@@ -1069,14 +1591,149 @@ mod tests {
         let result = unlink_plan_from_change("plan-run");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.contains("Cannot unlink"), "Expected active-plan rejection, got: {err}");
+        assert!(
+            err.contains("Cannot unlink"),
+            "Expected active-plan rejection, got: {err}"
+        );
+    }
+
+    #[test]
+    fn delta_merge_applies_modified_removed_and_renamed_requirements() {
+        let canonical = "# Example Specification\n\n### Requirement: Keep\nOld text.\n\n### Requirement: Remove\nDelete me.\n\n### Requirement: Rename me\nKeep body.\n";
+        let delta = "## MODIFIED Requirements\n\n### Requirement: Keep\nNew text.\n\n## REMOVED Requirements\n\n### Requirement: Remove\n\n## RENAMED Requirements\n\n- FROM: `Rename me`\n- TO: `Renamed`\n";
+
+        let merged = merge_delta_spec("example", Some(canonical), delta).unwrap();
+        assert!(merged.contains("### Requirement: Keep\nNew text."));
+        assert!(!merged.contains("### Requirement: Remove"));
+        assert!(!merged.contains("### Requirement: Rename me"));
+        assert!(merged.contains("### Requirement: Renamed\nKeep body."));
+    }
+
+    #[test]
+    fn archive_change_hides_linked_plan_from_active_lists() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        let project_path = dir.path().to_str().unwrap();
+        let change_path = change_dir(project_path, "test-change");
+        std::fs::create_dir_all(&change_path).unwrap();
+        std::fs::write(change_path.join("tasks.md"), "- [x] Finished task\n").unwrap();
+        std::fs::write(change_path.join("proposal.md"), "# Test change").unwrap();
+        let delta_spec_path = change_path.join("specs/archive-coherence");
+        std::fs::create_dir_all(&delta_spec_path).unwrap();
+        std::fs::write(
+            delta_spec_path.join("spec.md"),
+            "## ADDED Requirements\n\n### Requirement: Archive syncs delta specs\nThe system MUST preserve canonical requirements.\n\n#### Scenario: Archive a completed change\n- **THEN** the requirement exists in the canonical spec\n",
+        )
+        .unwrap();
+
+        let connection = StorageService::connect().unwrap();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        connection
+            .execute(
+                "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+                 VALUES ('sess-archive', ?1, 'Test', ?2, ?2)",
+                params![project_path, timestamp],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO plans (
+                    id, session_id, reference_id, title, description, goal, status,
+                    priority, tags, ai_enhanced, context, idea_id, change_name,
+                    created_at, updated_at, finished_at
+                 ) VALUES (
+                    'plan-archive', 'sess-archive', 'PLAN-ARCHIVE', 'Archived plan', '', '',
+                    'finished', 1, '[]', 0, NULL, NULL, 'test-change', ?1, ?1, ?1
+                 )",
+                params![timestamp],
+            )
+            .unwrap();
+        drop(connection);
+
+        assert_eq!(
+            crate::services::plan_service::PlanService::list("sess-archive")
+                .unwrap()
+                .len(),
+            1
+        );
+
+        archive_change(project_path, "test-change").unwrap();
+
+        assert!(
+            crate::services::plan_service::PlanService::list("sess-archive")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            crate::services::plan_service::PlanService::get("plan-archive")
+                .unwrap()
+                .is_some()
+        );
+        assert!(changes_dir(project_path)
+            .join("archive")
+            .join(format!("{}-test-change", current_date_string()))
+            .exists());
+        let canonical =
+            std::fs::read_to_string(dir.path().join("openspec/specs/archive-coherence/spec.md"))
+                .unwrap();
+        assert!(canonical.contains("# Archive Coherence Specification"));
+        assert!(canonical.contains("### Requirement: Archive syncs delta specs"));
+    }
+
+    #[test]
+    fn archive_change_blocks_finished_plan_with_incomplete_tasks() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&dir);
+        let project_path = dir.path().to_str().unwrap();
+        let change_path = change_dir(project_path, "incomplete-change");
+        std::fs::create_dir_all(&change_path).unwrap();
+        std::fs::write(
+            change_path.join("tasks.md"),
+            "- [x] Done\n- [ ] Remaining\n",
+        )
+        .unwrap();
+
+        let connection = StorageService::connect().unwrap();
+        connection
+            .execute(
+                "INSERT INTO sessions (id, project_path, title, created_at, updated_at)
+                 VALUES ('sess-incomplete', ?1, 'Test', 0, 0)",
+                params![project_path],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO plans (
+                    id, session_id, reference_id, title, description, goal, status,
+                    priority, tags, ai_enhanced, context, idea_id, change_name,
+                    created_at, updated_at, finished_at
+                 ) VALUES (
+                    'plan-incomplete', 'sess-incomplete', 'PLAN-INCOMPLETE', 'Incomplete',
+                    '', '', 'finished', 1, '[]', 0, NULL, NULL, 'incomplete-change',
+                    0, 0, 0
+                 )",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+
+        let error = archive_change(project_path, "incomplete-change").unwrap_err();
+        assert_eq!(error, "Cannot archive: 1/2 required tasks are complete.");
+        assert!(change_path.exists());
     }
 
     fn make_valid_change_dir(dir: &std::path::Path) {
         std::fs::create_dir_all(dir.join("specs/test-cap")).unwrap();
         std::fs::write(dir.join("proposal.md"), "# Proposal\n\n## Why\nThis is a sufficiently long proposal that explains the rationale for the change in detail.\n\n## What-Changes\n- Added feature X\n- Modified feature Y\n").unwrap();
         std::fs::write(dir.join("specs/test-cap/spec.md"), "# Test Capability\n\n### Requirement: Must do the thing\n\nThe system must do the thing.\n\n### Scenario: User does the thing\n\n- Given a user\n- When they do the thing\n- Then it works\n").unwrap();
-        std::fs::write(dir.join("tasks.md"), "# Tasks\n\n- [ ] 1.1 First task\n- [ ] 1.2 Second task\n").unwrap();
+        std::fs::write(
+            dir.join("tasks.md"),
+            "# Tasks\n\n- [ ] 1.1 First task\n- [ ] 1.2 Second task\n",
+        )
+        .unwrap();
     }
 
     #[test]
@@ -1096,7 +1753,10 @@ mod tests {
         std::fs::write(tmp.path().join("tasks.md"), "# Tasks\n\nNo tasks here.\n").unwrap();
         let result = validate_artifacts(tmp.path());
         assert!(!result.valid);
-        assert!(result.errors.iter().any(|e| e.contains("no task checkboxes")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.contains("no task checkboxes")));
     }
 
     #[test]
@@ -1104,7 +1764,11 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         make_valid_change_dir(tmp.path());
         // Overwrite spec.md with a requirement but no scenario.
-        std::fs::write(tmp.path().join("specs/test-cap/spec.md"), "# Test\n\n### Requirement: Must do\n\nDo the thing.\n").unwrap();
+        std::fs::write(
+            tmp.path().join("specs/test-cap/spec.md"),
+            "# Test\n\n### Requirement: Must do\n\nDo the thing.\n",
+        )
+        .unwrap();
         let result = validate_artifacts(tmp.path());
         assert!(!result.valid);
         assert!(result.errors.iter().any(|e| e.contains("scenario")));
@@ -1118,7 +1782,10 @@ mod tests {
         std::fs::remove_file(tmp.path().join("proposal.md")).unwrap();
         let result = validate_artifacts(tmp.path());
         assert!(!result.valid);
-        assert!(result.errors.iter().any(|e| e.contains("proposal.md is missing")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.contains("proposal.md is missing")));
     }
 
     #[test]
@@ -1126,7 +1793,11 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         make_valid_change_dir(tmp.path());
         // Make proposal very short.
-        std::fs::write(tmp.path().join("proposal.md"), "# Proposal\n\n## Why\nShort.\n\n## What-Changes\n- X\n").unwrap();
+        std::fs::write(
+            tmp.path().join("proposal.md"),
+            "# Proposal\n\n## Why\nShort.\n\n## What-Changes\n- X\n",
+        )
+        .unwrap();
         let result = validate_artifacts(tmp.path());
         assert!(result.valid, "Thin content should warn, not error");
         assert!(result.warnings.iter().any(|w| w.contains("very short")));
@@ -1137,7 +1808,11 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         make_valid_change_dir(tmp.path());
         // Write tasks.md with a pre-checked task.
-        std::fs::write(tmp.path().join("tasks.md"), "# Tasks\n\n- [x] 1.1 Already done\n- [ ] 1.2 Second task\n").unwrap();
+        std::fs::write(
+            tmp.path().join("tasks.md"),
+            "# Tasks\n\n- [x] 1.1 Already done\n- [ ] 1.2 Second task\n",
+        )
+        .unwrap();
         let result = validate_artifacts(tmp.path());
         assert!(result.valid, "Pre-checked tasks should warn, not error");
         assert!(result.warnings.iter().any(|w| w.contains("pre-checked")));

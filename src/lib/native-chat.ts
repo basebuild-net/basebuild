@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ImplementationAssessment } from "./planning-assessment";
 
 export type NativeChatSession = {
   id: string;
@@ -104,6 +105,11 @@ export type NativeProviderCatalog = {
   stale: boolean;
 };
 
+export type NativeChatBootstrap = {
+  catalog: NativeProviderCatalog;
+  resolved: ResolvedChatModelDefault;
+};
+
 export type NativeRequestMetric = {
   id: string;
   sessionId: string;
@@ -156,6 +162,9 @@ export type NativeChatSendResult = {
 export type NativeGeneratedIdea = {
   title: string;
   description: string;
+  grounding: string;
+  anchor?: string;
+  assessment?: ImplementationAssessment;
 };
 
 export type GroundingMetadata = {
@@ -191,6 +200,11 @@ export async function nativeProviderCatalog(): Promise<NativeProviderCatalog> {
   return invoke<NativeProviderCatalog>("native_provider_catalog");
 }
 
+/** Resolve the cache-first provider catalog and project model default from one snapshot. */
+export async function nativeChatBootstrap(projectPath: string): Promise<NativeChatBootstrap> {
+  return invoke<NativeChatBootstrap>("native_chat_bootstrap", { projectPath });
+}
+
 export async function nativeProviderCatalogRefresh(input?: {
   providerId?: string | null;
   force?: boolean;
@@ -219,6 +233,7 @@ export async function nativeChatStart(input: {
 export async function nativeChatGet(sessionId: string): Promise<NativeChatSession | null> {
   return invoke<NativeChatSession | null>("native_chat_get", { sessionId });
 }
+
 
 export async function renameNativeChatSession(sessionId: string, title: string): Promise<void> {
   return invoke("native_chat_rename", { sessionId, title });
@@ -305,8 +320,12 @@ export async function nativeGenerateIdeas(input: {
   providerId?: string | null;
   modelId?: string | null;
   effortLevel?: string | null;
-  categoryId?: string | null;
-  /** Extra steering appended to the idea-generation prompt. */
+  planningSessionId: string;
+  categoryIds?: string[];
+  ideaCount?: number;
+  /** Compact transcript row shown while the native skill runs. */
+  displayMessage?: string | null;
+  /** User-authored steering passed as native skill arguments. */
   direction?: string | null;
 }): Promise<NativeGenerateIdeasResult> {
   return invoke<NativeGenerateIdeasResult>("native_generate_ideas", { request: input });

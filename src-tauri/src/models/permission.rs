@@ -10,7 +10,7 @@ pub enum PermissionDecision {
 }
 
 #[allow(dead_code)]
- impl PermissionDecision {
+impl PermissionDecision {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Ask => "ask",

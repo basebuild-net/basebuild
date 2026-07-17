@@ -20,7 +20,10 @@ pub fn startup_enable(app: AppHandle) -> Result<StartupRegistrationStatus, Strin
     eprintln!("[startup] enable — registering autostart");
     let result = StartupService::enable(&app);
     match &result {
-        Ok(status) => eprintln!("[startup] enable succeeded — effective: {:?}", status.effective),
+        Ok(status) => eprintln!(
+            "[startup] enable succeeded — effective: {:?}",
+            status.effective
+        ),
         Err(e) => eprintln!("[startup] enable failed: {e}"),
     }
     result
@@ -33,7 +36,10 @@ pub fn startup_disable(app: AppHandle) -> Result<StartupRegistrationStatus, Stri
     eprintln!("[startup] disable — removing autostart registration");
     let result = StartupService::disable(&app);
     match &result {
-        Ok(status) => eprintln!("[startup] disable succeeded — effective: {:?}", status.effective),
+        Ok(status) => eprintln!(
+            "[startup] disable succeeded — effective: {:?}",
+            status.effective
+        ),
         Err(e) => eprintln!("[startup] disable failed: {e}"),
     }
     result
@@ -49,7 +55,10 @@ pub fn startup_reconcile(app: AppHandle) -> Result<StartupRegistrationStatus, St
     match &result {
         Ok(status) => {
             if let Some(recon) = &status.last_reconciliation {
-                eprintln!("[startup] reconcile — action: {:?}, success: {}", recon.action, recon.success);
+                eprintln!(
+                    "[startup] reconcile — action: {:?}, success: {}",
+                    recon.action, recon.success
+                );
             }
         }
         Err(e) => eprintln!("[startup] reconcile failed: {e}"),

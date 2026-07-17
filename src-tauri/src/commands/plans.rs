@@ -33,13 +33,34 @@ pub struct UpdatePlanInput {
 fn parse_status(s: &str) -> PlanStatus {
     PlanStatus::from_str(s)
 }
+
+fn validate_manual_lifecycle_transition(
+    current: Option<PlanStatus>,
+    requested: PlanStatus,
+) -> Result<(), String> {
+    if current == Some(requested) {
+        return Ok(());
+    }
+    match requested {
+        PlanStatus::Running => Err(
+            "Cannot set plan to running directly: assign it to a live plan run.".to_string(),
+        ),
+        PlanStatus::Finished => Err(
+            "Cannot set plan to finished directly: complete the linked OpenSpec checklist and plan run."
+                .to_string(),
+        ),
+        _ => Ok(()),
+    }
+}
 #[tauri::command]
 pub fn create_plan(app: AppHandle, input: CreatePlanInput) -> Result<Plan, String> {
+    let status = parse_status(input.status.as_deref().unwrap_or("draft"));
+    validate_manual_lifecycle_transition(None, status)?;
     let plan = NewPlan {
         title: input.title,
         description: input.description,
         goal: input.goal,
-        status: parse_status(input.status.as_deref().unwrap_or("draft")),
+        status,
         priority: input.priority,
         tags: input.tags.unwrap_or_default(),
         idea_id: input.idea_id,
@@ -68,17 +89,25 @@ pub fn list_plans(session_id: String) -> Result<Vec<Plan>, String> {
 }
 
 #[tauri::command]
+pub fn list_project_plans(project_path: String) -> Result<Vec<Plan>, String> {
+    PlanService::list_for_project(&project_path)
+}
+
+#[tauri::command]
 pub fn get_plan(id: String) -> Result<Option<Plan>, String> {
     PlanService::get(&id)
 }
 
 #[tauri::command]
 pub fn update_plan(app: AppHandle, id: String, input: UpdatePlanInput) -> Result<Plan, String> {
+    let current = PlanService::get(&id)?.ok_or("Plan not found".to_string())?;
+    let status = parse_status(&input.status);
+    validate_manual_lifecycle_transition(Some(current.status), status)?;
     let plan = NewPlan {
         title: input.title,
         description: input.description,
         goal: input.goal,
-        status: parse_status(&input.status),
+        status,
         priority: input.priority,
         tags: input.tags,
         idea_id: None,
@@ -104,9 +133,13 @@ pub fn update_plan(app: AppHandle, id: String, input: UpdatePlanInput) -> Result
 #[tauri::command]
 pub async fn set_plan_status(app: AppHandle, id: String, status: String) -> Result<Plan, String> {
     let status = parse_status(&status);
-    // draft → openspec: run the generate_openspec pipeline stage to write
-    // artifacts atomically, set change_name, and only then flip status. On
-    // failure, the plan stays in draft with a surfaced error.
+    let current = PlanService::get(&id)?.ok_or("Plan not found".to_string())?;
+    validate_manual_lifecycle_transition(Some(current.status), status)?;
+    // draft → openspec: kick off the generate_openspec pipeline stage in the
+    // background. The plan status flips to "openspec" immediately so the UI
+    // reflects the transition without waiting for 4 model calls. The pipeline
+    // run shows up in BackgroundAgents via the StageStarted planning event.
+    // If the stage fails, the plan reverts to draft with an error event.
     if status == PlanStatus::Openspec {
         let plan = PlanService::get(&id)?.ok_or("Plan not found".to_string())?;
         if plan.status != PlanStatus::Openspec {
@@ -122,7 +155,56 @@ pub async fn set_plan_status(app: AppHandle, id: String, status: String) -> Resu
                 input: None,
                 chat_session_id: None,
             };
-            crate::services::pipeline_service::PipelineService::start_stage(&app, request)?;
+            // Set status to openspec immediately.
+            let updated = PlanService::set_status(&id, PlanStatus::Openspec)?;
+            let project_path = SessionService::get(&updated.session_id)
+                .ok()
+                .flatten()
+                .map(|s| s.project_path)
+                .unwrap_or_default();
+            crate::services::planning_events::emit(
+                &app,
+                crate::models::planning_event::PlanningEventKind::PlanStatusChanged,
+                &updated.id,
+                &project_path,
+                Some(updated.session_id.clone()),
+                &updated.title,
+                Some(format!("{} → openspec", plan.status.as_str())),
+            );
+            // Spawn the pipeline stage detached — it runs in the background
+            // and emits its own StageStarted/StageSucceeded/StageFailed events.
+            let stage_app = app.clone();
+            let plan_id = id.clone();
+            let plan_title = updated.title.clone();
+            let plan_session = updated.session_id.clone();
+            tauri::async_runtime::spawn(async move {
+                let fail_app = stage_app.clone();
+                let run = tauri::async_runtime::spawn_blocking(move || {
+                    crate::services::pipeline_service::PipelineService::start_stage(
+                        &stage_app, request,
+                    )
+                })
+                .await;
+                let failed = match run {
+                    Ok(Ok(result)) => result.status != "succeeded",
+                    Ok(Err(_)) => true,
+                    Err(_) => true,
+                };
+                if failed {
+                    // Revert the plan to draft so the user can retry.
+                    let _ = PlanService::set_status(&plan_id, PlanStatus::Draft);
+                    let _ = crate::services::planning_events::emit(
+                        &fail_app,
+                        crate::models::planning_event::PlanningEventKind::PlanStatusChanged,
+                        &plan_id,
+                        &project_path,
+                        Some(plan_session),
+                        &plan_title,
+                        Some("openspec → draft (generation failed)".to_string()),
+                    );
+                }
+            });
+            return Ok(updated);
         }
     }
     let plan = PlanService::get(&id)?.ok_or("Plan not found".to_string())?;
@@ -185,4 +267,43 @@ pub fn batch_promote_ideas(
         .map(|(idea_id, error)| crate::models::plan::BatchPromoteError { idea_id, error })
         .collect();
     Ok(BatchPromoteResult { created, errors })
+}
+/// Load-time planning-data self check: reports desyncs (plans with deleted
+/// source ideas, orphaned plans/ideas, dangling category tags) so the UI can
+/// warn instead of failing actions with opaque "not found" errors.
+#[tauri::command]
+pub fn planning_integrity_check(
+    project_path: String,
+) -> Result<Vec<crate::models::plan::PlanningIntegrityIssue>, String> {
+    PlanService::integrity_check(&project_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manual_status_changes_cannot_claim_execution_or_completion() {
+        assert!(
+            validate_manual_lifecycle_transition(None, PlanStatus::Running)
+                .unwrap_err()
+                .contains("live plan run")
+        );
+        assert!(validate_manual_lifecycle_transition(
+            Some(PlanStatus::Ready),
+            PlanStatus::Finished
+        )
+        .unwrap_err()
+        .contains("OpenSpec checklist"));
+        assert!(validate_manual_lifecycle_transition(
+            Some(PlanStatus::Running),
+            PlanStatus::Running
+        )
+        .is_ok());
+        assert!(validate_manual_lifecycle_transition(
+            Some(PlanStatus::Draft),
+            PlanStatus::Openspec
+        )
+        .is_ok());
+    }
 }

@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
+  Archive,
+  ClipboardCheck,
   CheckCircle,
   ChevronLeft,
   ChevronRight,
   Copy,
   Download,
-  MoreHorizontal,
   Pencil,
+  Play,
   RefreshCw,
   Rocket,
   Send,
@@ -16,7 +18,12 @@ import {
   Wrench,
 } from "lucide-react";
 import type { Plan, PlanStatus } from "../../lib/plans";
-import { PLAN_STATUSES, PLAN_STATUS_LABEL, isTerminalStatus } from "../../lib/plans";
+import type { PlanRun } from "../../lib/planRuns";
+import { PLAN_STATUS_DISPLAY_ORDER, PLAN_STATUSES, PLAN_STATUS_LABEL, isTerminalStatus } from "../../lib/plans";
+import { formatRelativeTime } from "../../lib/timing";
+import type { Idea } from "../../lib/ideas";
+import { Disclosure } from "../Disclosure";
+import { ActionMenu } from "../ActionMenu";
 import type {
   EngineKind,
   FinishPolicy,
@@ -38,6 +45,14 @@ import { useOpenSpecRuntime } from "../../state/useOpenSpecRuntime";
 import { PlanImportModal } from "./PlanImportModal";
 import { OptionList, type OptionListOption } from "./OptionList";
 import { listResolvedSkills, type ResolvedSkill } from "../../lib/skillRegistry";
+import { ExecutionAdvisorCard } from "../planning/ExecutionAdvisorCard";
+import {
+  nativeChatBootstrap,
+  nativeChatSetProjectModelDefault,
+  type NativeProviderCatalog,
+} from "../../lib/native-chat";
+/** Epoch seconds (Rust) or milliseconds (JS) → milliseconds. */
+const toMs = (ts: number) => (ts < 1_000_000_000_000 ? ts * 1000 : ts);
 
 type EffortLevel = "low" | "medium" | "high";
 
@@ -57,19 +72,25 @@ type PlanPanelProps = {
   sessionId: string | null;
   projectPath: string | null;
   plans: Plan[];
+  planRuns?: PlanRun[];
+  /** Project ideas — used to show when a plan's source idea was captured. */
+  ideas?: Idea[];
   loading: boolean;
   collapsed: boolean;
   onToggleCollapse: () => void;
 
   onEditPlan: (plan: Plan) => void;
   onFocusPlan: (plan: Plan) => void;
-  onSetPlanStatus: (id: string, status: PlanStatus) => void;
+  onSetPlanStatus: (id: string, status: PlanStatus) => void | Promise<unknown>;
   onDeletePlan: (id: string) => void;
   onCopyReference: (refId: string) => void;
   onOpenInTerminal: (plan: Plan) => void;
   onOpenChatSession: (chatSessionId: string) => void;
   onAssignPlan?: (plan: Plan, profile: LaunchProfile) => void;
   onShowToast?: (title: string, detail?: string, kind?: "success" | "error") => void;
+  onArchivePlan?: (plan: Plan) => void;
+  onResumeRun?: (run: PlanRun) => void | Promise<void>;
+  onReviewRun?: (run: PlanRun) => void;
   showHeader?: boolean;
 };
 
@@ -77,6 +98,8 @@ export function PlanPanel({
   sessionId,
   projectPath,
   plans,
+  planRuns,
+  ideas,
   loading,
   collapsed,
   onToggleCollapse,
@@ -90,10 +113,18 @@ export function PlanPanel({
   onOpenChatSession,
   onAssignPlan,
   onShowToast,
+  onArchivePlan,
+  onResumeRun,
+  onReviewRun,
   showHeader = true,
 }: PlanPanelProps) {
   const [expandedFinished, setExpandedFinished] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const ideaCreatedAtById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const idea of ideas ?? []) map.set(idea.id, idea.createdAt);
+    return map;
+  }, [ideas]);
   const [profileDefaults, setProfileDefaults] = useState<ProfileForm>({
     engine: "openspec",
     providerId: "",
@@ -195,14 +226,14 @@ export function PlanPanel({
             <p className="text-muted text-sm">Generate ideas with AI, then promote the ones worth building.</p>
           </div>
         ) : (
-          PLAN_STATUSES.map((status) => {
+          PLAN_STATUS_DISPLAY_ORDER.map((status) => {
             const list = plansByStatus.get(status) ?? [];
             if (isTerminalStatus(status)) {
               if (status !== "finished") return null;
               const finishedCount = list.length + (plansByStatus.get("cancelled")?.length ?? 0);
               if (finishedCount === 0) return null;
               return (
-                <div key={status} className="plan-lane">
+                <div key={status} className="plan-lane" data-status="finished">
                   <button
                     className="plan-lane-header"
                     type="button"
@@ -217,7 +248,9 @@ export function PlanPanel({
                       {[...list, ...(plansByStatus.get("cancelled") ?? [])].map((plan) => (
                         <PlanCard
                           key={plan.id}
+                          run={planRuns?.find((candidate) => candidate.planId === plan.id)}
                           plan={plan}
+                          ideaCreatedAt={plan.ideaId ? ideaCreatedAtById.get(plan.ideaId) ?? null : null}
                           projectPath={projectPath}
                           defaults={profileDefaults}
                           onEdit={onEditPlan}
@@ -228,6 +261,9 @@ export function PlanPanel({
                           onOpenInTerminal={onOpenInTerminal}
                           onAssignPlan={onAssignPlan}
                           onShowToast={onShowToast}
+                          onResumeRun={onResumeRun}
+                          onReviewRun={onReviewRun}
+                          onArchive={onArchivePlan}
                         />
                       ))}
                     </div>
@@ -237,7 +273,7 @@ export function PlanPanel({
             }
             if (list.length === 0) return null;
             return (
-              <div key={status} className="plan-lane">
+              <div key={status} className="plan-lane" data-status={status}>
                 <div className="plan-lane-header">
                   <span className="plan-lane-label">{PLAN_STATUS_LABEL[status]}</span>
                   <span className="plan-lane-count">{list.length}</span>
@@ -247,9 +283,11 @@ export function PlanPanel({
                     <PlanCard
                       key={plan.id}
                       plan={plan}
+                      ideaCreatedAt={plan.ideaId ? ideaCreatedAtById.get(plan.ideaId) ?? null : null}
                       projectPath={projectPath}
                       defaults={profileDefaults}
                       onEdit={onEditPlan}
+                      run={planRuns?.find((candidate) => candidate.planId === plan.id)}
                       onFocus={onFocusPlan}
                       onSetStatus={onSetPlanStatus}
                       onDeletePlan={onDeletePlan}
@@ -257,6 +295,9 @@ export function PlanPanel({
                       onOpenInTerminal={onOpenInTerminal}
                       onAssignPlan={onAssignPlan}
                       onShowToast={onShowToast}
+                      onResumeRun={onResumeRun}
+                      onReviewRun={onReviewRun}
+                      onArchive={onArchivePlan}
                     />
                   ))}
                 </div>
@@ -267,8 +308,10 @@ export function PlanPanel({
       </div>
       <PlanQueueSection
         sessionId={sessionId}
+        projectPath={projectPath}
         plans={plans}
         onOpenChatSession={onOpenChatSession}
+        onShowToast={onShowToast}
       />
       {showImport ? (
         <PlanImportModal projectPath={projectPath} onClose={() => setShowImport(false)} />
@@ -279,6 +322,8 @@ export function PlanPanel({
 
 type PlanCardProps = {
   plan: Plan;
+  run?: PlanRun;
+  ideaCreatedAt?: number | null;
   projectPath: string | null;
   defaults: ProfileForm;
   onEdit: (plan: Plan) => void;
@@ -289,9 +334,14 @@ type PlanCardProps = {
   onOpenInTerminal: (plan: Plan) => void;
   onAssignPlan?: (plan: Plan, profile: LaunchProfile) => void;
   onShowToast?: (title: string, detail?: string, kind?: "success" | "error") => void;
+  onArchive?: (plan: Plan) => void;
+  onResumeRun?: (run: PlanRun) => void | Promise<void>;
+  onReviewRun?: (run: PlanRun) => void;
 };
 function PlanCard({
   plan,
+  run,
+  ideaCreatedAt,
   projectPath,
   defaults,
   onEdit,
@@ -302,8 +352,10 @@ function PlanCard({
   onOpenInTerminal,
   onAssignPlan,
   onShowToast,
+  onArchive,
+  onResumeRun,
+  onReviewRun,
 }: PlanCardProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [taskProgress, setTaskProgress] = useState<{ completed: number; total: number } | null>(null);
   const isFinished = plan.status === "finished";
@@ -314,14 +366,13 @@ function PlanCard({
     if (!plan.changeName || !projectPath) return;
     let cancelled = false;
     void openspecTaskProgress(projectPath, plan.changeName).then((progress) => {
-      if (!cancelled && progress.total > 0) setTaskProgress(progress);
-    }).catch(() => {});
+      if (!cancelled) setTaskProgress(progress);
+    }).catch(() => {
+      if (!cancelled) setTaskProgress(null);
+    });
     return () => { cancelled = true; };
   }, [plan.changeName, projectPath]);
 
-  const nextStatuses: PlanStatus[] = isFinished
-    ? []
-    : PLAN_STATUSES.filter((s) => s !== plan.status && !isTerminalStatus(s));
 
   const profileForAssign = useMemo<LaunchProfile>(() => ({
     projectPath: projectPath ?? "",
@@ -337,34 +388,103 @@ function PlanCard({
     updatedAt: Date.now(),
   }), [projectPath, defaults]);
 
+  const archiveBlockedReason = !projectPath
+    ? "Cannot archive: no project is open."
+    : !plan.changeName
+      ? "Cannot archive: plan has no linked OpenSpec change."
+      : taskProgress === null
+        ? "Cannot archive: task progress is unavailable."
+        : taskProgress.total === 0
+          ? "Cannot archive: no required tasks were found."
+          : taskProgress.completed < taskProgress.total
+            ? `Cannot archive: ${taskProgress.completed}/${taskProgress.total} required tasks are complete.`
+            : null;
+  const resumeBlockedReason = !run?.chatSessionId
+    ? "Cannot resume: this run has no retained chat owner."
+    : null;
+
   return (
-    <div className={`plan-card${plan.status === "running" ? " is-active" : ""}`}>
+    <div className={`plan-card${run?.status === "running" || run?.status === "pending" ? " is-active" : ""}`} data-status={plan.status}>
       <button
         className="plan-card-main"
         type="button"
         onClick={() => onFocus(plan)}
-        title={plan.description}
+        title={plan.description ? `${plan.title} — ${plan.description}` : plan.title}
       >
-        <span className="plan-card-ref">{plan.referenceId}</span>
-        <span className="plan-card-title">{plan.title}</span>
-        {validation ? (
-          <span
-            className={`plan-readiness-badge ${validation.errors.length > 0 ? "is-error" : validation.warnings.length > 0 ? "is-warn" : "is-valid"}`}
-            title={validation.errors.concat(validation.warnings).join("\n") || "Ready to promote"}
-          >
-            {validation.errors.length > 0 ? <AlertCircle size={10} /> : validation.warnings.length > 0 ? <AlertCircle size={10} /> : <CheckCircle size={10} />}
-            {validation.errors.length > 0 ? "Blocked" : validation.warnings.length > 0 ? "Warnings" : "Valid"}
+        <span className="plan-card-title-row">
+          <span className="plan-card-title">{plan.title}</span>
+          {validation ? (
+            <span
+              className={`plan-readiness-badge ${validation.errors.length > 0 ? "is-error" : validation.warnings.length > 0 ? "is-warn" : "is-valid"}`}
+              title={validation.errors.concat(validation.warnings).join("\n") || "Ready to promote"}
+            >
+              {validation.errors.length > 0 ? <AlertCircle size={10} /> : validation.warnings.length > 0 ? <AlertCircle size={10} /> : <CheckCircle size={10} />}
+              {validation.errors.length > 0 ? "Blocked" : validation.warnings.length > 0 ? "Warnings" : "Valid"}
+            </span>
+          ) : null}
+          {plan.aiEnhanced ? <span className="plan-card-ai" /> : null}
+          {taskProgress && taskProgress.total > 0 ? (
+            <span className="plan-card-progress" title={`${taskProgress.completed}/${taskProgress.total} tasks`}>
+              {taskProgress.completed}/{taskProgress.total}
+            </span>
+          ) : null}
+        </span>
+        {plan.description ? <span className="plan-card-desc">{plan.description}</span> : null}
+        <span className="plan-card-meta">
+          <span className="plan-card-ref" title={`Plan reference ${plan.referenceId}`}>{plan.referenceId}</span>
+          <span className="plan-card-date" title={`Plan created ${new Date(toMs(plan.createdAt)).toLocaleString()}`}>
+            {formatRelativeTime(plan.createdAt)}
           </span>
-        ) : null}
-        {plan.aiEnhanced ? <span className="plan-card-ai" /> : null}
-        {taskProgress && taskProgress.total > 0 ? (
-          <span className="plan-card-progress" title={`${taskProgress.completed}/${taskProgress.total} tasks`}>
-            {taskProgress.completed}/{taskProgress.total}
-          </span>
-        ) : null}
+          {ideaCreatedAt ? (
+            <span className="plan-card-date" title={`Promoted from an idea captured ${new Date(toMs(ideaCreatedAt)).toLocaleString()}`}>
+              · idea {formatRelativeTime(ideaCreatedAt)}
+            </span>
+          ) : null}
+        </span>
       </button>
       <div className="plan-card-actions">
-        {isReady && onAssignPlan ? (
+        {run?.status === "awaiting_review" && onResumeRun ? (
+          <button
+            className="btn btn-sm"
+            type="button"
+            title={resumeBlockedReason ?? "Resume this plan in its retained chat"}
+            disabled={resumeBlockedReason !== null}
+            onClick={(event) => {
+              event.stopPropagation();
+              void onResumeRun(run);
+            }}
+          >
+            <Play size={10} /> Resume
+          </button>
+        ) : null}
+        {run?.status === "awaiting_review" && onReviewRun ? (
+          <button
+            className="btn btn-sm"
+            type="button"
+            title="Review the linked OpenSpec tasks and retained artifacts"
+            onClick={(event) => {
+              event.stopPropagation();
+              onReviewRun(run);
+            }}
+          >
+            <ClipboardCheck size={10} /> Review
+          </button>
+        ) : null}
+        {(run?.status === "failed" || run?.status === "cancelled") && onResumeRun ? (
+          <button
+            className="btn btn-sm"
+            type="button"
+            title={resumeBlockedReason ?? "Retry this plan in its retained chat"}
+            disabled={resumeBlockedReason !== null}
+            onClick={(event) => {
+              event.stopPropagation();
+              void onResumeRun(run);
+            }}
+          >
+            <RefreshCw size={10} /> Retry
+          </button>
+        ) : null}
+        {isReady && !run && onAssignPlan ? (
           <button
             className="btn btn-sm btn-primary plan-assign-btn"
             title="Assign this ready plan to a chat session"
@@ -377,94 +497,58 @@ function PlanCard({
             <Send size={10} /> Assign to chat
           </button>
         ) : null}
-        {!isFinished ? (
+        {isFinished && onArchive ? (
           <button
-            className="btn-icon btn-icon-sm"
-            title="Open in terminal"
+            className="btn btn-sm plan-archive-btn"
+            title={archiveBlockedReason ?? "Open the finished change to archive it"}
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenInTerminal(plan);
+            disabled={archiveBlockedReason !== null}
+            onClick={(event) => {
+              event.stopPropagation();
+              onArchive(plan);
             }}
           >
-            <TerminalSquare size={10} />
+            <Archive size={10} /> Archive
           </button>
         ) : null}
-        <button
-          className="btn-icon btn-icon-sm"
-          title="Copy reference"
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onCopyReference(plan.referenceId);
-          }}
-        >
-          <Copy size={10} />
-        </button>
-        <button
-          className="btn-icon btn-icon-sm"
-          title="Edit"
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onEdit(plan);
-          }}
-        >
-          <Pencil size={10} />
-        </button>
-        <div className="plan-card-menu-wrap">
-          <button
-            className="btn-icon btn-icon-sm"
-            title="More"
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setMenuOpen((v) => !v);
-            }}
-          >
-            <MoreHorizontal size={10} />
-          </button>
-          {menuOpen ? (
-            <div className="context-menu" onMouseLeave={() => setMenuOpen(false)}>
-              {nextStatuses.map((status) => (
-                <button
-                  key={status}
-                  className="menu-item text-sm"
-                  type="button"
-                  onClick={() => {
-                    onSetStatus(plan.id, status);
-                    setMenuOpen(false);
-                  }}
-                >
-                  Move to {PLAN_STATUS_LABEL[status]}
-                </button>
-              ))}
-              {!isFinished ? (
-                <button
-                  className="menu-item text-sm"
-                  type="button"
-                  onClick={() => {
-                    onSetStatus(plan.id, "finished");
-                    setMenuOpen(false);
-                  }}
-                >
-                  Mark finished
-                </button>
-              ) : null}
-              <button
-                className="menu-item menu-item-danger text-sm"
-                type="button"
-                onClick={() => {
-                    onDeletePlan(plan.id);
-                    setMenuOpen(false);
-                  }}
-              >
-                <Trash2 size={12} /> Delete
-              </button>
-            </div>
-          ) : null}
-        </div>
+        <ActionMenu
+          triggerTitle="More plan actions"
+          items={[
+            {
+              key: "edit",
+              label: "Edit",
+              title: "Edit title, description, and details",
+              icon: <Pencil size={12} />,
+              onSelect: () => onEdit(plan),
+            },
+            ...(!isFinished ? [{
+              key: "terminal",
+              label: "Open in terminal",
+              title: "Open this plan in a terminal",
+              icon: <TerminalSquare size={12} />,
+              onSelect: () => onOpenInTerminal(plan),
+            }] : []),
+            {
+              key: "copy",
+              label: "Copy reference",
+              title: "Copy the plan reference id",
+              icon: <Copy size={12} />,
+              onSelect: () => onCopyReference(plan.referenceId),
+            },
+            {
+              key: "delete",
+              label: "Delete",
+              title: "Delete this plan permanently",
+              icon: <Trash2 size={12} />,
+              danger: true,
+              onSelect: () => onDeletePlan(plan.id),
+            },
+          ]}
+        />
       </div>
+      {projectPath && plan.assessment ? (
+        <ExecutionAdvisorCard projectPath={projectPath} planId={plan.id} compact />
+      ) : null}
       {isDraftLike ? (
         <PlanPromotionForm
           plan={plan}
@@ -484,16 +568,12 @@ type PlanPromotionFormProps = {
   plan: Plan;
   defaults: ProfileForm;
   projectPath: string | null;
-  onSetStatus: (id: string, status: PlanStatus) => void;
+  onSetStatus: (id: string, status: PlanStatus) => void | Promise<unknown>;
   onOpenInTerminal: (plan: Plan) => void;
   onShowToast?: (title: string, detail?: string, kind?: "success" | "error") => void;
   onValidationChange?: (result: ValidationResult | null) => void;
 };
 
-const ENGINE_OPTION_ITEMS: OptionListOption<EngineKind>[] = [
-  { id: "openspec", label: "openspec", title: "Use the OpenSpec planning engine" },
-  { id: "native", label: "native", title: "Use the native planning engine" },
-];
 const EFFORT_OPTION_ITEMS: OptionListOption<EffortLevel>[] = [
   { id: "low", label: "low", title: "Low effort — smaller, faster runs" },
   { id: "medium", label: "medium", title: "Medium effort — balanced depth and speed" },
@@ -527,10 +607,54 @@ function PlanPromotionForm({
   const skillPickerRef = useRef<HTMLDivElement | null>(null);
   const runtime = useOpenSpecRuntime(projectPath);
   const runtimeReady = runtime.status?.state === "ready";
+  const [modelCatalog, setModelCatalog] = useState<NativeProviderCatalog | null>(null);
+  const [plannerProviderId, setPlannerProviderId] = useState("");
+  const [plannerModelId, setPlannerModelId] = useState("");
+  const [plannerEffortLevel, setPlannerEffortLevel] = useState<EffortLevel>("medium");
+  const configuredProviders = useMemo(
+    () => modelCatalog?.providers.filter((provider) => provider.configured) ?? [],
+    [modelCatalog],
+  );
+  const plannerModels = useMemo(
+    () => modelCatalog?.models.filter((model) => model.providerId === plannerProviderId) ?? [],
+    [modelCatalog, plannerProviderId],
+  );
+  const codingModels = useMemo(
+    () => modelCatalog?.models.filter((model) => model.providerId === form.providerId) ?? [],
+    [modelCatalog, form.providerId],
+  );
 
   useEffect(() => {
     setForm(defaults);
   }, [defaults]);
+
+  useEffect(() => {
+    if (!projectPath) return;
+    let cancelled = false;
+    void nativeChatBootstrap(projectPath)
+      .then(({ catalog, resolved }) => {
+        if (cancelled) return;
+        setModelCatalog(catalog);
+        setPlannerProviderId(resolved.providerId);
+        setPlannerModelId(resolved.modelId);
+        setPlannerEffortLevel(
+          resolved.effortLevel === "low" || resolved.effortLevel === "high"
+            ? resolved.effortLevel
+            : "medium",
+        );
+        setForm((current) => ({
+          ...current,
+          engine: "openspec",
+          providerId: current.providerId || resolved.providerId,
+          modelId: current.modelId || resolved.modelId,
+          effortLevel: current.effortLevel || "medium",
+        }));
+      })
+      .catch((error) => {
+        if (!cancelled) setReviseMessage(error instanceof Error ? error.message : String(error));
+      });
+    return () => { cancelled = true; };
+  }, [projectPath]);
 
   useEffect(() => {
     onValidationChange?.(validation);
@@ -592,31 +716,71 @@ function PlanPromotionForm({
     }
   }, [plan, form]);
 
+  const persistExecutionProfile = useCallback(
+    () => setLaunchProfile({
+      projectPath: projectPath ?? "",
+      engine: "openspec",
+      providerId: form.providerId || plannerProviderId,
+      modelId: form.modelId || plannerModelId,
+      effortLevel: form.effortLevel,
+      skillId: form.skillId,
+      workerCount: form.workerCount,
+      workspacePolicy: form.workspacePolicy,
+      schedulingMode: form.schedulingMode,
+      finishPolicy: form.finishPolicy ?? "hold",
+      updatedAt: Date.now(),
+    }),
+    [projectPath, form, plannerProviderId, plannerModelId],
+  );
+
+  const handleGenerateOpenSpec = useCallback(async () => {
+    if (!projectPath || !plannerProviderId || !plannerModelId) {
+      setReviseMessage("Choose a planner provider and model first.");
+      return;
+    }
+    setLoading(true);
+    setReviseMessage(null);
+    try {
+      await nativeChatSetProjectModelDefault(projectPath, {
+        providerId: plannerProviderId,
+        modelId: plannerModelId,
+        effortLevel: plannerEffortLevel,
+      });
+      await persistExecutionProfile();
+      await onSetStatus(plan.id, "openspec");
+      onShowToast?.("OpenSpec plan generated", `${plan.referenceId} ${plan.title}`, "success");
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setReviseMessage(message);
+      onShowToast?.("OpenSpec generation failed", message, "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    projectPath,
+    plannerProviderId,
+    plannerModelId,
+    plannerEffortLevel,
+    persistExecutionProfile,
+    onSetStatus,
+    plan,
+    onShowToast,
+  ]);
+
   const handlePromote = useCallback(async () => {
     setReviseMessage(null);
     const result = await runValidation();
     if (!result.valid || result.errors.length > 0) return;
     try {
-      await setLaunchProfile({
-        projectPath: projectPath ?? "",
-        engine: form.engine,
-        providerId: form.providerId,
-        modelId: form.modelId,
-        effortLevel: form.effortLevel,
-        skillId: form.skillId,
-        workerCount: form.workerCount,
-        workspacePolicy: form.workspacePolicy,
-        schedulingMode: form.schedulingMode,
-        finishPolicy: form.finishPolicy ?? "hold",
-        updatedAt: Date.now(),
-      });
+      await persistExecutionProfile();
       await onSetStatus(plan.id, "ready");
-      onShowToast?.("Plan promoted to ready", `${plan.referenceId} ${plan.title}`, "success");
+      onShowToast?.("Plan approved and ready", `${plan.referenceId} ${plan.title}`, "success");
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      onShowToast?.("Failed to promote plan", message, "error");
+      setReviseMessage(message);
+      onShowToast?.("Failed to approve plan", message, "error");
     }
-  }, [plan, form, projectPath, onSetStatus, onShowToast, runValidation]);
+  }, [plan, onSetStatus, onShowToast, runValidation, persistExecutionProfile]);
 
   const handleRevalidate = useCallback(async () => {
     await runValidation();
@@ -635,49 +799,94 @@ function PlanPromotionForm({
 
   return (
     <div className="plan-promotion-form stack-sm">
-      <div className="plan-promotion-header">
-        <Rocket size={11} />
-        <span className="text-sm">Launch profile</span>
-      </div>
-      <div className="plan-promotion-fields">
-        <label className="plan-promotion-field" title="Engine">
-          <span className="plan-promotion-label">Engine</span>
+      <Disclosure
+        className="plan-promotion-disclosure"
+        label={<><Rocket size={11} /> OpenSpec launch profile</>}
+        summary={`${plannerModelId || "planner unset"} · ${form.modelId || "coder unset"} · ${form.workerCount} worker${form.workerCount === 1 ? "" : "s"}`}
+        title="Planner and coding models, effort, skill, workers, workspace, and scheduling for this plan"
+      >
+        <div className="plan-promotion-fields">
+        <label className="plan-promotion-field" title="Provider used to generate and revise OpenSpec artifacts">
+          <span className="plan-promotion-label">Planner provider</span>
+          <select
+            className="input plan-promotion-input"
+            title="Planner provider"
+            value={plannerProviderId}
+            disabled={configuredProviders.length === 0}
+            onChange={(event) => {
+              const providerId = event.target.value;
+              const modelId = modelCatalog?.models.find((model) => model.providerId === providerId)?.id ?? "";
+              setPlannerProviderId(providerId);
+              setPlannerModelId(modelId);
+            }}
+          >
+            {configuredProviders.map((provider) => (
+              <option key={provider.id} value={provider.id}>{provider.label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="plan-promotion-field" title="Model used to generate and revise OpenSpec artifacts">
+          <span className="plan-promotion-label">Planner model</span>
+          <select
+            className="input plan-promotion-input"
+            title="Planner model"
+            value={plannerModelId}
+            disabled={plannerModels.length === 0}
+            onChange={(event) => setPlannerModelId(event.target.value)}
+          >
+            {plannerModels.map((model) => (
+              <option key={model.id} value={model.id}>{model.label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="plan-promotion-field" title="Reasoning effort used while planning">
+          <span className="plan-promotion-label">Planner effort</span>
           <OptionList
-            value={form.engine}
-            options={ENGINE_OPTION_ITEMS}
-            onChange={(id) => setForm((prev) => ({ ...prev, engine: id }))}
-            label="Engine"
+            value={plannerEffortLevel}
+            options={EFFORT_OPTION_ITEMS}
+            onChange={setPlannerEffortLevel}
+            label="Planner effort"
           />
         </label>
-        <label className="plan-promotion-field" title="Provider">
-          <span className="plan-promotion-label">Provider</span>
-          <input
+        <label className="plan-promotion-field" title="Provider used to implement the approved plan">
+          <span className="plan-promotion-label">Coding provider</span>
+          <select
             className="input plan-promotion-input"
-            type="text"
-            title="Provider"
-            placeholder="Provider"
+            title="Coding provider"
             value={form.providerId}
-            onChange={(e) => setForm((prev) => ({ ...prev, providerId: e.target.value }))}
-          />
+            disabled={configuredProviders.length === 0}
+            onChange={(event) => {
+              const providerId = event.target.value;
+              const modelId = modelCatalog?.models.find((model) => model.providerId === providerId)?.id ?? "";
+              setForm((current) => ({ ...current, providerId, modelId }));
+            }}
+          >
+            {configuredProviders.map((provider) => (
+              <option key={provider.id} value={provider.id}>{provider.label}</option>
+            ))}
+          </select>
         </label>
-        <label className="plan-promotion-field" title="Model">
-          <span className="plan-promotion-label">Model</span>
-          <input
+        <label className="plan-promotion-field" title="Model used to implement the approved plan">
+          <span className="plan-promotion-label">Coding model</span>
+          <select
             className="input plan-promotion-input"
-            type="text"
-            title="Model"
-            placeholder="Model"
+            title="Coding model"
             value={form.modelId}
-            onChange={(e) => setForm((prev) => ({ ...prev, modelId: e.target.value }))}
-          />
+            disabled={codingModels.length === 0}
+            onChange={(event) => setForm((current) => ({ ...current, modelId: event.target.value }))}
+          >
+            {codingModels.map((model) => (
+              <option key={model.id} value={model.id}>{model.label}</option>
+            ))}
+          </select>
         </label>
-        <label className="plan-promotion-field" title="Effort">
-          <span className="plan-promotion-label">Effort</span>
+        <label className="plan-promotion-field" title="Reasoning effort used while coding">
+          <span className="plan-promotion-label">Coding effort</span>
           <OptionList
             value={form.effortLevel}
             options={EFFORT_OPTION_ITEMS}
             onChange={(id) => setForm((prev) => ({ ...prev, effortLevel: id }))}
-            label="Effort"
+            label="Coding effort"
           />
         </label>
         <label className="plan-promotion-field" title="Skill">
@@ -763,7 +972,8 @@ function PlanPromotionForm({
             label="Scheduling mode"
           />
         </label>
-      </div>
+        </div>
+      </Disclosure>
       {validation ? (
         <div className="plan-promotion-validation stack-sm">
           {validation.errors.length > 0 ? (
@@ -789,25 +999,38 @@ function PlanPromotionForm({
             <AlertCircle size={12} />
             <span className="text-sm">
               OpenSpec runtime is {runtime.status?.state ?? "missing"}.{" "}
-              Configure it in Settings → OpenSpec before promoting.
+              Configure it in Settings → OpenSpec before generating or approving.
             </span>
           </div>
         )}
-        <button
-          className="btn btn-sm btn-primary"
-          type="button"
-          title={runtimeReady ? "Validate readiness and promote to ready" : "OpenSpec runtime not configured"}
-          disabled={loading || hasErrors || !runtimeReady}
-          onClick={() => void handlePromote()}
-        >
-          {loading ? <RefreshCw size={11} className="is-spinning" /> : <Rocket size={11} />}
-          Validate & Promote to Ready
-        </button>
-        {validation ? (
+        {plan.status === "draft" ? (
+          <button
+            className="btn btn-sm btn-primary"
+            type="button"
+            title={runtimeReady ? "Generate proposal, specs, design, and tasks with the planner model" : "OpenSpec runtime not configured"}
+            disabled={loading || !runtimeReady || !plannerProviderId || !plannerModelId}
+            onClick={() => void handleGenerateOpenSpec()}
+          >
+            {loading ? <RefreshCw size={11} className="is-spinning" /> : <Rocket size={11} />}
+            {loading ? "Generating OpenSpec..." : "Generate OpenSpec"}
+          </button>
+        ) : (
+          <button
+            className="btn btn-sm btn-primary"
+            type="button"
+            title={runtimeReady ? "Validate the generated artifacts and approve this plan for the queue" : "OpenSpec runtime not configured"}
+            disabled={loading || hasErrors || !runtimeReady}
+            onClick={() => void handlePromote()}
+          >
+            {loading ? <RefreshCw size={11} className="is-spinning" /> : <CheckCircle size={11} />}
+            {loading ? "Validating..." : "Approve plan"}
+          </button>
+        )}
+        {plan.status === "openspec" && validation ? (
           <button
             className="btn btn-sm"
             type="button"
-            title="Re-validate plan readiness"
+            title="Re-validate the generated OpenSpec artifacts"
             disabled={loading}
             onClick={() => void handleRevalidate()}
           >

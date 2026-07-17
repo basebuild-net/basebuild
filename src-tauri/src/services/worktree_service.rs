@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    services::{git_service::GitService, storage_paths::StoragePathService, storage_service::StorageService},
+use crate::services::{
+    git_service::GitService, storage_paths::StoragePathService, storage_service::StorageService,
 };
 
 type DbResult<T> = Result<T, String>;
@@ -48,14 +48,22 @@ impl WorktreeService {
             .to_lowercase()
             .chars()
             .map(|c| {
-                if c.is_alphanumeric() { c }
-                else if c == '-' || c == '_' { '-' }
-                else { ' ' }
+                if c.is_alphanumeric() {
+                    c
+                } else if c == '-' || c == '_' {
+                    '-'
+                } else {
+                    ' '
+                }
             })
             .collect();
         let slug: String = slug.split_whitespace().collect::<Vec<_>>().join("-");
         let slug = slug.trim_matches('-');
-        if slug.is_empty() { "plan".to_string() } else { slug.chars().take(40).collect() }
+        if slug.is_empty() {
+            "plan".to_string()
+        } else {
+            slug.chars().take(40).collect()
+        }
     }
 
     /// Create a worktree for a plan run under the managed directory.
@@ -63,7 +71,12 @@ impl WorktreeService {
     /// Branched from the freshly fetched default branch (per `parallel-workspaces`).
     /// Returns the workspace + a `base_may_be_stale` flag (true when the
     /// remote fetch failed and the branch was based on the local default).
-    pub fn create(project_path: &str, plan_id: Option<&str>, reference_id: &str, slug: &str) -> DbResult<Workspace> {
+    pub fn create(
+        project_path: &str,
+        plan_id: Option<&str>,
+        reference_id: &str,
+        slug: &str,
+    ) -> DbResult<Workspace> {
         Self::create_with_base(project_path, plan_id, reference_id, slug, true)
     }
 
@@ -79,16 +92,22 @@ impl WorktreeService {
     ) -> DbResult<Workspace> {
         let project = Path::new(project_path);
         if !GitService::is_repo(project) {
-            return Err("Project is not a git repository; worktree creation requires git.".to_string());
+            return Err(
+                "Project is not a git repository; worktree creation requires git.".to_string(),
+            );
         }
         let branch = format!("bb/{reference_id}-{slug}");
         let worktree_path = Self::worktree_dir(project_path, reference_id);
         if worktree_path.exists() {
-            return Err(format!("Worktree path already exists: {}", worktree_path.display()));
+            return Err(format!(
+                "Worktree path already exists: {}",
+                worktree_path.display()
+            ));
         }
         // Create parent dir.
         if let Some(parent) = worktree_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create worktree parent dir: {e}"))?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create worktree parent dir: {e}"))?;
         }
         // Fetch the remote (best-effort) and detect the default branch. If the
         // fetch fails (offline, no remote), fall back to the local default
@@ -97,11 +116,21 @@ impl WorktreeService {
         let (base_ref, base_may_be_stale) = if fetch_first {
             Self::resolve_base_ref(project)?
         } else {
-            (Self::detect_default_branch(project).unwrap_or_else(|| "HEAD".to_string()), false)
+            (
+                Self::detect_default_branch(project).unwrap_or_else(|| "HEAD".to_string()),
+                false,
+            )
         };
         // git worktree add -b <branch> <path> <base-ref>
         let output = crate::services::process_helpers::hidden_command("git")
-            .args(["worktree", "add", "-b", &branch, worktree_path.to_str().unwrap_or("."), &base_ref])
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                &branch,
+                worktree_path.to_str().unwrap_or("."),
+                &base_ref,
+            ])
             .current_dir(project)
             .output()
             .map_err(|e| format!("Failed to run git worktree add: {e}"))?;
@@ -220,8 +249,7 @@ impl WorktreeService {
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false);
-        let default = Self::detect_default_branch(project)
-            .unwrap_or_else(|| "HEAD".to_string());
+        let default = Self::detect_default_branch(project).unwrap_or_else(|| "HEAD".to_string());
         Ok((default, !fetch_ok))
     }
 

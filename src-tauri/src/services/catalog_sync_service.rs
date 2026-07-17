@@ -12,11 +12,12 @@ use std::env;
 use rusqlite::params;
 use serde::Deserialize;
 
+use crate::models::execution_advisor::ModelExecutionProfileV1;
 use crate::services::storage_service::StorageService;
 
 /// The highest catalog response `version` this desktop understands. If the
 /// endpoint returns a higher version, sync refuses with an upgrade prompt.
-pub const SUPPORTED_CATALOG_VERSION: u32 = 1;
+pub const SUPPORTED_CATALOG_VERSION: u32 = 2;
 
 /// Default catalog base URL. Override with `BASEBUILD_CATALOG_URL` for dev.
 const DEFAULT_CATALOG_BASE_URL: &str = "https://basebuild.net";
@@ -36,10 +37,14 @@ struct CatalogProvider {
     #[allow(dead_code)]
     name: String,
     /// The provider's API base URL (e.g. "https://api.code.umans.ai/v1").
-    /// Stored on the cache row so `resolve_client` can use it when the
-    /// credential doesn't override it.
-    #[allow(dead_code)]
+    /// Stored on the cache row so `resolve_model_routing` can route natively
+    /// when the credential doesn't override it.
     api_url: Option<String>,
+    /// Wire-protocol kind in OMP catalog vocabulary (e.g. "openai-completions",
+    /// "anthropic-messages"). Additive in catalog version 2; older responses
+    /// omit it and the bundled catalog remains the routing fallback.
+    #[serde(default)]
+    api_kind: Option<String>,
     models: Vec<CatalogModel>,
 }
 
@@ -61,6 +66,8 @@ struct CatalogModel {
     output_limit: Option<i64>,
     #[allow(dead_code)]
     input_modalities: String,
+    #[serde(default)]
+    execution_profile: Option<ModelExecutionProfileV1>,
 }
 
 /// Result of a catalog sync, surfaced to the UI.
@@ -76,17 +83,21 @@ pub struct CatalogSyncResult {
 /// same data updates `synced_at` without duplicating rows.
 pub fn sync_catalog() -> CatalogSyncResult {
     match sync_catalog_inner() {
-        Ok(r) => r,
-        Err(e) => CatalogSyncResult {
-            synced: 0,
-            skipped: 0,
-            error: Some(e),
-        },
+        Ok(result) => result,
+        Err(error) => {
+            mark_profile_cache_error(&error);
+            CatalogSyncResult {
+                synced: 0,
+                skipped: 0,
+                error: Some(error),
+            }
+        }
     }
 }
 
 fn sync_catalog_inner() -> Result<CatalogSyncResult, String> {
-    let base = env::var("BASEBUILD_CATALOG_URL").unwrap_or_else(|_| DEFAULT_CATALOG_BASE_URL.to_string());
+    let base =
+        env::var("BASEBUILD_CATALOG_URL").unwrap_or_else(|_| DEFAULT_CATALOG_BASE_URL.to_string());
     let url = format!("{}/api/catalog/desktop", base.trim_end_matches('/'));
 
     let resp = reqwest::blocking::Client::builder()
@@ -128,39 +139,87 @@ fn sync_catalog_inner() -> Result<CatalogSyncResult, String> {
             } else {
                 "[]".to_string()
             };
-            let changed = conn.execute(
-                "INSERT INTO native_provider_model_cache
+            let supports_images = model
+                .input_modalities
+                .split(',')
+                .any(|item| item.trim() == "image");
+            let api_kind = provider
+                .api_kind
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or_default();
+            let base_url = provider
+                .api_url
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or_default();
+            let changed = conn
+                .execute(
+                    "INSERT INTO native_provider_model_cache
                     (provider_id, model_id, label, context_window, max_tokens,
                      supports_reasoning, supported_efforts, supports_images, source,
-                     synced_at, error, model_api_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 'catalog_sync', ?8, NULL, ?9)
+                     synced_at, error, model_api_id, api_kind, base_url)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'catalog_sync', ?9, NULL, ?10, ?11, ?12)
                  ON CONFLICT(provider_id, model_id) DO UPDATE SET
                     label = excluded.label,
                     context_window = excluded.context_window,
                     max_tokens = excluded.max_tokens,
                     supports_reasoning = excluded.supports_reasoning,
                     supported_efforts = excluded.supported_efforts,
+                    supports_images = excluded.supports_images,
                     source = 'catalog_sync',
                     synced_at = excluded.synced_at,
                     error = NULL,
-                    model_api_id = excluded.model_api_id",
-                params![
-                    provider.slug,
-                    model.slug,
-                    model.name,
-                    model.context_limit,
-                    model.output_limit,
-                    model.reasoning as i32,
-                    supported_efforts,
-                    now,
-                    model.api_id,
-                ],
-            )
-            .map_err(|e| format!("Failed to upsert catalog row: {e}"))?;
+                    model_api_id = excluded.model_api_id,
+                    -- Keep bundled routing info when the catalog omits it: an
+                    -- empty incoming value never clobbers a non-empty one.
+                    api_kind = CASE WHEN excluded.api_kind <> ''
+                        THEN excluded.api_kind ELSE api_kind END,
+                    base_url = CASE WHEN excluded.base_url <> ''
+                        THEN excluded.base_url ELSE base_url END",
+                    params![
+                        provider.slug,
+                        model.slug,
+                        model.name,
+                        model.context_limit,
+                        model.output_limit,
+                        model.reasoning as i32,
+                        supported_efforts,
+                        supports_images as i32,
+                        now,
+                        model.api_id,
+                        api_kind,
+                        base_url,
+                    ],
+                )
+                .map_err(|e| format!("Failed to upsert catalog row: {e}"))?;
             if changed > 0 {
                 synced += 1;
             } else {
                 skipped += 1;
+            }
+            if let Some(profile) = &model.execution_profile {
+                if let Err(error) = profile.validate() {
+                    skipped += 1;
+                    eprintln!(
+                        "[catalog-sync] skipped invalid execution profile {}: {error}",
+                        profile.canonical_model_id
+                    );
+                    continue;
+                }
+                let profile_json = serde_json::to_string(profile)
+                    .map_err(|error| format!("Failed to serialize execution profile: {error}"))?;
+                conn.execute(
+                    "INSERT INTO model_execution_profile_cache
+                        (canonical_model_id, profile_json, fetched_at, error)
+                     VALUES (?1, ?2, ?3, NULL)
+                     ON CONFLICT(canonical_model_id) DO UPDATE SET
+                        profile_json = excluded.profile_json,
+                        fetched_at = excluded.fetched_at,
+                        error = NULL",
+                    params![profile.canonical_model_id, profile_json, now],
+                )
+                .map_err(|error| format!("Failed to cache execution profile: {error}"))?;
             }
         }
     }
@@ -171,14 +230,23 @@ fn sync_catalog_inner() -> Result<CatalogSyncResult, String> {
         error: None,
     })
 }
+fn mark_profile_cache_error(error: &str) {
+    let Ok(conn) = StorageService::connect() else {
+        return;
+    };
+    let bounded = error.chars().take(1_000).collect::<String>();
+    let _ = conn.execute(
+        "UPDATE model_execution_profile_cache SET error = ?1",
+        params![bounded],
+    );
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn supported_version_is_1() {
-        // Guard against accidental bump without desktop support.
-        assert_eq!(SUPPORTED_CATALOG_VERSION, 1);
+    fn supports_additive_profile_catalog_version() {
+        assert_eq!(SUPPORTED_CATALOG_VERSION, 2);
     }
 }

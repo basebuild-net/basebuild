@@ -1,11 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 import { ensureChatPanel, openFixtureProject } from "./helpers";
 
-test.describe("Toast notification system", () => {
-  test("toast CSS classes exist for all 4 kinds", async ({ page }) => {
+test.describe("Taskbar notification bar system", () => {
+  test("bar CSS classes exist for all 4 kinds", async ({ page }) => {
     await openFixtureProject(page);
 
-    const classes = ["toast-success", "toast-warning", "toast-error", "toast-info"];
+    const classes = ["taskbar-notif-bar-success", "taskbar-notif-bar-warning", "taskbar-notif-bar-error", "taskbar-notif-bar-info"];
     const results = await page.evaluate((classNames) => {
       const sheets = document.styleSheets;
       const found: Record<string, boolean> = {};
@@ -30,12 +30,12 @@ test.describe("Toast notification system", () => {
     }
   });
 
-  test("toast icon CSS classes exist", async ({ page }) => {
+  test("bar icon CSS classes exist", async ({ page }) => {
     await openFixtureProject(page);
 
     const classes = [
-      "toast-icon", "toast-icon-success", "toast-icon-warning",
-      "toast-icon-error", "toast-icon-info",
+      "taskbar-notif-bar-icon", "taskbar-notif-bar-icon-success", "taskbar-notif-bar-icon-warning",
+      "taskbar-notif-bar-icon-error", "taskbar-notif-bar-icon-info",
     ];
     const results = await page.evaluate((classNames) => {
       const sheets = document.styleSheets;
@@ -61,7 +61,7 @@ test.describe("Toast notification system", () => {
     }
   });
 
-  test("toast slide-in animation exists", async ({ page }) => {
+  test("bar slide-in animation exists", async ({ page }) => {
     await openFixtureProject(page);
 
     const exists = await page.evaluate(() => {
@@ -70,7 +70,7 @@ test.describe("Toast notification system", () => {
         try {
           const rules = sheet.cssRules;
           for (const rule of rules) {
-            if (rule.cssText && rule.cssText.includes("toast-slide-in")) {
+            if (rule.cssText && rule.cssText.includes("taskbar-notif-bar-in")) {
               return true;
             }
           }
@@ -78,10 +78,10 @@ test.describe("Toast notification system", () => {
       }
       return false;
     });
-    expect(exists, "toast-slide-in animation should be defined").toBe(true);
+    expect(exists, "taskbar-notif-bar-in animation should be defined").toBe(true);
   });
 
-  test("toast-dismissed class exists for exit animation", async ({ page }) => {
+  test("bar-dismissed class exists for exit animation", async ({ page }) => {
     await openFixtureProject(page);
 
     const exists = await page.evaluate(() => {
@@ -90,7 +90,7 @@ test.describe("Toast notification system", () => {
         try {
           const rules = sheet.cssRules;
           for (const rule of rules) {
-            if (rule.cssText && rule.cssText.includes("toast-dismissed")) {
+            if (rule.cssText && rule.cssText.includes("taskbar-notif-bar-dismissed")) {
               return true;
             }
           }
@@ -98,104 +98,108 @@ test.describe("Toast notification system", () => {
       }
       return false;
     });
-    expect(exists, "toast-dismissed class should be defined").toBe(true);
+    expect(exists, "taskbar-notif-bar-dismissed class should be defined").toBe(true);
   });
 
-  test("clicking New chat shows a success toast", async ({ page }) => {
+  test("clicking New chat shows a success bar", async ({ page }) => {
     await openFixtureProject(page);
 
     // Click New chat.
     await page.getByTitle("New chat").first().click();
     await page.waitForTimeout(500);
 
-    // A toast should appear.
-    const toast = page.locator(".toast").first();
-    await expect(toast).toBeVisible({ timeout: 3_000 });
+    // A notification bar should appear in the taskbar.
+    const bar = page.locator(".taskbar-notif-bar").first();
+    await expect(bar).toBeVisible({ timeout: 3_000 });
 
     // Should have the success class.
-    await expect(toast).toHaveClass(/toast-success/);
+    await expect(bar).toHaveClass(/taskbar-notif-bar-success/);
 
     // Should have a title.
-    const title = toast.locator(".toast-title").first();
+    const title = bar.locator(".taskbar-notif-bar-title").first();
     await expect(title).toBeVisible();
     await expect(title).toContainText(/chat/i);
 
-    // Should auto-dismiss after 4 seconds.
-    await expect(toast).toBeHidden({ timeout: 6_000 });
+    // Should auto-dismiss after 5 seconds.
+    await expect(bar).toBeHidden({ timeout: 7_000 });
   });
 
-  test("toast has dismiss button with tooltip", async ({ page }) => {
+  test("bar has dismiss button with tooltip", async ({ page }) => {
     await openFixtureProject(page);
 
     await page.getByTitle("New chat").first().click();
     await page.waitForTimeout(500);
 
-    const toast = page.locator(".toast").first();
-    await expect(toast).toBeVisible({ timeout: 3_000 });
+    const bar = page.locator(".taskbar-notif-bar").first();
+    await expect(bar).toBeVisible({ timeout: 3_000 });
 
-    const dismissBtn = toast.locator(".toast-dismiss").first();
+    const dismissBtn = bar.locator(".taskbar-notif-bar-x").first();
     await expect(dismissBtn).toBeVisible();
     const title = await dismissBtn.getAttribute("title");
     expect(title).toBeTruthy();
   });
 
-  test("clicking dismiss button hides toast immediately", async ({ page }) => {
+  test("clicking dismiss button hides bar immediately", async ({ page }) => {
     await openFixtureProject(page);
 
     await page.getByTitle("New chat").first().click();
     await page.waitForTimeout(500);
 
-    const toast = page.locator(".toast").first();
-    await expect(toast).toBeVisible({ timeout: 3_000 });
+    const bar = page.locator(".taskbar-notif-bar").first();
+    await expect(bar).toBeVisible({ timeout: 3_000 });
 
     // Click dismiss.
-    await toast.locator(".toast-dismiss").first().click();
-    await expect(toast).toBeHidden({ timeout: 2_000 });
+    await bar.locator(".taskbar-notif-bar-x").first().click();
+    await expect(bar).toBeHidden({ timeout: 2_000 });
   });
 
-  test("toast has icon element", async ({ page }) => {
+  test("bar has icon element", async ({ page }) => {
     await openFixtureProject(page);
 
     await page.getByTitle("New chat").first().click();
     await page.waitForTimeout(500);
 
-    const toast = page.locator(".toast").first();
-    await expect(toast).toBeVisible({ timeout: 3_000 });
+    const bar = page.locator(".taskbar-notif-bar").first();
+    await expect(bar).toBeVisible({ timeout: 3_000 });
 
     // Should have an icon element (svg).
-    const icon = toast.locator("svg").first();
+    const icon = bar.locator("svg").first();
     await expect(icon).toBeVisible();
   });
 
-  test("toast has role status and aria-live polite", async ({ page }) => {
+  test("bar has role status and aria-live polite", async ({ page }) => {
     await openFixtureProject(page);
 
     await page.getByTitle("New chat").first().click();
     await page.waitForTimeout(500);
 
-    const toast = page.locator(".toast").first();
-    await expect(toast).toBeVisible({ timeout: 3_000 });
+    const bar = page.locator(".taskbar-notif-bar").first();
+    await expect(bar).toBeVisible({ timeout: 3_000 });
 
     // Should be accessible.
-    await expect(toast).toHaveAttribute("role", "status");
-    await expect(toast).toHaveAttribute("aria-live", "polite");
+    await expect(bar).toHaveAttribute("role", "status");
+    await expect(bar).toHaveAttribute("aria-live", "polite");
   });
 
-  test("toast stack is positioned at bottom right", async ({ page }) => {
+  test("notification feed is inline in the taskbar", async ({ page }) => {
     await openFixtureProject(page);
 
     await page.getByTitle("New chat").first().click();
     await page.waitForTimeout(500);
 
-    const toastStack = page.locator(".toast-stack").first();
-    await expect(toastStack).toBeVisible({ timeout: 3_000 });
+    const feed = page.locator(".taskbar-notif-feed").first();
+    await expect(feed).toBeVisible({ timeout: 3_000 });
 
-    // Verify it's positioned fixed.
-    const position = await toastStack.evaluate((el) => getComputedStyle(el).position);
-    expect(position).toBe("fixed");
+    // Verify it's inside the taskbar (not a floating overlay).
+    const taskbar = page.locator(".window-taskbar");
+    await expect(taskbar.locator(".taskbar-notif-feed")).toHaveCount(1);
+
+    // Should not be position: fixed (inline, not floating).
+    const position = await feed.evaluate((el) => getComputedStyle(el).position);
+    expect(position).not.toBe("fixed");
   });
 
-  test("provider disconnect shows info toast", async ({ page }) => {
+  test("provider disconnect shows info bar", async ({ page }) => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
@@ -211,15 +215,15 @@ test.describe("Toast notification system", () => {
       await disconnectBtn.click();
       await page.waitForTimeout(500);
 
-      // An info or success toast should appear.
-      const toast = page.locator(".toast").first();
-      // The toast may auto-dismiss quickly; just check it appears within 3s.
+      // An info or success bar should appear.
+      const bar = page.locator(".taskbar-notif-bar").first();
+      // The bar may auto-dismiss quickly; just check it appears within 3s.
       try {
-        await expect(toast).toBeVisible({ timeout: 3_000 });
-        const classes = await toast.getAttribute("class");
-        expect(classes).toMatch(/toast-(info|success|warning)/);
+        await expect(bar).toBeVisible({ timeout: 3_000 });
+        const classes = await bar.getAttribute("class");
+        expect(classes).toMatch(/taskbar-notif-bar-(info|success|warning)/);
       } catch {
-        // Toast may have already auto-dismissed; that's acceptable.
+        // Bar may have already auto-dismissed; that's acceptable.
       }
     }
   });

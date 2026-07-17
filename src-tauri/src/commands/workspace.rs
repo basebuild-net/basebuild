@@ -1,6 +1,5 @@
 use crate::{
-    models::workspace::WorkspaceRestoreState,
-    services::workspace_service::WorkspaceService,
+    models::workspace::WorkspaceRestoreState, services::workspace_service::WorkspaceService,
 };
 
 #[tauri::command]

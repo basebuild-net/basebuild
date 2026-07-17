@@ -9,9 +9,15 @@ use crate::services::storage_paths::StoragePathService;
 /// If `image` is a relative path like `/avatars/user.png`, prepend BASE_URL.
 fn absolutize_image(image: Option<&str>) -> Option<String> {
     image.and_then(|s| {
-        if s.is_empty() { return None; }
-        if s.starts_with("http://") || s.starts_with("https://") { return Some(s.to_string()); }
-        if s.starts_with('/') { return Some(format!("{BASE_URL}{s}")); }
+        if s.is_empty() {
+            return None;
+        }
+        if s.starts_with("http://") || s.starts_with("https://") {
+            return Some(s.to_string());
+        }
+        if s.starts_with('/') {
+            return Some(format!("{BASE_URL}{s}"));
+        }
         Some(format!("{BASE_URL}/{s}"))
     })
 }
@@ -54,7 +60,9 @@ pub struct DeviceStartResult {
 #[serde(tag = "status", content = "data")]
 #[serde(rename_all = "camelCase")]
 pub enum PollResult {
-    Pending { interval: u64 },
+    Pending {
+        interval: u64,
+    },
     Denied,
     Expired,
     Success {
@@ -74,7 +82,9 @@ pub struct AuthService {
 
 impl Default for AuthService {
     fn default() -> Self {
-        Self { lock: Mutex::new(()) }
+        Self {
+            lock: Mutex::new(()),
+        }
     }
 }
 
@@ -90,10 +100,10 @@ impl AuthService {
         if !path.exists() {
             return Ok(None);
         }
-        let data = fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read auth file: {e}"))?;
-        let auth: StoredAuth = serde_json::from_str(&data)
-            .map_err(|e| format!("Failed to parse auth file: {e}"))?;
+        let data =
+            fs::read_to_string(&path).map_err(|e| format!("Failed to read auth file: {e}"))?;
+        let auth: StoredAuth =
+            serde_json::from_str(&data).map_err(|e| format!("Failed to parse auth file: {e}"))?;
         Ok(Some(auth))
     }
 
@@ -175,7 +185,10 @@ impl AuthService {
                 "authorization_denied" => PollResult::Denied,
                 "expired_token" => PollResult::Expired,
                 "slow_down" => {
-                    let interval = parsed.get("interval").and_then(|v| v.as_u64()).unwrap_or(10);
+                    let interval = parsed
+                        .get("interval")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(10);
                     PollResult::Pending { interval }
                 }
                 _ => return Err(format!("Unexpected poll error: {error}")),
@@ -187,27 +200,51 @@ impl AuthService {
         }
 
         // Success — parse the token + user
-        let access_token = parsed.get("accessToken")
+        let access_token = parsed
+            .get("accessToken")
             .and_then(|v| v.as_str())
             .ok_or("Missing accessToken in poll response")?
             .to_string();
-        let expires_at = parsed.get("expiresAt")
+        let expires_at = parsed
+            .get("expiresAt")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let scopes: Vec<String> = parsed.get("scopes")
+        let scopes: Vec<String> = parsed
+            .get("scopes")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
-        let user_obj = parsed.get("user")
-            .ok_or("Missing user in poll response")?;
+        let user_obj = parsed.get("user").ok_or("Missing user in poll response")?;
         let user = NativeProfile {
-            id: user_obj.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            username: user_obj.get("username").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            email: user_obj.get("email").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            id: user_obj
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            username: user_obj
+                .get("username")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            email: user_obj
+                .get("email")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             image: absolutize_image(user_obj.get("image").and_then(|v| v.as_str())),
-            is_admin: user_obj.get("isAdmin").and_then(|v| v.as_bool()).unwrap_or(false),
-            is_editor: user_obj.get("isEditor").and_then(|v| v.as_bool()).unwrap_or(false),
+            is_admin: user_obj
+                .get("isAdmin")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            is_editor: user_obj
+                .get("isEditor")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
         };
 
         // Persist auth
@@ -229,8 +266,7 @@ impl AuthService {
 
     /// Fetch the user profile using the stored native token.
     pub fn fetch_profile() -> Result<NativeProfile, String> {
-        let auth = Self::load_stored_auth()?
-            .ok_or("Not authenticated")?;
+        let auth = Self::load_stored_auth()?.ok_or("Not authenticated")?;
         let url = format!("{BASE_URL}/api/auth/native/profile");
         let resp = reqwest::blocking::Client::new()
             .get(&url)
@@ -247,23 +283,41 @@ impl AuthService {
             return Err(format!("Profile fetch failed: {}", resp.status()));
         }
 
-        let parsed: serde_json::Value = resp.json()
+        let parsed: serde_json::Value = resp
+            .json()
             .map_err(|e| format!("Failed to parse profile: {e}"))?;
 
         Ok(NativeProfile {
-            id: parsed.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            username: parsed.get("username").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            email: parsed.get("email").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            id: parsed
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            username: parsed
+                .get("username")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            email: parsed
+                .get("email")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             image: absolutize_image(parsed.get("image").and_then(|v| v.as_str())),
-            is_admin: parsed.get("isAdmin").and_then(|v| v.as_bool()).unwrap_or(false),
-            is_editor: parsed.get("isEditor").and_then(|v| v.as_bool()).unwrap_or(false),
+            is_admin: parsed
+                .get("isAdmin")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            is_editor: parsed
+                .get("isEditor")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
         })
     }
 
     /// Revoke the stored token (sign out).
     pub fn revoke_token() -> Result<(), String> {
-        let auth = Self::load_stored_auth()?
-            .ok_or("Not authenticated")?;
+        let auth = Self::load_stored_auth()?.ok_or("Not authenticated")?;
         let url = format!("{BASE_URL}/api/auth/native/revoke");
         let _ = reqwest::blocking::Client::new()
             .post(&url)

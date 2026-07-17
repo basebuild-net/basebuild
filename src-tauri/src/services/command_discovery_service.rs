@@ -126,7 +126,8 @@ pub fn merge_mcp_prompts(
     mcp_prompts: &[(String, String, String)],
 ) -> Vec<SlashCommand> {
     // Build the set of existing command names for collision detection.
-    let mut existing: std::collections::HashSet<String> = commands.iter().map(|c| c.name.clone()).collect();
+    let mut existing: std::collections::HashSet<String> =
+        commands.iter().map(|c| c.name.clone()).collect();
 
     for (server, prompt_name, description) in mcp_prompts {
         let name = if existing.contains(prompt_name) {
@@ -174,13 +175,28 @@ pub fn merge_mcp_prompts(
 /// rather than expanding into a prompt.
 fn builtin_commands() -> Vec<(String, String)> {
     vec![
-        ("login".to_string(), "Open the provider login/connect flow".to_string()),
+        (
+            "login".to_string(),
+            "Open the provider login/connect flow".to_string(),
+        ),
         ("model".to_string(), "Open the model picker".to_string()),
-        ("models".to_string(), "Refresh or list available models".to_string()),
+        (
+            "models".to_string(),
+            "Refresh or list available models".to_string(),
+        ),
         ("mcp".to_string(), "Open MCP server management".to_string()),
-        ("plan".to_string(), "Plan pipeline actions (list, run, status)".to_string()),
-        ("idea".to_string(), "Idea pipeline actions (generate, promote)".to_string()),
-        ("openspec".to_string(), "OpenSpec artifact actions".to_string()),
+        (
+            "plan".to_string(),
+            "Plan pipeline actions (list, run, status)".to_string(),
+        ),
+        (
+            "idea".to_string(),
+            "Idea pipeline actions (generate, promote)".to_string(),
+        ),
+        (
+            "openspec".to_string(),
+            "OpenSpec artifact actions".to_string(),
+        ),
     ]
 }
 
@@ -266,14 +282,8 @@ fn parse_command_file(path: &Path, source: &str, priority: u32) -> Option<SlashC
         .and_then(|s| s.to_str())
         .unwrap_or("command")
         .to_string();
-    let name = frontmatter
-        .get("name")
-        .cloned()
-        .unwrap_or(default_name);
-    let description = frontmatter
-        .get("description")
-        .cloned()
-        .unwrap_or_default();
+    let name = frontmatter.get("name").cloned().unwrap_or(default_name);
+    let description = frontmatter.get("description").cloned().unwrap_or_default();
     Some(SlashCommand {
         name,
         description,
@@ -301,14 +311,20 @@ fn split_frontmatter(content: &str) -> (HashMap<String, String>, String) {
     };
     let yaml_block = &after_open[..close];
     let body_start = close + 4; // skip "\n---"
-    let body = after_open[body_start..].trim_start_matches('\n').to_string();
+    let body = after_open[body_start..]
+        .trim_start_matches('\n')
+        .to_string();
 
     // Parse simple key: value YAML (no nested structures for command frontmatter).
     for line in yaml_block.lines() {
         let line = line.trim();
         if let Some((key, value)) = line.split_once(':') {
             let key = key.trim().to_string();
-            let value = value.trim().trim_matches('"').trim_matches('\'').to_string();
+            let value = value
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'')
+                .to_string();
             if !key.is_empty() {
                 frontmatter.insert(key, value);
             }
@@ -420,7 +436,6 @@ fn replace_bare_at(text: &str, replacement: &str) -> String {
         }
     }
     result
-
 }
 
 /// Expand `$@[start]` and `$@[start:len]` placeholders.
@@ -460,8 +475,18 @@ fn expand_sliced_at(text: &str, args: &[String]) -> String {
             (spec.parse().unwrap_or(0), None)
         };
 
-        let sliced: Vec<&String> = args.iter().skip(start).take(len.unwrap_or(args.len())).collect();
-        result.push_str(&sliced.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" "));
+        let sliced: Vec<&String> = args
+            .iter()
+            .skip(start)
+            .take(len.unwrap_or(args.len()))
+            .collect();
+        result.push_str(
+            &sliced
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(" "),
+        );
     }
 
     result
@@ -504,14 +529,20 @@ mod tests {
     fn expand_template_positional_replacement() {
         let body = "Fix issue #$1 with priority $2";
         let args = vec!["123".to_string(), "high".to_string()];
-        assert_eq!(expand_template(body, &args), "Fix issue #123 with priority high");
+        assert_eq!(
+            expand_template(body, &args),
+            "Fix issue #123 with priority high"
+        );
     }
 
     #[test]
     fn expand_template_unfilled_positional_becomes_empty() {
         let body = "Fix issue #$1 with priority $2";
         let args = vec!["123".to_string()];
-        assert_eq!(expand_template(body, &args), "Fix issue #123 with priority ");
+        assert_eq!(
+            expand_template(body, &args),
+            "Fix issue #123 with priority "
+        );
     }
 
     #[test]
@@ -525,7 +556,10 @@ mod tests {
     fn expand_template_at_sign_all_arguments() {
         let body = "Review: $@";
         let args = vec!["src/main.rs".to_string(), "src/lib.rs".to_string()];
-        assert_eq!(expand_template(body, &args), "Review: src/main.rs src/lib.rs");
+        assert_eq!(
+            expand_template(body, &args),
+            "Review: src/main.rs src/lib.rs"
+        );
     }
 
     #[test]
@@ -586,9 +620,15 @@ mod tests {
     #[test]
     fn discover_commands_includes_builtins() {
         let commands = discover_commands("/nonexistent/path");
-        assert!(commands.iter().any(|c| c.name == "login" && c.source == "builtin"));
-        assert!(commands.iter().any(|c| c.name == "model" && c.source == "builtin"));
-        assert!(commands.iter().any(|c| c.name == "plan" && c.source == "builtin"));
+        assert!(commands
+            .iter()
+            .any(|c| c.name == "login" && c.source == "builtin"));
+        assert!(commands
+            .iter()
+            .any(|c| c.name == "model" && c.source == "builtin"));
+        assert!(commands
+            .iter()
+            .any(|c| c.name == "plan" && c.source == "builtin"));
     }
 
     #[test]
@@ -611,8 +651,12 @@ mod tests {
         .unwrap();
 
         let commands = discover_commands(tmp.to_str().unwrap());
-        let model_cmds: Vec<&SlashCommand> = commands.iter().filter(|c| c.name == "model").collect();
-        assert!(model_cmds.len() >= 2, "should have builtin + omp model commands");
+        let model_cmds: Vec<&SlashCommand> =
+            commands.iter().filter(|c| c.name == "model").collect();
+        assert!(
+            model_cmds.len() >= 2,
+            "should have builtin + omp model commands"
+        );
 
         // The builtin (priority 100) should not be shadowed; the omp (priority 90) should be.
         let builtin = model_cmds.iter().find(|c| c.source == "builtin").unwrap();

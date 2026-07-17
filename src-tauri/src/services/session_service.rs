@@ -3,6 +3,7 @@ use rusqlite::params;
 use crate::{
     models::{
         idea::{Idea, IdeaCategory, IdeaStatus},
+        planning_assessment::ImplementationAssessment,
         session::{Session, SessionTab, TabKind},
     },
     services::storage_service::StorageService,
@@ -312,10 +313,39 @@ impl SessionService {
     pub fn list_categories(session_id: &str) -> DbResult<Vec<IdeaCategory>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, name, description, created_at FROM idea_categories WHERE session_id = ?1 ORDER BY created_at ASC",
+            "SELECT id, session_id, name, description, created_at FROM idea_categories WHERE session_id = ?1 ORDER BY created_at DESC, rowid DESC",
         ).map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map(params![session_id], |row| {
+                Ok(IdeaCategory {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    name: row.get(2)?,
+                    description: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn list_categories_for_project(project_path: &str) -> DbResult<Vec<IdeaCategory>> {
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, session_id, name, description, created_at
+                 FROM idea_categories
+                 WHERE session_id IN (
+                   SELECT id FROM sessions WHERE project_path = ?1
+                   UNION
+                   SELECT id FROM native_chat_sessions WHERE project_path = ?1
+                 )
+                 ORDER BY created_at DESC, rowid DESC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![project_path], |row| {
                 Ok(IdeaCategory {
                     id: row.get(0)?,
                     session_id: row.get(1)?,
@@ -351,6 +381,7 @@ impl SessionService {
         grounding: &str,
         anchor: Option<&str>,
         batch_id: Option<&str>,
+        assessment: Option<&ImplementationAssessment>,
     ) -> DbResult<Idea> {
         let idea = Idea {
             id: gen_id(),
@@ -362,13 +393,20 @@ impl SessionService {
             grounding: grounding.to_string(),
             anchor: anchor.map(str::to_string),
             batch_id: batch_id.map(str::to_string),
+            assessment: assessment.cloned(),
             created_at: now(),
             updated_at: now(),
         };
+        let assessment_json = assessment
+            .map(|value| {
+                value.validate()?;
+                serde_json::to_string(value).map_err(|error| error.to_string())
+            })
+            .transpose()?;
         let conn = StorageService::connect()?;
         conn.execute(
-            "INSERT INTO ideas (id, session_id, category_id, title, description, status, grounding, anchor, batch_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![idea.id, idea.session_id, idea.category_id, idea.title, idea.description, idea.status.as_str(), idea.grounding, idea.anchor, idea.batch_id, idea.created_at, idea.updated_at],
+            "INSERT INTO ideas (id, session_id, category_id, title, description, status, grounding, anchor, batch_id, assessment_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![idea.id, idea.session_id, idea.category_id, idea.title, idea.description, idea.status.as_str(), idea.grounding, idea.anchor, idea.batch_id, assessment_json, idea.created_at, idea.updated_at],
         ).map_err(|e| e.to_string())?;
         Self::touch_session(session_id)?;
         Ok(idea)
@@ -377,7 +415,7 @@ impl SessionService {
     pub fn list_ideas(session_id: &str) -> DbResult<Vec<Idea>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, category_id, title, description, status, grounding, anchor, batch_id, created_at, updated_at FROM ideas WHERE session_id = ?1 ORDER BY created_at ASC",
+            "SELECT id, session_id, category_id, title, description, status, grounding, anchor, batch_id, assessment_json, created_at, updated_at FROM ideas WHERE session_id = ?1 ORDER BY created_at DESC, rowid DESC",
         ).map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map(params![session_id], |row| {
@@ -392,8 +430,51 @@ impl SessionService {
                     grounding: row.get(6)?,
                     anchor: row.get(7)?,
                     batch_id: row.get(8)?,
-                    created_at: row.get(9)?,
-                    updated_at: row.get(10)?,
+                    assessment: row
+                        .get::<_, Option<String>>(9)?
+                        .and_then(|json| serde_json::from_str(&json).ok()),
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn list_ideas_for_project(project_path: &str) -> DbResult<Vec<Idea>> {
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, session_id, category_id, title, description, status,
+                        grounding, anchor, batch_id, assessment_json, created_at, updated_at
+                 FROM ideas
+                 WHERE session_id IN (
+                   SELECT id FROM sessions WHERE project_path = ?1
+                   UNION
+                   SELECT id FROM native_chat_sessions WHERE project_path = ?1
+                 )
+                 ORDER BY created_at DESC, rowid DESC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![project_path], |row| {
+                let status_str: String = row.get(5)?;
+                Ok(Idea {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    category_id: row.get(2)?,
+                    title: row.get(3)?,
+                    description: row.get(4)?,
+                    status: IdeaStatus::from_str(&status_str),
+                    grounding: row.get(6)?,
+                    anchor: row.get(7)?,
+                    batch_id: row.get(8)?,
+                    assessment: row
+                        .get::<_, Option<String>>(9)?
+                        .and_then(|json| serde_json::from_str(&json).ok()),
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -404,7 +485,7 @@ impl SessionService {
         let conn = StorageService::connect()?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, session_id, category_id, title, description, status, grounding, anchor, batch_id, created_at, updated_at
+                "SELECT id, session_id, category_id, title, description, status, grounding, anchor, batch_id, assessment_json, created_at, updated_at
                  FROM ideas WHERE id = ?1 LIMIT 1",
             )
             .map_err(|e| e.to_string())?;
@@ -421,12 +502,59 @@ impl SessionService {
                     grounding: row.get(6)?,
                     anchor: row.get(7)?,
                     batch_id: row.get(8)?,
-                    created_at: row.get(9)?,
-                    updated_at: row.get(10)?,
+                    assessment: row
+                        .get::<_, Option<String>>(9)?
+                        .and_then(|json| serde_json::from_str(&json).ok()),
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
                 })
             })
             .map_err(|e| e.to_string())?;
         rows.next().transpose().map_err(|e| e.to_string())
+    }
+
+    pub fn update_idea(
+        id: &str,
+        title: &str,
+        description: &str,
+        category_id: Option<&str>,
+    ) -> DbResult<Idea> {
+        let title = title.trim();
+        let description = description.trim();
+        if title.is_empty() {
+            return Err("Idea title is required.".to_string());
+        }
+        if title.chars().count() > 240 {
+            return Err("Idea title must be 240 characters or fewer.".to_string());
+        }
+        if description.chars().count() > 20_000 {
+            return Err("Idea description must be 20,000 characters or fewer.".to_string());
+        }
+
+        let existing = Self::get_idea(id)?.ok_or_else(|| "Idea not found.".to_string())?;
+        let conn = StorageService::connect()?;
+        if let Some(category_id) = category_id {
+            let category_session_id: String = conn
+                .query_row(
+                    "SELECT session_id FROM idea_categories WHERE id = ?1",
+                    params![category_id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| "Idea category not found.".to_string())?;
+            if category_session_id != existing.session_id {
+                return Err("Idea category belongs to another session.".to_string());
+            }
+        }
+
+        conn.execute(
+            "UPDATE ideas
+             SET title = ?1, description = ?2, category_id = ?3, updated_at = ?4
+             WHERE id = ?5",
+            params![title, description, category_id, now(), id],
+        )
+        .map_err(|error| error.to_string())?;
+        Self::touch_session(&existing.session_id)?;
+        Self::get_idea(id)?.ok_or_else(|| "Idea not found after update.".to_string())
     }
 
     pub fn update_idea_status(id: &str, status: IdeaStatus) -> DbResult<()> {
@@ -445,7 +573,11 @@ impl SessionService {
     pub fn reject_idea(id: &str) -> DbResult<()> {
         let conn = StorageService::connect()?;
         let current_status: String = conn
-            .query_row("SELECT status FROM ideas WHERE id = ?1", params![id], |row| row.get(0))
+            .query_row(
+                "SELECT status FROM ideas WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
             .map_err(|e| e.to_string())?;
         let status = IdeaStatus::from_str(&current_status);
         if status != IdeaStatus::Concept {
@@ -483,4 +615,157 @@ pub(crate) fn truncate_title(s: &str, max_chars: usize) -> String {
         }
     }
     format!("{truncated}…")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn update_idea_edits_content_and_rejects_cross_session_categories() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        let first_session = SessionService::create_session("/project-a", "First").unwrap();
+        let second_session = SessionService::create_session("/project-b", "Second").unwrap();
+        let first_category =
+            SessionService::create_category(&first_session.id, "UX", "User experience").unwrap();
+        let second_category =
+            SessionService::create_category(&second_session.id, "Backend", "Services").unwrap();
+        let idea = SessionService::create_idea(
+            &first_session.id,
+            "Original",
+            "Original description",
+            None,
+            "",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let updated = SessionService::update_idea(
+            &idea.id,
+            "  Edited idea  ",
+            "  Edited description  ",
+            Some(&first_category.id),
+        )
+        .unwrap();
+
+        assert_eq!(updated.title, "Edited idea");
+        assert_eq!(updated.description, "Edited description");
+        assert_eq!(
+            updated.category_id.as_deref(),
+            Some(first_category.id.as_str())
+        );
+
+        let error = SessionService::update_idea(
+            &idea.id,
+            "Invalid category",
+            "",
+            Some(&second_category.id),
+        )
+        .unwrap_err();
+        assert_eq!(error, "Idea category belongs to another session.");
+
+        let error = SessionService::update_idea(&idea.id, "  ", "", None).unwrap_err();
+        assert_eq!(error, "Idea title is required.");
+    }
+    #[test]
+    fn idea_assessment_round_trips_while_legacy_rows_remain_usable() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        let session = SessionService::create_session("/assessed-project", "Assessment").unwrap();
+        let assessment = crate::models::planning_assessment::ImplementationAssessment {
+            schema_version: crate::models::planning_assessment::ASSESSMENT_SCHEMA_VERSION,
+            effort: crate::models::planning_assessment::EffortRange {
+                min_hours: 3,
+                max_hours: 7,
+            },
+            difficulty: 3,
+            impact: 5,
+            risk: 2,
+            confidence: 4,
+            rationale: "Bounded by the existing idea service.".to_string(),
+            grounding: vec!["session_service.rs::create_idea".to_string()],
+            required_capabilities: vec!["Rust".to_string()],
+            constraints: vec!["Preserve legacy rows".to_string()],
+            missing_evidence: vec![],
+            alternatives: vec!["Keep unstructured grounding".to_string()],
+        };
+        let assessed = SessionService::create_idea(
+            &session.id,
+            "Persist assessment",
+            "Round-trip versioned assessment JSON.",
+            None,
+            "session_service.rs::create_idea",
+            None,
+            None,
+            Some(&assessment),
+        )
+        .unwrap();
+        let legacy = SessionService::create_idea(
+            &session.id,
+            "Legacy idea",
+            "No assessment is valid for old and manual ideas.",
+            None,
+            "",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(assessed.assessment.as_ref(), Some(&assessment));
+        assert_eq!(
+            SessionService::get_idea(&assessed.id)
+                .unwrap()
+                .unwrap()
+                .assessment
+                .as_ref(),
+            Some(&assessment)
+        );
+        assert!(SessionService::get_idea(&legacy.id)
+            .unwrap()
+            .unwrap()
+            .assessment
+            .is_none());
+    }
+
+    #[test]
+    fn project_lists_keep_newest_ideas_and_categories_first_across_sessions() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let _guard = crate::test_util::test::lock_db(&directory);
+        let first = SessionService::create_session("/shared-project", "First").unwrap();
+        let second = SessionService::create_session("/shared-project", "Second").unwrap();
+        let other = SessionService::create_session("/other-project", "Other").unwrap();
+
+        SessionService::create_category(&first.id, "UX", "").unwrap();
+        SessionService::create_category(&second.id, "Runtime", "").unwrap();
+        SessionService::create_category(&other.id, "Unrelated", "").unwrap();
+        SessionService::create_idea(&first.id, "First idea", "", None, "", None, None, None)
+            .unwrap();
+        SessionService::create_idea(&second.id, "Second idea", "", None, "", None, None, None)
+            .unwrap();
+        SessionService::create_idea(&other.id, "Other idea", "", None, "", None, None, None)
+            .unwrap();
+
+        let categories = SessionService::list_categories_for_project("/shared-project").unwrap();
+        let ideas = SessionService::list_ideas_for_project("/shared-project").unwrap();
+        assert_eq!(categories.len(), 2);
+        assert_eq!(ideas.len(), 2);
+        assert_eq!(
+            categories
+                .iter()
+                .map(|category| category.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Runtime", "UX"]
+        );
+        assert_eq!(
+            ideas
+                .iter()
+                .map(|idea| idea.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Second idea", "First idea"]
+        );
+    }
 }

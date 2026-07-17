@@ -12,6 +12,8 @@ pub enum QuestionKind {
     Confirm,
     /// Free-text input.
     Text,
+    /// Numeric rating over a bounded scale.
+    Rating,
 }
 
 impl QuestionKind {
@@ -21,6 +23,7 @@ impl QuestionKind {
             QuestionKind::Multi => "multi",
             QuestionKind::Confirm => "confirm",
             QuestionKind::Text => "text",
+            QuestionKind::Rating => "rating",
         }
     }
 
@@ -29,6 +32,7 @@ impl QuestionKind {
             "multi" => QuestionKind::Multi,
             "confirm" => QuestionKind::Confirm,
             "text" => QuestionKind::Text,
+            "rating" => QuestionKind::Rating,
             _ => QuestionKind::Options,
         }
     }
@@ -53,8 +57,41 @@ pub struct Question {
     /// field content the user is being asked to confirm). Not an answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// Optional page identifier. Flat legacy questions without one form a
+    /// single implicit page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_description: Option<String>,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub multiline: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<RatingScale>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RatingScale {
+    pub min: i64,
+    pub max: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub low_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub high_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<RatingStyle>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RatingStyle {
+    Stars,
+    Numbers,
+}
 /// An option in a question.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -100,10 +137,18 @@ pub struct PendingInteraction {
     pub session_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub questions: Vec<Question>,
     pub status: InteractionStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answers: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft_answers: Option<Vec<QuestionAnswer>>,
+    #[serde(default)]
+    pub current_page: usize,
     pub created_at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_at: Option<i64>,
@@ -120,6 +165,9 @@ pub struct QuestionAnswer {
     /// Free-text answer (for `text` kind or `allow_free_text`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// Numeric value for rating questions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<i64>,
 }
 
 /// Request to resolve a pending interaction.
@@ -140,6 +188,7 @@ mod tests {
             QuestionKind::Multi,
             QuestionKind::Confirm,
             QuestionKind::Text,
+            QuestionKind::Rating,
         ] {
             let s = kind.as_str();
             assert_eq!(QuestionKind::from_str(s), kind);
@@ -171,9 +220,32 @@ mod tests {
             recommended: Some(0),
             allow_free_text: false,
             detail: None,
+            page_id: None,
+            page_title: None,
+            required: false,
+            page_description: None,
+            multiline: false,
+            scale: None,
         };
         let json = serde_json::to_string(&q).unwrap();
         assert!(json.contains("\"allowFreeText\":false"));
         assert!(!json.contains("\"questionId\""));
+    }
+
+    #[test]
+    fn shared_planning_contract_fixture_is_valid_json() {
+        let fixture = include_str!("../../../tests/fixtures/planning-contract-v1.json");
+        let parsed: serde_json::Value = serde_json::from_str(fixture).unwrap();
+        let legacy: PendingInteraction =
+            serde_json::from_value(parsed["legacyInteraction"].clone()).unwrap();
+        assert_eq!(legacy.questions.len(), 1);
+        assert_eq!(legacy.current_page, 0);
+        assert!(legacy.title.is_none());
+        let current: PendingInteraction =
+            serde_json::from_value(parsed["interactionV1"].clone()).unwrap();
+        assert_eq!(current.questions[1].kind, QuestionKind::Rating);
+        assert_eq!(current.current_page, 1);
+        assert!(parsed.get("assessmentV1").is_some());
+        assert!(parsed.get("modelProfilesV1").is_some());
     }
 }

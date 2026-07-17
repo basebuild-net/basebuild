@@ -53,24 +53,24 @@ pub struct UsageLimit {
     pub confidence: Option<String>,
 }
 
- /// One selectable plan from the basebuild.net catalog, for the declaration UI.
- #[derive(Debug, Clone, Serialize, Deserialize)]
- #[serde(rename_all = "camelCase")]
- pub struct ProviderPlanOption {
-     /// Catalog `ProviderPlan.id` — the exact id passed to `declare_usage_profile`.
-     pub id: String,
-     pub provider: String,
-     pub name: String,
-     pub tier: Option<String>,
-     pub price: Option<f64>,
-     pub period: Option<String>,
-     /// Whether the plan is unmetered (no request cap).
-     pub unmetered: bool,
+/// One selectable plan from the basebuild.net catalog, for the declaration UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderPlanOption {
+    /// Catalog `ProviderPlan.id` — the exact id passed to `declare_usage_profile`.
+    pub id: String,
+    pub provider: String,
+    pub name: String,
+    pub tier: Option<String>,
+    pub price: Option<f64>,
+    pub period: Option<String>,
+    /// Whether the plan is unmetered (no request cap).
+    pub unmetered: bool,
     /// Modular per-window usage caps from the catalog. Canonical source for
     /// volume-based plan estimation. Backfilled from legacy flat fields when
     /// the catalog response doesn't include `usageLimits`.
     pub usage_limits: Vec<UsageLimit>,
-     /// Catalog-declared confidence in the limit data (e.g. `documented`).
-     pub usage_limit_confidence: Option<String>,
-     pub label: String,
- }
+    /// Catalog-declared confidence in the limit data (e.g. `documented`).
+    pub usage_limit_confidence: Option<String>,
+    pub label: String,
+}

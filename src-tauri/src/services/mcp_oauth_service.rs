@@ -158,10 +158,7 @@ impl McpOAuthService {
         listener
             .set_nonblocking(true)
             .map_err(|e| format!("Failed to configure OAuth listener: {e}"))?;
-        let port = listener
-            .local_addr()
-            .map_err(|e| e.to_string())?
-            .port();
+        let port = listener.local_addr().map_err(|e| e.to_string())?.port();
         let redirect_uri = format!("http://{LOOPBACK_HOST}:{port}/callback");
 
         // Discover OAuth metadata and build the authorization URL.
@@ -263,9 +260,10 @@ impl McpOAuthService {
                 }
             }
             if Instant::now() >= deadline {
-                FLOWS
-                    .lock()
-                    .insert(server_url.to_string(), FlowStatus::Error("OAuth timed out.".to_string()));
+                FLOWS.lock().insert(
+                    server_url.to_string(),
+                    FlowStatus::Error("OAuth timed out.".to_string()),
+                );
                 return;
             }
             match listener.accept() {
@@ -321,7 +319,10 @@ impl McpOAuthService {
                     FLOWS
                         .lock()
                         .insert(server_url.to_string(), FlowStatus::Error(e));
-                    Self::respond(&mut stream, &result_page("Failed to save the token. Return to Basebuild."));
+                    Self::respond(
+                        &mut stream,
+                        &result_page("Failed to save the token. Return to Basebuild."),
+                    );
                 } else {
                     FLOWS
                         .lock()
@@ -333,14 +334,20 @@ impl McpOAuthService {
                 FLOWS
                     .lock()
                     .insert(server_url.to_string(), FlowStatus::Error(e));
-                Self::respond(&mut stream, &result_page("Authorization failed. Return to Basebuild."));
+                Self::respond(
+                    &mut stream,
+                    &result_page("Authorization failed. Return to Basebuild."),
+                );
             }
         }
     }
 
     /// Exchange an authorization code for a token using a blocking tokio runtime.
     /// This runs in the listener thread so it doesn't block the async command.
-    fn exchange_code_blocking(server_url: &str, callback_url: &str) -> Result<StoredMcpToken, String> {
+    fn exchange_code_blocking(
+        server_url: &str,
+        callback_url: &str,
+    ) -> Result<StoredMcpToken, String> {
         // Build a runtime for the async exchange.
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -382,15 +389,8 @@ impl McpOAuthService {
             let refresh_token = token_response
                 .refresh_token()
                 .map(|t| t.secret().to_string());
-            let expires_in = token_response
-                .expires_in()
-                .map(|d| d.as_secs());
-            let token_type = Some(
-                token_response
-                    .token_type()
-                    .as_ref()
-                    .to_string(),
-            );
+            let expires_in = token_response.expires_in().map(|d| d.as_secs());
+            let token_type = Some(token_response.token_type().as_ref().to_string());
             let scopes = token_response
                 .scopes()
                 .map(|s| s.iter().map(|sc| sc.to_string()).collect())

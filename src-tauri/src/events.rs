@@ -1,6 +1,7 @@
 pub const OMP_EVENT: &str = "omp://event";
 pub const TERMINAL_OUTPUT: &str = "terminal://output";
 pub const NATIVE_CHAT_CHUNK: &str = "native-chat://chunk";
+pub const NATIVE_CHAT_TRANSCRIPT_UPDATED: &str = "native-chat://transcript-updated";
 pub const OMP_TELEMETRY: &str = "omp-telemetry://update";
 pub const AUTH_CHANGED: &str = "auth://changed";
 pub const USAGE_SYNC_STATUS: &str = "usage-sync://status";

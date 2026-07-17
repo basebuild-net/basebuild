@@ -113,6 +113,30 @@ pre-bump commit and no version drift between files.
    After publishing, verify the in-app update check no longer reports a remote
    JSON failure — the updater endpoint should serve the new `latest.json`.
 
+### Release build integrity guards
+
+A released binary MUST serve the frontend embedded in the executable, not from
+the dev server. A `tauri dev` build navigates the webview to `devUrl`
+(`http://127.0.0.1:1420`); launched without the Vite dev server it shows
+`127.0.0.1 refused to connect` (`ERR_CONNECTION_REFUSED`). Only `tauri dev`
+produces such a binary — `tauri build` (and even a plain `cargo build`) embeds
+the frontend and serves it over Tauri's custom protocol. Two guards ensure a
+dev-mode binary can never be published:
+
+- **`npm run check:release-config`** (`scripts/check-release-config.mjs`, runs
+  in the `check-frontend` CI job on every PR): a fast static check that
+  `build.frontendDist` is a bundled local path (never a URL), `build.devUrl` is
+  loopback-only, `beforeBuildCommand` builds the frontend, and the built
+  `dist/` contains `index.html`.
+- **Release-job webview probe** (`scripts/verify-prod-webview.mjs`, runs in the
+  `release` job after the build): boots the packaged `.exe`, listens on
+  `127.0.0.1:1420`, and fails the release if the app's webview connects there.
+  Nothing in a production build touches `:1420`, so a good build never flakes;
+  a connection means a dev binary was about to ship.
+
+Never hand-build and upload a release artifact. Always use the
+`workflow_dispatch` pipeline so both guards run.
+
 ### Release artifacts
 
 Each Windows release produces:

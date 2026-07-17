@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::models::planning_assessment::PlanAssessment;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanStatus {
@@ -63,6 +65,10 @@ pub struct Plan {
     /// parsing reference ids.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub change_name: Option<String>,
+    /// Assessment derived from the current validated OpenSpec artifacts.
+    /// Legacy drafts and plans that have not generated artifacts carry none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assessment: Option<PlanAssessment>,
     pub created_at: i64,
     pub updated_at: i64,
     pub finished_at: Option<i64>,
@@ -104,4 +110,20 @@ pub struct BatchPromoteResult {
 pub struct BatchPromoteError {
     pub idea_id: String,
     pub error: String,
+}
+/// One planning-data integrity problem found by the load-time self check
+/// (e.g. a plan whose source idea was deleted, or an idea whose owning
+/// session row is gone). Surfaced as a desync warning in the planning UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanningIntegrityIssue {
+    /// Machine kind: plan_missing_idea | plan_orphan_session |
+    /// idea_orphan_session | idea_missing_category.
+    pub kind: String,
+    /// Id of the affected plan or idea.
+    pub entity_id: String,
+    /// Human title of the affected entity.
+    pub title: String,
+    /// Explanation of the desync and its likely effect.
+    pub detail: String,
 }

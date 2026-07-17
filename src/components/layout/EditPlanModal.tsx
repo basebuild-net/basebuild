@@ -5,6 +5,7 @@ import type { NewPlan, Plan, PlanStatus } from "../../lib/plans";
 import { PLAN_STATUS_LABEL } from "../../lib/plans";
 import { OptionList, type OptionListOption } from "./OptionList";
 import { ModalPortal } from "../ModalPortal";
+import { Disclosure } from "../Disclosure";
 const STATUS_OPTION_ITEMS: OptionListOption<PlanStatus>[] = [
   { id: "draft", label: PLAN_STATUS_LABEL.draft, title: "Plan is still being drafted" },
   { id: "openspec", label: PLAN_STATUS_LABEL.openspec, title: "Plan is being refined in OpenSpec" },
@@ -98,47 +99,53 @@ export function EditPlanModal({ plan, open, onClose, onSave }: EditPlanModalProp
               required
             />
           </label>
-          <label className="stack-sm">
-            <span className="text-sm text-muted">Goal / Target</span>
-            <input
-              className="input"
-              type="text"
-              value={goal}
-              onChange={(e) => setGoal(e.target.value)}
-              placeholder="What larger objective does this serve?"
-            />
-          </label>
-          <div className="row">
-            <label className="stack-sm flex-1">
-              <span className="text-sm text-muted">Status</span>
-              <OptionList
-                value={status}
-                options={STATUS_OPTION_ITEMS}
-                onChange={(id) => setStatus(id)}
-                label="Plan status"
-              />
-            </label>
-            <label className="stack-sm flex-1">
-              <span className="text-sm text-muted">Priority (0–100)</span>
+          <Disclosure
+            label="Details"
+            summary={`${PLAN_STATUS_LABEL[status]} · priority ${priority}${tags.trim() ? ` · ${tags}` : ""}`}
+            title="Goal, status, priority, and tags"
+          >
+            <label className="stack-sm">
+              <span className="text-sm text-muted">Goal / Target</span>
               <input
                 className="input"
-                type="number"
-                min={0}
-                max={100}
-                value={priority}
-                onChange={(e) => setPriority(Number(e.target.value))}
+                type="text"
+                value={goal}
+                onChange={(e) => setGoal(e.target.value)}
+                placeholder="What larger objective does this serve?"
               />
             </label>
-          </div>
-          <label className="stack-sm">
-            <span className="text-sm text-muted">Tags (comma-separated)</span>
-            <input
-              className="input"
-              type="text"
-              value={tags}
-              onChange={(e) => setTags(e.target.value)}
-            />
-          </label>
+            <div className="row">
+              <label className="stack-sm flex-1">
+                <span className="text-sm text-muted">Status</span>
+                <OptionList
+                  value={status}
+                  options={STATUS_OPTION_ITEMS}
+                  onChange={(id) => setStatus(id)}
+                  label="Plan status"
+                />
+              </label>
+              <label className="stack-sm flex-1">
+                <span className="text-sm text-muted">Priority (0–100)</span>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={priority}
+                  onChange={(e) => setPriority(Number(e.target.value))}
+                />
+              </label>
+            </div>
+            <label className="stack-sm">
+              <span className="text-sm text-muted">Tags (comma-separated)</span>
+              <input
+                className="input"
+                type="text"
+                value={tags}
+                onChange={(e) => setTags(e.target.value)}
+              />
+            </label>
+          </Disclosure>
           <div className="modal-actions">
             <button className="btn" type="button" title="Cancel" onClick={onClose}>
               Cancel

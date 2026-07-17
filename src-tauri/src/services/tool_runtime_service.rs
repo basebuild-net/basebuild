@@ -26,6 +26,34 @@ const MAX_OUTPUT_BYTES: usize = 128 * 1024;
 const DEFAULT_COMMAND_TIMEOUT_SECS: u64 = 120;
 /// Maximum file size `read_file` returns without an explicit range (1 MB).
 const MAX_READ_FILE_BYTES: u64 = 1_048_576;
+/// Maximum number of files `search_files` scans before bailing (bounds work
+/// on huge trees so the agent loop thread is never pinned indefinitely).
+const SEARCH_MAX_FILES_SCANNED: usize = 20_000;
+
+/// Directory names that are always pruned from `search_files` / `list_files`
+/// walks. These are dependency caches, build output, and VCS metadata that
+/// dwarf source trees and would otherwise pin a tool thread reading tens of
+/// thousands of irrelevant files. Dot-directories are already skipped by the
+/// walkers, so `.git` / `.next` / `.cache` are covered implicitly.
+const PRUNED_DIRS: &[&str] = &[
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "out",
+    "coverage",
+    ".turbo",
+    ".parcel-cache",
+    ".vscode",
+    ".idea",
+];
+
+/// Returns true if a directory entry's name should be pruned from file walks.
+/// Dot-directories are already skipped by the walkers (`starts_with('.')`),
+/// so this only lists non-dot dependency/build/VCS caches.
+fn is_pruned_dir(name: &str) -> bool {
+    PRUNED_DIRS.contains(&name)
+}
 
 /// Whether a tool reads or mutates state. Read-only calls from one response
 /// run concurrently; mutating calls run sequentially in response order.
@@ -72,13 +100,37 @@ pub struct ToolResult {
 
 impl ToolResult {
     pub fn success(content: String) -> Self {
-        Self { content, status: "succeeded".to_string(), full_content: None, diff: None, decision: None, rule_source: None, sensitive: false }
+        Self {
+            content,
+            status: "succeeded".to_string(),
+            full_content: None,
+            diff: None,
+            decision: None,
+            rule_source: None,
+            sensitive: false,
+        }
     }
     pub fn failure(content: String) -> Self {
-        Self { content, status: "failed".to_string(), full_content: None, diff: None, decision: None, rule_source: None, sensitive: false }
+        Self {
+            content,
+            status: "failed".to_string(),
+            full_content: None,
+            diff: None,
+            decision: None,
+            rule_source: None,
+            sensitive: false,
+        }
     }
     pub fn denied(content: String) -> Self {
-        Self { content, status: "denied".to_string(), full_content: None, diff: None, decision: None, rule_source: None, sensitive: false }
+        Self {
+            content,
+            status: "denied".to_string(),
+            full_content: None,
+            diff: None,
+            decision: None,
+            rule_source: None,
+            sensitive: false,
+        }
     }
 }
 /// Redaction marker used when a tool touches a sensitive path.
@@ -147,7 +199,10 @@ fn is_sensitive_path(path: &Path) -> bool {
         if name == ".env" || name.starts_with(".env.") {
             return true;
         }
-        if name.starts_with("id_rsa") || name.starts_with("id_ed25519") || name.starts_with("id_ecdsa") {
+        if name.starts_with("id_rsa")
+            || name.starts_with("id_ed25519")
+            || name.starts_with("id_ecdsa")
+        {
             return true;
         }
         if name == "credentials.json" {
@@ -282,26 +337,77 @@ pub fn registry() -> Vec<ToolDef> {
         },
         ToolDef {
             schema: ToolSchema {
-                name: "propose_ideas".to_string(),
-                description: "Capture one or more structured ideas during a generate-ideas run. Each idea must cite concrete grounding (real files, functions, or observed gaps); ideas without grounding are rejected. An optional anchor names the schematic element (Vision / End goal / Current priority) the idea serves. Call this tool with ideas as they are formed; do not emit them as prose.".to_string(),
+                name: "get_execution_advice".to_string(),
+                description: "Read Basebuild's local planner/coder route recommendation for one persisted plan or idea. The result is computed locally from a bounded assessment, connected route metadata, coarse capacity, and public model evidence. It never includes credentials, account ids, project text, source, messages, questionnaire answers, raw usage, diffs, logs, or absolute paths. When this chat uses an external provider, returning the result crosses that provider boundary and is gated by Allow external context.".to_string(),
                 parameters: json!({
                     "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "planId": { "type": "string", "minLength": 1, "maxLength": 240 },
+                        "ideaId": { "type": "string", "minLength": 1, "maxLength": 240 }
+                    },
+                    "oneOf": [
+                        { "required": ["planId"] },
+                        { "required": ["ideaId"] }
+                    ]
+                }),
+            },
+            kind: ToolKind::ReadOnly,
+            execute: get_execution_advice,
+        },
+        ToolDef {
+            schema: ToolSchema {
+                name: "propose_ideas".to_string(),
+                description: "Capture a batch of distinct, grounded implementation ideas. Every idea requires a versioned bounded assessment; invalid items reject the complete batch. Inspect the repository and existing ideas/plans first, cite concrete evidence, and call this tool instead of printing an idea wall as prose.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "additionalProperties": false,
                     "properties": {
                         "ideas": {
                             "type": "array",
-                            "description": "Ideas to capture.",
+                            "minItems": 1,
+                            "maxItems": 12,
+                            "description": "Distinct, non-duplicate ideas to capture.",
                             "items": {
                                 "type": "object",
+                                "additionalProperties": false,
                                 "properties": {
-                                    "title": { "type": "string", "description": "Short title (max 12 words)." },
-                                    "description": { "type": "string", "description": "1-2 sentence description of the idea." },
-                                    "grounding": { "type": "string", "description": "Concrete evidence justifying the idea: real files, functions, or observed gaps. Required." },
-                                    "anchor": { "type": "string", "description": "Optional schematic element served (Vision / End goal / Current priority). Omit if outside current focus." }
+                                    "title": { "type": "string", "minLength": 1, "maxLength": 240, "description": "Plain, verb-first title of 2-5 words. No file names or implementation detail." },
+                                    "description": { "type": "string", "minLength": 1, "maxLength": 20000, "description": "Concise concrete target and user-visible reason." },
+                                    "grounding": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "Concrete supporting evidence: real files, symbols, observed behavior, or an explicit unknown." },
+                                    "anchor": { "type": "string", "maxLength": 4000, "description": "Optional schematic Vision, end goal, or current priority served." },
+                                    "assessment": {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "schemaVersion": { "type": "integer", "enum": [1] },
+                                            "effort": {
+                                                "type": "object",
+                                                "additionalProperties": false,
+                                                "properties": {
+                                                    "minHours": { "type": "integer", "minimum": 1, "maximum": 10000 },
+                                                    "maxHours": { "type": "integer", "minimum": 1, "maximum": 10000 }
+                                                },
+                                                "required": ["minHours", "maxHours"]
+                                            },
+                                            "difficulty": { "type": "integer", "minimum": 1, "maximum": 5 },
+                                            "impact": { "type": "integer", "minimum": 1, "maximum": 5 },
+                                            "risk": { "type": "integer", "minimum": 1, "maximum": 5 },
+                                            "confidence": { "type": "integer", "minimum": 1, "maximum": 5 },
+                                            "rationale": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                                            "grounding": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+                                            "requiredCapabilities": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+                                            "constraints": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+                                            "missingEvidence": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+                                            "alternatives": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } }
+                                        },
+                                        "required": ["schemaVersion", "effort", "difficulty", "impact", "risk", "confidence", "rationale", "grounding", "requiredCapabilities", "constraints", "missingEvidence", "alternatives"]
+                                    }
                                 },
-                                "required": ["title", "description", "grounding"]
+                                "required": ["title", "description", "grounding", "assessment"]
                             }
                         },
-                        "categoryId": { "type": "string", "description": "Optional category id to tag every idea in this batch with (e.g. for category-directed generation)." }
+                        "categoryId": { "type": "string", "description": "Optional category id applied to every idea in the batch." }
                     },
                     "required": ["ideas"]
                 }),
@@ -314,34 +420,63 @@ pub fn registry() -> Vec<ToolDef> {
         ToolDef {
             schema: ToolSchema {
                 name: "ask_user".to_string(),
-                description: "Present one or more questions to the user and wait for their response. Each question carries an id, a prompt, a kind (options, multi, confirm, text), an optional option list, an optional recommended-option index, an optional allow-free-text flag, and an optional `detail` preview. The user can always ALSO type a custom answer for any question, so answers may include both a selected option and free text. The loop pauses until the user responds or the run is cancelled.".to_string(),
+                description: "Pause and present a focused, resumable questionnaire. Use a concise title and description, group related questions with pageId/pageTitle, mark decision-critical questions required, and use a rating question for a typed bounded score. Legacy flat questions remain supported. The user may minimize without cancelling; only final submission resumes the loop.".to_string(),
                 parameters: json!({
                     "type": "object",
                     "properties": {
+                        "title": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "description": "Prominent questionnaire title."
+                        },
+                        "description": {
+                            "type": "string",
+                            "maxLength": 4096,
+                            "description": "Why these decisions are needed and what continues afterward."
+                        },
                         "questions": {
                             "type": "array",
-                            "description": "Questions to present. All render in one card; answers are returned keyed by question id.",
+                            "minItems": 1,
+                            "maxItems": 32,
+                            "description": "Questions in page order. Questions sharing a pageId render on the same page.",
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "id": { "type": "string", "description": "Unique question id (used to key the answer)." },
-                                    "prompt": { "type": "string", "description": "The question text shown to the user." },
-                                    "kind": { "type": "string", "enum": ["options", "multi", "confirm", "text"], "description": "Question kind: single-select, multi-select, confirm/deny, or free-text." },
+                                    "id": { "type": "string", "maxLength": 128, "description": "Unique question id used to key the answer." },
+                                    "prompt": { "type": "string", "maxLength": 4096, "description": "Question text shown to the user." },
+                                    "kind": { "type": "string", "enum": ["options", "multi", "confirm", "text", "rating"] },
+                                    "pageId": { "type": "string", "maxLength": 128, "description": "Optional stable page id. Omit on every question for a legacy single page." },
+                                    "pageTitle": { "type": "string", "maxLength": 256 },
+                                    "pageDescription": { "type": "string", "maxLength": 4096 },
+                                    "required": { "type": "boolean", "default": false },
+                                    "multiline": { "type": "boolean", "default": false, "description": "Render a multiline text control for text questions." },
                                     "options": {
                                         "type": "array",
-                                        "description": "Options for `options`/`multi`/`confirm` kinds. Ignored for `text`.",
+                                        "maxItems": 20,
                                         "items": {
                                             "type": "object",
                                             "properties": {
-                                                "label": { "type": "string", "description": "Option label shown as a button." },
-                                                "description": { "type": "string", "description": "Optional longer description shown in the button tooltip." }
+                                                "label": { "type": "string", "maxLength": 256 },
+                                                "description": { "type": "string", "maxLength": 1024 }
                                             },
                                             "required": ["label"]
                                         }
                                     },
-                                    "recommended": { "type": "integer", "description": "Index into `options` of the recommended choice. The recommended option is visibly marked." },
-                                    "allowFreeText": { "type": "boolean", "description": "Deprecated hint: the UI always accepts a typed answer for every question. Kept for compatibility.", "default": false },
-                                    "detail": { "type": "string", "description": "Optional read-only preview/context shown in the card (e.g. the prefilled field content the user is confirming). Use this so the user can review a value before answering. Not treated as an answer." }
+                                    "recommended": { "type": "integer", "minimum": 0, "description": "Index into options." },
+                                    "allowFreeText": { "type": "boolean", "default": false },
+                                    "detail": { "type": "string", "maxLength": 8192, "description": "Optional read-only context; never treated as an answer." },
+                                    "scale": {
+                                        "type": "object",
+                                        "description": "Rating bounds. Omit for the default 1–5 scale.",
+                                        "properties": {
+                                            "min": { "type": "integer", "minimum": 0, "maximum": 9 },
+                                            "max": { "type": "integer", "minimum": 1, "maximum": 10 },
+                                            "lowLabel": { "type": "string", "maxLength": 128 },
+                                            "highLabel": { "type": "string", "maxLength": 128 },
+                                            "style": { "type": "string", "enum": ["stars", "numbers"] }
+                                        },
+                                        "required": ["min", "max"]
+                                    }
                                 },
                                 "required": ["id", "prompt", "kind"]
                             }
@@ -393,9 +528,9 @@ fn resolve_scoped(workspace_root: &Path, relative: &str) -> Result<PathBuf, Stri
         // if it exists, to catch symlink escapes on existing directories.
         if let Some(parent) = candidate.parent() {
             if parent.exists() {
-                let canonical_parent = parent.canonicalize().map_err(|e| {
-                    format!("Path parent not accessible: {e}")
-                })?;
+                let canonical_parent = parent
+                    .canonicalize()
+                    .map_err(|e| format!("Path parent not accessible: {e}"))?;
                 if !canonical_parent.starts_with(&canonical_root) {
                     return Err(format!(
                         "Path '{}' resolves outside the workspace and was denied.",
@@ -472,8 +607,15 @@ fn read_file(workspace_root: &Path, args: &Value) -> ToolResult {
         Err(e) => return ToolResult::failure(format!("Failed to read file '{path}': {e}")),
     };
     let lines: Vec<&str> = content.lines().collect();
-    let start = args.get("start_line").and_then(Value::as_i64).map(|i| i.max(1) as usize).unwrap_or(1);
-    let end = args.get("end_line").and_then(Value::as_i64).map(|i| i as usize);
+    let start = args
+        .get("start_line")
+        .and_then(Value::as_i64)
+        .map(|i| i.max(1) as usize)
+        .unwrap_or(1);
+    let end = args
+        .get("end_line")
+        .and_then(Value::as_i64)
+        .map(|i| i as usize);
     // If a range is requested, return just that range with line numbers.
     if start > 1 || end.is_some() {
         let end = end.unwrap_or(lines.len());
@@ -590,7 +732,6 @@ fn compute_diff(before: &str, after: &str) -> Option<String> {
     }
 }
 
-
 fn write_file(workspace_root: &Path, args: &Value) -> ToolResult {
     let path = match args.get("path").and_then(Value::as_str) {
         Some(p) => p,
@@ -639,7 +780,15 @@ fn write_file(workspace_root: &Path, args: &Value) -> ToolResult {
             } else {
                 compute_diff(&before, content)
             };
-            ToolResult { content: format!("Wrote {} bytes to {}", content.len(), path), status: "succeeded".to_string(), full_content: None, diff, decision: None, rule_source: None, sensitive }
+            ToolResult {
+                content: format!("Wrote {} bytes to {}", content.len(), path),
+                status: "succeeded".to_string(),
+                full_content: None,
+                diff,
+                decision: None,
+                rule_source: None,
+                sensitive,
+            }
         }
         Err(e) => ToolResult {
             content: format!("Failed to write file '{path}': {e}"),
@@ -666,7 +815,10 @@ fn edit_file(workspace_root: &Path, args: &Value) -> ToolResult {
         Some(t) => t,
         None => return ToolResult::failure("Missing required parameter: new_text".to_string()),
     };
-    let expected = args.get("expected_occurrences").and_then(Value::as_i64).unwrap_or(1) as usize;
+    let expected = args
+        .get("expected_occurrences")
+        .and_then(Value::as_i64)
+        .unwrap_or(1) as usize;
     let resolved = match resolve_scoped(workspace_root, path) {
         Ok(p) => p,
         Err(e) => return ToolResult::denied(e),
@@ -688,15 +840,17 @@ fn edit_file(workspace_root: &Path, args: &Value) -> ToolResult {
     }
     let content = match std::fs::read_to_string(&resolved) {
         Ok(c) => c,
-        Err(e) => return ToolResult {
-            content: format!("Failed to read file '{path}': {e}"),
-            status: "failed".to_string(),
-            full_content: None,
-            diff: None,
-            decision: None,
-            rule_source: None,
-            sensitive,
-        },
+        Err(e) => {
+            return ToolResult {
+                content: format!("Failed to read file '{path}': {e}"),
+                status: "failed".to_string(),
+                full_content: None,
+                diff: None,
+                decision: None,
+                rule_source: None,
+                sensitive,
+            }
+        }
     };
     let actual = content.matches(old_text).count();
     if actual != expected {
@@ -714,9 +868,21 @@ fn edit_file(workspace_root: &Path, args: &Value) -> ToolResult {
         };
     }
     let new_content = content.replacen(old_text, new_text, expected);
-    let diff = if sensitive { None } else { compute_diff(&content, &new_content) };
+    let diff = if sensitive {
+        None
+    } else {
+        compute_diff(&content, &new_content)
+    };
     match std::fs::write(&resolved, &new_content) {
-        Ok(_) => ToolResult { content: format!("Replaced {} occurrence(s) in {}", expected, path), status: "succeeded".to_string(), full_content: None, diff, decision: None, rule_source: None, sensitive },
+        Ok(_) => ToolResult {
+            content: format!("Replaced {} occurrence(s) in {}", expected, path),
+            status: "succeeded".to_string(),
+            full_content: None,
+            diff,
+            decision: None,
+            rule_source: None,
+            sensitive,
+        },
         Err(e) => ToolResult {
             content: format!("Failed to write file '{path}': {e}"),
             status: "failed".to_string(),
@@ -748,7 +914,10 @@ fn list_files(workspace_root: &Path, args: &Value) -> ToolResult {
         out.push('\n');
     }
     if matches.len() > 500 {
-        out.push_str(&format!("\n... and {} more files (showing first 500).\n", matches.len() - 500));
+        out.push_str(&format!(
+            "\n... and {} more files (showing first 500).\n",
+            matches.len() - 500
+        ));
     }
     ToolResult::success(out)
 }
@@ -783,8 +952,13 @@ fn walk_glob_recursive(root: &Path, current: &Path, pattern: &str, results: &mut
     };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        // Skip dot-directories unless explicitly matched.
-        if name.starts_with('.') && !first.starts_with('.') {
+        // Skip dot-directories and dependency/build caches unless the
+        // pattern explicitly targets them by name. `**` recursion prunes
+        // them so a broad glob doesn't scan node_modules/target; an explicit
+        // segment like `node_modules/foo` still enters via the zero-dir match.
+        if (name.starts_with('.') && !first.starts_with('.'))
+            || (first == "**" && is_pruned_dir(&name))
+        {
             continue;
         }
         let path = entry.path();
@@ -877,35 +1051,63 @@ fn search_files(workspace_root: &Path, args: &Value) -> ToolResult {
         Err(e) => return ToolResult::failure(format!("Invalid regex pattern: {e}")),
     };
     let mut results = Vec::new();
-    search_recursive(&canonical_root, &search_root, &re, &mut results);
+    let mut files_scanned = 0usize;
+    search_recursive(&canonical_root, &search_root, &re, &mut results, &mut files_scanned);
     if results.is_empty() {
-        return ToolResult::success(format!("No matches for pattern '{}'.", pattern));
+        let mut msg = format!("No matches for pattern '{}'.", pattern);
+        if files_scanned >= SEARCH_MAX_FILES_SCANNED {
+            msg.push_str(&format!(
+                " (scan stopped after {files_scanned} files; narrow the `path` scope to search deeper)"
+            ));
+        }
+        return ToolResult::success(msg);
     }
     let mut out = String::new();
     for (path, line_no, line) in results.iter().take(200) {
         out.push_str(&format!("{}:{}: {}\n", path, line_no, line));
     }
     if results.len() > 200 {
-        out.push_str(&format!("\n... and {} more matches (showing first 200).\n", results.len() - 200));
+        out.push_str(&format!(
+            "\n... and {} more matches (showing first 200).\n",
+            results.len() - 200
+        ));
+    }
+    if files_scanned >= SEARCH_MAX_FILES_SCANNED {
+        out.push_str(&format!(
+            "\n... scan stopped after {files_scanned} files; narrow the `path` scope to search deeper.\n"
+        ));
     }
     ToolResult::success(out)
 }
 
-fn search_recursive(root: &Path, current: &Path, re: &regex::Regex, results: &mut Vec<(String, usize, String)>) {
+fn search_recursive(
+    root: &Path,
+    current: &Path,
+    re: &regex::Regex,
+    results: &mut Vec<(String, usize, String)>,
+    files_scanned: &mut usize,
+) {
+    if *files_scanned >= SEARCH_MAX_FILES_SCANNED {
+        return;
+    }
     let entries = match std::fs::read_dir(current) {
         Ok(e) => e,
         Err(_) => return,
     };
     for entry in entries.flatten() {
+        if *files_scanned >= SEARCH_MAX_FILES_SCANNED {
+            break;
+        }
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') {
+        if name.starts_with('.') || is_pruned_dir(&name) {
             continue;
         }
         let path = entry.path();
         let is_dir = entry.metadata().map(|m| m.is_dir()).unwrap_or(false);
         if is_dir {
-            search_recursive(root, &path, re, results);
+            search_recursive(root, &path, re, results, files_scanned);
         } else {
+            *files_scanned += 1;
             let content = match std::fs::read_to_string(&path) {
                 Ok(c) => c,
                 Err(_) => continue, // Binary or unreadable.
@@ -928,7 +1130,10 @@ fn run_command(workspace_root: &Path, args: &Value) -> ToolResult {
         None => return ToolResult::failure("Missing required parameter: command".to_string()),
     };
     let cwd_rel = args.get("cwd").and_then(Value::as_str).unwrap_or("");
-    let timeout_secs = args.get("timeout_secs").and_then(Value::as_i64).unwrap_or(DEFAULT_COMMAND_TIMEOUT_SECS as i64) as u64;
+    let timeout_secs = args
+        .get("timeout_secs")
+        .and_then(Value::as_i64)
+        .unwrap_or(DEFAULT_COMMAND_TIMEOUT_SECS as i64) as u64;
     let canonical_root = match workspace_root.canonicalize() {
         Ok(p) => p,
         Err(e) => return ToolResult::failure(format!("Workspace root not accessible: {e}")),
@@ -967,16 +1172,24 @@ fn run_command(workspace_root: &Path, args: &Value) -> ToolResult {
     let wait_result = child.wait_timeout(std::time::Duration::from_secs(timeout_secs));
     match wait_result {
         Ok(Some(status)) => {
-            let stdout = child.stdout.take().map(|mut r| {
-                let mut buf = String::new();
-                let _ = std::io::Read::read_to_string(&mut r, &mut buf);
-                buf
-            }).unwrap_or_default();
-            let stderr = child.stderr.take().map(|mut r| {
-                let mut buf = String::new();
-                let _ = std::io::Read::read_to_string(&mut r, &mut buf);
-                buf
-            }).unwrap_or_default();
+            let stdout = child
+                .stdout
+                .take()
+                .map(|mut r| {
+                    let mut buf = String::new();
+                    let _ = std::io::Read::read_to_string(&mut r, &mut buf);
+                    buf
+                })
+                .unwrap_or_default();
+            let stderr = child
+                .stderr
+                .take()
+                .map(|mut r| {
+                    let mut buf = String::new();
+                    let _ = std::io::Read::read_to_string(&mut r, &mut buf);
+                    buf
+                })
+                .unwrap_or_default();
             let mut output = String::new();
             if !stdout.is_empty() {
                 output.push_str(&stdout);
@@ -988,7 +1201,11 @@ fn run_command(workspace_root: &Path, args: &Value) -> ToolResult {
                 output.push_str(&stderr);
             }
             let duration_ms = start.elapsed().as_millis();
-            let mut result = format!("Exit code: {}\nDuration: {}ms\n\n", status.code().unwrap_or(-1), duration_ms);
+            let mut result = format!(
+                "Exit code: {}\nDuration: {}ms\n\n",
+                status.code().unwrap_or(-1),
+                duration_ms
+            );
             result.push_str(&output);
             // Truncate if needed.
             truncate_output(result)
@@ -1007,10 +1224,31 @@ fn run_command(workspace_root: &Path, args: &Value) -> ToolResult {
     }
 }
 
+/// Return the local, sanitized execution recommendation for one persisted
+/// planning artifact. The project path is used only as a local lookup key.
+fn get_execution_advice(workspace_root: &Path, args: &Value) -> ToolResult {
+    let plan_id = args.get("planId").and_then(Value::as_str);
+    let idea_id = args.get("ideaId").and_then(Value::as_str);
+    if plan_id.is_some() == idea_id.is_some() {
+        return ToolResult::failure("Provide exactly one bounded planId or ideaId.".to_string());
+    }
+    let project_path = workspace_root.to_string_lossy();
+    match crate::services::execution_advisor_service::ExecutionAdvisorService::get_advice(
+        &project_path,
+        plan_id,
+        idea_id,
+    ) {
+        Ok(advice) => serde_json::to_string_pretty(&advice)
+            .map(ToolResult::success)
+            .unwrap_or_else(|error| ToolResult::failure(error.to_string())),
+        Err(error) => ToolResult::failure(error),
+    }
+}
+
 /// Fallback executor for the propose_ideas tool. The agent loop intercepts
 /// this tool before it reaches the generic executor and calls
-/// SessionService::create_idea instead. This fn exists only so the ToolDef
-/// has a valid execute pointer; if called directly, it returns a notice.
+/// SessionService::create_idea instead. This function exists only so the
+/// ToolDef has a valid execute pointer.
 fn propose_ideas_fallback(_workspace_root: &Path, _args: &Value) -> ToolResult {
     ToolResult::failure(
         "propose_ideas must be intercepted by the agent loop. This fallback should never be called.".to_string(),
@@ -1023,16 +1261,23 @@ fn propose_ideas_fallback(_workspace_root: &Path, _args: &Value) -> ToolResult {
 /// execute pointer; if called directly, it returns a notice.
 fn ask_user_fallback(_workspace_root: &Path, _args: &Value) -> ToolResult {
     ToolResult::failure(
-        "ask_user must be intercepted by the agent loop. This fallback should never be called.".to_string(),
+        "ask_user must be intercepted by the agent loop. This fallback should never be called."
+            .to_string(),
     )
 }
 trait ChildWaitTimeoutExt {
     /// Returns `Ok(Some(status))` on exit, `Ok(None)` on timeout.
-    fn wait_timeout(&mut self, dur: std::time::Duration) -> std::io::Result<Option<std::process::ExitStatus>>;
+    fn wait_timeout(
+        &mut self,
+        dur: std::time::Duration,
+    ) -> std::io::Result<Option<std::process::ExitStatus>>;
 }
 
 impl ChildWaitTimeoutExt for std::process::Child {
-    fn wait_timeout(&mut self, dur: std::time::Duration) -> std::io::Result<Option<std::process::ExitStatus>> {
+    fn wait_timeout(
+        &mut self,
+        dur: std::time::Duration,
+    ) -> std::io::Result<Option<std::process::ExitStatus>> {
         // Poll-based: check every 50ms.
         let start = Instant::now();
         loop {
@@ -1178,7 +1423,11 @@ mod tests {
     fn read_file_range() {
         let dir = workspace();
         let root = dir.path();
-        fs::write(root.join("test.txt"), "line one\nline two\nline three\nline four").unwrap();
+        fs::write(
+            root.join("test.txt"),
+            "line one\nline two\nline three\nline four",
+        )
+        .unwrap();
         let args = json!({ "path": "test.txt", "start_line": 2, "end_line": 3 });
         let result = read_file(root, &args);
         assert_eq!(result.status, "succeeded");
@@ -1221,8 +1470,14 @@ mod tests {
             fs::write(root.join("openspec/changes/plan-a/file_{i}.txt"), "").unwrap();
         }
         let matches = walk_glob(root, "**/proposal.md");
-        let proposal_count = matches.iter().filter(|m| m.ends_with("proposal.md")).count();
-        assert_eq!(proposal_count, 2, "expected 2 proposal.md files, got {matches:?}");
+        let proposal_count = matches
+            .iter()
+            .filter(|m| m.ends_with("proposal.md"))
+            .count();
+        assert_eq!(
+            proposal_count, 2,
+            "expected 2 proposal.md files, got {matches:?}"
+        );
         // No duplicates at all.
         let mut sorted = matches.clone();
         sorted.sort();
@@ -1234,13 +1489,71 @@ mod tests {
         let dir = workspace();
         let root = dir.path();
         fs::create_dir_all(root.join("src")).unwrap();
-        fs::write(root.join("src/main.rs"), "fn main() {\n    println!(\"hello\");\n}").unwrap();
-        fs::write(root.join("src/lib.rs"), "pub fn greet() {\n    println!(\"hello\");\n}").unwrap();
+        fs::write(
+            root.join("src/main.rs"),
+            "fn main() {\n    println!(\"hello\");\n}",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/lib.rs"),
+            "pub fn greet() {\n    println!(\"hello\");\n}",
+        )
+        .unwrap();
         let args = json!({ "pattern": "hello" });
         let result = search_files(root, &args);
         assert_eq!(result.status, "succeeded");
         assert!(result.content.contains("src/main.rs:2:"));
         assert!(result.content.contains("src/lib.rs:2:"));
+    }
+
+    #[test]
+    fn search_files_prunes_dependency_dirs() {
+        // node_modules/target/dist must be pruned so a broad search doesn't
+        // scan tens of thousands of files and stall the agent loop thread.
+        let dir = workspace();
+        let root = dir.path();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
+        fs::create_dir_all(root.join("target")).unwrap();
+        fs::write(root.join("src/main.rs"), "let x = \"needle\";\n").unwrap();
+        // Would be scanned if node_modules weren't pruned.
+        fs::write(root.join("node_modules/pkg/index.js"), "const y = \"needle\";\n").unwrap();
+        fs::write(root.join("target/build.log"), "needle\n").unwrap();
+        let args = json!({ "pattern": "needle" });
+        let result = search_files(root, &args);
+        assert_eq!(result.status, "succeeded");
+        assert!(result.content.contains("src/main.rs:1:"), "src match missing: {}", result.content);
+        assert!(!result.content.contains("node_modules/"), "node_modules not pruned: {}", result.content);
+        assert!(!result.content.contains("target/"), "target not pruned: {}", result.content);
+    }
+
+    #[test]
+    fn list_files_prunes_dependency_dirs_in_globstar() {
+        let dir = workspace();
+        let root = dir.path();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
+        fs::write(root.join("node_modules/pkg/index.js"), "module.exports = {}").unwrap();
+        let args = json!({ "glob": "**/*" });
+        let result = list_files(root, &args);
+        assert_eq!(result.status, "succeeded");
+        assert!(result.content.contains("src/main.rs"), "src match missing: {}", result.content);
+        assert!(!result.content.contains("node_modules/"), "node_modules not pruned: {}", result.content);
+    }
+
+    #[test]
+    fn list_files_explicit_segment_enters_pruned_dir() {
+        // An explicit segment like `node_modules/*` must still enter the dir;
+        // only `**` recursion prunes dependency caches.
+        let dir = workspace();
+        let root = dir.path();
+        fs::create_dir_all(root.join("node_modules")).unwrap();
+        fs::write(root.join("node_modules/index.js"), "module.exports = {}").unwrap();
+        let args = json!({ "glob": "node_modules/*" });
+        let result = list_files(root, &args);
+        assert_eq!(result.status, "succeeded");
+        assert!(result.content.contains("node_modules/index.js"), "explicit segment should enter node_modules: {}", result.content);
     }
 
     #[test]
@@ -1308,6 +1621,26 @@ mod tests {
         let diff = compute_diff(before, after).expect("should produce a diff");
         assert!(diff.contains("-line two"));
         assert!(!diff.contains("+line"));
+    }
+
+    #[test]
+    fn ask_user_schema_exposes_paged_rating_contract() {
+        let tool = registry()
+            .into_iter()
+            .find(|definition| definition.schema.name == "ask_user")
+            .unwrap();
+        let properties = &tool.schema.parameters["properties"];
+        assert!(properties.get("title").is_some());
+        assert!(properties.get("description").is_some());
+        let question = &properties["questions"]["items"]["properties"];
+        assert!(question["kind"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|kind| kind == "rating"));
+        assert!(question.get("pageId").is_some());
+        assert!(question.get("required").is_some());
+        assert!(question.get("scale").is_some());
     }
 
     #[test]
@@ -1404,7 +1737,8 @@ mod tests {
         let result = write_file(root, &args);
         assert_eq!(result.status, "succeeded");
         // Verify the file was written at the correct path.
-        let written = std::fs::read_to_string(root.join(".basebuild/project-schematic.md")).unwrap();
+        let written =
+            std::fs::read_to_string(root.join(".basebuild/project-schematic.md")).unwrap();
         assert_eq!(written, schematic_content);
         // Diff should be present (new file).
         assert!(result.diff.is_some());
@@ -1422,10 +1756,16 @@ mod tests {
         let result = write_file(root, &args);
         assert_eq!(result.status, "succeeded");
         // Verify the file is inside the workspace root.
- let written_path = root.join(".basebuild").join("project-schematic.md");
-        assert!(written_path.exists(), "schematic file should exist within workspace");
+        let written_path = root.join(".basebuild").join("project-schematic.md");
+        assert!(
+            written_path.exists(),
+            "schematic file should exist within workspace"
+        );
         // Verify parent directory was created.
-        assert!(root.join(".basebuild").exists(), ".basebuild directory should be created");
+        assert!(
+            root.join(".basebuild").exists(),
+            ".basebuild directory should be created"
+        );
     }
 
     #[test]
@@ -1491,10 +1831,19 @@ mod tests {
         let result = write_file(root, &args);
         assert_eq!(result.status, "succeeded");
         assert!(result.sensitive, "result should be flagged sensitive");
-        assert!(result.diff.is_none(), "diff should be redacted for sensitive paths");
-        assert!(result.content.contains("Wrote"), "content summary should remain visible");
+        assert!(
+            result.diff.is_none(),
+            "diff should be redacted for sensitive paths"
+        );
+        assert!(
+            result.content.contains("Wrote"),
+            "content summary should remain visible"
+        );
         let written = fs::read_to_string(root.join(".env")).unwrap();
-        assert_eq!(written, "SECRET_API_KEY=12345\n", "file must still be written");
+        assert_eq!(
+            written, "SECRET_API_KEY=12345\n",
+            "file must still be written"
+        );
     }
 
     #[test]
@@ -1532,14 +1881,18 @@ mod tests {
         });
         let result = write_file(root, &args);
         assert_eq!(result.status, "succeeded");
-        assert!(result.diff.is_none(), "diff should be skipped for oversized files");
+        assert!(
+            result.diff.is_none(),
+            "diff should be skipped for oversized files"
+        );
         let written = fs::read_to_string(root.join("big.txt")).unwrap();
         assert_eq!(written, "small", "write should still proceed");
     }
 
     #[test]
     fn redact_tool_arguments_redacts_bodies() {
-        let input = r#"{"path":".env","content":"SECRET=1","old_text":"a","new_text":"b","other":"keep"}"#;
+        let input =
+            r#"{"path":".env","content":"SECRET=1","old_text":"a","new_text":"b","other":"keep"}"#;
         let out = redact_tool_arguments(input);
         let value: Value = serde_json::from_str(&out).expect("redacted output is valid JSON");
         assert_eq!(value["path"], ".env");
@@ -1549,5 +1902,45 @@ mod tests {
         assert_eq!(value["new_text"], "[redacted: sensitive path]");
         // Invalid JSON is passed through unchanged.
         assert_eq!(redact_tool_arguments("not json"), "not json");
+    }
+    #[test]
+    fn propose_ideas_assessment_schema_snapshot() {
+        let tool = registry()
+            .into_iter()
+            .find(|tool| tool.schema.name == "propose_ideas")
+            .expect("propose_ideas tool");
+        let assessment =
+            &tool.schema.parameters["properties"]["ideas"]["items"]["properties"]["assessment"];
+
+        assert_eq!(
+            assessment,
+            &json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "schemaVersion": { "type": "integer", "enum": [1] },
+                    "effort": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "minHours": { "type": "integer", "minimum": 1, "maximum": 10000 },
+                            "maxHours": { "type": "integer", "minimum": 1, "maximum": 10000 }
+                        },
+                        "required": ["minHours", "maxHours"]
+                    },
+                    "difficulty": { "type": "integer", "minimum": 1, "maximum": 5 },
+                    "impact": { "type": "integer", "minimum": 1, "maximum": 5 },
+                    "risk": { "type": "integer", "minimum": 1, "maximum": 5 },
+                    "confidence": { "type": "integer", "minimum": 1, "maximum": 5 },
+                    "rationale": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                    "grounding": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+                    "requiredCapabilities": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+                    "constraints": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+                    "missingEvidence": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+                    "alternatives": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } }
+                },
+                "required": ["schemaVersion", "effort", "difficulty", "impact", "risk", "confidence", "rationale", "grounding", "requiredCapabilities", "constraints", "missingEvidence", "alternatives"]
+            })
+        );
     }
 }

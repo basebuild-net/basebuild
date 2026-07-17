@@ -16,10 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::process::Command;
 
-use rmcp::model::{
-    CallToolRequestParams, GetPromptRequestParams, Prompt,
-    Tool,
-};
+use rmcp::model::{CallToolRequestParams, GetPromptRequestParams, Prompt, Tool};
 use rmcp::service::{RoleClient, RunningService};
 use rmcp::transport::TokioChildProcess;
 
@@ -177,10 +174,7 @@ pub fn load_configs(project_path: &Path) -> LoadResult {
 }
 
 /// Same as `load_configs` but with an explicit home directory, for testing.
-pub fn load_configs_with_home(
-    project_path: &Path,
-    home: Option<PathBuf>,
-) -> LoadResult {
+pub fn load_configs_with_home(project_path: &Path, home: Option<PathBuf>) -> LoadResult {
     let mut result = LoadResult::default();
     let mut seen: HashMap<String, (ConfigSource, PathBuf)> = HashMap::new();
 
@@ -235,14 +229,20 @@ pub fn load_configs_with_home(
 
     // Remove disabled servers from the active list, but keep them in
     // `disabled` for the UI.
-    result.servers.retain(|s| !result.disabled.contains(&s.name));
+    result
+        .servers
+        .retain(|s| !result.disabled.contains(&s.name));
 
     result
 }
 
 /// Validate a server entry. Returns `Err(message)` if invalid.
 fn validate_entry(name: &str, entry: &McpServerEntry) -> Result<(), String> {
-    let has_command = entry.command.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
+    let has_command = entry
+        .command
+        .as_ref()
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
     let has_url = entry.url.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
 
     if has_command && has_url {
@@ -311,9 +311,7 @@ pub fn resolve_command_value(s: &str) -> String {
             .args(&parts[1..])
             .output();
         match output {
-            Ok(o) if o.status.success() => {
-                String::from_utf8_lossy(&o.stdout).trim().to_string()
-            }
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
             _ => String::new(),
         }
     } else {
@@ -387,13 +385,13 @@ impl McpService {
     /// Returns the load result so the caller can surface validation errors.
     pub async fn reload(&self) -> LoadResult {
         let result = load_configs(&self.project_path);
-        let active_names: Vec<String> =
-            result.servers.iter().map(|s| s.name.clone()).collect();
+        let active_names: Vec<String> = result.servers.iter().map(|s| s.name.clone()).collect();
 
         // Disconnect servers no longer present. Drop the guard before await.
         let to_remove: Vec<String> = {
             let conns = self.connections.lock();
-            conns.keys()
+            conns
+                .keys()
                 .filter(|n| !active_names.contains(n))
                 .cloned()
                 .collect()
@@ -412,7 +410,8 @@ impl McpService {
         let to_connect: Vec<ResolvedServer> = {
             let servers = self.servers.lock();
             let conns = self.connections.lock();
-            servers.iter()
+            servers
+                .iter()
                 .filter(|s| s.entry.enabled && !conns.contains_key(&s.name))
                 .cloned()
                 .collect()
@@ -426,11 +425,7 @@ impl McpService {
 
     /// Connect to a single server. Updates state on success/failure.
     async fn connect_server(&self, server: ResolvedServer) -> Result<(), String> {
-        self.set_state(
-            &server.name,
-            ConnectionState::Connecting,
-            None,
-        );
+        self.set_state(&server.name, ConnectionState::Connecting, None);
 
         let result = if server.entry.command.is_some() {
             self.connect_stdio(&server).await
@@ -443,11 +438,7 @@ impl McpService {
                 let tool_count = conn.tools_cache.len();
                 let prompt_count = conn.prompts_cache.len();
                 self.connections.lock().insert(server.name.clone(), conn);
-                self.set_state(
-                    &server.name,
-                    ConnectionState::Connected,
-                    None,
-                );
+                self.set_state(&server.name, ConnectionState::Connected, None);
                 // Update counts.
                 if let Some(state) = self.states.lock().get_mut(&server.name) {
                     state.tool_count = tool_count;
@@ -456,11 +447,7 @@ impl McpService {
                 Ok(())
             }
             Err(e) => {
-                self.set_state(
-                    &server.name,
-                    ConnectionState::Failed,
-                    Some(e.clone()),
-                );
+                self.set_state(&server.name, ConnectionState::Failed, Some(e.clone()));
                 Err(e)
             }
         }
@@ -474,7 +461,7 @@ impl McpService {
         // parent — suppress the console window they would otherwise allocate.
         #[cfg(windows)]
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-        // Resolve env (expansion + `!command`).
+                                         // Resolve env (expansion + `!command`).
         let env = resolve_env_map(&server.entry.env);
         for (k, v) in &env {
             cmd.env(k, v);
@@ -494,11 +481,7 @@ impl McpService {
             .list_all_tools()
             .await
             .map_err(|e| format!("list_tools failed for '{}': {e}", server.name))?;
-        let prompts_cache = service
-            .peer()
-            .list_all_prompts()
-            .await
-            .unwrap_or_default();
+        let prompts_cache = service.peer().list_all_prompts().await.unwrap_or_default();
         Ok(Connection {
             service,
             tools_cache,
@@ -508,9 +491,14 @@ impl McpService {
 
     async fn connect_http(&self, server: &ResolvedServer) -> Result<Connection, String> {
         let url = server.entry.url.as_ref().unwrap().clone();
-        let mut config = rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig::with_uri(url.clone());
+        let mut config =
+            rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig::with_uri(
+                url.clone(),
+            );
         // Inject stored OAuth token if available.
-        if let Ok(Some(header)) = crate::services::mcp_oauth_service::McpOAuthService::auth_header(&url) {
+        if let Ok(Some(header)) =
+            crate::services::mcp_oauth_service::McpOAuthService::auth_header(&url)
+        {
             config = config.auth_header(header);
         }
         // Inject custom headers (after env expansion).
@@ -527,7 +515,10 @@ impl McpService {
             }
             config = config.custom_headers(headers);
         }
-        let transport = rmcp::transport::streamable_http_client::StreamableHttpClientTransport::from_config(config);
+        let transport =
+            rmcp::transport::streamable_http_client::StreamableHttpClientTransport::from_config(
+                config,
+            );
         let service = rmcp::service::serve_client((), transport)
             .await
             .map_err(|e| format!("http initialize failed for '{}': {e}", server.name))?;
@@ -536,11 +527,7 @@ impl McpService {
             .list_all_tools()
             .await
             .map_err(|e| format!("list_tools failed for '{}': {e}", server.name))?;
-        let prompts_cache = service
-            .peer()
-            .list_all_prompts()
-            .await
-            .unwrap_or_default();
+        let prompts_cache = service.peer().list_all_prompts().await.unwrap_or_default();
         Ok(Connection {
             service,
             tools_cache,
@@ -928,8 +915,16 @@ mod tests {
     fn test_merge_mcp_prompts_no_collision() {
         let base = super::super::command_discovery_service::discover_commands("/nonexistent");
         let mcp_prompts = vec![
-            ("server1".to_string(), "summarize".to_string(), "Summarize text".to_string()),
-            ("server2".to_string(), "translate".to_string(), "Translate text".to_string()),
+            (
+                "server1".to_string(),
+                "summarize".to_string(),
+                "Summarize text".to_string(),
+            ),
+            (
+                "server2".to_string(),
+                "translate".to_string(),
+                "Translate text".to_string(),
+            ),
         ];
         let merged = super::super::command_discovery_service::merge_mcp_prompts(base, &mcp_prompts);
         let mcp_cmds: Vec<_> = merged.iter().filter(|c| c.source == "mcp").collect();
@@ -951,14 +946,20 @@ mod tests {
             file_path: None,
             body: None,
         }];
-        let mcp_prompts = vec![
-            ("myserver".to_string(), "review".to_string(), "MCP review".to_string()),
-        ];
+        let mcp_prompts = vec![(
+            "myserver".to_string(),
+            "review".to_string(),
+            "MCP review".to_string(),
+        )];
         let merged = super::super::command_discovery_service::merge_mcp_prompts(base, &mcp_prompts);
         // The MCP command should be prefixed.
-        assert!(merged.iter().any(|c| c.name == "myserver-review" && c.source == "mcp"));
+        assert!(merged
+            .iter()
+            .any(|c| c.name == "myserver-review" && c.source == "mcp"));
         // The builtin should still be there, not shadowed by MCP.
-        assert!(merged.iter().any(|c| c.name == "review" && c.source == "builtin"));
+        assert!(merged
+            .iter()
+            .any(|c| c.name == "review" && c.source == "builtin"));
     }
 
     #[test]
@@ -967,7 +968,10 @@ mod tests {
         // which requires a runtime. Here we verify the permission rules
         // configuration that the gateway reads.
         let rules = crate::models::permission::PermissionRules::conservative();
-        assert_eq!(rules.allow_command_execution, crate::models::permission::PermissionDecision::Ask);
+        assert_eq!(
+            rules.allow_command_execution,
+            crate::models::permission::PermissionDecision::Ask
+        );
         // "Ask" means the UI will prompt; "Deny" would block outright.
         // The actual tool-call integration is covered by the mcp_call_tool
         // command which calls request_tool_approval before executing.

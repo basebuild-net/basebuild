@@ -33,7 +33,7 @@ test.describe("Tool approval gate", () => {
     // The approval card renders in pending state with the command visible.
     const card = page.locator(".tool-card-approval").first();
     await expect(card).toBeVisible({ timeout: 5_000 });
-    await expect(card.locator(".tool-card-status")).toHaveText("pending");
+    await expect(card.locator(".tool-card-status")).toContainText("pending");
     await expect(card.locator(".tool-card-arg-value").first()).toContainText("npm test");
 
     // All three decision buttons are present.

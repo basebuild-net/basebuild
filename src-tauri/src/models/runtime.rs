@@ -14,7 +14,7 @@ pub enum AgentCapability {
 }
 
 #[allow(dead_code)]
- impl AgentCapability {
+impl AgentCapability {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Chat => "chat",
@@ -174,9 +174,9 @@ impl RuntimeProfile {
         }
     }
 
-     /// A placeholder Basebuild CLI profile — not selectable until validated.
+    /// A placeholder Basebuild CLI profile — not selectable until validated.
     #[allow(dead_code)]
-     pub fn basebuild_cli_placeholder() -> Self {
+    pub fn basebuild_cli_placeholder() -> Self {
         Self {
             id: "basebuild-cli".to_string(),
             kind: RuntimeProfileKind::Chat,
@@ -192,7 +192,11 @@ impl RuntimeProfile {
 
     /// Built-in profiles seeded on first run.
     pub fn built_ins() -> Vec<Self> {
-        vec![Self::basebuild_native(), Self::default_omp(), Self::default_terminal()]
+        vec![
+            Self::basebuild_native(),
+            Self::default_omp(),
+            Self::default_terminal(),
+        ]
     }
 }
 

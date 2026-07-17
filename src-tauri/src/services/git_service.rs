@@ -189,7 +189,11 @@ impl GitService {
     pub fn current_branch(path: impl AsRef<Path>) -> Option<String> {
         let out = run_git(path.as_ref(), &["rev-parse", "--abbrev-ref", "HEAD"]).ok()?;
         let name = out.trim();
-        if name.is_empty() || name == "HEAD" { None } else { Some(name.to_string()) }
+        if name.is_empty() || name == "HEAD" {
+            None
+        } else {
+            Some(name.to_string())
+        }
     }
 
     /// Origin remote URL (e.g. `https://github.com/org/repo.git` or
@@ -197,7 +201,11 @@ impl GitService {
     pub fn remote_url(path: impl AsRef<Path>) -> Option<String> {
         let out = run_git(path.as_ref(), &["remote", "get-url", "origin"]).ok()?;
         let url = out.trim();
-        if url.is_empty() { None } else { Some(url.to_string()) }
+        if url.is_empty() {
+            None
+        } else {
+            Some(url.to_string())
+        }
     }
 
     /// Detect the repository's default branch (`origin/HEAD` → `main` →
@@ -253,16 +261,20 @@ fn parse_decorate_refs(raw: &str) -> Vec<String> {
 fn run_git(path: &Path, args: &[&str]) -> Result<String, String> {
     let mut cmd = hidden_command("git");
     cmd.args(args).current_dir(path);
-    crate::services::process_helpers::run_with_timeout(cmd, crate::services::process_helpers::GIT_TIMEOUT, "git")
-        .map_err(|e| {
-            // The timeout helper returns a generic error; classify git-specific
-            // failures with the stderr output for actionable messages.
-            if e.contains("git failed") {
-                e
-            } else {
-                format!("Git command failed: {e}")
-            }
-        })
+    crate::services::process_helpers::run_with_timeout(
+        cmd,
+        crate::services::process_helpers::GIT_TIMEOUT,
+        "git",
+    )
+    .map_err(|e| {
+        // The timeout helper returns a generic error; classify git-specific
+        // failures with the stderr output for actionable messages.
+        if e.contains("git failed") {
+            e
+        } else {
+            format!("Git command failed: {e}")
+        }
+    })
 }
 
 fn parse_porcelain_v2(output: &str) -> GitStatus {

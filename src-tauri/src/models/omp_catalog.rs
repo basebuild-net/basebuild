@@ -61,13 +61,14 @@ pub struct CatalogCost {
 }
 
 /// The parsed catalog: provider id → (model id → model entry).
-pub static CATALOG: LazyLock<HashMap<String, HashMap<String, CatalogModel>>> = LazyLock::new(|| {
-    serde_json::from_str(CATALOG_JSON).unwrap_or_else(|e| {
-        // A corrupt vendored catalog is a build-time bug, not a runtime
-        // condition. Panic at first use so the developer fixes the file.
-        panic!("Failed to parse vendored OMP catalog: {e}")
-    })
-});
+pub static CATALOG: LazyLock<HashMap<String, HashMap<String, CatalogModel>>> =
+    LazyLock::new(|| {
+        serde_json::from_str(CATALOG_JSON).unwrap_or_else(|e| {
+            // A corrupt vendored catalog is a build-time bug, not a runtime
+            // condition. Panic at first use so the developer fixes the file.
+            panic!("Failed to parse vendored OMP catalog: {e}")
+        })
+    });
 
 /// All provider ids in the catalog, sorted alphabetically.
 pub fn provider_ids() -> Vec<&'static str> {
@@ -109,9 +110,11 @@ mod tests {
     }
 
     #[test]
-    fn devin_has_48_models_with_swe_and_glm() {
+    fn devin_has_models_with_swe_and_glm() {
+        // The catalog auto-refreshes (upstream OMP + basebuild overlay), so
+        // assert structural invariants, never exact counts.
         let devin = models_for("devin");
-        assert_eq!(devin.len(), 48, "devin should expose 48 models");
+        assert!(devin.len() >= 48, "devin should expose at least 48 models");
         let ids: Vec<&str> = devin.iter().map(|m| m.id.as_str()).collect();
         assert!(ids.contains(&"swe-1-6"), "devin should include swe-1-6");
         assert!(ids.contains(&"glm-5-2"), "devin should include glm-5-2");
