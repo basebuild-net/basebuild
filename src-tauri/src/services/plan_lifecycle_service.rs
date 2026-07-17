@@ -1,11 +1,12 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use rusqlite::{params, OptionalExtension, Transaction};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 use crate::services::{
     openspec_service, plan_runner_service::PlanRunnerService, storage_service::StorageService,
 };
+use crate::events::NATIVE_CHAT_TRANSCRIPT_UPDATED;
 
 type DbResult<T> = Result<T, String>;
 
@@ -239,6 +240,21 @@ impl PlanLifecycleService {
             params![chat_state, now_millis(), chat_session_id],
         )
         .map_err(|value| value.to_string())?;
+
+        // Emit a transcript-updated event with the terminal outcome so the
+        // ChatPanel clears its streaming indicator and the left-column chat
+        // list settles. Without this, the UI keeps showing "streaming" with
+        // the orange cursor blinker after the agent loop finishes.
+        let outcome = match state {
+            ChatTerminalState::Idle => "succeeded",
+            ChatTerminalState::Failed => "failed",
+            ChatTerminalState::Cancelled => "cancelled",
+            ChatTerminalState::Interrupted => "cancelled",
+        };
+        let _ = app.emit(
+            NATIVE_CHAT_TRANSCRIPT_UPDATED,
+            serde_json::json!({ "sessionId": chat_session_id, "outcome": outcome }),
+        );
 
         let Some((run_id, plan_id, from_run, from_plan, change_name, project_path)) = active else {
             return Ok(());
