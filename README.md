@@ -37,7 +37,7 @@ and everything stays on your machine.
   default.
 
 ## Preview
-<img width="1270" height="792" alt="image" src="https://github.com/user-attachments/assets/7bbc3d54-2f60-41c0-b362-b4977586a5bd" />
+<img width="1617" height="956" alt="image" src="https://github.com/user-attachments/assets/63182654-0e5f-4883-b8c9-e2dd8ace7374" />
 
 ## Skills
 
