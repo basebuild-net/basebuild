@@ -1281,8 +1281,10 @@ mod tests {
     fn bundled_devin_models_match_catalog() {
         // The bundled devin models should come from the OMP catalog and
         // include swe-1-6 and glm-5-2 (the stale `devin-2.0` row is gone).
+        // The bundled catalog auto-refreshes (upstream OMP + basebuild
+        // overlay), so assert a floor, never an exact count.
         let models = bundled_models("devin");
-        assert_eq!(models.len(), 48, "devin should have 48 bundled models");
+        assert!(models.len() >= 48, "devin should have >= 48 bundled models");
         let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
         assert!(ids.contains(&"swe-1-6"), "devin should include swe-1-6");
         assert!(ids.contains(&"glm-5-2"), "devin should include glm-5-2");

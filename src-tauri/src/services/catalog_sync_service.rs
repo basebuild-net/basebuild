@@ -37,10 +37,14 @@ struct CatalogProvider {
     #[allow(dead_code)]
     name: String,
     /// The provider's API base URL (e.g. "https://api.code.umans.ai/v1").
-    /// Stored on the cache row so `resolve_client` can use it when the
-    /// credential doesn't override it.
-    #[allow(dead_code)]
+    /// Stored on the cache row so `resolve_model_routing` can route natively
+    /// when the credential doesn't override it.
     api_url: Option<String>,
+    /// Wire-protocol kind in OMP catalog vocabulary (e.g. "openai-completions",
+    /// "anthropic-messages"). Additive in catalog version 2; older responses
+    /// omit it and the bundled catalog remains the routing fallback.
+    #[serde(default)]
+    api_kind: Option<String>,
     models: Vec<CatalogModel>,
 }
 
@@ -139,13 +143,23 @@ fn sync_catalog_inner() -> Result<CatalogSyncResult, String> {
                 .input_modalities
                 .split(',')
                 .any(|item| item.trim() == "image");
+            let api_kind = provider
+                .api_kind
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or_default();
+            let base_url = provider
+                .api_url
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or_default();
             let changed = conn
                 .execute(
                     "INSERT INTO native_provider_model_cache
                     (provider_id, model_id, label, context_window, max_tokens,
                      supports_reasoning, supported_efforts, supports_images, source,
-                     synced_at, error, model_api_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'catalog_sync', ?9, NULL, ?10)
+                     synced_at, error, model_api_id, api_kind, base_url)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'catalog_sync', ?9, NULL, ?10, ?11, ?12)
                  ON CONFLICT(provider_id, model_id) DO UPDATE SET
                     label = excluded.label,
                     context_window = excluded.context_window,
@@ -156,7 +170,13 @@ fn sync_catalog_inner() -> Result<CatalogSyncResult, String> {
                     source = 'catalog_sync',
                     synced_at = excluded.synced_at,
                     error = NULL,
-                    model_api_id = excluded.model_api_id",
+                    model_api_id = excluded.model_api_id,
+                    -- Keep bundled routing info when the catalog omits it: an
+                    -- empty incoming value never clobbers a non-empty one.
+                    api_kind = CASE WHEN excluded.api_kind <> ''
+                        THEN excluded.api_kind ELSE api_kind END,
+                    base_url = CASE WHEN excluded.base_url <> ''
+                        THEN excluded.base_url ELSE base_url END",
                     params![
                         provider.slug,
                         model.slug,
@@ -168,6 +188,8 @@ fn sync_catalog_inner() -> Result<CatalogSyncResult, String> {
                         supports_images as i32,
                         now,
                         model.api_id,
+                        api_kind,
+                        base_url,
                     ],
                 )
                 .map_err(|e| format!("Failed to upsert catalog row: {e}"))?;

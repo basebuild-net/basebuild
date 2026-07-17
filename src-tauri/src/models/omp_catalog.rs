@@ -110,9 +110,11 @@ mod tests {
     }
 
     #[test]
-    fn devin_has_48_models_with_swe_and_glm() {
+    fn devin_has_models_with_swe_and_glm() {
+        // The catalog auto-refreshes (upstream OMP + basebuild overlay), so
+        // assert structural invariants, never exact counts.
         let devin = models_for("devin");
-        assert_eq!(devin.len(), 48, "devin should expose 48 models");
+        assert!(devin.len() >= 48, "devin should expose at least 48 models");
         let ids: Vec<&str> = devin.iter().map(|m| m.id.as_str()).collect();
         assert!(ids.contains(&"swe-1-6"), "devin should include swe-1-6");
         assert!(ids.contains(&"glm-5-2"), "devin should include glm-5-2");

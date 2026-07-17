@@ -1,0 +1,60 @@
+name: Update model catalog
+
+# Keeps the bundled provider/model catalog
+# (src-tauri/vendor/omp-catalog/models.json) current: pulls the upstream OMP
+# catalog, overlays the basebuild.net desktop catalog (new launches like
+# kimi-k3 that only basebuild tracks), and commits the diff back to main.
+#
+# Security: this workflow fetches from two pinned hosts
+# (raw.githubusercontent.com/can1357/oh-my-pi and basebuild.net), touches only
+# src-tauri/vendor/omp-catalog/, and uses the default GITHUB_TOKEN (no
+# secrets). Fetched content is parsed as JSON, never executed. Commits made
+# with GITHUB_TOKEN do not retrigger workflows, so no push loop is possible.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Daily refresh so new model launches land without waiting for a commit.
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Serialize runs: overlapping pushes must not race each other's push-back.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    # Never run (or push) from forks.
+    if: github.repository == 'basebuild-net/basebuild'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Refresh bundled catalog
+        run: node scripts/update-omp-catalog.mjs
+
+      - name: Commit and push if changed
+        run: |
+          if git diff --quiet -- src-tauri/vendor/omp-catalog; then
+            echo "Catalog unchanged — nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898024+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/vendor/omp-catalog
+          git commit -m "chore(catalog): refresh bundled provider/model catalog"
+          # main may have moved while this job ran; replay our commit on top.
+          git pull --rebase origin main
+          git push origin HEAD:main
