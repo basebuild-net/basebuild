@@ -27,6 +27,7 @@ import { MarkdownView } from "./MarkdownView";
 import {
   AlertCircle,
   Brain,
+  Bot,
   ChevronDown,
   ChevronUp,
   Copy,
@@ -173,6 +174,9 @@ type ChatPanelProps = {
   onShowToast?: (title: string, detail?: string, kind?: "success" | "warning" | "error" | "info") => void;
   /** Open the history drawer (closed panels). */
   onOpenHistory?: () => void;
+  /** True when an active background agent (plan run or pipeline stage) owns
+   *  this chat — gates the composer until the user explicitly enables it. */
+  backgroundAgent?: boolean;
 };
 
 
@@ -449,6 +453,7 @@ export function ChatPanel({
   onNewChat,
   onShowToast,
   onOpenHistory,
+  backgroundAgent,
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
@@ -456,6 +461,13 @@ export function ChatPanel({
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [contextUsedTokens, setContextUsedTokens] = useState(0);
   const [nativeSessionId, setNativeSessionId] = useState<string | null>(chatSessionId ?? null);
+  // Composer gate for background-agent chats: input stays locked until the
+  // user explicitly opts in, since sending into the agent's session can
+  // derail its original task. Reset when the panel rebinds to another chat.
+  const [bgInputUnlocked, setBgInputUnlocked] = useState(false);
+  useEffect(() => {
+    setBgInputUnlocked(false);
+  }, [nativeSessionId]);
   const [nativeMessages, setNativeMessages] = useState<NativeChatMessage[]>([]);
   const [toolEvents, setToolEvents] = useState<NativeToolEvent[]>([]);
   // Completed live-turn segments — text/reasoning of finished agent-loop
@@ -2467,8 +2479,9 @@ export function ChatPanel({
     setShowPrCard(false);
   }, []);
   const renderMessages = nativeMode ? nativeMessages : legacyMessages;
-  const inputDisabled = nativeMode ? !nativeSessionId : agentId === null;
-  const sendDisabled = loading || !input.trim() || (nativeMode ? !nativeSessionId : agentId === null);
+  const bgGateActive = !!backgroundAgent && !bgInputUnlocked;
+  const inputDisabled = bgGateActive || (nativeMode ? !nativeSessionId : agentId === null);
+  const sendDisabled = bgGateActive || loading || !input.trim() || (nativeMode ? !nativeSessionId : agentId === null);
 
   const modelName = selectedModel?.label ?? modelId;
   // Pending ask_user questions own the composer until resolved or explicitly
@@ -3615,6 +3628,20 @@ export function ChatPanel({
         ) : null}
         {activeQuestions.length === 0 && !focusedIdeaBatch ? (
         <div className="chat-composer-box">
+          {bgGateActive ? (
+            <button
+              className="chat-bg-agent-gate"
+              type="button"
+              title="Enable the chat input for this session — the background agent keeps running either way"
+              onClick={() => setBgInputUnlocked(true)}
+            >
+              <Bot size={12} className="chat-bg-agent-gate-icon" />
+              <span>
+                A background agent is running. Click here to enable the chat input —
+                interrupting may cause the background agent to fail its original task.
+              </span>
+            </button>
+          ) : null}
           <div className="chat-composer-textarea-wrap">
             <textarea
               ref={chatInputRef}

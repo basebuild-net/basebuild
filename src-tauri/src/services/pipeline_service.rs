@@ -849,11 +849,17 @@ impl PipelineService {
 
         let assessment_prompt = format!(
             "Assess the implementation represented by these validated OpenSpec artifacts. \
-             Return ONLY one JSON object with exactly: implementation (schemaVersion, \
-             effort {{minHours,maxHours}}, difficulty, impact, risk, confidence, rationale, \
-             grounding, requiredCapabilities, constraints, missingEvidence, alternatives), \
-             parallelism {{maxParallelTasks:1-16,rationale:string}}. Ratings are \
-             integers 1-5. Use honest ranges, cite artifact evidence, lower confidence \
+             Return ONLY one JSON object, no code fences and no prose, matching EXACTLY this \
+             shape (field types are mandatory — every *list* field is a JSON array of strings, \
+             never a single string):\n\
+             {{\"implementation\":{{\"schemaVersion\":1,\
+             \"effort\":{{\"minHours\":<int>,\"maxHours\":<int>}},\
+             \"difficulty\":<1-5>,\"impact\":<1-5>,\"risk\":<1-5>,\"confidence\":<1-5>,\
+             \"rationale\":\"<string>\",\"grounding\":[\"<string>\"],\
+             \"requiredCapabilities\":[\"<string>\"],\"constraints\":[\"<string>\"],\
+             \"missingEvidence\":[\"<string>\"],\"alternatives\":[\"<string>\"]}},\
+             \"parallelism\":{{\"maxParallelTasks\":<1-16>,\"rationale\":\"<string>\"}}}}\n\
+             Use honest ranges, cite artifact evidence in grounding items, lower confidence \
              when evidence is weak, and do not invent precision.\n\nPROPOSAL\n{proposal}\n\n\
              SPEC\n{}\n\nDESIGN\n{design}\n\nTASKS\n{tasks}",
             specs

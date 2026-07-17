@@ -60,6 +60,7 @@ import {
   parsePanelGridWithDiagnostics,
   removePanelFromGrid,
   reopenPanel,
+  reopenPanelChecked,
   repairActivePanelId,
   serializePanelGrid,
   singlePanelGrid,
@@ -93,6 +94,8 @@ import type { SessionTab, TabKind } from "../../lib/sessions";
 import { deleteSession } from "../../lib/sessions";
 import { nativeChatGet, nativeChatStart, nativeChatUpdateSessionModel, renameNativeChatSession } from "../../lib/native-chat";
 import { assignPlanWithProfile, getLaunchProfile, validateReadiness, type LaunchProfile } from "../../lib/planDependencies";
+import { pipelineListRunsByProject } from "../../lib/pipeline";
+import { usePlanningEvents } from "../../state/planningEvents";
 export type ToolId = "terminal";
 
 
@@ -162,6 +165,10 @@ export function AppShell({ updates }: AppShellProps) {
   const [focusedChatId, setFocusedChatId] = useState<string | null>(null);
   const [panelGridState, setPanelGridState] = useState<PanelGridState>(emptyGrid());
   const [backgroundChatSessionIds, setBackgroundChatSessionIds] = useState<Set<string>>(new Set());
+  // Chats owned by active *pipeline* stages (e.g. OpenSpec generation). Plan
+  // runs feed `backgroundChatSessionIds` via plan-run events; pipeline runs
+  // have no such event payload, so they are polled on planning events.
+  const [pipelineBgChatIds, setPipelineBgChatIds] = useState<Set<string>>(new Set());
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const [terminalOutputBuffer, setTerminalOutputBuffer] = useState("");
   const titleDebounceRef = useRef<number | null>(null);
@@ -436,6 +443,32 @@ export function AppShell({ updates }: AppShellProps) {
       if (unlisten) unlisten();
     };
   }, [addLog]);
+  // Track chats owned by active pipeline stages (OpenSpec generation). The
+  // set drives the background-agent tab styling and the composer gate.
+  const refreshPipelineBgChats = useCallback(async () => {
+    if (!activeProjectPath) {
+      setPipelineBgChatIds(new Set());
+      return;
+    }
+    try {
+      const runs = await pipelineListRunsByProject(activeProjectPath);
+      setPipelineBgChatIds(new Set(
+        runs
+          .filter((r) => (r.status === "running" || r.status === "pending") && r.sessionChatId)
+          .map((r) => r.sessionChatId as string),
+      ));
+    } catch {
+      // Transient query failure — keep the previous set.
+    }
+  }, [activeProjectPath]);
+  useEffect(() => {
+    void refreshPipelineBgChats();
+  }, [refreshPipelineBgChats]);
+  usePlanningEvents(refreshPipelineBgChats);
+  const allBackgroundChatIds = useMemo(
+    () => new Set([...backgroundChatSessionIds, ...pipelineBgChatIds]),
+    [backgroundChatSessionIds, pipelineBgChatIds],
+  );
   // Global interactive-request listener: when a background pipeline stage
   // (e.g. openspec generation) calls ask_user, the event arrives with the
   // workspace session ID — not a chat session ID — so no ChatPanel handles
@@ -1207,6 +1240,10 @@ export function AppShell({ updates }: AppShellProps) {
             projectPath={activeProjectPath ?? ""}
             activeSessionId={session.activeSessionId}
             chatSessionId={panel.chatSessionId ?? tab?.chatSessionId ?? null}
+            backgroundAgent={(() => {
+              const chatId = panel.chatSessionId ?? tab?.chatSessionId ?? null;
+              return !!chatId && allBackgroundChatIds.has(chatId);
+            })()}
             chatTitle={panel.title}
             schematicContent={schematic.content}
             onCreatePlanFromIdea={handleCreatePlanFromIdea}
@@ -1437,6 +1474,21 @@ export function AppShell({ updates }: AppShellProps) {
         );
         if (existingPanel) {
           return prev.activePanelId === existingPanel.id ? prev : { ...prev, activePanelId: existingPanel.id };
+        }
+        // The panel may live in closed history (the user opened this chat
+        // before and closed the tab). `insertPanel` rejects duplicate ids
+        // against history, so reopen the history entry instead — this was a
+        // silent dead-end for background agent chats after their run ended.
+        const closed = prev.closedPanels.find(
+          (p) => p.id === chatSessionId || p.chatSessionId === chatSessionId,
+        );
+        if (closed) {
+          const reopened = reopenPanelChecked(prev, closed.id);
+          if (!reopened.ok) {
+            addLog("error", "Chat panel reopen failed", reopened.reason);
+            return prev;
+          }
+          return { ...reopened.state, activePanelId: closed.id };
         }
         const newPanel: Panel = {
           id: chatSessionId,
@@ -1752,7 +1804,7 @@ export function AppShell({ updates }: AppShellProps) {
                   viewportWidth={typeof window !== "undefined" ? window.innerWidth - 80 : 1200}
                   viewportHeight={typeof window !== "undefined" ? window.innerHeight - 120 : 700}
                   onDropExternalChat={handleOpenChatSession}
-                  backgroundChatSessionIds={backgroundChatSessionIds}
+                  backgroundChatSessionIds={allBackgroundChatIds}
                 />
                 {historyDrawerOpen ? (
                   <Suspense fallback={<ModalLoading />}>

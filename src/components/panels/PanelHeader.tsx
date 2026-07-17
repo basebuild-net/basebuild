@@ -12,6 +12,7 @@ import {
   LayoutTemplate,
   X,
   Minus,
+  Bot,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Panel, PanelType } from "../../lib/panelGrid";
@@ -53,11 +54,14 @@ export type PanelHeaderProps = {
   /** When true, the panel hosts a background agent — show a minimize
    *  button instead of close, since closing would kill the agent's UI. */
   minimizable?: boolean;
+  /** Chat session ids owned by an active background agent — their tabs get
+   *  the bot icon + accent title and closing-keeps-running affordances. */
+  backgroundChatIds?: Set<string>;
 };
 const TAB_DRAG_THRESHOLD = 4;
 
 export function PanelHeader(props: PanelHeaderProps) {
-  const { panel, status, isActive, onFocus, onClose, onSplitRight, onAddTab, onSplitDown, onDuplicate, onRename, onSwitchTab, onCloseTab, onReorderTabs, onDragStart, onDragEnd, onDragMove, onDragCancel, minimizable } = props;
+  const { panel, status, isActive, onFocus, onClose, onSplitRight, onAddTab, onSplitDown, onDuplicate, onRename, onSwitchTab, onCloseTab, onReorderTabs, onDragStart, onDragEnd, onDragMove, onDragCancel, minimizable, backgroundChatIds } = props;
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(panel.title);
@@ -154,14 +158,17 @@ export function PanelHeader(props: PanelHeaderProps) {
         onPointerCancel={() => { tabDragData.current = null; setTabDragOver(null); }}
       >
         {tabs.map((tab, index) => {
-          const TabIcon = typeIcons[tab.type] ?? FileText;
+          const isBgTab = !!tab.chatSessionId && !!backgroundChatIds?.has(tab.chatSessionId);
+          const TabIcon = isBgTab ? Bot : (typeIcons[tab.type] ?? FileText);
           const isActiveTab = tab.id === activeTabId;
           const isDragOverTarget = tabDragOver === index;
           return (
             <div
               key={tab.id}
-              className={`panel-header-tab${isActiveTab ? " is-active" : ""}${isDragOverTarget ? " is-drop-target" : ""}`}
-              title={tab.title}
+              className={`panel-header-tab${isActiveTab ? " is-active" : ""}${isDragOverTarget ? " is-drop-target" : ""}${isBgTab ? " is-background-agent" : ""}`}
+              title={isBgTab
+                ? `${tab.title} — a background agent is working in this chat. Closing the tab keeps it running in the background.`
+                : tab.title}
               data-tab-index={index}
               onPointerDown={(e) => onTabPointerDown(e, index)}
               onClick={(e) => { e.stopPropagation(); onSwitchTab?.(tab.id); }}
@@ -193,7 +200,7 @@ export function PanelHeader(props: PanelHeaderProps) {
               <button
                 className="panel-header-tab-close"
                 type="button"
-                title="Close tab"
+                title={isBgTab ? "Close tab — the background agent keeps running" : "Close tab"}
                 onClick={(e) => { e.stopPropagation(); onCloseTab?.(tab.id); }}
               >
                 <X size={8} />

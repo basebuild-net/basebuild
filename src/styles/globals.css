@@ -3915,6 +3915,9 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .panel-header-tab:hover { background: var(--bb-surface); color: var(--bb-text); }
 .panel-header-tab.is-active { color: var(--bb-text); background: var(--bb-bg); border-bottom: 2px solid var(--bb-text); }
 .panel-header-tab-icon { flex-shrink: 0; }
+.panel-header-tab.is-background-agent .panel-header-tab-title { color: var(--bb-info); font-weight: 600; }
+.panel-header-tab.is-background-agent .panel-header-tab-icon { color: var(--bb-info); animation: bg-agent-tab-pulse 2s ease-in-out infinite; }
+@keyframes bg-agent-tab-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 .panel-header-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
 .panel-header-tab-title-input { font-size: 10px; font-weight: 600; height: 16px; padding: 0 2px; min-width: 60px; max-width: 120px; }
 .panel-header-tab-close { display: flex; align-items: center; justify-content: center; width: 12px; height: 12px; background: none; border: 0; cursor: pointer; color: var(--bb-muted); opacity: 0; transition: opacity 0.08s; }
@@ -4491,3 +4494,8 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .history-modal-closed-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
 .history-modal-item-tag { font-size: 8px; font-weight: 700; text-transform: uppercase; color: var(--bb-muted); background: var(--bb-surface-high); padding: 1px 4px; border-radius: var(--bb-radius-sm); }
 .history-modal-item-closed { opacity: 0.8; }
+
+/* ─── Background-agent composer gate ─── */
+.chat-bg-agent-gate { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; margin-bottom: 6px; font-size: 11px; text-align: left; color: var(--bb-info); background: color-mix(in srgb, var(--bb-info) 8%, transparent); border: 1px solid color-mix(in srgb, var(--bb-info) 35%, transparent); border-radius: var(--bb-radius-sm); cursor: pointer; }
+.chat-bg-agent-gate:hover { background: color-mix(in srgb, var(--bb-info) 14%, transparent); }
+.chat-bg-agent-gate-icon { flex-shrink: 0; animation: bg-agent-tab-pulse 2s ease-in-out infinite; }

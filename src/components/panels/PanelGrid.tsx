@@ -580,6 +580,7 @@ export function PanelGrid(props: PanelGridProps) {
             onDragMove={() => {}}
             onDragCancel={() => {}}
             minimizable={!!panel.chatSessionId && !!backgroundChatSessionIds?.has(panel.chatSessionId)}
+            backgroundChatIds={backgroundChatSessionIds}
           />
           <div className="panel-grid-content">
             {renderPanel(effectivePanel, isActive)}

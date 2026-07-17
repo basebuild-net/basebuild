@@ -23,11 +23,36 @@ pub struct ImplementationAssessment {
     pub risk: u8,
     pub confidence: u8,
     pub rationale: String,
+    #[serde(default, deserialize_with = "string_or_list")]
     pub grounding: Vec<String>,
+    #[serde(default, deserialize_with = "string_or_list")]
     pub required_capabilities: Vec<String>,
+    #[serde(default, deserialize_with = "string_or_list")]
     pub constraints: Vec<String>,
+    #[serde(default, deserialize_with = "string_or_list")]
     pub missing_evidence: Vec<String>,
+    #[serde(default, deserialize_with = "string_or_list")]
     pub alternatives: Vec<String>,
+}
+
+/// Accept a JSON array of strings OR a single string (wrapped into a
+/// one-element list). Models routinely flatten list fields into prose even
+/// when the prompt asks for arrays; a type mismatch here failed whole
+/// generate_openspec runs after every artifact was already written.
+fn string_or_list<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrList {
+        One(String),
+        Many(Vec<String>),
+    }
+    Ok(match StringOrList::deserialize(deserializer)? {
+        StringOrList::One(value) => vec![value],
+        StringOrList::Many(values) => values,
+    })
 }
 
 impl ImplementationAssessment {
@@ -231,5 +256,44 @@ mod tests {
         let changed = artifact_fingerprint(&["proposal", "changed", "tasks"]);
         assert_eq!(first, same);
         assert_ne!(first, changed);
+    }
+
+    #[test]
+    fn list_fields_accept_string_or_array() {
+        let json = r#"{
+            "schemaVersion": 1,
+            "effort": { "minHours": 4, "maxHours": 8 },
+            "difficulty": 3, "impact": 3, "risk": 2, "confidence": 4,
+            "rationale": "Bounded change.",
+            "grounding": "Proposal names the exact component.",
+            "requiredCapabilities": ["Rust"],
+            "constraints": [],
+            "missingEvidence": [],
+            "alternatives": "Keep the current flow"
+        }"#;
+        let parsed: ImplementationAssessment = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            parsed.grounding,
+            vec!["Proposal names the exact component.".to_string()]
+        );
+        assert_eq!(
+            parsed.alternatives,
+            vec!["Keep the current flow".to_string()]
+        );
+        assert!(parsed.validate().is_ok());
+    }
+
+    #[test]
+    fn omitted_list_fields_default_to_empty() {
+        let json = r#"{
+            "schemaVersion": 1,
+            "effort": { "minHours": 4, "maxHours": 8 },
+            "difficulty": 3, "impact": 3, "risk": 2, "confidence": 4,
+            "rationale": "Bounded change.",
+            "grounding": ["src/service.rs"]
+        }"#;
+        let parsed: ImplementationAssessment = serde_json::from_str(json).unwrap();
+        assert!(parsed.constraints.is_empty());
+        assert!(parsed.validate().is_ok());
     }
 }

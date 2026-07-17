@@ -160,4 +160,53 @@ test.describe("Mission control", () => {
     await expect(card.locator(".mission-card-state")).toHaveText("Blocked");
     await expect(card.locator(".mission-card-blockers")).toContainText("Waiting on prerequisites");
   });
+  test("background agent chat shows the styled tab and composer gate", async ({ page }) => {
+    await openMvpFixtureProject(page);
+    await waitForAppReady(page);
+    const chatSessionId = await getNativeSessionId(page);
+
+    // A running plan-run event bound to the visible chat flags it as a
+    // background agent session.
+    await page.evaluate(({ chatSessionId }) => {
+      const w = window as InvokeWindow;
+      w.__emit?.("plan_run://event", {
+        runId: "bg-run-1",
+        sessionId: "session-1",
+        planId: "bg-plan-1",
+        status: "running",
+        chatSessionId,
+      });
+    }, { chatSessionId });
+
+    // Tab: bot styling + closing-keeps-running affordance.
+    const bgTab = page.locator(".panel-header-tab.is-background-agent").first();
+    await expect(bgTab).toBeVisible({ timeout: 5_000 });
+    await expect(bgTab).toHaveAttribute("title", /keeps it running in the background/);
+    await expect(bgTab.locator(".panel-header-tab-close")).toHaveAttribute(
+      "title",
+      "Close tab — the background agent keeps running",
+    );
+
+    // Composer: input gated until explicitly enabled.
+    const gate = page.locator(".chat-bg-agent-gate").first();
+    await expect(gate).toBeVisible({ timeout: 5_000 });
+    await expect(gate).toContainText("A background agent is running");
+    await expect(page.locator(".chat-input").first()).toBeDisabled();
+    await gate.click();
+    await expect(page.locator(".chat-bg-agent-gate")).toHaveCount(0);
+    await expect(page.locator(".chat-input").first()).toBeEnabled();
+
+    // The run ending clears the background styling.
+    await page.evaluate(({ chatSessionId }) => {
+      const w = window as InvokeWindow;
+      w.__emit?.("plan_run://event", {
+        runId: "bg-run-1",
+        sessionId: "session-1",
+        planId: "bg-plan-1",
+        status: "failed",
+        chatSessionId,
+      });
+    }, { chatSessionId });
+    await expect(page.locator(".panel-header-tab.is-background-agent")).toHaveCount(0, { timeout: 5_000 });
+  });
 });
