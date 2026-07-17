@@ -26,6 +26,34 @@ const MAX_OUTPUT_BYTES: usize = 128 * 1024;
 const DEFAULT_COMMAND_TIMEOUT_SECS: u64 = 120;
 /// Maximum file size `read_file` returns without an explicit range (1 MB).
 const MAX_READ_FILE_BYTES: u64 = 1_048_576;
+/// Maximum number of files `search_files` scans before bailing (bounds work
+/// on huge trees so the agent loop thread is never pinned indefinitely).
+const SEARCH_MAX_FILES_SCANNED: usize = 20_000;
+
+/// Directory names that are always pruned from `search_files` / `list_files`
+/// walks. These are dependency caches, build output, and VCS metadata that
+/// dwarf source trees and would otherwise pin a tool thread reading tens of
+/// thousands of irrelevant files. Dot-directories are already skipped by the
+/// walkers, so `.git` / `.next` / `.cache` are covered implicitly.
+const PRUNED_DIRS: &[&str] = &[
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "out",
+    "coverage",
+    ".turbo",
+    ".parcel-cache",
+    ".vscode",
+    ".idea",
+];
+
+/// Returns true if a directory entry's name should be pruned from file walks.
+/// Dot-directories are already skipped by the walkers (`starts_with('.')`),
+/// so this only lists non-dot dependency/build/VCS caches.
+fn is_pruned_dir(name: &str) -> bool {
+    PRUNED_DIRS.contains(&name)
+}
 
 /// Whether a tool reads or mutates state. Read-only calls from one response
 /// run concurrently; mutating calls run sequentially in response order.
@@ -924,8 +952,13 @@ fn walk_glob_recursive(root: &Path, current: &Path, pattern: &str, results: &mut
     };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        // Skip dot-directories unless explicitly matched.
-        if name.starts_with('.') && !first.starts_with('.') {
+        // Skip dot-directories and dependency/build caches unless the
+        // pattern explicitly targets them by name. `**` recursion prunes
+        // them so a broad glob doesn't scan node_modules/target; an explicit
+        // segment like `node_modules/foo` still enters via the zero-dir match.
+        if (name.starts_with('.') && !first.starts_with('.'))
+            || (first == "**" && is_pruned_dir(&name))
+        {
             continue;
         }
         let path = entry.path();
@@ -1018,9 +1051,16 @@ fn search_files(workspace_root: &Path, args: &Value) -> ToolResult {
         Err(e) => return ToolResult::failure(format!("Invalid regex pattern: {e}")),
     };
     let mut results = Vec::new();
-    search_recursive(&canonical_root, &search_root, &re, &mut results);
+    let mut files_scanned = 0usize;
+    search_recursive(&canonical_root, &search_root, &re, &mut results, &mut files_scanned);
     if results.is_empty() {
-        return ToolResult::success(format!("No matches for pattern '{}'.", pattern));
+        let mut msg = format!("No matches for pattern '{}'.", pattern);
+        if files_scanned >= SEARCH_MAX_FILES_SCANNED {
+            msg.push_str(&format!(
+                " (scan stopped after {files_scanned} files; narrow the `path` scope to search deeper)"
+            ));
+        }
+        return ToolResult::success(msg);
     }
     let mut out = String::new();
     for (path, line_no, line) in results.iter().take(200) {
@@ -1032,6 +1072,11 @@ fn search_files(workspace_root: &Path, args: &Value) -> ToolResult {
             results.len() - 200
         ));
     }
+    if files_scanned >= SEARCH_MAX_FILES_SCANNED {
+        out.push_str(&format!(
+            "\n... scan stopped after {files_scanned} files; narrow the `path` scope to search deeper.\n"
+        ));
+    }
     ToolResult::success(out)
 }
 
@@ -1040,21 +1085,29 @@ fn search_recursive(
     current: &Path,
     re: &regex::Regex,
     results: &mut Vec<(String, usize, String)>,
+    files_scanned: &mut usize,
 ) {
+    if *files_scanned >= SEARCH_MAX_FILES_SCANNED {
+        return;
+    }
     let entries = match std::fs::read_dir(current) {
         Ok(e) => e,
         Err(_) => return,
     };
     for entry in entries.flatten() {
+        if *files_scanned >= SEARCH_MAX_FILES_SCANNED {
+            break;
+        }
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') {
+        if name.starts_with('.') || is_pruned_dir(&name) {
             continue;
         }
         let path = entry.path();
         let is_dir = entry.metadata().map(|m| m.is_dir()).unwrap_or(false);
         if is_dir {
-            search_recursive(root, &path, re, results);
+            search_recursive(root, &path, re, results, files_scanned);
         } else {
+            *files_scanned += 1;
             let content = match std::fs::read_to_string(&path) {
                 Ok(c) => c,
                 Err(_) => continue, // Binary or unreadable.
@@ -1451,6 +1504,56 @@ mod tests {
         assert_eq!(result.status, "succeeded");
         assert!(result.content.contains("src/main.rs:2:"));
         assert!(result.content.contains("src/lib.rs:2:"));
+    }
+
+    #[test]
+    fn search_files_prunes_dependency_dirs() {
+        // node_modules/target/dist must be pruned so a broad search doesn't
+        // scan tens of thousands of files and stall the agent loop thread.
+        let dir = workspace();
+        let root = dir.path();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
+        fs::create_dir_all(root.join("target")).unwrap();
+        fs::write(root.join("src/main.rs"), "let x = \"needle\";\n").unwrap();
+        // Would be scanned if node_modules weren't pruned.
+        fs::write(root.join("node_modules/pkg/index.js"), "const y = \"needle\";\n").unwrap();
+        fs::write(root.join("target/build.log"), "needle\n").unwrap();
+        let args = json!({ "pattern": "needle" });
+        let result = search_files(root, &args);
+        assert_eq!(result.status, "succeeded");
+        assert!(result.content.contains("src/main.rs:1:"), "src match missing: {}", result.content);
+        assert!(!result.content.contains("node_modules/"), "node_modules not pruned: {}", result.content);
+        assert!(!result.content.contains("target/"), "target not pruned: {}", result.content);
+    }
+
+    #[test]
+    fn list_files_prunes_dependency_dirs_in_globstar() {
+        let dir = workspace();
+        let root = dir.path();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
+        fs::write(root.join("node_modules/pkg/index.js"), "module.exports = {}").unwrap();
+        let args = json!({ "glob": "**/*" });
+        let result = list_files(root, &args);
+        assert_eq!(result.status, "succeeded");
+        assert!(result.content.contains("src/main.rs"), "src match missing: {}", result.content);
+        assert!(!result.content.contains("node_modules/"), "node_modules not pruned: {}", result.content);
+    }
+
+    #[test]
+    fn list_files_explicit_segment_enters_pruned_dir() {
+        // An explicit segment like `node_modules/*` must still enter the dir;
+        // only `**` recursion prunes dependency caches.
+        let dir = workspace();
+        let root = dir.path();
+        fs::create_dir_all(root.join("node_modules")).unwrap();
+        fs::write(root.join("node_modules/index.js"), "module.exports = {}").unwrap();
+        let args = json!({ "glob": "node_modules/*" });
+        let result = list_files(root, &args);
+        assert_eq!(result.status, "succeeded");
+        assert!(result.content.contains("node_modules/index.js"), "explicit segment should enter node_modules: {}", result.content);
     }
 
     #[test]

@@ -8,6 +8,7 @@ import {
   FileText,
   GitBranch,
   FolderPlus,
+  FlaskConical,
   LayoutTemplate,
   Loader2,
   MessageSquare,
@@ -152,6 +153,7 @@ export type ActivitySidebarProps = {
   updates: UpdaterState;
   onSelectProject: (path: string) => void;
   onOpenFolder: () => void;
+  onTestRunMode?: () => void;
   onRemoveProject?: (path: string) => void;
   onOpenInExplorer?: (path: string) => void;
   onCopyProjectPath?: (path: string) => void;
@@ -290,6 +292,7 @@ export function ActivitySidebar({
   updates,
   onSelectProject,
   onOpenFolder,
+  onTestRunMode,
   onRemoveProject,
   onOpenInExplorer,
   onCopyProjectPath,
@@ -425,6 +428,11 @@ export function ActivitySidebar({
           <button className="btn-icon" type="button" title={pickerInFlight ? "Opening folder picker…" : "Add project folder"} onClick={onOpenFolder} disabled={pickerInFlight}>
             <FolderPlus size={14} />
           </button>
+          {onTestRunMode ? (
+            <button className="btn-icon" type="button" title="Test Run Mode: create a test project and run the full plan lifecycle" onClick={onTestRunMode}>
+              <FlaskConical size={14} />
+            </button>
+          ) : null}
           <button className="btn-icon" type="button" title="Expand sidebar" onClick={onToggleCollapse}>
             <ChevronRight size={14} />
           </button>
@@ -498,6 +506,11 @@ export function ActivitySidebar({
         <button className="btn-icon" type="button" title={pickerInFlight ? "Opening folder picker…" : "Add project folder"} onClick={onOpenFolder} disabled={pickerInFlight}>
           <FolderPlus size={14} />
         </button>
+        {onTestRunMode ? (
+          <button className="btn-icon" type="button" title="Test Run Mode: create a test project and run the full plan lifecycle" onClick={onTestRunMode}>
+            <FlaskConical size={14} />
+          </button>
+        ) : null}
         <button className="btn-icon" type="button" title="Collapse sidebar" onClick={onToggleCollapse}>
           <ChevronLeft size={14} />
         </button>

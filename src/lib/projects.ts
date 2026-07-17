@@ -55,6 +55,13 @@ export async function basebuildDataDir(): Promise<string> {
   return invoke<string>("basebuild_data_dir");
 }
 
+/** Initialize (or reuse) the Test Run Mode project: creates an empty folder
+ *  with a basic `index.html` and the Basebuild config, then remembers it as
+ *  a recent project. Returns the absolute project path. */
+export async function testRunModeInit(): Promise<string> {
+  return invoke<string>("test_run_mode_init");
+}
+
 export async function setLastActiveSession(projectPath: string, sessionId: string): Promise<void> {
   return invoke("set_last_active_session", { projectPath, sessionId });
 }

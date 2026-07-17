@@ -27,6 +27,14 @@ export function PanelSplitter({ orientation, onDelta, onEqualize }: PanelSplitte
   const lastPos = useRef(0);
   const didDrag = useRef(false);
   const cleanupRef = useRef<(() => void) | null>(null);
+  // onDelta closes over PanelGrid state (sizes/root) that changes every move
+  // event. The document pointermove listener is bound once at pointerdown and
+  // would otherwise keep calling the stale onDelta from the pointerdown render,
+  // so each incremental delta gets applied to the original root and movement
+  // never accumulates. Route through a ref so the listener always sees the
+  // freshest closure.
+  const onDeltaRef = useRef(onDelta);
+  onDeltaRef.current = onDelta;
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLElement>) => {
@@ -51,7 +59,7 @@ export function PanelSplitter({ orientation, onDelta, onEqualize }: PanelSplitte
           didDrag.current = true;
         }
         lastPos.current = pos;
-        onDelta(delta);
+        onDeltaRef.current(delta);
       };
 
       const handleEnd = () => {
@@ -78,7 +86,7 @@ export function PanelSplitter({ orientation, onDelta, onEqualize }: PanelSplitte
       document.addEventListener("pointerup", handleEnd, { once: true });
       document.addEventListener("pointercancel", handleEnd, { once: true });
     },
-    [orientation, onDelta],
+    [orientation],
   );
 
   const onDoubleClick = useCallback(

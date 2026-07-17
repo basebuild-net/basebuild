@@ -18,6 +18,7 @@ import { useSessionState } from "../../state/sessions";
 import { useZoom } from "../../state/useZoom";
 import { usePlans } from "../../state/plans";
 import { ProjectSidebar, useProjectSidebar } from "./ProjectSidebar";
+import { TestRunModeModal } from "./TestRunModeModal";
 import { ActivitySidebar } from "./ActivitySidebar";
 import { ChatEnvironmentPanel } from "./ChatEnvironmentPanel";
 import { BackgroundAgents } from "./BackgroundAgents";
@@ -32,8 +33,8 @@ const ProjectDescriptionModal = lazy(() => import("./ProjectDescriptionModal").t
 import { PlanningIndicators, type StageKey } from "./PlanningIndicators";
 import { TaskbarNotifications } from "./TaskbarNotifications";
 import { useProjectSchematic } from "../../state/schematic";
-import { getLastFocusedProject, revealInExplorer, setLastFocusedProject } from "../../lib/projects";
-import { listPlanRuns, listPlanRunsByPlan, onPlanRunEvent } from "../../lib/planRuns";
+import { getLastFocusedProject, revealInExplorer, setLastFocusedProject, testRunModeInit } from "../../lib/projects";
+import { assignPlanToChat, completePlanRun, listPlanRuns, listPlanRunsByPlan, onPlanRunEvent } from "../../lib/planRuns";
 import { generateSessionTitle, readSkill } from "../../lib/skills";
 import { getWorkspaceRestoreState, saveWorkspaceRestoreState, type WorkspaceRestoreState } from "../../lib/workspace";
 import { FirstRunModal } from "./FirstRunModal";
@@ -80,25 +81,32 @@ import { useEscapeKey } from "../../lib/useEscapeKey";
 import { WindowControls } from "./WindowControls";
 import { type Notification } from "../../lib/notifications";
 import { QuestionCard } from "../panels/QuestionCard";
-import { nativeInteractionListPending, type PendingInteraction } from "../../lib/interactions";
+import { nativeInteractionListPending, nativeInteractionResolve, type PendingInteraction, type QuestionAnswer } from "../../lib/interactions";
 const LogPanel = lazy(() => import("./LogPanel").then((m) => ({ default: m.LogPanel })));
 import { CrashReportNotice } from "./CrashReportNotice";
 const DebugPanel = lazy(() => import("../panels/DebugPanel").then((m) => ({ default: m.DebugPanel })));
 import { useLogs } from "../../state/log";
 import { useAccount } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
-import { batchPromoteIdeas, type Plan, type NewPlan, type PlanFocusContext } from "../../lib/plans";
-import type { Idea, IdeaCategory } from "../../lib/ideas";
+import { batchPromoteIdeas, setPlanStatus, type Plan, type NewPlan, type PlanFocusContext } from "../../lib/plans";
+import { createIdea, ensureDefaultCategories, type Idea, type IdeaCategory } from "../../lib/ideas";
 import { useIdeaState } from "../../state/ideas";
 import type { SessionTab, TabKind } from "../../lib/sessions";
-import { deleteSession } from "../../lib/sessions";
-import { nativeChatGet, nativeChatStart, nativeChatUpdateSessionModel, renameNativeChatSession } from "../../lib/native-chat";
+import { createSession, deleteSession } from "../../lib/sessions";
+import { nativeChatGet, nativeChatSend, nativeChatSetProjectModelDefault, nativeChatStart, nativeChatUpdateSessionModel, renameNativeChatSession, type ChatModelDefault } from "../../lib/native-chat";
 import { assignPlanWithProfile, getLaunchProfile, validateReadiness, type LaunchProfile } from "../../lib/planDependencies";
-import { pipelineListRunsByProject } from "../../lib/pipeline";
+import { isTerminalRunStatus, pipelineListRunsByProject } from "../../lib/pipeline";
 import { usePlanningEvents } from "../../state/planningEvents";
 import { humanizeChatTitle } from "../../lib/titles";
 export type ToolId = "terminal";
 
+
+/** Promise-based delay for polling loops. */
+function sleep(ms: number): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, ms);
+  return promise;
+}
 
 const DEFAULT_SHELL = () => {
   if (typeof window !== "undefined" && window.navigator.platform.includes("Win")) return "powershell.exe";
@@ -123,6 +131,7 @@ export function AppShell({ updates }: AppShellProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logPanelOpen, setLogPanelOpen] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
+  const [testRunModalOpen, setTestRunModalOpen] = useState(false);
   const { addLog } = useLogs();
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [focusingPlan, setFocusingPlan] = useState<Plan | null>(null);
@@ -699,6 +708,165 @@ export function AppShell({ updates }: AppShellProps) {
     },
     [handleShowToast],
   );
+
+  const handleTestRunMode = useCallback(async (model: ChatModelDefault) => {
+    handleShowToast("Test Run Mode", "Initializing test project and running the full plan lifecycle…", "info");
+    const log = (msg: string) => addLog("debug", "Test Run Mode", msg);
+    try {
+      // ── 1. Initialize (or reuse) the test project ──────────────────────
+      log("Initializing test project…");
+      const projectPath = await testRunModeInit();
+      await sidebar.refreshProjects();
+
+      // ── 2. Set the chosen model as the project default ─────────────────
+      //    so generate_openspec (which calls resolve_model_default) uses
+      //    the user's choice instead of falling back to a broken provider.
+      await nativeChatSetProjectModelDefault(projectPath, model);
+
+      // ── 3. Create a workspace session + concept idea ───────────────────
+      log("Creating session + idea…");
+      const wsSession = await createSession(projectPath, "Test Run Mode");
+      await ensureDefaultCategories(wsSession.id);
+      const idea = await createIdea(
+        wsSession.id,
+        "Test Run Mode smoke test",
+        "Automated idea created by Test Run Mode to verify the full plan lifecycle.",
+      );
+
+      // ── 4. Promote idea → plan (draft) ─────────────────────────────────
+      log("Promoting idea → plan…");
+      const promoteResult = await batchPromoteIdeas(wsSession.id, [idea.id]);
+      if (promoteResult.errors.length > 0) {
+        throw new Error(`Promote failed: ${promoteResult.errors[0].error}`);
+      }
+      const plan = promoteResult.created[0];
+      if (!plan) throw new Error("No plan created during promotion");
+
+      // ── 5. Move to openspec — kicks off generate_openspec pipeline ─────
+      //    in the background. We must WAIT for it to finish before
+      //    proceeding, otherwise the chat agent won't find any artifacts.
+      log("Transitioning plan → openspec (waiting for generation)…");
+      await setPlanStatus(plan.id, "openspec");
+
+      // Poll the pipeline runs until the generate_openspec run reaches a
+      // terminal status. Timeout after 120 seconds.
+      const pipelineDeadline = Date.now() + 120_000;
+      let openspecDone = false;
+      while (Date.now() < pipelineDeadline) {
+        await sleep(2000);
+        const runs = await pipelineListRunsByProject(projectPath);
+        const openspecRun = runs.find((r) => r.kind === "generate_openspec" && r.planId === plan.id);
+        if (openspecRun && isTerminalRunStatus(openspecRun.status)) {
+          if (openspecRun.status !== "succeeded") {
+            throw new Error(`OpenSpec generation ${openspecRun.status}: ${openspecRun.error ?? "unknown error"}`);
+          }
+          openspecDone = true;
+          break;
+        }
+      }
+      if (!openspecDone) throw new Error("Timed out waiting for OpenSpec generation to complete");
+      log("OpenSpec generation complete");
+
+      // ── 6. Approve: openspec → ready ───────────────────────────────────
+      log("Approving plan (→ ready)…");
+      await setPlanStatus(plan.id, "ready");
+
+      // ── 7. Create a native chat session + assign the plan to it ────────
+      log("Starting chat session + assigning plan…");
+      const chatSession = await nativeChatStart({
+        projectPath,
+        title: "Test Run Mode",
+        providerId: model.providerId,
+        modelId: model.modelId,
+        effortLevel: model.effortLevel,
+      });
+      const run = await assignPlanToChat(plan.id, chatSession.id);
+      log(`Run created: ${run.id} (status=${run.status})`);
+
+      // ── 8. Send a message to start the agent loop ──────────────────────
+      //    assignPlanToChat seeds an opening context message but does NOT
+      //    start the agent loop. We send a message to kick it off.
+      log("Sending start message to agent…");
+      await nativeChatSend({
+        sessionId: chatSession.id,
+        content: "You are running in FULLY AUTONOMOUS test mode. Do NOT ask the user any questions. Do NOT use the ask_user tool. Make reasonable decisions on your own and proceed. Begin working on the assigned plan now. Read the OpenSpec change artifacts (proposal.md, design.md, specs/, tasks.md) and work through tasks.md top to bottom. Check off each task as you complete it. When all tasks are done, report what you finished. If you encounter ambiguity, pick the most reasonable option and continue — never stop to ask.",
+        providerId: model.providerId,
+        modelId: model.modelId,
+        effortLevel: model.effortLevel,
+      });
+
+      // ── 9. Poll for the agent to finish, auto-resolving questions ──────
+      //    The agent loop runs async. We poll the chat session's run_state:
+      //    - "running" → agent is working, keep waiting
+      //    - "needs_input" → agent called ask_user, creating a pending
+      //      interaction that parks the loop on a channel. We must resolve
+      //      it with nativeInteractionResolve (NOT send a new message) to
+      //      unpark the agent. We auto-pick the recommended option or
+      //      "continue" for free-text questions.
+      //    - "idle" → agent finished, proceed to complete the run
+      //    Timeout after 300 seconds (5 minutes) for the full agent run.
+      log("Waiting for agent to finish (auto-resolving questions)…");
+      const agentDeadline = Date.now() + 300_000;
+      let agentDone = false;
+      let autoReplyCount = 0;
+      while (Date.now() < agentDeadline) {
+        await sleep(3000);
+        const session = await nativeChatGet(chatSession.id);
+        if (!session) throw new Error("Chat session disappeared during agent run");
+        if (session.runState === "needs_input") {
+          autoReplyCount++;
+          log(`Agent needs input (auto-resolving #${autoReplyCount})…`);
+          if (autoReplyCount > 20) {
+            throw new Error("Agent asked for input too many times — aborting test run");
+          }
+          // List pending interactions and resolve them all.
+          const pending = await nativeInteractionListPending(chatSession.id);
+          for (const interaction of pending) {
+            if (interaction.status !== "pending") continue;
+            const answers: QuestionAnswer[] = interaction.questions.map((q) => {
+              if (q.kind === "options" || q.kind === "multi") {
+                // Pick the recommended option, or the first option.
+                const idx = q.recommended ?? 0;
+                const opt = q.options?.[idx]?.label ?? q.options?.[0]?.label ?? "Continue";
+                return { questionId: q.id, selected: [opt] };
+              }
+              if (q.kind === "confirm") {
+                return { questionId: q.id, selected: ["yes"] };
+              }
+              if (q.kind === "rating") {
+                return { questionId: q.id, value: q.scale?.min ?? 1 };
+              }
+              // text — tell the agent to proceed autonomously.
+              return { questionId: q.id, text: "Proceed autonomously. Make a reasonable decision and continue working on the plan." };
+            });
+            log(`Resolving interaction "${interaction.title ?? "(untitled)"}" with ${answers.length} answer(s)…`);
+            await nativeInteractionResolve(interaction.id, answers);
+          }
+        } else if (session.runState === "idle") {
+          agentDone = true;
+          break;
+        }
+        // runState === "running" → keep polling
+      }
+      if (!agentDone) throw new Error("Timed out waiting for agent to finish");
+      log("Agent finished");
+
+      // ── 10. Complete the run ───────────────────────────────────────────
+      log("Completing run…");
+      await completePlanRun(run.id, true);
+
+      // ── 11. Activate the test project in the sidebar ───────────────────
+      await setLastFocusedProject(projectPath);
+      setActiveProjectPath(projectPath);
+
+      log("Test Run Mode complete — plan reached finished");
+      handleShowToast("Test Run Mode complete", "Plan reached finished — check the Plans tab.", "success");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog("error", "Test Run Mode failed", msg);
+      handleShowToast("Test Run Mode failed", msg, "error");
+    }
+  }, [sidebar, addLog, handleShowToast]);
 
   const handleClearChats = useCallback(
     async (path: string) => {
@@ -1664,6 +1832,7 @@ export function AppShell({ updates }: AppShellProps) {
           updates={updates}
           onSelectProject={handleSelectProject}
           onOpenFolder={handleOpenFolder}
+          onTestRunMode={() => setTestRunModalOpen(true)}
           onRemoveProject={handleRemoveProject}
           onOpenInExplorer={handleRevealProject}
           onCopyProjectPath={handleCopyProjectPath}
@@ -1931,6 +2100,11 @@ export function AppShell({ updates }: AppShellProps) {
           </div>
         </div>
       ) : null}
+      <TestRunModeModal
+        open={testRunModalOpen}
+        onClose={() => setTestRunModalOpen(false)}
+        onRun={(model) => handleTestRunMode(model)}
+      />
       <Suspense fallback={<ModalLoading />}>
         <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} account={account} updates={updates} />
       </Suspense>
@@ -2015,7 +2189,7 @@ export function AppShell({ updates }: AppShellProps) {
                   if (!activeProjectPath) throw new Error("No active project");
                   const chat = await nativeChatStart({
                     projectPath: activeProjectPath,
-                    title: `Plan ${assign.plan.referenceId}`,
+                    title: `Plan: ${assign.plan.title}`,
                     providerId: choice.model?.providerId ?? null,
                     modelId: choice.model?.modelId ?? null,
                     effortLevel: choice.model?.effortLevel ?? null,
