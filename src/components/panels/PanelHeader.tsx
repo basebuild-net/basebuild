@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Panel, PanelType } from "../../lib/panelGrid";
+import { humanizeChatTitle } from "../../lib/titles";
 import type { PanelStatus } from "./PanelStatusContext";
 
 const typeIcons: Record<PanelType, LucideIcon> = {
@@ -162,13 +163,14 @@ export function PanelHeader(props: PanelHeaderProps) {
           const TabIcon = isBgTab ? Bot : (typeIcons[tab.type] ?? FileText);
           const isActiveTab = tab.id === activeTabId;
           const isDragOverTarget = tabDragOver === index;
+          const displayTitle = humanizeChatTitle(tab.title);
           return (
             <div
               key={tab.id}
               className={`panel-header-tab${isActiveTab ? " is-active" : ""}${isDragOverTarget ? " is-drop-target" : ""}${isBgTab ? " is-background-agent" : ""}`}
               title={isBgTab
-                ? `${tab.title} — a background agent is working in this chat. Closing the tab keeps it running in the background.`
-                : tab.title}
+                ? `${displayTitle} — a background agent is working in this chat. Closing the tab keeps it running in the background.`
+                : displayTitle}
               data-tab-index={index}
               onPointerDown={(e) => onTabPointerDown(e, index)}
               onClick={(e) => { e.stopPropagation(); onSwitchTab?.(tab.id); }}
@@ -193,8 +195,22 @@ export function PanelHeader(props: PanelHeaderProps) {
                 <span
                   className="panel-header-tab-title"
                   onDoubleClick={(e) => { e.stopPropagation(); setEditValue(tab.title); setEditing(true); }}
+                  onMouseEnter={(e) => {
+                    // Train-display scroll: when the title overflows, animate
+                    // it horizontally so the whole text is readable on hover.
+                    const el = e.currentTarget;
+                    const overflow = el.scrollWidth - el.clientWidth;
+                    if (overflow > 4) {
+                      el.style.setProperty("--marquee-px", `-${overflow}px`);
+                      el.style.setProperty("--marquee-secs", `${Math.max(1.5, overflow / 30)}s`);
+                      el.classList.add("is-marquee");
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.classList.remove("is-marquee");
+                  }}
                 >
-                  {tab.title}
+                  {displayTitle}
                 </span>
               )}
               <button

@@ -465,8 +465,12 @@ export function ChatPanel({
   // user explicitly opts in, since sending into the agent's session can
   // derail its original task. Reset when the panel rebinds to another chat.
   const [bgInputUnlocked, setBgInputUnlocked] = useState(false);
+  // Terminal outcome of a background agent run bound to this chat; drives
+  // the sidebar status word ("finished" / "Background agent failed").
+  const [bgOutcome, setBgOutcome] = useState<"succeeded" | "failed" | "cancelled" | null>(null);
   useEffect(() => {
     setBgInputUnlocked(false);
+    setBgOutcome(null);
   }, [nativeSessionId]);
   const [nativeMessages, setNativeMessages] = useState<NativeChatMessage[]>([]);
   const [toolEvents, setToolEvents] = useState<NativeToolEvent[]>([]);
@@ -545,11 +549,15 @@ export function ChatPanel({
         ? (streamPhase === "tools" ? "running" : streamPhase === "thinking" ? "thinking" : "streaming")
         : loading
           ? "running"
-          : "idle";
+          : bgOutcome === "failed"
+            ? "error"
+            : bgOutcome === "succeeded"
+              ? "succeeded"
+              : "idle";
     if (lastPublishedStatusRef.current === status) return;
     lastPublishedStatusRef.current = status;
     publishPanelStatus(status);
-  }, [panelId, interactions, streaming, streamPhase, loading, publishPanelStatus]);
+  }, [panelId, interactions, streaming, streamPhase, loading, bgOutcome, publishPanelStatus]);
   // Monotonic id for the in-flight native send. Bumped on stop or on a new
   // send so a superseded send's async resolution can't revive the spinner
   // or duplicate messages.
@@ -870,6 +878,49 @@ export function ChatPanel({
       if (timer) window.clearTimeout(timer);
     };
   }, [nativeMode, catalog, nativeSessionId, projectPath, providerId, modelId, effortLevel, addLog]);
+  // Background pipeline runs persist artifacts and terminal outcomes into
+  // this chat from outside any user send. Reload the transcript when the
+  // backend signals an update, and settle the streaming UI on the terminal
+  // outcome so the panel never shows a phantom "still waiting" state.
+  const loadingRef = useRef(false);
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+  useEffect(() => {
+    if (!nativeSessionId) return;
+    const unlisten = listen<{ sessionId: string; outcome?: "succeeded" | "failed" | "cancelled" }>(
+      "native-chat://transcript-updated",
+      (event) => {
+        if (event.payload.sessionId !== nativeSessionId) return;
+        // Never clobber an in-flight user send — its own finally block reloads.
+        if (!loadingRef.current) {
+          void Promise.all([
+            nativeChatMessages(nativeSessionId),
+            nativeChatToolEvents(nativeSessionId),
+          ]).then(([msgs, events]) => {
+            setNativeMessages(msgs);
+            setToolEvents(events);
+            setLiveSegments([]);
+            streamBufRef.current = "";
+            reasoningBufRef.current = "";
+            setStreamText("");
+            setReasoningText("");
+          }).catch(() => {});
+        }
+        const outcome = event.payload.outcome;
+        if (outcome) {
+          setBgOutcome(outcome);
+          setStreaming(false);
+          setStreamPhase("idle");
+          streamStartRef.current = null;
+        }
+      },
+    );
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [nativeSessionId]);
+
 
   // Native mode: listen for streamed assistant chunks for this session
   useEffect(() => {

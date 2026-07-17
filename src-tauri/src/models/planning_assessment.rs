@@ -7,14 +7,14 @@ const MAX_LIST_ITEMS: usize = 32;
 const MAX_CONTEXT_TOKENS: u32 = 2_000_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct EffortRange {
     pub min_hours: u16,
     pub max_hours: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct ImplementationAssessment {
     pub schema_version: u8,
     pub effort: EffortRange,
@@ -91,7 +91,7 @@ impl ImplementationAssessment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct ParallelismGuidance {
     pub max_parallel_tasks: u8,
     pub rationale: String,
@@ -295,5 +295,28 @@ mod tests {
         let parsed: ImplementationAssessment = serde_json::from_str(json).unwrap();
         assert!(parsed.constraints.is_empty());
         assert!(parsed.validate().is_ok());
+    }
+
+    #[test]
+    fn unknown_fields_are_tolerated() {
+        // Models routinely add stray fields ("note", "comment", …) to the
+        // assessment JSON; strict rejection failed whole generate_openspec
+        // runs after every artifact was already written.
+        let json = r#"{
+            "schemaVersion": 1,
+            "note": "x",
+            "effort": { "minHours": 4, "maxHours": 8, "unit": "hours" },
+            "difficulty": 3, "impact": 3, "risk": 2, "confidence": 4,
+            "rationale": "Bounded change.",
+            "grounding": ["src/service.rs"]
+        }"#;
+        let parsed: ImplementationAssessment = serde_json::from_str(json).unwrap();
+        assert!(parsed.validate().is_ok());
+
+        let parallelism: ParallelismGuidance = serde_json::from_str(
+            r#"{ "maxParallelTasks": 4, "rationale": "Independent phases.", "extra": true }"#,
+        )
+        .unwrap();
+        assert_eq!(parallelism.max_parallel_tasks, 4);
     }
 }

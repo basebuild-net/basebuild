@@ -5,7 +5,7 @@ use rusqlite::{params, OptionalExtension};
 use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::{
-    events::NATIVE_CHAT_CHUNK,
+    events::{NATIVE_CHAT_CHUNK, NATIVE_CHAT_TRANSCRIPT_UPDATED},
     models::{
         idea::{Idea, IdeaStatus},
         pipeline::{PipelineRun, PipelineRunStatus, PipelineStageKind, PipelineStartRequest},
@@ -217,6 +217,13 @@ impl PipelineService {
         // assistant message and clear the live-run indicator so the chat
         // panel stops showing a phantom thinking state.
         if let Some(chat_id) = request.chat_session_id.as_deref() {
+            let outcome = if token.is_cancelled() {
+                "cancelled"
+            } else if failure.is_some() {
+                "failed"
+            } else {
+                "succeeded"
+            };
             let note = if token.is_cancelled() {
                 Some("OpenSpec generation was cancelled.".to_string())
             } else {
@@ -228,6 +235,10 @@ impl PipelineService {
                 );
             }
             let _ = NativeChatService::set_session_run_state(chat_id, "idle");
+            let _ = app.emit(
+                NATIVE_CHAT_TRANSCRIPT_UPDATED,
+                serde_json::json!({ "sessionId": chat_id, "outcome": outcome }),
+            );
         }
 
         Self::get_run(&run_id)?.ok_or_else(|| "Pipeline run not found after completion".to_string())
@@ -756,6 +767,10 @@ impl PipelineService {
                     Some(&model_id),
                     Some(&effort_level),
                 );
+                let _ = app.emit(
+                    NATIVE_CHAT_TRANSCRIPT_UPDATED,
+                    serde_json::json!({ "sessionId": chat }),
+                );
             }
             Ok(content)
         };
@@ -841,24 +856,28 @@ impl PipelineService {
         }
 
         #[derive(serde::Deserialize)]
-        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        #[serde(rename_all = "camelCase")]
         struct GeneratedPlanAssessment {
             implementation: crate::models::planning_assessment::ImplementationAssessment,
             parallelism: crate::models::planning_assessment::ParallelismGuidance,
         }
 
+        // Shared schema block: embedded in the first prompt and re-sent
+        // verbatim in every repair prompt so retries correct against the
+        // exact contract the parser enforces.
+        let assessment_schema = "{\"implementation\":{\"schemaVersion\":1,\
+             \"effort\":{\"minHours\":<int>,\"maxHours\":<int>},\
+             \"difficulty\":<1-5>,\"impact\":<1-5>,\"risk\":<1-5>,\"confidence\":<1-5>,\
+             \"rationale\":\"<string>\",\"grounding\":[\"<string>\"],\
+             \"requiredCapabilities\":[\"<string>\"],\"constraints\":[\"<string>\"],\
+             \"missingEvidence\":[\"<string>\"],\"alternatives\":[\"<string>\"]},\
+             \"parallelism\":{\"maxParallelTasks\":<1-16>,\"rationale\":\"<string>\"}}";
+
         let assessment_prompt = format!(
             "Assess the implementation represented by these validated OpenSpec artifacts. \
              Return ONLY one JSON object, no code fences and no prose, matching EXACTLY this \
              shape (field types are mandatory — every *list* field is a JSON array of strings, \
-             never a single string):\n\
-             {{\"implementation\":{{\"schemaVersion\":1,\
-             \"effort\":{{\"minHours\":<int>,\"maxHours\":<int>}},\
-             \"difficulty\":<1-5>,\"impact\":<1-5>,\"risk\":<1-5>,\"confidence\":<1-5>,\
-             \"rationale\":\"<string>\",\"grounding\":[\"<string>\"],\
-             \"requiredCapabilities\":[\"<string>\"],\"constraints\":[\"<string>\"],\
-             \"missingEvidence\":[\"<string>\"],\"alternatives\":[\"<string>\"]}},\
-             \"parallelism\":{{\"maxParallelTasks\":<1-16>,\"rationale\":\"<string>\"}}}}\n\
+             never a single string):\n{assessment_schema}\n\
              Use honest ranges, cite artifact evidence in grounding items, lower confidence \
              when evidence is weak, and do not invent precision.\n\nPROPOSAL\n{proposal}\n\n\
              SPEC\n{}\n\nDESIGN\n{design}\n\nTASKS\n{tasks}",
@@ -867,16 +886,71 @@ impl PipelineService {
                 .map(|(_, content)| content.as_str())
                 .unwrap_or("")
         );
-        let assessment_response =
-            generate("Assessment", assessment_prompt, "openspec-assessment")?;
-        let generated: GeneratedPlanAssessment =
-            serde_json::from_str(extract_json_object(&assessment_response)).map_err(|error| {
-                format!("Plan assessment returned invalid JSON ({error}); artifacts remain draft.")
-            })?;
-        generated
-            .implementation
-            .validate()
-            .map_err(|error| format!("Plan assessment has invalid {error}"))?;
+
+        // Self-correcting assessment: models routinely return almost-valid
+        // JSON (stray fields, flattened lists, out-of-range ratings). Instead
+        // of failing the whole run after every artifact was already written,
+        // feed the exact rejection back to the model and let it repair its
+        // own response, up to three attempts total.
+        const MAX_ASSESSMENT_ATTEMPTS: usize = 3;
+        let mut last_error = String::new();
+        let mut last_response = String::new();
+        let mut parsed_assessment: Option<GeneratedPlanAssessment> = None;
+        for attempt in 1..=MAX_ASSESSMENT_ATTEMPTS {
+            let (heading, prompt) = if attempt == 1 {
+                ("Assessment".to_string(), assessment_prompt.clone())
+            } else {
+                (
+                    format!("Assessment (retry {attempt})"),
+                    format!(
+                        "Your previous assessment response was rejected: {last_error}.\n\n\
+                         Previous response:\n{last_response}\n\n\
+                         Return ONLY the corrected JSON object — no code fences, no prose, \
+                         no extra fields.\n{assessment_schema}"
+                    ),
+                )
+            };
+            let response = generate(&heading, prompt, "openspec-assessment")?;
+            match serde_json::from_str::<GeneratedPlanAssessment>(extract_json_object(&response)) {
+                Ok(generated) => match generated.implementation.validate() {
+                    Ok(()) => {
+                        parsed_assessment = Some(generated);
+                        break;
+                    }
+                    Err(error) => {
+                        last_error = format!("invalid {error}");
+                        last_response = response;
+                    }
+                },
+                Err(error) => {
+                    last_error = format!("invalid JSON ({error})");
+                    last_response = response;
+                }
+            }
+        }
+        let Some(generated) = parsed_assessment else {
+            let report_note = Self::write_assessment_error_report(
+                run_id,
+                plan_id,
+                &provider_id,
+                &model_id,
+                &last_error,
+                &last_response,
+                MAX_ASSESSMENT_ATTEMPTS,
+            )
+            .map(|path| {
+                format!(
+                    " Error report saved to {} — attach it when reporting this issue to \
+                     basebuild.net.",
+                    path.display()
+                )
+            })
+            .unwrap_or_default();
+            return Err(format!(
+                "Plan assessment failed after {MAX_ASSESSMENT_ATTEMPTS} attempts: \
+                 {last_error}.{report_note} Artifacts remain on disk; the plan stays draft."
+            ));
+        };
         let (completed_tasks, task_count) =
             crate::services::openspec_service::parse_task_progress(&tasks);
         debug_assert_eq!(completed_tasks, 0);
@@ -958,6 +1032,10 @@ impl PipelineService {
                 Some(&model_id),
                 Some(&effort_level),
             );
+            let _ = app.emit(
+                NATIVE_CHAT_TRANSCRIPT_UPDATED,
+                serde_json::json!({ "sessionId": chat }),
+            );
         }
 
         Ok(vec![change_name])
@@ -974,6 +1052,53 @@ impl PipelineService {
             resolved.model_id,
             resolved.effort_level,
         ))
+    }
+
+    /// Write a local error report for a failed OpenSpec assessment so the
+    /// user can attach it when reporting the issue. Local-first: the report
+    /// lives under the global Basebuild data dir and is never uploaded.
+    /// Best-effort — any failure is logged and swallowed (returns `None`).
+    fn write_assessment_error_report(
+        run_id: &str,
+        plan_id: &str,
+        provider_id: &str,
+        model_id: &str,
+        error: &str,
+        raw_response: &str,
+        attempts: usize,
+    ) -> Option<std::path::PathBuf> {
+        let paths = match crate::services::storage_paths::StoragePathService::ensure_global_layout()
+        {
+            Ok(paths) => paths,
+            Err(e) => {
+                eprintln!("[pipeline] assessment error report skipped: {e}");
+                return None;
+            }
+        };
+        let dir = paths.global_dir.join("error-reports");
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!("[pipeline] assessment error report dir creation failed: {e}");
+            return None;
+        }
+        let path = dir.join(format!("{run_id}.json"));
+        let report = serde_json::json!({
+            "runId": run_id,
+            "kind": "generate_openspec",
+            "planId": plan_id,
+            "providerId": provider_id,
+            "modelId": model_id,
+            "error": error,
+            "rawResponse": raw_response,
+            "attempts": attempts,
+            "createdAt": now(),
+            "appVersion": env!("CARGO_PKG_VERSION"),
+        });
+        let body = serde_json::to_string_pretty(&report).unwrap_or_else(|_| report.to_string());
+        if let Err(e) = std::fs::write(&path, body) {
+            eprintln!("[pipeline] assessment error report write failed: {e}");
+            return None;
+        }
+        Some(path)
     }
 
     /// Load the conversation history for a session as a single string.

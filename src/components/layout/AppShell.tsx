@@ -96,6 +96,7 @@ import { nativeChatGet, nativeChatStart, nativeChatUpdateSessionModel, renameNat
 import { assignPlanWithProfile, getLaunchProfile, validateReadiness, type LaunchProfile } from "../../lib/planDependencies";
 import { pipelineListRunsByProject } from "../../lib/pipeline";
 import { usePlanningEvents } from "../../state/planningEvents";
+import { humanizeChatTitle } from "../../lib/titles";
 export type ToolId = "terminal";
 
 
@@ -1464,7 +1465,7 @@ export function AppShell({ updates }: AppShellProps) {
       let title = `Chat ${chatSessionId.slice(-6)}`;
       try {
         const chat = await nativeChatGet(chatSessionId);
-        if (chat?.title) title = chat.title;
+        if (chat?.title) title = humanizeChatTitle(chat.title);
       } catch {
         // Title lookup is cosmetic — keep the fallback.
       }
@@ -1637,6 +1638,7 @@ export function AppShell({ updates }: AppShellProps) {
       <div className="window-taskbar" role="banner">
         <span className="window-taskbar-title" title="Basebuild">Basebuild</span>
         <div className="window-taskbar-right">
+          <TaskbarNotifications onNavigate={handleNotificationNavigate} appToasts={appToasts} onDismissAppToast={dismissAppToast} />
           <BackgroundAgents
             sessionId={session.activeSessionId}
             projectPath={activeProjectPath}
@@ -1644,7 +1646,6 @@ export function AppShell({ updates }: AppShellProps) {
             onOpenChatSession={handleOpenChatSession}
             onOpenPlanning={(tab) => openPlanningModal(tab)}
           />
-          <TaskbarNotifications onNavigate={handleNotificationNavigate} appToasts={appToasts} onDismissAppToast={dismissAppToast} />
           <WindowControls />
         </div>
       </div>
@@ -1657,6 +1658,7 @@ export function AppShell({ updates }: AppShellProps) {
           root={panelGridState.root}
           activePanelId={panelGridState.activePanelId}
           closedPanelCount={panelGridState.closedPanels.length}
+          backgroundChatIds={allBackgroundChatIds}
           projects={sidebar.projects}
           account={account}
           updates={updates}

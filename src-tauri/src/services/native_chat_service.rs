@@ -678,7 +678,7 @@ impl NativeChatService {
         let resolved = Self::resolve_model_default(&project_path)?;
         Self::validate_provider_model(&resolved.provider_id, &resolved.model_id, true)?;
 
-        let title = format!("{} — OpenSpec: {}", plan.reference_id, plan.title);
+        let title = format!("OpenSpec — {}", plan.title);
         let now = now_seconds();
         let chat_session = NativeChatSession {
             id: gen_id("nchat"),
@@ -2277,7 +2277,8 @@ impl NativeChatService {
         if current_title != "Native Chat" && current_title != "New Chat" {
             return Ok(false);
         }
-        let truncated = crate::services::session_service::truncate_title(suggested, 60);
+        let humanized = humanize_title(suggested);
+        let truncated = crate::services::session_service::truncate_title(&humanized, 60);
         conn.execute(
             "UPDATE native_chat_sessions SET title = ?1 WHERE id = ?2",
             params![truncated, session_id],
@@ -2611,10 +2612,85 @@ fn existing_planning_work_context(
         .join("\n")
 }
 
+/// Turn a raw first message into a human-readable auto-title. Command
+/// invocations like `<command name="/skill:basebuild-sync">…</command>`
+/// previously truncated into markup garbage; extract the command name
+/// instead. For plain messages, strip any `<…>` tag spans and collapse
+/// whitespace. Falls back to the trimmed raw text when stripping leaves
+/// nothing.
+fn humanize_title(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.contains("<command") {
+        if let Some(name_start) = trimmed
+            .find("name=\"")
+            .map(|pos| pos + "name=\"".len())
+        {
+            if let Some(name_len) = trimmed[name_start..].find('"') {
+                let name = trimmed[name_start..name_start + name_len].trim_start_matches('/');
+                if let Some(skill) = name.strip_prefix("skill:") {
+                    if !skill.is_empty() {
+                        return format!("Skill: {skill}");
+                    }
+                }
+                if !name.is_empty() {
+                    return name.to_string();
+                }
+            }
+        }
+    }
+    let mut stripped = String::with_capacity(trimmed.len());
+    let mut in_tag = false;
+    for ch in trimmed.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            _ if !in_tag => stripped.push(ch),
+            _ => {}
+        }
+    }
+    let collapsed = stripped.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        trimmed.to_string()
+    } else {
+        collapsed
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_util::test::lock_db;
+
+    #[test]
+    fn humanize_title_extracts_skill_command_name() {
+        assert_eq!(
+            humanize_title(r#"<command name="/skill:basebuild-sync">sync now</command>"#),
+            "Skill: basebuild-sync"
+        );
+        // Non-skill commands surface the bare command name.
+        assert_eq!(
+            humanize_title(r#"  <command name="/compact">everything</command>"#),
+            "compact"
+        );
+    }
+
+    #[test]
+    fn humanize_title_passes_plain_text_through() {
+        assert_eq!(
+            humanize_title("  Fix the login redirect bug  "),
+            "Fix the login redirect bug"
+        );
+    }
+
+    #[test]
+    fn humanize_title_strips_tags_and_collapses_whitespace() {
+        assert_eq!(
+            humanize_title("Please <b>review</b>\n\n the   <i>diff</i>"),
+            "Please review the diff"
+        );
+        // Nothing but markup falls back to the trimmed raw text.
+        assert_eq!(humanize_title("<br/>"), "<br/>");
+    }
     #[test]
     fn provider_catalog_has_local_default_and_effort_levels() {
         let catalog = NativeChatService::provider_catalog();

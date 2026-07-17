@@ -4499,3 +4499,14 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .chat-bg-agent-gate { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; margin-bottom: 6px; font-size: 11px; text-align: left; color: var(--bb-info); background: color-mix(in srgb, var(--bb-info) 8%, transparent); border: 1px solid color-mix(in srgb, var(--bb-info) 35%, transparent); border-radius: var(--bb-radius-sm); cursor: pointer; }
 .chat-bg-agent-gate:hover { background: color-mix(in srgb, var(--bb-info) 14%, transparent); }
 .chat-bg-agent-gate-icon { flex-shrink: 0; animation: bg-agent-tab-pulse 2s ease-in-out infinite; }
+
+/* ─── Train-display tab titles ─── */
+.panel-header-tab-title { display: inline-block; }
+.panel-header-tab-title.is-marquee { text-overflow: clip; animation: tab-title-marquee var(--marquee-secs, 2s) linear infinite alternate; }
+@keyframes tab-title-marquee { 0%, 12% { transform: translateX(0); } 88%, 100% { transform: translateX(var(--marquee-px, 0)); } }
+
+/* ─── Background-agent sidebar rows (match the chat tab styling) ─── */
+.activity-sidebar-row.is-background-agent .activity-sidebar-row-title { color: var(--bb-info); font-weight: 600; }
+.activity-sidebar-row.is-background-agent .activity-sidebar-row-icon { color: var(--bb-info); animation: bg-agent-tab-pulse 2s ease-in-out infinite; }
+.activity-sidebar-row-meta.is-error { color: var(--bb-negative, #e5484d); font-weight: 600; }
+.activity-sidebar-row-meta.is-succeeded { color: var(--bb-positive, #46a758); }
