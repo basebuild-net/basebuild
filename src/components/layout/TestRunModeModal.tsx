@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { FlaskConical, Loader2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FlaskConical, Loader2, Square, X } from "lucide-react";
 
 import {
   nativeProviderCatalog,
@@ -13,11 +13,15 @@ import { useEscapeKey } from "../../lib/useEscapeKey";
 type TestRunModeModalProps = {
   open: boolean;
   onClose: () => void;
-  /** Called with the chosen model. The modal shows a busy state until the
-   *  returned promise settles, then closes. The user MUST pick a model —
-   *  there is no "default" fallback, to avoid silently using a broken
-   *  provider. */
-  onRun: (model: ChatModelDefault) => void | Promise<unknown>;
+  /** Called with the chosen model. The modal stays open and streams progress
+   *  via `logs` / `running` until the user closes or cancels. */
+  onRun: (model: ChatModelDefault) => void;
+  /** Cancel the in-progress test run. Stops the agent and cleans up. */
+  onCancel: () => void;
+  /** Progress log lines streamed from the test run handler. */
+  logs: string[];
+  /** True while the test run is in progress. */
+  running: boolean;
 };
 
 type ModelEntry = {
@@ -29,18 +33,17 @@ type ModelEntry = {
   lastUsed: number;
 };
 
-export function TestRunModeModal({ open, onClose, onRun }: TestRunModeModalProps) {
-  const [busy, setBusy] = useState(false);
+export function TestRunModeModal({ open, onClose, onRun, onCancel, logs, running }: TestRunModeModalProps) {
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
   const [modelChoice, setModelChoice] = useState<string>("");
+  const logEndRef = useRef<HTMLDivElement | null>(null);
 
-  useEscapeKey(open && !busy, onClose);
+  useEscapeKey(open, onClose);
 
   useEffect(() => {
     if (!open) {
       setCatalog(null);
       setModelChoice("");
-      setBusy(false);
       return;
     }
     // Fetch the provider catalog to populate the model dropdown.
@@ -99,12 +102,6 @@ export function TestRunModeModal({ open, onClose, onRun }: TestRunModeModalProps
     return groups;
   }, [sortedModels]);
 
-  if (!open) return null;
-
-  const hasModels = sortedModels.length > 0;
-  const selectedEntry = sortedModels.find((m) => `${m.providerId}\u0000${m.modelId}` === modelChoice);
-  const selectedConfigured = selectedEntry?.configured ?? false;
-
   function chosenModel(): ChatModelDefault | null {
     if (!modelChoice || !catalog) return null;
     const sep = modelChoice.indexOf("\u0000");
@@ -116,19 +113,10 @@ export function TestRunModeModal({ open, onClose, onRun }: TestRunModeModalProps
   }
 
   function handleRun() {
-    if (busy) return;
+    if (running) return;
     const model = chosenModel();
     if (!model) return;
-    const result = onRun(model);
-    if (result && typeof (result as Promise<unknown>).finally === "function") {
-      setBusy(true);
-      void (result as Promise<unknown>).finally(() => {
-        setBusy(false);
-        onClose();
-      });
-    } else {
-      onClose();
-    }
+    onRun(model);
   }
 
   // Auto-select the most recently used configured model, or the first
@@ -142,9 +130,22 @@ export function TestRunModeModal({ open, onClose, onRun }: TestRunModeModalProps
     if (pick) setModelChoice(`${pick.providerId}\u0000${pick.modelId}`);
   }, [catalog, sortedModels, modelChoice]);
 
+  // Auto-scroll the log terminal to the bottom when new lines arrive.
+  useEffect(() => {
+    if (logEndRef.current) {
+      logEndRef.current.scrollTop = logEndRef.current.scrollHeight;
+    }
+  }, [logs]);
+
+  if (!open) return null;
+
+  const hasModels = sortedModels.length > 0;
+  const selectedEntry = sortedModels.find((m) => `${m.providerId}\u0000${m.modelId}` === modelChoice);
+  const selectedConfigured = selectedEntry?.configured ?? false;
+
   return (
     <ModalPortal>
-      <div className="modal-overlay" role="dialog" aria-label="Test Run Mode" onClick={busy ? undefined : onClose}>
+      <div className="modal-overlay" role="dialog" aria-label="Test Run Mode" onClick={onClose}>
         <div className="modal destination-picker-modal" onClick={(e) => e.stopPropagation()}>
           <div className="modal-header">
             <h2><FlaskConical size={14} /> Test Run Mode</h2>
@@ -154,7 +155,6 @@ export function TestRunModeModal({ open, onClose, onRun }: TestRunModeModalProps
               title="Close (Esc)"
               aria-label="Close"
               onClick={onClose}
-              disabled={busy}
             >
               <X size={14} />
             </button>
@@ -177,6 +177,7 @@ export function TestRunModeModal({ open, onClose, onRun }: TestRunModeModalProps
                     value={modelChoice}
                     title="Pick the provider and model for OpenSpec generation and the plan run. Sorted by recently used, then configured first."
                     onChange={(e) => setModelChoice(e.target.value)}
+                    disabled={running}
                   >
                     {groupedModels.map((group) => (
                       <optgroup
@@ -212,20 +213,53 @@ export function TestRunModeModal({ open, onClose, onRun }: TestRunModeModalProps
             ) : (
               <p className="text-muted text-sm">Loading model catalog…</p>
             )}
+
+            {/* Terminal-style progress log — shown once the run starts. */}
+            {logs.length > 0 ? (
+              <div className="test-run-log-wrap">
+                <div className="test-run-log-header text-xs text-muted">
+                  {running ? "Progress" : "Log"}
+                </div>
+                <div className="test-run-log" ref={logEndRef}>
+                  {logs.map((line, i) => (
+                    <div key={i} className="test-run-log-line">
+                      <span className="test-run-log-line-text">{line}</span>
+                    </div>
+                  ))}
+                  {running ? (
+                    <div className="test-run-log-line test-run-log-line-busy">
+                      <Loader2 size={11} className="is-spinning" />
+                      <span className="test-run-log-line-text">working…</span>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
           </div>
           <div className="modal-actions">
-            <button className="btn" type="button" title="Cancel" onClick={onClose} disabled={busy}>
-              Cancel
-            </button>
+            {running ? (
+              <button
+                className="btn btn-danger"
+                type="button"
+                title="Stop the agent and cancel the test run"
+                onClick={onCancel}
+              >
+                <Square size={12} /> Cancel run
+              </button>
+            ) : (
+              <button className="btn" type="button" title="Close" onClick={onClose}>
+                Close
+              </button>
+            )}
             <button
               className="btn btn-primary"
               type="button"
-              title={busy ? "Running…" : "Initialize (or reuse) the test project and run the full plan lifecycle"}
+              title={running ? "Running…" : "Initialize (or reuse) the test project and run the full plan lifecycle"}
               onClick={handleRun}
-              disabled={busy || !hasModels || !modelChoice || !selectedConfigured}
+              disabled={running || !hasModels || !modelChoice || !selectedConfigured}
             >
-              {busy ? <Loader2 size={12} className="is-spinning" /> : null}
-              {busy ? "Running…" : "Initialize & Run"}
+              {running ? <Loader2 size={12} className="is-spinning" /> : null}
+              {running ? "Running…" : "Initialize & Run"}
             </button>
           </div>
         </div>

@@ -34,7 +34,7 @@ import { PlanningIndicators, type StageKey } from "./PlanningIndicators";
 import { TaskbarNotifications } from "./TaskbarNotifications";
 import { useProjectSchematic } from "../../state/schematic";
 import { getLastFocusedProject, revealInExplorer, setLastFocusedProject, testRunModeInit } from "../../lib/projects";
-import { assignPlanToChat, completePlanRun, listPlanRuns, listPlanRunsByPlan, onPlanRunEvent } from "../../lib/planRuns";
+import { assignPlanToChat, cancelPlanRun, completePlanRun, listPlanRuns, listPlanRunsByPlan, onPlanRunEvent } from "../../lib/planRuns";
 import { generateSessionTitle, readSkill } from "../../lib/skills";
 import { getWorkspaceRestoreState, saveWorkspaceRestoreState, type WorkspaceRestoreState } from "../../lib/workspace";
 import { FirstRunModal } from "./FirstRunModal";
@@ -93,7 +93,7 @@ import { createIdea, ensureDefaultCategories, type Idea, type IdeaCategory } fro
 import { useIdeaState } from "../../state/ideas";
 import type { SessionTab, TabKind } from "../../lib/sessions";
 import { createSession, deleteSession } from "../../lib/sessions";
-import { nativeChatGet, nativeChatSend, nativeChatSetProjectModelDefault, nativeChatStart, nativeChatUpdateSessionModel, renameNativeChatSession, type ChatModelDefault } from "../../lib/native-chat";
+import { nativeChatCancel, nativeChatGet, nativeChatSend, nativeChatSetProjectModelDefault, nativeChatStart, nativeChatUpdateSessionModel, renameNativeChatSession, type ChatModelDefault } from "../../lib/native-chat";
 import { assignPlanWithProfile, getLaunchProfile, validateReadiness, type LaunchProfile } from "../../lib/planDependencies";
 import { isTerminalRunStatus, pipelineListRunsByProject } from "../../lib/pipeline";
 import { usePlanningEvents } from "../../state/planningEvents";
@@ -132,6 +132,13 @@ export function AppShell({ updates }: AppShellProps) {
   const [logPanelOpen, setLogPanelOpen] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
   const [testRunModalOpen, setTestRunModalOpen] = useState(false);
+  const [testRunLogs, setTestRunLogs] = useState<string[]>([]);
+  const [testRunRunning, setTestRunRunning] = useState(false);
+  // Cancellation flag + run/session ids for cleanup. Refs so the async loop
+  // reads the latest value without re-creating the callback on every toggle.
+  const testRunCancelRef = useRef(false);
+  const testRunChatSessionIdRef = useRef<string | null>(null);
+  const testRunPlanRunIdRef = useRef<string | null>(null);
   const { addLog } = useLogs();
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [focusingPlan, setFocusingPlan] = useState<Plan | null>(null);
@@ -710,18 +717,34 @@ export function AppShell({ updates }: AppShellProps) {
   );
 
   const handleTestRunMode = useCallback(async (model: ChatModelDefault) => {
+    // Reset cancellation + logs, mark running. The modal stays open and
+    // streams progress via testRunLogs until the user closes or cancels.
+    testRunCancelRef.current = false;
+    testRunChatSessionIdRef.current = null;
+    testRunPlanRunIdRef.current = null;
+    setTestRunLogs([]);
+    setTestRunRunning(true);
     handleShowToast("Test Run Mode", "Initializing test project and running the full plan lifecycle…", "info");
-    const log = (msg: string) => addLog("debug", "Test Run Mode", msg);
+    // Mirror log lines to both the global log store and the modal's terminal.
+    const log = (msg: string) => {
+      addLog("debug", "Test Run Mode", msg);
+      setTestRunLogs((prev) => [...prev, msg]);
+    };
+    const cancelled = () => {
+      if (testRunCancelRef.current) throw new Error("Test run cancelled by user");
+    };
     try {
       // ── 1. Initialize (or reuse) the test project ──────────────────────
       log("Initializing test project…");
       const projectPath = await testRunModeInit();
+      cancelled();
       await sidebar.refreshProjects();
 
       // ── 2. Set the chosen model as the project default ─────────────────
       //    so generate_openspec (which calls resolve_model_default) uses
       //    the user's choice instead of falling back to a broken provider.
       await nativeChatSetProjectModelDefault(projectPath, model);
+      cancelled();
 
       // ── 3. Create a workspace session + concept idea ───────────────────
       log("Creating session + idea…");
@@ -754,6 +777,7 @@ export function AppShell({ updates }: AppShellProps) {
       let openspecDone = false;
       while (Date.now() < pipelineDeadline) {
         await sleep(2000);
+        cancelled();
         const runs = await pipelineListRunsByProject(projectPath);
         const openspecRun = runs.find((r) => r.kind === "generate_openspec" && r.planId === plan.id);
         if (openspecRun && isTerminalRunStatus(openspecRun.status)) {
@@ -780,7 +804,9 @@ export function AppShell({ updates }: AppShellProps) {
         modelId: model.modelId,
         effortLevel: model.effortLevel,
       });
+      testRunChatSessionIdRef.current = chatSession.id;
       const run = await assignPlanToChat(plan.id, chatSession.id);
+      testRunPlanRunIdRef.current = run.id;
       log(`Run created: ${run.id} (status=${run.status})`);
 
       // ── 8. Send a message to start the agent loop ──────────────────────
@@ -811,6 +837,7 @@ export function AppShell({ updates }: AppShellProps) {
       let autoReplyCount = 0;
       while (Date.now() < agentDeadline) {
         await sleep(3000);
+        cancelled();
         const session = await nativeChatGet(chatSession.id);
         if (!session) throw new Error("Chat session disappeared during agent run");
         if (session.runState === "needs_input") {
@@ -864,9 +891,30 @@ export function AppShell({ updates }: AppShellProps) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       addLog("error", "Test Run Mode failed", msg);
+      setTestRunLogs((prev) => [...prev, `✗ ${msg}`]);
       handleShowToast("Test Run Mode failed", msg, "error");
+    } finally {
+      setTestRunRunning(false);
+      testRunChatSessionIdRef.current = null;
+      testRunPlanRunIdRef.current = null;
     }
   }, [sidebar, addLog, handleShowToast]);
+
+  /** Cancel an in-progress Test Run Mode lifecycle. Signals the async loop
+   *  to stop at its next checkpoint, then calls the backend cancel APIs so
+   *  the agent loop and plan run are terminated cleanly. */
+  const handleCancelTestRun = useCallback(async () => {
+    testRunCancelRef.current = true;
+    setTestRunLogs((prev) => [...prev, "Cancelling test run…"]);
+    const sessionId = testRunChatSessionIdRef.current;
+    const runId = testRunPlanRunIdRef.current;
+    const tasks: Promise<unknown>[] = [];
+    if (sessionId) tasks.push(nativeChatCancel(sessionId).catch((e) => addLog("warn", "nativeChatCancel failed", e instanceof Error ? e.message : String(e))));
+    if (runId) tasks.push(cancelPlanRun(runId, false).catch((e) => addLog("warn", "cancelPlanRun failed", e instanceof Error ? e.message : String(e))));
+    await Promise.all(tasks);
+    setTestRunLogs((prev) => [...prev, "Test run cancelled."]);
+    setTestRunRunning(false);
+  }, [addLog]);
 
   const handleClearChats = useCallback(
     async (path: string) => {
@@ -2103,7 +2151,10 @@ export function AppShell({ updates }: AppShellProps) {
       <TestRunModeModal
         open={testRunModalOpen}
         onClose={() => setTestRunModalOpen(false)}
-        onRun={(model) => handleTestRunMode(model)}
+        onRun={(model) => { void handleTestRunMode(model); }}
+        onCancel={() => { void handleCancelTestRun(); }}
+        logs={testRunLogs}
+        running={testRunRunning}
       />
       <Suspense fallback={<ModalLoading />}>
         <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} account={account} updates={updates} />

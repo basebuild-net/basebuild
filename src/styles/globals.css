@@ -2527,6 +2527,13 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .destination-picker-model-select { width: 100%; font-size: 11px; }
 .destination-picker-model-note { font-size: 10px; }
 .text-error { color: var(--bb-danger, #e5484d); }
+/* ─── Test Run Mode modal ─── */
+.test-run-log-wrap { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; border: 1px solid var(--bb-border); background: var(--bb-bg); border-radius: var(--bb-radius-sm); overflow: hidden; }
+.test-run-log-header { padding: 3px 8px; border-bottom: 1px solid var(--bb-border); background: var(--bb-surface); text-transform: uppercase; letter-spacing: 0.04em; }
+.test-run-log { flex: 1; max-height: 220px; overflow-y: auto; padding: 6px 8px; font-family: var(--bb-mono); font-size: 11px; line-height: 1.5; color: var(--bb-text); white-space: pre-wrap; word-break: break-word; }
+.test-run-log-line { display: flex; align-items: flex-start; gap: 6px; padding: 1px 0; }
+.test-run-log-line-text { flex: 1; min-width: 0; }
+.test-run-log-line-busy { color: var(--bb-muted); align-items: center; font-style: italic; }
 /* ─── Changes panel (OpenSpec catalog) ─── */
 .changes-panel { display: flex; flex-direction: column; gap: 4px; padding: 4px; }
 .changes-panel-header { display: flex; align-items: center; gap: 6px; padding: 2px 2px 4px; }
