@@ -70122,7 +70122,7 @@
 				"cacheWrite": 0
 			},
 			"contextWindow": 262144,
-			"maxTokens": 32768
+			"maxTokens": 262144
 		},
 		"kimi-k2.6": {
 			"id": "kimi-k2.6",
