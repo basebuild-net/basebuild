@@ -31,7 +31,14 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
         const [p, d, c, s] = await Promise.all([listRuntimeProfiles(), getRuntimeDefaults(), getAnalyticsConsent(), startupGetStatus().catch(() => null)]);
         setProfiles(p);
         setDefaults(d);
-        setConsent(c);
+        // First-run consent defaults to opt-in (recommended). The user can
+        // uncheck in this step. This mirrors the backend's telemetry_default()
+        // install default and the spec's "default-on with first-run opt-out".
+        setConsent({
+          ...c,
+          collectionEnabled: true,
+          uploadEnabled: true,
+        });
         setStartupStatus(s);
       } catch {
         // ignore
@@ -179,19 +186,24 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
 
           {step === "privacy" && consent ? (
             <>
-              <h3>Privacy</h3>
+              <h3>Help improve Basebuild</h3>
               <p className="text-muted text-sm">
-                Basebuild is local-first. Analytics are disabled by default and never store
-                prompt text, chat content, or source code.
+                Send anonymous usage stats to basebuild.net so we can build the features you actually use?
+                Aggregates only — model, provider, tokens, cost, timing. Never prompts, source code, or secrets.
+                You can opt out anytime in Settings → Privacy.
               </p>
               <label className="row gap-sm">
                 <input
                   type="checkbox"
-                  title="Enable local usage analytics — stored on this device only, no upload"
-                  checked={consent.collectionEnabled}
-                  onChange={(e) => setConsent({ ...consent, collectionEnabled: e.target.checked })}
+                  title="Send anonymous usage stats to basebuild.net (recommended)"
+                  checked={consent.collectionEnabled && consent.uploadEnabled}
+                  onChange={(e) => setConsent({
+                    ...consent,
+                    collectionEnabled: e.target.checked,
+                    uploadEnabled: e.target.checked,
+                  })}
                 />
-                <span className="text-sm">Enable local usage analytics (optional)</span>
+                <span className="text-sm">Yes, send anonymous usage stats (recommended)</span>
               </label>
               <div className="row">
                 <button className="btn" type="button" title="Go back" onClick={() => setStep("startup")}>Back</button>

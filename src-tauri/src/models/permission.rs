@@ -42,12 +42,14 @@ pub struct PermissionRules {
 
 impl Default for PermissionRules {
     fn default() -> Self {
-        Self::conservative()
+        Self::telemetry_default()
     }
 }
 
 impl PermissionRules {
     /// Conservative defaults: ask before sensitive actions, analytics off.
+    /// Used by explicit "reset to safe" actions only — not the install
+    /// default. See `telemetry_default` for the default-on posture.
     pub fn conservative() -> Self {
         Self {
             allow_command_execution: PermissionDecision::Ask,
@@ -55,6 +57,22 @@ impl PermissionRules {
             allow_file_modification: PermissionDecision::Ask,
             allow_usage_analytics_collection: false,
             allow_usage_analytics_upload: false,
+            allow_detailed_diagnostics: false,
+        }
+    }
+
+    /// Default-on telemetry posture: usage analytics collection and
+    /// anonymous upload enabled, sensitive actions still ask. This is the
+    /// fresh-install default; the first-run modal surfaces an explicit
+    /// opt-out. `allow_detailed_diagnostics` stays off (it covers
+    /// free-text diagnostics, not aggregate telemetry).
+    pub fn telemetry_default() -> Self {
+        Self {
+            allow_command_execution: PermissionDecision::Ask,
+            allow_external_context: PermissionDecision::Ask,
+            allow_file_modification: PermissionDecision::Ask,
+            allow_usage_analytics_collection: true,
+            allow_usage_analytics_upload: true,
             allow_detailed_diagnostics: false,
         }
     }
@@ -173,16 +191,18 @@ pub struct AnalyticsConsent {
 }
 
 /// Persisted usage-sync settings. `auto_sync_usage` defaults to true so a
-/// signed-in user with the upload permission granted syncs hourly without
-/// extra opt-in. Explicit off persists across restarts.
+/// fresh install syncs hourly without extra opt-in. Explicit off persists
+/// across restarts. All fields tolerate missing keys (serde(default)) so an
+/// older row never fails to parse — see SettingsService::get_usage_sync_settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageSyncSettings {
-    /// Whether the user has opted in to periodic account usage sync.
+    /// Whether the user has opted in to periodic usage sync. Default true.
     pub auto_sync_usage: bool,
     /// Sync interval in minutes (default 60).
     pub auto_sync_interval_minutes: i64,
     /// Epoch seconds of the last successful sync, when any.
+    #[serde(default)]
     pub last_usage_sync_at: Option<i64>,
     /// Detail level for the app→basebuild.net message sync: "rows" (send
     /// per-message rows; the server rolls up + owns aggregation) or "summary"
@@ -193,6 +213,15 @@ pub struct UsageSyncSettings {
     /// for the incremental message sync.
     #[serde(default)]
     pub last_message_sync_at: Option<i64>,
+    /// Managed-trigger state: a stable fingerprint of the set of connected
+    /// providers/accounts. When this changes between trigger evaluations a
+    /// sync fires before the next scheduled tick. Opaque to the server.
+    #[serde(default)]
+    pub last_provider_fingerprint: Option<String>,
+    /// Managed-trigger state: total request count observed at the last
+    /// successful push. A delta of ≥25 or ≥20% triggers an early sync.
+    #[serde(default)]
+    pub last_known_request_total: Option<i64>,
 }
 
 fn default_usage_sync_mode() -> String {
@@ -207,6 +236,8 @@ impl Default for UsageSyncSettings {
             last_usage_sync_at: None,
             usage_sync_mode: default_usage_sync_mode(),
             last_message_sync_at: None,
+            last_provider_fingerprint: None,
+            last_known_request_total: None,
         }
     }
 }

@@ -22,6 +22,12 @@ pub enum SourceKind {
     Omp,
     /// Basebuild native chat request metrics.
     Native,
+    /// Claude Code local session usage (aggregates only, no content).
+    ClaudeCode,
+    /// Codex CLI local session usage (aggregates only, no content).
+    Codex,
+    /// OpenCode local session usage (aggregates only, no content).
+    OpenCode,
 }
 
 impl SourceKind {
@@ -29,6 +35,9 @@ impl SourceKind {
         match self {
             SourceKind::Omp => "omp",
             SourceKind::Native => "native",
+            SourceKind::ClaudeCode => "claude-code",
+            SourceKind::Codex => "codex",
+            SourceKind::OpenCode => "opencode",
         }
     }
 }

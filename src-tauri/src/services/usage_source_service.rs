@@ -18,7 +18,6 @@ pub struct SourceCollection {
     pub diagnostic: String,
 }
 
-/// A registered usage source. Sources are read-only: they collect and
 /// return batches but never mutate process state.
 pub trait UsageSource: Send + Sync {
     /// Which source kind this is.
@@ -110,9 +109,17 @@ impl UsageSource for NativeSource {
     }
 }
 
-/// The registry of all known usage sources.
+/// The registry of all known usage sources. Order: OMP first (primary),
+/// then native chat, then optional local harnesses (Claude Code, Codex,
+/// OpenCode). A missing harness never blocks the others.
 pub fn registered_sources() -> Vec<Box<dyn UsageSource>> {
-    vec![Box::new(OmpSource), Box::new(NativeSource)]
+    vec![
+        Box::new(OmpSource),
+        Box::new(NativeSource),
+        Box::new(crate::services::harness_usage_service::HarnessSource::claude_code()),
+        Box::new(crate::services::harness_usage_service::HarnessSource::codex()),
+        Box::new(crate::services::harness_usage_service::HarnessSource::opencode()),
+    ]
 }
 
 /// Collect from all available sources independently. A failure in one
@@ -151,12 +158,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn registered_sources_contains_all_sources() {
+        let sources = registered_sources();
+        let kinds: Vec<SourceKind> = sources.iter().map(|s| s.kind()).collect();
+        assert!(kinds.contains(&SourceKind::Omp));
+        assert!(kinds.contains(&SourceKind::Native));
+        assert!(kinds.contains(&SourceKind::ClaudeCode));
+        assert!(kinds.contains(&SourceKind::Codex));
+        assert!(kinds.contains(&SourceKind::OpenCode));
+        assert_eq!(kinds.len(), 5);
+    }
+
+    #[test]
     fn registered_sources_contains_omp_and_native() {
         let sources = registered_sources();
         let kinds: Vec<SourceKind> = sources.iter().map(|s| s.kind()).collect();
         assert!(kinds.contains(&SourceKind::Omp));
         assert!(kinds.contains(&SourceKind::Native));
-        assert_eq!(kinds.len(), 2);
     }
 
     #[test]

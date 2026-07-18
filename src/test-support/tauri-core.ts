@@ -2090,6 +2090,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       return { collectionEnabled: false, uploadEnabled: false } as T;
     case "set_analytics_consent":
       return undefined as T;
+    case "get_computer_id":
+      return "00000000-0000-4000-8000-000000000000" as T;
     case "check_for_updates":
       return {
         available: true,

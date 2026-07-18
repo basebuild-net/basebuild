@@ -1154,7 +1154,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
             {tab === "account" ? (
               <div className="stack">
                 <AccountPanel account={account} />
-                <UsageSyncPanel signedIn={!!account.profile} />
+                <UsageSyncPanel />
                 <ModelProvidersPanel />
               </div>
             ) : null}
@@ -1344,23 +1344,12 @@ function AccountPanel({ account }: { account: AccountState }) {
   );
 }
 
-function UsageSyncPanel({ signedIn }: { signedIn: boolean }) {
+function UsageSyncPanel() {
   const { status, projected, loading, error, lastSyncResult, fetchProjected, triggerSync, setEnabled, setMode } =
-    useUsageSync(signedIn);
+    useUsageSync();
   const [toggling, setToggling] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [savingMode, setSavingMode] = useState(false);
-
-  if (!signedIn) {
-    return (
-      <div className="stack">
-        <h3>Usage Sync</h3>
-        <p className="text-muted text-sm">
-          Sign in to sync your OMP usage to basebuild.net and see projected provider usage here.
-        </p>
-      </div>
-    );
-  }
 
   async function toggleAutoSync(enabled: boolean) {
     setToggling(true);

@@ -522,6 +522,11 @@ impl StorageService {
                     value TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS harness_sync_checkpoints (
+                    source TEXT PRIMARY KEY NOT NULL,
+                    last_ts INTEGER NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS plans (
                     id TEXT PRIMARY KEY NOT NULL,
                     session_id TEXT NOT NULL,
@@ -1291,7 +1296,7 @@ impl StorageService {
                 "INSERT INTO app_defaults (key, value) VALUES ('defaults', ?1)",
                 params![serde_json::to_string(&defaults).unwrap_or_default()],
             );
-            let rules = crate::models::permission::PermissionRules::conservative();
+            let rules = crate::models::permission::PermissionRules::telemetry_default();
             let _ = connection.execute(
                 "INSERT INTO permission_rules (key, value) VALUES ('rules', ?1)",
                 params![serde_json::to_string(&rules).unwrap_or_default()],
