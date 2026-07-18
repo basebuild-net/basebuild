@@ -14952,6 +14952,27 @@
 			"contextWindow": 128000,
 			"maxTokens": 16384
 		},
+		"moonshotai/kimi-k3": {
+			"id": "moonshotai/kimi-k3",
+			"name": "Kimi K3",
+			"api": "anthropic-messages",
+			"provider": "cloudflare-ai-gateway",
+			"baseUrl": "https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/anthropic",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
+		},
 		"workers-ai/@cf/meta/llama-2-7b-chat-fp16": {
 			"id": "workers-ai/@cf/meta/llama-2-7b-chat-fp16",
 			"name": "Llama 2 7B Chat FP16",
@@ -83141,6 +83162,28 @@
 			"contextWindow": 8000,
 			"maxTokens": 4096
 		},
+		"thinkingmachines/inkling": {
+			"id": "thinkingmachines/inkling",
+			"name": "Inkling",
+			"api": "openai-completions",
+			"provider": "openrouter",
+			"baseUrl": "https://openrouter.ai/api/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"audio",
+				"pdf"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 256000,
+			"maxTokens": 256000
+		},
 		"liquid/lfm-2-24b-a2b": {
 			"id": "liquid/lfm-2-24b-a2b",
 			"name": "LFM2 24B A2B",
@@ -110967,6 +111010,25 @@
 			"contextWindow": 101376,
 			"maxTokens": 101376
 		},
+		"deepseek/deepseek-v4-flash": {
+			"id": "deepseek/deepseek-v4-flash",
+			"name": "DeepSeek V4 Flash",
+			"api": "openai-completions",
+			"provider": "ambient",
+			"baseUrl": "https://api.ambient.xyz/v1",
+			"reasoning": true,
+			"input": [
+				"text"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1000000,
+			"maxTokens": 384000
+		},
 		"zai-org/GLM-5.1-FP8": {
 			"id": "zai-org/GLM-5.1-FP8",
 			"name": "GLM 5.1",
@@ -111065,6 +111127,28 @@
 			},
 			"contextWindow": 262144,
 			"maxTokens": 262144
+		},
+		"xiaomi/mimo-v2.5": {
+			"id": "xiaomi/mimo-v2.5",
+			"name": "MiMo-V2.5",
+			"api": "openai-completions",
+			"provider": "ambient",
+			"baseUrl": "https://api.ambient.xyz/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"audio",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072
 		},
 		"stepfun/step-3.7-flash": {
 			"id": "stepfun/step-3.7-flash",
