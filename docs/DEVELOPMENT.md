@@ -94,7 +94,7 @@ Basebuild is local-first. Usage analytics collection and upload are disabled by 
 ## Releases
 
 Releases are manual, draft-first, and single-source. The `workflow_dispatch`
-version input to [`.github/workflows/ci-release.yml`](../.github/workflows/ci-release.yml)
+version input to [`.github/workflows/windows.yml`](../.github/workflows/windows.yml)
 is authoritative. Every matrix runner bumps `package.json`, `package-lock.json`,
 `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and
 `src-tauri/Cargo.lock` to that version in its temporary checkout. Repository

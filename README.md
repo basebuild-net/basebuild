@@ -201,7 +201,7 @@ Platform prerequisites and output locations are documented in
 ## Releasing
 
 Releases are manual, draft-first, and built only by the
-[`CI / Release`](./.github/workflows/ci-release.yml) workflow. Dispatch it with
+[`CI / Release`](./.github/workflows/windows.yml) workflow. Dispatch it with
 an unpublished semantic version, wait for the Windows/Linux/macOS matrix and
 final manifest verification, review the draft release, then publish it. Do not
 pre-bump version files, create a release tag manually, or upload hand-built

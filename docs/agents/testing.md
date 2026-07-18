@@ -58,7 +58,7 @@ screenshot.
 
 ## CI pipeline
 
-GitHub Actions (`.github/workflows/ci-release.yml`) runs three jobs on every PR and push to `main`:
+GitHub Actions (`.github/workflows/windows.yml`) runs three jobs on every PR and push to `main`:
 
 | Job | What it does |
 |---|---|

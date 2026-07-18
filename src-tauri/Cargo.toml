@@ -1,6 +1,6 @@
 [package]
 name = "basebuild-app"
-# DO NOT EDIT — managed by .github/workflows/ci-release.yml (workflow_dispatch version input).
+# DO NOT EDIT — managed by .github/workflows/windows.yml (workflow_dispatch version input).
 # Repo stays at 0.0.0; real versions are set at release time.
 version = "0.0.0"
 description = "Basebuild desktop application"

@@ -135,7 +135,7 @@ export function DebugPanel() {
           </button>
         </div>
         {/* Version — compiled in at build time. "0.0.0" in dev; real version in
-            release builds (set by .github/workflows/ci-release.yml). */}
+            release builds (set by .github/workflows/windows.yml). */}
         <div className="debug-grid">
           <div className="debug-item"><span>Version</span><strong>{data.appVersion}</strong></div>
           <div className="debug-item"><span>Platform</span><strong>{data.platform}</strong></div>
