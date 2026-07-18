@@ -1,4 +1,4 @@
-name: CI / Release (Windows)
+name: CI / Release
 
 on:
   push:
@@ -17,8 +17,8 @@ on:
 # previous one keeps running — wasting runner minutes and producing
 # duplicate-looking entries in the Actions tab.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref }}-${{ inputs.version || 'ci' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CI: "true"
@@ -116,12 +116,32 @@ jobs:
           retention-days: 7
 
   release:
-    # Only runs for manual releases (workflow_dispatch with a version input).
-    # On push / pull_request there is no version, so the job is skipped
-    # instead of failing the version-bump verification.
+    # Manual releases build every supported desktop platform from one version.
+    # Serial execution prevents concurrent latest.json writers from dropping a
+    # platform while tauri-action merges updater entries into the draft.
     if: github.event_name == 'workflow_dispatch' && inputs.version != ''
     needs: [check-frontend, check-rust, check-e2e]
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - name: windows-x86_64
+            platform: windows-latest
+            rustTargets: x86_64-pc-windows-msvc
+            args: --target x86_64-pc-windows-msvc --bundles nsis
+            assetPattern: Basebuild-windows-x86_64[setup][ext]
+          - name: linux-x86_64
+            platform: ubuntu-22.04
+            rustTargets: ""
+            args: --bundles appimage,deb
+            assetPattern: Basebuild-linux-x86_64[ext]
+          - name: macos-universal
+            platform: macos-latest
+            rustTargets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin --bundles app,dmg
+            assetPattern: Basebuild-macos-universal[ext]
+    runs-on: ${{ matrix.platform }}
     permissions:
       contents: write
     steps:
@@ -130,19 +150,25 @@ jobs:
       - name: Verify version is not already published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
         shell: bash
         run: |
-          tag="v${{ inputs.version }}"
+          version="$RELEASE_VERSION"
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Release version must be a plain semantic version such as 1.2.3."
+            exit 1
+          fi
+          tag="v${version}"
           if gh release view "$tag" --repo "${{ github.repository }}" --json isDraft >/dev/null 2>&1; then
             is_draft=$(gh release view "$tag" --repo "${{ github.repository }}" --json isDraft --jq '.isDraft')
             if [ "$is_draft" = "true" ]; then
-              echo "::notice::Existing DRAFT release for $tag found - will update the draft."
+              echo "::notice::Existing draft release for $tag found; this platform will update it."
             else
-              echo "::error::Release $tag already exists and is PUBLISHED. Re-releasing a published version is not allowed. Bump the version and create a new release instead."
+              echo "::error::Release $tag is already published. Bump the version instead of replacing it."
               exit 1
             fi
           else
-            echo "::notice::No existing release for $tag - a new draft will be created."
+            echo "::notice::No existing release for $tag; tauri-action will create a draft."
           fi
 
       - name: Setup Node.js
@@ -153,56 +179,108 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rustTargets }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Configure macOS signing
+        if: matrix.name == 'macos-universal'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "::notice::No Apple certificate configured; using the ad-hoc identity from tauri.conf.json."
+            exit 0
+          fi
+          if [ -z "$APPLE_CERTIFICATE_PASSWORD" ] || [ -z "$KEYCHAIN_PASSWORD" ] || \
+             [ -z "$APPLE_ID" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            echo "::error::APPLE_CERTIFICATE requires certificate, keychain, and Apple notarization credentials."
+            exit 1
+          fi
+          certificate_path="$RUNNER_TEMP/basebuild-release.p12"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$certificate_path"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import "$certificate_path" -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          identity="$(security find-identity -v -p codesigning build.keychain | sed -n 's/.*\"\(Developer ID Application:[^\"]*\)\".*/\1/p' | head -1)"
+          if [ -z "$identity" ]; then
+            echo "::error::Imported keychain has no Developer ID Application identity."
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "APPLE_ID=$APPLE_ID" >> "$GITHUB_ENV"
+          echo "APPLE_PASSWORD=$APPLE_PASSWORD" >> "$GITHUB_ENV"
+          echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
+          rm -f "$certificate_path"
+
+      - name: Install Tauri Linux dependencies
+        if: matrix.name == 'linux-x86_64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf xdg-utils
 
       - name: Install frontend dependencies
         run: npm ci
 
       - name: Bump version files to match release input
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          version="${{ inputs.version }}"
-          # The workflow_dispatch version input is the single source of truth.
-          # The repo version files are kept at 0.0.0 (dev sentinel); this
-          # step bumps all of them to the release version at build time so
-          # no manual pre-bump commit is ever required.
-          node -e "
+          version="$RELEASE_VERSION"
+          # workflow_dispatch is the single version source. Repository files
+          # stay at the 0.0.0 development sentinel between releases.
+          VERSION="$version" node -e "
             const fs = require('fs');
-            const version = '${version}';
-            const pkg = JSON.parse(fs.readFileSync('package.json','utf8'));
+            const version = process.env.VERSION;
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
             pkg.version = version;
-            fs.writeFileSync('package.json', JSON.stringify(pkg,null,2) + '\n');
-            const lock = JSON.parse(fs.readFileSync('package-lock.json','utf8'));
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+            const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
             lock.version = version;
             if (lock.packages && lock.packages['']) lock.packages[''].version = version;
-            fs.writeFileSync('package-lock.json', JSON.stringify(lock,null,2) + '\n');
-            const tauri = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8'));
+            fs.writeFileSync('package-lock.json', JSON.stringify(lock, null, 2) + '\n');
+            const tauri = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
             tauri.version = version;
-            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(tauri,null,2) + '\n');
-            let cargo = fs.readFileSync('src-tauri/Cargo.toml','utf8');
+            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(tauri, null, 2) + '\n');
+            let cargo = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
             cargo = cargo.replace(/^version = \"[^\"]+\"/m, 'version = \"' + version + '\"');
             fs.writeFileSync('src-tauri/Cargo.toml', cargo);
-            let cargoLock = fs.readFileSync('src-tauri/Cargo.lock','utf8');
+            let cargoLock = fs.readFileSync('src-tauri/Cargo.lock', 'utf8');
             cargoLock = cargoLock.replace(/(\[\[package\]\]\r?\nname = \"basebuild-app\"\r?\nversion = \")[^\"]+(\")/, (_, prefix, suffix) => prefix + version + suffix);
             fs.writeFileSync('src-tauri/Cargo.lock', cargoLock);
           "
-          echo "::notice::Version files bumped to ${version}"
-          # Verify the bump took
-          package_version="$(node -p "require('./package.json').version")"
-          lock_version="$(node -p "require('./package-lock.json').version")"
-          lock_package_version="$(node -p "require('./package-lock.json').packages[''].version")"
-          tauri_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
-          cargo_version="$(grep -m1 '^version = ' src-tauri/Cargo.toml | cut -d '"' -f2)"
-          cargo_lock_version="$(grep -A2 '^name = "basebuild-app"$' src-tauri/Cargo.lock | grep -m1 '^version = ' | cut -d '"' -f2)"
-          if [ "$package_version" != "$version" ] || [ "$lock_version" != "$version" ] || [ "$lock_package_version" != "$version" ] || [ "$tauri_version" != "$version" ] || [ "$cargo_version" != "$version" ] || [ "$cargo_lock_version" != "$version" ]; then
-            echo "::error::Version bump failed. input=$version package=$package_version package_lock=$lock_version package_lock_root=$lock_package_version tauri=$tauri_version cargo=$cargo_version cargo_lock=$cargo_lock_version"
-            exit 1
-          fi
-          if ! node -e "const c=require('./src-tauri/tauri.conf.json'); if (c.bundle?.createUpdaterArtifacts !== true) process.exit(1)"; then
-            echo "::error::bundle.createUpdaterArtifacts must be true so latest.json and .sig assets are generated."
-            exit 1
-          fi
+          VERSION="$version" node -e "
+            const fs = require('fs');
+            const version = process.env.VERSION;
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+            const tauri = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+            const cargo = fs.readFileSync('src-tauri/Cargo.toml', 'utf8').match(/^version = \"([^\"]+)\"/m)?.[1];
+            const cargoLock = fs.readFileSync('src-tauri/Cargo.lock', 'utf8').match(/\[\[package\]\]\r?\nname = \"basebuild-app\"\r?\nversion = \"([^\"]+)\"/)?.[1];
+            const values = [pkg.version, lock.version, lock.packages?.['']?.version, tauri.version, cargo, cargoLock];
+            if (values.some(value => value !== version)) {
+              throw new Error('Version bump mismatch: ' + JSON.stringify(values));
+            }
+            if (tauri.bundle?.createUpdaterArtifacts !== true) {
+              throw new Error('bundle.createUpdaterArtifacts must be true');
+            }
+          "
 
-      - name: Build Tauri app
+      - name: Build Tauri app and update draft release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -210,14 +288,26 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v${{ inputs.version }}
-          releaseName: "Basebuild v${{ inputs.version }}"
-          releaseBody: "## Basebuild v${{ inputs.version }}\n\nIncludes:\n- **NSIS installer** (recommended) — `Basebuild_${{ inputs.version }}_x64-setup.exe`\n- **Portable build** — `Basebuild_${{ inputs.version }}_x64-portable.zip` (no installer required)\n- Signed updater metadata for in-app one-click updates.\n\nThe app checks for updates on startup and supports mandatory update policies."
+          releaseName: Basebuild v${{ inputs.version }}
+          releaseBody: |
+            ## Basebuild v${{ inputs.version }}
+
+            ### Downloads
+            - Windows x64: NSIS installer and portable zip
+            - Linux x64: AppImage and Debian package
+            - macOS: universal DMG for Apple Silicon and Intel
+            - Signed updater metadata for in-app updates
+
+            Review this draft and generated release notes before publishing.
           releaseDraft: true
           prerelease: false
+          generateReleaseNotes: true
           updaterJsonPreferNsis: true
-          args: "--target x86_64-pc-windows-msvc"
+          releaseAssetNamePattern: ${{ matrix.assetPattern }}
+          args: ${{ matrix.args }}
 
-      - name: Verify production build does not use the dev server
+      - name: Verify Windows production build does not use the dev server
+        if: matrix.name == 'windows-x86_64'
         shell: bash
         run: |
           exe_path="src-tauri/target/x86_64-pc-windows-msvc/release/basebuild-app.exe"
@@ -227,121 +317,101 @@ jobs:
           fi
           node scripts/verify-prod-webview.mjs "$exe_path"
 
-      - name: Create portable artifact
+      - name: Create Windows portable artifact
+        if: matrix.name == 'windows-x86_64'
         shell: bash
         run: |
-          version="${{ inputs.version }}"
-          # The Tauri build produces the main executable in the target release dir.
-          # Package it as a portable zip that can be extracted and run without setup.
           exe_path="src-tauri/target/x86_64-pc-windows-msvc/release/basebuild-app.exe"
+          portable_name="Basebuild-windows-x86_64-portable.zip"
           if [ ! -f "$exe_path" ]; then
             echo "::error::Portable executable not found at $exe_path"
             exit 1
           fi
-          portable_name="Basebuild_${version}_x64-portable.zip"
-          # Create a temp dir, copy the exe and frontend dist, then zip.
           tmpdir="$(mktemp -d)"
           cp "$exe_path" "$tmpdir/Basebuild.exe"
-          # Verify the embedded version matches
-          embedded_version="$(strings "$exe_path" | grep -oP 'CARGO_PKG_VERSION=\K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-          if [ -n "$embedded_version" ] && [ "$embedded_version" != "$version" ]; then
-            echo "::warning::Embedded version '$embedded_version' != expected '$version' (may be embedded differently)"
-          fi
           (cd "$tmpdir" && 7z a -tzip "$GITHUB_WORKSPACE/$portable_name" Basebuild.exe)
           rm -rf "$tmpdir"
           echo "portable_artifact=$portable_name" >> "$GITHUB_ENV"
 
-      - name: Upload portable artifact
+      - name: Upload Windows portable artifact
+        if: matrix.name == 'windows-x86_64'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
         shell: bash
-        run: |
-          tag="v${{ inputs.version }}"
-          gh release upload "$tag" --repo "${{ github.repository }}" "$portable_artifact" --clobber
+        run: gh release upload "v${RELEASE_VERSION}" --repo "${{ github.repository }}" "$portable_artifact" --clobber
 
-      - name: Verify updater release assets
+  verify-release:
+    if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Verify cross-platform draft assets and updater manifest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
         shell: bash
         run: |
-          version="${{ inputs.version }}"
-          tag="v${{ inputs.version }}"
+          version="$RELEASE_VERSION"
+          tag="v${version}"
           assets="$(gh release view "$tag" --repo "${{ github.repository }}" --json assets --jq '.assets[].name')"
           echo "$assets"
 
-          # 1. latest.json must exist
-          echo "$assets" | grep -Fx "latest.json" >/dev/null || {
-            echo "::error::latest.json was not uploaded; in-app updates will not work."
-            exit 1
-          }
+          for required in \
+            latest.json \
+            Basebuild-windows-x86_64-setup.exe \
+            Basebuild-windows-x86_64-portable.zip \
+            Basebuild-linux-x86_64.AppImage \
+            Basebuild-linux-x86_64.deb \
+            Basebuild-macos-universal.dmg
+          do
+            echo "$assets" | grep -Fx "$required" >/dev/null || {
+              echo "::error::Required release asset '$required' is missing."
+              exit 1
+            }
+          done
 
-          # 2. A signature asset must exist
-          echo "$assets" | grep -E '\.sig$' >/dev/null || {
-            echo "::error::No updater signature asset was uploaded; in-app updates will not be trusted."
+          signature_count="$(echo "$assets" | grep -Ec '\.sig$' || true)"
+          if [ "$signature_count" -lt 3 ]; then
+            echo "::error::Expected updater signatures for Windows, Linux, and macOS; found $signature_count."
             exit 1
-          }
+          fi
 
-          # 3. The installer asset name must include the release version
-          installer_pattern="Basebuild_${version}_x64-setup.exe"
-          echo "$assets" | grep -Fx "$installer_pattern" >/dev/null || {
-            echo "::error::Installer asset '$installer_pattern' not found. Expected asset name to match the release version."
-            echo "::error::Found assets: $(echo "$assets" | tr '\n' ' ')"
-            exit 1
-          }
-
-          # 4. The portable artifact must exist and match the version
-          portable_pattern="Basebuild_${version}_x64-portable.zip"
-          echo "$assets" | grep -Fx "$portable_pattern" >/dev/null || {
-            echo "::error::Portable artifact '$portable_pattern' not found. Portable builds require this asset."
-            exit 1
-          }
-
-          # 5. Fetch latest.json and validate its structure, including
-          # optional update policy fields (minimumSupportedVersion, releaseSummary).
-          # Pipe via --output - to avoid Windows/Git-Bash path
-          # resolution mismatches between gh (Go binary) and node
-          # for /tmp — both resolve /tmp differently on Windows.
-          gh release download "$tag" --repo "${{ github.repository }}" --pattern "latest.json" --output - | node -e "
-            let data = '';
-            process.stdin.on('data', chunk => data += chunk);
-            process.stdin.on('end', () => {
-              try {
+          gh release download "$tag" --repo "${{ github.repository }}" --pattern latest.json --output - | \
+            VERSION="$version" node -e "
+              let data = '';
+              process.stdin.on('data', chunk => data += chunk);
+              process.stdin.on('end', () => {
                 const manifest = JSON.parse(data);
                 const errors = [];
-                if (!manifest.version) errors.push('missing version');
-                if (manifest.version !== '${version}' && manifest.version !== 'v${version}') {
-                  errors.push('version mismatch: manifest=' + manifest.version + ' expected=${version}');
+                const expectedVersion = process.env.VERSION;
+                if (manifest.version !== expectedVersion && manifest.version !== 'v' + expectedVersion) {
+                  errors.push('version mismatch: ' + manifest.version);
                 }
-                const platform = manifest.platforms && manifest.platforms['windows-x86_64'];
-                if (!platform) errors.push('missing windows-x86_64 platform entry');
-                if (platform && !platform.url) errors.push('windows-x86_64 missing url');
-                if (platform && !platform.signature) errors.push('windows-x86_64 missing signature');
-                if (platform && platform.url && !platform.url.includes('github.com')) {
-                  errors.push('windows-x86_64 url does not point to GitHub: ' + platform.url);
+                for (const key of ['windows-x86_64', 'linux-x86_64', 'darwin-aarch64', 'darwin-x86_64']) {
+                  const platform = manifest.platforms?.[key];
+                  if (!platform) errors.push('missing platform ' + key);
+                  else {
+                    if (!platform.url) errors.push(key + ' missing url');
+                    if (!platform.signature) errors.push(key + ' missing signature');
+                    if (platform.url && !/^https:\/\/(api\.)?github\.com\//.test(platform.url)) {
+                      errors.push(key + ' URL is not GitHub HTTPS: ' + platform.url);
+                    }
+                  }
                 }
-                // Optional policy fields are not required but if present
-                // must be non-empty strings.
-                if (manifest.minimumSupportedVersion !== undefined && typeof manifest.minimumSupportedVersion !== 'string') {
-                  errors.push('minimumSupportedVersion must be a string if present');
-                }
-                if (manifest.releaseSummary !== undefined && typeof manifest.releaseSummary !== 'string') {
-                  errors.push('releaseSummary must be a string if present');
-                }
-                if (errors.length > 0) {
-                  console.error('::error::Updater manifest validation failed:');
-                  errors.forEach(e => console.error('::error::  ' + e));
+                if (errors.length) {
+                  errors.forEach(error => console.error('::error::' + error));
                   process.exit(1);
                 }
-                console.log('::notice::Updater manifest validated: version=' + manifest.version + ' target=windows-x86_64');
-              } catch (e) {
-                console.error('::error::Failed to parse latest.json: ' + e.message);
-                process.exit(1);
-              }
-            });
-          "
+                console.log('::notice::Updater manifest contains every supported desktop platform.');
+              });
+            "
 
-      - name: Record post-publish updater check
-        shell: bash
+      - name: Record post-publish check
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          endpoint="https://github.com/${{ github.repository }}/releases/latest/download/latest.json"
-          echo "::notice::Draft release assets verified. Publish v${{ inputs.version }}, then verify the updater endpoint resolves: ${endpoint}"
+          echo "::notice::Draft v${RELEASE_VERSION} is complete. Review and publish it, then verify:"
+          echo "https://github.com/${{ github.repository }}/releases/latest/download/latest.json"

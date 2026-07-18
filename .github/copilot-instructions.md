@@ -79,8 +79,8 @@ DESIGN.md            # Visual design contract (visual/non-technical only)
 
 ## Build and validate
 
-CI (`.github/workflows/windows.yml`) runs `check-frontend` and `check-rust`
-jobs on every PR and push to `main`. Replicate these checks locally before
+CI (`.github/workflows/windows.yml`) runs frontend, Rust, and e2e checks
+on every PR and push to `main`. Replicate these checks locally before
 claiming success:
 
 ```bash
