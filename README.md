@@ -96,48 +96,116 @@ steering document `basebuild-planning` draws categories and ideas from.
 - **Terminal**: portable-pty + xterm.js
 - **State**: rusqlite
 
-## Quick start (desktop app)
+## Install the latest release
 
-This repo is the source for the **desktop application**. Running the Vite dev server alone (`npm run dev`) only renders a non-functional web preview because terminals, source control, and the SQLite state layer require the Rust Tauri backend.
+Official releases are published for Windows x64, Linux x64, and macOS
+(universal Apple Silicon + Intel). The asset names are stable, so these
+commands always resolve the latest published release; release automation does
+not rewrite this README for every version.
+
+### Windows
+
+PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/basebuild-net/basebuild/main/install.ps1 | iex
+```
+
+From `cmd.exe`:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/basebuild-net/basebuild/main/install.ps1 | iex"
+```
+
+The script downloads the x64 NSIS installer from GitHub Releases and opens it.
+To run silently, download [`install.ps1`](./install.ps1) and execute
+`.\install.ps1 -Silent`; use `.\install.ps1 -DownloadOnly` to validate and
+retain the installer without launching it.
+
+### macOS
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/basebuild-net/basebuild/main/install.sh | sh
+```
+
+This installs the universal app to `~/Applications`. Set
+`BASEBUILD_INSTALL_DIR=/Applications` before running the script for a
+system-wide destination when your account can write there. No Apple developer
+account or Apple secrets are required. Releases are ad-hoc signed unless
+notarization credentials are configured, so macOS may require **Open** or
+**Control-click → Open** on first launch.
+
+### Linux
+
+Portable AppImage in `~/.local/bin/basebuild`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/basebuild-net/basebuild/main/install.sh | sh
+```
+
+Debian/Ubuntu package with desktop-menu integration:
+
+```bash
+curl -fL https://github.com/basebuild-net/basebuild/releases/latest/download/Basebuild-linux-x86_64.deb -o /tmp/basebuild.deb && sudo apt install /tmp/basebuild.deb
+```
+
+The Linux AppImage may require your distribution's FUSE 2 compatibility
+package. Debian/Ubuntu users should prefer the `.deb`.
+
+> **Package managers:** Basebuild is not yet published in the Winget,
+> Homebrew Cask, Snap, Flatpak, or distribution package catalogs. Do not use an
+> unofficial package as though it were maintained by this project. Once an
+> official catalog entry exists, its exact `winget`, `brew`, or Linux command
+> will be added here.
+
+Remote-script one-liners execute the script from the default branch. Review
+[`install.ps1`](./install.ps1) or [`install.sh`](./install.sh) first, or replace
+`main` in the raw URL with a trusted commit SHA. Direct downloads are available
+on the [latest release](https://github.com/basebuild-net/basebuild/releases/latest).
+
+## Quick start (source development)
+
+This repository contains the desktop application's source. Running only the
+Vite dev server (`npm run dev`) renders a non-functional preview because
+terminals, source control, and SQLite require the Rust Tauri backend.
 
 ```bash
 npm install
 npm run tauri dev
 ```
 
-You need:
+Development requires Node.js 20+, stable Rust, and the native C/C++ toolchain
+for your operating system.
 
-- Node.js 20+
-- Rust (stable)
-- Visual Studio C++ Build Tools (Windows) or equivalent C++ toolchain
+## Packaging locally
 
-## Packaging
+Run the command for the host platform:
 
-```bash
-npm run tauri build
+```powershell
+# Windows x64 — NSIS
+npm run tauri build -- --bundles nsis
 ```
 
-The installer (NSIS) is written to `src-tauri/target/release/bundle/nsis/`.
+```bash
+# Linux x64 — AppImage + Debian package
+npm run tauri build -- --bundles appimage,deb
+
+# macOS universal — install both Rust targets once, then build
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+npm run tauri build -- --target universal-apple-darwin --bundles app,dmg
+```
+
+Platform prerequisites and output locations are documented in
+[`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md).
 
 ## Releasing
 
-Patch versions bump automatically from the current version (starting at `0.0.1`):
-
-```bash
-node scripts/bump-version.mjs
-```
-
-This updates `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`.
-Commit the result, tag it, and push:
-
-```bash
-git add .
-git commit -m "chore(release): bump version"
-git tag v0.0.2
-git push origin main v0.0.2
-```
-
-Only the patch component is bumped by default. To move to `0.1.0` or `1.0.0`, edit the version string manually before committing.
+Releases are manual, draft-first, and built only by the
+[`CI / Release`](./.github/workflows/ci-release.yml) workflow. Dispatch it with
+an unpublished semantic version, wait for the Windows/Linux/macOS matrix and
+final manifest verification, review the draft release, then publish it. Do not
+pre-bump version files, create a release tag manually, or upload hand-built
+artifacts.
 
 ## Documentation
 

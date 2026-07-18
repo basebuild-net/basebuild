@@ -58,18 +58,20 @@ screenshot.
 
 ## CI pipeline
 
-GitHub Actions (`.github/workflows/windows.yml`) runs three jobs on every PR and push to `main`:
+GitHub Actions (`.github/workflows/ci-release.yml`) runs three jobs on every PR and push to `main`:
 
 | Job | What it does |
 |---|---|
 | `check-frontend` | `npm ci`, `npm run build`, `npm run check:ui-invariants`, `npm run check:release-config` |
-| `check-rust` | `cargo check`, `cargo test` (on Ubuntu with Tauri Linux deps) |
+| `check-rust` | `cargo test` on Ubuntu with Tauri Linux dependencies |
 | `check-e2e` | `BASEBUILD_E2E=1 npm run test:e2e` with Playwright browser cache |
 
-The `release` job (manual dispatch only) gates on all three, then builds the
-installer and, before publishing, runs `scripts/verify-prod-webview.mjs` to
-confirm the packaged app serves its embedded frontend (it fails the release if
-the webview reaches for the `127.0.0.1:1420` dev server — a dev-mode binary).
+Manual dispatch adds a serial `release` matrix for Windows x64, Linux x64, and
+universal macOS. The Windows leg runs `scripts/verify-prod-webview.mjs` against
+the packaged executable. After all three legs finish, `verify-release` rejects
+a draft missing a required installer, updater signature, or updater-manifest
+platform entry.
+
 Playwright traces, screenshots, and videos are uploaded as artifacts on failure
 (7-day retention).
 

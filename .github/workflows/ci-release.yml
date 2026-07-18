@@ -1,0 +1,413 @@
+name: CI / Release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 0.0.2) - must NOT already exist as a published release"
+        required: true
+        type: string
+
+# Cancel any in-progress run for the same PR/branch when a new push lands.
+# Without this, every push to a PR branch starts a fresh run while the
+# previous one keeps running — wasting runner minutes and producing
+# duplicate-looking entries in the Actions tab.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref }}-${{ inputs.version || 'ci' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CI: "true"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  check-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend (tsc + vite)
+        run: npm run build
+
+      - name: UI invariant checks
+        run: npm run check:ui-invariants
+      - name: Release-config integrity check
+        run: npm run check:release-config
+  check-rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Check and test
+        working-directory: src-tauri
+        run: cargo test
+
+  check-e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shardIndex: [1, 2, 3, 4]
+        shardTotal: [4]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright browsers and deps
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system deps only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Run e2e tests (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
+        run: BASEBUILD_E2E=1 npx playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-artifacts-shard-${{ matrix.shardIndex }}
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
+
+  release:
+    # Manual releases build every supported desktop platform from one version.
+    # Serial execution prevents concurrent latest.json writers from dropping a
+    # platform while tauri-action merges updater entries into the draft.
+    if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+    needs: [check-frontend, check-rust, check-e2e]
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - name: windows-x86_64
+            platform: windows-latest
+            rustTargets: x86_64-pc-windows-msvc
+            args: --target x86_64-pc-windows-msvc --bundles nsis
+            assetPattern: Basebuild-windows-x86_64[setup][ext]
+          - name: linux-x86_64
+            platform: ubuntu-22.04
+            rustTargets: ""
+            args: --bundles appimage,deb
+            assetPattern: Basebuild-linux-x86_64[ext]
+          - name: macos-universal
+            platform: macos-latest
+            rustTargets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin --bundles app,dmg
+            assetPattern: Basebuild-macos-universal[ext]
+    runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify version is not already published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          version="$RELEASE_VERSION"
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Release version must be a plain semantic version such as 1.2.3."
+            exit 1
+          fi
+          tag="v${version}"
+          if gh release view "$tag" --repo "${{ github.repository }}" --json isDraft >/dev/null 2>&1; then
+            is_draft=$(gh release view "$tag" --repo "${{ github.repository }}" --json isDraft --jq '.isDraft')
+            if [ "$is_draft" = "true" ]; then
+              echo "::notice::Existing draft release for $tag found; this platform will update it."
+            else
+              echo "::error::Release $tag is already published. Bump the version instead of replacing it."
+              exit 1
+            fi
+          else
+            echo "::notice::No existing release for $tag; tauri-action will create a draft."
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rustTargets }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Configure macOS signing
+        if: matrix.name == 'macos-universal'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        shell: bash
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "::notice::No Apple certificate configured; using the ad-hoc identity from tauri.conf.json."
+            exit 0
+          fi
+          if [ -z "$APPLE_CERTIFICATE_PASSWORD" ] || [ -z "$KEYCHAIN_PASSWORD" ]; then
+            echo "::error::APPLE_CERTIFICATE requires APPLE_CERTIFICATE_PASSWORD and KEYCHAIN_PASSWORD."
+            exit 1
+          fi
+          certificate_path="$RUNNER_TEMP/basebuild-release.p12"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$certificate_path"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import "$certificate_path" -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          identity="$(security find-identity -v -p codesigning build.keychain | sed -n 's/.*\"\(Developer ID Application:[^\"]*\)\".*/\1/p' | head -1)"
+          if [ -z "$identity" ]; then
+            echo "::error::Imported keychain has no Developer ID Application identity."
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+          rm -f "$certificate_path"
+
+      - name: Install Tauri Linux dependencies
+        if: matrix.name == 'linux-x86_64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf xdg-utils
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Bump version files to match release input
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          version="$RELEASE_VERSION"
+          # workflow_dispatch is the single version source. Repository files
+          # stay at the 0.0.0 development sentinel between releases.
+          VERSION="$version" node -e "
+            const fs = require('fs');
+            const version = process.env.VERSION;
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = version;
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+            const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+            lock.version = version;
+            if (lock.packages && lock.packages['']) lock.packages[''].version = version;
+            fs.writeFileSync('package-lock.json', JSON.stringify(lock, null, 2) + '\n');
+            const tauri = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+            tauri.version = version;
+            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(tauri, null, 2) + '\n');
+            let cargo = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
+            cargo = cargo.replace(/^version = \"[^\"]+\"/m, 'version = \"' + version + '\"');
+            fs.writeFileSync('src-tauri/Cargo.toml', cargo);
+            let cargoLock = fs.readFileSync('src-tauri/Cargo.lock', 'utf8');
+            cargoLock = cargoLock.replace(/(\[\[package\]\]\r?\nname = \"basebuild-app\"\r?\nversion = \")[^\"]+(\")/, (_, prefix, suffix) => prefix + version + suffix);
+            fs.writeFileSync('src-tauri/Cargo.lock', cargoLock);
+          "
+          VERSION="$version" node -e "
+            const fs = require('fs');
+            const version = process.env.VERSION;
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+            const tauri = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+            const cargo = fs.readFileSync('src-tauri/Cargo.toml', 'utf8').match(/^version = \"([^\"]+)\"/m)?.[1];
+            const cargoLock = fs.readFileSync('src-tauri/Cargo.lock', 'utf8').match(/\[\[package\]\]\r?\nname = \"basebuild-app\"\r?\nversion = \"([^\"]+)\"/)?.[1];
+            const values = [pkg.version, lock.version, lock.packages?.['']?.version, tauri.version, cargo, cargoLock];
+            if (values.some(value => value !== version)) {
+              throw new Error('Version bump mismatch: ' + JSON.stringify(values));
+            }
+            if (tauri.bundle?.createUpdaterArtifacts !== true) {
+              throw new Error('bundle.createUpdaterArtifacts must be true');
+            }
+          "
+
+      - name: Build Tauri app and update draft release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: v${{ inputs.version }}
+          releaseName: Basebuild v${{ inputs.version }}
+          releaseBody: |
+            ## Basebuild v${{ inputs.version }}
+
+            ### Downloads
+            - Windows x64: NSIS installer and portable zip
+            - Linux x64: AppImage and Debian package
+            - macOS: universal DMG for Apple Silicon and Intel
+            - Signed updater metadata for in-app updates
+
+            Review this draft and generated release notes before publishing.
+          releaseDraft: true
+          prerelease: false
+          generateReleaseNotes: true
+          updaterJsonPreferNsis: true
+          releaseAssetNamePattern: ${{ matrix.assetPattern }}
+          args: ${{ matrix.args }}
+
+      - name: Verify Windows production build does not use the dev server
+        if: matrix.name == 'windows-x86_64'
+        shell: bash
+        run: |
+          exe_path="src-tauri/target/x86_64-pc-windows-msvc/release/basebuild-app.exe"
+          if [ ! -f "$exe_path" ]; then
+            echo "::error::Release executable not found at $exe_path"
+            exit 1
+          fi
+          node scripts/verify-prod-webview.mjs "$exe_path"
+
+      - name: Create Windows portable artifact
+        if: matrix.name == 'windows-x86_64'
+        shell: bash
+        run: |
+          exe_path="src-tauri/target/x86_64-pc-windows-msvc/release/basebuild-app.exe"
+          portable_name="Basebuild-windows-x86_64-portable.zip"
+          if [ ! -f "$exe_path" ]; then
+            echo "::error::Portable executable not found at $exe_path"
+            exit 1
+          fi
+          tmpdir="$(mktemp -d)"
+          cp "$exe_path" "$tmpdir/Basebuild.exe"
+          (cd "$tmpdir" && 7z a -tzip "$GITHUB_WORKSPACE/$portable_name" Basebuild.exe)
+          rm -rf "$tmpdir"
+          echo "portable_artifact=$portable_name" >> "$GITHUB_ENV"
+
+      - name: Upload Windows portable artifact
+        if: matrix.name == 'windows-x86_64'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: gh release upload "v${RELEASE_VERSION}" --repo "${{ github.repository }}" "$portable_artifact" --clobber
+
+  verify-release:
+    if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Verify cross-platform draft assets and updater manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          version="$RELEASE_VERSION"
+          tag="v${version}"
+          assets="$(gh release view "$tag" --repo "${{ github.repository }}" --json assets --jq '.assets[].name')"
+          echo "$assets"
+
+          for required in \
+            latest.json \
+            Basebuild-windows-x86_64-setup.exe \
+            Basebuild-windows-x86_64-portable.zip \
+            Basebuild-linux-x86_64.AppImage \
+            Basebuild-linux-x86_64.deb \
+            Basebuild-macos-universal.dmg
+          do
+            echo "$assets" | grep -Fx "$required" >/dev/null || {
+              echo "::error::Required release asset '$required' is missing."
+              exit 1
+            }
+          done
+
+          signature_count="$(echo "$assets" | grep -Ec '\.sig$' || true)"
+          if [ "$signature_count" -lt 3 ]; then
+            echo "::error::Expected updater signatures for Windows, Linux, and macOS; found $signature_count."
+            exit 1
+          fi
+
+          gh release download "$tag" --repo "${{ github.repository }}" --pattern latest.json --output - | \
+            VERSION="$version" node -e "
+              let data = '';
+              process.stdin.on('data', chunk => data += chunk);
+              process.stdin.on('end', () => {
+                const manifest = JSON.parse(data);
+                const errors = [];
+                const expectedVersion = process.env.VERSION;
+                if (manifest.version !== expectedVersion && manifest.version !== 'v' + expectedVersion) {
+                  errors.push('version mismatch: ' + manifest.version);
+                }
+                for (const key of ['windows-x86_64', 'linux-x86_64', 'darwin-aarch64', 'darwin-x86_64']) {
+                  const platform = manifest.platforms?.[key];
+                  if (!platform) errors.push('missing platform ' + key);
+                  else {
+                    if (!platform.url) errors.push(key + ' missing url');
+                    if (!platform.signature) errors.push(key + ' missing signature');
+                    if (platform.url && !/^https:\/\/(api\.)?github\.com\//.test(platform.url)) {
+                      errors.push(key + ' URL is not GitHub HTTPS: ' + platform.url);
+                    }
+                  }
+                }
+                if (errors.length) {
+                  errors.forEach(error => console.error('::error::' + error));
+                  process.exit(1);
+                }
+                console.log('::notice::Updater manifest contains every supported desktop platform.');
+              });
+            "
+
+      - name: Record post-publish check
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          echo "::notice::Draft v${RELEASE_VERSION} is complete. Review and publish it, then verify:"
+          echo "https://github.com/${{ github.repository }}/releases/latest/download/latest.json"

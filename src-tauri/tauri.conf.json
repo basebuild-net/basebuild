@@ -31,11 +31,28 @@
     "active": true,
     "createUpdaterArtifacts": true,
     "targets": ["nsis"],
+    "publisher": "Basebuild",
+    "homepage": "https://basebuild.net",
+    "category": "DeveloperTool",
+    "shortDescription": "Local-first control plane for AI coding agents",
+    "longDescription": "Basebuild combines native agent chat, persistent planning, terminals, and source control in one local-first desktop application.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
       }
+    },
+    "macOS": {
+      "signingIdentity": "-"
     }
   },
   "plugins": {

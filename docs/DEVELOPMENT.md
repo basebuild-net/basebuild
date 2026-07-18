@@ -27,7 +27,7 @@ npm run tauri dev       # Direct command
 | `npm run tauri dev` | Tauri dev mode |
 | `dev.bat` | Windows launcher that checks port 1420, can stop stale listeners, and pauses on errors |
 | `npm run build` | Production frontend build |
-| `npm run tauri build` | Build Windows installer |
+| `npm run tauri build -- --bundles <targets>` | Build native packages for the current host OS |
 
 ## Architecture
 
@@ -93,64 +93,72 @@ Basebuild is local-first. Usage analytics collection and upload are disabled by 
 
 ## Releases
 
-Releases are draft-first and single-source. The `workflow_dispatch` version
-input is the source of truth — the workflow bumps all version files
-(`package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`,
-`src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`) itself, so there is no manual
-pre-bump commit and no version drift between files.
+Releases are manual, draft-first, and single-source. The `workflow_dispatch`
+version input to [`.github/workflows/ci-release.yml`](../.github/workflows/ci-release.yml)
+is authoritative. Every matrix runner bumps `package.json`, `package-lock.json`,
+`src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and
+`src-tauri/Cargo.lock` to that version in its temporary checkout. Repository
+files remain at the `0.0.0` development sentinel; do not create a version-bump
+commit.
 
-1. Ensure `src-tauri/tauri.conf.json` `bundle.createUpdaterArtifacts` is `true`.
-   Without it the workflow will not upload `latest.json` or `.sig` updater
-   assets and in-app updates will fail.
-2. Trigger the **CI / Release (Windows)** workflow via `workflow_dispatch`,
-   passing the version (e.g. `0.0.7`). The workflow bumps all version files to
-   match the input and verifies the bump succeeded before building.
-3. The workflow builds the NSIS installer, creates a portable `.zip` artifact,
-   and uploads both to a **GitHub draft release**. It validates that
-   `latest.json` contains the correct version, Windows platform entry, URL,
-   and signature. It also checks that the portable artifact exists.
-4. Review the draft in the GitHub UI, write release notes, and click **Publish**.
-   After publishing, verify the in-app update check no longer reports a remote
-   JSON failure — the updater endpoint should serve the new `latest.json`.
+1. Confirm `bundle.createUpdaterArtifacts` is `true` and the Tauri updater
+   signing secrets are configured.
+2. In GitHub Actions, dispatch **CI / Release** with an unpublished semantic
+   version such as `0.0.7`.
+3. After frontend, Rust, and e2e checks pass, the serial release matrix builds
+   Windows x64, Linux x64, then universal macOS. Serial execution prevents
+   concurrent `latest.json` updates from dropping a platform.
+4. The final `verify-release` job requires every public artifact, at least one
+   updater signature per OS, and `windows-x86_64`, `linux-x86_64`,
+   `darwin-aarch64`, and `darwin-x86_64` manifest entries.
+5. Review generated notes and assets in the GitHub draft. Publish only after
+   the verifier passes. Then check the
+   [`latest.json`](https://github.com/basebuild-net/basebuild/releases/latest/download/latest.json)
+   endpoint and one platform install command from the README.
+
+Never re-release a published version. If a release is broken, ship the next
+version. Never hand-build or manually upload a public artifact.
 
 ### Release build integrity guards
 
 A released binary MUST serve the frontend embedded in the executable, not from
 the dev server. A `tauri dev` build navigates the webview to `devUrl`
-(`http://127.0.0.1:1420`); launched without the Vite dev server it shows
-`127.0.0.1 refused to connect` (`ERR_CONNECTION_REFUSED`). Only `tauri dev`
-produces such a binary — `tauri build` (and even a plain `cargo build`) embeds
-the frontend and serves it over Tauri's custom protocol. Two guards ensure a
-dev-mode binary can never be published:
+(`http://127.0.0.1:1420`); launched without Vite it shows
+`ERR_CONNECTION_REFUSED`. Production `tauri build` embeds `frontendDist`.
 
-- **`npm run check:release-config`** (`scripts/check-release-config.mjs`, runs
-  in the `check-frontend` CI job on every PR): a fast static check that
-  `build.frontendDist` is a bundled local path (never a URL), `build.devUrl` is
-  loopback-only, `beforeBuildCommand` builds the frontend, and the built
-  `dist/` contains `index.html`.
-- **Release-job webview probe** (`scripts/verify-prod-webview.mjs`, runs in the
-  `release` job after the build): boots the packaged `.exe`, listens on
-  `127.0.0.1:1420`, and fails the release if the app's webview connects there.
-  Nothing in a production build touches `:1420`, so a good build never flakes;
-  a connection means a dev binary was about to ship.
+- **`npm run check:release-config`** runs on every PR and release. It requires
+  a local `frontendDist`, loopback-only `devUrl`, a frontend build hook, and a
+  built `dist/index.html`.
+- **Windows packaged-app probe** runs after the Windows matrix build. It boots
+  the release executable and fails if its webview connects to port 1420.
+- Linux and macOS use the same checked Tauri build configuration. The final
+  release job additionally rejects missing native artifacts or updater entries.
 
-Never hand-build and upload a release artifact. Always use the
-`workflow_dispatch` pipeline so both guards run.
+### Stable release artifacts
 
-### Release artifacts
+Asset names intentionally omit the version. GitHub scopes assets to one
+release, so `/releases/latest/download/<asset>` remains an evergreen URL while
+the binary's embedded version and `latest.json` retain the real release
+version.
 
-Each Windows release produces:
+| Platform | Asset | Purpose |
+|---|---|---|
+| Windows x64 | `Basebuild-windows-x86_64-setup.exe` | Current-user NSIS installer; preferred |
+| Windows x64 | `Basebuild-windows-x86_64-portable.zip` | Portable `Basebuild.exe` |
+| Linux x64 | `Basebuild-linux-x86_64.AppImage` | Distribution-neutral portable app |
+| Debian/Ubuntu x64 | `Basebuild-linux-x86_64.deb` | Native package and desktop-menu integration |
+| macOS Intel + Apple Silicon | `Basebuild-macos-universal.dmg` | Universal disk image |
+| All | `latest.json` and `.sig` files | Signed Tauri updater metadata and verification signatures |
 
-- **`Basebuild_X.Y.Z_x64-setup.exe`** — NSIS installer with passive install
-  mode (no wizard prompts during auto-update). This is the recommended
-  download for most users.
-- **`Basebuild_X.Y.Z_x64-portable.zip`** — Portable build containing a
-  standalone `Basebuild.exe` that runs without installation. Used for
-  no-wizard portable updates.
-- **`latest.json`** — Signed Tauri updater manifest pointing to the installer.
-  May optionally contain `minimumSupportedVersion` and `releaseSummary`
-  fields for update policy control.
-- **`.sig`** — Minisign signature for update verification.
+Packaging uses Tauri's native installer templates and the existing transparent
+Basebuild application logo. Do not add backgrounds, recolor the logo, or fork
+upstream templates; doing so changes the product identity and takes ownership
+of native accessibility, localization, and installer behavior.
+
+macOS currently uses Tauri's ad-hoc signing identity (`-`). This prevents the
+Apple Silicon “damaged” failure but does not provide Developer ID notarization;
+users may still need **Open** or **Control-click → Open**. Configure the Apple
+secrets in `docs/SECRETS.md` before claiming a notarized release.
 
 ### Update policy fields
 

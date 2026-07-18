@@ -69,6 +69,65 @@ if (typeof frontendDist === "string" && !/^https?:\/\//i.test(frontendDist)) {
   }
 }
 
+// 5. Cross-platform releases require updater artifacts and native package
+//    metadata. Catch path drift before a paid matrix run.
+const bundle = conf.bundle ?? {};
+if (bundle.createUpdaterArtifacts !== true) {
+  errors.push("bundle.createUpdaterArtifacts must be true for signed cross-platform updates.");
+}
+
+for (const [field, expected] of [
+  ["bundle.publisher", "Basebuild"],
+  ["bundle.homepage", "https://basebuild.net"],
+  ["bundle.category", "DeveloperTool"],
+]) {
+  const key = field.split(".")[1];
+  if (bundle[key] !== expected) {
+    errors.push(`${field} must be "${expected}" (got ${JSON.stringify(bundle[key])}).`);
+  }
+}
+
+const nsis = bundle.windows?.nsis ?? {};
+
+for (const [field, relativePath] of [
+  ["bundle.windows.nsis.installerIcon", nsis.installerIcon],
+  ["bundle.windows.nsis.uninstallerIcon", nsis.uninstallerIcon],
+]) {
+  if (
+    typeof relativePath !== "string" ||
+    relativePath.length === 0 ||
+    !existsSync(resolve(dirname(confPath), relativePath))
+  ) {
+    errors.push(`${field} must point to an existing icon.`);
+  }
+}
+
+if (bundle.macOS?.signingIdentity !== "-") {
+  errors.push(
+    'bundle.macOS.signingIdentity must default to "-" so unsigned CI builds remain ad-hoc signed.',
+  );
+}
+
+const macConfPath = resolve(dirname(confPath), "tauri.macos.conf.json");
+if (!existsSync(macConfPath)) {
+  errors.push("tauri.macos.conf.json must provide a macOS-safe bundle identifier.");
+} else {
+  try {
+    const macConf = JSON.parse(readFileSync(macConfPath, "utf8"));
+    if (
+      typeof macConf.identifier !== "string" ||
+      macConf.identifier.length === 0 ||
+      macConf.identifier.endsWith(".app")
+    ) {
+      errors.push(
+        `tauri.macos.conf.json identifier must be non-empty and must not end in ".app" (got ${JSON.stringify(macConf.identifier)}).`,
+      );
+    }
+  } catch (e) {
+    errors.push(`Cannot read ${macConfPath}: ${e.message}`);
+  }
+}
+
 if (errors.length) {
   console.error("Release-config check FAILED:");
   for (const e of errors) console.error(`  - ${e}`);
@@ -76,5 +135,5 @@ if (errors.length) {
 }
 
 console.log(
-  "Release-config check passed: production builds embed the local frontend; devUrl is loopback-only.",
+  "Release-config check passed: embedded frontend, updater settings, metadata, and native icons are valid.",
 );
