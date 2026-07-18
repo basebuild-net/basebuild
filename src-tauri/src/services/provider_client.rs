@@ -1259,7 +1259,7 @@ impl ProviderClient for AnthropicClient {
         }
 
         // Normalize: the Anthropic Messages API lives at /v1/messages, but
-        // the vendored OMP catalog has inconsistent baseUrl values — some
+        // the bundled model catalog has inconsistent baseUrl values — some
         // include `/v1`, most don't. Without this, requests hit
         // https://api.anthropic.com/messages → 404.
         let normalized_base = self.base_url.trim_end_matches('/').trim_end_matches("/v1");

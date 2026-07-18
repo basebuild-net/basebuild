@@ -77,10 +77,10 @@ export type NativeModel = {
   supportedEfforts: string[];
   supportsImages: boolean;
   source: string;
-  /** Wire-protocol kind from the OMP catalog (e.g. "devin-agent"). Empty
+  /** Wire-protocol kind from the model catalog (e.g. "devin-agent"). Empty
    *  for legacy rows; resolveClient treats empty as "openai-completions". */
   apiKind?: string;
-  /** Model's API base URL from the OMP catalog. Empty for legacy rows. */
+  /** Model's API base URL from the model catalog. Empty for legacy rows. */
   baseUrl?: string;
   /** Per-million-token input cost (USD), null when unknown. */
   costInput?: number | null;
