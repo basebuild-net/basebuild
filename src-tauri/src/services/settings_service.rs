@@ -242,8 +242,9 @@ impl SettingsService {
             )
             .ok();
         match value {
-            Some(v) => serde_json::from_str(&v).map_err(|e| e.to_string()),
-            None => Ok(PermissionRules::conservative()),
+            // Degrade to defaults on parse error (same posture as usage sync).
+            Some(v) => Ok(serde_json::from_str(&v).unwrap_or_default()),
+            None => Ok(PermissionRules::default()),
         }
     }
 
@@ -322,7 +323,13 @@ impl SettingsService {
             )
             .ok();
         match value {
-            Some(v) => serde_json::from_str(&v).map_err(|e| e.to_string()),
+            // Parse failure must never propagate: a corrupt or forward-only
+            // JSON row degrades to defaults (all fields are serde(default))
+            // and is rewritten on the next save. This is the root-cause fix
+            // for "toggle doesn't stick" — previously an unparseable row
+            // surfaced as an error and callers fell back to unwrap_or_default
+            // while the stored value was ignored.
+            Some(v) => Ok(serde_json::from_str(&v).unwrap_or_default()),
             None => Ok(UsageSyncSettings::default()),
         }
     }
@@ -336,6 +343,34 @@ impl SettingsService {
         )
         .map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    // ─── Anonymous device identity ───
+
+    /// Get the stable anonymous device id, generating + persisting a UUID v4
+    /// on first call. Used as `computerId` on login-free telemetry submissions.
+    /// Stored in `app_defaults` under key `computer_id` so it survives restarts
+    /// and webview data clears (sqlite is outside the webview storage).
+    pub fn get_computer_id() -> DbResult<String> {
+        let conn = StorageService::connect()?;
+        let existing: Option<String> = conn
+            .query_row(
+                "SELECT value FROM app_defaults WHERE key = 'computer_id'",
+                [],
+                |r| r.get(0),
+            )
+            .ok();
+        if let Some(id) = existing {
+            return Ok(id);
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO app_defaults (key, value) VALUES ('computer_id', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![&id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(id)
     }
 
     // ─── Approval Gateway ───

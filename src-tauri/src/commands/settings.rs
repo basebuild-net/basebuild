@@ -58,6 +58,11 @@ pub fn reset_permission_rules() -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn get_computer_id() -> Result<String, String> {
+    SettingsService::get_computer_id()
+}
+
+#[tauri::command]
 pub fn list_audit_trail(limit: Option<u32>) -> Result<Vec<AuditEntry>, String> {
     SettingsService::list_audit(limit.unwrap_or(50))
 }

@@ -31,6 +31,43 @@ const DEFAULT_INTERVAL_MINUTES: i64 = 60;
 const MAX_BACKOFF_SECS: u64 = 900;
 /// Initial backoff in seconds.
 const INITIAL_BACKOFF_SECS: u64 = 30;
+/// Managed-trigger evaluation cadence (seconds). The autosync loop wakes
+/// every 5 minutes between full interval ticks to check whether a
+/// never-synced device, a provider-set change, or a significant usage
+/// delta should fire an early sync.
+const MANAGED_TRIGGER_EVAL_SECS: u64 = 300;
+/// Request-count delta that fires a managed-trigger sync: ≥25 absolute
+/// OR ≥20% relative vs the last pushed total.
+const MANAGED_TRIGGER_ABS_DELTA: i64 = 25;
+const MANAGED_TRIGGER_REL_PCT: f64 = 0.20;
+
+/// Resolved transport auth for a sync push. `Token` keeps account
+/// attribution; `Anonymous` sends login-free with the device `computerId`
+/// in the tool arguments (backend whitelists sync_* tools for this mode).
+enum AuthMode {
+    Token(String),
+    Anonymous(String),
+}
+
+/// Resolve how this push should authenticate. A stored basebuild.net token
+/// wins (account attribution); otherwise we fall back to anonymous device
+/// telemetry keyed by the persisted `computerId`. Returns `Err` only if the
+/// computerId cannot be generated/persisted — consent is checked by gates_pass.
+fn resolve_auth_mode() -> Result<AuthMode, String> {
+    if let Ok(Some(token)) = AuthService::get_access_token() {
+        if !token.is_empty() {
+            return Ok(AuthMode::Token(token));
+        }
+    }
+    let computer_id = SettingsService::get_computer_id()?;
+    Ok(AuthMode::Anonymous(computer_id))
+}
+
+/// True when the resolved mode is authenticated (used to gate the
+/// server freshness check, which is a read tool and not anonymously callable).
+fn has_token() -> bool {
+    matches!(resolve_auth_mode(), Ok(AuthMode::Token(_)))
+}
 
 /// Tracks whether the autosync loop is currently running.
 static AUTOSYNC_RUNNING: AtomicBool = AtomicBool::new(false);
@@ -51,17 +88,14 @@ static AUTOSYNC_STATUS: Mutex<AutoSyncStatus> = parking_lot::const_mutex(AutoSyn
     sync_mode: String::new(),
 });
 
-/// Sync raw OMP usage to basebuild.net using the stored native token.
-/// Collects `omp stats --json` and `omp usage --json`, then sends them
-/// as a `sync_raw_usage` JSON-RPC call to the hosted MCP endpoint.
-///
-/// Returns a human-readable result message.
+/// Sync raw OMP usage to basebuild.net. Uses a stored basebuild.net token
+/// when available (account attribution), otherwise falls back to anonymous
+/// device telemetry keyed by `computerId`. Collects `omp stats --json` and
+/// `omp usage --json`, then sends them as a `sync_raw_usage` JSON-RPC call.
 pub fn sync_raw_usage_native() -> Result<String, String> {
-    // 1. Get the stored native token
-    let token = AuthService::get_access_token()?
-        .ok_or("Not signed in. Open Settings > Account to sign in.")?;
+    let mode = resolve_auth_mode()?;
 
-    // 2. Collect OMP stats and usage
+    // Collect OMP stats and usage
     let stats = OmpService::run_json(&["stats", "--json"])
         .map_err(|e| format!("Failed to run `omp stats --json`: {e}"))?;
     let stats_json = if stats.success {
@@ -78,7 +112,6 @@ pub fn sync_raw_usage_native() -> Result<String, String> {
         return Err(format!("`omp usage --json` failed: {}", usage.stderr));
     };
 
-    // 3. Build the JSON-RPC request
     let rpc_body = json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -92,52 +125,7 @@ pub fn sync_raw_usage_native() -> Result<String, String> {
         }
     });
 
-    // 4. Send to MCP endpoint
-    let client = reqwest::blocking::Client::new();
-    let resp = client
-        .post(MCP_URL)
-        .header("Authorization", format!("Bearer {token}"))
-        .header("Content-Type", "application/json")
-        .json(&rpc_body)
-        .send()
-        .map_err(|e| format!("Failed to connect to basebuild.net: {e}"))?;
-
-    let status = resp.status();
-    let text = resp.text().unwrap_or_default();
-
-    if status == reqwest::StatusCode::UNAUTHORIZED {
-        // Token may be revoked or expired — clear it
-        let _ = AuthService::clear_auth();
-        return Err("Token expired or revoked. Please sign in again.".into());
-    }
-
-    if !status.is_success() {
-        return Err(format!("MCP sync failed ({status}): {text}"));
-    }
-
-    // Parse the JSON-RPC response
-    let parsed: Value =
-        serde_json::from_str(&text).map_err(|e| format!("Failed to parse MCP response: {e}"))?;
-
-    if let Some(error) = parsed.get("error") {
-        let message = error
-            .get("message")
-            .and_then(|v| v.as_str())
-            .unwrap_or("Unknown MCP error");
-        return Err(format!("MCP error: {message}"));
-    }
-
-    // Extract result text
-    let result = parsed
-        .get("result")
-        .and_then(|v| v.get("content"))
-        .and_then(|v| v.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|item| item.get("text"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("Usage synced successfully.");
-
-    Ok(result.to_string())
+    post_mcp(&mode, &rpc_body)
 }
 
 /// Sync per-message usage rows to basebuild.net via the `sync_messages` MCP
@@ -148,8 +136,7 @@ pub fn sync_raw_usage_native() -> Result<String, String> {
 pub fn sync_messages_native() -> Result<String, String> {
     use crate::services::native_chat_service::NativeChatService;
 
-    let token = AuthService::get_access_token()?
-        .ok_or("Not signed in. Open Settings > Account to sign in.")?;
+    let mode = resolve_auth_mode()?;
 
     let mut settings = SettingsService::get_usage_sync_settings()?;
     let since = settings.last_message_sync_at.unwrap_or(0);
@@ -183,7 +170,7 @@ pub fn sync_messages_native() -> Result<String, String> {
         "params": { "name": "sync_messages", "arguments": arguments }
     });
 
-    let result = post_mcp(&token, &rpc_body)?;
+    let result = post_mcp(&mode, &rpc_body)?;
     // Advance the cursor only after the server accepted the batch.
     settings.last_message_sync_at = Some(window_end);
     let _ = SettingsService::set_usage_sync_settings(&settings);
@@ -246,8 +233,7 @@ pub fn collect_native_batch() -> Result<UsageBatch, String> {
 /// if the server doesn't recognize the envelope tool. OMP continues to use
 /// the existing `sync_raw_usage` path independently.
 pub fn sync_envelope_native() -> Result<String, String> {
-    let token = AuthService::get_access_token()?
-        .ok_or("Not signed in. Open Settings > Account to sign in.")?;
+    let mode = resolve_auth_mode()?;
 
     let batch = match collect_native_batch() {
         Ok(b) if !b.rows.is_empty() => b,
@@ -273,7 +259,7 @@ pub fn sync_envelope_native() -> Result<String, String> {
         }
     });
 
-    match post_mcp(&token, &rpc_body) {
+    match post_mcp(&mode, &rpc_body) {
         Ok(result) => {
             // Advance the native cursor only after the server accepted the batch.
             for batch in &envelope.batches {
@@ -384,8 +370,10 @@ fn build_message_summaries(
             acc.dur_n += 1;
         }
         if let Some(t) = m.ttft_ms {
-            acc.ttft_sum += t;
-            acc.ttft_n += 1;
+            if t > 0 {
+                acc.ttft_sum += t;
+                acc.ttft_n += 1;
+            }
         }
     }
     map.into_values()
@@ -402,29 +390,52 @@ fn build_message_summaries(
                 "outputTokens": a.output,
                 "cacheReadTokens": a.cache_read,
                 "costTotal": a.cost,
-                "errorCount": a.errors,
-                "avgDurationMs": if a.dur_n > 0 { Some(a.dur_sum as f64 / a.dur_n as f64) } else { None },
-                "avgTtftMs": if a.ttft_n > 0 { Some(a.ttft_sum as f64 / a.ttft_n as f64) } else { None },
+                "errors": a.errors,
+                "durationMs": a.dur_sum,
+                "durationN": a.dur_n,
+                "ttftMs": a.ttft_sum,
+                "ttftN": a.ttft_n,
             })
         })
         .collect()
 }
-
-/// POST a JSON-RPC body to the MCP endpoint and extract the result text.
-/// Clears auth on 401. Shared by the raw-usage and message sync paths.
-fn post_mcp(token: &str, rpc_body: &Value) -> Result<String, String> {
+fn post_mcp(mode: &AuthMode, rpc_body: &Value) -> Result<String, String> {
     let client = reqwest::blocking::Client::new();
-    let resp = client
+    let req = client
         .post(MCP_URL)
-        .header("Authorization", format!("Bearer {token}"))
-        .header("Content-Type", "application/json")
-        .json(rpc_body)
+        .header("Content-Type", "application/json");
+    // Anonymous mode: inject computerId into the tool arguments and skip
+    // the Authorization header. The backend whitelists sync_* tools for
+    // anonymous submission; any other tool returns an auth error.
+    let (req, _computer_id) = match mode {
+        AuthMode::Token(token) => (req.header("Authorization", format!("Bearer {token}")), None),
+        AuthMode::Anonymous(computer_id) => {
+            // Mutate params.arguments.computerId so the server can attribute
+            // the blob to the shadow user. We only do this for sync_* tools;
+            // the caller is responsible for not routing read tools here.
+            let mut body = rpc_body.clone();
+            if let Some(args) = body
+                .get_mut("params")
+                .and_then(|p| p.get_mut("arguments"))
+            {
+                if let Some(obj) = args.as_object_mut() {
+                    obj.insert("computerId".to_string(), Value::String(computer_id.clone()));
+                }
+            }
+            (req.json(&body), Some(computer_id.clone()))
+        }
+    };
+    let resp = req
         .send()
         .map_err(|e| format!("Failed to connect to basebuild.net: {e}"))?;
     let status = resp.status();
     let text = resp.text().unwrap_or_default();
     if status == reqwest::StatusCode::UNAUTHORIZED {
-        let _ = AuthService::clear_auth();
+        // Only clear auth when we actually sent a token — an anonymous 401
+        // is a server config issue, not a credential problem.
+        if matches!(mode, AuthMode::Token(_)) {
+            let _ = AuthService::clear_auth();
+        }
         return Err("Token expired or revoked. Please sign in again.".into());
     }
     if !status.is_success() {
@@ -710,7 +721,7 @@ fn parse_plan_timeline_window(row: &Value) -> PlanTimelineWindow {
 /// via the `sync_environment` MCP tool for internal analytics (not shown
 /// publicly). All fields are metadata only — no prompts, code, or secrets.
 pub fn sync_environment_native() -> Result<String, String> {
-    let token = AuthService::get_access_token()?.ok_or_else(|| "Not signed in".to_string())?;
+    let mode = resolve_auth_mode()?;
     let env = collect_environment();
     let rpc_body = json!({
         "jsonrpc": "2.0",
@@ -721,7 +732,7 @@ pub fn sync_environment_native() -> Result<String, String> {
             "arguments": env,
         }
     });
-    post_mcp(&token, &rpc_body)
+    post_mcp(&mode, &rpc_body)
 }
 
 /// Gather environment metadata from local DB + filesystem. Each section is
@@ -856,24 +867,11 @@ fn sync_execution_advisor_feedback_native() -> Result<usize, String> {
 
 // ─── Auto-sync driver ──────────────────────────────────────────────────────
 
-/// Check whether the gates currently allow a sync push: signed in AND
-/// auto-sync enabled AND upload permission granted. Does not perform network
-/// I/O for the gate check itself (only reads stored settings/auth).
+/// Check whether the gates currently allow a sync push: upload consent
+/// granted AND auto-sync enabled. A basebuild.net token is NOT required —
+/// when none is stored the push is anonymous (login-free) keyed by the
+/// persisted `computerId`. Does not perform network I/O.
 pub fn gates_pass() -> bool {
-    let token_ok = match AuthService::get_access_token() {
-        Ok(Some(_)) => true,
-        Ok(None) => {
-            eprintln!("[SYNC] gates: no token");
-            false
-        }
-        Err(e) => {
-            eprintln!("[SYNC] gates: token error: {e}");
-            false
-        }
-    };
-    if !token_ok {
-        return false;
-    }
     let rules = match SettingsService::get_permission_rules() {
         Ok(r) => r,
         Err(e) => {
@@ -888,6 +886,13 @@ pub fn gates_pass() -> bool {
     let status = AUTOSYNC_STATUS.lock().clone();
     if !status.enabled {
         eprintln!("[SYNC] gates: auto_sync_usage=false (status.enabled=false)");
+        return false;
+    }
+    // A working auth mode must be resolvable — i.e. either a token or a
+    // computerId can be obtained. If computerId generation fails (sqlite
+    // unavailable) we fail closed rather than sending unattributable data.
+    if resolve_auth_mode().is_err() {
+        eprintln!("[SYNC] gates: no token and computerId unavailable");
         return false;
     }
     true
@@ -970,15 +975,17 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
             }
         }
     }
-    // Freshness check: ask the server if data is stale before pushing.
-    // Skipped on startup so the first sync fires unconditionally.
+    // Freshness: when authenticated, ask the server (a read tool — not
+    // anonymously callable). When anonymous, decide locally: always push
+    // on skip_freshness (startup/managed trigger), otherwise push only if
+    // a managed trigger fired (the loop evaluates those before calling
+    // trigger_sync with skip_freshness=true, so the default hourly tick
+    // for anonymous devices still pushes — the server dedups by computerId).
     let should_push = if skip_freshness {
-        let has_token = AuthService::get_access_token()
-            .map(|t| t.is_some())
-            .unwrap_or(false);
-        eprintln!("[SYNC] skip_freshness=true, has_token={has_token}");
-        has_token
-    } else {
+        let can_auth = resolve_auth_mode().is_ok();
+        eprintln!("[SYNC] skip_freshness=true, can_auth={can_auth}");
+        can_auth
+    } else if has_token() {
         match AuthService::get_access_token() {
             Ok(Some(token)) => {
                 eprintln!("[SYNC] checking server freshness…");
@@ -994,18 +1001,23 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
                 should_sync
             }
             _ => {
-                eprintln!("[SYNC] no token — aborting");
+                eprintln!("[SYNC] token disappeared — aborting");
                 false
             }
         }
+    } else {
+        // Anonymous hourly tick: push. Server-side dedup by computerId
+        // keeps redundant pushes cheap; the local debounce already bounds
+        // the rate.
+        eprintln!("[SYNC] anonymous push — no server freshness check");
+        true
     };
+
     if !should_push {
         eprintln!("[SYNC] should_push=false — aborting");
         SYNC_IN_FLIGHT.store(false, Ordering::SeqCst);
         return;
     }
-    eprintln!("[SYNC] launching sync thread…");
-
     let app2 = app.clone();
     let reason_owned = reason.to_string();
     thread::spawn(move || {
@@ -1053,6 +1065,14 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
                 status.last_error = None;
                 // Reset backoff on success.
                 BACKOFF_SECS.store(INITIAL_BACKOFF_SECS, Ordering::SeqCst);
+                // Record the managed-trigger baseline after a successful
+                // push so future evaluations compare against this point.
+                if let Ok(mut s) = SettingsService::get_usage_sync_settings() {
+                    s.last_usage_sync_at = Some(now);
+                    s.last_provider_fingerprint = current_provider_fingerprint();
+                    s.last_known_request_total = current_request_total();
+                    let _ = SettingsService::set_usage_sync_settings(&s);
+                }
                 let extra = match &messages_result {
                     Ok(m) => format!(" | messages: {m}"),
                     Err(e) => format!(" | messages sync failed: {e}"),
@@ -1104,6 +1124,89 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
     });
 }
 
+/// Compute the current provider fingerprint: a stable, order-independent
+/// hash of the set of connected provider/account identities (provider id +
+/// credential label only — never tokens). Used by managed triggers to
+/// detect "a new provider was added" between evaluations.
+fn current_provider_fingerprint() -> Option<String> {
+    let mut creds = crate::services::native_chat_service::NativeChatService::list_credentials()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| format!("{}|{}", c.provider_id, c.label))
+        .collect::<Vec<_>>();
+    creds.sort();
+    if creds.is_empty() {
+        return None;
+    }
+    Some(creds.join(","))
+}
+
+/// Approximate total request count across all local usage sources. Used by
+/// the significant-usage-change managed trigger. Reads native chat metrics
+/// totals + OMP stats when available; never sends data here.
+fn current_request_total() -> Option<i64> {
+    let mut total: i64 = 0;
+    if let Ok(metrics) = crate::services::native_chat_service::NativeChatService::metrics_since(0, 1_000_000) {
+        total += metrics.len() as i64;
+    }
+    if let Ok(stats) = crate::services::omp_service::OmpService::run_json(&["stats", "--json"]) {
+        if stats.success {
+            if let Some(json) = &stats.json {
+                if let Some(by_model) = json.get("byModel").and_then(|v| v.as_array()) {
+                    for row in by_model {
+                        if let Some(count) = row.get("requests").and_then(|v| v.as_i64()) {
+                            total += count;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Some(total)
+}
+
+/// Evaluate managed-trigger conditions against persisted state. Returns
+/// true when an event-driven sync should fire before the next scheduled
+/// tick. Also updates the persisted fingerprint/totals so a restart does
+/// not re-fire the same condition. Conditions:
+/// - never-synced: `last_usage_sync_at` is null
+/// - provider-set change: fingerprint differs from the last recorded
+/// - significant usage delta: ≥25 absolute OR ≥20% relative
+fn managed_trigger_should_fire() -> bool {
+    if !gates_pass() {
+        return false;
+    }
+    let mut settings = match SettingsService::get_usage_sync_settings() {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let never_synced = settings.last_usage_sync_at.is_none();
+    let fingerprint = current_provider_fingerprint();
+    let provider_changed = settings.last_provider_fingerprint.as_deref() != fingerprint.as_deref();
+    let total = current_request_total();
+    let usage_delta = match (settings.last_known_request_total, total) {
+        (Some(last), Some(now)) => {
+            let abs = (now - last).abs();
+            let rel = if last > 0 {
+                (now - last).unsigned_abs() as f64 / last as f64
+            } else {
+                0.0
+            };
+            abs >= MANAGED_TRIGGER_ABS_DELTA || rel >= MANAGED_TRIGGER_REL_PCT
+        }
+        (None, Some(_)) => true, // first time we can measure — treat as a trigger
+        _ => false,
+    };
+    let fire = never_synced || provider_changed || usage_delta;
+    if fire {
+        // Record the new baseline so we don't re-fire for the same state.
+        settings.last_provider_fingerprint = fingerprint;
+        settings.last_known_request_total = total;
+        let _ = SettingsService::set_usage_sync_settings(&settings);
+    }
+    fire
+}
+
 /// Start the auto-sync background loop. Idempotent. Ticks every
 /// `autoSyncIntervalMinutes` and on each tick re-checks gates + freshness.
 pub fn start_autosync_loop(app: AppHandle) {
@@ -1121,25 +1224,33 @@ pub fn start_autosync_loop(app: AppHandle) {
             }
             let interval_minutes = autosync_status().interval_minutes.max(1);
             // First tick = startup: sync unconditionally (skip freshness check)
-            // so the user's data flows immediately on app launch. Subsequent
-            // ticks use the server freshness check to avoid redundant pushes.
+            // so the device's data flows immediately on app launch. Subsequent
+            // ticks use the server freshness check (authed) or push directly
+            // (anonymous — server dedups by computerId).
             trigger_sync(
                 app.clone(),
                 if first_tick { "startup" } else { "hourly" },
                 first_tick,
             );
             first_tick = false;
-            // Sleep for the interval, checking the stop flag every 5s so the
-            // loop can exit promptly when stopped.
+            // Sleep for the interval, waking every MANAGED_TRIGGER_EVAL_SECS
+            // to evaluate event-driven triggers (never-synced, provider-set
+            // change, significant usage delta) and to exit promptly when stopped.
             let sleep_secs = (interval_minutes as u64) * 60;
             let mut slept = 0u64;
             while slept < sleep_secs {
                 if !AUTOSYNC_RUNNING.load(Ordering::SeqCst) {
                     break;
                 }
-                let chunk = std::cmp::min(5, sleep_secs - slept);
+                let chunk = std::cmp::min(MANAGED_TRIGGER_EVAL_SECS, sleep_secs - slept);
                 thread::sleep(Duration::from_secs(chunk));
                 slept += chunk;
+                // Only evaluate managed triggers between full ticks (not at
+                // the very start — the first_tick already fired above).
+                if slept < sleep_secs && managed_trigger_should_fire() {
+                    eprintln!("[SYNC] managed trigger fired — early sync");
+                    trigger_sync(app.clone(), "managed-trigger", true);
+                }
             }
         }
         AUTOSYNC_RUNNING.store(false, Ordering::SeqCst);

@@ -183,6 +183,15 @@ export function useUpdater(): UpdaterState {
     })();
   }, [info?.available, info?.version]);
 
+  // Silent auto-update: when an update is available, install it
+  // automatically with no user prompt. The "Update now" button is gone;
+  // the updater installs in the background and relaunches when ready.
+  useEffect(() => {
+    if (status === "available" && !installInFlight.current) {
+      void install();
+    }
+  }, [status, install]);
+
   useEffect(() => {
     // Releases are Windows-only (NSIS). Skip the check on other platforms to
     // avoid a guaranteed "platform missing" error every 5 minutes.

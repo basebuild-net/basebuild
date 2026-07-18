@@ -134,7 +134,7 @@ use commands::{
     },
     settings::{
         add_approval_rule, clear_audit_trail, delete_runtime_profile, effective_run_concurrency,
-        get_approval_mode, get_concurrency_limits, get_milestone_auto_commit, get_permission_rules,
+        get_approval_mode, get_computer_id, get_concurrency_limits, get_milestone_auto_commit, get_permission_rules,
         get_run_concurrency_defaults, get_run_concurrency_overrides, get_runtime_defaults,
         list_approval_rules, list_audit_trail, list_runtime_profiles, remove_approval_rule,
         remove_run_concurrency_override, reset_permission_rules, reset_runtime_defaults,
@@ -590,6 +590,7 @@ pub fn run() {
             get_permission_rules,
             set_permission_rules,
             reset_permission_rules,
+            get_computer_id,
             list_audit_trail,
             clear_audit_trail,
             get_approval_mode,

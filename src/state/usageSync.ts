@@ -11,6 +11,7 @@ import {
   type SyncResult,
 } from "../lib/usageSync";
 import { useLogs } from "./log";
+import { useAccount } from "./account";
 
 export type UsageSyncState = {
   status: AutoSyncStatus | null;
@@ -25,11 +26,13 @@ export type UsageSyncState = {
   setMode: (mode: "rows" | "summary") => Promise<void>;
 };
 
-export function useUsageSync(signedIn: boolean): UsageSyncState {
+export function useUsageSync(): UsageSyncState {
   const [status, setStatus] = useState<AutoSyncStatus | null>(null);
   const [projected, setProjected] = useState<ProjectedUsage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { profile } = useAccount();
+  const signedIn = !!profile;
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
   const { addLog } = useLogs();
 

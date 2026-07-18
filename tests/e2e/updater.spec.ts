@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("updater taskbar", () => {
-  test("shows detected update and starts one-click install", async ({ page }) => {
+  test("shows silent auto-update status indicator (no install CTA)", async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem("basebuild:first-run-complete", "true");
       Object.defineProperty(navigator, "platform", { get: () => "Win32" });
@@ -9,11 +9,12 @@ test.describe("updater taskbar", () => {
 
     await page.goto("/");
 
-    const updateButton = page.getByTitle("Download and install Basebuild 0.0.5");
-    await expect(updateButton).toBeVisible();
-    await expect(updateButton).toContainText("Update 0.0.5");
-
-    await updateButton.click();
-    await expect(updateButton).toContainText("Installing…");
+    // Silent auto-update: the taskbar shows a non-interactive status
+    // indicator, not an install button. The backend auto-installs.
+    const status = page.getByTitle(/Downloading Basebuild 0\.0\.5 in the background/);
+    // The status indicator shows "Updating" initially, then transitions to
+    // "Installing…" once the silent auto-install begins. Either is valid.
+    await expect(status).toContainText(/Updating 0\.0\.5|Installing…/);
+    await expect(status).toBeDisabled();
   });
 });

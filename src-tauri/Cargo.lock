@@ -285,6 +285,7 @@ dependencies = [
  "tokio",
  "toml 0.8.2",
  "urlencoding",
+ "uuid",
  "which",
  "windows-sys 0.61.2",
 ]

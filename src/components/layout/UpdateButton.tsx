@@ -13,16 +13,18 @@ export function UpdateButton({ updates, onOpenSettings }: UpdateButtonProps) {
 
   if (info?.available) {
     const versionLabel = info.version ? ` ${info.version}` : "";
+    // Silent auto-update: no install CTA. Show a calm status indicator only;
+    // the updater installs in the background via useUpdater's auto-install.
     return (
       <button
-        className="update-taskbar-btn"
+        className="update-taskbar-status"
         type="button"
-        title={`Download and install Basebuild${versionLabel}`}
-        onClick={() => void updates.install()}
-        disabled={installing}
+        title={`Downloading Basebuild${versionLabel} in the background — it will relaunch when ready`}
+        onClick={onOpenSettings}
+        disabled
       >
         <Download size={13} />
-        <span>{installing ? "Installing…" : `Update${versionLabel}`}</span>
+        <span>{installing ? "Installing…" : `Updating${versionLabel}`}</span>
       </button>
     );
   }
