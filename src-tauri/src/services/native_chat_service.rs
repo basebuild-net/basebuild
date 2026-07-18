@@ -16,7 +16,7 @@ use crate::{
             NativeToolApprovalRequest, NativeToolApprovalResult, NativeToolEvent,
             ResolvedChatModelDefault,
         },
-        omp_catalog,
+        model_catalog,
         permission::PermissionDecision,
         plan::Plan,
     },
@@ -1748,7 +1748,7 @@ impl NativeChatService {
     }
 
     /// Look up a model's `api_kind` and `base_url` from the cache for
-    /// provider routing. Falls back to the bundled OMP catalog if the
+    /// provider routing. Falls back to the bundled model catalog if the
     /// model is not in the cache or has no `api_kind` set.
     pub fn resolve_model_routing(provider_id: &str, model_id: &str) -> (String, String) {
         // Try the DB cache first.
@@ -1768,8 +1768,8 @@ impl NativeChatService {
                 }
             }
         }
-        // Fall back to the bundled OMP catalog.
-        if let Some(cm) = omp_catalog::models_for(provider_id)
+        // Fall back to the bundled model catalog.
+        if let Some(cm) = model_catalog::models_for(provider_id)
             .iter()
             .find(|m| m.id == model_id)
         {
@@ -2525,7 +2525,7 @@ static OMP_AGENT_DIR: std::sync::LazyLock<std::path::PathBuf> = std::sync::LazyL
     }
 });
 
-/// Map an OMP provider id to a Basebuild provider id. With the vendored OMP
+/// Map an OMP provider id to a Basebuild provider id. With the bundled model
 /// catalog, this is an identity mapping for all catalog providers, with one
 /// historical sentinel: `openai-codex` (ChatGPT OAuth) maps to `openai` so
 /// its credentials flow through the existing `OMP_CODEX_BASE_URL` routing.
@@ -2533,8 +2533,8 @@ fn omp_to_basebuild_provider(omp_id: &str) -> Option<String> {
     if omp_id == "openai-codex" {
         return Some("openai".to_string());
     }
-    // Identity mapping for all OMP catalog providers.
-    if omp_catalog::provider_ids().contains(&omp_id) {
+    // Identity mapping for all catalog providers.
+    if model_catalog::provider_ids().contains(&omp_id) {
         return Some(omp_id.to_string());
     }
     None

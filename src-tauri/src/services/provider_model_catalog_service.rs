@@ -13,7 +13,7 @@ use crate::{
             NativeEffortLevel, NativeModel, NativeProvider, NativeProviderCatalog,
             NativeProviderCredential,
         },
-        omp_catalog,
+        model_catalog,
     },
     services::{
         native_chat_service::NativeChatService, provider_client::OMP_CODEX_BASE_URL,
@@ -30,8 +30,8 @@ const CACHE_MAX_AGE_SECONDS: i64 = 24 * 60 * 60;
 static CATALOG_CACHE: LazyLock<RwLock<Option<NativeProviderCatalog>>> =
     LazyLock::new(|| RwLock::new(None));
 
-/// Provider-level metadata overlaid on the OMP catalog. OMP carries the
-/// model list and wire-protocol kind; Basebuild adds the auth/UI metadata.
+/// Provider-level metadata overlaid on the model catalog. The catalog carries
+/// the model list and wire-protocol kind; Basebuild adds the auth/UI metadata.
 struct ProviderOverlay {
     label: &'static str,
     credential_owner: &'static str,
@@ -42,7 +42,7 @@ struct ProviderOverlay {
     default_base_url: Option<&'static str>,
 }
 
-/// Resolved provider spec: OMP catalog presence + Basebuild overlay metadata.
+/// Resolved provider spec: catalog presence + Basebuild overlay metadata.
 #[derive(Clone)]
 struct ProviderSpec {
     id: String,
@@ -94,10 +94,10 @@ impl ProviderModelCatalogService {
             }
 
             // Stamp-mismatch check: if cached rows are bundled-source and
-            // their catalog version doesn't match the current vendored
+            // their catalog version doesn't match the current bundled
             // catalog, replace them with current bundled models. This
             // self-heals stale bundled rows without manual DB surgery.
-            let current_version = omp_catalog::CATALOG_VERSION.trim();
+            let current_version = model_catalog::CATALOG_VERSION.trim();
             let bundled_stale = provider_cached.iter().any(|item| {
                 item.model.source == "bundled"
                     && item.bundled_version.as_deref() != Some(current_version)
@@ -262,7 +262,7 @@ impl ProviderModelCatalogService {
         } else if is_bespoke_provider(&spec.id) {
             // Bespoke-protocol providers (devin-agent, cursor-agent, etc.)
             // are not OpenAI-compatible. Try `omp models` for live
-            // discovery; fall back to the bundled OMP catalog.
+            // discovery; fall back to the bundled catalog.
             match Self::discover_via_omp_cli(&spec.id) {
                 Ok(models) if !models.is_empty() => Ok(models),
                 _ => Ok(bundled_models(&spec.id)),
@@ -709,7 +709,7 @@ impl ProviderModelCatalogService {
         .map_err(|e| format!("Failed to clear model cache: {e}"))?;
         for model in models {
             let bundled_version = if source == "bundled" {
-                Some(omp_catalog::CATALOG_VERSION.trim().to_string())
+                Some(model_catalog::CATALOG_VERSION.trim().to_string())
             } else {
                 None
             };
@@ -967,7 +967,7 @@ fn overlay_for(provider_id: &str) -> Option<&'static ProviderOverlay> {
 fn provider_specs() -> Vec<ProviderSpec> {
     let mut specs = Vec::new();
 
-    // Synthetic local provider (not in the OMP catalog).
+    // Synthetic local provider (not in the model catalog).
     specs.push(ProviderSpec {
         id: LOCAL_PROVIDER_ID.to_string(),
         label: "None".to_string(),
@@ -979,12 +979,12 @@ fn provider_specs() -> Vec<ProviderSpec> {
         default_base_url: None,
     });
 
-    // All providers from the vendored OMP catalog, overlaid with Basebuild
+    // All providers from the bundled model catalog, overlaid with Basebuild
     // metadata where available. Providers without an overlay get generic
     // defaults derived from the catalog.
-    for pid in omp_catalog::provider_ids() {
+    for pid in model_catalog::provider_ids() {
         let overlay = overlay_for(pid);
-        let models = omp_catalog::models_for(pid);
+        let models = model_catalog::models_for(pid);
         let first_base_url = models.first().map(|m| m.base_url.as_str());
         let label = overlay
             .map(|o| o.label.to_string())
@@ -1052,7 +1052,7 @@ fn is_bespoke_api_kind(api_kind: &str) -> bool {
 /// the provider has no OpenAI/Anthropic-compatible endpoint and must be
 /// routed through OMP RPC at chat time).
 fn is_bespoke_provider(provider_id: &str) -> bool {
-    let models = omp_catalog::models_for(provider_id);
+    let models = model_catalog::models_for(provider_id);
     !models.is_empty() && models.iter().all(|m| is_bespoke_api_kind(&m.api_kind))
 }
 
@@ -1083,7 +1083,7 @@ fn bundled_models(provider_id: &str) -> Vec<NativeModel> {
         )],
         "custom" => Vec::new(),
         _ => {
-            let catalog_models = omp_catalog::models_for(provider_id);
+            let catalog_models = model_catalog::models_for(provider_id);
             catalog_models
                 .into_iter()
                 .map(|cm| bundled_from_catalog(provider_id, cm))
@@ -1092,11 +1092,11 @@ fn bundled_models(provider_id: &str) -> Vec<NativeModel> {
     }
 }
 
-/// Build a `NativeModel` from an OMP catalog entry, mapping catalog fields to
+/// Build a `NativeModel` from a catalog entry, mapping catalog fields to
 /// Basebuild's model schema. The `reasoning` flag drives effort support; the
 /// `input` array drives image support; `api` becomes `api_kind`; `baseUrl`
 /// becomes `base_url`; cost fields are carried through.
-fn bundled_from_catalog(provider_id: &str, cm: &omp_catalog::CatalogModel) -> NativeModel {
+fn bundled_from_catalog(provider_id: &str, cm: &model_catalog::CatalogModel) -> NativeModel {
     let supports_reasoning = cm.reasoning;
     let supports_images = cm.input.iter().any(|m| m == "image");
     let supported_efforts = if supports_reasoning {
@@ -1279,10 +1279,10 @@ mod tests {
 
     #[test]
     fn bundled_devin_models_match_catalog() {
-        // The bundled devin models should come from the OMP catalog and
+        // The bundled devin models should come from the model catalog and
         // include swe-1-6 and glm-5-2 (the stale `devin-2.0` row is gone).
-        // The bundled catalog auto-refreshes (upstream OMP + basebuild
-        // overlay), so assert a floor, never an exact count.
+        // The bundled catalog can refresh from basebuild.net, so assert a
+        // floor, never an exact count.
         let models = bundled_models("devin");
         assert!(models.len() >= 48, "devin should have >= 48 bundled models");
         let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
@@ -1318,7 +1318,7 @@ mod tests {
         // stamp-mismatch detection. This is tested via replace_provider_cache
         // writing the stamp; here we verify the version is non-empty.
         assert!(
-            !omp_catalog::CATALOG_VERSION.trim().is_empty(),
+            !model_catalog::CATALOG_VERSION.trim().is_empty(),
             "catalog version should be stamped"
         );
     }
@@ -1343,11 +1343,11 @@ mod tests {
     fn provider_specs_includes_all_catalog_providers() {
         let specs = provider_specs();
         let spec_ids: Vec<&str> = specs.iter().map(|s| s.id.as_str()).collect();
-        // Should include all OMP catalog providers plus local and custom.
-        for pid in omp_catalog::provider_ids() {
+        // Should include all catalog providers plus local and custom.
+        for pid in model_catalog::provider_ids() {
             assert!(
                 spec_ids.contains(&pid),
-                "provider {pid} from OMP catalog should be in provider_specs"
+                "provider {pid} from catalog should be in provider_specs"
             );
         }
         assert!(

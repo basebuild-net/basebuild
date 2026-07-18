@@ -1,28 +1,33 @@
-//! Vendored OMP (Oh My Pi) model catalog.
+//! First-party Basebuild model catalog.
 //!
 //! `models.json` is embedded at compile time via `include_str!` and parsed
-//! once into a `LazyLock`. It is the source of truth for bundled provider and
-//! model definitions, replacing the hand-transcribed tables that previously
-//! lived in `provider_model_catalog_service.rs`.
+//! once into a `LazyLock`. It is the source of truth for Basebuild's bundled
+//! provider and model definitions, replacing the hand-transcribed tables that
+//! previously lived in `provider_model_catalog_service.rs`.
+//!
+//! At runtime the bundled data can be refreshed from `basebuild.net` via
+//! `catalog_sync_service`; this file is the offline default that ships with the
+//! app. The seed data was originally sourced from OhMyPi's catalog (MIT) — see
+//! `catalog/README.md` for attribution.
 //!
 //! The catalog is a map of provider id → (model id → model entry). Each entry
 //! carries the wire-protocol kind (`api`), base URL, context window, max
 //! tokens, reasoning flag, input modalities, and cost. Basebuild overlays
-//! provider-level metadata (label, auth method, API-key URL) that OMP does not
-//! carry — see `provider_overlays()` in `provider_model_catalog_service`.
+//! provider-level metadata (label, auth method, API-key URL) that the catalog
+//! does not carry — see `provider_overlays()` in `provider_model_catalog_service`.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
 
-/// The content-hash version stamp of the vendored catalog (from `VERSION`),
+/// The content-hash version stamp of the bundled catalog (from `VERSION`),
 /// used by cache-invalidation logic to detect stale bundled rows.
-pub const CATALOG_VERSION: &str = include_str!("../../vendor/omp-catalog/VERSION");
+pub const CATALOG_VERSION: &str = include_str!("../../catalog/VERSION");
 
-const CATALOG_JSON: &str = include_str!("../../vendor/omp-catalog/models.json");
+const CATALOG_JSON: &str = include_str!("../../catalog/models.json");
 
-/// A single model entry in the OMP catalog.
+/// A single model entry in the catalog.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogModel {
     pub id: String,
@@ -47,7 +52,7 @@ pub struct CatalogModel {
     pub max_tokens: Option<i64>,
 }
 
-/// Cost fields from the OMP catalog (per-token rates).
+/// Cost fields from the catalog (per-token rates).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CatalogCost {
     #[serde(default)]
@@ -64,9 +69,9 @@ pub struct CatalogCost {
 pub static CATALOG: LazyLock<HashMap<String, HashMap<String, CatalogModel>>> =
     LazyLock::new(|| {
         serde_json::from_str(CATALOG_JSON).unwrap_or_else(|e| {
-            // A corrupt vendored catalog is a build-time bug, not a runtime
+            // A corrupt bundled catalog is a build-time bug, not a runtime
             // condition. Panic at first use so the developer fixes the file.
-            panic!("Failed to parse vendored OMP catalog: {e}")
+            panic!("Failed to parse bundled model catalog: {e}")
         })
     });
 

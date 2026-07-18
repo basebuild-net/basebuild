@@ -1,20 +1,20 @@
 #!/usr/bin/env node
-// Refreshes the bundled model catalog (src-tauri/vendor/omp-catalog/models.json):
+// Refreshes Basebuild's first-party model catalog (src-tauri/catalog/models.json):
 //
-//   1. Pulls the upstream OMP catalog (baseline: providers, models, wire
-//      protocol kinds, base URLs, costs).
+//   1. Pulls OhMyPi's catalog (baseline: providers, models, wire protocol
+//      kinds, base URLs, costs).
 //   2. Overlays the basebuild.net desktop catalog (GET /api/catalog/desktop)
-//      so models that launched upstream of OMP — or that only basebuild
+//      so models that launched upstream of OhMyPi — or that only basebuild
 //      tracks — are present in the bundled file with enough information to
 //      connect (provider slug, model API id, wire kind, base URL).
 //   3. Writes a deterministic serialization and stamps a content-hash VERSION
 //      used by the cache-invalidation logic in provider_model_catalog_service.
 //
-// The basebuild overlay is fail-soft: if basebuild.net is unreachable the OMP
-// baseline still updates. Overlay entries are additive only — they never
-// overwrite an existing OMP entry.
+// The basebuild overlay is fail-soft: if basebuild.net is unreachable the
+// OhMyPi baseline still updates. Overlay entries are additive only — they never
+// overwrite an existing OhMyPi entry (preserving its cost/metadata).
 //
-// Usage: node scripts/update-omp-catalog.mjs
+// Usage: node scripts/update-model-catalog.mjs
 // Env:   BASEBUILD_CATALOG_URL overrides https://basebuild.net (dev/testing).
 
 import { createHash } from "node:crypto";
@@ -23,10 +23,10 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const VENDOR_DIR = resolve(__dirname, "../src-tauri/vendor/omp-catalog");
-const CATALOG_URL =
+const CATALOG_DIR = resolve(__dirname, "../src-tauri/catalog");
+const OHMYPI_CATALOG_URL =
   "https://raw.githubusercontent.com/can1357/oh-my-pi/refs/heads/main/packages/catalog/src/models.json";
-const LICENSE_URL =
+const OHMYPI_LICENSE_URL =
   "https://raw.githubusercontent.com/can1357/oh-my-pi/refs/heads/main/LICENSE";
 const BASEBUILD_BASE_URL = (
   process.env.BASEBUILD_CATALOG_URL || "https://basebuild.net"
@@ -66,7 +66,7 @@ function modalValue(models, field) {
 }
 
 /**
- * Overlay basebuild.net's desktop catalog onto the OMP baseline. Adds only
+ * Overlay basebuild.net's desktop catalog onto the OhMyPi baseline. Adds only
  * models that are missing AND connectable (wire kind + base URL known).
  * Mutates `catalog`; returns { providersAdded, modelsAdded, skipped }.
  */
@@ -132,8 +132,8 @@ function overlayBasebuildCatalog(catalog, desktop) {
 }
 
 async function main() {
-  console.log("Fetching OMP catalog from upstream...");
-  const catalog = await fetchJson(CATALOG_URL);
+  console.log("Fetching OhMyPi catalog from upstream...");
+  const catalog = await fetchJson(OHMYPI_CATALOG_URL);
   const providerCount = Object.keys(catalog).length;
   let modelCount = 0;
   for (const models of Object.values(catalog)) {
@@ -158,7 +158,7 @@ async function main() {
       );
     }
   } catch (err) {
-    // Fail-soft: the OMP baseline update must still land.
+    // Fail-soft: the OhMyPi baseline update must still land.
     console.warn(`  warning: basebuild overlay skipped (${err.message})`);
   }
 
@@ -170,16 +170,16 @@ async function main() {
   const version = createHash("sha256").update(catalogText).digest("hex").slice(0, 16);
   console.log(`  catalog version: ${version}`);
 
-  await mkdir(VENDOR_DIR, { recursive: true });
-  await writeFile(resolve(VENDOR_DIR, "models.json"), catalogText, "utf8");
-  await writeFile(resolve(VENDOR_DIR, "VERSION"), version + "\n", "utf8");
+  await mkdir(CATALOG_DIR, { recursive: true });
+  await writeFile(resolve(CATALOG_DIR, "models.json"), catalogText, "utf8");
+  await writeFile(resolve(CATALOG_DIR, "VERSION"), version + "\n", "utf8");
 
-  console.log("Fetching OMP license...");
-  const licenseResponse = await fetch(LICENSE_URL);
+  console.log("Fetching OhMyPi attribution license...");
+  const licenseResponse = await fetch(OHMYPI_LICENSE_URL);
   if (licenseResponse.ok) {
-    await writeFile(resolve(VENDOR_DIR, "LICENSE.md"), await licenseResponse.text(), "utf8");
+    await writeFile(resolve(CATALOG_DIR, "LICENSE.md"), await licenseResponse.text(), "utf8");
   } else {
-    console.warn(`  warning: could not fetch license (${licenseResponse.status})`);
+    console.warn(`  warning: could not fetch OhMyPi license (${licenseResponse.status})`);
   }
 
   console.log("Done. Review the diff before committing.");
