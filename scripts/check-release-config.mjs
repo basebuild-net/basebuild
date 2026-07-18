@@ -12,6 +12,7 @@ import { dirname, resolve } from "node:path";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const confPath = resolve(root, "src-tauri/tauri.conf.json");
+const workflowPath = resolve(root, ".github/workflows/windows.yml");
 
 let conf;
 try {
@@ -125,6 +126,43 @@ if (!existsSync(macConfPath)) {
     }
   } catch (e) {
     errors.push(`Cannot read ${macConfPath}: ${e.message}`);
+  }
+}
+
+// 6. Empty Apple secret expressions must not reach tauri-action. Tauri treats
+//    an empty APPLE_TEAM_ID as a notarization request and fails ad-hoc builds.
+let workflow;
+try {
+  workflow = readFileSync(workflowPath, "utf8");
+} catch (e) {
+  errors.push(`Cannot read ${workflowPath}: ${e.message}`);
+}
+
+if (workflow) {
+  const buildStep = workflow.match(
+    /- name: Build Tauri app and update draft release[\s\S]*?(?=\n {6}- name:)/,
+  )?.[0];
+  if (!buildStep) {
+    errors.push("Release workflow must contain the Tauri release build step.");
+  } else {
+    for (const variable of ["APPLE_ID", "APPLE_PASSWORD", "APPLE_TEAM_ID"]) {
+      if (new RegExp(`^\\s+${variable}:`, "m").test(buildStep)) {
+        errors.push(
+          `${variable} must be exported conditionally by the macOS signing step, not passed directly to tauri-action.`,
+        );
+      }
+    }
+  }
+
+  for (const [variable, source] of [
+    ["APPLE_SIGNING_IDENTITY", "identity"],
+    ["APPLE_ID", "APPLE_ID"],
+    ["APPLE_PASSWORD", "APPLE_PASSWORD"],
+    ["APPLE_TEAM_ID", "APPLE_TEAM_ID"],
+  ]) {
+    if (!workflow.includes(`echo "${variable}=$${source}" >> "$GITHUB_ENV"`)) {
+      errors.push(`macOS signing step must export ${variable} through GITHUB_ENV.`);
+    }
   }
 }
 

@@ -193,14 +193,18 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         shell: bash
         run: |
           if [ -z "$APPLE_CERTIFICATE" ]; then
             echo "::notice::No Apple certificate configured; using the ad-hoc identity from tauri.conf.json."
             exit 0
           fi
-          if [ -z "$APPLE_CERTIFICATE_PASSWORD" ] || [ -z "$KEYCHAIN_PASSWORD" ]; then
-            echo "::error::APPLE_CERTIFICATE requires APPLE_CERTIFICATE_PASSWORD and KEYCHAIN_PASSWORD."
+          if [ -z "$APPLE_CERTIFICATE_PASSWORD" ] || [ -z "$KEYCHAIN_PASSWORD" ] || \
+             [ -z "$APPLE_ID" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            echo "::error::APPLE_CERTIFICATE requires certificate, keychain, and Apple notarization credentials."
             exit 1
           fi
           certificate_path="$RUNNER_TEMP/basebuild-release.p12"
@@ -217,6 +221,9 @@ jobs:
             exit 1
           fi
           echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "APPLE_ID=$APPLE_ID" >> "$GITHUB_ENV"
+          echo "APPLE_PASSWORD=$APPLE_PASSWORD" >> "$GITHUB_ENV"
+          echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
           rm -f "$certificate_path"
 
       - name: Install Tauri Linux dependencies
@@ -279,9 +286,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: v${{ inputs.version }}
           releaseName: Basebuild v${{ inputs.version }}
