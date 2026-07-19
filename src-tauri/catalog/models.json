@@ -116551,6 +116551,27 @@
 			"contextWindow": 262000,
 			"maxTokens": 262000
 		},
+		"moonshot/kimi-k3": {
+			"id": "moonshot/kimi-k3",
+			"name": "Kimi K3",
+			"api": "openai-completions",
+			"provider": "crossmodel",
+			"baseUrl": "https://api.crossmodel.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 1048576
+		},
 		"xiaomi/mimo-v2.5": {
 			"id": "xiaomi/mimo-v2.5",
 			"name": "MiMo-V2.5",
