@@ -228,7 +228,9 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--background"]),
         ));
-    #[cfg(desktop)]
+    // Release-only: a dev build must never hand off to an installed instance
+    // and exit silently — that makes `tauri dev` appear to "show no changes".
+    #[cfg(all(desktop, not(debug_assertions)))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
         use tauri::Manager;
         if let Some(window) = app.get_webview_window("main") {
