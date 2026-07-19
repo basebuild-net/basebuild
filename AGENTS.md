@@ -7,16 +7,23 @@ violates a Mandatory Invariant is rejected regardless of feature quality.
 
 ## Architecture posture
 
-Basebuild is **native-first**: the chat system is an in-house Rust agent loop
+Basebuild is **native-first**: every feature must work natively, with no
+external CLI required. The chat system is an in-house Rust agent loop
 (`agent_loop_service.rs`) that handles provider streaming, tool calling,
-approval gates, and ask_user interactions directly. No external CLI process is
-required for the primary chat experience. All providers (OpenAI, Anthropic,
-Devin, GLM-5.2, etc.) route through this native loop.
+approval gates, and ask_user interactions directly. All providers (OpenAI,
+Anthropic, Devin, GLM-5.2, etc.) route through this native loop. Provider
+authentication is native too: OAuth flows (for example the OpenAI Codex
+authorization-code + PKCE browser flow with a localhost callback in
+`provider_login_service.rs`) are owned end to end by Basebuild, and tokens
+live in Basebuild's local database.
 
-OhMyPi (OMP) is a **supported tool**, not the chat transport. OMP may be used
-as a terminal panel, a plan runner, and an optional chat profile for users who
-want OMP's own tool ecosystem, but it is never the default or required path
-for chat. The native agent loop is the default and preferred runtime.
+OhMyPi (OMP) is **additive**, never a dependency. OMP may enhance the
+experience where installed (terminal panel, plan runner, optional chat
+profile, credential import, last-resort sign-in fallback), but no core
+feature may require OMP to function, and no primary code path may route
+through OMP when a native implementation exists. When designing a feature,
+build the native path first; wire OMP in only as an optional enhancement or
+fallback behind it.
 
 OpenSpec is the **primary planner**. Plan statuses, roadmap tracking, and
 change archives all flow through OpenSpec. Basebuild may develop its own

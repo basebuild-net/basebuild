@@ -1,11 +1,17 @@
 //! Provider OAuth for Basebuild-native OpenAI Codex and OMP-backed providers.
 //!
-//! OpenAI subscription tokens are stored in Basebuild's local SQLite database.
-//! Other provider flows use OMP's structured RPC protocol and remain owned by
-//! OMP. No credential is copied through the webview or written to logs.
+//! OpenAI Codex sign-in is NATIVE-FIRST: the primary flow is the standard
+//! authorization-code + PKCE browser flow with a localhost callback, owned
+//! entirely by Basebuild; the device-code flow is the native fallback when
+//! the callback port is unavailable. Oh My Pi is ADDITIVE — it is only used
+//! as a last resort (and for providers whose OAuth it owns), never as a
+//! dependency of the native path. Subscription tokens are stored in
+//! Basebuild's local SQLite database. No credential is copied through the
+//! webview or written to logs.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
+use std::net::{TcpListener, TcpStream};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -32,6 +38,11 @@ const OPENAI_DEVICE_USERCODE_URL: &str = "https://auth.openai.com/api/accounts/d
 const OPENAI_DEVICE_TOKEN_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/token";
 const OPENAI_DEVICE_AUTH_URL: &str = "https://auth.openai.com/codex/device";
 const OPENAI_DEVICE_REDIRECT_URI: &str = "https://auth.openai.com/deviceauth/callback";
+const OPENAI_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
+/// Registered redirect URI for the Codex OAuth client — the port is fixed.
+const OPENAI_BROWSER_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
+const OPENAI_BROWSER_CALLBACK_ADDR: &str = "127.0.0.1:1455";
+const OPENAI_BROWSER_SCOPE: &str = "openid profile email offline_access";
 const OPENAI_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const OPENAI_OAUTH_STORAGE_KEY: &str = "provider_oauth:openai-codex";
 const TOKEN_REFRESH_SKEW_MS: i64 = 60_000;
@@ -108,28 +119,7 @@ impl ProviderLoginService {
 
         thread::spawn(move || {
             if provider == OPENAI_CODEX_PROVIDER_ID {
-                match run_openai_device_login(state.clone(), cancelled.clone()) {
-                    DeviceLoginOutcome::Finished => {}
-                    // The ChatGPT account has device code authorization
-                    // disabled. OMP signs in through the standard browser
-                    // OAuth flow (localhost callback), which needs no
-                    // account setting — fall back to it when available.
-                    DeviceLoginOutcome::DeviceAuthDisabled { detail } => {
-                        if crate::services::provider_client::omp_available() {
-                            update_state(
-                                &state,
-                                "waiting",
-                                "Device code sign-in is disabled for this ChatGPT \
-                                 account. Switching to browser sign-in through Oh \
-                                 My Pi…",
-                                None,
-                            );
-                            run_omp_login(provider, state, pending_request_id, input_rx, cancelled);
-                        } else {
-                            fail(&state, device_auth_disabled_message(detail));
-                        }
-                    }
-                }
+                run_openai_native_login(state, pending_request_id, input_rx, cancelled);
             } else {
                 run_omp_login(provider, state, pending_request_id, input_rx, cancelled);
             }
@@ -316,13 +306,17 @@ fn parse_openai_token(value: &Value) -> Result<OpenAiOAuthToken, String> {
     })
 }
 
-fn exchange_openai_code(code: &str, verifier: &str) -> Result<OpenAiOAuthToken, String> {
+fn exchange_openai_code(
+    code: &str,
+    verifier: &str,
+    redirect_uri: &str,
+) -> Result<OpenAiOAuthToken, String> {
     let response = oauth_http_client()?
         .post(OPENAI_TOKEN_URL)
         .form(&[
             ("grant_type", "authorization_code"),
             ("code", code),
-            ("redirect_uri", OPENAI_DEVICE_REDIRECT_URI),
+            ("redirect_uri", redirect_uri),
             ("client_id", OPENAI_CLIENT_ID),
             ("code_verifier", verifier),
         ])
@@ -364,6 +358,258 @@ fn refresh_openai_token(refresh_token: &str) -> Result<OpenAiOAuthToken, String>
         token.refresh_token = refresh_token.to_string();
     }
     Ok(token)
+}
+
+/// How the native browser OAuth flow ended. `Finished` means the flow wrote
+/// its own terminal state; `Unavailable` means it never started (callback
+/// port busy or listener setup failed) and the caller should try the native
+/// device-code flow instead.
+enum BrowserLoginOutcome {
+    Finished,
+    Unavailable { reason: String },
+}
+
+/// Native OpenAI Codex sign-in chain. Every step is Basebuild-owned:
+/// 1. Browser authorization-code + PKCE flow with a localhost callback
+///    (no ChatGPT account setting required).
+/// 2. Device-code flow if the callback port is unavailable.
+/// 3. Only as a last, additive resort — when the device flow is rejected
+///    because the account disables device code authorization — delegate to
+///    Oh My Pi if it happens to be installed.
+fn run_openai_native_login(
+    state: Arc<Mutex<NativeProviderLoginState>>,
+    pending_request_id: Arc<Mutex<Option<String>>>,
+    input_rx: Receiver<LoginInput>,
+    cancelled: Arc<AtomicBool>,
+) {
+    match run_openai_browser_login(state.clone(), cancelled.clone()) {
+        BrowserLoginOutcome::Finished => return,
+        BrowserLoginOutcome::Unavailable { reason } => {
+            update_state(
+                &state,
+                "waiting",
+                format!("Browser sign-in unavailable ({reason}). Trying device code sign-in…"),
+                None,
+            );
+        }
+    }
+    match run_openai_device_login(state.clone(), cancelled.clone()) {
+        DeviceLoginOutcome::Finished => {}
+        DeviceLoginOutcome::DeviceAuthDisabled { detail } => {
+            if crate::services::provider_client::omp_available() {
+                update_state(
+                    &state,
+                    "waiting",
+                    "Device code sign-in is disabled for this ChatGPT account. \
+                     Switching to browser sign-in through Oh My Pi…",
+                    None,
+                );
+                run_omp_login(
+                    OPENAI_CODEX_PROVIDER_ID.to_string(),
+                    state,
+                    pending_request_id,
+                    input_rx,
+                    cancelled,
+                );
+            } else {
+                fail(&state, device_auth_disabled_message(detail));
+            }
+        }
+    }
+}
+
+fn run_openai_browser_login(
+    state: Arc<Mutex<NativeProviderLoginState>>,
+    cancelled: Arc<AtomicBool>,
+) -> BrowserLoginOutcome {
+    // The redirect URI registered for the Codex client id pins the port, so
+    // bind BEFORE opening the browser: a busy port degrades to the device
+    // flow instead of sending the user to a dead callback.
+    let listener = match TcpListener::bind(OPENAI_BROWSER_CALLBACK_ADDR) {
+        Ok(listener) => listener,
+        Err(error) => {
+            return BrowserLoginOutcome::Unavailable {
+                reason: format!("callback port 1455 is busy: {error}"),
+            }
+        }
+    };
+    if let Err(error) = listener.set_nonblocking(true) {
+        return BrowserLoginOutcome::Unavailable {
+            reason: format!("callback listener setup failed: {error}"),
+        };
+    }
+
+    let (pkce_challenge, pkce_verifier) = oauth2::PkceCodeChallenge::new_random_sha256();
+    let csrf_state = uuid::Uuid::new_v4().simple().to_string();
+    let auth_url = format!(
+        "{OPENAI_AUTHORIZE_URL}?response_type=code&client_id={OPENAI_CLIENT_ID}\
+         &redirect_uri={redirect}&scope={scope}&code_challenge={challenge}\
+         &code_challenge_method=S256&state={csrf_state}\
+         &id_token_add_organizations=true&codex_cli_simplified_flow=true\
+         &originator=basebuild",
+        redirect = urlencoding::encode(OPENAI_BROWSER_REDIRECT_URI),
+        scope = urlencoding::encode(OPENAI_BROWSER_SCOPE),
+        challenge = pkce_challenge.as_str(),
+    );
+    if let Err(error) = open::that(&auth_url) {
+        fail(
+            &state,
+            format!("Could not open the OpenAI sign-in page: {error}"),
+        );
+        return BrowserLoginOutcome::Finished;
+    }
+    update_state(
+        &state,
+        "waiting_browser",
+        "Complete the OpenAI sign-in in the browser tab that just opened.",
+        None,
+    );
+
+    let deadline = Instant::now() + LOGIN_TIMEOUT;
+    let code = loop {
+        if cancelled.load(Ordering::SeqCst) {
+            return BrowserLoginOutcome::Finished;
+        }
+        if Instant::now() >= deadline {
+            fail(&state, "OpenAI sign-in timed out.");
+            return BrowserLoginOutcome::Finished;
+        }
+        match listener.accept() {
+            Ok((stream, _)) => match handle_callback_request(stream, &csrf_state) {
+                CallbackResult::Code(code) => break code,
+                CallbackResult::Denied(reason) => {
+                    fail(&state, reason);
+                    return BrowserLoginOutcome::Finished;
+                }
+                CallbackResult::Ignored => {}
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(150));
+            }
+            Err(_) => thread::sleep(Duration::from_millis(150)),
+        }
+    };
+
+    update_state(&state, "waiting", "Completing OpenAI sign-in…", None);
+    match exchange_openai_code(&code, pkce_verifier.secret(), OPENAI_BROWSER_REDIRECT_URI)
+        .and_then(|token| save_openai_token(&token))
+    {
+        Ok(()) => {
+            ProviderModelCatalogService::invalidate();
+            let mut current = state.lock();
+            current.status = "complete".to_string();
+            current.message = "OpenAI subscription connected.".to_string();
+            current.prompt = None;
+            current.complete = true;
+            current.error = None;
+        }
+        Err(error) => fail(&state, error),
+    }
+    BrowserLoginOutcome::Finished
+}
+
+enum CallbackResult {
+    Code(String),
+    Denied(String),
+    Ignored,
+}
+
+/// Serve one connection on the callback listener. Only `/auth/callback` is
+/// meaningful; anything else (favicon probes, port scans) gets a 404 and is
+/// ignored. The response page never contains the authorization code.
+fn handle_callback_request(stream: TcpStream, expected_state: &str) -> CallbackResult {
+    let _ = stream.set_nonblocking(false);
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+    let Ok(reader_stream) = stream.try_clone() else {
+        return CallbackResult::Ignored;
+    };
+    let mut request_line = String::new();
+    if BufReader::new(reader_stream)
+        .read_line(&mut request_line)
+        .is_err()
+    {
+        return CallbackResult::Ignored;
+    }
+    // "GET /auth/callback?code=…&state=… HTTP/1.1"
+    let Some(target) = request_line.split_whitespace().nth(1) else {
+        respond(&stream, "400 Bad Request", "Bad request.");
+        return CallbackResult::Ignored;
+    };
+    let result = parse_callback_target(target, expected_state);
+    match &result {
+        CallbackResult::Code(_) => respond(
+            &stream,
+            "200 OK",
+            "You are signed in. You can close this tab and return to Basebuild.",
+        ),
+        CallbackResult::Denied(_) => respond(
+            &stream,
+            "200 OK",
+            "Sign-in was not completed. Return to Basebuild for details.",
+        ),
+        CallbackResult::Ignored => respond(&stream, "404 Not Found", "Not found."),
+    }
+    result
+}
+
+/// Parse the request target of a callback hit. Pure so it is unit-testable
+/// without sockets. Enforces the CSRF `state` round-trip.
+fn parse_callback_target(target: &str, expected_state: &str) -> CallbackResult {
+    let (path, query) = match target.split_once('?') {
+        Some((path, query)) => (path, query),
+        None => (target, ""),
+    };
+    if path != "/auth/callback" {
+        return CallbackResult::Ignored;
+    }
+    let mut code = None;
+    let mut state_param = None;
+    let mut error = None;
+    let mut error_description = None;
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        let Ok(value) = urlencoding::decode(value) else {
+            continue;
+        };
+        match key {
+            "code" => code = Some(value.into_owned()),
+            "state" => state_param = Some(value.into_owned()),
+            "error" => error = Some(value.into_owned()),
+            "error_description" => error_description = Some(value.into_owned()),
+            _ => {}
+        }
+    }
+    if let Some(error) = error {
+        return CallbackResult::Denied(format!(
+            "OpenAI sign-in was denied: {}.",
+            error_description.unwrap_or(error)
+        ));
+    }
+    if state_param.as_deref() != Some(expected_state) {
+        return CallbackResult::Denied(
+            "OpenAI sign-in failed: the callback state did not match (possible CSRF). \
+             Click Sign in to try again."
+                .to_string(),
+        );
+    }
+    match code.filter(|code| !code.is_empty()) {
+        Some(code) => CallbackResult::Code(code),
+        None => CallbackResult::Denied("OpenAI returned no authorization code.".to_string()),
+    }
+}
+
+fn respond(mut stream: &TcpStream, status: &str, body: &str) {
+    let page = format!(
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Basebuild</title></head>\
+         <body style=\"font-family:sans-serif;margin:48px\"><h2>{body}</h2></body></html>"
+    );
+    let _ = write!(
+        stream,
+        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}",
+        page.len()
+    );
+    let _ = stream.flush();
 }
 
 /// How the native OpenAI device-code flow ended. `Finished` means the flow
@@ -538,7 +784,9 @@ fn run_openai_device_login(
             return DeviceLoginOutcome::Finished;
         };
         update_state(&state, "waiting", "Completing OpenAI sign-in…", None);
-        match exchange_openai_code(code, verifier).and_then(|token| save_openai_token(&token)) {
+        match exchange_openai_code(code, verifier, OPENAI_DEVICE_REDIRECT_URI)
+            .and_then(|token| save_openai_token(&token))
+        {
             Ok(()) => {
                 ProviderModelCatalogService::invalidate();
                 let mut current = state.lock();
@@ -798,5 +1046,74 @@ mod tests {
         let bare = device_auth_disabled_message(None);
         assert!(bare.contains("Settings"));
         assert!(!bare.contains("()"));
+    }
+
+    #[test]
+    fn callback_request_round_trip_over_socket() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
+        let addr = listener.local_addr().expect("local addr");
+        let client = thread::spawn(move || {
+            use std::io::Read;
+            let mut stream = TcpStream::connect(addr).expect("connect");
+            write!(
+                stream,
+                "GET /auth/callback?code=xyz&state=s1 HTTP/1.1\r\nHost: localhost\r\n\r\n"
+            )
+            .expect("send request");
+            let mut response = String::new();
+            stream.read_to_string(&mut response).expect("read response");
+            response
+        });
+        let (stream, _) = listener.accept().expect("accept");
+        let result = handle_callback_request(stream, "s1");
+        let response = client.join().expect("client thread");
+        assert!(matches!(result, CallbackResult::Code(code) if code == "xyz"));
+        assert!(response.starts_with("HTTP/1.1 200"));
+        assert!(
+            !response.contains("xyz"),
+            "authorization code must not echo into the response page"
+        );
+    }
+
+    #[test]
+    fn callback_target_accepts_matching_state_and_code() {
+        let result = parse_callback_target("/auth/callback?code=abc123&state=expected", "expected");
+        match result {
+            CallbackResult::Code(code) => assert_eq!(code, "abc123"),
+            _ => panic!("expected code"),
+        }
+    }
+
+    #[test]
+    fn callback_target_rejects_state_mismatch() {
+        let result = parse_callback_target("/auth/callback?code=abc&state=forged", "expected");
+        match result {
+            CallbackResult::Denied(reason) => assert!(reason.contains("state")),
+            _ => panic!("expected denial"),
+        }
+    }
+
+    #[test]
+    fn callback_target_surfaces_provider_error() {
+        let result = parse_callback_target(
+            "/auth/callback?error=access_denied&error_description=User%20cancelled&state=expected",
+            "expected",
+        );
+        match result {
+            CallbackResult::Denied(reason) => assert!(reason.contains("User cancelled")),
+            _ => panic!("expected denial"),
+        }
+    }
+
+    #[test]
+    fn callback_target_ignores_unrelated_paths() {
+        assert!(matches!(
+            parse_callback_target("/favicon.ico", "expected"),
+            CallbackResult::Ignored
+        ));
+        assert!(matches!(
+            parse_callback_target("/auth/callback?state=expected", "expected"),
+            CallbackResult::Denied(_)
+        ));
     }
 }

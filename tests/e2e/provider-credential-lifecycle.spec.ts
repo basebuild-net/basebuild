@@ -87,7 +87,7 @@ test.describe("Provider credential lifecycle", () => {
       has: page.getByRole("button", { name: "Sign in to OpenAI Codex" }),
     });
     await expect(loginModal).toBeVisible({ timeout: 3_000 });
-    await expect(loginModal.getByText("Sign in natively with your ChatGPT subscription")).toBeVisible();
+    await expect(loginModal.getByText("completes the OAuth flow natively")).toBeVisible();
     await expect(loginModal.locator("input[type='password']")).toHaveCount(0);
     await loginModal.getByRole("button", { name: "Sign in to OpenAI Codex" }).click();
     await expect(loginModal).not.toBeVisible({ timeout: 5_000 });

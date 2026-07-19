@@ -2095,7 +2095,7 @@ function ModelProvidersPanel() {
                           <div className="stack-sm">
                             <p className="text-muted text-sm">
                               {provider.id === "openai-codex"
-                                ? "Sign in natively with your ChatGPT subscription. Basebuild stores the OAuth token only in its local database and refreshes it before requests. If device sign-in is disabled for your account, Basebuild falls back to browser sign-in through Oh My Pi."
+                                ? "Sign in natively with your ChatGPT subscription. Basebuild opens your browser, completes the OAuth flow itself, and stores the token only in its local database, refreshing it before requests."
                                 : "Sign in with your provider subscription through Oh My Pi. Credentials remain owned and refreshed by Oh My Pi."}
                             </p>
                             <div className="row gap-sm">
