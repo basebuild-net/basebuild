@@ -105,13 +105,16 @@ commit.
    signing secrets are configured.
 2. In GitHub Actions, dispatch **CI / Release** with an unpublished semantic
    version such as `0.0.7`.
-3. After frontend, Rust, and e2e checks pass, the serial release matrix builds
-   Windows x64, Linux x64, then universal macOS. Serial execution prevents
-   concurrent `latest.json` updates from dropping a platform.
-4. The final `verify-release` job requires every public artifact, at least one
+3. After frontend, Rust, and e2e checks pass, `prepare-release` creates one
+   draft. Windows x64, Linux x64, and universal macOS then build and upload
+   distinct assets concurrently.
+4. After all three builds succeed, `generate-updater-manifest` writes one
+   complete `latest.json`. This avoids concurrent manifest writers dropping a
+   platform.
+5. The final `verify-release` job requires every public artifact, at least one
    updater signature per OS, and `windows-x86_64`, `linux-x86_64`,
    `darwin-aarch64`, and `darwin-x86_64` manifest entries.
-5. Review generated notes and assets in the GitHub draft. Publish only after
+6. Review generated notes and assets in the GitHub draft. Publish only after
    the verifier passes. Then check the
    [`latest.json`](https://github.com/basebuild-net/basebuild/releases/latest/download/latest.json)
    endpoint and one platform install command from the README.
