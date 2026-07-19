@@ -2,6 +2,10 @@ import { useEffect, useState, useCallback } from "react";
 
 const STORAGE_KEY = "basebuild:first-run-complete";
 
+export function parseFirstRunCompletion(value: string | null): boolean {
+  return value === "true" || value === "skipped";
+}
+
 export type FirstRunState = {
   completed: boolean;
   loading: boolean;
@@ -15,8 +19,7 @@ export function useFirstRun(): FirstRunState {
 
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      setCompleted(stored === "true");
+      setCompleted(parseFirstRunCompletion(localStorage.getItem(STORAGE_KEY)));
     } catch {
       setCompleted(false);
     } finally {
@@ -24,17 +27,17 @@ export function useFirstRun(): FirstRunState {
     }
   }, []);
 
-  const complete = useCallback(() => {
-    localStorage.setItem(STORAGE_KEY, "true");
+  const persistCompletion = useCallback(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, "true");
+    } catch {
+      // Storage can be unavailable; completion still holds for this session.
+    }
     setCompleted(true);
   }, []);
 
-  const skip = useCallback(() => {
-    // Skip uses conservative defaults — same as complete but marks that the user
-    // didn't explicitly configure anything
-    localStorage.setItem(STORAGE_KEY, "skipped");
-    setCompleted(true);
-  }, []);
+  const complete = persistCompletion;
+  const skip = persistCompletion;
 
   return { completed, loading, complete, skip };
 }

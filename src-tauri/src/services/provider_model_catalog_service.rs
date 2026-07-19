@@ -810,14 +810,26 @@ fn provider_overlays() -> &'static [(&'static str, ProviderOverlay)] {
             },
         ),
         (
+            "openai-codex",
+            ProviderOverlay {
+                label: "OpenAI Codex",
+                credential_owner: "user",
+                local_only: false,
+                auth_method: "oauth",
+                api_key_url: None,
+                detail: "ChatGPT subscription sign-in through Oh My Pi OAuth.",
+                default_base_url: None,
+            },
+        ),
+        (
             "openai",
             ProviderOverlay {
-                label: "OpenAI",
+                label: "OpenAI API",
                 credential_owner: "user",
                 local_only: false,
                 auth_method: "api_key",
                 api_key_url: Some("https://platform.openai.com/api-keys"),
-                detail: "OpenAI API — enter your API key to connect.",
+                detail: "OpenAI API key connection for usage-billed API access.",
                 default_base_url: Some("https://api.openai.com/v1"),
             },
         ),
@@ -1147,6 +1159,7 @@ fn omp_codex_oauth_models() -> Vec<NativeModel> {
         .into_iter()
         .filter(|model| model.id == "gpt-5.5")
         .map(|mut model| {
+            model.provider_id = "openai-codex".to_string();
             model.supports_tools = false;
             model
         })

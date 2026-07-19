@@ -343,14 +343,16 @@ export async function nativeProviderLoginCancel(providerId: string): Promise<voi
   return invoke("native_provider_login_cancel", { providerId });
 }
 
-export async function nativeProviderOmpLoginCommand(providerId: string): Promise<string> {
-  return invoke<string>("native_provider_omp_login_command", { providerId });
+export async function nativeProviderOmpLoginStart(providerId: string): Promise<number> {
+  return invoke<number>("native_provider_omp_login_start", { providerId });
 }
 
 export async function nativeProviderRefreshOmpCredentials(
-  providerId: string,
+  providerId?: string | null,
 ): Promise<NativeProviderCatalog> {
-  return invoke<NativeProviderCatalog>("native_provider_refresh_omp_credentials", { providerId });
+  return invoke<NativeProviderCatalog>("native_provider_refresh_omp_credentials", {
+    providerId: providerId ?? null,
+  });
 }
 
 // ─── Chat Model Defaults ───

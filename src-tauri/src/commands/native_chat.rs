@@ -241,33 +241,42 @@ pub fn native_provider_login_cancel(provider_id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Returns the `omp login <provider>` command string for the frontend to
-/// run in a terminal tab. Returns an error if OMP is not installed.
+/// Start `omp login <provider>` with structured arguments. Provider ids are
+/// validated before crossing the process boundary and are never parsed by a
+/// shell.
 #[tauri::command]
-pub fn native_provider_omp_login_command(provider_id: String) -> Result<String, String> {
+pub fn native_provider_omp_login_start(app: AppHandle, provider_id: String) -> Result<u64, String> {
+    if provider_id.is_empty()
+        || !provider_id.starts_with(|character: char| character.is_ascii_alphanumeric())
+        || !provider_id.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+    {
+        return Err("Invalid provider id.".to_string());
+    }
     if !crate::services::provider_client::omp_available() {
         return Err(
             "Oh My Pi (OMP) is not installed. Install OMP to authenticate with this provider."
                 .to_string(),
         );
     }
-    Ok(format!("omp login {provider_id}"))
+    crate::services::omp_service::OmpService::stream_command(
+        app,
+        vec!["login".to_string(), provider_id],
+    )
 }
 
-/// Re-reads OMP credentials and refreshes the provider's model catalog.
-/// Called by the frontend after `omp login <provider>` completes in a
-/// terminal tab.
+/// Re-read the active OMP profile and refresh the provider catalog after an
+/// in-app or external OMP login.
 #[tauri::command]
 pub fn native_provider_refresh_omp_credentials(
-    provider_id: String,
+    provider_id: Option<String>,
 ) -> Result<crate::models::native_chat::NativeProviderCatalog, String> {
-    // Refresh the provider's catalog (picks up new credentials from OMP).
-    crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh_provider(
-        &provider_id,
+    crate::services::native_chat_service::NativeChatService::refresh_omp_credential_cache();
+    crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh(
+        provider_id,
         true,
-    )?;
-    // Return the updated catalog.
-    Ok(crate::services::native_chat_service::NativeChatService::provider_catalog())
+    )
 }
 
 #[tauri::command]

@@ -56,74 +56,57 @@ test.describe("Provider credential lifecycle", () => {
     await expect(connectBtn).toBeVisible();
   });
 
-  test("clicking connect opens login modal with password input", async ({ page }) => {
+  test("clicking connect opens OAuth-first login with API-key fallback", async ({ page }) => {
     await openFixtureProject(page);
     await openProviderPicker(page);
 
-    // Find an unconfigured provider (e.g. OpenAI).
-    const openaiCard = page.locator(".provider-card").filter({ hasText: "OpenAI" }).first();
-    const connectBtn = openaiCard.locator('.provider-card-action-btn[title^="Connect"]').first();
+    const connectBtn = page.locator('.provider-card[title^="OpenAI:"] .provider-card-action-btn[title^="Connect"]').first();
+    await expect(connectBtn).toBeVisible();
+    await connectBtn.click();
+    await expect(page.locator(".provider-catalog-overlay")).toHaveCount(0, { timeout: 3_000 });
 
-    if (await connectBtn.count() > 0) {
-      await connectBtn.click();
+    const loginModal = page.locator(".modal-overlay").filter({
+      has: page.locator('button[title^="Authenticate"]'),
+    });
+    await expect(loginModal).toBeVisible({ timeout: 3_000 });
+    await expect(loginModal.getByRole("button", { name: "Sign in with Oh My Pi" })).toBeVisible();
 
-      // Wait for catalog to close.
-      await expect(page.locator(".provider-catalog-overlay")).toHaveCount(0, { timeout: 3_000 });
-
-      // Login modal should appear with a password input.
-      const loginModal = page.locator(".modal-overlay").filter({
-        has: page.locator("input[type='password']"),
-      });
-      await expect(loginModal).toBeVisible({ timeout: 3_000 });
-
-      // Should have a Save button.
-      await expect(loginModal.locator("button", { hasText: /Save/i })).toBeVisible();
-    }
+    const apiKeyFallback = loginModal.locator("summary", { hasText: "Use API key instead" });
+    await apiKeyFallback.click();
+    await expect(loginModal.locator("input[type='password']")).toBeVisible();
+    await expect(loginModal.locator("button", { hasText: "Save API key" })).toBeVisible();
   });
 
   test("login modal has header and close button", async ({ page }) => {
     await openFixtureProject(page);
     await openProviderPicker(page);
 
-    const openaiCard = page.locator(".provider-card").filter({ hasText: "OpenAI" }).first();
-    const connectBtn = openaiCard.locator('.provider-card-action-btn[title^="Connect"]').first();
+    const connectBtn = page.locator('.provider-card-action-btn[title^="Connect"]').first();
+    await expect(connectBtn).toBeVisible();
+    await connectBtn.click();
 
-    if (await connectBtn.count() > 0) {
-      await connectBtn.click();
-
-      const loginModal = page.locator(".modal-overlay").filter({
-        has: page.locator("input[type='password']"),
-      });
-      await expect(loginModal).toBeVisible({ timeout: 3_000 });
-
-      // Should have a header.
-      await expect(loginModal.locator(".modal-header").first()).toBeVisible();
-
-      // Should have a close button.
-      const closeBtn = loginModal.locator('button[title*="Close"]').first();
-      await expect(closeBtn).toBeVisible();
-    }
+    const loginModal = page.locator(".modal-overlay").filter({
+      has: page.locator('button[title^="Authenticate"]'),
+    });
+    await expect(loginModal).toBeVisible({ timeout: 3_000 });
+    await expect(loginModal.locator(".modal-header").first()).toBeVisible();
+    await expect(loginModal.locator('button[title="Close"]').first()).toBeVisible();
   });
 
   test("login modal overlay click closes the modal", async ({ page }) => {
     await openFixtureProject(page);
     await openProviderPicker(page);
 
-    const openaiCard = page.locator(".provider-card").filter({ hasText: "OpenAI" }).first();
-    const connectBtn = openaiCard.locator('.provider-card-action-btn[title^="Connect"]').first();
+    const connectBtn = page.locator('.provider-card-action-btn[title^="Connect"]').first();
+    await expect(connectBtn).toBeVisible();
+    await connectBtn.click();
 
-    if (await connectBtn.count() > 0) {
-      await connectBtn.click();
-
-      const loginModal = page.locator(".modal-overlay").filter({
-        has: page.locator("input[type='password']"),
-      });
-      await expect(loginModal).toBeVisible({ timeout: 3_000 });
-
-      // Click the overlay area.
-      await loginModal.click({ position: { x: 5, y: 5 } });
-      await expect(loginModal).toBeHidden({ timeout: 2_000 });
-    }
+    const loginModal = page.locator(".modal-overlay").filter({
+      has: page.locator('button[title^="Authenticate"]'),
+    });
+    await expect(loginModal).toBeVisible({ timeout: 3_000 });
+    await loginModal.click({ position: { x: 5, y: 5 } });
+    await expect(loginModal).toBeHidden({ timeout: 2_000 });
   });
 
   test("multiple providers show different connection states", async ({ page }) => {
@@ -196,14 +179,10 @@ test.describe("Provider update-key flow", () => {
     await expect(settingsItem).toBeVisible({ timeout: 5_000 });
     await settingsItem.click({ timeout: 5_000 });
     await expect(page.locator('.modal-overlay .settings-modal')).toBeVisible({ timeout: 15_000 });
-    // Navigate to the Account tab (Model Providers panel is there).
-    const accountTab = page.locator(".settings-tab", { hasText: "Account" }).first();
-    await accountTab.click();
+    const providersTab = page.locator(".settings-tab", { hasText: "Providers" }).first();
+    await providersTab.click();
     await page.waitForTimeout(500);
-
-    // Should show the Model Providers panel.
-    const heading = page.locator("h3", { hasText: "Model Providers" });
-    await expect(heading).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("h3", { hasText: "Model providers" })).toBeVisible({ timeout: 5000 });
 
     // Umans should be configured with Disconnect and Update key buttons.
     const umansRow = page.locator(".requirement-row").filter({ hasText: "Umans" }).first();
@@ -223,9 +202,9 @@ async function openSettingsProviders(page: Page) {
   await expect(settingsItem).toBeVisible({ timeout: 5_000 });
   await settingsItem.click({ timeout: 5_000 });
   await expect(page.locator(".modal-overlay .settings-modal")).toBeVisible({ timeout: 15_000 });
-  const accountTab = page.locator(".settings-tab", { hasText: "Account" }).first();
-  await accountTab.click();
-  await expect(page.locator("h3", { hasText: "Model Providers" })).toBeVisible({ timeout: 5_000 });
+  const providersTab = page.locator(".settings-tab", { hasText: "Providers" }).first();
+  await providersTab.click();
+  await expect(page.locator("h3", { hasText: "Model providers" })).toBeVisible({ timeout: 5_000 });
 }
 
 test.describe("Settings credential save", () => {
@@ -238,9 +217,10 @@ test.describe("Settings credential save", () => {
     await expect(row).toBeVisible();
     await expect(row.locator("button", { hasText: "Disconnect" })).toHaveCount(0);
 
-    // Save a key — the credential must persist and the row must flip to connected.
-    await row.locator('input[placeholder="or paste API key"]').fill("sk-ant-e2e-test");
-    await row.locator("button", { hasText: "Save" }).click();
+    const apiKeyFallback = row.locator("summary", { hasText: "Use API key instead" });
+    await apiKeyFallback.click();
+    await row.locator('input[placeholder="API key"]').fill("sk-ant-e2e-test");
+    await row.locator("button", { hasText: "Save key" }).click();
 
     await expect(row.getByText("connected")).toBeVisible({ timeout: 5_000 });
     await expect(row.locator("button", { hasText: "Disconnect" })).toBeVisible();
@@ -273,14 +253,43 @@ test.describe("Settings credential save", () => {
 
     // "invalid-key" is the mock's deterministic rejection trigger.
     const row = page.locator(".requirement-row").filter({ hasText: "Anthropic" }).first();
-    const keyInput = row.locator('input[placeholder="or paste API key"]');
+    await row.locator("summary", { hasText: "Use API key instead" }).click();
+    const keyInput = row.locator('input[placeholder="API key"]');
     await keyInput.fill("invalid-key");
-    await row.locator("button", { hasText: "Save" }).click();
+    await row.locator("button", { hasText: "Save key" }).click();
 
     // Error surfaces, draft is preserved, provider stays unconfigured.
     await expect(page.locator(".settings-modal .text-danger", { hasText: "Invalid API key" })).toBeVisible({ timeout: 5_000 });
     await expect(keyInput).toHaveValue("invalid-key");
     await expect(row.locator("button", { hasText: "Disconnect" })).toHaveCount(0);
+  });
+});
+
+test.describe("Provider OAuth and discovery", () => {
+  test("searches models and refreshes after Oh My Pi login", async ({ page }) => {
+    await openFixtureProject(page);
+    await openSettingsProviders(page);
+
+    const search = page.getByTitle("Search providers and models");
+    await search.fill("GPT-5.5 Codex");
+    const codexRow = page.locator(".requirement-row").filter({ hasText: "OpenAI Codex" }).first();
+    await expect(codexRow).toBeVisible();
+    await expect(page.locator(".requirement-row").filter({ hasText: "Anthropic" })).toHaveCount(0);
+
+    await search.clear();
+    await codexRow.getByRole("button", { name: "Sign in with Oh My Pi" }).click();
+    await expect(codexRow.getByText("connected")).toBeVisible({ timeout: 5_000 });
+    await expect(codexRow.getByRole("button", { name: "Sign in again" })).toBeVisible();
+  });
+
+  test("shows popular providers before the full catalog", async ({ page }) => {
+    await openFixtureProject(page);
+    await openSettingsProviders(page);
+
+    await expect(page.getByRole("heading", { name: "Popular" })).toBeVisible();
+    const rows = page.locator(".requirement-row");
+    await expect(rows.nth(0)).toContainText("OpenAI Codex");
+    await expect(rows.nth(1)).toContainText("Anthropic");
   });
 });
 

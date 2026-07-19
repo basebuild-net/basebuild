@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useEscapeKey } from "../../lib/useEscapeKey";
-import { Check, ChevronRight, Sparkles, TerminalSquare, X } from "lucide-react";
+import { Check, ChevronRight, Moon, Sun, TerminalSquare, X } from "lucide-react";
 import { listRuntimeProfiles, getRuntimeDefaults, setRuntimeDefaults, type RuntimeProfile, type RuntimeDefaults } from "../../lib/settings";
 import { RuntimeDefaultsFields } from "./RuntimeDefaultsFields";
 import { getAnalyticsConsent, setAnalyticsConsent, type AnalyticsConsent } from "../../lib/analytics";
 import { startupEnable, startupDisable, startupGetStatus, type StartupRegistrationStatus } from "../../lib/startup";
 import { ModalPortal } from "../ModalPortal";
+import { useTheme, type AppTheme } from "../../state/useTheme";
 
 type FirstRunModalProps = {
   open: boolean;
@@ -13,10 +14,11 @@ type FirstRunModalProps = {
   onSkip: () => void;
 };
 
-type Step = "welcome" | "adapter" | "terminal" | "startup" | "privacy" | "done";
+type Step = "theme" | "welcome" | "adapter" | "terminal" | "startup" | "privacy";
 
 export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) {
-  const [step, setStep] = useState<Step>("welcome");
+  const [step, setStep] = useState<Step>("theme");
+  const { theme, setTheme } = useTheme();
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([]);
   const [defaults, setDefaults] = useState<RuntimeDefaults | null>(null);
   useEscapeKey(open, onSkip);
@@ -80,9 +82,9 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
         setStartupStatus(status);
       }
     } catch {
-      // Registration failure is non-fatal — the user can retry in Settings.
+      // Registration failure is non-fatal. The user can retry in Settings.
     }
-    setStep("done");
+    onComplete();
   }
 
   return (
@@ -96,6 +98,40 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
           </button>
         </div>
         <div className="modal-body stack modal-first-run-body">
+          {step === "theme" ? (
+            <>
+              <h3>Choose your theme</h3>
+              <p className="text-muted text-sm">
+                Start with dark or light mode. You can change this anytime in Settings.
+              </p>
+              <div className="theme-picker">
+                {([
+                  { id: "dark", label: "Dark", icon: Moon },
+                  { id: "light", label: "Light", icon: Sun },
+                ] as { id: AppTheme; label: string; icon: typeof Moon }[]).map((choice) => {
+                  const Icon = choice.icon;
+                  return (
+                    <button
+                      key={choice.id}
+                      className={`btn theme-picker-card${theme === choice.id ? " btn-primary" : ""}`}
+                      type="button"
+                      title={`Use ${choice.label.toLowerCase()} mode`}
+                      aria-pressed={theme === choice.id}
+                      onClick={() => {
+                        setTheme(choice.id);
+                        setStep("welcome");
+                      }}
+                    >
+                      <Icon size={24} />
+                      <span>{choice.label}</span>
+                      {theme === choice.id ? <Check size={12} /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          ) : null}
+
           {step === "welcome" ? (
             <>
               <TerminalSquare size={32} className="text-muted" />
@@ -214,19 +250,6 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
             </>
           ) : null}
 
-          {step === "done" ? (
-            <>
-              <Check size={32} className="text-ok" />
-              <h3>You're all set</h3>
-              <p className="text-muted text-sm">
-                You can change these anytime in Settings. Basebuild is local-first —
-                no data leaves your machine unless you explicitly enable it.
-              </p>
-              <button className="btn btn-primary" type="button" title="Start using Basebuild" onClick={onComplete}>
-                <Sparkles size={12} /> Start using Basebuild
-              </button>
-            </>
-          ) : null}
         </div>
       </div>
     </div>

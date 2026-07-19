@@ -1244,11 +1244,13 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         createdAt: Math.floor(Date.now() / 1000),
       } as T;
     case "native_provider_catalog":
-    case "native_provider_catalog_refresh": {
+    case "native_provider_catalog_refresh":
+    case "native_provider_refresh_omp_credentials": {
       // Build provider list dynamically — check credentials/blocked state
       // so disconnect/connect actually changes the UI.
       const baseProviders = [
         { id: "basebuild-local", label: "None", credentialOwner: "basebuild", localOnly: true, detail: "No provider connected — select a provider to chat.", authMethod: "local", apiKeyUrl: null, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "openai-codex", label: "OpenAI Codex", credentialOwner: "user", localOnly: false, detail: "ChatGPT subscription sign-in through Oh My Pi OAuth.", authMethod: "oauth", apiKeyUrl: null, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
         { id: "openai", label: "OpenAI", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.openai.com/api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
         { id: "umans", label: "Umans", credentialOwner: "user", localOnly: false, detail: "Connected", authMethod: "api_key", apiKeyUrl: "https://app.umans.ai/billing?context=personal&tab=api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "provider_discovered", error: null },
         { id: "anthropic", label: "Anthropic", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.anthropic.com/settings/keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
@@ -1282,6 +1284,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         providers,
         models: [
           { id: "basebuild-local-coordinator", providerId: "basebuild-local", label: "None", supportsEffort: true, supportsStreaming: false, supportsTools: false, localOnly: true, contextWindow: null, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "bundled" },
+          { id: "gpt-5.5", providerId: "openai-codex", label: "GPT-5.5 Codex", supportsEffort: true, supportsStreaming: true, supportsTools: false, localOnly: false, contextWindow: 400000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: true, source: "bundled" },
           { id: "gpt-5.1", providerId: "openai", label: "GPT-5.1", supportsEffort: true, supportsStreaming: true, supportsTools: true, localOnly: false, contextWindow: 400000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: true, source: "bundled" },
           { id: "umans-glm-5.2", providerId: "umans", label: "Umans GLM 5.2", supportsEffort: true, supportsStreaming: true, supportsTools: true, localOnly: false, contextWindow: 128000, maxTokens: null, supportsReasoning: true, supportedEfforts: ["low", "medium", "high", "xhigh"], supportsImages: false, source: "provider_discovered" },
           { id: "umans-lite-1.0", providerId: "umans", label: "Umans Lite 1.0", supportsEffort: true, supportsStreaming: true, supportsTools: false, localOnly: false, contextWindow: 32000, maxTokens: null, supportsReasoning: false, supportedEfforts: ["low", "medium"], supportsImages: false, source: "provider_discovered" },
@@ -2045,12 +2048,16 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         assistantMessage,
       } as T;
     }
-    case "native_provider_login_start":
-      return { providerId: args.providerId as string, providerLabel: "OpenAI", landingUrl: "http://127.0.0.1:0/", providerUrl: "https://example.com/keys" } as T;
-    case "native_provider_login_poll":
-      return { status: "success", message: null } as T;
-    case "native_provider_login_cancel":
-      return undefined as T;
+    case "native_provider_omp_login_start": {
+      const providerId = args.providerId as string;
+      const runId = 9001;
+      window.setTimeout(() => {
+        s.credentials.set(providerId, { providerId, apiKey: "omp-oauth-test", baseUrl: null, updatedAt: Math.floor(Date.now() / 1000) });
+        s.blockedProviders.delete(providerId);
+        __emit("omp://event", { id: runId, kind: "done", success: true, exitCode: 0 });
+      }, 0);
+      return runId as T;
+    }
     case "openspec_runtime_status":
       return {
         state: "ready",

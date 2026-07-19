@@ -34,6 +34,7 @@ import {
   Edit2,
   GitBranch as GitBranchIcon,
   FolderTree,
+  Globe,
   HelpCircle,
   Key,
   LayoutGrid,
@@ -74,9 +75,8 @@ import {
   nativeGenerateIdeas,
   nativeProviderCatalog,
   nativeProviderCatalogRefresh,
-  nativeProviderLoginCancel,
-  nativeProviderLoginPoll,
-  nativeProviderLoginStart,
+  nativeProviderOmpLoginStart,
+  nativeProviderRefreshOmpCredentials,
   nativeSessionLatestMetric,
   nativeSaveProviderCredential,
   renameNativeChatSession,
@@ -97,13 +97,14 @@ import { schematicWizardAction } from "../../lib/planningActions";
 import { readSkill } from "../../lib/skills";
 import type { AgentMode } from "../../lib/sessions";
 import { readModelRecency, recordModelUse } from "../../lib/modelRecency";
+import { listenOmpEvents } from "../../lib/omp";
 import { useLogs } from "../../state/log";
 import { useDropdownPosition } from "../../state/useDropdownPosition";
 
 const SEND_TIMEOUT_MS = 45_000;
 const NATIVE_PROFILE_ID = "basebuild-native";
 const LOCAL_PROVIDER_ID = "basebuild-local";
-const LOGIN_POLL_MS = 1500;
+const POPULAR_PROVIDER_IDS = ["openai-codex", "anthropic", "google-gemini-cli", "github-copilot", "openai", "google"] as const;
 
 type LegacyChatMessage = { role: "user" | "assistant" | "system"; content: string };
 
@@ -570,7 +571,7 @@ export function ChatPanel({
   const [savingCred, setSavingCred] = useState(false);
   const [loginPolling, setLoginPolling] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
-  const loginTimerRef = useRef<number | null>(null);
+  const loginUnlistenRef = useRef<(() => void) | null>(null);
   // Idea generation.
   const [generatingIdeas, setGeneratingIdeas] = useState(false);
   // Grounding metadata is written to the shared store (src/state/grounding.ts).
@@ -679,11 +680,17 @@ export function ChatPanel({
   const selectedModel = catalog?.models.find((m) => m.id === modelId && m.providerId === providerId) ?? null;
   const orderedProviders = useMemo(() => {
     if (!catalog) return [];
-    return catalog.providers.slice().sort((a, b) =>
-      Number(b.configured) - Number(a.configured) ||
-      Number(b.id === providerId) - Number(a.id === providerId) ||
-      a.label.localeCompare(b.label),
-    );
+    return catalog.providers.slice().sort((a, b) => {
+      const aPriority = POPULAR_PROVIDER_IDS.indexOf(a.id as (typeof POPULAR_PROVIDER_IDS)[number]);
+      const bPriority = POPULAR_PROVIDER_IDS.indexOf(b.id as (typeof POPULAR_PROVIDER_IDS)[number]);
+      return (
+        Number(b.configured) - Number(a.configured) ||
+        Number(b.id === providerId) - Number(a.id === providerId) ||
+        (aPriority < 0 ? Number.MAX_SAFE_INTEGER : aPriority) -
+          (bPriority < 0 ? Number.MAX_SAFE_INTEGER : bPriority) ||
+        a.label.localeCompare(b.label)
+      );
+    });
   }, [catalog, providerId]);
   const connectedProviders = orderedProviders.filter((provider) => provider.configured);
   const availableProviders = orderedProviders.filter((provider) => !provider.configured);
@@ -1706,10 +1713,10 @@ export function ChatPanel({
     }
   }, [loading]);
 
-  // Cleanup login poll timer on unmount
   useEffect(() => {
     return () => {
-      if (loginTimerRef.current) window.clearTimeout(loginTimerRef.current);
+      loginUnlistenRef.current?.();
+      loginUnlistenRef.current = null;
     };
   }, []);
   // Ref to hold the latest handleStopNative so handleSend can call it
@@ -2142,52 +2149,66 @@ export function ChatPanel({
     }
   }, [apiKey, baseUrl, providerId, selectedProvider, refreshCatalog, addLog, onShowToast]);
 
-  const stopLoginPoll = useCallback(() => {
-    if (loginTimerRef.current) {
-      window.clearTimeout(loginTimerRef.current);
-      loginTimerRef.current = null;
-    }
+  const stopLogin = useCallback(() => {
+    loginUnlistenRef.current?.();
+    loginUnlistenRef.current = null;
     setLoginPolling(false);
   }, []);
 
-  const startWebLogin = useCallback(async () => {
+  const startOmpLogin = useCallback(async () => {
     if (!selectedProvider) return;
     setLoginError(null);
     setLoginPolling(true);
-    const pid = selectedProvider.id;
-    const poll = async () => {
+    stopLogin();
+    setLoginPolling(true);
+    const provider = selectedProvider;
+    let runId: number | null = null;
+
+    const finish = async (success: boolean, message?: string) => {
+      stopLogin();
+      if (!success) {
+        setLoginError(message ?? `Oh My Pi could not authenticate ${provider.label}.`);
+        return;
+      }
       try {
-        const res = await nativeProviderLoginPoll(pid);
-        if (res.status === "pending") {
-          loginTimerRef.current = window.setTimeout(() => void poll(), LOGIN_POLL_MS);
-        } else if (res.status === "success") {
-          stopLoginPoll();
-          await refreshCatalog();
-          setShowLogin(false);
-          setSetupRequired(null);
-          setError(null);
-        } else {
-          setLoginError(res.message ?? "Provider login did not complete.");
-          stopLoginPoll();
+        const refreshed = await nativeProviderRefreshOmpCredentials(provider.id);
+        setCatalog(refreshed);
+        if (!refreshed.providers.some((item) => item.id === provider.id && item.configured)) {
+          setLoginError(`Oh My Pi finished, but ${provider.label} did not return a usable credential.`);
+          return;
         }
-      } catch (e) {
-        setLoginError(e instanceof Error ? e.message : String(e));
-        stopLoginPoll();
+        setShowLogin(false);
+        setSetupRequired(null);
+        setError(null);
+        onShowToast?.("Provider connected", `${provider.label} is ready.`, "success");
+      } catch (refreshError) {
+        const messageText = refreshError instanceof Error ? refreshError.message : String(refreshError);
+        setLoginError(messageText);
+        onShowToast?.("Failed to refresh provider", messageText, "error");
       }
     };
-    try {
-      await nativeProviderLoginStart(pid);
-      loginTimerRef.current = window.setTimeout(() => void poll(), LOGIN_POLL_MS);
-    } catch (e) {
-      setLoginError(e instanceof Error ? e.message : String(e));
-      stopLoginPoll();
-    }
-  }, [selectedProvider, refreshCatalog, stopLoginPoll]);
 
-  const cancelWebLogin = useCallback(() => {
-    if (selectedProvider) void nativeProviderLoginCancel(selectedProvider.id);
-    stopLoginPoll();
-  }, [selectedProvider, stopLoginPoll]);
+    try {
+      const unlisten = await listenOmpEvents((event) => {
+        if (runId === null || event.payload.id !== runId) return;
+        if (event.payload.kind === "error") {
+          void finish(false, event.payload.error);
+        } else if (event.payload.kind === "done") {
+          void finish(
+            event.payload.success,
+            event.payload.success
+              ? undefined
+              : `Oh My Pi login exited with code ${event.payload.exitCode ?? "unknown"}.`,
+          );
+        }
+      });
+      loginUnlistenRef.current = unlisten;
+      runId = await nativeProviderOmpLoginStart(provider.id);
+    } catch (loginFailure) {
+      stopLogin();
+      setLoginError(loginFailure instanceof Error ? loginFailure.message : String(loginFailure));
+    }
+  }, [onShowToast, selectedProvider, stopLogin]);
 
   const openApiKeyUrl = useCallback((url: string) => {
     return openUrl(url).catch((e) => {
@@ -3194,10 +3215,10 @@ export function ChatPanel({
         </div>
       ) : null}
 
-      {/* Provider login modal: API key entry as a modal, not inline */}
+      {/* Provider login modal: OAuth first, API key fallback */}
       {nativeMode && showLogin && selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID ? (
         <ModalPortal>
-        <div className="modal-overlay" onClick={() => { setShowLogin(false); cancelWebLogin(); }} title="Close login dialog">
+        <div className="modal-overlay" onClick={() => { setShowLogin(false); stopLogin(); }} title="Close login dialog">
           <div className="modal" onClick={(e) => e.stopPropagation()} title={`Connect ${selectedProvider.label}`}>
             <div className="modal-header">
               <h2>Connect {selectedProvider.label}</h2>
@@ -3205,42 +3226,66 @@ export function ChatPanel({
                 className="btn-icon"
                 title="Close"
                 type="button"
-                onClick={() => { setShowLogin(false); cancelWebLogin(); }}
+                onClick={() => { setShowLogin(false); stopLogin(); }}
               >
                 <X size={16} />
               </button>
             </div>
-            <div className="modal-body stack" onClick={(e) => e.stopPropagation()} title={`Connect ${selectedProvider.label}`}>
+            <div className="modal-body stack" onClick={(e) => e.stopPropagation()}>
               <p className="text-sm text-muted">
-                Enter your {selectedProvider.label} API key below.
-                {selectedProvider.apiKeyUrl ? (
-                  <> Need a key? <button className="chat-link-btn" type="button" title={`Open ${selectedProvider.label} key page`} onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}>Get API key →</button></>
-                ) : null}
+                Sign in through Oh My Pi. Your provider credential stays in the local OMP profile.
               </p>
-              <input
-                className="input"
-                type="password"
-                placeholder="API key"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                title="Enter your API key for this provider"
-              />
-              <input
-                className="input"
-                placeholder="Base URL (optional)"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                title="Custom API base URL (optional)"
-              />
               <button
                 className="btn btn-primary"
                 type="button"
-                title="Save API key and connect"
-                disabled={!apiKey.trim() || savingCred}
-                onClick={() => void handleSaveCredential()}
+                title={`Authenticate ${selectedProvider.label} through Oh My Pi`}
+                disabled={loginPolling}
+                onClick={() => void startOmpLogin()}
               >
-                {savingCred ? "Saving…" : "Save key & connect"}
+                <Globe size={12} /> {loginPolling ? "Waiting for login..." : "Sign in with Oh My Pi"}
               </button>
+              {selectedProvider.authMethod !== "oauth" ? (
+                <details className="stack-sm">
+                  <summary className="text-muted text-sm" title={`Use an API key for ${selectedProvider.label}`}>
+                    Use API key instead
+                  </summary>
+                  {selectedProvider.apiKeyUrl ? (
+                    <button
+                      className="chat-link-btn"
+                      type="button"
+                      title={`Open ${selectedProvider.label} key page`}
+                      onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}
+                    >
+                      Get API key
+                    </button>
+                  ) : null}
+                  <input
+                    className="input"
+                    type="password"
+                    placeholder="API key"
+                    value={apiKey}
+                    onChange={(event) => setApiKey(event.target.value)}
+                    title={`API key for ${selectedProvider.label}`}
+                  />
+                  <input
+                    className="input"
+                    type="url"
+                    placeholder="Base URL (optional)"
+                    value={baseUrl}
+                    onChange={(event) => setBaseUrl(event.target.value)}
+                    title="Custom API base URL"
+                  />
+                  <button
+                    className="btn"
+                    type="button"
+                    title="Save API key and connect"
+                    disabled={!apiKey.trim() || savingCred}
+                    onClick={() => void handleSaveCredential()}
+                  >
+                    {savingCred ? "Saving..." : "Save API key"}
+                  </button>
+                </details>
+              ) : null}
               {loginError ? <p className="text-danger text-sm">{loginError}</p> : null}
             </div>
           </div>
@@ -3471,7 +3516,7 @@ export function ChatPanel({
                                   <button
                                     className="btn btn-sm provider-card-action-btn"
                                     type="button"
-                                    title={`Disconnect ${provider.label} — removes the stored API key`}
+                                    title={`Disconnect ${provider.label} and stop using its stored credential`}
                                     onClick={async (e) => {
                                       e.stopPropagation();
                                       try {
@@ -3489,7 +3534,13 @@ export function ChatPanel({
                                 <button
                                   className="btn btn-sm provider-card-action-btn"
                                   type="button"
-                                  title={provider.configured ? `Update key for ${provider.label} — enter a new API key` : `Connect ${provider.label} — enter an API key`}
+                                  title={
+                                    provider.configured
+                                      ? provider.authMethod === "oauth"
+                                        ? `Sign in to ${provider.label} again`
+                                        : `Update key for ${provider.label}`
+                                      : `Connect ${provider.label}`
+                                  }
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setProviderId(provider.id);
@@ -3501,7 +3552,8 @@ export function ChatPanel({
                                     setShowLogin(true);
                                   }}
                                 >
-                                  <Key size={11} /> {provider.configured ? "Update key" : "Connect"}
+                                  {provider.authMethod === "oauth" ? <Globe size={11} /> : <Key size={11} />}
+                                  {provider.configured ? (provider.authMethod === "oauth" ? "Sign in again" : "Update key") : "Connect"}
                                 </button>
                             {provider.error ? (
                               <div className="provider-card-error text-danger text-sm" title={provider.error}>

@@ -12,6 +12,12 @@ test.describe("Windows startup settings", () => {
     const modal = page.locator(".modal-first-run");
     await expect(modal).toBeVisible({ timeout: 10_000 });
 
+    // Theme is the first decision and dark mode is presented first.
+    const themeButtons = modal.locator(".theme-picker-card");
+    await expect(themeButtons).toHaveCount(2);
+    await expect(themeButtons.first()).toContainText("Dark");
+    await page.getByTitle("Use dark mode").click();
+
     // Click "Get started" to advance past welcome
     await page.getByTitle("Start setup").click();
 
@@ -28,19 +34,37 @@ test.describe("Windows startup settings", () => {
   });
 
   test("first-run skip does not register autostart", async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.removeItem("basebuild:first-run-complete");
-    });
-
+    await page.goto("/");
+    await page.evaluate(() => localStorage.removeItem("basebuild:first-run-complete"));
+    await page.reload();
     await page.goto("/");
 
     const modal = page.locator(".modal-first-run");
     await expect(modal).toBeVisible({ timeout: 10_000 });
 
-    // Skip setup entirely
     await page.getByTitle("Skip setup").click();
+    await expect(modal).not.toBeVisible({ timeout: 10_000 });
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("basebuild:first-run-complete"))).toBe("true");
+    await page.reload();
+    await expect(modal).not.toBeVisible({ timeout: 10_000 });
+  });
 
-    // The modal should be gone — no registration was applied
+  test("finishing first-run setup persists across restart", async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate(() => localStorage.removeItem("basebuild:first-run-complete"));
+    await page.reload();
+
+    await page.getByTitle("Use dark mode").click();
+    await page.getByTitle("Start setup").click();
+    await page.getByTitle("Continue to terminal setup").click();
+    await page.getByTitle("Continue to Windows startup setup").click();
+    await page.getByTitle("Continue to privacy setup").click();
+    await page.getByTitle("Finish setup").click();
+
+    const modal = page.locator(".modal-first-run");
+    await expect(modal).not.toBeVisible({ timeout: 10_000 });
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("basebuild:first-run-complete"))).toBe("true");
+    await page.reload();
     await expect(modal).not.toBeVisible({ timeout: 10_000 });
   });
 
@@ -51,8 +75,8 @@ test.describe("Windows startup settings", () => {
 
     await page.goto("/");
 
-    // Open Settings — when not signed in, the "Sign in" button opens settings
-    await page.getByTitle("Sign in to your account").click();
+    // Signed-out users see an honest Settings action.
+    await page.getByTitle("Open Settings").click();
 
     // The Updates tab should be active by default and show the Windows Startup section
     await expect(page.getByText("Windows Startup")).toBeVisible({ timeout: 10_000 });
@@ -72,7 +96,7 @@ test.describe("Windows startup settings", () => {
 
     await page.goto("/");
 
-    await page.getByTitle("Sign in to your account").click();
+    await page.getByTitle("Open Settings").click();
 
     const checkbox = page.getByTitle("Launch Basebuild at Windows sign-in (minimized to tray)");
     await expect(checkbox).toBeVisible({ timeout: 10_000 });
@@ -97,7 +121,7 @@ test.describe("Windows startup settings", () => {
 
     await page.goto("/");
 
-    await page.getByTitle("Sign in to your account").click();
+    await page.getByTitle("Open Settings").click();
 
     // The Windows Startup section should be visible with the checkbox
     await expect(page.getByText("Windows Startup")).toBeVisible({ timeout: 10_000 });

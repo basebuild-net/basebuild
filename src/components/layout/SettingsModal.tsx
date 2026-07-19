@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Loader2, Lock, LogOut, Moon, Plug, RefreshCw, Settings2, Shield, Sparkles, Sun, Trash2, Unplug, User, Wrench, X } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Loader2, Lock, LogOut, Moon, Plug, RefreshCw, Search, Settings2, Shield, Sparkles, Sun, Trash2, Unplug, User, Wrench, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { CopyButton } from "./CopyButton";
 import { FinalTouchesTab } from "./FinalTouchesTab";
@@ -21,13 +21,14 @@ import {
 import type { DetectedProviderPlan, ProviderPlanOption } from "../../lib/usageSync";
 import {
   nativeProviderCatalog,
-  nativeProviderLoginStart,
-  nativeProviderLoginPoll,
-  nativeProviderLoginCancel,
+  nativeProviderOmpLoginStart,
+  nativeProviderRefreshOmpCredentials,
   nativeSaveProviderCredential,
   nativeDeleteProviderCredential,
+  type NativeProvider,
   type NativeProviderCatalog,
 } from "../../lib/native-chat";
+import { listenOmpEvents } from "../../lib/omp";
 import {
   getRuntimeDefaults,
   setRuntimeDefaults,
@@ -119,7 +120,7 @@ type SettingsModalProps = {
   updates: UpdaterState;
 };
 
-type Tab = "updates" | "defaults" | "permissions" | "privacy" | "appearance" | "account" | "configs" | "mcp" | "planning" | "openspec" | "final_touches" | "concurrency" | "notifications" | "skills" | "about";
+type Tab = "updates" | "providers" | "defaults" | "permissions" | "privacy" | "appearance" | "account" | "configs" | "mcp" | "planning" | "openspec" | "final_touches" | "concurrency" | "notifications" | "skills" | "about";
 
 export function SettingsModal({ open, onClose, projectPath, account, updates }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
@@ -407,7 +408,10 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
     },
     {
       group: "Providers & Models",
-      tabs: [{ id: "defaults", label: "Defaults", icon: Settings2 }],
+      tabs: [
+        { id: "providers", label: "Providers", icon: Globe },
+        { id: "defaults", label: "Defaults", icon: Settings2 },
+      ],
     },
     {
       group: "Execution",
@@ -1155,9 +1159,10 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
               <div className="stack">
                 <AccountPanel account={account} />
                 <UsageSyncPanel />
-                <ModelProvidersPanel />
               </div>
             ) : null}
+
+            {tab === "providers" ? <ModelProvidersPanel /> : null}
 
             {tab === "planning" ? (
               <PlanningTab projectPath={projectPath} />
@@ -1655,65 +1660,97 @@ function ProviderPlansPanel({ gatesPass }: { gatesPass: boolean }) {
   );
 }
 
+const POPULAR_PROVIDER_IDS = [
+  "openai-codex",
+  "anthropic",
+  "google-gemini-cli",
+  "github-copilot",
+  "openai",
+  "google",
+] as const;
+
 function ModelProvidersPanel() {
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
   const [baseUrlDrafts, setBaseUrlDrafts] = useState<Record<string, string>>({});
   const [updateKeyId, setUpdateKeyId] = useState<string | null>(null);
-  const pollRef = useRef<number | null>(null);
+  const ompUnlistenRef = useRef<(() => void) | null>(null);
+
   const refresh = useCallback(async () => {
+    setError(null);
     try {
-      setCatalog(await nativeProviderCatalog());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const next = await nativeProviderRefreshOmpCredentials();
+      setCatalog(next);
+      return next;
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
+      return null;
     }
   }, []);
 
   useEffect(() => {
-    void refresh();
+    void nativeProviderCatalog()
+      .then(setCatalog)
+      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : String(loadError)));
     return () => {
-      if (pollRef.current) window.clearTimeout(pollRef.current);
+      ompUnlistenRef.current?.();
+      ompUnlistenRef.current = null;
     };
-  }, [refresh]);
+  }, []);
 
-  const connectWeb = useCallback(
-    async (providerId: string) => {
-      setError(null);
-      setBusyId(providerId);
-      const poll = async () => {
-        try {
-          const res = await nativeProviderLoginPoll(providerId);
-          if (res.status === "pending") {
-            pollRef.current = window.setTimeout(() => void poll(), 1500);
-          } else if (res.status === "success") {
-            setBusyId(null);
-            await refresh();
-          } else {
-            setError(res.message ?? "Provider login did not complete.");
-            setBusyId(null);
-          }
-        } catch (e) {
-          setError(e instanceof Error ? e.message : String(e));
-          setBusyId(null);
-        }
-      };
+  const startOmpLogin = useCallback(async (provider: NativeProvider) => {
+    setError(null);
+    setBusyId(provider.id);
+    ompUnlistenRef.current?.();
+    ompUnlistenRef.current = null;
+    let runId: number | null = null;
+    const finish = async (success: boolean, message?: string) => {
+      ompUnlistenRef.current?.();
+      ompUnlistenRef.current = null;
+      if (!success) {
+        setError(message ?? `Oh My Pi could not authenticate ${provider.label}.`);
+        setBusyId(null);
+        return;
+      }
       try {
-        await nativeProviderLoginStart(providerId);
-        pollRef.current = window.setTimeout(() => void poll(), 1500);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        const next = await nativeProviderRefreshOmpCredentials(provider.id);
+        setCatalog(next);
+        const connected = next.providers.some((item) => item.id === provider.id && item.configured);
+        if (!connected) {
+          setError(`Oh My Pi finished, but ${provider.label} did not return a usable credential.`);
+        }
+      } catch (refreshError) {
+        setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
+      } finally {
         setBusyId(null);
       }
-    },
-    [refresh],
-  );
+    };
 
-  const cancelWeb = useCallback((providerId: string) => {
-    if (pollRef.current) window.clearTimeout(pollRef.current);
-    void nativeProviderLoginCancel(providerId);
-    setBusyId(null);
+    try {
+      const unlisten = await listenOmpEvents((event) => {
+        if (runId === null || event.payload.id !== runId) return;
+        if (event.payload.kind === "error") {
+          void finish(false, event.payload.error);
+        } else if (event.payload.kind === "done") {
+          void finish(
+            event.payload.success,
+            event.payload.success
+              ? undefined
+              : `Oh My Pi login exited with code ${event.payload.exitCode ?? "unknown"}.`,
+          );
+        }
+      });
+      ompUnlistenRef.current = unlisten;
+      runId = await nativeProviderOmpLoginStart(provider.id);
+    } catch (loginError) {
+      ompUnlistenRef.current?.();
+      ompUnlistenRef.current = null;
+      setError(loginError instanceof Error ? loginError.message : String(loginError));
+      setBusyId(null);
+    }
   }, []);
 
   const saveKey = useCallback(
@@ -1729,191 +1766,281 @@ function ModelProvidersPanel() {
           apiKey: key,
           baseUrl: (baseUrlDrafts[providerId] ?? "").trim() || null,
         });
-        // Clear drafts only after a successful save so a failure keeps input.
-        setKeyDrafts((prev) => ({ ...prev, [providerId]: "" }));
+        setKeyDrafts((previous) => ({ ...previous, [providerId]: "" }));
         setUpdateKeyId(null);
-        await refresh();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setCatalog(await nativeProviderRefreshOmpCredentials(providerId));
+      } catch (saveError) {
+        setError(saveError instanceof Error ? saveError.message : String(saveError));
       } finally {
         setBusyId(null);
       }
     },
-    [keyDrafts, baseUrlDrafts, refresh],
+    [keyDrafts, baseUrlDrafts],
   );
 
-  const disconnect = useCallback(
-    async (providerId: string) => {
-      setBusyId(providerId);
-      setError(null);
-      try {
-        await nativeDeleteProviderCredential(providerId);
-        await refresh();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setBusyId(null);
-      }
-    },
-    [refresh],
-  );
+  const disconnect = useCallback(async (providerId: string) => {
+    setBusyId(providerId);
+    setError(null);
+    try {
+      await nativeDeleteProviderCredential(providerId);
+      setCatalog(await nativeProviderCatalog());
+    } catch (disconnectError) {
+      setError(disconnectError instanceof Error ? disconnectError.message : String(disconnectError));
+    } finally {
+      setBusyId(null);
+    }
+  }, []);
 
-  const providers = (catalog?.providers ?? []).filter((p) => !p.localOnly);
+  const visibleProviders = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return (catalog?.providers ?? [])
+      .filter((provider) => !provider.localOnly)
+      .filter((provider) => {
+        if (!needle) return true;
+        if (`${provider.id} ${provider.label} ${provider.detail}`.toLowerCase().includes(needle)) {
+          return true;
+        }
+        return catalog?.models.some(
+          (model) =>
+            model.providerId === provider.id &&
+            `${model.id} ${model.label}`.toLowerCase().includes(needle),
+        );
+      })
+      .sort((left, right) => {
+        const leftIndex = POPULAR_PROVIDER_IDS.indexOf(
+          left.id as (typeof POPULAR_PROVIDER_IDS)[number],
+        );
+        const rightIndex = POPULAR_PROVIDER_IDS.indexOf(
+          right.id as (typeof POPULAR_PROVIDER_IDS)[number],
+        );
+        const leftPriority = leftIndex < 0 ? Number.MAX_SAFE_INTEGER : leftIndex;
+        const rightPriority = rightIndex < 0 ? Number.MAX_SAFE_INTEGER : rightIndex;
+        return (
+          leftPriority - rightPriority ||
+          Number(right.configured) - Number(left.configured) ||
+          left.label.localeCompare(right.label)
+        );
+      });
+  }, [catalog, query]);
+
+  const groups = query.trim()
+    ? [{ label: "Results", providers: visibleProviders }]
+    : [
+        {
+          label: "Popular",
+          providers: visibleProviders.filter((provider) =>
+            (POPULAR_PROVIDER_IDS as readonly string[]).includes(provider.id),
+          ),
+        },
+        {
+          label: "More providers",
+          providers: visibleProviders.filter(
+            (provider) => !(POPULAR_PROVIDER_IDS as readonly string[]).includes(provider.id),
+          ),
+        },
+      ];
 
   return (
-    <div className="stack mt-16">
-      <h3>Model Providers</h3>
+    <div className="stack">
+      <h3>Model providers</h3>
       <p className="text-muted text-sm">
-        Connect model providers with a web flow or an API key. Credentials are stored locally on this device only.
+        Sign in through Oh My Pi when supported. API keys stay available as a fallback for providers without OAuth.
       </p>
+      <label className="stack-sm" htmlFor="provider-model-search">
+        <span className="text-sm">Search providers and models</span>
+        <span className="input-with-icon">
+          <Search size={13} aria-hidden="true" />
+          <input
+            id="provider-model-search"
+            className="input"
+            type="search"
+            placeholder="OpenAI, Claude, Gemini, model name..."
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            title="Search providers and models"
+          />
+        </span>
+      </label>
       <button
         className="btn btn-sm"
         type="button"
-        title="Refresh model catalog from all configured providers"
-        disabled={busyId === "refresh"}
-        onClick={async () => { setBusyId("refresh"); await refresh(); setBusyId(null); }}
+        title="Re-read Oh My Pi credentials and refresh every provider"
+        disabled={busyId !== null}
+        onClick={() => {
+          setBusyId("refresh");
+          void refresh().finally(() => setBusyId(null));
+        }}
       >
-        <RefreshCw size={12} /> Refresh models
+        <RefreshCw size={12} /> {busyId === "refresh" ? "Refreshing..." : "Refresh providers"}
       </button>
-      {providers.map((p) => (
-        <div key={p.id} className="requirement-row items-start">
-          <span className={`requirement-badge is-${p.configured ? "ok" : "attention"}`}>
-            {p.configured ? "✓" : "!"}
-          </span>
-          <div className="flex-1">
-            <div className="requirement-name">
-              {p.label} {p.configured ? <span className="text-muted text-sm">connected</span> : null}{p.modelCount > 0 ? <span className="text-muted text-sm"> · {p.modelCount} model{p.modelCount === 1 ? "" : "s"}</span> : null}
-            </div>
-            {p.apiKeyUrl && !p.configured ? (
-              <a href={p.apiKeyUrl} target="_blank" rel="noopener noreferrer" className="text-muted text-sm" title={`Get an API key from ${p.label}`}>
-                Get API key →
-              </a>
-            ) : null}
-            {p.configured ? (
-              <div className="stack-sm mt-6">
-                <div className="row gap-sm">
-                  <button
-                    className="btn btn-sm"
-                    type="button"
-                    title={`Disconnect ${p.label}`}
-                    disabled={busyId === p.id}
-                    onClick={() => void disconnect(p.id)}
-                  >
-                    <Unplug size={12} /> Disconnect
-                  </button>
-                  <button
-                    className="btn btn-sm"
-                    type="button"
-                    title={`Update the API key for ${p.label}. The stored secret is never displayed.`}
-                    disabled={busyId === p.id}
-                    onClick={() => setUpdateKeyId(updateKeyId === p.id ? null : p.id)}
-                  >
-                    <Key size={12} /> Update key
-                  </button>
-                </div>
-                {updateKeyId === p.id ? (
-                  <div className="stack-sm">
-                    <div className="row gap-sm">
-                      <input
-                        className="input"
-                        type="password"
-                        placeholder="New API key"
-                        value={keyDrafts[p.id] ?? ""}
-                        onChange={(e) => setKeyDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
-                        title={`Enter a new API key for ${p.label}. The existing key is not shown.`}
-                      />
-                      <button
-                        className="btn btn-sm"
-                        type="button"
-                        title="Save the new API key"
-                        disabled={!(keyDrafts[p.id] ?? "").trim()}
-                        onClick={() => void saveKey(p.id, p.label)}
-                      >
-                        <Key size={12} /> Save
-                      </button>
-                      <button
-                        className="btn btn-sm"
-                        type="button"
-                        title="Cancel key update"
-                        onClick={() => { setUpdateKeyId(null); setKeyDrafts((prev) => ({ ...prev, [p.id]: "" })); }}
-                      >
-                        Cancel
-                      </button>
+
+      {groups.map((group) =>
+        group.providers.length > 0 ? (
+          <Fragment key={group.label}>
+            <h4>{group.label}</h4>
+            {group.providers.map((provider) => {
+              const canUseApiKey = provider.authMethod !== "oauth";
+              const isBusy = busyId === provider.id;
+              return (
+                <div key={provider.id} className="requirement-row items-start">
+                  <span className={`requirement-badge is-${provider.configured ? "ok" : "attention"}`}>
+                    {provider.configured ? "✓" : "!"}
+                  </span>
+                  <div className="flex-1">
+                    <div className="requirement-name">
+                      {provider.label}
+                      {provider.configured ? <span className="text-muted text-sm"> connected</span> : null}
+                      {provider.modelCount > 0 ? (
+                        <span className="text-muted text-sm">
+                          {" "}{provider.modelCount} model{provider.modelCount === 1 ? "" : "s"}
+                        </span>
+                      ) : null}
                     </div>
-                    {p.id === "custom" ? (
-                      <input
-                        className="input"
-                        type="text"
-                        placeholder="Base URL (e.g. https://api.example.com/v1)"
-                        value={baseUrlDrafts[p.id] ?? ""}
-                        onChange={(e) => setBaseUrlDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
-                        title="Base URL for the custom OpenAI-compatible endpoint"
-                      />
-                    ) : null}
+                    {!provider.configured ? <p className="text-muted text-sm">{provider.detail}</p> : null}
+                    {provider.configured ? (
+                      <div className="stack-sm mt-6">
+                        <div className="row gap-sm">
+                          <button
+                            className="btn btn-sm"
+                            type="button"
+                            title={`Disconnect ${provider.label}`}
+                            disabled={isBusy}
+                            onClick={() => void disconnect(provider.id)}
+                          >
+                            <Unplug size={12} /> Disconnect
+                          </button>
+                          {canUseApiKey ? (
+                            <button
+                              className="btn btn-sm"
+                              type="button"
+                              title={`Replace the locally stored API key for ${provider.label}`}
+                              disabled={isBusy}
+                              onClick={() => setUpdateKeyId(updateKeyId === provider.id ? null : provider.id)}
+                            >
+                              <Key size={12} /> Update key
+                            </button>
+                          ) : (
+                            <button
+                              className="btn btn-sm"
+                              type="button"
+                              title={`Sign in to ${provider.label} again through Oh My Pi`}
+                              disabled={isBusy}
+                              onClick={() => void startOmpLogin(provider)}
+                            >
+                              <RefreshCw size={12} /> Sign in again
+                            </button>
+                          )}
+                        </div>
+                        {updateKeyId === provider.id ? (
+                          <div className="stack-sm">
+                            <input
+                              className="input"
+                              type="password"
+                              placeholder="New API key"
+                              value={keyDrafts[provider.id] ?? ""}
+                              onChange={(event) =>
+                                setKeyDrafts((previous) => ({
+                                  ...previous,
+                                  [provider.id]: event.target.value,
+                                }))
+                              }
+                              title={`Enter a new API key for ${provider.label}`}
+                            />
+                            <button
+                              className="btn btn-sm"
+                              type="button"
+                              title={`Save the new ${provider.label} API key`}
+                              disabled={!(keyDrafts[provider.id] ?? "").trim()}
+                              onClick={() => void saveKey(provider.id, provider.label)}
+                            >
+                              <Key size={12} /> Save key
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="stack-sm mt-6">
+                        {provider.id !== "custom" ? (
+                          <button
+                            className="btn btn-primary btn-sm"
+                            type="button"
+                            title={`Authenticate ${provider.label} through Oh My Pi`}
+                            disabled={isBusy}
+                            onClick={() => void startOmpLogin(provider)}
+                          >
+                            <Globe size={12} />
+                            {isBusy ? "Waiting for login..." : "Sign in with Oh My Pi"}
+                          </button>
+                        ) : null}
+                        {canUseApiKey ? (
+                          <details className="stack-sm">
+                            <summary className="text-muted text-sm" title={`Use an API key for ${provider.label}`}>
+                              {provider.id === "custom" ? "Configure endpoint" : "Use API key instead"}
+                            </summary>
+                            {provider.apiKeyUrl ? (
+                              <a
+                                href={provider.apiKeyUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-muted text-sm"
+                                title={`Open the ${provider.label} API key page`}
+                              >
+                                Get API key
+                              </a>
+                            ) : null}
+                            <input
+                              className="input"
+                              type="password"
+                              placeholder="API key"
+                              value={keyDrafts[provider.id] ?? ""}
+                              onChange={(event) =>
+                                setKeyDrafts((previous) => ({
+                                  ...previous,
+                                  [provider.id]: event.target.value,
+                                }))
+                              }
+                              title={`API key for ${provider.label}`}
+                            />
+                            {provider.id === "custom" ? (
+                              <input
+                                className="input"
+                                type="url"
+                                placeholder="https://api.example.com/v1"
+                                value={baseUrlDrafts[provider.id] ?? ""}
+                                onChange={(event) =>
+                                  setBaseUrlDrafts((previous) => ({
+                                    ...previous,
+                                    [provider.id]: event.target.value,
+                                  }))
+                                }
+                                title="Base URL for the custom OpenAI-compatible endpoint"
+                              />
+                            ) : null}
+                            <button
+                              className="btn btn-sm"
+                              type="button"
+                              title={`Save the ${provider.label} API key`}
+                              disabled={!(keyDrafts[provider.id] ?? "").trim() || isBusy}
+                              onClick={() => void saveKey(provider.id, provider.label)}
+                            >
+                              <Key size={12} /> Save key
+                            </button>
+                          </details>
+                        ) : null}
+                      </div>
+                    )}
+                    {provider.error ? <p className="text-danger text-sm">{provider.error}</p> : null}
                   </div>
-                ) : null}
-              </div>
-            ) : busyId === p.id ? (
-              <div className="row gap-sm mt-6">
-                <span className="text-muted text-sm">Waiting for browser…</span>
-                <button className="btn btn-sm" type="button" title="Cancel" onClick={() => cancelWeb(p.id)}>
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <div className="stack-sm mt-6">
-                <button
-                  className="btn btn-primary btn-sm"
-                  type="button"
-                  title={`Connect with ${p.label}`}
-                  onClick={() => void connectWeb(p.id)}
-                >
-                  <Globe size={12} /> Connect with {p.label}
-                </button>
-                <div className="row gap-sm">
-                  <input
-                    className="input"
-                    type="password"
-                    placeholder="or paste API key"
-                    value={keyDrafts[p.id] ?? ""}
-                    onChange={(e) => setKeyDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
-                    title={`API key for ${p.label}`}
-                  />
-                  <button
-                    className="btn btn-sm"
-                    type="button"
-                    title="Save API key"
-                    disabled={!(keyDrafts[p.id] ?? "").trim()}
-                    onClick={() => void saveKey(p.id, p.label)}
-                  >
-                    <Key size={12} /> Save
-                  </button>
                 </div>
-                {p.id === "custom" ? (
-                  <input
-                    className="input"
-                    type="text"
-                    placeholder="Base URL (e.g. https://api.example.com/v1)"
-                    value={baseUrlDrafts[p.id] ?? ""}
-                    onChange={(e) => setBaseUrlDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
-                    title="Base URL for the custom OpenAI-compatible endpoint"
-                  />
-                ) : null}
-              </div>
-            )}
-          </div>
-        </div>
-      ))}
-      {error ? <p className="text-danger text-sm">{error}</p> : null}
-      {catalog?.providers.some((p) => p.error && !p.localOnly) ? (
-        <div className="stack-sm">
-          {catalog.providers.filter((p) => p.error && !p.localOnly).map((p) => (
-            <p key={p.id} className="text-danger text-sm" title={p.error ?? ""}>
-              {p.label}: {p.error}
-            </p>
-          ))}
-        </div>
+              );
+            })}
+          </Fragment>
+        ) : null,
+      )}
+      {visibleProviders.length === 0 ? (
+        <p className="text-muted text-sm">No providers or models match your search.</p>
       ) : null}
+      {error ? <p className="text-danger text-sm">{error}</p> : null}
     </div>
   );
 }

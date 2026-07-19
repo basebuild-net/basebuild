@@ -32,10 +32,10 @@ export function AccountButton({ account, onOpenSettings }: AccountButtonProps) {
         <button
           className="account-signin-btn"
           type="button"
-          title="Sign in to your account"
+          title="Open Settings"
           onClick={onOpenSettings}
         >
-          <User size={12} /> Sign in
+          <User size={12} /> Settings
         </button>
       </div>
     );
