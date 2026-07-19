@@ -261,9 +261,32 @@ fn is_semver_like(version: &str) -> bool {
 fn is_numeric_identifier(value: &str) -> bool {
     !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit())
 }
+/// Dev builds (`cargo tauri dev`, debug assertions on) must never
+/// self-update: the dev binary runs as version 0.0.0, so any published
+/// release looks "newer" and the silent auto-updater would install the
+/// release build over the developer's session and relaunch it.
+fn updates_disabled_in_dev() -> bool {
+    cfg!(debug_assertions)
+}
 
 #[tauri::command]
 pub async fn check_for_updates(app: AppHandle) -> Result<UpdateInfo, String> {
+    if updates_disabled_in_dev() {
+        return Ok(UpdateInfo {
+            available: false,
+            version: None,
+            current_version: None,
+            notes: Some("Updates are disabled in dev builds.".to_string()),
+            date: None,
+            target: None,
+            download_url: None,
+            channel_status: UpdateChannelStatus::Ok,
+            channel_explanation: UpdateChannelStatus::Ok.explanation().to_string(),
+            raw_error: None,
+            policy: UpdatePolicyInfo::default(),
+            skipped: false,
+        });
+    }
     let updater = app
         .updater()
         .map_err(|e| format!("Failed to get updater: {e}"))?;
@@ -323,6 +346,9 @@ pub async fn check_for_updates(app: AppHandle) -> Result<UpdateInfo, String> {
 
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
+    if updates_disabled_in_dev() {
+        return Err("Updates are disabled in dev builds.".to_string());
+    }
     let updater = app
         .updater()
         .map_err(|e| format!("Failed to get updater: {e}"))?;
@@ -358,6 +384,9 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
 /// builds when supported).
 #[tauri::command]
 pub async fn install_update_with_progress(app: AppHandle) -> Result<(), String> {
+    if updates_disabled_in_dev() {
+        return Err("Updates are disabled in dev builds.".to_string());
+    }
     let updater = app
         .updater()
         .map_err(|e| format!("Failed to get updater: {e}"))?;
