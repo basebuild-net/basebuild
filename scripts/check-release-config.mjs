@@ -13,6 +13,7 @@ import { dirname, resolve } from "node:path";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const confPath = resolve(root, "src-tauri/tauri.conf.json");
 const workflowPath = resolve(root, ".github/workflows/windows.yml");
+const manifestScriptPath = resolve(root, "scripts/generate-updater-manifest.mjs");
 
 let conf;
 try {
@@ -140,10 +141,10 @@ try {
 
 if (workflow) {
   const buildStep = workflow.match(
-    /- name: Build Tauri app and update draft release[\s\S]*?(?=\n {6}- name:)/,
+    /- name: Build and upload platform artifacts[\s\S]*?(?=\n {6}- name:)/,
   )?.[0];
   if (!buildStep) {
-    errors.push("Release workflow must contain the Tauri release build step.");
+    errors.push("Release workflow must contain the parallel Tauri artifact build step.");
   } else {
     for (const variable of ["APPLE_ID", "APPLE_PASSWORD", "APPLE_TEAM_ID"]) {
       if (new RegExp(`^\\s+${variable}:`, "m").test(buildStep)) {
@@ -151,6 +152,23 @@ if (workflow) {
           `${variable} must be exported conditionally by the macOS signing step, not passed directly to tauri-action.`,
         );
       }
+    }
+    if (!buildStep.includes("uploadUpdaterJson: false")) {
+      errors.push("Parallel platform builds must not write latest.json.");
+    }
+    if (!buildStep.includes("releaseId: ${{ needs.prepare-release.outputs.release_id }}")) {
+      errors.push("Parallel platform builds must upload to the prepared draft release id.");
+    }
+  }
+
+  for (const required of [
+    "prepare-release:",
+    "max-parallel: 3",
+    "generate-updater-manifest:",
+    "needs: generate-updater-manifest",
+  ]) {
+    if (!workflow.includes(required)) {
+      errors.push(`Release workflow is missing parallel release contract: ${required}`);
     }
   }
 
@@ -164,6 +182,10 @@ if (workflow) {
       errors.push(`macOS signing step must export ${variable} through GITHUB_ENV.`);
     }
   }
+}
+
+if (!existsSync(manifestScriptPath)) {
+  errors.push("Parallel releases require scripts/generate-updater-manifest.mjs.");
 }
 
 if (errors.length) {

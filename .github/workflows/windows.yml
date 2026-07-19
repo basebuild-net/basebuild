@@ -46,6 +46,9 @@ jobs:
         run: npm run check:ui-invariants
       - name: Release-config integrity check
         run: npm run check:release-config
+
+      - name: Updater manifest tests
+        run: npm run test:release-manifest
   check-rust:
     runs-on: ubuntu-latest
     steps:
@@ -115,15 +118,65 @@ jobs:
             playwright-report/
           retention-days: 7
 
-  release:
-    # Manual releases build every supported desktop platform from one version.
-    # Serial execution prevents concurrent latest.json writers from dropping a
-    # platform while tauri-action merges updater entries into the draft.
+  prepare-release:
     if: github.event_name == 'workflow_dispatch' && inputs.version != ''
     needs: [check-frontend, check-rust, check-e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+    steps:
+      - name: Validate version and prepare draft release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          version="$RELEASE_VERSION"
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Release version must be a plain semantic version such as 1.2.3."
+            exit 1
+          fi
+          tag="v${version}"
+          if gh release view "$tag" --repo "${{ github.repository }}" --json isDraft >/dev/null 2>&1; then
+            is_draft="$(gh release view "$tag" --repo "${{ github.repository }}" --json isDraft --jq '.isDraft')"
+            if [ "$is_draft" != "true" ]; then
+              echo "::error::Release $tag is already published. Bump the version instead of replacing it."
+              exit 1
+            fi
+            echo "::notice::Reusing existing draft release $tag."
+          else
+            notes="$(cat <<EOF
+          ## Basebuild v${version}
+
+          ### Downloads
+          - Windows x64: NSIS installer and portable zip
+          - Linux x64: AppImage and Debian package
+          - macOS: universal DMG for Apple Silicon and Intel
+          - Signed updater metadata for in-app updates
+          EOF
+          )"
+            gh release create "$tag" \
+              --repo "${{ github.repository }}" \
+              --target "$GITHUB_SHA" \
+              --title "Basebuild v${version}" \
+              --notes "$notes" \
+              --generate-notes \
+              --draft
+          fi
+          release_id="$(gh release view "$tag" --repo "${{ github.repository }}" --json databaseId --jq '.databaseId')"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+
+  release:
+    # The draft exists before the matrix starts. Each platform uploads distinct
+    # assets concurrently; one later job writes the complete updater manifest.
+    if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+    needs: prepare-release
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: 3
       matrix:
         include:
           - name: windows-x86_64
@@ -147,29 +200,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Verify version is not already published
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_VERSION: ${{ inputs.version }}
-        shell: bash
-        run: |
-          version="$RELEASE_VERSION"
-          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "::error::Release version must be a plain semantic version such as 1.2.3."
-            exit 1
-          fi
-          tag="v${version}"
-          if gh release view "$tag" --repo "${{ github.repository }}" --json isDraft >/dev/null 2>&1; then
-            is_draft=$(gh release view "$tag" --repo "${{ github.repository }}" --json isDraft --jq '.isDraft')
-            if [ "$is_draft" = "true" ]; then
-              echo "::notice::Existing draft release for $tag found; this platform will update it."
-            else
-              echo "::error::Release $tag is already published. Bump the version instead of replacing it."
-              exit 1
-            fi
-          else
-            echo "::notice::No existing release for $tag; tauri-action will create a draft."
-          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -280,29 +310,17 @@ jobs:
             }
           "
 
-      - name: Build Tauri app and update draft release
+      - name: Build and upload platform artifacts
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          releaseId: ${{ needs.prepare-release.outputs.release_id }}
           tagName: v${{ inputs.version }}
-          releaseName: Basebuild v${{ inputs.version }}
-          releaseBody: |
-            ## Basebuild v${{ inputs.version }}
-
-            ### Downloads
-            - Windows x64: NSIS installer and portable zip
-            - Linux x64: AppImage and Debian package
-            - macOS: universal DMG for Apple Silicon and Intel
-            - Signed updater metadata for in-app updates
-
-            Review this draft and generated release notes before publishing.
           releaseDraft: true
-          prerelease: false
-          generateReleaseNotes: true
-          updaterJsonPreferNsis: true
+          uploadUpdaterJson: false
           releaseAssetNamePattern: ${{ matrix.assetPattern }}
           args: ${{ matrix.args }}
 
@@ -341,9 +359,45 @@ jobs:
         shell: bash
         run: gh release upload "v${RELEASE_VERSION}" --repo "${{ github.repository }}" "$portable_artifact" --clobber
 
-  verify-release:
+  generate-updater-manifest:
     if: github.event_name == 'workflow_dispatch' && inputs.version != ''
     needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download release metadata and signatures
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          tag="v${RELEASE_VERSION}"
+          mkdir updater-signatures
+          gh release view "$tag" --repo "${{ github.repository }}" --json assets,body,createdAt > release-metadata.json
+          gh release download "$tag" --repo "${{ github.repository }}" --pattern '*.sig' --dir updater-signatures
+
+      - name: Generate and upload complete updater manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          tag="v${RELEASE_VERSION}"
+          node scripts/generate-updater-manifest.mjs \
+            release-metadata.json \
+            updater-signatures \
+            "${{ github.repository }}" \
+            "$tag" \
+            "$RELEASE_VERSION" \
+            latest.json
+          gh release upload "$tag" --repo "${{ github.repository }}" latest.json --clobber
+
+  verify-release:
+    if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+    needs: generate-updater-manifest
     runs-on: ubuntu-latest
     permissions:
       contents: read

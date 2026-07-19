@@ -62,14 +62,15 @@ GitHub Actions (`.github/workflows/windows.yml`) runs three jobs on every PR and
 
 | Job | What it does |
 |---|---|
-| `check-frontend` | `npm ci`, `npm run build`, `npm run check:ui-invariants`, `npm run check:release-config` |
+| `check-frontend` | `npm ci`, `npm run build`, UI and release-config checks, updater-manifest tests |
 | `check-rust` | `cargo test` on Ubuntu with Tauri Linux dependencies |
 | `check-e2e` | `BASEBUILD_E2E=1 npm run test:e2e` with Playwright browser cache |
 
-Manual dispatch adds a serial `release` matrix for Windows x64, Linux x64, and
-universal macOS. The Windows leg runs `scripts/verify-prod-webview.mjs` against
-the packaged executable. After all three legs finish, `verify-release` rejects
-a draft missing a required installer, updater signature, or updater-manifest
+Manual dispatch first creates one draft release, then runs Windows x64, Linux
+x64, and universal macOS builds concurrently. Each matrix leg uploads distinct
+assets and signatures without writing `latest.json`. After all three finish,
+`generate-updater-manifest` uploads one complete manifest, then
+`verify-release` rejects a draft missing a required installer, signature, or
 platform entry.
 
 Playwright traces, screenshots, and videos are uploaded as artifacts on failure

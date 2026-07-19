@@ -11,6 +11,7 @@
     "test:e2e": "playwright test",
     "check:ui-invariants": "node scripts/check-ui-invariants.mjs",
     "check:release-config": "node scripts/check-release-config.mjs",
+    "test:release-manifest": "node --test scripts/generate-updater-manifest.test.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
