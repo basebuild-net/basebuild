@@ -834,6 +834,9 @@ a { color: inherit; text-decoration: none; }
 
 .stack { display: flex; flex-direction: column; gap: 8px; }
 .stack-sm { display: flex; flex-direction: column; gap: 4px; }
+/* Flex display on <details> breaks native collapsing; keep closed content hidden. */
+details.stack:not([open]) > *:not(summary),
+details.stack-sm:not([open]) > *:not(summary) { display: none; }
 .row { display: flex; align-items: center; gap: 6px; }
 .row-between { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }

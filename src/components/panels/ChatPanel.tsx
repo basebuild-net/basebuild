@@ -3671,7 +3671,7 @@ export function ChatPanel({
                                   {provider.status === "transport_unavailable"
                                     ? "No transport"
                                     : provider.configured
-                                      ? `Connected · ${CONNECTED_VIA_LABELS[provider.connectedVia ?? "api"] ?? "API key"}`
+                                      ? `Connected${provider.connectedVia ? ` · ${CONNECTED_VIA_LABELS[provider.connectedVia]}` : ""}`
                                       : "Available"}
                                 </span>
                               </span>
