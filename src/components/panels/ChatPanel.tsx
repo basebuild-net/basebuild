@@ -3303,6 +3303,22 @@ export function ChatPanel({
               </button>
             </div>
             <div className="modal-body stack" onClick={(e) => e.stopPropagation()}>
+              {selectedProvider.id === "openai" && catalog?.providers.some((p) => p.id === "openai-codex") ? (
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  title="Switch to OpenAI Codex and sign in with your ChatGPT subscription"
+                  onClick={() => {
+                    setProviderId("openai-codex");
+                    const codexModels = catalog.models.filter((model) => model.providerId === "openai-codex");
+                    if (codexModels[0] && !codexModels.some((model) => model.id === modelId)) {
+                      setModelId(codexModels[0].id);
+                    }
+                  }}
+                >
+                  <Globe size={12} /> Have a ChatGPT subscription? Sign in with OpenAI Codex
+                </button>
+              ) : null}
               {selectedProvider.authMethod !== "oauth" ? (
                 <div className="stack-sm">
                   <p className="text-sm text-muted">
