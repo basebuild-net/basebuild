@@ -1052,7 +1052,13 @@ fn search_files(workspace_root: &Path, args: &Value) -> ToolResult {
     };
     let mut results = Vec::new();
     let mut files_scanned = 0usize;
-    search_recursive(&canonical_root, &search_root, &re, &mut results, &mut files_scanned);
+    search_recursive(
+        &canonical_root,
+        &search_root,
+        &re,
+        &mut results,
+        &mut files_scanned,
+    );
     if results.is_empty() {
         let mut msg = format!("No matches for pattern '{}'.", pattern);
         if files_scanned >= SEARCH_MAX_FILES_SCANNED {
@@ -1517,14 +1523,30 @@ mod tests {
         fs::create_dir_all(root.join("target")).unwrap();
         fs::write(root.join("src/main.rs"), "let x = \"needle\";\n").unwrap();
         // Would be scanned if node_modules weren't pruned.
-        fs::write(root.join("node_modules/pkg/index.js"), "const y = \"needle\";\n").unwrap();
+        fs::write(
+            root.join("node_modules/pkg/index.js"),
+            "const y = \"needle\";\n",
+        )
+        .unwrap();
         fs::write(root.join("target/build.log"), "needle\n").unwrap();
         let args = json!({ "pattern": "needle" });
         let result = search_files(root, &args);
         assert_eq!(result.status, "succeeded");
-        assert!(result.content.contains("src/main.rs:1:"), "src match missing: {}", result.content);
-        assert!(!result.content.contains("node_modules/"), "node_modules not pruned: {}", result.content);
-        assert!(!result.content.contains("target/"), "target not pruned: {}", result.content);
+        assert!(
+            result.content.contains("src/main.rs:1:"),
+            "src match missing: {}",
+            result.content
+        );
+        assert!(
+            !result.content.contains("node_modules/"),
+            "node_modules not pruned: {}",
+            result.content
+        );
+        assert!(
+            !result.content.contains("target/"),
+            "target not pruned: {}",
+            result.content
+        );
     }
 
     #[test]
@@ -1534,12 +1556,24 @@ mod tests {
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
         fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
-        fs::write(root.join("node_modules/pkg/index.js"), "module.exports = {}").unwrap();
+        fs::write(
+            root.join("node_modules/pkg/index.js"),
+            "module.exports = {}",
+        )
+        .unwrap();
         let args = json!({ "glob": "**/*" });
         let result = list_files(root, &args);
         assert_eq!(result.status, "succeeded");
-        assert!(result.content.contains("src/main.rs"), "src match missing: {}", result.content);
-        assert!(!result.content.contains("node_modules/"), "node_modules not pruned: {}", result.content);
+        assert!(
+            result.content.contains("src/main.rs"),
+            "src match missing: {}",
+            result.content
+        );
+        assert!(
+            !result.content.contains("node_modules/"),
+            "node_modules not pruned: {}",
+            result.content
+        );
     }
 
     #[test]
@@ -1553,7 +1587,11 @@ mod tests {
         let args = json!({ "glob": "node_modules/*" });
         let result = list_files(root, &args);
         assert_eq!(result.status, "succeeded");
-        assert!(result.content.contains("node_modules/index.js"), "explicit segment should enter node_modules: {}", result.content);
+        assert!(
+            result.content.contains("node_modules/index.js"),
+            "explicit segment should enter node_modules: {}",
+            result.content
+        );
     }
 
     #[test]

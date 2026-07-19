@@ -75,8 +75,10 @@ import {
   nativeGenerateIdeas,
   nativeProviderCatalog,
   nativeProviderCatalogRefresh,
-  nativeProviderOmpLoginStart,
   nativeProviderRefreshOmpCredentials,
+  nativeProviderLoginPoll,
+  nativeProviderLoginStart,
+  nativeProviderLoginSubmit,
   nativeSessionLatestMetric,
   nativeSaveProviderCredential,
   renameNativeChatSession,
@@ -85,6 +87,7 @@ import {
   type NativeModel,
   type NativeProviderCatalog,
   type NativeSetupRequired,
+  type NativeProviderLoginState,
   type NativeToolEvent,
 } from "../../lib/native-chat";
 import { resolveToolApproval } from "../../lib/native-chat";
@@ -97,7 +100,6 @@ import { schematicWizardAction } from "../../lib/planningActions";
 import { readSkill } from "../../lib/skills";
 import type { AgentMode } from "../../lib/sessions";
 import { readModelRecency, recordModelUse } from "../../lib/modelRecency";
-import { listenOmpEvents } from "../../lib/omp";
 import { useLogs } from "../../state/log";
 import { useDropdownPosition } from "../../state/useDropdownPosition";
 
@@ -105,6 +107,12 @@ const SEND_TIMEOUT_MS = 45_000;
 const NATIVE_PROFILE_ID = "basebuild-native";
 const LOCAL_PROVIDER_ID = "basebuild-local";
 const POPULAR_PROVIDER_IDS = ["openai-codex", "anthropic", "google-gemini-cli", "github-copilot", "openai", "google"] as const;
+
+function waitForProviderLoginPoll(): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  window.setTimeout(resolve, 750);
+  return promise;
+}
 
 type LegacyChatMessage = { role: "user" | "assistant" | "system"; content: string };
 
@@ -569,9 +577,14 @@ export function ChatPanel({
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [savingCred, setSavingCred] = useState(false);
-  const [loginPolling, setLoginPolling] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
-  const loginUnlistenRef = useRef<(() => void) | null>(null);
+  const [providerLoginState, setProviderLoginState] = useState<NativeProviderLoginState | null>(null);
+  const [providerLoginInput, setProviderLoginInput] = useState("");
+  useEffect(() => {
+    if (showLogin) return;
+    setProviderLoginState(null);
+    setProviderLoginInput("");
+  }, [showLogin]);
   // Idea generation.
   const [generatingIdeas, setGeneratingIdeas] = useState(false);
   // Grounding metadata is written to the shared store (src/state/grounding.ts).
@@ -1713,12 +1726,6 @@ export function ChatPanel({
     }
   }, [loading]);
 
-  useEffect(() => {
-    return () => {
-      loginUnlistenRef.current?.();
-      loginUnlistenRef.current = null;
-    };
-  }, []);
   // Ref to hold the latest handleStopNative so handleSend can call it
   // without a TDZ issue (handleStopNative is defined after handleSend).
   const stopNativeRef = useRef<() => Promise<void>>(async () => {});
@@ -2149,66 +2156,97 @@ export function ChatPanel({
     }
   }, [apiKey, baseUrl, providerId, selectedProvider, refreshCatalog, addLog, onShowToast]);
 
-  const stopLogin = useCallback(() => {
-    loginUnlistenRef.current?.();
-    loginUnlistenRef.current = null;
-    setLoginPolling(false);
-  }, []);
 
-  const startOmpLogin = useCallback(async () => {
-    if (!selectedProvider) return;
-    setLoginError(null);
-    setLoginPolling(true);
-    stopLogin();
-    setLoginPolling(true);
-    const provider = selectedProvider;
-    let runId: number | null = null;
 
-    const finish = async (success: boolean, message?: string) => {
-      stopLogin();
-      if (!success) {
-        setLoginError(message ?? `Oh My Pi could not authenticate ${provider.label}.`);
-        return;
-      }
-      try {
-        const refreshed = await nativeProviderRefreshOmpCredentials(provider.id);
-        setCatalog(refreshed);
-        if (!refreshed.providers.some((item) => item.id === provider.id && item.configured)) {
-          setLoginError(`Oh My Pi finished, but ${provider.label} did not return a usable credential.`);
+  const pollProviderLogin = useCallback(
+    async (targetProviderId: string, providerLabel: string) => {
+      for (let attempt = 0; attempt < 800; attempt += 1) {
+        await waitForProviderLoginPoll();
+        const state = await nativeProviderLoginPoll(targetProviderId);
+        setProviderLoginState(state);
+        if (state.complete) {
+          const refreshed = await nativeProviderRefreshOmpCredentials(targetProviderId);
+          setCatalog(refreshed);
+          setShowLogin(false);
+          setSetupRequired(null);
+          setError(null);
+          onShowToast?.("Provider connected", `${providerLabel} is now ready.`, "success");
           return;
         }
-        setShowLogin(false);
-        setSetupRequired(null);
-        setError(null);
-        onShowToast?.("Provider connected", `${provider.label} is ready.`, "success");
-      } catch (refreshError) {
-        const messageText = refreshError instanceof Error ? refreshError.message : String(refreshError);
-        setLoginError(messageText);
-        onShowToast?.("Failed to refresh provider", messageText, "error");
-      }
-    };
-
-    try {
-      const unlisten = await listenOmpEvents((event) => {
-        if (runId === null || event.payload.id !== runId) return;
-        if (event.payload.kind === "error") {
-          void finish(false, event.payload.error);
-        } else if (event.payload.kind === "done") {
-          void finish(
-            event.payload.success,
-            event.payload.success
-              ? undefined
-              : `Oh My Pi login exited with code ${event.payload.exitCode ?? "unknown"}.`,
-          );
+        if (state.error) {
+          throw new Error(state.error);
         }
-      });
-      loginUnlistenRef.current = unlisten;
-      runId = await nativeProviderOmpLoginStart(provider.id);
+        if (state.status === "waiting_input") {
+          return;
+        }
+      }
+      throw new Error("Provider sign-in timed out.");
+    },
+    [onShowToast],
+  );
+
+  const handleProviderLogin = useCallback(async () => {
+    if (!selectedProvider) return;
+    setSavingCred(true);
+    setLoginError(null);
+    setProviderLoginInput("");
+    try {
+      const state = await nativeProviderLoginStart(selectedProvider.id);
+      setProviderLoginState(state);
+      await pollProviderLogin(selectedProvider.id, selectedProvider.label);
     } catch (loginFailure) {
-      stopLogin();
-      setLoginError(loginFailure instanceof Error ? loginFailure.message : String(loginFailure));
+      const message = loginFailure instanceof Error ? loginFailure.message : String(loginFailure);
+      setLoginError(message);
+      onShowToast?.("Failed to connect", message, "error");
+    } finally {
+      setSavingCred(false);
     }
-  }, [onShowToast, selectedProvider, stopLogin]);
+  }, [onShowToast, pollProviderLogin, selectedProvider]);
+
+  const submitProviderLoginInput = useCallback(async () => {
+    if (!selectedProvider || !providerLoginInput.trim()) return;
+    setSavingCred(true);
+    setLoginError(null);
+    try {
+      const state = await nativeProviderLoginSubmit(
+        selectedProvider.id,
+        providerLoginInput.trim(),
+      );
+      setProviderLoginState(state);
+      setProviderLoginInput("");
+      await pollProviderLogin(selectedProvider.id, selectedProvider.label);
+    } catch (loginFailure) {
+      const message = loginFailure instanceof Error ? loginFailure.message : String(loginFailure);
+      setLoginError(message);
+      onShowToast?.("Failed to connect", message, "error");
+    } finally {
+      setSavingCred(false);
+    }
+  }, [onShowToast, pollProviderLogin, providerLoginInput, selectedProvider]);
+
+  const refreshFromOmp = useCallback(async () => {
+    if (!selectedProvider) return;
+    setSavingCred(true);
+    setLoginError(null);
+    try {
+      const refreshed = await nativeProviderRefreshOmpCredentials(selectedProvider.id);
+      setCatalog(refreshed);
+      if (!refreshed.providers.some((provider) => provider.id === selectedProvider.id && provider.configured)) {
+        setLoginError(`No ${selectedProvider.label} credential was found. Run /login in Oh My Pi, then try again.`);
+        return;
+      }
+      setShowLogin(false);
+      setSetupRequired(null);
+      setError(null);
+      onShowToast?.("Provider connected", `${selectedProvider.label} was imported from Oh My Pi.`, "success");
+    } catch (refreshError) {
+      const message = refreshError instanceof Error ? refreshError.message : String(refreshError);
+      setLoginError(message);
+      onShowToast?.("Failed to refresh provider", message, "error");
+    } finally {
+      setSavingCred(false);
+    }
+  }, [onShowToast, selectedProvider]);
 
   const openApiKeyUrl = useCallback((url: string) => {
     return openUrl(url).catch((e) => {
@@ -3215,10 +3253,10 @@ export function ChatPanel({
         </div>
       ) : null}
 
-      {/* Provider login modal: OAuth first, API key fallback */}
+      {/* Provider login modal: native connection first, optional OMP import second. */}
       {nativeMode && showLogin && selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID ? (
         <ModalPortal>
-        <div className="modal-overlay" onClick={() => { setShowLogin(false); stopLogin(); }} title="Close login dialog">
+        <div className="modal-overlay" onClick={() => setShowLogin(false)} title="Close login dialog">
           <div className="modal" onClick={(e) => e.stopPropagation()} title={`Connect ${selectedProvider.label}`}>
             <div className="modal-header">
               <h2>Connect {selectedProvider.label}</h2>
@@ -3226,29 +3264,17 @@ export function ChatPanel({
                 className="btn-icon"
                 title="Close"
                 type="button"
-                onClick={() => { setShowLogin(false); stopLogin(); }}
+                onClick={() => setShowLogin(false)}
               >
                 <X size={16} />
               </button>
             </div>
             <div className="modal-body stack" onClick={(e) => e.stopPropagation()}>
-              <p className="text-sm text-muted">
-                Sign in through Oh My Pi. Your provider credential stays in the local OMP profile.
-              </p>
-              <button
-                className="btn btn-primary"
-                type="button"
-                title={`Authenticate ${selectedProvider.label} through Oh My Pi`}
-                disabled={loginPolling}
-                onClick={() => void startOmpLogin()}
-              >
-                <Globe size={12} /> {loginPolling ? "Waiting for login..." : "Sign in with Oh My Pi"}
-              </button>
               {selectedProvider.authMethod !== "oauth" ? (
-                <details className="stack-sm">
-                  <summary className="text-muted text-sm" title={`Use an API key for ${selectedProvider.label}`}>
-                    Use API key instead
-                  </summary>
+                <div className="stack-sm">
+                  <p className="text-sm text-muted">
+                    Connect Basebuild directly to the provider API. The key stays in Basebuild&apos;s local credential store.
+                  </p>
                   {selectedProvider.apiKeyUrl ? (
                     <button
                       className="chat-link-btn"
@@ -3276,7 +3302,7 @@ export function ChatPanel({
                     title="Custom API base URL"
                   />
                   <button
-                    className="btn"
+                    className="btn btn-primary"
                     type="button"
                     title="Save API key and connect"
                     disabled={!apiKey.trim() || savingCred}
@@ -3284,8 +3310,69 @@ export function ChatPanel({
                   >
                     {savingCred ? "Saving..." : "Save API key"}
                   </button>
-                </details>
-              ) : null}
+                </div>
+              ) : (
+                <div className="stack-sm">
+                  <p className="text-sm text-muted">
+                    {selectedProvider.id === "openai-codex"
+                      ? "Sign in natively with your ChatGPT subscription."
+                      : "Sign in with your provider subscription through Oh My Pi."}
+                  </p>
+                  <button
+                    className="btn btn-primary"
+                    type="button"
+                    title={`Sign in to ${selectedProvider.label}`}
+                    disabled={savingCred}
+                    onClick={() => void handleProviderLogin()}
+                  >
+                    {savingCred ? <Loader2 size={12} /> : <Key size={12} />}
+                    {savingCred ? "Waiting for sign-in..." : `Sign in to ${selectedProvider.label}`}
+                  </button>
+                  {providerLoginState ? (
+                    <p className="text-sm text-muted">
+                      {providerLoginState.message}
+                    </p>
+                  ) : null}
+                  {providerLoginState?.status === "waiting_input" ? (
+                    <div className="stack-sm">
+                      <input
+                        className="input"
+                        type="text"
+                        placeholder="Authorization code or callback URL"
+                        value={providerLoginInput}
+                        onChange={(event) => setProviderLoginInput(event.target.value)}
+                        title={providerLoginState.prompt ?? "Provider authorization response"}
+                      />
+                      <button
+                        className="btn"
+                        type="button"
+                        title={`Submit the ${selectedProvider.label} authorization response`}
+                        disabled={!providerLoginInput.trim() || savingCred}
+                        onClick={() => void submitProviderLoginInput()}
+                      >
+                        Continue sign-in
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+              <details className="stack-sm">
+                <summary className="text-muted text-sm" title={`Import ${selectedProvider.label} credentials from Oh My Pi`}>
+                  Import from Oh My Pi (optional)
+                </summary>
+                <p className="text-sm text-muted">
+                  Run <code>/login</code> in an Oh My Pi terminal, complete the provider flow, then refresh here.
+                </p>
+                <button
+                  className="btn"
+                  type="button"
+                  title={`Import ${selectedProvider.label} credentials from Oh My Pi`}
+                  disabled={savingCred}
+                  onClick={() => void refreshFromOmp()}
+                >
+                  <RefreshCw size={12} /> {savingCred ? "Refreshing..." : "Refresh after OMP /login"}
+                </button>
+              </details>
               {loginError ? <p className="text-danger text-sm">{loginError}</p> : null}
             </div>
           </div>

@@ -3,10 +3,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use rusqlite::{params, OptionalExtension, Transaction};
 use tauri::{AppHandle, Emitter};
 
+use crate::events::NATIVE_CHAT_TRANSCRIPT_UPDATED;
 use crate::services::{
     openspec_service, plan_runner_service::PlanRunnerService, storage_service::StorageService,
 };
-use crate::events::NATIVE_CHAT_TRANSCRIPT_UPDATED;
 
 type DbResult<T> = Result<T, String>;
 

@@ -120,6 +120,17 @@ pub struct NativeProviderCredentialInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct NativeProviderLoginState {
+    pub provider_id: String,
+    pub status: String,
+    pub message: String,
+    pub prompt: Option<String>,
+    pub complete: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NativeModel {
     pub id: String,
     pub provider_id: String,
@@ -367,25 +378,6 @@ pub struct NativeToolApprovalResult {
     pub decision: String,
     pub requires_prompt: bool,
     pub reason: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProviderLoginStart {
-    pub provider_id: String,
-    pub provider_label: String,
-    /// Loopback landing page opened in the system browser to capture the token.
-    pub landing_url: String,
-    /// The provider's own key/authorization page linked from the landing page.
-    pub provider_url: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProviderLoginPoll {
-    /// One of: "pending", "success", "error", "cancelled".
-    pub status: String,
-    pub message: Option<String>,
 }
 
 /// Persisted chat model default (provider/model/effort triple). Stored per

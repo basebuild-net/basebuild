@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Loader2, Lock, LogOut, Moon, Plug, RefreshCw, Search, Settings2, Shield, Sparkles, Sun, Trash2, Unplug, User, Wrench, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
 import { CopyButton } from "./CopyButton";
@@ -21,14 +21,16 @@ import {
 import type { DetectedProviderPlan, ProviderPlanOption } from "../../lib/usageSync";
 import {
   nativeProviderCatalog,
-  nativeProviderOmpLoginStart,
+  nativeProviderLoginPoll,
+  nativeProviderLoginStart,
+  nativeProviderLoginSubmit,
   nativeProviderRefreshOmpCredentials,
   nativeSaveProviderCredential,
   nativeDeleteProviderCredential,
   type NativeProvider,
   type NativeProviderCatalog,
+  type NativeProviderLoginState,
 } from "../../lib/native-chat";
-import { listenOmpEvents } from "../../lib/omp";
 import {
   getRuntimeDefaults,
   setRuntimeDefaults,
@@ -1669,6 +1671,12 @@ const POPULAR_PROVIDER_IDS = [
   "google",
 ] as const;
 
+function waitForProviderLoginPoll(): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  window.setTimeout(resolve, 750);
+  return promise;
+}
+
 function ModelProvidersPanel() {
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -1677,7 +1685,8 @@ function ModelProvidersPanel() {
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
   const [baseUrlDrafts, setBaseUrlDrafts] = useState<Record<string, string>>({});
   const [updateKeyId, setUpdateKeyId] = useState<string | null>(null);
-  const ompUnlistenRef = useRef<(() => void) | null>(null);
+  const [loginStates, setLoginStates] = useState<Record<string, NativeProviderLoginState>>({});
+  const [loginDrafts, setLoginDrafts] = useState<Record<string, string>>({});
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -1695,63 +1704,8 @@ function ModelProvidersPanel() {
     void nativeProviderCatalog()
       .then(setCatalog)
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : String(loadError)));
-    return () => {
-      ompUnlistenRef.current?.();
-      ompUnlistenRef.current = null;
-    };
   }, []);
 
-  const startOmpLogin = useCallback(async (provider: NativeProvider) => {
-    setError(null);
-    setBusyId(provider.id);
-    ompUnlistenRef.current?.();
-    ompUnlistenRef.current = null;
-    let runId: number | null = null;
-    const finish = async (success: boolean, message?: string) => {
-      ompUnlistenRef.current?.();
-      ompUnlistenRef.current = null;
-      if (!success) {
-        setError(message ?? `Oh My Pi could not authenticate ${provider.label}.`);
-        setBusyId(null);
-        return;
-      }
-      try {
-        const next = await nativeProviderRefreshOmpCredentials(provider.id);
-        setCatalog(next);
-        const connected = next.providers.some((item) => item.id === provider.id && item.configured);
-        if (!connected) {
-          setError(`Oh My Pi finished, but ${provider.label} did not return a usable credential.`);
-        }
-      } catch (refreshError) {
-        setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
-      } finally {
-        setBusyId(null);
-      }
-    };
-
-    try {
-      const unlisten = await listenOmpEvents((event) => {
-        if (runId === null || event.payload.id !== runId) return;
-        if (event.payload.kind === "error") {
-          void finish(false, event.payload.error);
-        } else if (event.payload.kind === "done") {
-          void finish(
-            event.payload.success,
-            event.payload.success
-              ? undefined
-              : `Oh My Pi login exited with code ${event.payload.exitCode ?? "unknown"}.`,
-          );
-        }
-      });
-      ompUnlistenRef.current = unlisten;
-      runId = await nativeProviderOmpLoginStart(provider.id);
-    } catch (loginError) {
-      ompUnlistenRef.current?.();
-      ompUnlistenRef.current = null;
-      setError(loginError instanceof Error ? loginError.message : String(loginError));
-      setBusyId(null);
-    }
-  }, []);
 
   const saveKey = useCallback(
     async (providerId: string, label: string) => {
@@ -1790,6 +1744,57 @@ function ModelProvidersPanel() {
       setBusyId(null);
     }
   }, []);
+
+  async function pollLogin(providerId: string) {
+    for (let attempt = 0; attempt < 800; attempt += 1) {
+      await waitForProviderLoginPoll();
+      const state = await nativeProviderLoginPoll(providerId);
+      setLoginStates((previous) => ({ ...previous, [providerId]: state }));
+      if (state.complete) {
+        setCatalog(await nativeProviderRefreshOmpCredentials(providerId));
+        setBusyId(null);
+        return;
+      }
+      if (state.error) {
+        setError(state.error);
+        setBusyId(null);
+        return;
+      }
+      if (state.status === "waiting_input") {
+        return;
+      }
+    }
+    setError("Provider sign-in timed out.");
+    setBusyId(null);
+  }
+
+  async function connectWithOmp(providerId: string) {
+    setBusyId(providerId);
+    setError(null);
+    try {
+      const state = await nativeProviderLoginStart(providerId);
+      setLoginStates((previous) => ({ ...previous, [providerId]: state }));
+      await pollLogin(providerId);
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : String(loginError));
+      setBusyId(null);
+    }
+  }
+
+  async function submitLoginInput(providerId: string) {
+    const value = (loginDrafts[providerId] ?? "").trim();
+    if (!value) return;
+    setError(null);
+    try {
+      const state = await nativeProviderLoginSubmit(providerId, value);
+      setLoginDrafts((previous) => ({ ...previous, [providerId]: "" }));
+      setLoginStates((previous) => ({ ...previous, [providerId]: state }));
+      await pollLogin(providerId);
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : String(loginError));
+      setBusyId(null);
+    }
+  }
 
   const visibleProviders = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -1844,7 +1849,7 @@ function ModelProvidersPanel() {
     <div className="stack">
       <h3>Model providers</h3>
       <p className="text-muted text-sm">
-        Sign in through Oh My Pi when supported. API keys stay available as a fallback for providers without OAuth.
+        Sign in with a provider subscription when OAuth is available. API keys are reserved for providers without a supported sign-in flow.
       </p>
       <label className="stack-sm" htmlFor="provider-model-search">
         <span className="text-sm">Search providers and models</span>
@@ -1873,6 +1878,14 @@ function ModelProvidersPanel() {
       >
         <RefreshCw size={12} /> {busyId === "refresh" ? "Refreshing..." : "Refresh providers"}
       </button>
+      <details className="stack-sm">
+        <summary className="text-muted text-sm" title="Import credentials from Oh My Pi">
+          Use Oh My Pi credentials (optional)
+        </summary>
+        <p className="text-muted text-sm">
+          Open an Oh My Pi terminal, run <code>/login</code>, complete its provider flow, then choose Refresh providers.
+        </p>
+      </details>
 
       {groups.map((group) =>
         group.providers.length > 0 ? (
@@ -1881,6 +1894,7 @@ function ModelProvidersPanel() {
             {group.providers.map((provider) => {
               const canUseApiKey = provider.authMethod !== "oauth";
               const isBusy = busyId === provider.id;
+              const loginState = loginStates[provider.id];
               return (
                 <div key={provider.id} className="requirement-row items-start">
                   <span className={`requirement-badge is-${provider.configured ? "ok" : "attention"}`}>
@@ -1919,17 +1933,7 @@ function ModelProvidersPanel() {
                             >
                               <Key size={12} /> Update key
                             </button>
-                          ) : (
-                            <button
-                              className="btn btn-sm"
-                              type="button"
-                              title={`Sign in to ${provider.label} again through Oh My Pi`}
-                              disabled={isBusy}
-                              onClick={() => void startOmpLogin(provider)}
-                            >
-                              <RefreshCw size={12} /> Sign in again
-                            </button>
-                          )}
+                          ) : null}
                         </div>
                         {updateKeyId === provider.id ? (
                           <div className="stack-sm">
@@ -1960,23 +1964,8 @@ function ModelProvidersPanel() {
                       </div>
                     ) : (
                       <div className="stack-sm mt-6">
-                        {provider.id !== "custom" ? (
-                          <button
-                            className="btn btn-primary btn-sm"
-                            type="button"
-                            title={`Authenticate ${provider.label} through Oh My Pi`}
-                            disabled={isBusy}
-                            onClick={() => void startOmpLogin(provider)}
-                          >
-                            <Globe size={12} />
-                            {isBusy ? "Waiting for login..." : "Sign in with Oh My Pi"}
-                          </button>
-                        ) : null}
                         {canUseApiKey ? (
-                          <details className="stack-sm">
-                            <summary className="text-muted text-sm" title={`Use an API key for ${provider.label}`}>
-                              {provider.id === "custom" ? "Configure endpoint" : "Use API key instead"}
-                            </summary>
+                          <div className="stack-sm">
                             {provider.apiKeyUrl ? (
                               <a
                                 href={provider.apiKeyUrl}
@@ -2017,7 +2006,7 @@ function ModelProvidersPanel() {
                               />
                             ) : null}
                             <button
-                              className="btn btn-sm"
+                              className="btn btn-primary btn-sm"
                               type="button"
                               title={`Save the ${provider.label} API key`}
                               disabled={!(keyDrafts[provider.id] ?? "").trim() || isBusy}
@@ -2025,8 +2014,61 @@ function ModelProvidersPanel() {
                             >
                               <Key size={12} /> Save key
                             </button>
-                          </details>
-                        ) : null}
+                          </div>
+                        ) : (
+                          <div className="stack-sm">
+                            <p className="text-muted text-sm">
+                              {provider.id === "openai-codex"
+                                ? "Sign in natively with your ChatGPT subscription. Basebuild stores the OAuth token only in its local database and refreshes it before requests."
+                                : "Sign in with your provider subscription through Oh My Pi. Credentials remain owned and refreshed by Oh My Pi."}
+                            </p>
+                            <button
+                              className="btn btn-primary btn-sm"
+                              type="button"
+                              title={
+                                provider.id === "openai-codex"
+                                  ? `Sign in to ${provider.label}`
+                                  : `Sign in to ${provider.label} through Oh My Pi`
+                              }
+                              disabled={isBusy}
+                              onClick={() => void connectWithOmp(provider.id)}
+                            >
+                              {isBusy ? <Loader2 size={12} /> : <Plug size={12} />}
+                              {isBusy ? "Waiting for sign-in..." : `Sign in to ${provider.label}`}
+                            </button>
+                            {loginState ? (
+                              <p className={loginState.error ? "text-danger text-sm" : "text-muted text-sm"}>
+                                {loginState.error ?? loginState.message}
+                              </p>
+                            ) : null}
+                            {loginState?.status === "waiting_input" ? (
+                              <div className="stack-sm">
+                                <input
+                                  className="input"
+                                  type="text"
+                                  placeholder="Authorization code or callback URL"
+                                  value={loginDrafts[provider.id] ?? ""}
+                                  onChange={(event) =>
+                                    setLoginDrafts((previous) => ({
+                                      ...previous,
+                                      [provider.id]: event.target.value,
+                                    }))
+                                  }
+                                  title={loginState.prompt ?? "Paste the provider authorization response"}
+                                />
+                                <button
+                                  className="btn btn-sm"
+                                  type="button"
+                                  title={`Submit the ${provider.label} authorization response`}
+                                  disabled={!(loginDrafts[provider.id] ?? "").trim()}
+                                  onClick={() => void submitLoginInput(provider.id)}
+                                >
+                                  Continue sign-in
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
                       </div>
                     )}
                     {provider.error ? <p className="text-danger text-sm">{provider.error}</p> : null}

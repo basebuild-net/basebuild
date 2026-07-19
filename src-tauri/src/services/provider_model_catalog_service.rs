@@ -9,14 +9,15 @@ use serde_json::Value;
 
 use crate::{
     models::{
+        model_catalog,
         native_chat::{
             NativeEffortLevel, NativeModel, NativeProvider, NativeProviderCatalog,
             NativeProviderCredential,
         },
-        model_catalog,
     },
     services::{
-        native_chat_service::NativeChatService, provider_client::OMP_CODEX_BASE_URL,
+        native_chat_service::NativeChatService,
+        provider_client::{NATIVE_CODEX_BASE_URL, OMP_CODEX_BASE_URL},
         storage_service::StorageService,
     },
 };
@@ -255,10 +256,17 @@ impl ProviderModelCatalogService {
             return Ok(());
         }
 
-        let discovered = if credential.base_url.as_deref() == Some(OMP_CODEX_BASE_URL) {
-            // OMP-backed ChatGPT OAuth is not an OpenAI /v1 API key. Only show
-            // models confirmed to work through OMP's openai-codex RPC path.
+        let credential_base_url = credential.base_url.as_deref();
+        let discovered = if credential_base_url == Some(NATIVE_CODEX_BASE_URL) {
+            Ok(native_codex_oauth_models())
+        } else if credential_base_url == Some(OMP_CODEX_BASE_URL) {
+            // OMP's RPC bridge currently exposes authenticated text generation.
             Ok(omp_codex_oauth_models())
+        } else if credential_base_url.is_some_and(|value| value.starts_with("omp://")) {
+            match Self::discover_via_omp_cli(&spec.id) {
+                Ok(models) if !models.is_empty() => Ok(models),
+                _ => Ok(bundled_models(&spec.id)),
+            }
         } else if is_bespoke_provider(&spec.id) {
             // Bespoke-protocol providers (devin-agent, cursor-agent, etc.)
             // are not OpenAI-compatible. Try `omp models` for live
@@ -817,7 +825,7 @@ fn provider_overlays() -> &'static [(&'static str, ProviderOverlay)] {
                 local_only: false,
                 auth_method: "oauth",
                 api_key_url: None,
-                detail: "ChatGPT subscription sign-in through Oh My Pi OAuth.",
+                detail: "Sign in with a ChatGPT subscription through Basebuild's native OpenAI OAuth flow.",
                 default_base_url: None,
             },
         ),
@@ -839,9 +847,9 @@ fn provider_overlays() -> &'static [(&'static str, ProviderOverlay)] {
                 label: "Anthropic",
                 credential_owner: "user",
                 local_only: false,
-                auth_method: "api_key",
-                api_key_url: Some("https://console.anthropic.com/settings/keys"),
-                detail: "Anthropic API — enter your API key to connect.",
+                auth_method: "oauth",
+                api_key_url: None,
+                detail: "Sign in with a Claude subscription through Oh My Pi.",
                 default_base_url: Some("https://api.anthropic.com/v1"),
             },
         ),
@@ -1154,6 +1162,17 @@ fn bundled_from_catalog(provider_id: &str, cm: &model_catalog::CatalogModel) -> 
     )
 }
 
+fn native_codex_oauth_models() -> Vec<NativeModel> {
+    bundled_models("openai")
+        .into_iter()
+        .filter(|model| model.id == "gpt-5.5")
+        .map(|mut model| {
+            model.provider_id = "openai-codex".to_string();
+            model
+        })
+        .collect()
+}
+
 fn omp_codex_oauth_models() -> Vec<NativeModel> {
     bundled_models("openai")
         .into_iter()
@@ -1288,6 +1307,14 @@ mod tests {
         assert_eq!(models.len(), 1);
         assert_eq!(models[0].id, "gpt-5.5");
         assert!(!models[0].supports_tools);
+    }
+
+    #[test]
+    fn native_codex_oauth_model_keeps_tool_support() {
+        let models = native_codex_oauth_models();
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "gpt-5.5");
+        assert!(models[0].supports_tools);
     }
 
     #[test]

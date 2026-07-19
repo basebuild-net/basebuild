@@ -60,7 +60,7 @@ test.describe("Provider connect/disconnect via modal", () => {
 
     // Click a Connect button on an unconnected provider.
     // Use title^= to distinguish from "Disconnect" buttons.
-    const connectBtn = page.locator(".provider-card-action-btn[title^='Connect']").first();
+    const connectBtn = page.locator(".provider-card[title^='OpenAI API:'] .provider-card-action-btn[title^='Connect']").first();
     if (await connectBtn.count() > 0) {
       await connectBtn.click();
 

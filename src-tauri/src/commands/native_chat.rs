@@ -5,8 +5,8 @@ use crate::{
         ChatModelDefault, NativeChatBootstrap, NativeChatHistoryEntry, NativeChatMessage,
         NativeChatSendRequest, NativeChatSendResult, NativeChatSession, NativeChatStartRequest,
         NativeGenerateIdeasRequest, NativeGenerateIdeasResult, NativeProviderCatalog,
-        NativeProviderCatalogRefreshRequest, NativeProviderCredential,
-        NativeProviderCredentialInput, NativeRequestMetric, NativeRequestMetricsSummary,
+        NativeProviderCatalogRefreshRequest, NativeProviderCredentialInput,
+        NativeProviderLoginState, NativeRequestMetric, NativeRequestMetricsSummary,
         NativeToolApprovalRequest, NativeToolApprovalResult, NativeToolEvent,
         ResolvedChatModelDefault,
     },
@@ -205,65 +205,13 @@ pub async fn native_chat_tool_events(session_id: String) -> Result<Vec<NativeToo
 }
 
 #[tauri::command]
-pub fn native_save_provider_credential(
-    input: NativeProviderCredentialInput,
-) -> Result<NativeProviderCredential, String> {
-    NativeChatService::save_credential(input)
-}
-
-#[tauri::command]
-pub fn native_list_provider_credentials() -> Result<Vec<NativeProviderCredential>, String> {
-    NativeChatService::list_credentials()
+pub fn native_save_provider_credential(input: NativeProviderCredentialInput) -> Result<(), String> {
+    NativeChatService::save_credential(input).map(|_| ())
 }
 
 #[tauri::command]
 pub fn native_delete_provider_credential(provider_id: String) -> Result<(), String> {
     NativeChatService::delete_credential(&provider_id)
-}
-
-#[tauri::command]
-pub fn native_provider_login_start(
-    provider_id: String,
-) -> Result<crate::models::native_chat::ProviderLoginStart, String> {
-    crate::services::provider_login_service::ProviderLoginService::start(&provider_id)
-}
-
-#[tauri::command]
-pub fn native_provider_login_poll(
-    provider_id: String,
-) -> Result<crate::models::native_chat::ProviderLoginPoll, String> {
-    Ok(crate::services::provider_login_service::ProviderLoginService::poll(&provider_id))
-}
-
-#[tauri::command]
-pub fn native_provider_login_cancel(provider_id: String) -> Result<(), String> {
-    crate::services::provider_login_service::ProviderLoginService::cancel(&provider_id);
-    Ok(())
-}
-
-/// Start `omp login <provider>` with structured arguments. Provider ids are
-/// validated before crossing the process boundary and are never parsed by a
-/// shell.
-#[tauri::command]
-pub fn native_provider_omp_login_start(app: AppHandle, provider_id: String) -> Result<u64, String> {
-    if provider_id.is_empty()
-        || !provider_id.starts_with(|character: char| character.is_ascii_alphanumeric())
-        || !provider_id.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
-        })
-    {
-        return Err("Invalid provider id.".to_string());
-    }
-    if !crate::services::provider_client::omp_available() {
-        return Err(
-            "Oh My Pi (OMP) is not installed. Install OMP to authenticate with this provider."
-                .to_string(),
-        );
-    }
-    crate::services::omp_service::OmpService::stream_command(
-        app,
-        vec!["login".to_string(), provider_id],
-    )
 }
 
 /// Re-read the active OMP profile and refresh the provider catalog after an
@@ -277,6 +225,26 @@ pub fn native_provider_refresh_omp_credentials(
         provider_id,
         true,
     )
+}
+
+#[tauri::command]
+pub fn native_provider_login_start(
+    provider_id: String,
+) -> Result<NativeProviderLoginState, String> {
+    crate::services::provider_login_service::ProviderLoginService::start(&provider_id)
+}
+
+#[tauri::command]
+pub fn native_provider_login_poll(provider_id: String) -> Result<NativeProviderLoginState, String> {
+    crate::services::provider_login_service::ProviderLoginService::poll(&provider_id)
+}
+
+#[tauri::command]
+pub fn native_provider_login_submit(
+    provider_id: String,
+    value: String,
+) -> Result<NativeProviderLoginState, String> {
+    crate::services::provider_login_service::ProviderLoginService::submit(&provider_id, &value)
 }
 
 #[tauri::command]

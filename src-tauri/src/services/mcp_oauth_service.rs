@@ -1,8 +1,8 @@
 //! OAuth flow for MCP HTTP/SSE servers.
 //!
 //! Reuses rmcp's `AuthorizationManager` for metadata discovery (RFC 8414) and
-//! PKCE token exchange, and reuses the loopback-listener browser pattern from
-//! `provider_login_service` for the authorization-code callback. Tokens are
+//! PKCE token exchange, and uses a localhost loopback listener for the
+//! authorization-code callback. Tokens are
 //! persisted in `app_defaults` keyed `mcp_oauth:<server-url>` so they survive
 //! restarts and are scoped per server URL.
 //!

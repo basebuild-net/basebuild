@@ -7,6 +7,7 @@ use tauri::{AppHandle, Emitter};
 use crate::{
     events::NATIVE_CHAT_CHUNK,
     models::{
+        model_catalog,
         native_chat::{
             ChatModelDefault, NativeChatBootstrap, NativeChatHistoryEntry, NativeChatMessage,
             NativeChatSendRequest, NativeChatSendResult, NativeChatSession, NativeChatStartRequest,
@@ -16,13 +17,12 @@ use crate::{
             NativeToolApprovalRequest, NativeToolApprovalResult, NativeToolEvent,
             ResolvedChatModelDefault,
         },
-        model_catalog,
         permission::PermissionDecision,
         plan::Plan,
     },
     services::{
         agent_loop_service::{ToolEventRecord, TurnSegment},
-        provider_client::{resolve_client_for_model, ChatMsg, ProviderRequest, OMP_CODEX_BASE_URL},
+        provider_client::{resolve_client_for_model, ChatMsg, ProviderRequest},
         session_service::SessionService,
         settings_service::SettingsService,
         storage_service::StorageService,
@@ -292,6 +292,16 @@ impl NativeChatService {
         Ok(cred)
     }
 
+    pub(crate) fn unblock_provider(provider_id: &str) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "DELETE FROM native_blocked_providers WHERE provider_id = ?1",
+            params![provider_id],
+        )
+        .map_err(|error| format!("Failed to reconnect provider: {error}"))?;
+        Ok(())
+    }
+
     pub fn list_credentials() -> DbResult<Vec<NativeProviderCredential>> {
         let conn = StorageService::connect()?;
         let mut stmt = conn
@@ -422,12 +432,12 @@ impl NativeChatService {
                     if key.is_empty() {
                         return None;
                     }
-                    let is_omp_codex_oauth = omp_id == "openai-codex" && cred_type == "oauth";
+                    let base_url = (cred_type == "oauth").then(|| format!("omp://{omp_id}"));
                     Some(NativeProviderCredential {
                         provider_id: basebuild_id,
                         label: omp_id,
                         api_key: key,
-                        base_url: is_omp_codex_oauth.then(|| OMP_CODEX_BASE_URL.to_string()),
+                        base_url,
                         updated_at,
                     })
                 })
@@ -449,6 +459,9 @@ impl NativeChatService {
             params![provider_id],
         )
         .map_err(|e| e.to_string())?;
+        crate::services::provider_login_service::ProviderLoginService::clear_native_token(
+            provider_id,
+        )?;
         // Block the provider so OMP-imported credentials don't reappear.
         conn.execute(
             "INSERT OR IGNORE INTO native_blocked_providers (provider_id, blocked_at) VALUES (?1, ?2)",
@@ -884,6 +897,9 @@ impl NativeChatService {
             .unwrap_or_else(|| provider_id.clone());
 
         let is_local = provider_id == LOCAL_PROVIDER_ID;
+        crate::services::provider_login_service::ProviderLoginService::refresh_native_token(
+            &provider_id,
+        )?;
         let credential = Self::list_credentials()?
             .into_iter()
             .find(|c| c.provider_id == provider_id);
@@ -1336,6 +1352,9 @@ impl NativeChatService {
             .find(|provider| provider.id == provider_id)
             .map(|provider| provider.label.clone())
             .unwrap_or_else(|| provider_id.clone());
+        crate::services::provider_login_service::ProviderLoginService::refresh_native_token(
+            &provider_id,
+        )?;
         let credential = Self::list_credentials()?
             .into_iter()
             .find(|credential| credential.provider_id == provider_id);
@@ -1714,17 +1733,16 @@ impl NativeChatService {
         (String::new(), String::new())
     }
 
-    /// True when this route has no native transport and would previously have
-    /// bridged through OMP RPC. The ChatGPT-subscription OAuth sentinel always
-    /// requires OMP. Bespoke protocol kinds require OMP only when neither the
-    /// credential nor the model catalog supplies a direct endpoint.
+    /// True when this route requires OMP RPC. OAuth credentials owned by OMP
+    /// use an `omp://<provider>` sentinel. Bespoke protocol kinds require OMP
+    /// only when neither the credential nor model catalog supplies an endpoint.
     pub fn route_requires_omp(
         api_kind: &str,
         credential_base_url: Option<&str>,
         model_base_url: &str,
         is_local: bool,
     ) -> bool {
-        if credential_base_url == Some(OMP_CODEX_BASE_URL) {
+        if credential_base_url.is_some_and(|value| value.starts_with("omp://")) {
             return true;
         }
         let has_direct_endpoint = credential_base_url.is_some_and(|value| !value.trim().is_empty())
@@ -2557,10 +2575,7 @@ fn existing_planning_work_context(
 fn humanize_title(raw: &str) -> String {
     let trimmed = raw.trim();
     if trimmed.contains("<command") {
-        if let Some(name_start) = trimmed
-            .find("name=\"")
-            .map(|pos| pos + "name=\"".len())
-        {
+        if let Some(name_start) = trimmed.find("name=\"").map(|pos| pos + "name=\"".len()) {
             if let Some(name_len) = trimmed[name_start..].find('"') {
                 let name = trimmed[name_start..name_start + name_len].trim_start_matches('/');
                 if let Some(skill) = name.strip_prefix("skill:") {
@@ -2642,11 +2657,22 @@ mod tests {
             .any(|effort| effort.id == "xhigh"));
     }
     #[test]
-    fn route_requires_omp_refuses_codex_oauth_sentinel() {
-        // ChatGPT-subscription OAuth has no native transport regardless of kind.
+    fn route_requires_omp_for_any_omp_owned_oauth_credential() {
         assert!(NativeChatService::route_requires_omp(
             "openai-responses",
             Some(crate::services::provider_client::OMP_CODEX_BASE_URL),
+            "",
+            false,
+        ));
+        assert!(NativeChatService::route_requires_omp(
+            "anthropic-messages",
+            Some("omp://anthropic"),
+            "https://api.anthropic.com/v1",
+            false,
+        ));
+        assert!(!NativeChatService::route_requires_omp(
+            "openai-responses",
+            Some(crate::services::provider_client::NATIVE_CODEX_BASE_URL),
             "",
             false,
         ));

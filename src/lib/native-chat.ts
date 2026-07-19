@@ -184,17 +184,6 @@ export type NativeGenerateIdeasResult = {
   assistantMessage?: NativeChatMessage | null;
 };
 
-export type ProviderLoginStart = {
-  providerId: string;
-  providerLabel: string;
-  landingUrl: string;
-  providerUrl: string;
-};
-
-export type ProviderLoginPoll = {
-  status: "pending" | "success" | "error" | "cancelled";
-  message: string | null;
-};
 
 export async function nativeProviderCatalog(): Promise<NativeProviderCatalog> {
   return invoke<NativeProviderCatalog>("native_provider_catalog");
@@ -240,13 +229,6 @@ export async function renameNativeChatSession(sessionId: string, title: string):
 }
 
 
-export type NativeProviderCredential = {
-  providerId: string;
-  label: string;
-  apiKey: string;
-  baseUrl: string | null;
-  updatedAt: number;
-};
 
 export type NativeProviderCredentialInput = {
   providerId: string;
@@ -255,12 +237,8 @@ export type NativeProviderCredentialInput = {
   baseUrl?: string | null;
 };
 
-export async function nativeSaveProviderCredential(input: NativeProviderCredentialInput): Promise<NativeProviderCredential> {
-  return invoke<NativeProviderCredential>("native_save_provider_credential", { input });
-}
-
-export async function nativeListProviderCredentials(): Promise<NativeProviderCredential[]> {
-  return invoke<NativeProviderCredential[]>("native_list_provider_credentials");
+export async function nativeSaveProviderCredential(input: NativeProviderCredentialInput): Promise<void> {
+  return invoke("native_save_provider_credential", { input });
 }
 
 export async function nativeDeleteProviderCredential(providerId: string): Promise<void> {
@@ -331,20 +309,33 @@ export async function nativeGenerateIdeas(input: {
   return invoke<NativeGenerateIdeasResult>("native_generate_ideas", { request: input });
 }
 
-export async function nativeProviderLoginStart(providerId: string): Promise<ProviderLoginStart> {
-  return invoke<ProviderLoginStart>("native_provider_login_start", { providerId });
+
+export type NativeProviderLoginState = {
+  providerId: string;
+  status: "starting" | "waiting" | "waiting_browser" | "waiting_input" | "complete" | "error";
+  message: string;
+  prompt: string | null;
+  complete: boolean;
+  error: string | null;
+};
+
+export async function nativeProviderLoginStart(
+  providerId: string,
+): Promise<NativeProviderLoginState> {
+  return invoke<NativeProviderLoginState>("native_provider_login_start", { providerId });
 }
 
-export async function nativeProviderLoginPoll(providerId: string): Promise<ProviderLoginPoll> {
-  return invoke<ProviderLoginPoll>("native_provider_login_poll", { providerId });
+export async function nativeProviderLoginPoll(
+  providerId: string,
+): Promise<NativeProviderLoginState> {
+  return invoke<NativeProviderLoginState>("native_provider_login_poll", { providerId });
 }
 
-export async function nativeProviderLoginCancel(providerId: string): Promise<void> {
-  return invoke("native_provider_login_cancel", { providerId });
-}
-
-export async function nativeProviderOmpLoginStart(providerId: string): Promise<number> {
-  return invoke<number>("native_provider_omp_login_start", { providerId });
+export async function nativeProviderLoginSubmit(
+  providerId: string,
+  value: string,
+): Promise<NativeProviderLoginState> {
+  return invoke<NativeProviderLoginState>("native_provider_login_submit", { providerId, value });
 }
 
 export async function nativeProviderRefreshOmpCredentials(

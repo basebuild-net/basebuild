@@ -11,10 +11,19 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde_json::{json, Value};
 
 pub const LOCAL_PROVIDER_ID: &str = "basebuild-local";
 pub const OMP_CODEX_BASE_URL: &str = "omp://openai-codex";
+const OPENAI_CODEX_PROVIDER_ID: &str = "openai-codex";
+pub const NATIVE_CODEX_BASE_URL: &str = "native://openai-codex";
+
+fn omp_provider_from_base_url(base_url: Option<&str>) -> Option<&str> {
+    base_url?
+        .strip_prefix("omp://")
+        .filter(|provider_id| !provider_id.is_empty())
+}
 
 /// A single conversation message handed to a provider.
 ///
@@ -121,11 +130,16 @@ pub trait ProviderClient {
 /// Resolve the client for a provider id. `base_url` is the stored credential
 /// base URL override (if any).
 pub fn resolve_client(provider_id: &str, base_url: Option<&str>) -> Box<dyn ProviderClient> {
+    if base_url == Some(NATIVE_CODEX_BASE_URL) {
+        return Box::new(OpenAiCodexClient);
+    }
+    if let Some(omp_provider_id) = omp_provider_from_base_url(base_url) {
+        return Box::new(OmpRpcClient {
+            omp_provider_id: omp_provider_id.to_string(),
+        });
+    }
     match provider_id {
         LOCAL_PROVIDER_ID => Box::new(LocalCoordinator),
-        "openai" if base_url == Some(OMP_CODEX_BASE_URL) => Box::new(OmpRpcClient {
-            omp_provider_id: "openai-codex".to_string(),
-        }),
         "anthropic" => Box::new(AnthropicClient {
             provider_id: "anthropic".to_string(),
             base_url: base_url
@@ -253,11 +267,12 @@ pub fn resolve_client_for_model(
     if provider_id == LOCAL_PROVIDER_ID {
         return Box::new(LocalCoordinator);
     }
-    // Backward compat: existing openai-codex OAuth credentials use the
-    // omp:// sentinel as their base_url.
-    if base_url == Some(OMP_CODEX_BASE_URL) {
+    if base_url == Some(NATIVE_CODEX_BASE_URL) {
+        return Box::new(OpenAiCodexClient);
+    }
+    if let Some(omp_provider_id) = omp_provider_from_base_url(base_url) {
         return Box::new(OmpRpcClient {
-            omp_provider_id: "openai-codex".to_string(),
+            omp_provider_id: omp_provider_id.to_string(),
         });
     }
     let direct_base_url = base_url
@@ -878,6 +893,321 @@ impl OpenAiStreamState {
                 }
             }
         }
+    }
+}
+
+const CODEX_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
+const CODEX_CLIENT_VERSION: &str = "0.144.1";
+
+struct OpenAiCodexClient;
+
+#[derive(Default)]
+struct CodexStreamState {
+    content: String,
+    reasoning: String,
+    ttft_ms: Option<i64>,
+    input_tokens: Option<i64>,
+    output_tokens: Option<i64>,
+    tool_calls: Vec<ToolCallRequest>,
+    error: Option<String>,
+}
+
+impl CodexStreamState {
+    fn tool_slot(&mut self, index: usize) -> &mut ToolCallRequest {
+        while self.tool_calls.len() <= index {
+            self.tool_calls.push(ToolCallRequest::default());
+        }
+        &mut self.tool_calls[index]
+    }
+
+    fn process_line(&mut self, line: &str, emit: &dyn Fn(&str, &str), start: &Instant) {
+        let Some(data) = line.strip_prefix("data:").map(str::trim) else {
+            return;
+        };
+        if data.is_empty() || data == "[DONE]" {
+            return;
+        }
+        let Ok(event) = serde_json::from_str::<Value>(data) else {
+            return;
+        };
+        match event.get("type").and_then(Value::as_str) {
+            Some("response.output_text.delta") => {
+                if let Some(delta) = event.get("delta").and_then(Value::as_str) {
+                    if !delta.is_empty() {
+                        if self.ttft_ms.is_none() {
+                            self.ttft_ms = Some(start.elapsed().as_millis() as i64);
+                        }
+                        self.content.push_str(delta);
+                        emit(delta, "content");
+                    }
+                }
+            }
+            Some("response.reasoning_summary_text.delta") => {
+                if let Some(delta) = event.get("delta").and_then(Value::as_str) {
+                    if !delta.is_empty() {
+                        if self.ttft_ms.is_none() {
+                            self.ttft_ms = Some(start.elapsed().as_millis() as i64);
+                        }
+                        self.reasoning.push_str(delta);
+                        emit(delta, "reasoning");
+                    }
+                }
+            }
+            Some("response.output_item.added") | Some("response.output_item.done") => {
+                let Some(item) = event.get("item") else {
+                    return;
+                };
+                if item.get("type").and_then(Value::as_str) != Some("function_call") {
+                    return;
+                }
+                let index = event
+                    .get("output_index")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(self.tool_calls.len() as u64) as usize;
+                let slot = self.tool_slot(index);
+                if let Some(id) = item.get("call_id").and_then(Value::as_str) {
+                    slot.id = id.to_string();
+                }
+                if let Some(name) = item.get("name").and_then(Value::as_str) {
+                    if slot.name.is_empty() && !name.is_empty() {
+                        emit(name, "tool_call_name");
+                    }
+                    slot.name = name.to_string();
+                }
+                if let Some(arguments) = item.get("arguments").and_then(Value::as_str) {
+                    slot.arguments = arguments.to_string();
+                }
+            }
+            Some("response.function_call_arguments.delta") => {
+                let index = event
+                    .get("output_index")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as usize;
+                if let Some(delta) = event.get("delta").and_then(Value::as_str) {
+                    if !delta.is_empty() {
+                        if self.ttft_ms.is_none() {
+                            self.ttft_ms = Some(start.elapsed().as_millis() as i64);
+                        }
+                        self.tool_slot(index).arguments.push_str(delta);
+                        emit(delta, "tool_call");
+                    }
+                }
+            }
+            Some("response.completed") => {
+                let usage = event
+                    .get("response")
+                    .and_then(|response| response.get("usage"));
+                self.input_tokens = usage
+                    .and_then(|usage| usage.get("input_tokens"))
+                    .and_then(Value::as_i64)
+                    .or(self.input_tokens);
+                self.output_tokens = usage
+                    .and_then(|usage| usage.get("output_tokens"))
+                    .and_then(Value::as_i64)
+                    .or(self.output_tokens);
+            }
+            Some("error") | Some("response.failed") => {
+                self.error = event
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .or_else(|| {
+                        event
+                            .get("response")
+                            .and_then(|response| response.get("error"))
+                            .and_then(|error| error.get("message"))
+                            .and_then(Value::as_str)
+                    })
+                    .map(str::to_string)
+                    .or_else(|| Some("OpenAI Codex returned a failed response.".to_string()));
+            }
+            _ => {}
+        }
+    }
+}
+
+fn codex_account_id(access_token: &str) -> Option<String> {
+    let payload = access_token.split('.').nth(1)?;
+    let bytes = URL_SAFE_NO_PAD.decode(payload).ok()?;
+    let value = serde_json::from_slice::<Value>(&bytes).ok()?;
+    value
+        .get("https://api.openai.com/auth")
+        .and_then(|auth| auth.get("chatgpt_account_id"))
+        .and_then(Value::as_str)
+        .filter(|account_id| !account_id.is_empty())
+        .map(str::to_string)
+}
+
+fn codex_input(req: &ProviderRequest) -> Vec<Value> {
+    let mut input = Vec::new();
+    for message in &req.messages {
+        if message.role == "tool" {
+            input.push(json!({
+                "type": "function_call_output",
+                "call_id": message.tool_call_id,
+                "output": message.content,
+            }));
+            continue;
+        }
+        if !message.content.trim().is_empty() {
+            let content_type = if message.role == "assistant" {
+                "output_text"
+            } else {
+                "input_text"
+            };
+            input.push(json!({
+                "type": "message",
+                "role": message.role,
+                "content": [{ "type": content_type, "text": message.content }],
+            }));
+        }
+        if message.role == "assistant" {
+            input.extend(message.tool_calls.iter().map(|call| {
+                json!({
+                    "type": "function_call",
+                    "call_id": call.id,
+                    "name": call.name,
+                    "arguments": call.arguments,
+                })
+            }));
+        }
+    }
+    input
+}
+
+fn codex_supports_reasoning_summary(model_id: &str) -> bool {
+    let bare = model_id.rsplit('/').next().unwrap_or(model_id);
+    let Some(version) = bare.strip_prefix("gpt-") else {
+        return false;
+    };
+    let Some((major, remainder)) = version.split_once('.') else {
+        return false;
+    };
+    let minor = remainder
+        .split(|character: char| !character.is_ascii_digit())
+        .next()
+        .and_then(|value| value.parse::<u32>().ok());
+    let major = major.parse::<u32>().ok();
+    matches!((major, minor), (Some(major), Some(minor)) if major > 5 || (major == 5 && minor >= 4))
+}
+
+impl ProviderClient for OpenAiCodexClient {
+    fn generate(
+        &self,
+        req: &ProviderRequest,
+        emit: &dyn Fn(&str, &str),
+    ) -> Result<ProviderResponse, String> {
+        let access_token = req
+            .api_key
+            .as_deref()
+            .ok_or("Missing OpenAI subscription credential")?;
+        let account_id = codex_account_id(access_token)
+            .ok_or("OpenAI subscription credential has no ChatGPT account id")?;
+
+        let tools: Vec<Value> = req
+            .tools
+            .iter()
+            .map(|tool| {
+                json!({
+                    "type": "function",
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                    "strict": false,
+                })
+            })
+            .collect();
+        let mut body = json!({
+            "model": req.model_id,
+            "input": codex_input(req),
+            "reasoning": {
+                "effort": req.effort_level,
+            },
+            "stream": true,
+            "store": false,
+            "parallel_tool_calls": true,
+        });
+        if let Some(instructions) = req
+            .system
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            body["instructions"] = json!(instructions);
+        }
+        if codex_supports_reasoning_summary(&req.model_id) {
+            body["reasoning"]["summary"] = json!("auto");
+        }
+        if !tools.is_empty() {
+            body["tools"] = json!(tools);
+            body["tool_choice"] = json!("auto");
+        }
+
+        let start = Instant::now();
+        let response = http_client()?
+            .post(CODEX_RESPONSES_URL)
+            .bearer_auth(access_token)
+            .header("chatgpt-account-id", account_id)
+            .header("OpenAI-Beta", "responses=experimental")
+            .header("originator", "basebuild")
+            .header("version", CODEX_CLIENT_VERSION)
+            .header(
+                "User-Agent",
+                format!("basebuild/{}", env!("CARGO_PKG_VERSION")),
+            )
+            .header("accept", "text/event-stream")
+            .json(&body)
+            .send()
+            .map_err(|error| classify_reqwest_error(&error))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(ProviderError::HttpError {
+                provider: OPENAI_CODEX_PROVIDER_ID.to_string(),
+                status: status.as_u16(),
+                message: provider_http_error(status.as_u16(), OPENAI_CODEX_PROVIDER_ID, ""),
+            }
+            .into());
+        }
+
+        let mut state = CodexStreamState::default();
+        for line in BufReader::new(response).lines() {
+            let line =
+                line.map_err(|error| ProviderError::Other(format!("Stream read error: {error}")))?;
+            state.process_line(&line, emit, &start);
+        }
+        if let Some(error) = state.error {
+            return Err(ProviderError::Other(error).into());
+        }
+        state
+            .tool_calls
+            .retain(|call| !call.id.is_empty() && !call.name.is_empty());
+        let duration_ms = (start.elapsed().as_millis() as i64).max(1);
+        if state.content.trim().is_empty()
+            && state.reasoning.trim().is_empty()
+            && state.tool_calls.is_empty()
+        {
+            return Err(ProviderError::EmptyResponse {
+                provider: OPENAI_CODEX_PROVIDER_ID.to_string(),
+            }
+            .into());
+        }
+        let output_tokens = state
+            .output_tokens
+            .or_else(|| Some(estimate_tokens(&state.content)));
+        Ok(ProviderResponse {
+            content: state.content,
+            reasoning: (!state.reasoning.trim().is_empty()).then_some(state.reasoning),
+            input_tokens: state.input_tokens.or_else(|| {
+                Some(
+                    req.messages
+                        .iter()
+                        .map(|message| estimate_tokens(&message.content))
+                        .sum(),
+                )
+            }),
+            output_tokens,
+            ttft_ms: state.ttft_ms.or(Some(duration_ms)),
+            duration_ms,
+            tool_calls: state.tool_calls,
+        })
     }
 }
 
@@ -1712,5 +2042,102 @@ mod tests {
             .generate(&req, &|_, _| {})
             .expect("local coordinator generate");
         assert!(resp.reasoning.is_none());
+    }
+
+    #[test]
+    fn codex_account_id_is_read_from_access_token_claims() {
+        let claims = json!({
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": "account-123"
+            }
+        });
+        let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).expect("encode claims"));
+        let token = format!("header.{payload}.signature");
+        assert_eq!(codex_account_id(&token).as_deref(), Some("account-123"));
+        assert!(codex_account_id("not-a-jwt").is_none());
+    }
+
+    #[test]
+    fn codex_stream_collects_text_reasoning_tools_and_usage() {
+        let start = Instant::now();
+        let mut state = CodexStreamState::default();
+        let lines = [
+            r#"data: {"type":"response.output_text.delta","delta":"hello"}"#,
+            r#"data: {"type":"response.reasoning_summary_text.delta","delta":"checked"}"#,
+            r#"data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call-1","name":"read","arguments":""}}"#,
+            r#"data: {"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\"path\":\"a\"}"}"#,
+            r#"data: {"type":"response.completed","response":{"usage":{"input_tokens":12,"output_tokens":7}}}"#,
+        ];
+        for line in lines {
+            state.process_line(line, &|_, _| {}, &start);
+        }
+        assert_eq!(state.content, "hello");
+        assert_eq!(state.reasoning, "checked");
+        assert_eq!(state.input_tokens, Some(12));
+        assert_eq!(state.output_tokens, Some(7));
+        assert_eq!(state.tool_calls.len(), 1);
+        assert_eq!(state.tool_calls[0].id, "call-1");
+        assert_eq!(state.tool_calls[0].name, "read");
+        assert_eq!(state.tool_calls[0].arguments, r#"{"path":"a"}"#);
+    }
+
+    #[test]
+    fn codex_input_preserves_function_call_round_trip() {
+        let req = ProviderRequest {
+            model_id: "gpt-5.1-codex".to_string(),
+            effort_level: "high".to_string(),
+            system: None,
+            messages: vec![
+                ChatMsg {
+                    role: "assistant".to_string(),
+                    content: String::new(),
+                    tool_calls: vec![ToolCallRequest {
+                        id: "call-1".to_string(),
+                        name: "read".to_string(),
+                        arguments: r#"{"path":"a"}"#.to_string(),
+                    }],
+                    tool_call_id: None,
+                    name: None,
+                },
+                ChatMsg {
+                    role: "tool".to_string(),
+                    content: "contents".to_string(),
+                    tool_calls: Vec::new(),
+                    tool_call_id: Some("call-1".to_string()),
+                    name: Some("read".to_string()),
+                },
+            ],
+            api_key: None,
+            base_url: None,
+            tools: Vec::new(),
+        };
+        let input = codex_input(&req);
+        assert_eq!(input[0]["type"], "function_call");
+        assert_eq!(input[0]["call_id"], "call-1");
+        assert_eq!(input[1]["type"], "function_call_output");
+        assert_eq!(input[1]["call_id"], "call-1");
+    }
+
+    #[test]
+    fn omp_sentinel_preserves_the_credential_owner_provider() {
+        assert_eq!(
+            omp_provider_from_base_url(Some("omp://anthropic")),
+            Some("anthropic")
+        );
+        assert_eq!(
+            omp_provider_from_base_url(Some(OMP_CODEX_BASE_URL)),
+            Some("openai-codex")
+        );
+        assert!(omp_provider_from_base_url(Some("https://api.example")).is_none());
+        assert!(omp_provider_from_base_url(Some("omp://")).is_none());
+    }
+
+    #[test]
+    fn codex_reasoning_summary_respects_wire_generation() {
+        assert!(!codex_supports_reasoning_summary("gpt-5.1-codex"));
+        assert!(!codex_supports_reasoning_summary("gpt-5.3-codex-spark"));
+        assert!(codex_supports_reasoning_summary("gpt-5.4-codex"));
+        assert!(codex_supports_reasoning_summary("openai/gpt-5.5"));
+        assert!(codex_supports_reasoning_summary("gpt-6.0"));
     }
 }

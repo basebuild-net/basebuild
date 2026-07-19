@@ -73,7 +73,7 @@ test.describe("native chat workspace", () => {
     await expect(catalogModal).toBeVisible();
     await expect(catalogModal.locator(".provider-card.is-connected").first()).toBeVisible();
     await expect(catalogModal.locator(".provider-status.is-connected").first()).toContainText("Connected");
-    await catalogModal.locator(".provider-card", { hasText: "OpenAI" }).first().click();
+    await catalogModal.locator(".provider-card[title^='OpenAI API:']").click();
     await page.getByTitle("Close provider and model catalog").click();
 
     // Attempting to send opens the connect prompt and keeps the draft; no turn is sent.

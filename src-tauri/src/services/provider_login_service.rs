@@ -1,348 +1,653 @@
-//! Web/loopback provider login.
+//! Provider OAuth for Basebuild-native OpenAI Codex and OMP-backed providers.
 //!
-//! Opens the provider's key/authorization page in the system browser and runs a
-//! localhost loopback listener that captures the credential via an HTTP POST
-//! (never a URL query string, never logged). The captured secret is persisted
-//! through the same local credential store used by manual API-key entry.
+//! OpenAI subscription tokens are stored in Basebuild's local SQLite database.
+//! Other provider flows use OMP's structured RPC protocol and remain owned by
+//! OMP. No credential is copied through the webview or written to logs.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::sync::LazyLock;
-use std::time::{Duration, Instant};
+use std::io::{BufRead, BufReader, Write};
+use std::process::Stdio;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, LazyLock};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
+use rusqlite::{params, OptionalExtension};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
-use crate::models::native_chat::{
-    NativeProviderCredentialInput, ProviderLoginPoll, ProviderLoginStart,
-};
+use crate::models::native_chat::{NativeProviderCredentialInput, NativeProviderLoginState};
 use crate::services::native_chat_service::NativeChatService;
+use crate::services::process_helpers::hidden_command;
+use crate::services::provider_client::NATIVE_CODEX_BASE_URL;
+use crate::services::provider_model_catalog_service::ProviderModelCatalogService;
+use crate::services::storage_service::StorageService;
 
-type DbResult<T> = Result<T, String>;
+const LOGIN_TIMEOUT: Duration = Duration::from_secs(600);
+const OPENAI_CODEX_PROVIDER_ID: &str = "openai-codex";
+const OPENAI_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+const OPENAI_DEVICE_USERCODE_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/usercode";
+const OPENAI_DEVICE_TOKEN_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/token";
+const OPENAI_DEVICE_AUTH_URL: &str = "https://auth.openai.com/codex/device";
+const OPENAI_DEVICE_REDIRECT_URI: &str = "https://auth.openai.com/deviceauth/callback";
+const OPENAI_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
+const OPENAI_OAUTH_STORAGE_KEY: &str = "provider_oauth:openai-codex";
+const TOKEN_REFRESH_SKEW_MS: i64 = 60_000;
 
-#[derive(Clone)]
-enum LoginStatus {
-    Pending,
-    Success,
-    Error(String),
-    Cancelled,
+#[derive(Clone, Serialize, Deserialize)]
+struct OpenAiOAuthToken {
+    access_token: String,
+    refresh_token: String,
+    expires_at: i64,
 }
 
-/// Active loopback login sessions keyed by provider id. The initializer (empty
-/// map) is known here, so this is a `LazyLock`, not a `OnceLock`.
-static SESSIONS: LazyLock<Mutex<HashMap<String, LoginStatus>>> =
+type LoginInput = (String, String);
+
+struct LoginSession {
+    state: Arc<Mutex<NativeProviderLoginState>>,
+    pending_request_id: Arc<Mutex<Option<String>>>,
+    input: Sender<LoginInput>,
+}
+
+static SESSIONS: LazyLock<Mutex<HashMap<String, LoginSession>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-
-const LOGIN_TIMEOUT: Duration = Duration::from_secs(300);
-
-/// Resolve a provider's display label and key/authorization page URL.
-fn provider_meta(provider_id: &str) -> Option<(&'static str, &'static str)> {
-    match provider_id {
-        "openai" => Some(("OpenAI", "https://platform.openai.com/api-keys")),
-        "anthropic" => Some(("Anthropic", "https://console.anthropic.com/settings/keys")),
-        "umans" => Some(("Umans", "https://umans.ai")),
-        _ => None,
-    }
-}
-
-fn set_status(provider_id: &str, status: LoginStatus) {
-    SESSIONS.lock().insert(provider_id.to_string(), status);
-}
-
-fn is_cancelled(provider_id: &str) -> bool {
-    matches!(
-        SESSIONS.lock().get(provider_id),
-        Some(LoginStatus::Cancelled)
-    )
-}
+static OPENAI_REFRESH_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 pub struct ProviderLoginService;
 
 impl ProviderLoginService {
-    /// Start a loopback login flow: bind an ephemeral localhost port, open the
-    /// landing page in the browser, and spawn a capture thread.
-    pub fn start(provider_id: &str) -> DbResult<ProviderLoginStart> {
-        let (label, provider_url) = provider_meta(provider_id)
-            .ok_or_else(|| format!("Provider '{provider_id}' does not support web login."))?;
+    pub fn start(provider_id: &str) -> Result<NativeProviderLoginState, String> {
+        let provider_id = provider_id.trim();
+        if provider_id.is_empty() {
+            return Err("Provider id is required.".to_string());
+        }
+        if !crate::models::model_catalog::provider_ids().contains(&provider_id) {
+            return Err(format!("Unknown provider '{provider_id}'."));
+        }
+        if provider_id != OPENAI_CODEX_PROVIDER_ID
+            && !crate::services::provider_client::omp_available()
+        {
+            return Err("Oh My Pi is not installed or is not available on PATH.".to_string());
+        }
 
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .map_err(|e| format!("Failed to start local login listener: {e}"))?;
-        listener
-            .set_nonblocking(true)
-            .map_err(|e| format!("Failed to configure login listener: {e}"))?;
-        let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+        let mut sessions = SESSIONS.lock();
+        if let Some(existing) = sessions.get(provider_id) {
+            let state = existing.state.lock().clone();
+            if !state.complete && state.error.is_none() {
+                return Ok(state);
+            }
+        }
 
-        set_status(provider_id, LoginStatus::Pending);
-
-        let provider_id_owned = provider_id.to_string();
-        let label_owned = label.to_string();
-        let provider_url_owned = provider_url.to_string();
-        std::thread::spawn(move || {
-            Self::run_capture(
-                listener,
-                &provider_id_owned,
-                &label_owned,
-                &provider_url_owned,
-            );
-        });
-
-        let landing_url = format!("http://127.0.0.1:{port}/");
-        // Open the loopback landing page (which links to the provider's page) in
-        // the system browser. The landing URL carries no secret.
-        let _ = open::that(&landing_url);
-
-        Ok(ProviderLoginStart {
+        let initial = NativeProviderLoginState {
             provider_id: provider_id.to_string(),
-            provider_label: label.to_string(),
-            landing_url,
-            provider_url: provider_url.to_string(),
-        })
-    }
-
-    /// Poll the flow. Terminal states are removed on read.
-    pub fn poll(provider_id: &str) -> ProviderLoginPoll {
-        let mut guard = SESSIONS.lock();
-        match guard.get(provider_id).cloned() {
-            Some(LoginStatus::Pending) => ProviderLoginPoll {
-                status: "pending".to_string(),
-                message: None,
+            status: "starting".to_string(),
+            message: "Starting provider sign-in…".to_string(),
+            prompt: None,
+            complete: false,
+            error: None,
+        };
+        let state = Arc::new(Mutex::new(initial.clone()));
+        let pending_request_id = Arc::new(Mutex::new(None));
+        let (input_tx, input_rx) = mpsc::channel();
+        sessions.insert(
+            provider_id.to_string(),
+            LoginSession {
+                state: state.clone(),
+                pending_request_id: pending_request_id.clone(),
+                input: input_tx,
             },
-            Some(LoginStatus::Success) => {
-                guard.remove(provider_id);
-                ProviderLoginPoll {
-                    status: "success".to_string(),
-                    message: None,
-                }
-            }
-            Some(LoginStatus::Error(msg)) => {
-                guard.remove(provider_id);
-                ProviderLoginPoll {
-                    status: "error".to_string(),
-                    message: Some(msg),
-                }
-            }
-            Some(LoginStatus::Cancelled) => {
-                guard.remove(provider_id);
-                ProviderLoginPoll {
-                    status: "cancelled".to_string(),
-                    message: None,
-                }
-            }
-            None => ProviderLoginPoll {
-                status: "error".to_string(),
-                message: Some("No active login for this provider.".to_string()),
-            },
-        }
-    }
-
-    /// Cancel an in-flight flow. The capture thread exits on its next tick.
-    pub fn cancel(provider_id: &str) {
-        set_status(provider_id, LoginStatus::Cancelled);
-    }
-
-    fn run_capture(listener: TcpListener, provider_id: &str, label: &str, provider_url: &str) {
-        let deadline = Instant::now() + LOGIN_TIMEOUT;
-        loop {
-            if is_cancelled(provider_id) {
-                return;
-            }
-            if Instant::now() >= deadline {
-                set_status(
-                    provider_id,
-                    LoginStatus::Error("Login timed out.".to_string()),
-                );
-                return;
-            }
-            match listener.accept() {
-                Ok((stream, _)) => {
-                    if Self::handle_conn(stream, provider_id, label, provider_url) {
-                        // Credential captured and persisted.
-                        return;
-                    }
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(120));
-                }
-                Err(_) => {
-                    std::thread::sleep(Duration::from_millis(120));
-                }
-            }
-        }
-    }
-
-    /// Handle one connection. Returns true when a credential was captured.
-    fn handle_conn(
-        mut stream: TcpStream,
-        provider_id: &str,
-        label: &str,
-        provider_url: &str,
-    ) -> bool {
-        let mut reader = BufReader::new(match stream.try_clone() {
-            Ok(s) => s,
-            Err(_) => return false,
-        });
-
-        // Request line: METHOD PATH HTTP/1.1
-        let mut request_line = String::new();
-        if reader.read_line(&mut request_line).is_err() {
-            return false;
-        }
-        let mut parts = request_line.split_whitespace();
-        let method = parts.next().unwrap_or("").to_string();
-        let path = parts.next().unwrap_or("/").to_string();
-
-        // Headers → find Content-Length.
-        let mut content_length = 0usize;
-        loop {
-            let mut header = String::new();
-            if reader.read_line(&mut header).is_err() {
-                break;
-            }
-            let trimmed = header.trim_end();
-            if trimmed.is_empty() {
-                break;
-            }
-            if let Some(value) = trimmed.to_ascii_lowercase().strip_prefix("content-length:") {
-                content_length = value.trim().parse().unwrap_or(0);
-            }
-        }
-
-        if method == "POST" && path.starts_with("/submit") {
-            let mut body = vec![0u8; content_length];
-            if reader.read_exact(&mut body).is_err() {
-                Self::respond(&mut stream, "400 Bad Request", "text/plain", "Bad request");
-                return false;
-            }
-            let body_str = String::from_utf8_lossy(&body);
-            let fields = parse_form(&body_str);
-            let api_key = fields
-                .get("api_key")
-                .map(|s| s.trim().to_string())
-                .unwrap_or_default();
-            let base_url = fields
-                .get("base_url")
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
-
-            if api_key.is_empty() {
-                Self::respond(
-                    &mut stream,
-                    "200 OK",
-                    "text/html",
-                    &result_page("No key was provided. Return to Basebuild and try again."),
-                );
-                return false;
-            }
-
-            let save = NativeChatService::save_credential(NativeProviderCredentialInput {
-                provider_id: provider_id.to_string(),
-                label: label.to_string(),
-                api_key,
-                base_url,
-            });
-            match save {
-                Ok(_) => {
-                    set_status(provider_id, LoginStatus::Success);
-                    Self::respond(
-                        &mut stream,
-                        "200 OK",
-                        "text/html",
-                        &result_page(&format!(
-                            "{label} connected. You can close this tab and return to Basebuild."
-                        )),
-                    );
-                    true
-                }
-                Err(e) => {
-                    // Do not include the secret; only the failure reason.
-                    set_status(provider_id, LoginStatus::Error(e.clone()));
-                    Self::respond(
-                        &mut stream,
-                        "200 OK",
-                        "text/html",
-                        &result_page("Failed to save the credential. Return to Basebuild."),
-                    );
-                    false
-                }
-            }
-        } else if path.starts_with("/cancel") {
-            set_status(provider_id, LoginStatus::Cancelled);
-            Self::respond(
-                &mut stream,
-                "200 OK",
-                "text/html",
-                &result_page("Login cancelled. You can close this tab."),
-            );
-            true
-        } else {
-            Self::respond(
-                &mut stream,
-                "200 OK",
-                "text/html",
-                &landing_page(label, provider_url),
-            );
-            false
-        }
-    }
-
-    fn respond(stream: &mut TcpStream, status: &str, content_type: &str, body: &str) {
-        let response = format!(
-            "HTTP/1.1 {status}\r\nContent-Type: {content_type}; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.as_bytes().len()
         );
-        let _ = stream.write_all(response.as_bytes());
-        let _ = stream.flush();
+        drop(sessions);
+        let provider = provider_id.to_string();
+
+        thread::spawn(move || {
+            if provider == OPENAI_CODEX_PROVIDER_ID {
+                run_openai_device_login(state);
+            } else {
+                run_omp_login(provider, state, pending_request_id, input_rx);
+            }
+        });
+        Ok(initial)
+    }
+
+    pub fn poll(provider_id: &str) -> Result<NativeProviderLoginState, String> {
+        let sessions = SESSIONS.lock();
+        let session = sessions
+            .get(provider_id)
+            .ok_or_else(|| format!("No sign-in is active for '{provider_id}'."))?;
+        let state = session.state.lock().clone();
+        Ok(state)
+    }
+
+    pub fn submit(provider_id: &str, value: &str) -> Result<NativeProviderLoginState, String> {
+        let value = value.trim();
+        if value.is_empty() {
+            return Err("The authorization response is required.".to_string());
+        }
+        let sessions = SESSIONS.lock();
+        let session = sessions
+            .get(provider_id)
+            .ok_or_else(|| format!("No sign-in is active for '{provider_id}'."))?;
+        let request_id = {
+            let state = session.state.lock();
+            if state.status != "waiting_input" {
+                return Err("This sign-in is not waiting for input.".to_string());
+            }
+            session
+                .pending_request_id
+                .lock()
+                .clone()
+                .ok_or_else(|| "The sign-in prompt is invalid.".to_string())?
+        };
+        session
+            .input
+            .send((request_id, value.to_string()))
+            .map_err(|_| "The provider sign-in process has stopped.".to_string())?;
+        let state = session.state.lock().clone();
+        Ok(state)
+    }
+
+    pub fn refresh_native_token(provider_id: &str) -> Result<(), String> {
+        if provider_id != OPENAI_CODEX_PROVIDER_ID {
+            return Ok(());
+        }
+        let _refresh_guard = OPENAI_REFRESH_LOCK.lock();
+        let Some(token) = load_openai_token()? else {
+            return Ok(());
+        };
+        if token.expires_at > now_millis() + TOKEN_REFRESH_SKEW_MS {
+            return Ok(());
+        }
+        let refreshed = refresh_openai_token(&token.refresh_token)?;
+        save_openai_token(&refreshed)
+    }
+
+    pub fn clear_native_token(provider_id: &str) -> Result<(), String> {
+        if provider_id != OPENAI_CODEX_PROVIDER_ID {
+            return Ok(());
+        }
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "DELETE FROM app_defaults WHERE key = ?1",
+            params![OPENAI_OAUTH_STORAGE_KEY],
+        )
+        .map_err(|error| format!("Failed to remove provider OAuth state: {error}"))?;
+        Ok(())
     }
 }
 
-/// Parse an `application/x-www-form-urlencoded` body into a map.
-fn parse_form(body: &str) -> HashMap<String, String> {
-    body.split('&')
-        .filter_map(|pair| {
-            let mut it = pair.splitn(2, '=');
-            let key = it.next()?;
-            let value = it.next().unwrap_or("");
-            Some((
-                urlencoding::decode(key)
-                    .map(|c| c.into_owned())
-                    .unwrap_or_default(),
-                urlencoding::decode(value)
-                    .map(|c| c.into_owned())
-                    .unwrap_or_default(),
-            ))
+fn update_state(
+    state: &Arc<Mutex<NativeProviderLoginState>>,
+    status: &str,
+    message: impl Into<String>,
+    prompt: Option<String>,
+) {
+    let mut current = state.lock();
+    current.status = status.to_string();
+    current.message = message.into();
+    current.prompt = prompt;
+}
+
+fn fail(state: &Arc<Mutex<NativeProviderLoginState>>, message: impl Into<String>) {
+    let message = message.into();
+    let mut current = state.lock();
+    current.status = "error".to_string();
+    current.message = "Provider sign-in failed.".to_string();
+    current.prompt = None;
+    current.error = Some(message);
+}
+
+fn now_millis() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
+}
+
+fn oauth_http_client() -> Result<reqwest::blocking::Client, String> {
+    reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|error| format!("Failed to initialize provider sign-in: {error}"))
+}
+
+fn load_openai_token() -> Result<Option<OpenAiOAuthToken>, String> {
+    let conn = StorageService::connect()?;
+    let value = conn
+        .query_row(
+            "SELECT value FROM app_defaults WHERE key = ?1",
+            params![OPENAI_OAUTH_STORAGE_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| format!("Failed to read provider OAuth state: {error}"))?;
+    value
+        .map(|json| {
+            serde_json::from_str(&json)
+                .map_err(|error| format!("Stored provider OAuth state is invalid: {error}"))
         })
-        .collect()
+        .transpose()
 }
 
-fn landing_page(label: &str, provider_url: &str) -> String {
-    format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Connect {label}</title>\
-         <style>body{{font-family:system-ui,sans-serif;background:#0f0f11;color:#e6e6e6;\
-         max-width:520px;margin:48px auto;padding:0 20px;line-height:1.5}}\
-         a.btn,button{{display:inline-block;background:#2563eb;color:#fff;border:0;\
-         padding:10px 16px;text-decoration:none;cursor:pointer;font-size:14px}}\
-         input{{width:100%;box-sizing:border-box;padding:10px;margin:6px 0;background:#1a1a1e;\
-         border:1px solid #333;color:#e6e6e6;font-size:14px}}\
-         .muted{{color:#9a9a9a;font-size:13px}}</style></head>\
-         <body><h2>Connect {label}</h2>\
-         <p class=\"muted\">Step 1 — open {label} and copy an API key:</p>\
-         <p><a class=\"btn\" href=\"{provider_url}\" target=\"_blank\" rel=\"noopener\">Open {label} \u{2197}</a></p>\
-         <p class=\"muted\">Step 2 — paste the key below. It is sent only to Basebuild on this \
-         computer (localhost) and stored locally.</p>\
-         <form method=\"POST\" action=\"/submit\">\
-         <input name=\"api_key\" type=\"password\" placeholder=\"API key\" autofocus />\
-         <input name=\"base_url\" type=\"text\" placeholder=\"Base URL (optional)\" />\
-         <button type=\"submit\">Connect</button></form></body></html>"
+fn save_openai_token(token: &OpenAiOAuthToken) -> Result<(), String> {
+    let value = serde_json::to_string(token)
+        .map_err(|error| format!("Failed to encode provider OAuth state: {error}"))?;
+    let conn = StorageService::connect()?;
+    conn.execute(
+        "INSERT INTO app_defaults (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![OPENAI_OAUTH_STORAGE_KEY, value],
     )
+    .map_err(|error| format!("Failed to save provider OAuth state: {error}"))?;
+    NativeChatService::save_credential(NativeProviderCredentialInput {
+        provider_id: OPENAI_CODEX_PROVIDER_ID.to_string(),
+        label: "OpenAI Codex subscription".to_string(),
+        api_key: token.access_token.clone(),
+        base_url: Some(NATIVE_CODEX_BASE_URL.to_string()),
+    })?;
+    Ok(())
 }
 
-fn result_page(message: &str) -> String {
-    format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Basebuild</title>\
-         <style>body{{font-family:system-ui,sans-serif;background:#0f0f11;color:#e6e6e6;\
-         max-width:520px;margin:48px auto;padding:0 20px;line-height:1.5}}</style></head>\
-         <body><h2>Basebuild</h2><p>{message}</p></body></html>"
-    )
+fn parse_openai_token(value: &Value) -> Result<OpenAiOAuthToken, String> {
+    let access_token = value
+        .get("access_token")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "OpenAI returned no access token.".to_string())?;
+    let refresh_token = value
+        .get("refresh_token")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "OpenAI returned no refresh token.".to_string())?;
+    let expires_in = value
+        .get("expires_in")
+        .and_then(Value::as_i64)
+        .filter(|value| *value > 0)
+        .ok_or_else(|| "OpenAI returned an invalid token lifetime.".to_string())?;
+    Ok(OpenAiOAuthToken {
+        access_token: access_token.to_string(),
+        refresh_token: refresh_token.to_string(),
+        expires_at: now_millis().saturating_add(expires_in.saturating_mul(1_000)),
+    })
+}
+
+fn exchange_openai_code(code: &str, verifier: &str) -> Result<OpenAiOAuthToken, String> {
+    let response = oauth_http_client()?
+        .post(OPENAI_TOKEN_URL)
+        .form(&[
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("redirect_uri", OPENAI_DEVICE_REDIRECT_URI),
+            ("client_id", OPENAI_CLIENT_ID),
+            ("code_verifier", verifier),
+        ])
+        .send()
+        .map_err(|error| format!("OpenAI token exchange failed: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "OpenAI token exchange failed with status {}.",
+            response.status().as_u16()
+        ));
+    }
+    let value = response
+        .json::<Value>()
+        .map_err(|error| format!("OpenAI returned an invalid token response: {error}"))?;
+    parse_openai_token(&value)
+}
+
+fn refresh_openai_token(refresh_token: &str) -> Result<OpenAiOAuthToken, String> {
+    let response = oauth_http_client()?
+        .post(OPENAI_TOKEN_URL)
+        .form(&[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("client_id", OPENAI_CLIENT_ID),
+        ])
+        .send()
+        .map_err(|error| format!("OpenAI token refresh failed: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "OpenAI token refresh failed with status {}. Sign in again.",
+            response.status().as_u16()
+        ));
+    }
+    let value = response
+        .json::<Value>()
+        .map_err(|error| format!("OpenAI returned an invalid refresh response: {error}"))?;
+    let mut token = parse_openai_token(&value)?;
+    if token.refresh_token.is_empty() {
+        token.refresh_token = refresh_token.to_string();
+    }
+    Ok(token)
+}
+
+fn run_openai_device_login(state: Arc<Mutex<NativeProviderLoginState>>) {
+    let client = match oauth_http_client() {
+        Ok(client) => client,
+        Err(error) => {
+            fail(&state, error);
+            return;
+        }
+    };
+    let response = match client
+        .post(OPENAI_DEVICE_USERCODE_URL)
+        .json(&json!({ "client_id": OPENAI_CLIENT_ID }))
+        .send()
+    {
+        Ok(response) => response,
+        Err(error) => {
+            fail(
+                &state,
+                format!("OpenAI device authorization failed: {error}"),
+            );
+            return;
+        }
+    };
+    if !response.status().is_success() {
+        fail(
+            &state,
+            format!(
+                "OpenAI device authorization failed with status {}.",
+                response.status().as_u16()
+            ),
+        );
+        return;
+    }
+    let value = match response.json::<Value>() {
+        Ok(value) => value,
+        Err(error) => {
+            fail(
+                &state,
+                format!("OpenAI returned an invalid authorization response: {error}"),
+            );
+            return;
+        }
+    };
+    let Some(device_auth_id) = value.get("device_auth_id").and_then(Value::as_str) else {
+        fail(&state, "OpenAI returned no device authorization id.");
+        return;
+    };
+    let Some(user_code) = value.get("user_code").and_then(Value::as_str) else {
+        fail(&state, "OpenAI returned no device authorization code.");
+        return;
+    };
+    let interval_secs = value
+        .get("interval")
+        .and_then(|interval| {
+            interval
+                .as_u64()
+                .or_else(|| interval.as_str().and_then(|text| text.parse().ok()))
+        })
+        .unwrap_or(5)
+        .saturating_add(3);
+    if let Err(error) = open::that(OPENAI_DEVICE_AUTH_URL) {
+        fail(
+            &state,
+            format!("Could not open the OpenAI authorization page: {error}"),
+        );
+        return;
+    }
+    update_state(
+        &state,
+        "waiting_browser",
+        format!("Enter code {user_code} on the OpenAI page opened in your browser."),
+        None,
+    );
+
+    let deadline = Instant::now() + LOGIN_TIMEOUT;
+    while Instant::now() < deadline {
+        thread::sleep(Duration::from_secs(interval_secs));
+        let poll = match client
+            .post(OPENAI_DEVICE_TOKEN_URL)
+            .json(&json!({
+                "device_auth_id": device_auth_id,
+                "user_code": user_code,
+            }))
+            .send()
+        {
+            Ok(response) => response,
+            Err(error) => {
+                fail(
+                    &state,
+                    format!("OpenAI authorization polling failed: {error}"),
+                );
+                return;
+            }
+        };
+        if matches!(poll.status().as_u16(), 403 | 404) {
+            continue;
+        }
+        if !poll.status().is_success() {
+            fail(
+                &state,
+                format!(
+                    "OpenAI authorization failed with status {}.",
+                    poll.status().as_u16()
+                ),
+            );
+            return;
+        }
+        let value = match poll.json::<Value>() {
+            Ok(value) => value,
+            Err(error) => {
+                fail(
+                    &state,
+                    format!("OpenAI returned an invalid authorization result: {error}"),
+                );
+                return;
+            }
+        };
+        let Some(code) = value.get("authorization_code").and_then(Value::as_str) else {
+            fail(&state, "OpenAI returned no authorization code.");
+            return;
+        };
+        let Some(verifier) = value.get("code_verifier").and_then(Value::as_str) else {
+            fail(&state, "OpenAI returned no code verifier.");
+            return;
+        };
+        update_state(&state, "waiting", "Completing OpenAI sign-in…", None);
+        match exchange_openai_code(code, verifier).and_then(|token| save_openai_token(&token)) {
+            Ok(()) => {
+                ProviderModelCatalogService::invalidate();
+                let mut current = state.lock();
+                current.status = "complete".to_string();
+                current.message = "OpenAI subscription connected.".to_string();
+                current.prompt = None;
+                current.complete = true;
+                current.error = None;
+            }
+            Err(error) => fail(&state, error),
+        }
+        return;
+    }
+    fail(&state, "OpenAI sign-in timed out.");
+}
+
+fn run_omp_login(
+    provider_id: String,
+    state: Arc<Mutex<NativeProviderLoginState>>,
+    pending_request_id: Arc<Mutex<Option<String>>>,
+    input_rx: Receiver<LoginInput>,
+) {
+    let mut child = match hidden_command("omp")
+        .args([
+            "--mode",
+            "rpc",
+            "--allow-home",
+            "--no-session",
+            "--no-tools",
+            "--no-title",
+            "--no-skills",
+            "--no-rules",
+            "--no-extensions",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(error) => {
+            fail(&state, format!("Could not start Oh My Pi: {error}"));
+            return;
+        }
+    };
+
+    let Some(mut stdin) = child.stdin.take() else {
+        fail(&state, "Could not open the Oh My Pi input stream.");
+        let _ = child.kill();
+        return;
+    };
+    let Some(stdout) = child.stdout.take() else {
+        fail(&state, "Could not open the Oh My Pi output stream.");
+        let _ = child.kill();
+        return;
+    };
+
+    let (line_tx, line_rx) = mpsc::channel();
+    thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if line_tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+
+    let command = json!({
+        "id": "basebuild-provider-login",
+        "type": "login",
+        "providerId": provider_id,
+    });
+    if writeln!(stdin, "{command}")
+        .and_then(|_| stdin.flush())
+        .is_err()
+    {
+        fail(&state, "Could not start the Oh My Pi sign-in request.");
+        let _ = child.kill();
+        return;
+    }
+
+    update_state(
+        &state,
+        "waiting",
+        "Waiting for the provider authorization page…",
+        None,
+    );
+    let deadline = Instant::now() + LOGIN_TIMEOUT;
+
+    while Instant::now() < deadline {
+        while let Ok((request_id, value)) = input_rx.try_recv() {
+            let response = json!({
+                "type": "extension_ui_response",
+                "id": request_id,
+                "value": value,
+            });
+            if writeln!(stdin, "{response}")
+                .and_then(|_| stdin.flush())
+                .is_err()
+            {
+                fail(
+                    &state,
+                    "Could not submit the provider authorization response.",
+                );
+                let _ = child.kill();
+                return;
+            }
+            update_state(&state, "waiting", "Completing provider sign-in…", None);
+        }
+
+        match line_rx.recv_timeout(Duration::from_millis(250)) {
+            Ok(line) => {
+                let Ok(frame) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
+                if frame.get("type").and_then(Value::as_str) == Some("extension_ui_request") {
+                    match frame.get("method").and_then(Value::as_str) {
+                        Some("open_url") => {
+                            let url = frame
+                                .get("launchUrl")
+                                .and_then(Value::as_str)
+                                .or_else(|| frame.get("url").and_then(Value::as_str));
+                            let instructions = frame
+                                .get("instructions")
+                                .and_then(Value::as_str)
+                                .unwrap_or("Complete sign-in in your browser.");
+                            if let Some(url) = url {
+                                if open::that(url).is_err() {
+                                    fail(&state, "Could not open the provider authorization page.");
+                                    let _ = child.kill();
+                                    return;
+                                }
+                            }
+                            update_state(&state, "waiting_browser", instructions, None);
+                        }
+                        Some("input") => {
+                            let Some(request_id) = frame.get("id").and_then(Value::as_str) else {
+                                continue;
+                            };
+                            let title = frame
+                                .get("title")
+                                .and_then(Value::as_str)
+                                .unwrap_or("Paste the authorization code or callback URL");
+                            *pending_request_id.lock() = Some(request_id.to_string());
+                            update_state(&state, "waiting_input", title, Some(title.to_string()));
+                        }
+                        Some("notify") => {
+                            if let Some(message) = frame.get("message").and_then(Value::as_str) {
+                                update_state(&state, "waiting", message, None);
+                            }
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+                if frame.get("type").and_then(Value::as_str) == Some("response")
+                    && frame.get("command").and_then(Value::as_str) == Some("login")
+                {
+                    if frame.get("success").and_then(Value::as_bool) == Some(true) {
+                        if let Err(error) = NativeChatService::unblock_provider(&provider_id) {
+                            fail(&state, error);
+                            let _ = child.kill();
+                            return;
+                        }
+                        NativeChatService::refresh_omp_credential_cache();
+                        ProviderModelCatalogService::invalidate();
+                        let mut current = state.lock();
+                        current.status = "complete".to_string();
+                        current.message = "Provider connected.".to_string();
+                        current.prompt = None;
+                        current.complete = true;
+                        current.error = None;
+                    } else {
+                        fail(
+                            &state,
+                            frame
+                                .get("error")
+                                .and_then(Value::as_str)
+                                .unwrap_or("Oh My Pi rejected the provider sign-in."),
+                        );
+                    }
+                    let _ = child.kill();
+                    return;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if child.try_wait().ok().flatten().is_some() {
+                    fail(&state, "Oh My Pi stopped before sign-in completed.");
+                    return;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                fail(&state, "Oh My Pi stopped before sign-in completed.");
+                let _ = child.kill();
+                return;
+            }
+        }
+    }
+
+    let _ = child.kill();
+    fail(&state, "Provider sign-in timed out.");
 }
 
 #[cfg(test)]
@@ -350,27 +655,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_form_decodes_pairs() {
-        let form = parse_form("api_key=sk-abc%20123&base_url=https%3A%2F%2Fx.dev%2Fv1");
-        assert_eq!(form.get("api_key").map(String::as_str), Some("sk-abc 123"));
-        assert_eq!(
-            form.get("base_url").map(String::as_str),
-            Some("https://x.dev/v1")
-        );
+    fn state_updates_do_not_expose_prompt_ids_in_message() {
+        let state = Arc::new(Mutex::new(NativeProviderLoginState {
+            provider_id: "anthropic".to_string(),
+            status: "starting".to_string(),
+            message: String::new(),
+            prompt: None,
+            complete: false,
+            error: None,
+        }));
+        update_state(&state, "waiting_browser", "Complete sign-in", None);
+        let value = state.lock().clone();
+        assert_eq!(value.status, "waiting_browser");
+        assert_eq!(value.message, "Complete sign-in");
+        assert!(value.prompt.is_none());
     }
 
     #[test]
-    fn provider_meta_known_and_unknown() {
-        assert!(provider_meta("openai").is_some());
-        assert!(provider_meta("anthropic").is_some());
-        assert!(provider_meta("umans").is_some());
-        assert!(provider_meta("basebuild-local").is_none());
-    }
+    fn openai_token_response_requires_complete_rotating_credentials() {
+        let token = parse_openai_token(&json!({
+            "access_token": "access",
+            "refresh_token": "refresh",
+            "expires_in": 3600
+        }))
+        .expect("valid token");
+        assert_eq!(token.access_token, "access");
+        assert_eq!(token.refresh_token, "refresh");
+        assert!(token.expires_at > now_millis());
 
-    #[test]
-    fn landing_page_never_contains_secret_field_value() {
-        let page = landing_page("OpenAI", "https://example.com");
-        assert!(page.contains("Connect OpenAI"));
-        assert!(page.contains("type=\"password\""));
+        let missing_refresh = parse_openai_token(&json!({
+            "access_token": "access",
+            "expires_in": 3600
+        }));
+        assert!(missing_refresh.is_err());
     }
 }

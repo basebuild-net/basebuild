@@ -231,7 +231,13 @@ impl PipelineService {
             };
             if let Some(note) = note {
                 let _ = NativeChatService::insert_message(
-                    chat_id, "assistant", &note, None, None, None, None,
+                    chat_id,
+                    "assistant",
+                    &note,
+                    None,
+                    None,
+                    None,
+                    None,
                 );
             }
             let _ = NativeChatService::set_session_run_state(chat_id, "idle");
@@ -755,7 +761,11 @@ impl PipelineService {
                 &effort_level,
                 system.clone(),
                 prompt,
-                if chat_id.is_some() { "content" } else { channel },
+                if chat_id.is_some() {
+                    "content"
+                } else {
+                    channel
+                },
             )?;
             if let Some(chat) = chat_id {
                 let _ = NativeChatService::insert_message(

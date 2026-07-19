@@ -1243,6 +1243,60 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         effortBucket: "same_day",
         createdAt: Math.floor(Date.now() / 1000),
       } as T;
+    case "__e2e_seed_omp_credential": {
+      const providerId = String(args.providerId ?? "");
+      if (!providerId) throw new Error("providerId is required");
+      s.credentials.set(providerId, {
+        providerId,
+        apiKey: "omp-import-test",
+        baseUrl: null,
+        updatedAt: Math.floor(Date.now() / 1000),
+      });
+      s.blockedProviders.delete(providerId);
+      return null as T;
+    }
+    case "native_provider_login_start": {
+      const providerId = String(args.providerId ?? "");
+      if (!providerId) throw new Error("providerId is required");
+      return {
+        providerId,
+        status: "waiting_browser",
+        message: "Complete sign-in in your browser.",
+        prompt: null,
+        complete: false,
+        error: null,
+      } as T;
+    }
+    case "native_provider_login_poll": {
+      const providerId = String(args.providerId ?? "");
+      if (!providerId) throw new Error("providerId is required");
+      s.credentials.set(providerId, {
+        providerId,
+        apiKey: "oauth-test-token",
+        baseUrl: providerId === "openai-codex" ? "native://openai-codex" : `omp://${providerId}`,
+        updatedAt: Math.floor(Date.now() / 1000),
+      });
+      s.blockedProviders.delete(providerId);
+      return {
+        providerId,
+        status: "complete",
+        message: "Provider connected.",
+        prompt: null,
+        complete: true,
+        error: null,
+      } as T;
+    }
+    case "native_provider_login_submit": {
+      const providerId = String(args.providerId ?? "");
+      return {
+        providerId,
+        status: "waiting",
+        message: "Completing sign-in.",
+        prompt: null,
+        complete: false,
+        error: null,
+      } as T;
+    }
     case "native_provider_catalog":
     case "native_provider_catalog_refresh":
     case "native_provider_refresh_omp_credentials": {
@@ -1250,10 +1304,10 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       // so disconnect/connect actually changes the UI.
       const baseProviders = [
         { id: "basebuild-local", label: "None", credentialOwner: "basebuild", localOnly: true, detail: "No provider connected — select a provider to chat.", authMethod: "local", apiKeyUrl: null, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-        { id: "openai-codex", label: "OpenAI Codex", credentialOwner: "user", localOnly: false, detail: "ChatGPT subscription sign-in through Oh My Pi OAuth.", authMethod: "oauth", apiKeyUrl: null, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-        { id: "openai", label: "OpenAI", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.openai.com/api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "openai-codex", label: "OpenAI Codex", credentialOwner: "user", localOnly: false, detail: "Sign in with a ChatGPT subscription through Basebuild's native OpenAI OAuth flow.", authMethod: "oauth", apiKeyUrl: null, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "openai", label: "OpenAI API", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.openai.com/api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
         { id: "umans", label: "Umans", credentialOwner: "user", localOnly: false, detail: "Connected", authMethod: "api_key", apiKeyUrl: "https://app.umans.ai/billing?context=personal&tab=api-keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "provider_discovered", error: null },
-        { id: "anthropic", label: "Anthropic", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.anthropic.com/settings/keys", modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "anthropic", label: "Anthropic", credentialOwner: "user", localOnly: false, detail: "Sign in with a Claude subscription through Oh My Pi.", authMethod: "oauth", apiKeyUrl: null, modelCount: 1, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
         { id: "devin", label: "Devin.ai", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://app.devin.ai/settings/api-keys", modelCount: 48, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
         { id: "google", label: "Google Gemini", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://aistudio.google.com/apikey", modelCount: 33, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
         { id: "groq", label: "Groq", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.groq.com/keys", modelCount: 18, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
@@ -1724,11 +1778,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       const baseUrl = req.baseUrl ?? null;
       s.credentials.set(req.providerId, { providerId: req.providerId, apiKey: req.apiKey, baseUrl, updatedAt: Math.floor(Date.now() / 1000) });
       s.blockedProviders.delete(req.providerId);
-      return { providerId: req.providerId, label: req.label, apiKey: req.apiKey, baseUrl, updatedAt: Math.floor(Date.now() / 1000) } as T;
-    }
-    case "native_list_provider_credentials": {
-      // Only return non-blocked credentials.
-      return Array.from(s.credentials.values()).filter((c) => !s.blockedProviders.has(c.providerId)) as T;
+      return undefined as T;
     }
     case "native_delete_provider_credential": {
       const providerId = (args as { providerId?: string }).providerId ?? "unknown";
@@ -2047,16 +2097,6 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         userMessage,
         assistantMessage,
       } as T;
-    }
-    case "native_provider_omp_login_start": {
-      const providerId = args.providerId as string;
-      const runId = 9001;
-      window.setTimeout(() => {
-        s.credentials.set(providerId, { providerId, apiKey: "omp-oauth-test", baseUrl: null, updatedAt: Math.floor(Date.now() / 1000) });
-        s.blockedProviders.delete(providerId);
-        __emit("omp://event", { id: runId, kind: "done", success: true, exitCode: 0 });
-      }, 0);
-      return runId as T;
     }
     case "openspec_runtime_status":
       return {

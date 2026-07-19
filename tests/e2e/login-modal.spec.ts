@@ -13,7 +13,7 @@ test.describe("Login form is a modal, not inline", () => {
     await openProviderPicker(page);
 
     // Use title^= to match "Connect" but not "Disconnect".
-    const connectBtn = page.locator(".provider-card-action-btn[title^='Connect']").first();
+    const connectBtn = page.locator(".provider-card[title^='OpenAI API:'] .provider-card-action-btn[title^='Connect']").first();
     if (await connectBtn.count() > 0) {
       await connectBtn.click();
 
@@ -25,7 +25,7 @@ test.describe("Login form is a modal, not inline", () => {
       await expect(loginModal).toBeVisible({ timeout: 3_000 });
 
       await expect(page.locator(".chat-login-form")).toHaveCount(0);
-      await expect(loginModal.locator("button", { hasText: /Save key/i })).toBeVisible();
+      await expect(loginModal.locator("button", { hasText: /Save API key/i })).toBeVisible();
       await expect(loginModal.locator(".modal-header")).toBeVisible();
     }
   });
@@ -34,7 +34,7 @@ test.describe("Login form is a modal, not inline", () => {
     await openFixtureProject(page);
     await openProviderPicker(page);
 
-    const connectBtn = page.locator(".provider-card-action-btn[title^='Connect']").first();
+    const connectBtn = page.locator(".provider-card[title^='OpenAI API:'] .provider-card-action-btn[title^='Connect']").first();
     if (await connectBtn.count() > 0) {
       await connectBtn.click();
 

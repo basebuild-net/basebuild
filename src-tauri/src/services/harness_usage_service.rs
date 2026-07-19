@@ -22,8 +22,8 @@ use rusqlite::params;
 use serde_json::{json, Value};
 
 use crate::models::usage_envelope::{sanitize_row, SourceKind, UsageBatch};
-use crate::services::usage_source_service::UsageSource;
 use crate::services::storage_service::StorageService;
+use crate::services::usage_source_service::UsageSource;
 
 /// Maximum lines parsed per collect call — bounds startup cost on large
 /// histories. New files beyond this limit are picked up on the next collect
@@ -410,16 +410,9 @@ fn extract_claude_code(entry: &Value) -> (String, String, i64, i64, i64, f64, i6
 
 /// Codex CLI: entries with token_count / model fields.
 fn extract_codex(entry: &Value) -> (String, String, i64, i64, i64, f64, i64) {
-    let (model, input, output, ts) = CodexReader::extract(entry).unwrap_or(("unknown".into(), 0, 0, 0));
-    (
-        "openai".to_string(),
-        model,
-        input,
-        output,
-        0,
-        0.0,
-        ts,
-    )
+    let (model, input, output, ts) =
+        CodexReader::extract(entry).unwrap_or(("unknown".into(), 0, 0, 0));
+    ("openai".to_string(), model, input, output, 0, 0.0, ts)
 }
 
 /// OpenCode: entries with `tokens` + `modelID` + `providerID`.
@@ -657,7 +650,10 @@ mod tests {
     #[test]
     fn parse_iso_to_epoch_valid() {
         assert_eq!(parse_iso_to_epoch("2026-07-18T12:34:56Z"), Some(1784378096));
-        assert_eq!(parse_iso_to_epoch("2026-07-18T12:34:56.789Z"), Some(1784378096));
+        assert_eq!(
+            parse_iso_to_epoch("2026-07-18T12:34:56.789Z"),
+            Some(1784378096)
+        );
         assert!(parse_iso_to_epoch("not-a-date").is_none());
     }
 

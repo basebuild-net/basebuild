@@ -311,29 +311,31 @@ impl PlanService {
     pub fn integrity_check(project_path: &str) -> DbResult<Vec<PlanningIntegrityIssue>> {
         let conn = StorageService::connect()?;
         let mut issues = Vec::new();
-        let mut collect =
-            |sql: &str, scoped: bool, kind: &str, detail: &dyn Fn(&str) -> String| -> DbResult<()> {
-                let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
-                let map = |row: &rusqlite::Row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                };
-                let rows = if scoped {
-                    stmt.query_map(params![project_path], map)
-                } else {
-                    stmt.query_map([], map)
-                }
-                .map_err(|e| e.to_string())?;
-                for row in rows {
-                    let (entity_id, title) = row.map_err(|e| e.to_string())?;
-                    issues.push(PlanningIntegrityIssue {
-                        kind: kind.to_string(),
-                        entity_id,
-                        detail: detail(&title),
-                        title,
-                    });
-                }
-                Ok(())
-            };
+        let mut collect = |sql: &str,
+                           scoped: bool,
+                           kind: &str,
+                           detail: &dyn Fn(&str) -> String|
+         -> DbResult<()> {
+            let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+            let map =
+                |row: &rusqlite::Row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?));
+            let rows = if scoped {
+                stmt.query_map(params![project_path], map)
+            } else {
+                stmt.query_map([], map)
+            }
+            .map_err(|e| e.to_string())?;
+            for row in rows {
+                let (entity_id, title) = row.map_err(|e| e.to_string())?;
+                issues.push(PlanningIntegrityIssue {
+                    kind: kind.to_string(),
+                    entity_id,
+                    detail: detail(&title),
+                    title,
+                });
+            }
+            Ok(())
+        };
         collect(
             "SELECT p.id, p.title FROM plans p
              JOIN sessions s ON s.id = p.session_id
@@ -526,11 +528,14 @@ mod tests {
             "issues: {issues:?}"
         );
         assert!(
-            issues
-                .iter()
-                .any(|issue| issue.kind == "idea_orphan_session" && issue.entity_id == "orphan-idea"),
+            issues.iter().any(
+                |issue| issue.kind == "idea_orphan_session" && issue.entity_id == "orphan-idea"
+            ),
             "issues: {issues:?}"
         );
-        assert!(PlanService::integrity_check("/clean-project").unwrap().iter().all(|issue| issue.kind.contains("orphan")));
+        assert!(PlanService::integrity_check("/clean-project")
+            .unwrap()
+            .iter()
+            .all(|issue| issue.kind.contains("orphan")));
     }
 }

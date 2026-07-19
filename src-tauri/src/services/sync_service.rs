@@ -414,10 +414,7 @@ fn post_mcp(mode: &AuthMode, rpc_body: &Value) -> Result<String, String> {
             // the blob to the shadow user. We only do this for sync_* tools;
             // the caller is responsible for not routing read tools here.
             let mut body = rpc_body.clone();
-            if let Some(args) = body
-                .get_mut("params")
-                .and_then(|p| p.get_mut("arguments"))
-            {
+            if let Some(args) = body.get_mut("params").and_then(|p| p.get_mut("arguments")) {
                 if let Some(obj) = args.as_object_mut() {
                     obj.insert("computerId".to_string(), Value::String(computer_id.clone()));
                 }
@@ -1146,7 +1143,9 @@ fn current_provider_fingerprint() -> Option<String> {
 /// totals + OMP stats when available; never sends data here.
 fn current_request_total() -> Option<i64> {
     let mut total: i64 = 0;
-    if let Ok(metrics) = crate::services::native_chat_service::NativeChatService::metrics_since(0, 1_000_000) {
+    if let Ok(metrics) =
+        crate::services::native_chat_service::NativeChatService::metrics_since(0, 1_000_000)
+    {
         total += metrics.len() as i64;
     }
     if let Ok(stats) = crate::services::omp_service::OmpService::run_json(&["stats", "--json"]) {

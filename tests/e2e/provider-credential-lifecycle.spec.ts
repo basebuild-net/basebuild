@@ -56,37 +56,57 @@ test.describe("Provider credential lifecycle", () => {
     await expect(connectBtn).toBeVisible();
   });
 
-  test("clicking connect opens OAuth-first login with API-key fallback", async ({ page }) => {
+  test("clicking connect opens native API-key login with optional OMP import", async ({ page }) => {
     await openFixtureProject(page);
     await openProviderPicker(page);
 
-    const connectBtn = page.locator('.provider-card[title^="OpenAI:"] .provider-card-action-btn[title^="Connect"]').first();
+    const connectBtn = page.locator('.provider-card[title^="OpenAI API:"] .provider-card-action-btn[title^="Connect"]').first();
     await expect(connectBtn).toBeVisible();
     await connectBtn.click();
     await expect(page.locator(".provider-catalog-overlay")).toHaveCount(0, { timeout: 3_000 });
 
     const loginModal = page.locator(".modal-overlay").filter({
-      has: page.locator('button[title^="Authenticate"]'),
+      has: page.locator('button[title="Save API key and connect"]'),
     });
     await expect(loginModal).toBeVisible({ timeout: 3_000 });
-    await expect(loginModal.getByRole("button", { name: "Sign in with Oh My Pi" })).toBeVisible();
-
-    const apiKeyFallback = loginModal.locator("summary", { hasText: "Use API key instead" });
-    await apiKeyFallback.click();
+    await expect(loginModal.getByText("Connect Basebuild directly to the provider API")).toBeVisible();
     await expect(loginModal.locator("input[type='password']")).toBeVisible();
     await expect(loginModal.locator("button", { hasText: "Save API key" })).toBeVisible();
+    await expect(loginModal.locator("summary", { hasText: "Import from Oh My Pi" })).toBeVisible();
+  });
+
+  test("subscription provider completes native OAuth without exposing an API-key field", async ({ page }) => {
+    await openFixtureProject(page);
+    await openProviderPicker(page);
+
+    const connectBtn = page.locator('.provider-card[title^="OpenAI Codex:"] .provider-card-action-btn[title^="Connect"]').first();
+    await expect(connectBtn).toBeVisible();
+    await connectBtn.click();
+
+    const loginModal = page.locator(".modal-overlay").filter({
+      has: page.getByRole("button", { name: "Sign in to OpenAI Codex" }),
+    });
+    await expect(loginModal).toBeVisible({ timeout: 3_000 });
+    await expect(loginModal.getByText("Sign in natively with your ChatGPT subscription")).toBeVisible();
+    await expect(loginModal.locator("input[type='password']")).toHaveCount(0);
+    await loginModal.getByRole("button", { name: "Sign in to OpenAI Codex" }).click();
+    await expect(loginModal).not.toBeVisible({ timeout: 5_000 });
+
+    await openProviderPicker(page);
+    const codexCard = page.locator(".provider-card").filter({ hasText: "OpenAI Codex" }).first();
+    await expect(codexCard.locator(".provider-status.is-connected")).toBeVisible();
   });
 
   test("login modal has header and close button", async ({ page }) => {
     await openFixtureProject(page);
     await openProviderPicker(page);
 
-    const connectBtn = page.locator('.provider-card-action-btn[title^="Connect"]').first();
+    const connectBtn = page.locator('.provider-card[title^="OpenAI API:"] .provider-card-action-btn[title^="Connect"]').first();
     await expect(connectBtn).toBeVisible();
     await connectBtn.click();
 
     const loginModal = page.locator(".modal-overlay").filter({
-      has: page.locator('button[title^="Authenticate"]'),
+      has: page.locator('button[title="Save API key and connect"]'),
     });
     await expect(loginModal).toBeVisible({ timeout: 3_000 });
     await expect(loginModal.locator(".modal-header").first()).toBeVisible();
@@ -97,12 +117,12 @@ test.describe("Provider credential lifecycle", () => {
     await openFixtureProject(page);
     await openProviderPicker(page);
 
-    const connectBtn = page.locator('.provider-card-action-btn[title^="Connect"]').first();
+    const connectBtn = page.locator('.provider-card[title^="OpenAI API:"] .provider-card-action-btn[title^="Connect"]').first();
     await expect(connectBtn).toBeVisible();
     await connectBtn.click();
 
     const loginModal = page.locator(".modal-overlay").filter({
-      has: page.locator('button[title^="Authenticate"]'),
+      has: page.locator('button[title="Save API key and connect"]'),
     });
     await expect(loginModal).toBeVisible({ timeout: 3_000 });
     await loginModal.click({ position: { x: 5, y: 5 } });
@@ -212,13 +232,11 @@ test.describe("Settings credential save", () => {
     await openFixtureProject(page);
     await openSettingsProviders(page);
 
-    // Anthropic starts unconfigured: has the paste-key input, no Disconnect.
-    const row = page.locator(".requirement-row").filter({ hasText: "Anthropic" }).first();
+    // OpenAI API starts unconfigured: has the paste-key input, no Disconnect.
+    const row = page.locator(".requirement-row").filter({ hasText: "OpenAI API" }).first();
     await expect(row).toBeVisible();
     await expect(row.locator("button", { hasText: "Disconnect" })).toHaveCount(0);
 
-    const apiKeyFallback = row.locator("summary", { hasText: "Use API key instead" });
-    await apiKeyFallback.click();
     await row.locator('input[placeholder="API key"]').fill("sk-ant-e2e-test");
     await row.locator("button", { hasText: "Save key" }).click();
 
@@ -252,8 +270,7 @@ test.describe("Settings credential save", () => {
     await openSettingsProviders(page);
 
     // "invalid-key" is the mock's deterministic rejection trigger.
-    const row = page.locator(".requirement-row").filter({ hasText: "Anthropic" }).first();
-    await row.locator("summary", { hasText: "Use API key instead" }).click();
+    const row = page.locator(".requirement-row").filter({ hasText: "OpenAI API" }).first();
     const keyInput = row.locator('input[placeholder="API key"]');
     await keyInput.fill("invalid-key");
     await row.locator("button", { hasText: "Save key" }).click();
@@ -266,7 +283,7 @@ test.describe("Settings credential save", () => {
 });
 
 test.describe("Provider OAuth and discovery", () => {
-  test("searches models and refreshes after Oh My Pi login", async ({ page }) => {
+  test("searches models and imports an external Oh My Pi login", async ({ page }) => {
     await openFixtureProject(page);
     await openSettingsProviders(page);
 
@@ -275,11 +292,17 @@ test.describe("Provider OAuth and discovery", () => {
     const codexRow = page.locator(".requirement-row").filter({ hasText: "OpenAI Codex" }).first();
     await expect(codexRow).toBeVisible();
     await expect(page.locator(".requirement-row").filter({ hasText: "Anthropic" })).toHaveCount(0);
+    await expect(codexRow.getByText("Sign in natively with your ChatGPT subscription")).toBeVisible();
 
-    await search.clear();
-    await codexRow.getByRole("button", { name: "Sign in with Oh My Pi" }).click();
+    await page.evaluate(async () => {
+      const global = globalThis as {
+        __basebuildInvoke?: <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
+      };
+      await global.__basebuildInvoke?.("__e2e_seed_omp_credential", { providerId: "openai-codex" });
+    });
+    await page.getByRole("button", { name: "Refresh providers" }).click();
     await expect(codexRow.getByText("connected")).toBeVisible({ timeout: 5_000 });
-    await expect(codexRow.getByRole("button", { name: "Sign in again" })).toBeVisible();
+    await expect(codexRow.getByRole("button", { name: "Disconnect" })).toBeVisible();
   });
 
   test("shows popular providers before the full catalog", async ({ page }) => {
