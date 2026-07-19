@@ -172,6 +172,13 @@ if (workflow) {
     }
   }
 
+  const verifyJob = workflow.match(/^  verify-release:\r?\n[\s\S]*$/m)?.[0];
+  if (!verifyJob?.includes("contents: write")) {
+    errors.push(
+      "verify-release requires contents: write because GitHub hides draft releases from read-only tokens.",
+    );
+  }
+
   for (const [variable, source] of [
     ["APPLE_SIGNING_IDENTITY", "identity"],
     ["APPLE_ID", "APPLE_ID"],

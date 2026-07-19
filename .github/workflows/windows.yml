@@ -399,8 +399,9 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.version != ''
     needs: generate-updater-manifest
     runs-on: ubuntu-latest
+    # GitHub hides draft releases from tokens without push-level contents access.
     permissions:
-      contents: read
+      contents: write
     steps:
       - name: Verify cross-platform draft assets and updater manifest
         env:
