@@ -1892,9 +1892,97 @@ function ModelProvidersPanel() {
           <Fragment key={group.label}>
             <h4>{group.label}</h4>
             {group.providers.map((provider) => {
-              const canUseApiKey = provider.authMethod !== "oauth";
+              const supportsOauth = provider.authMethod === "oauth";
+              const supportsApiKey = provider.authMethod !== "oauth" || provider.apiKeyUrl !== null;
               const isBusy = busyId === provider.id;
               const loginState = loginStates[provider.id];
+              const connectKeyForm = (
+                <div className="stack-sm">
+                  {provider.apiKeyUrl ? (
+                    <a
+                      href={provider.apiKeyUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-muted text-sm"
+                      title={`Open the ${provider.label} API key page`}
+                    >
+                      Get API key
+                    </a>
+                  ) : null}
+                  <input
+                    className="input"
+                    type="password"
+                    placeholder="API key"
+                    value={keyDrafts[provider.id] ?? ""}
+                    onChange={(event) =>
+                      setKeyDrafts((previous) => ({
+                        ...previous,
+                        [provider.id]: event.target.value,
+                      }))
+                    }
+                    title={`API key for ${provider.label}`}
+                  />
+                  {provider.id === "custom" ? (
+                    <input
+                      className="input"
+                      type="url"
+                      placeholder="https://api.example.com/v1"
+                      value={baseUrlDrafts[provider.id] ?? ""}
+                      onChange={(event) =>
+                        setBaseUrlDrafts((previous) => ({
+                          ...previous,
+                          [provider.id]: event.target.value,
+                        }))
+                      }
+                      title="Base URL for the custom OpenAI-compatible endpoint"
+                    />
+                  ) : null}
+                  <button
+                    className="btn btn-primary btn-sm"
+                    type="button"
+                    title={`Save the ${provider.label} API key`}
+                    disabled={!(keyDrafts[provider.id] ?? "").trim() || isBusy}
+                    onClick={() => void saveKey(provider.id, provider.label)}
+                  >
+                    <Key size={12} /> Save key
+                  </button>
+                </div>
+              );
+              const oauthFeedback = (
+                <>
+                  {loginState ? (
+                    <p className={loginState.error ? "text-danger text-sm" : "text-muted text-sm"}>
+                      {loginState.error ?? loginState.message}
+                    </p>
+                  ) : null}
+                  {loginState?.status === "waiting_input" ? (
+                    <div className="stack-sm">
+                      <input
+                        className="input"
+                        type="text"
+                        placeholder="Authorization code or callback URL"
+                        value={loginDrafts[provider.id] ?? ""}
+                        onChange={(event) =>
+                          setLoginDrafts((previous) => ({
+                            ...previous,
+                            [provider.id]: event.target.value,
+                          }))
+                        }
+                        title={loginState.prompt ?? "Paste the provider authorization response"}
+                      />
+                      <button
+                        className="btn btn-sm"
+                        type="button"
+                        title={`Submit the ${provider.label} authorization response`}
+                        disabled={!(loginDrafts[provider.id] ?? "").trim()}
+                        onClick={() => void submitLoginInput(provider.id)}
+                      >
+                        Continue sign-in
+                      </button>
+                    </div>
+                  ) : null}
+                </>
+              );
               return (
                 <div key={provider.id} className="requirement-row items-start">
                   <span className={`requirement-badge is-${provider.configured ? "ok" : "attention"}`}>
@@ -1923,7 +2011,19 @@ function ModelProvidersPanel() {
                           >
                             <Unplug size={12} /> Disconnect
                           </button>
-                          {canUseApiKey ? (
+                          {supportsOauth ? (
+                            <button
+                              className="btn btn-sm"
+                              type="button"
+                              title={`Sign in to ${provider.label} again`}
+                              disabled={isBusy}
+                              onClick={() => void connectWithOmp(provider.id)}
+                            >
+                              {isBusy ? <Loader2 size={12} /> : <Plug size={12} />}
+                              {isBusy ? "Waiting for sign-in..." : "Sign in again"}
+                            </button>
+                          ) : null}
+                          {supportsApiKey ? (
                             <button
                               className="btn btn-sm"
                               type="button"
@@ -1935,6 +2035,7 @@ function ModelProvidersPanel() {
                             </button>
                           ) : null}
                         </div>
+                        {oauthFeedback}
                         {updateKeyId === provider.id ? (
                           <div className="stack-sm">
                             <input
@@ -1964,58 +2065,7 @@ function ModelProvidersPanel() {
                       </div>
                     ) : (
                       <div className="stack-sm mt-6">
-                        {canUseApiKey ? (
-                          <div className="stack-sm">
-                            {provider.apiKeyUrl ? (
-                              <a
-                                href={provider.apiKeyUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-muted text-sm"
-                                title={`Open the ${provider.label} API key page`}
-                              >
-                                Get API key
-                              </a>
-                            ) : null}
-                            <input
-                              className="input"
-                              type="password"
-                              placeholder="API key"
-                              value={keyDrafts[provider.id] ?? ""}
-                              onChange={(event) =>
-                                setKeyDrafts((previous) => ({
-                                  ...previous,
-                                  [provider.id]: event.target.value,
-                                }))
-                              }
-                              title={`API key for ${provider.label}`}
-                            />
-                            {provider.id === "custom" ? (
-                              <input
-                                className="input"
-                                type="url"
-                                placeholder="https://api.example.com/v1"
-                                value={baseUrlDrafts[provider.id] ?? ""}
-                                onChange={(event) =>
-                                  setBaseUrlDrafts((previous) => ({
-                                    ...previous,
-                                    [provider.id]: event.target.value,
-                                  }))
-                                }
-                                title="Base URL for the custom OpenAI-compatible endpoint"
-                              />
-                            ) : null}
-                            <button
-                              className="btn btn-primary btn-sm"
-                              type="button"
-                              title={`Save the ${provider.label} API key`}
-                              disabled={!(keyDrafts[provider.id] ?? "").trim() || isBusy}
-                              onClick={() => void saveKey(provider.id, provider.label)}
-                            >
-                              <Key size={12} /> Save key
-                            </button>
-                          </div>
-                        ) : (
+                        {supportsOauth ? (
                           <div className="stack-sm">
                             <p className="text-muted text-sm">
                               {provider.id === "openai-codex"
@@ -2036,39 +2086,22 @@ function ModelProvidersPanel() {
                               {isBusy ? <Loader2 size={12} /> : <Plug size={12} />}
                               {isBusy ? "Waiting for sign-in..." : `Sign in to ${provider.label}`}
                             </button>
-                            {loginState ? (
-                              <p className={loginState.error ? "text-danger text-sm" : "text-muted text-sm"}>
-                                {loginState.error ?? loginState.message}
-                              </p>
-                            ) : null}
-                            {loginState?.status === "waiting_input" ? (
-                              <div className="stack-sm">
-                                <input
-                                  className="input"
-                                  type="text"
-                                  placeholder="Authorization code or callback URL"
-                                  value={loginDrafts[provider.id] ?? ""}
-                                  onChange={(event) =>
-                                    setLoginDrafts((previous) => ({
-                                      ...previous,
-                                      [provider.id]: event.target.value,
-                                    }))
-                                  }
-                                  title={loginState.prompt ?? "Paste the provider authorization response"}
-                                />
-                                <button
-                                  className="btn btn-sm"
-                                  type="button"
-                                  title={`Submit the ${provider.label} authorization response`}
-                                  disabled={!(loginDrafts[provider.id] ?? "").trim()}
-                                  onClick={() => void submitLoginInput(provider.id)}
-                                >
-                                  Continue sign-in
-                                </button>
-                              </div>
-                            ) : null}
+                            {oauthFeedback}
                           </div>
+                        ) : (
+                          connectKeyForm
                         )}
+                        {supportsOauth && supportsApiKey ? (
+                          <details className="stack-sm">
+                            <summary
+                              className="text-muted text-sm"
+                              title={`Use a ${provider.label} API key instead of subscription sign-in`}
+                            >
+                              Use an API key instead
+                            </summary>
+                            {connectKeyForm}
+                          </details>
+                        ) : null}
                       </div>
                     )}
                     {provider.error ? <p className="text-danger text-sm">{provider.error}</p> : null}

@@ -3356,6 +3356,41 @@ export function ChatPanel({
                   ) : null}
                 </div>
               )}
+              {selectedProvider.authMethod === "oauth" && selectedProvider.apiKeyUrl ? (
+                <details className="stack-sm">
+                  <summary
+                    className="text-muted text-sm"
+                    title={`Use a ${selectedProvider.label} API key instead of subscription sign-in`}
+                  >
+                    Use an API key instead
+                  </summary>
+                  <button
+                    className="chat-link-btn"
+                    type="button"
+                    title={`Open ${selectedProvider.label} key page`}
+                    onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}
+                  >
+                    Get API key
+                  </button>
+                  <input
+                    className="input"
+                    type="password"
+                    placeholder="API key"
+                    value={apiKey}
+                    onChange={(event) => setApiKey(event.target.value)}
+                    title={`API key for ${selectedProvider.label}`}
+                  />
+                  <button
+                    className="btn"
+                    type="button"
+                    title="Save API key and connect"
+                    disabled={!apiKey.trim() || savingCred}
+                    onClick={() => void handleSaveCredential()}
+                  >
+                    {savingCred ? "Saving..." : "Save API key"}
+                  </button>
+                </details>
+              ) : null}
               <details className="stack-sm">
                 <summary className="text-muted text-sm" title={`Import ${selectedProvider.label} credentials from Oh My Pi`}>
                   Import from Oh My Pi (optional)

@@ -303,6 +303,29 @@ test.describe("Provider OAuth and discovery", () => {
     await page.getByRole("button", { name: "Refresh providers" }).click();
     await expect(codexRow.getByText("connected")).toBeVisible({ timeout: 5_000 });
     await expect(codexRow.getByRole("button", { name: "Disconnect" })).toBeVisible();
+    // Connected OAuth providers keep a re-auth path and never show a key form.
+    await expect(codexRow.getByRole("button", { name: "Sign in again" })).toBeVisible();
+    await expect(codexRow.locator("button", { hasText: "Update key" })).toHaveCount(0);
+  });
+
+  test("dual-auth provider offers OAuth first with an API-key fallback", async ({ page }) => {
+    await openFixtureProject(page);
+    await openSettingsProviders(page);
+
+    const row = page.locator(".requirement-row").filter({ hasText: "Anthropic" }).first();
+    await expect(row.getByRole("button", { name: /Sign in to Anthropic/ })).toBeVisible();
+    // The key form is a collapsed fallback, not the primary path.
+    const fallback = row.locator("details").filter({ hasText: "Use an API key instead" });
+    await expect(fallback).toBeVisible();
+    await expect(row.locator('input[placeholder="API key"]')).toBeHidden();
+    await fallback.locator("summary").click();
+    await expect(row.locator('input[placeholder="API key"]')).toBeVisible();
+    await row.locator('input[placeholder="API key"]').fill("sk-ant-fallback");
+    await row.locator("button", { hasText: "Save key" }).click();
+    await expect(row.getByText("connected")).toBeVisible({ timeout: 5_000 });
+    // Connected dual-auth providers keep both re-auth paths.
+    await expect(row.getByRole("button", { name: "Sign in again" })).toBeVisible();
+    await expect(row.locator("button", { hasText: "Update key" })).toBeVisible();
   });
 
   test("shows popular providers before the full catalog", async ({ page }) => {
