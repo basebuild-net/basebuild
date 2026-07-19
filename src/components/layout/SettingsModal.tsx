@@ -21,6 +21,7 @@ import {
 import type { DetectedProviderPlan, ProviderPlanOption } from "../../lib/usageSync";
 import {
   nativeProviderCatalog,
+  nativeProviderLoginCancel,
   nativeProviderLoginPoll,
   nativeProviderLoginStart,
   nativeProviderLoginSubmit,
@@ -1760,11 +1761,22 @@ function ModelProvidersPanel() {
         setBusyId(null);
         return;
       }
-      if (state.status === "waiting_input") {
+      if (state.status === "waiting_input" || state.status === "cancelled") {
+        if (state.status === "cancelled") setBusyId(null);
         return;
       }
     }
     setError("Provider sign-in timed out.");
+    setBusyId(null);
+  }
+
+  async function cancelLogin(providerId: string) {
+    try {
+      const state = await nativeProviderLoginCancel(providerId);
+      setLoginStates((previous) => ({ ...previous, [providerId]: state }));
+    } catch {
+      // No active sign-in — nothing to cancel.
+    }
     setBusyId(null);
   }
 
@@ -2023,8 +2035,18 @@ function ModelProvidersPanel() {
                               disabled={isBusy}
                               onClick={() => void connectWithOmp(provider.id)}
                             >
-                              {isBusy ? <Loader2 size={12} /> : <Plug size={12} />}
+                              {isBusy ? <Loader2 size={12} className="spin" /> : <Plug size={12} />}
                               {isBusy ? "Waiting for sign-in..." : "Sign in again"}
+                            </button>
+                          ) : null}
+                          {supportsOauth && isBusy ? (
+                            <button
+                              className="btn btn-sm"
+                              type="button"
+                              title={`Cancel the ${provider.label} sign-in attempt`}
+                              onClick={() => void cancelLogin(provider.id)}
+                            >
+                              Cancel
                             </button>
                           ) : null}
                           {supportsApiKey ? (
@@ -2076,20 +2098,32 @@ function ModelProvidersPanel() {
                                 ? "Sign in natively with your ChatGPT subscription. Basebuild stores the OAuth token only in its local database and refreshes it before requests."
                                 : "Sign in with your provider subscription through Oh My Pi. Credentials remain owned and refreshed by Oh My Pi."}
                             </p>
-                            <button
-                              className="btn btn-primary btn-sm"
-                              type="button"
-                              title={
-                                provider.id === "openai-codex"
-                                  ? `Sign in to ${provider.label}`
-                                  : `Sign in to ${provider.label} through Oh My Pi`
-                              }
-                              disabled={isBusy}
-                              onClick={() => void connectWithOmp(provider.id)}
-                            >
-                              {isBusy ? <Loader2 size={12} /> : <Plug size={12} />}
-                              {isBusy ? "Waiting for sign-in..." : `Sign in to ${provider.label}`}
-                            </button>
+                            <div className="row gap-sm">
+                              <button
+                                className="btn btn-primary btn-sm"
+                                type="button"
+                                title={
+                                  provider.id === "openai-codex"
+                                    ? `Sign in to ${provider.label}`
+                                    : `Sign in to ${provider.label} through Oh My Pi`
+                                }
+                                disabled={isBusy}
+                                onClick={() => void connectWithOmp(provider.id)}
+                              >
+                                {isBusy ? <Loader2 size={12} className="spin" /> : <Plug size={12} />}
+                                {isBusy ? "Waiting for sign-in..." : `Sign in to ${provider.label}`}
+                              </button>
+                              {isBusy ? (
+                                <button
+                                  className="btn btn-sm"
+                                  type="button"
+                                  title={`Cancel the ${provider.label} sign-in attempt`}
+                                  onClick={() => void cancelLogin(provider.id)}
+                                >
+                                  Cancel
+                                </button>
+                              ) : null}
+                            </div>
                             {oauthFeedback}
                           </div>
                         ) : (

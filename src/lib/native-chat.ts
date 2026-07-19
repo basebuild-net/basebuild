@@ -314,7 +314,7 @@ export async function nativeGenerateIdeas(input: {
 
 export type NativeProviderLoginState = {
   providerId: string;
-  status: "starting" | "waiting" | "waiting_browser" | "waiting_input" | "complete" | "error";
+  status: "starting" | "waiting" | "waiting_browser" | "waiting_input" | "complete" | "error" | "cancelled";
   message: string;
   prompt: string | null;
   complete: boolean;
@@ -338,6 +338,12 @@ export async function nativeProviderLoginSubmit(
   value: string,
 ): Promise<NativeProviderLoginState> {
   return invoke<NativeProviderLoginState>("native_provider_login_submit", { providerId, value });
+}
+
+export async function nativeProviderLoginCancel(
+  providerId: string,
+): Promise<NativeProviderLoginState> {
+  return invoke<NativeProviderLoginState>("native_provider_login_cancel", { providerId });
 }
 
 export async function nativeProviderRefreshOmpCredentials(

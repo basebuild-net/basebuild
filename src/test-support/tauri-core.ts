@@ -1297,6 +1297,18 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         error: null,
       } as T;
     }
+    case "native_provider_login_cancel": {
+      const providerId = String(args.providerId ?? "");
+      if (!providerId) throw new Error("providerId is required");
+      return {
+        providerId,
+        status: "cancelled",
+        message: "Provider sign-in cancelled.",
+        prompt: null,
+        complete: false,
+        error: null,
+      } as T;
+    }
     case "native_provider_catalog":
     case "native_provider_catalog_refresh":
     case "native_provider_refresh_omp_credentials": {

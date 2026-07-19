@@ -215,23 +215,34 @@ pub fn native_delete_provider_credential(provider_id: String) -> Result<(), Stri
 }
 
 /// Re-read the active OMP profile and refresh the provider catalog after an
-/// in-app or external OMP login.
+/// in-app or external OMP login. Runs on a blocking task: a forced refresh
+/// spawns OMP CLI processes and performs per-provider network discovery, and
+/// a sync command would freeze the webview (and any in-flight login polling)
+/// for the whole duration.
 #[tauri::command]
-pub fn native_provider_refresh_omp_credentials(
+pub async fn native_provider_refresh_omp_credentials(
     provider_id: Option<String>,
 ) -> Result<crate::models::native_chat::NativeProviderCatalog, String> {
-    crate::services::native_chat_service::NativeChatService::refresh_omp_credential_cache();
-    crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh(
-        provider_id,
-        true,
-    )
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::services::native_chat_service::NativeChatService::refresh_omp_credential_cache();
+        crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh(
+            provider_id,
+            true,
+        )
+    })
+    .await
+    .map_err(|error| format!("Provider-credential-refresh task panicked: {error}"))?
 }
 
 #[tauri::command]
-pub fn native_provider_login_start(
+pub async fn native_provider_login_start(
     provider_id: String,
 ) -> Result<NativeProviderLoginState, String> {
-    crate::services::provider_login_service::ProviderLoginService::start(&provider_id)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::services::provider_login_service::ProviderLoginService::start(&provider_id)
+    })
+    .await
+    .map_err(|error| format!("Provider-login-start task panicked: {error}"))?
 }
 
 #[tauri::command]
@@ -245,6 +256,13 @@ pub fn native_provider_login_submit(
     value: String,
 ) -> Result<NativeProviderLoginState, String> {
     crate::services::provider_login_service::ProviderLoginService::submit(&provider_id, &value)
+}
+
+#[tauri::command]
+pub fn native_provider_login_cancel(
+    provider_id: String,
+) -> Result<NativeProviderLoginState, String> {
+    crate::services::provider_login_service::ProviderLoginService::cancel(&provider_id)
 }
 
 #[tauri::command]

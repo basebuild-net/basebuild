@@ -26,6 +26,7 @@ import { IdeaBatchPreview, IdeaReviewWorkbench, parseIdeaBatch, type ParsedIdeaB
 import { MarkdownView } from "./MarkdownView";
 import {
   AlertCircle,
+  ArrowLeft,
   Brain,
   Bot,
   ChevronDown,
@@ -76,6 +77,7 @@ import {
   nativeProviderCatalog,
   nativeProviderCatalogRefresh,
   nativeProviderRefreshOmpCredentials,
+  nativeProviderLoginCancel,
   nativeProviderLoginPoll,
   nativeProviderLoginStart,
   nativeProviderLoginSubmit,
@@ -2209,7 +2211,7 @@ export function ChatPanel({
         if (state.error) {
           throw new Error(state.error);
         }
-        if (state.status === "waiting_input") {
+        if (state.status === "waiting_input" || state.status === "cancelled") {
           return;
         }
       }
@@ -2281,6 +2283,33 @@ export function ChatPanel({
     }
   }, [onShowToast, selectedProvider]);
 
+  // Cancel the in-flight OAuth flow (backend worker thread stops polling and
+  // the frontend poll loop exits on the "cancelled" status). Best-effort: a
+  // missing session just means nothing was running.
+  const cancelProviderLogin = useCallback(async () => {
+    if (!selectedProvider) return;
+    try {
+      const state = await nativeProviderLoginCancel(selectedProvider.id);
+      setProviderLoginState(state);
+    } catch {
+      // No active sign-in — nothing to cancel.
+    }
+  }, [selectedProvider]);
+
+  // Close the connect modal; abandons any in-flight sign-in. `backToCatalog`
+  // reopens the provider & model catalog modal the user came from.
+  const closeLoginModal = useCallback(
+    (backToCatalog = false) => {
+      if (providerLoginState && !providerLoginState.complete && providerLoginState.status !== "error") {
+        void cancelProviderLogin();
+      }
+      setShowLogin(false);
+      setLoginError(null);
+      if (backToCatalog) setShowProviderPicker(true);
+    },
+    [cancelProviderLogin, providerLoginState],
+  );
+
   const openApiKeyUrl = useCallback((url: string) => {
     return openUrl(url).catch((e) => {
       const msg = e instanceof Error ? e.message : String(e);
@@ -2310,6 +2339,10 @@ export function ChatPanel({
     },
     [projectPath, nativeSessionId, addLog],
   );
+
+  // Escape closes the connect modal (and abandons any in-flight sign-in),
+  // matching the overlay/X/back buttons.
+  useEscapeKey(showLogin, () => closeLoginModal());
   persistSelectionRef.current = persistSelection;
 
   const handleGenerateIdeas = useCallback(async (opts?: { categoryIds?: string[]; ideaCount?: number; direction?: string | null }) => {
@@ -3289,15 +3322,25 @@ export function ChatPanel({
       {/* Provider login modal: native connection first, optional OMP import second. */}
       {nativeMode && showLogin && selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID ? (
         <ModalPortal>
-        <div className="modal-overlay" onClick={() => setShowLogin(false)} title="Close login dialog">
+        <div className="modal-overlay" onClick={() => closeLoginModal()} title="Close login dialog">
           <div className="modal" onClick={(e) => e.stopPropagation()} title={`Connect ${selectedProvider.label}`}>
             <div className="modal-header">
-              <h2>Connect {selectedProvider.label}</h2>
+              <div className="row gap-sm">
+                <button
+                  className="btn-icon"
+                  title="Back to the provider & model catalog"
+                  type="button"
+                  onClick={() => closeLoginModal(true)}
+                >
+                  <ArrowLeft size={16} />
+                </button>
+                <h2>Connect {selectedProvider.label}</h2>
+              </div>
               <button
                 className="btn-icon"
                 title="Close"
                 type="button"
-                onClick={() => setShowLogin(false)}
+                onClick={() => closeLoginModal()}
               >
                 <X size={16} />
               </button>
@@ -3367,16 +3410,38 @@ export function ChatPanel({
                       ? "Sign in natively with your ChatGPT subscription."
                       : "Sign in with your provider subscription through Oh My Pi."}
                   </p>
-                  <button
-                    className="btn btn-primary"
-                    type="button"
-                    title={`Sign in to ${selectedProvider.label}`}
-                    disabled={savingCred}
-                    onClick={() => void handleProviderLogin()}
-                  >
-                    {savingCred ? <Loader2 size={12} /> : <Key size={12} />}
-                    {savingCred ? "Waiting for sign-in..." : `Sign in to ${selectedProvider.label}`}
-                  </button>
+                  <div className="row gap-sm">
+                    <button
+                      className="btn btn-primary"
+                      type="button"
+                      title={`Sign in to ${selectedProvider.label}`}
+                      disabled={savingCred}
+                      onClick={() => void handleProviderLogin()}
+                    >
+                      {savingCred ? <Loader2 size={12} className="spin" /> : <Key size={12} />}
+                      {savingCred ? "Waiting for sign-in..." : `Sign in to ${selectedProvider.label}`}
+                    </button>
+                    {savingCred ? (
+                      <button
+                        className="btn"
+                        type="button"
+                        title="Cancel this sign-in attempt"
+                        onClick={() => void cancelProviderLogin()}
+                      >
+                        Cancel
+                      </button>
+                    ) : null}
+                    {selectedProvider.apiKeyUrl ? (
+                      <button
+                        className="chat-link-btn"
+                        type="button"
+                        title={`Open the ${selectedProvider.label} API key page in your browser`}
+                        onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}
+                      >
+                        Get API key
+                      </button>
+                    ) : null}
+                  </div>
                   {providerLoginState ? (
                     <p className="text-sm text-muted">
                       {providerLoginState.message}

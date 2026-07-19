@@ -212,8 +212,13 @@ impl ProviderModelCatalogService {
             None => provider_specs(),
         };
 
+        // The canonical basebuild.net catalog fetch is shared by every
+        // provider: fetch it at most once per refresh instead of once per
+        // provider. A forced full refresh previously paid the 20s-timeout
+        // network round-trip for each of ~20 providers, freezing callers.
+        let mut catalog_synced = None;
         for spec in targets {
-            Self::refresh_provider_spec(spec, &credentials, force)?;
+            Self::refresh_provider_spec(spec, &credentials, force, &mut catalog_synced)?;
         }
 
         Self::invalidate();
@@ -234,6 +239,7 @@ impl ProviderModelCatalogService {
         spec: ProviderSpec,
         credentials: &[NativeProviderCredential],
         force: bool,
+        catalog_synced: &mut Option<crate::services::catalog_sync_service::CatalogSyncResult>,
     ) -> DbResult<()> {
         if spec.local_only {
             return Self::replace_provider_cache(
@@ -264,9 +270,10 @@ impl ProviderModelCatalogService {
         let credential = credential.expect("checked above");
 
         // Catalog sync is the primary model source. Fetch the canonical
-        // basebuild.net catalog first; if it has rows for this provider,
-        // skip per-provider /v1/models discovery entirely.
-        let catalog_synced = crate::services::catalog_sync_service::sync_catalog();
+        // basebuild.net catalog first (memoized across the refresh loop); if
+        // it has rows for this provider, skip /v1/models discovery entirely.
+        let catalog_synced = catalog_synced
+            .get_or_insert_with(crate::services::catalog_sync_service::sync_catalog);
         if catalog_synced.error.is_none()
             && Self::has_cached_provider_with_source(&spec.id, "catalog_sync")?
         {

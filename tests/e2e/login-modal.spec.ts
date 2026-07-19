@@ -47,4 +47,25 @@ test.describe("Login form is a modal, not inline", () => {
       await expect(loginModal).toBeHidden({ timeout: 2_000 });
     }
   });
+
+  test("login modal back button returns to the provider catalog", async ({ page }) => {
+    await openFixtureProject(page);
+    await openProviderPicker(page);
+
+    const connectBtn = page.locator(".provider-card[title^='Anthropic:'] .provider-card-action-btn[title^='Connect']").first();
+    if (await connectBtn.count() > 0) {
+      await connectBtn.click();
+
+      const loginModal = page.locator(".modal-overlay").filter({
+        has: page.locator("button[title='Back to the provider & model catalog']"),
+      });
+      await expect(loginModal).toBeVisible({ timeout: 3_000 });
+      await expect(loginModal.locator("button", { hasText: /Sign in to Anthropic/i })).toBeVisible();
+      await expect(loginModal.locator("button[title='Open the Anthropic API key page in your browser']")).toBeVisible();
+
+      await loginModal.locator("button[title='Back to the provider & model catalog']").click();
+      await expect(loginModal).toBeHidden({ timeout: 2_000 });
+      await expect(page.locator(".provider-catalog-overlay").first()).toBeVisible({ timeout: 3_000 });
+    }
+  });
 });

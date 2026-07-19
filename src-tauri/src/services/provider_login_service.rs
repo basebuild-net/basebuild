@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, LazyLock};
 use std::thread;
@@ -48,6 +49,7 @@ struct LoginSession {
     state: Arc<Mutex<NativeProviderLoginState>>,
     pending_request_id: Arc<Mutex<Option<String>>>,
     input: Sender<LoginInput>,
+    cancelled: Arc<AtomicBool>,
 }
 
 static SESSIONS: LazyLock<Mutex<HashMap<String, LoginSession>>> =
@@ -72,11 +74,12 @@ impl ProviderLoginService {
         }
 
         let mut sessions = SESSIONS.lock();
-        if let Some(existing) = sessions.get(provider_id) {
-            let state = existing.state.lock().clone();
-            if !state.complete && state.error.is_none() {
-                return Ok(state);
-            }
+        // A fresh click always restarts the flow. Reusing a stale session
+        // left the user stuck: the browser tab only opens once, so a
+        // closed/abandoned attempt could never be retried until the
+        // 10-minute timeout expired.
+        if let Some(existing) = sessions.remove(provider_id) {
+            existing.cancelled.store(true, Ordering::SeqCst);
         }
 
         let initial = NativeProviderLoginState {
@@ -89,6 +92,7 @@ impl ProviderLoginService {
         };
         let state = Arc::new(Mutex::new(initial.clone()));
         let pending_request_id = Arc::new(Mutex::new(None));
+        let cancelled = Arc::new(AtomicBool::new(false));
         let (input_tx, input_rx) = mpsc::channel();
         sessions.insert(
             provider_id.to_string(),
@@ -96,6 +100,7 @@ impl ProviderLoginService {
                 state: state.clone(),
                 pending_request_id: pending_request_id.clone(),
                 input: input_tx,
+                cancelled: cancelled.clone(),
             },
         );
         drop(sessions);
@@ -103,9 +108,9 @@ impl ProviderLoginService {
 
         thread::spawn(move || {
             if provider == OPENAI_CODEX_PROVIDER_ID {
-                run_openai_device_login(state);
+                run_openai_device_login(state, cancelled);
             } else {
-                run_omp_login(provider, state, pending_request_id, input_rx);
+                run_omp_login(provider, state, pending_request_id, input_rx, cancelled);
             }
         });
         Ok(initial)
@@ -146,6 +151,24 @@ impl ProviderLoginService {
             .map_err(|_| "The provider sign-in process has stopped.".to_string())?;
         let state = session.state.lock().clone();
         Ok(state)
+    }
+
+    /// Cancel an in-flight sign-in. The worker thread observes the flag and
+    /// exits; the state is marked cancelled so pollers stop cleanly.
+    pub fn cancel(provider_id: &str) -> Result<NativeProviderLoginState, String> {
+        let sessions = SESSIONS.lock();
+        let session = sessions
+            .get(provider_id)
+            .ok_or_else(|| format!("No sign-in is active for '{provider_id}'."))?;
+        session.cancelled.store(true, Ordering::SeqCst);
+        let mut state = session.state.lock();
+        if !state.complete && state.status != "error" {
+            state.status = "cancelled".to_string();
+            state.message = "Provider sign-in cancelled.".to_string();
+            state.prompt = None;
+            state.error = None;
+        }
+        Ok(state.clone())
     }
 
     pub fn refresh_native_token(provider_id: &str) -> Result<(), String> {
@@ -322,7 +345,7 @@ fn refresh_openai_token(refresh_token: &str) -> Result<OpenAiOAuthToken, String>
     Ok(token)
 }
 
-fn run_openai_device_login(state: Arc<Mutex<NativeProviderLoginState>>) {
+fn run_openai_device_login(state: Arc<Mutex<NativeProviderLoginState>>, cancelled: Arc<AtomicBool>) {
     let client = match oauth_http_client() {
         Ok(client) => client,
         Err(error) => {
@@ -345,13 +368,39 @@ fn run_openai_device_login(state: Arc<Mutex<NativeProviderLoginState>>) {
         }
     };
     if !response.status().is_success() {
-        fail(
-            &state,
+        let status = response.status().as_u16();
+        let detail = response
+            .json::<Value>()
+            .ok()
+            .and_then(|body| {
+                ["error_description", "error", "message"]
+                    .iter()
+                    .find_map(|key| {
+                        body.get(key)
+                            .and_then(Value::as_str)
+                            .filter(|text| !text.is_empty())
+                            .map(String::from)
+                    })
+            });
+        let message = if status == 403 {
             format!(
-                "OpenAI device authorization failed with status {}.",
-                response.status().as_u16()
-            ),
-        );
+                "OpenAI rejected the device sign-in (status 403){}. Device code \
+                 authorization is likely disabled for your ChatGPT account: open \
+                 chatgpt.com → Settings → Security, enable \"Device code \
+                 authorization\", then click Sign in again.",
+                detail
+                    .map(|text| format!(": {text}"))
+                    .unwrap_or_default()
+            )
+        } else {
+            format!(
+                "OpenAI device authorization failed with status {status}{}.",
+                detail
+                    .map(|text| format!(": {text}"))
+                    .unwrap_or_default()
+            )
+        };
+        fail(&state, message);
         return;
     }
     let value = match response.json::<Value>() {
@@ -398,6 +447,9 @@ fn run_openai_device_login(state: Arc<Mutex<NativeProviderLoginState>>) {
     let deadline = Instant::now() + LOGIN_TIMEOUT;
     while Instant::now() < deadline {
         thread::sleep(Duration::from_secs(interval_secs));
+        if cancelled.load(Ordering::SeqCst) {
+            return;
+        }
         let poll = match client
             .post(OPENAI_DEVICE_TOKEN_URL)
             .json(&json!({
@@ -469,6 +521,7 @@ fn run_omp_login(
     state: Arc<Mutex<NativeProviderLoginState>>,
     pending_request_id: Arc<Mutex<Option<String>>>,
     input_rx: Receiver<LoginInput>,
+    cancelled: Arc<AtomicBool>,
 ) {
     let mut child = match hidden_command("omp")
         .args([
@@ -537,6 +590,10 @@ fn run_omp_login(
     let deadline = Instant::now() + LOGIN_TIMEOUT;
 
     while Instant::now() < deadline {
+        if cancelled.load(Ordering::SeqCst) {
+            let _ = child.kill();
+            return;
+        }
         while let Ok((request_id, value)) = input_rx.try_recv() {
             let response = json!({
                 "type": "extension_ui_response",
