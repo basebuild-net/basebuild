@@ -1991,7 +1991,11 @@ function ModelProvidersPanel() {
                   <div className="flex-1">
                     <div className="requirement-name">
                       {provider.label}
-                      {provider.configured ? <span className="text-muted text-sm"> connected</span> : null}
+                      {provider.configured ? (
+                        <span className="text-muted text-sm">
+                          {" "}connected via {provider.connectedVia === "oauth" ? "OAuth" : provider.connectedVia === "omp" ? "Oh My Pi" : "API key"}
+                        </span>
+                      ) : null}
                       {provider.modelCount > 0 ? (
                         <span className="text-muted text-sm">
                           {" "}{provider.modelCount} model{provider.modelCount === 1 ? "" : "s"}

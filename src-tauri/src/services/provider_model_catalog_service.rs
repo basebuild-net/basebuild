@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     env,
     sync::{LazyLock, RwLock},
     time::Duration,
@@ -65,6 +66,15 @@ struct CachedModel {
 }
 
 pub struct ProviderModelCatalogService;
+/// Classify a stored credential by its base-url sentinel: Basebuild-native
+/// OAuth, OMP-owned OAuth, or a plain API key.
+fn credential_auth_source(base_url: Option<&str>) -> &'static str {
+    match base_url {
+        Some(NATIVE_CODEX_BASE_URL) => "oauth",
+        Some(url) if url.starts_with("omp://") => "omp",
+        _ => "api",
+    }
+}
 
 impl ProviderModelCatalogService {
     pub fn catalog() -> NativeProviderCatalog {
@@ -74,8 +84,14 @@ impl ProviderModelCatalogService {
             }
         }
 
-        let configured_provider_ids =
-            NativeChatService::configured_provider_ids().unwrap_or_default();
+        let mut credential_sources: HashMap<String, String> = HashMap::new();
+        for credential in NativeChatService::list_credentials().unwrap_or_default() {
+            credential_sources
+                .entry(credential.provider_id)
+                .or_insert_with(|| {
+                    credential_auth_source(credential.base_url.as_deref()).to_string()
+                });
+        }
         let now = now_seconds();
         let cached = Self::cached_models().unwrap_or_default();
         let specs = provider_specs();
@@ -88,7 +104,7 @@ impl ProviderModelCatalogService {
                 .collect();
             if provider_cached.is_empty() {
                 models.extend(bundled_models(&spec.id));
-                if !spec.local_only && configured_provider_ids.contains(&spec.id) {
+                if !spec.local_only && credential_sources.contains_key(&spec.id) {
                     stale = true;
                 }
                 continue;
@@ -112,7 +128,7 @@ impl ProviderModelCatalogService {
 
             for item in &provider_cached {
                 if !spec.local_only
-                    && configured_provider_ids.contains(&spec.id)
+                    && credential_sources.contains_key(&spec.id)
                     && now - item.synced_at > CACHE_MAX_AGE_SECONDS
                 {
                     stale = true;
@@ -130,7 +146,7 @@ impl ProviderModelCatalogService {
                     .iter()
                     .filter(|m| m.model.provider_id == spec.id)
                     .collect();
-                let configured = spec.local_only || configured_provider_ids.contains(&spec.id);
+                let configured = spec.local_only || credential_sources.contains_key(&spec.id);
                 let all_bespoke = !spec.local_only
                     && !provider_models.is_empty()
                     && provider_models
@@ -157,6 +173,7 @@ impl ProviderModelCatalogService {
                     },
                     credential_owner: spec.credential_owner.clone(),
                     configured,
+                    connected_via: credential_sources.get(&spec.id).cloned(),
                     local_only: spec.local_only,
                     detail: spec.detail.clone(),
                     auth_method: spec.auth_method.clone(),
@@ -1315,6 +1332,18 @@ mod tests {
         assert_eq!(models.len(), 1);
         assert_eq!(models[0].id, "gpt-5.5");
         assert!(models[0].supports_tools);
+    }
+
+    #[test]
+    fn credential_auth_source_classifies_base_url_sentinels() {
+        assert_eq!(credential_auth_source(Some(NATIVE_CODEX_BASE_URL)), "oauth");
+        assert_eq!(credential_auth_source(Some("omp://anthropic")), "omp");
+        assert_eq!(credential_auth_source(Some(OMP_CODEX_BASE_URL)), "omp");
+        assert_eq!(
+            credential_auth_source(Some("https://api.example.com/v1")),
+            "api"
+        );
+        assert_eq!(credential_auth_source(None), "api");
     }
 
     #[test]

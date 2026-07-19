@@ -53,6 +53,8 @@ export type NativeProvider = {
   status: string;
   credentialOwner: string;
   configured: boolean;
+  /** How the stored credential authenticates: native OAuth, Oh My Pi, or API key. */
+  connectedVia?: "oauth" | "omp" | "api" | null;
   localOnly: boolean;
   detail: string;
   authMethod: "local" | "api_key" | "oauth" | string;

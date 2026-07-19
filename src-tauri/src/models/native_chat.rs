@@ -89,6 +89,10 @@ pub struct NativeProvider {
     pub status: String,
     pub credential_owner: String,
     pub configured: bool,
+    /// How the stored credential authenticates: "oauth" (Basebuild-native),
+    /// "omp" (owned by Oh My Pi), or "api" (API key). None when unconfigured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connected_via: Option<String>,
     pub local_only: bool,
     pub detail: String,
     pub auth_method: String,

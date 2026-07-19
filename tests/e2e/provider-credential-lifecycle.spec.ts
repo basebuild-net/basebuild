@@ -328,6 +328,28 @@ test.describe("Provider OAuth and discovery", () => {
     await expect(row.locator("button", { hasText: "Update key" })).toBeVisible();
   });
 
+  test("catalog modal has provider search and auth-source badges", async ({ page }) => {
+    await openFixtureProject(page);
+    await openProviderPicker(page);
+
+    // Auth availability is visible per card: OAuth-capable vs key-only.
+    const codexCard = page.locator(".provider-card").filter({ hasText: "OpenAI Codex" }).first();
+    await expect(codexCard.locator(".provider-card-meta")).toContainText("OAuth");
+    const anthropicCard = page.locator(".provider-card").filter({ hasText: "Anthropic" }).first();
+    await expect(anthropicCard.locator(".provider-card-meta")).toContainText("OAuth or API key");
+    // Connected providers show how they authenticate.
+    const umansCard = page.locator(".provider-card").filter({ hasText: "Umans" }).first();
+    await expect(umansCard.locator(".provider-status")).toContainText("Connected · API key");
+
+    // Search narrows the provider grid.
+    const search = page.getByTitle("Search providers and models");
+    await search.fill("anthropic");
+    await expect(anthropicCard).toBeVisible();
+    await expect(page.locator(".provider-card").filter({ hasText: "Umans" })).toHaveCount(0);
+    await search.fill("no-such-provider-xyz");
+    await expect(page.getByText("No providers or models match your search.")).toBeVisible();
+  });
+
   test("shows popular providers before the full catalog", async ({ page }) => {
     await openFixtureProject(page);
     await openSettingsProviders(page);

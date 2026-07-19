@@ -86,6 +86,7 @@ import {
   type NativeChatMessage,
   type NativeModel,
   type NativeProviderCatalog,
+  type NativeProvider,
   type NativeSetupRequired,
   type NativeProviderLoginState,
   type NativeToolEvent,
@@ -112,6 +113,21 @@ function waitForProviderLoginPoll(): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();
   window.setTimeout(resolve, 750);
   return promise;
+}
+
+const CONNECTED_VIA_LABELS: Record<string, string> = {
+  oauth: "OAuth",
+  omp: "Oh My Pi",
+  api: "API key",
+};
+
+/** Auth paths a provider supports, for the catalog card meta line. */
+function providerAuthOptionsLabel(provider: NativeProvider): string {
+  if (provider.authMethod === "local") return "";
+  if (provider.authMethod === "oauth") {
+    return provider.apiKeyUrl ? "OAuth or API key" : "OAuth";
+  }
+  return "API key";
 }
 
 type LegacyChatMessage = { role: "user" | "assistant" | "system"; content: string };
@@ -595,6 +611,10 @@ export function ChatPanel({
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelFilter, setModelFilter] = useState("");
+  const [providerFilter, setProviderFilter] = useState("");
+  useEffect(() => {
+    if (!showProviderPicker) setProviderFilter("");
+  }, [showProviderPicker]);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandRecency, setCommandRecency] = useState<Record<string, number>>(() => readCommandRecency());
   const [modelRecency, setModelRecency] = useState<Record<string, number>>(() => readModelRecency());
@@ -705,6 +725,19 @@ export function ChatPanel({
       );
     });
   }, [catalog, providerId]);
+  const visibleCatalogProviders = useMemo(() => {
+    const needle = providerFilter.trim().toLowerCase();
+    if (!needle) return orderedProviders;
+    return orderedProviders.filter(
+      (provider) =>
+        `${provider.id} ${provider.label} ${provider.detail}`.toLowerCase().includes(needle) ||
+        (catalog?.models.some(
+          (model) =>
+            model.providerId === provider.id &&
+            `${model.id} ${model.label}`.toLowerCase().includes(needle),
+        ) ?? false),
+    );
+  }, [orderedProviders, providerFilter, catalog]);
   const connectedProviders = orderedProviders.filter((provider) => provider.configured);
   const availableProviders = orderedProviders.filter((provider) => !provider.configured);
   const availableModels = useMemo(
@@ -3599,8 +3632,16 @@ export function ChatPanel({
                         <span>Providers</span>
                         <span className="text-muted">Select one to browse its models</span>
                       </div>
+                      <input
+                        className="input"
+                        type="search"
+                        placeholder="Search providers and models..."
+                        value={providerFilter}
+                        onChange={(event) => setProviderFilter(event.target.value)}
+                        title="Search providers and models"
+                      />
                       <div className="provider-card-grid">
-                        {orderedProviders.map((provider) => (
+                        {visibleCatalogProviders.map((provider) => (
                           <div
                             key={provider.id}
                             className={`provider-card is-${provider.configured ? "connected" : "available"}${provider.id === providerId ? " is-active" : ""}`}
@@ -3627,10 +3668,17 @@ export function ChatPanel({
                                   title={provider.status === "transport_unavailable" ? "This provider uses a bespoke API that requires a custom base URL for native chat. Set a base URL to enable the native agent loop." : undefined}
                                 >
                                   <span className="provider-status-dot" />
-                                  {provider.status === "transport_unavailable" ? "No transport" : provider.configured ? "Connected" : "Available"}
+                                  {provider.status === "transport_unavailable"
+                                    ? "No transport"
+                                    : provider.configured
+                                      ? `Connected · ${CONNECTED_VIA_LABELS[provider.connectedVia ?? "api"] ?? "API key"}`
+                                      : "Available"}
                                 </span>
                               </span>
-                              <span className="provider-card-meta">{provider.modelCount} models</span>
+                              <span className="provider-card-meta">
+                                {provider.modelCount} models
+                                {providerAuthOptionsLabel(provider) ? ` · ${providerAuthOptionsLabel(provider)}` : ""}
+                              </span>
                             </button>
                             {provider.id !== LOCAL_PROVIDER_ID ? (
                               <div className="provider-card-actions">
@@ -3702,6 +3750,9 @@ export function ChatPanel({
                             ) : null}
                           </div>
                         ))}
+                        {visibleCatalogProviders.length === 0 ? (
+                          <p className="text-muted text-sm">No providers or models match your search.</p>
+                        ) : null}
                       </div>
                     </section>
                     <section className="provider-catalog-models" aria-label="Models">

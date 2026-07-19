@@ -1249,7 +1249,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       s.credentials.set(providerId, {
         providerId,
         apiKey: "omp-import-test",
-        baseUrl: null,
+        baseUrl: `omp://${providerId}`,
         updatedAt: Math.floor(Date.now() / 1000),
       });
       s.blockedProviders.delete(providerId);
@@ -1322,15 +1322,23 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       ];
       const providers = baseProviders.map((p) => {
         if (p.localOnly) {
-          return { ...p, status: "ready", configured: true };
+          return { ...p, status: "ready", configured: true, connectedVia: null };
         }
         const isBlocked = s.blockedProviders.has(p.id);
-        const hasCred = s.credentials.has(p.id);
-        const configured = hasCred && !isBlocked;
+        const cred = s.credentials.get(p.id);
+        const configured = Boolean(cred) && !isBlocked;
+        const connectedVia = !configured || !cred
+          ? null
+          : cred.baseUrl === "native://openai-codex"
+            ? "oauth"
+            : cred.baseUrl?.startsWith("omp://")
+              ? "omp"
+              : "api";
         return {
           ...p,
           status: configured ? "ready" : "setup_required",
           configured,
+          connectedVia,
           detail: configured ? "Connected" : "Configure credentials",
         };
       });
