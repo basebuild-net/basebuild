@@ -108,7 +108,28 @@ impl ProviderLoginService {
 
         thread::spawn(move || {
             if provider == OPENAI_CODEX_PROVIDER_ID {
-                run_openai_device_login(state, cancelled);
+                match run_openai_device_login(state.clone(), cancelled.clone()) {
+                    DeviceLoginOutcome::Finished => {}
+                    // The ChatGPT account has device code authorization
+                    // disabled. OMP signs in through the standard browser
+                    // OAuth flow (localhost callback), which needs no
+                    // account setting — fall back to it when available.
+                    DeviceLoginOutcome::DeviceAuthDisabled { detail } => {
+                        if crate::services::provider_client::omp_available() {
+                            update_state(
+                                &state,
+                                "waiting",
+                                "Device code sign-in is disabled for this ChatGPT \
+                                 account. Switching to browser sign-in through Oh \
+                                 My Pi…",
+                                None,
+                            );
+                            run_omp_login(provider, state, pending_request_id, input_rx, cancelled);
+                        } else {
+                            fail(&state, device_auth_disabled_message(detail));
+                        }
+                    }
+                }
             } else {
                 run_omp_login(provider, state, pending_request_id, input_rx, cancelled);
             }
@@ -345,12 +366,37 @@ fn refresh_openai_token(refresh_token: &str) -> Result<OpenAiOAuthToken, String>
     Ok(token)
 }
 
-fn run_openai_device_login(state: Arc<Mutex<NativeProviderLoginState>>, cancelled: Arc<AtomicBool>) {
+/// How the native OpenAI device-code flow ended. `Finished` means the flow
+/// wrote its own terminal state (success, failure, or cancel); the disabled
+/// case is returned to the caller so it can fall back to the OMP browser
+/// OAuth flow, which does not require the ChatGPT security setting.
+enum DeviceLoginOutcome {
+    Finished,
+    DeviceAuthDisabled { detail: Option<String> },
+}
+
+fn device_auth_disabled_message(detail: Option<String>) -> String {
+    format!(
+        "OpenAI rejected the device sign-in{}. Device code authorization is \
+         disabled for your ChatGPT account: open chatgpt.com → Settings → \
+         Security, enable \"Device code authorization\", then click Sign in \
+         again. Alternatively, install Oh My Pi so Basebuild can sign in \
+         through your browser without changing that setting.",
+        detail
+            .map(|text| format!(" ({text})"))
+            .unwrap_or_default()
+    )
+}
+
+fn run_openai_device_login(
+    state: Arc<Mutex<NativeProviderLoginState>>,
+    cancelled: Arc<AtomicBool>,
+) -> DeviceLoginOutcome {
     let client = match oauth_http_client() {
         Ok(client) => client,
         Err(error) => {
             fail(&state, error);
-            return;
+            return DeviceLoginOutcome::Finished;
         }
     };
     let response = match client
@@ -364,7 +410,7 @@ fn run_openai_device_login(state: Arc<Mutex<NativeProviderLoginState>>, cancelle
                 &state,
                 format!("OpenAI device authorization failed: {error}"),
             );
-            return;
+            return DeviceLoginOutcome::Finished;
         }
     };
     if !response.status().is_success() {
@@ -382,26 +428,19 @@ fn run_openai_device_login(state: Arc<Mutex<NativeProviderLoginState>>, cancelle
                             .map(String::from)
                     })
             });
-        let message = if status == 403 {
-            format!(
-                "OpenAI rejected the device sign-in (status 403){}. Device code \
-                 authorization is likely disabled for your ChatGPT account: open \
-                 chatgpt.com → Settings → Security, enable \"Device code \
-                 authorization\", then click Sign in again.",
-                detail
-                    .map(|text| format!(": {text}"))
-                    .unwrap_or_default()
-            )
-        } else {
+        if status == 403 {
+            return DeviceLoginOutcome::DeviceAuthDisabled { detail };
+        }
+        fail(
+            &state,
             format!(
                 "OpenAI device authorization failed with status {status}{}.",
                 detail
                     .map(|text| format!(": {text}"))
                     .unwrap_or_default()
-            )
-        };
-        fail(&state, message);
-        return;
+            ),
+        );
+        return DeviceLoginOutcome::Finished;
     }
     let value = match response.json::<Value>() {
         Ok(value) => value,
@@ -410,16 +449,16 @@ fn run_openai_device_login(state: Arc<Mutex<NativeProviderLoginState>>, cancelle
                 &state,
                 format!("OpenAI returned an invalid authorization response: {error}"),
             );
-            return;
+            return DeviceLoginOutcome::Finished;
         }
     };
     let Some(device_auth_id) = value.get("device_auth_id").and_then(Value::as_str) else {
         fail(&state, "OpenAI returned no device authorization id.");
-        return;
+        return DeviceLoginOutcome::Finished;
     };
     let Some(user_code) = value.get("user_code").and_then(Value::as_str) else {
         fail(&state, "OpenAI returned no device authorization code.");
-        return;
+        return DeviceLoginOutcome::Finished;
     };
     let interval_secs = value
         .get("interval")
@@ -435,7 +474,7 @@ fn run_openai_device_login(state: Arc<Mutex<NativeProviderLoginState>>, cancelle
             &state,
             format!("Could not open the OpenAI authorization page: {error}"),
         );
-        return;
+        return DeviceLoginOutcome::Finished;
     }
     update_state(
         &state,
@@ -448,7 +487,7 @@ fn run_openai_device_login(state: Arc<Mutex<NativeProviderLoginState>>, cancelle
     while Instant::now() < deadline {
         thread::sleep(Duration::from_secs(interval_secs));
         if cancelled.load(Ordering::SeqCst) {
-            return;
+            return DeviceLoginOutcome::Finished;
         }
         let poll = match client
             .post(OPENAI_DEVICE_TOKEN_URL)
@@ -464,7 +503,7 @@ fn run_openai_device_login(state: Arc<Mutex<NativeProviderLoginState>>, cancelle
                     &state,
                     format!("OpenAI authorization polling failed: {error}"),
                 );
-                return;
+                return DeviceLoginOutcome::Finished;
             }
         };
         if matches!(poll.status().as_u16(), 403 | 404) {
@@ -478,7 +517,7 @@ fn run_openai_device_login(state: Arc<Mutex<NativeProviderLoginState>>, cancelle
                     poll.status().as_u16()
                 ),
             );
-            return;
+            return DeviceLoginOutcome::Finished;
         }
         let value = match poll.json::<Value>() {
             Ok(value) => value,
@@ -487,16 +526,16 @@ fn run_openai_device_login(state: Arc<Mutex<NativeProviderLoginState>>, cancelle
                     &state,
                     format!("OpenAI returned an invalid authorization result: {error}"),
                 );
-                return;
+                return DeviceLoginOutcome::Finished;
             }
         };
         let Some(code) = value.get("authorization_code").and_then(Value::as_str) else {
             fail(&state, "OpenAI returned no authorization code.");
-            return;
+            return DeviceLoginOutcome::Finished;
         };
         let Some(verifier) = value.get("code_verifier").and_then(Value::as_str) else {
             fail(&state, "OpenAI returned no code verifier.");
-            return;
+            return DeviceLoginOutcome::Finished;
         };
         update_state(&state, "waiting", "Completing OpenAI sign-in…", None);
         match exchange_openai_code(code, verifier).and_then(|token| save_openai_token(&token)) {
@@ -511,9 +550,10 @@ fn run_openai_device_login(state: Arc<Mutex<NativeProviderLoginState>>, cancelle
             }
             Err(error) => fail(&state, error),
         }
-        return;
+        return DeviceLoginOutcome::Finished;
     }
     fail(&state, "OpenAI sign-in timed out.");
+    DeviceLoginOutcome::Finished
 }
 
 fn run_omp_login(
@@ -745,5 +785,18 @@ mod tests {
             "expires_in": 3600
         }));
         assert!(missing_refresh.is_err());
+    }
+
+    #[test]
+    fn device_auth_disabled_message_names_the_chatgpt_setting() {
+        let message =
+            device_auth_disabled_message(Some("device auth disabled for account".to_string()));
+        assert!(message.contains("(device auth disabled for account)"));
+        assert!(message.contains("Device code authorization"));
+        assert!(message.contains("chatgpt.com"));
+
+        let bare = device_auth_disabled_message(None);
+        assert!(bare.contains("Settings"));
+        assert!(!bare.contains("()"));
     }
 }

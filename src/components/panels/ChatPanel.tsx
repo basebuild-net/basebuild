@@ -3407,7 +3407,7 @@ export function ChatPanel({
                 <div className="stack-sm">
                   <p className="text-sm text-muted">
                     {selectedProvider.id === "openai-codex"
-                      ? "Sign in natively with your ChatGPT subscription."
+                      ? "Sign in with your ChatGPT subscription. If device sign-in is disabled for your account, Basebuild falls back to browser sign-in through Oh My Pi."
                       : "Sign in with your provider subscription through Oh My Pi."}
                   </p>
                   <div className="row gap-sm">
