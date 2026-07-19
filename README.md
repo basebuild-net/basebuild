@@ -38,12 +38,20 @@ Debian or Ubuntu:
 curl -fL https://github.com/basebuild-net/basebuild/releases/latest/download/Basebuild-linux-x86_64.deb -o /tmp/basebuild.deb && sudo apt install /tmp/basebuild.deb
 ```
 
-### macOS
+### macOS (Apple Silicon and Intel)
 
-The published v0.0.25 release does not contain the advertised macOS DMG. Do not
-use the install script on macOS until the release page lists
-`Basebuild-macos-universal.dmg`. You can still
-[build from source](#build-from-source).
+Download the
+[`Basebuild-macos-universal.dmg`](https://github.com/basebuild-net/basebuild/releases/latest/download/Basebuild-macos-universal.dmg),
+open it, then drag `Basebuild.app` into Applications.
+
+Or install the latest universal build to `~/Applications` from Terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/basebuild-net/basebuild/main/install.sh | sh
+```
+
+On first launch, macOS may require you to Control-click `Basebuild.app`, select
+**Open**, then confirm.
 
 Remote install commands execute scripts from the default branch. Review
 [`install.ps1`](./install.ps1) or [`install.sh`](./install.sh) first, or replace
