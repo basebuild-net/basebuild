@@ -137,6 +137,20 @@ impl ProviderModelCatalogService {
             }
         }
 
+        // Account aggregation for catalog surfaces: stored accounts grouped by
+        // provider plus the OMP virtual account where OMP is logged in and the
+        // provider isn't blocked.
+        let account_records =
+            crate::services::provider_account_service::ProviderAccountService::list_records(None)
+                .unwrap_or_default();
+        let omp_provider_ids: Vec<String> = NativeChatService::omp_provider_ids()
+            .into_iter()
+            .filter(|id| {
+                !crate::services::provider_account_service::ProviderAccountService::is_provider_blocked(id)
+                    .unwrap_or(false)
+            })
+            .collect();
+
         let providers = specs
             .iter()
             .map(|spec| {
@@ -179,6 +193,56 @@ impl ProviderModelCatalogService {
                     auth_method: spec.auth_method.clone(),
                     api_key_url: spec.api_key_url.clone(),
                     model_count: provider_models.len() as i64,
+                    account_count: {
+                        let stored = account_records
+                            .iter()
+                            .filter(|record| record.provider_id == spec.id)
+                            .count() as i64;
+                        stored + i64::from(omp_provider_ids.contains(&spec.id))
+                    },
+                    oauth_count: account_records
+                        .iter()
+                        .filter(|record| {
+                            record.provider_id == spec.id
+                                && record.auth_method
+                                    == crate::services::provider_account_service::AUTH_OAUTH
+                        })
+                        .count() as i64,
+                    api_key_count: account_records
+                        .iter()
+                        .filter(|record| {
+                            record.provider_id == spec.id
+                                && record.auth_method
+                                    == crate::services::provider_account_service::AUTH_API
+                        })
+                        .count() as i64,
+                    aggregate_health: {
+                        let provider_accounts: Vec<_> = account_records
+                            .iter()
+                            .filter(|record| record.provider_id == spec.id)
+                            .collect();
+                        if provider_accounts.is_empty() {
+                            "healthy".to_string()
+                        } else {
+                            let usable = provider_accounts
+                                .iter()
+                                .filter(|record| {
+                                    record.health == "healthy"
+                                        || (record.health == "rate_limited"
+                                            && record
+                                                .cooldown_until
+                                                .is_none_or(|until| until <= now))
+                                })
+                                .count();
+                            if usable == provider_accounts.len() {
+                                "healthy".to_string()
+                            } else if usable > 0 {
+                                "degraded".to_string()
+                            } else {
+                                "broken".to_string()
+                            }
+                        }
+                    },
                     last_synced_at,
                     source,
                     error,

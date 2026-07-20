@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Bell, Check, Download, Globe, Key, Lightbulb, Loader2, Lock, LogOut, Moon, Plug, RefreshCw, Search, Settings2, Shield, Sparkles, Sun, Trash2, Unplug, User, Wrench, X } from "lucide-react";
 import { ConfigPanel } from "../panels/ConfigPanel";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { CopyButton } from "./CopyButton";
 import { FinalTouchesTab } from "./FinalTouchesTab";
 import { OpenSpecSettingsTab } from "./OpenSpecSettingsTab";
@@ -1686,6 +1687,7 @@ function ModelProvidersPanel() {
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
   const [baseUrlDrafts, setBaseUrlDrafts] = useState<Record<string, string>>({});
   const [updateKeyId, setUpdateKeyId] = useState<string | null>(null);
+  const [logoutTarget, setLogoutTarget] = useState<{ id: string; label: string } | null>(null);
   const [loginStates, setLoginStates] = useState<Record<string, NativeProviderLoginState>>({});
   const [loginDrafts, setLoginDrafts] = useState<Record<string, string>>({});
 
@@ -1861,7 +1863,7 @@ function ModelProvidersPanel() {
     <div className="stack">
       <h3>Model providers</h3>
       <p className="text-muted text-sm">
-        Sign in with a provider subscription when OAuth is available. API keys are reserved for providers without a supported sign-in flow.
+        Log in with a provider subscription when OAuth is available. API keys are reserved for providers without a supported sign-in flow.
       </p>
       <label className="stack-sm" htmlFor="provider-model-search">
         <span className="text-sm">Search providers and models</span>
@@ -2021,22 +2023,22 @@ function ModelProvidersPanel() {
                           <button
                             className="btn btn-sm"
                             type="button"
-                            title={`Disconnect ${provider.label}`}
+                            title={`Log out of ${provider.label} and remove the stored credential`}
                             disabled={isBusy}
-                            onClick={() => void disconnect(provider.id)}
+                            onClick={() => setLogoutTarget({ id: provider.id, label: provider.label })}
                           >
-                            <Unplug size={12} /> Disconnect
+                            <LogOut size={12} /> Log out
                           </button>
                           {supportsOauth ? (
                             <button
                               className="btn btn-sm"
                               type="button"
-                              title={`Sign in to ${provider.label} again`}
+                              title={`Log in to ${provider.label} again`}
                               disabled={isBusy}
                               onClick={() => void connectWithOmp(provider.id)}
                             >
                               {isBusy ? <Loader2 size={12} className="spin" /> : <Plug size={12} />}
-                              {isBusy ? "Waiting for sign-in..." : "Sign in again"}
+                              {isBusy ? "Waiting for sign-in..." : "Log in again"}
                             </button>
                           ) : null}
                           {supportsOauth && isBusy ? (
@@ -2057,7 +2059,7 @@ function ModelProvidersPanel() {
                               disabled={isBusy}
                               onClick={() => setUpdateKeyId(updateKeyId === provider.id ? null : provider.id)}
                             >
-                              <Key size={12} /> Update key
+                              <Key size={12} /> Update API key
                             </button>
                           ) : null}
                         </div>
@@ -2095,8 +2097,8 @@ function ModelProvidersPanel() {
                           <div className="stack-sm">
                             <p className="text-muted text-sm">
                               {provider.id === "openai-codex"
-                                ? "Sign in natively with your ChatGPT subscription. Basebuild opens your browser, completes the OAuth flow itself, and stores the token only in its local database, refreshing it before requests."
-                                : "Sign in with your provider subscription through Oh My Pi. Credentials remain owned and refreshed by Oh My Pi."}
+                                ? "Log in natively with your ChatGPT subscription. Basebuild opens your browser, completes the OAuth flow itself, and stores the token only in its local database, refreshing it before requests."
+                                : "Log in with your provider subscription through Oh My Pi. Credentials remain owned and refreshed by Oh My Pi."}
                             </p>
                             <div className="row gap-sm">
                               <button
@@ -2104,14 +2106,14 @@ function ModelProvidersPanel() {
                                 type="button"
                                 title={
                                   provider.id === "openai-codex"
-                                    ? `Sign in to ${provider.label}`
-                                    : `Sign in to ${provider.label} through Oh My Pi`
+                                    ? `Log in to ${provider.label}`
+                                    : `Log in to ${provider.label} through Oh My Pi`
                                 }
                                 disabled={isBusy}
                                 onClick={() => void connectWithOmp(provider.id)}
                               >
                                 {isBusy ? <Loader2 size={12} className="spin" /> : <Plug size={12} />}
-                                {isBusy ? "Waiting for sign-in..." : `Sign in to ${provider.label}`}
+                                {isBusy ? "Waiting for sign-in..." : `Log in to ${provider.label}`}
                               </button>
                               {isBusy ? (
                                 <button
@@ -2133,7 +2135,7 @@ function ModelProvidersPanel() {
                           <details className="stack-sm">
                             <summary
                               className="text-muted text-sm"
-                              title={`Use a ${provider.label} API key instead of subscription sign-in`}
+                              title={`Use a ${provider.label} API key instead of subscription login`}
                             >
                               Use an API key instead
                             </summary>
@@ -2154,6 +2156,18 @@ function ModelProvidersPanel() {
         <p className="text-muted text-sm">No providers or models match your search.</p>
       ) : null}
       {error ? <p className="text-danger text-sm">{error}</p> : null}
+      <ConfirmDialog
+        open={logoutTarget !== null}
+        title={`Log out of ${logoutTarget?.label ?? "provider"}?`}
+        message={`This removes the stored ${logoutTarget?.label ?? ""} credential from Basebuild's local credential store. Chats using this provider will stop working until you log in again.`}
+        confirmLabel="Log out"
+        destructive
+        onConfirm={() => {
+          if (logoutTarget) void disconnect(logoutTarget.id);
+          setLogoutTarget(null);
+        }}
+        onCancel={() => setLogoutTarget(null)}
+      />
     </div>
   );
 }

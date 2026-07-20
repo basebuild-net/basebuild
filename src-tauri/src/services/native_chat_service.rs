@@ -266,30 +266,57 @@ impl NativeChatService {
     pub fn save_credential(
         input: NativeProviderCredentialInput,
     ) -> DbResult<NativeProviderCredential> {
-        let now = now_seconds();
-        let cred = NativeProviderCredential {
-            provider_id: input.provider_id.clone(),
-            label: input.label,
-            api_key: input.api_key,
-            base_url: input.base_url,
-            updated_at: now,
+        use crate::services::provider_account_service::{
+            api_key_identity, masked_key_label, ProviderAccountService, AUTH_API, AUTH_OAUTH,
         };
+        ProviderAccountService::ensure_migrated();
+        let auth_method = if input.base_url.as_deref()
+            == Some(crate::services::provider_client::NATIVE_CODEX_BASE_URL)
+        {
+            AUTH_OAUTH
+        } else {
+            AUTH_API
+        };
+        // Identity dedupes re-logins to the same upstream account: OAuth uses
+        // the ChatGPT account id claim, API keys hash the key bytes.
+        let (identity_key, account_label) = if auth_method == AUTH_OAUTH {
+            let identity = crate::services::provider_client::codex_account_identity(
+                &input.api_key,
+            )
+            .unwrap_or_else(|| format!("legacy:{}", input.provider_id));
+            (identity, input.label.clone())
+        } else {
+            (
+                api_key_identity(&input.api_key),
+                masked_key_label(&input.api_key),
+            )
+        };
+        let (record, _updated) = ProviderAccountService::upsert_account(
+            &input.provider_id,
+            &account_label,
+            auth_method,
+            &input.api_key,
+            input.base_url.as_deref(),
+            &identity_key,
+        )?;
         let conn = StorageService::connect()?;
-        conn.execute(
-            "INSERT INTO native_provider_credentials (provider_id, label, api_key, base_url, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(provider_id) DO UPDATE SET
-               label = excluded.label, api_key = excluded.api_key, base_url = excluded.base_url, updated_at = excluded.updated_at",
-            params![&cred.provider_id, &cred.label, &cred.api_key, &cred.base_url, cred.updated_at],
-        ).map_err(|e| format!("Failed to save provider credential: {e}"))?;
+        // Keep the legacy single-row table mirroring the newest account
+        // (compat/rollback window for pre-multi-account builds).
+        ProviderAccountService::sync_legacy_row(&conn, &input.provider_id)?;
         // Remove any block so OMP-imported credentials can flow again after reconnect.
         conn.execute(
             "DELETE FROM native_blocked_providers WHERE provider_id = ?1",
-            params![&cred.provider_id],
+            params![&input.provider_id],
         )
         .map_err(|e| e.to_string())?;
-        let _ = crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh_provider(&cred.provider_id, true);
-        Ok(cred)
+        let _ = crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh_provider(&input.provider_id, true);
+        Ok(NativeProviderCredential {
+            provider_id: record.provider_id,
+            label: input.label,
+            api_key: record.api_key,
+            base_url: record.base_url,
+            updated_at: record.updated_at,
+        })
     }
 
     pub(crate) fn unblock_provider(provider_id: &str) -> DbResult<()> {
@@ -303,24 +330,9 @@ impl NativeChatService {
     }
 
     pub fn list_credentials() -> DbResult<Vec<NativeProviderCredential>> {
+        use crate::services::provider_account_service::ProviderAccountService;
+        ProviderAccountService::ensure_migrated();
         let conn = StorageService::connect()?;
-        let mut stmt = conn
-            .prepare("SELECT provider_id, label, api_key, base_url, updated_at FROM native_provider_credentials ORDER BY updated_at DESC")
-            .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map([], |row| {
-                Ok(NativeProviderCredential {
-                    provider_id: row.get(0)?,
-                    label: row.get(1)?,
-                    api_key: row.get(2)?,
-                    base_url: row.get(3)?,
-                    updated_at: row.get(4)?,
-                })
-            })
-            .map_err(|e| e.to_string())?;
-        let mut creds = rows
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
 
         // Load the set of providers the user has explicitly disconnected.
         // This blocks OMP-imported credentials from re-appearing after disconnect.
@@ -331,8 +343,56 @@ impl NativeChatService {
             .map(|rows| rows.filter_map(|r| r.ok()).collect())
             .unwrap_or_default();
 
-        // Remove blocked Basebuild credentials.
-        creds.retain(|c| !blocked.contains(&c.provider_id));
+        // One credential per provider: the newest stored account. Accounts are
+        // explicit user state, so the blocked list does not apply to them.
+        let mut creds: Vec<NativeProviderCredential> = Vec::new();
+        for record in ProviderAccountService::list_records(None)? {
+            match creds
+                .iter_mut()
+                .find(|c| c.provider_id == record.provider_id)
+            {
+                Some(existing) if existing.updated_at >= record.updated_at => {}
+                Some(existing) => {
+                    existing.label = record.label;
+                    existing.api_key = record.api_key;
+                    existing.base_url = record.base_url;
+                    existing.updated_at = record.updated_at;
+                }
+                None => creds.push(NativeProviderCredential {
+                    provider_id: record.provider_id,
+                    label: record.label,
+                    api_key: record.api_key,
+                    base_url: record.base_url,
+                    updated_at: record.updated_at,
+                }),
+            }
+        }
+
+        // Dual-read safety net: a legacy row for a provider without account
+        // rows (partial migration) still works, honoring pre-upgrade blocks.
+        let mut stmt = conn
+            .prepare("SELECT provider_id, label, api_key, base_url, updated_at FROM native_provider_credentials ORDER BY updated_at DESC")
+            .map_err(|e| e.to_string())?;
+        let legacy = stmt
+            .query_map([], |row| {
+                Ok(NativeProviderCredential {
+                    provider_id: row.get(0)?,
+                    label: row.get(1)?,
+                    api_key: row.get(2)?,
+                    base_url: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok());
+        for row in legacy {
+            if blocked.contains(&row.provider_id)
+                || creds.iter().any(|c| c.provider_id == row.provider_id)
+            {
+                continue;
+            }
+            creds.push(row);
+        }
 
         // Merge credentials from the active OMP (Oh My Pi) profile so providers
         // authenticated there are usable without re-entering a secret here.
@@ -373,6 +433,22 @@ impl NativeChatService {
     /// spawns. OMP provider ids map directly to Basebuild catalog ids.
     fn omp_credentials() -> Vec<NativeProviderCredential> {
         Self::omp_credentials_from(&omp_agent_dir().join("agent.db"))
+    }
+
+    /// Provider ids with an active OMP credential (one pass over the OMP db).
+    pub(crate) fn omp_provider_ids() -> Vec<String> {
+        Self::omp_credentials()
+            .into_iter()
+            .map(|credential| credential.provider_id)
+            .collect()
+    }
+
+    /// The active OMP credential for one provider, if any. Used by the
+    /// account service to surface OMP logins as virtual accounts.
+    pub(crate) fn omp_credential_for(provider_id: &str) -> Option<NativeProviderCredential> {
+        Self::omp_credentials()
+            .into_iter()
+            .find(|credential| credential.provider_id == provider_id)
     }
 
     /// Invalidate OMP profile and OAuth caches before an explicit auth refresh.
@@ -452,11 +528,26 @@ impl NativeChatService {
         creds
     }
 
+    /// Log out ALL accounts on a provider: deletes every stored account row,
+    /// clears every Codex OAuth token slot, removes the legacy compat row,
+    /// and blocks OMP re-import until the next explicit login.
     pub fn delete_credential(provider_id: &str) -> DbResult<()> {
+        crate::services::provider_account_service::ProviderAccountService::ensure_migrated();
         let conn = StorageService::connect()?;
+        conn.execute(
+            "DELETE FROM native_provider_accounts WHERE provider_id = ?1",
+            params![provider_id],
+        )
+        .map_err(|e| e.to_string())?;
         conn.execute(
             "DELETE FROM native_provider_credentials WHERE provider_id = ?1",
             params![provider_id],
+        )
+        .map_err(|e| e.to_string())?;
+        // Per-account OAuth token slots plus the legacy single-slot key.
+        conn.execute(
+            "DELETE FROM app_defaults WHERE key LIKE ?1",
+            params![format!("provider_oauth:{provider_id}%")],
         )
         .map_err(|e| e.to_string())?;
         crate::services::provider_login_service::ProviderLoginService::clear_native_token(
@@ -896,16 +987,32 @@ impl NativeChatService {
             .map(|p| p.label.clone())
             .unwrap_or_else(|| provider_id.clone());
 
+        use crate::services::provider_account_service as pacct;
         let is_local = provider_id == LOCAL_PROVIDER_ID;
-        crate::services::provider_login_service::ProviderLoginService::refresh_native_token(
-            &provider_id,
-        )?;
-        let credential = Self::list_credentials()?
-            .into_iter()
-            .find(|c| c.provider_id == provider_id);
+        // Ordered healthy account candidates for this request: strategy
+        // rotation over healthy stored accounts, OMP virtual account as
+        // fallback, errored accounts last. Auth-expired and in-cooldown
+        // accounts are excluded.
+        let mut candidates = if is_local {
+            Vec::new()
+        } else {
+            pacct::ProviderAccountService::candidates(&provider_id, Some(&request.session_id))?
+        };
+        // Refresh per-account OAuth tokens before use (Codex only; no-op otherwise).
+        for candidate in candidates.iter_mut() {
+            let _ = crate::services::provider_login_service::ProviderLoginService::refresh_account_token(candidate);
+        }
 
-        // Non-local provider without a stored credential → typed setup prompt.
-        if !is_local && credential.is_none() {
+        // Non-local provider with no usable account → typed setup prompt.
+        // Distinguishes "never connected" from "every account is unhealthy".
+        if !is_local && candidates.is_empty() {
+            let has_accounts = !pacct::ProviderAccountService::list_records(Some(&provider_id))?
+                .is_empty();
+            let message = if has_accounts {
+                pacct::ProviderAccountService::exhaustion_message(&provider_id, &provider_label)
+            } else {
+                format!("Connect {provider_label} to send this message. Your draft was kept.")
+            };
             return Ok(NativeChatSendResult {
                 user_message,
                 assistant_message: None,
@@ -914,13 +1021,12 @@ impl NativeChatService {
                 setup_required: Some(NativeSetupRequired {
                     provider_id: provider_id.clone(),
                     provider_label: provider_label.clone(),
-                    message: format!(
-                        "Connect {provider_label} to send this message. Your draft was kept."
-                    ),
+                    message,
                 }),
                 offline: false,
             });
         }
+        let credential = candidates.first().cloned();
 
         // Build conversation context: prior turns are already persisted, and the
         // new user message was just inserted, so list_messages includes it.
@@ -973,21 +1079,68 @@ impl NativeChatService {
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs());
         if supports_tools {
-            // Run the agentic loop: stream → tool calls → approval → execute → repeat.
-            let run_result = crate::services::agent_loop_service::run_agent_turn(
-                &request.session_id,
-                &session.project_path,
-                &provider_id,
-                &resolved_model_id,
-                &effort_level,
-                credential.as_ref().map(|c| c.api_key.clone()),
-                credential.as_ref().and_then(|c| c.base_url.clone()),
-                system,
-                messages,
-                app.clone(),
-                true,
-                None,
-            );
+            // Run the agentic loop with pre-stream failover: an auth or
+            // rate-limit failure before any streamed output moves to the next
+            // native-transport account (at most one attempt per account).
+            // Mid-stream failures never silently retry.
+            let native_candidates: Vec<pacct::ProviderAccountRecord> = candidates
+                .iter()
+                .filter(|record| record.auth_method != pacct::AUTH_OMP)
+                .cloned()
+                .collect();
+            let mut attempt = 0usize;
+            let (run_result, used_account_id) = loop {
+                let account = native_candidates.get(attempt);
+                let run_result = crate::services::agent_loop_service::run_agent_turn(
+                    &request.session_id,
+                    &session.project_path,
+                    &provider_id,
+                    &resolved_model_id,
+                    &effort_level,
+                    account.map(|c| c.api_key.clone()),
+                    account.and_then(|c| c.base_url.clone()),
+                    system.clone(),
+                    messages.clone(),
+                    app.clone(),
+                    true,
+                    None,
+                );
+                let account_id = account.map(|c| c.id.clone());
+                let Some(account) = account else {
+                    break (run_result, account_id);
+                };
+                match pre_stream_failure(&run_result) {
+                    Some(error_text) => {
+                        pacct::ProviderAccountService::record_outcome(
+                            &account.id,
+                            pacct::classify_provider_error(&error_text),
+                        );
+                        if attempt + 1 < native_candidates.len() {
+                            // Remove the failed attempt's draft rows so the
+                            // retried turn starts from a clean transcript.
+                            for segment in &run_result.segments {
+                                if let Some(message_id) = &segment.message_id {
+                                    let _ = Self::delete_message(message_id);
+                                }
+                            }
+                            eprintln!(
+                                "[provider-accounts] failover provider={provider_id} from={} attempt={attempt}: {error_text}",
+                                account.id
+                            );
+                            attempt += 1;
+                            continue;
+                        }
+                        break (run_result, account_id);
+                    }
+                    None => {
+                        pacct::ProviderAccountService::record_outcome(
+                            &account.id,
+                            pacct::AccountOutcome::Success,
+                        );
+                        break (run_result, account_id);
+                    }
+                }
+            };
 
             let completed_at = now_millis();
             let duration_ms = completed_at.saturating_sub(started_at).max(1);
@@ -1056,6 +1209,7 @@ impl NativeChatService {
                 subscription_source: subscription.1.clone(),
                 plan_name: subscription.2.clone(),
                 created_at: now_seconds(),
+                account_id: used_account_id.clone(),
             };
             Self::insert_metric(&metric)?;
             Self::touch_session(&request.session_id)?;
@@ -1084,12 +1238,9 @@ impl NativeChatService {
             &request.session_id,
         );
 
-        let client = resolve_client_for_model(
-            &provider_id,
-            &api_kind,
-            req.base_url.as_deref(),
-            &model_base_url,
-        );
+        // The provider client is resolved per attempt inside the failover
+        // loop below — accounts on one provider may route differently
+        // (native OAuth vs API key vs OMP RPC).
         let session_id_for_emit = request.session_id.clone();
         let app_for_emit = app.clone();
         let draft_id_for_emit = assistant_draft.id.clone();
@@ -1115,52 +1266,102 @@ impl NativeChatService {
         // Signal the UI that the model is thinking before the first token.
         emit("thinking", "status");
 
-        let response = match client.generate(&req, &emit) {
-            Ok(r) => r,
-            Err(e) => {
-                let progress = live_progress.lock();
-                let error = format!("Error: {e}");
-                let content = if progress.0.trim().is_empty() {
-                    error
-                } else {
-                    format!("{}\n\n{error}", progress.0)
-                };
-                let reasoning = (!progress.1.trim().is_empty()).then_some(progress.1.as_str());
-                let _ = Self::update_message_progress(&assistant_draft.id, &content, reasoning);
-                let completed_at = now_millis();
-                let subscription = Self::resolve_subscription(&provider_id);
-                let metric = NativeRequestMetric {
-                    id: gen_id("nreq"),
-                    session_id: request.session_id.clone(),
-                    provider_id: provider_id.clone(),
-                    model_id: model_id.clone(),
-                    effort_level: effort_level.clone(),
-                    started_at,
-                    completed_at: Some(completed_at),
-                    duration_ms: Some(completed_at.saturating_sub(started_at).max(1)),
-                    ttft_ms: None,
-                    ttlt_ms: None,
-                    input_tokens: 0,
-                    output_tokens: 0,
-                    cache_read_tokens: 0,
-                    cache_write_tokens: 0,
-                    tokens_per_second: None,
-                    cost_total: Some(0.0),
-                    outcome: "error".to_string(),
-                    error_class: Some("provider_error".to_string()),
-                    subscription_tier: subscription.0.clone(),
-                    subscription_source: subscription.1.clone(),
-                    plan_name: subscription.2.clone(),
-                    created_at: now_seconds(),
-                };
-                let _ = Self::insert_metric(&metric);
-                let _ =
-                    crate::services::plan_lifecycle_service::PlanLifecycleService::chat_terminal(
-                        app,
-                        &request.session_id,
-                        crate::services::plan_lifecycle_service::ChatTerminalState::Failed,
-                    );
-                return Err(e);
+        let mut attempt = 0usize;
+        let mut used_account_id: Option<String> = None;
+        let response = loop {
+            let account = candidates.get(attempt);
+            used_account_id = account.map(|c| c.id.clone());
+            let attempt_req = ProviderRequest {
+                model_id: resolved_model_id.clone(),
+                effort_level: effort_level.clone(),
+                system: req.system.clone(),
+                messages: req.messages.clone(),
+                api_key: account.map(|c| c.api_key.clone()),
+                base_url: account.and_then(|c| c.base_url.clone()),
+                tools: Vec::new(),
+            };
+            let client = resolve_client_for_model(
+                &provider_id,
+                &api_kind,
+                attempt_req.base_url.as_deref(),
+                &model_base_url,
+            );
+            match client.generate(&attempt_req, &emit) {
+                Ok(response) => {
+                    if let Some(account) = account {
+                        pacct::ProviderAccountService::record_outcome(
+                            &account.id,
+                            pacct::AccountOutcome::Success,
+                        );
+                    }
+                    break response;
+                }
+                Err(e) => {
+                    if let Some(account) = account {
+                        pacct::ProviderAccountService::record_outcome(
+                            &account.id,
+                            pacct::classify_provider_error(&e),
+                        );
+                    }
+                    // Pre-stream failures (no content, no reasoning yet) fail
+                    // over to the next candidate; anything mid-stream surfaces
+                    // the error with the existing retry affordance.
+                    let pre_stream = {
+                        let progress = live_progress.lock();
+                        progress.0.trim().is_empty() && progress.1.trim().is_empty()
+                    };
+                    if pre_stream && account.is_some() && attempt + 1 < candidates.len() {
+                        eprintln!(
+                            "[provider-accounts] failover provider={provider_id} attempt={attempt}: {e}"
+                        );
+                        attempt += 1;
+                        continue;
+                    }
+                    let progress = live_progress.lock();
+                    let error = format!("Error: {e}");
+                    let content = if progress.0.trim().is_empty() {
+                        error
+                    } else {
+                        format!("{}\n\n{error}", progress.0)
+                    };
+                    let reasoning = (!progress.1.trim().is_empty()).then_some(progress.1.as_str());
+                    let _ = Self::update_message_progress(&assistant_draft.id, &content, reasoning);
+                    let completed_at = now_millis();
+                    let subscription = Self::resolve_subscription(&provider_id);
+                    let metric = NativeRequestMetric {
+                        id: gen_id("nreq"),
+                        session_id: request.session_id.clone(),
+                        provider_id: provider_id.clone(),
+                        model_id: model_id.clone(),
+                        effort_level: effort_level.clone(),
+                        started_at,
+                        completed_at: Some(completed_at),
+                        duration_ms: Some(completed_at.saturating_sub(started_at).max(1)),
+                        ttft_ms: None,
+                        ttlt_ms: None,
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        cache_read_tokens: 0,
+                        cache_write_tokens: 0,
+                        tokens_per_second: None,
+                        cost_total: Some(0.0),
+                        outcome: "error".to_string(),
+                        error_class: Some(pacct::provider_error_class(&e).to_string()),
+                        subscription_tier: subscription.0.clone(),
+                        subscription_source: subscription.1.clone(),
+                        plan_name: subscription.2.clone(),
+                        created_at: now_seconds(),
+                        account_id: used_account_id.clone(),
+                    };
+                    let _ = Self::insert_metric(&metric);
+                    let _ =
+                        crate::services::plan_lifecycle_service::PlanLifecycleService::chat_terminal(
+                            app,
+                            &request.session_id,
+                            crate::services::plan_lifecycle_service::ChatTerminalState::Failed,
+                        );
+                    return Err(e);
+                }
             }
         };
 
@@ -1204,6 +1405,7 @@ impl NativeChatService {
             subscription_source: subscription.1.clone(),
             plan_name: subscription.2.clone(),
             created_at: now_seconds(),
+            account_id: used_account_id.clone(),
         };
         Self::insert_metric(&metric)?;
 
@@ -1352,12 +1554,17 @@ impl NativeChatService {
             .find(|provider| provider.id == provider_id)
             .map(|provider| provider.label.clone())
             .unwrap_or_else(|| provider_id.clone());
-        crate::services::provider_login_service::ProviderLoginService::refresh_native_token(
-            &provider_id,
-        )?;
-        let credential = Self::list_credentials()?
-            .into_iter()
-            .find(|credential| credential.provider_id == provider_id);
+        // Pick the healthiest account for the run (same selection as chat
+        // sends); per-account token refresh happens inside candidates().
+        let mut idea_candidates =
+            crate::services::provider_account_service::ProviderAccountService::candidates(
+                &provider_id,
+                Some(&request.session_id),
+            )?;
+        for candidate in idea_candidates.iter_mut() {
+            let _ = crate::services::provider_login_service::ProviderLoginService::refresh_account_token(candidate);
+        }
+        let credential = idea_candidates.into_iter().next();
 
         let blocked_result = |message: String| NativeGenerateIdeasResult {
             ideas: vec![],
@@ -1561,7 +1768,7 @@ impl NativeChatService {
             .prepare(
                 "SELECT id, session_id, provider_id, model_id, effort_level, started_at, completed_at, duration_ms, ttft_ms, ttlt_ms,
                         input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at,
-                        subscription_tier, subscription_source, plan_name
+                        subscription_tier, subscription_source, plan_name, account_id
                  FROM native_request_metrics ORDER BY created_at DESC LIMIT ?1",
             )
             .map_err(|e| e.to_string())?;
@@ -1577,7 +1784,7 @@ impl NativeChatService {
         conn.query_row(
             "SELECT id, session_id, provider_id, model_id, effort_level, started_at, completed_at, duration_ms, ttft_ms, ttlt_ms,
                     input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at,
-                    subscription_tier, subscription_source, plan_name
+                    subscription_tier, subscription_source, plan_name, account_id
              FROM native_request_metrics
              WHERE session_id = ?1
              ORDER BY created_at DESC
@@ -1598,7 +1805,7 @@ impl NativeChatService {
             .prepare(
                 "SELECT id, session_id, provider_id, model_id, effort_level, started_at, completed_at, duration_ms, ttft_ms, ttlt_ms,
                         input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at,
-                        subscription_tier, subscription_source, plan_name
+                        subscription_tier, subscription_source, plan_name, account_id
                  FROM native_request_metrics WHERE created_at > ?1 ORDER BY created_at ASC LIMIT ?2",
             )
             .map_err(|e| e.to_string())?;
@@ -2155,8 +2362,8 @@ impl NativeChatService {
             "INSERT INTO native_request_metrics (
                 id, session_id, provider_id, model_id, effort_level, started_at, completed_at, duration_ms, ttft_ms, ttlt_ms,
                 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, tokens_per_second, cost_total, outcome, error_class, created_at,
-                subscription_tier, subscription_source, plan_name
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+                subscription_tier, subscription_source, plan_name, account_id
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
             params![
                 metric.id,
                 metric.session_id,
@@ -2180,6 +2387,7 @@ impl NativeChatService {
                 metric.subscription_tier,
                 metric.subscription_source,
                 metric.plan_name,
+                metric.account_id,
             ],
         )
         .map_err(|e| format!("Failed to save native request metrics: {e}"))?;
@@ -2430,7 +2638,30 @@ fn map_metric(row: &rusqlite::Row<'_>) -> rusqlite::Result<NativeRequestMetric> 
         subscription_tier: row.get(19)?,
         subscription_source: row.get(20)?,
         plan_name: row.get(21)?,
+        account_id: row.get(22)?,
     })
+}
+
+/// Detect an agent-loop run that failed before any output streamed: not
+/// completed/cancelled/capped, no tool activity, and exactly one first-
+/// iteration segment holding only the terminal error text. Returns the error
+/// message for health classification. Anything mid-stream returns None —
+/// those surface the error instead of silently retrying.
+fn pre_stream_failure(run_result: &crate::services::agent_loop_service::RunResult) -> Option<String> {
+    if run_result.completed || run_result.cancelled || run_result.hit_cap {
+        return None;
+    }
+    if !run_result.tool_events.is_empty() || run_result.segments.len() != 1 {
+        return None;
+    }
+    let segment = &run_result.segments[0];
+    if segment.iteration != 1 || segment.reasoning.is_some() {
+        return None;
+    }
+    segment
+        .content
+        .strip_prefix("Error: ")
+        .map(str::to_string)
 }
 
 fn gen_id(prefix: &str) -> String {

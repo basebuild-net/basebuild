@@ -2448,6 +2448,8 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 }
 .modal-header h2 { margin: 0; font-size: 13px; font-weight: 600; }
 .modal-body { display: flex; flex-direction: column; flex: 1; overflow: auto; width: 100%; min-height: 0; }
+/* Content modals opt into standard padding; full-bleed bodies (settings, source, catalog) stay padless. */
+.modal-body.stack { padding: 10px 14px 14px; }
 .modal-body > .planning-inspector,
 .modal-body > .planning-inspector-modal { flex: 1; width: 100%; min-height: 0; overflow-y: auto; padding: 4px; }
 .modal-body > .source-panel { flex: 1; width: 100%; min-height: 0; }
@@ -2920,6 +2922,8 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .provider-card-select { display: flex; flex-direction: column; gap: 5px; background: none; border: none; padding: 0; cursor: pointer; text-align: left; color: inherit; min-width: 0; }
 .provider-card-actions { display: flex; gap: 4px; flex-wrap: wrap; }
 .provider-card-action-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; padding: 2px 6px; }
+/* Connected-account row inside the provider manage modal. */
+.provider-account-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; background: var(--bb-surface); border: 1px solid var(--bb-border); border-radius: var(--bb-radius-sm); }
 .provider-card:hover { border-color: var(--bb-border-strong); background: var(--bb-surface); }
 .provider-card.is-connected { border-left: 3px solid var(--bb-success, #38a169); }
 .provider-card.is-available { border-left: 3px solid var(--bb-muted); opacity: 0.72; }
@@ -3189,7 +3193,7 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .idea-preset-option small { color: var(--bb-muted); font-size: 10px; line-height: 1.3; }
 .idea-preset-check { display: grid; width: 17px; height: 17px; flex: 0 0 17px; place-items: center; border: 1px solid var(--bb-border-strong); border-radius: var(--bb-radius-full); color: var(--bb-on-cta); }
 .idea-preset-option.is-selected .idea-preset-check { border-color: var(--bb-cta); background: var(--bb-cta); }
-.idea-round-setup-body { display: flex; flex-direction: column; gap: 12px; overflow: auto; }
+.idea-round-setup-body { display: flex; flex-direction: column; gap: 12px; overflow: auto; padding: 10px 14px 14px; }
 .idea-studio-direction-field { display: flex; flex-direction: column; gap: 6px; }
 .idea-studio-direction-field textarea { min-height: 64px; resize: vertical; font-size: 12px; line-height: 1.45; }
 .idea-studio-round-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; background: var(--bb-surface); border: 1px solid var(--bb-border); border-radius: var(--bb-radius-md); }

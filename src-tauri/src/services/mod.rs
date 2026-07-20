@@ -34,6 +34,7 @@ pub mod planning_events;
 pub mod planning_prompt_service;
 pub mod process_helpers;
 pub mod project_service;
+pub mod provider_account_service;
 pub mod provider_client;
 pub mod provider_login_service;
 pub mod provider_model_catalog_service;

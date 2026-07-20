@@ -24,6 +24,7 @@ import { QuestionCard } from "./QuestionCard";
 import { InteractionWorkbench } from "./InteractionWorkbench";
 import { IdeaBatchPreview, IdeaReviewWorkbench, parseIdeaBatch, type ParsedIdeaBatch, type ProposedIdea } from "./IdeaReviewWorkbench";
 import { MarkdownView } from "./MarkdownView";
+import { ConfirmDialog } from "../layout/ConfirmDialog";
 import {
   AlertCircle,
   ArrowLeft,
@@ -46,7 +47,8 @@ import {
   Send,
   Sparkles,
   Square,
-  Unplug,
+  LogOut,
+  Settings2,
   X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -2310,6 +2312,23 @@ export function ChatPanel({
     [cancelProviderLogin, providerLoginState],
   );
 
+  // Log out of a provider: removes the stored credential from the local
+  // credential store (and blocks OMP re-import until the next explicit login).
+  const [confirmLogoutProvider, setConfirmLogoutProvider] = useState<{ id: string; label: string } | null>(null);
+  const handleProviderLogout = useCallback(async (targetId: string, targetLabel: string) => {
+    setConfirmLogoutProvider(null);
+    try {
+      await nativeDeleteProviderCredential(targetId);
+      await refreshCatalog();
+      addLog("debug", "Provider logged out", `provider=${targetId}`);
+      onShowToast?.("Logged out", `${targetLabel} credential removed from the local store.`, "success");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog("error", "Failed to log out of provider", msg);
+      onShowToast?.("Failed to log out", msg, "error");
+    }
+  }, [addLog, onShowToast, refreshCatalog]);
+
   const openApiKeyUrl = useCallback((url: string) => {
     return openUrl(url).catch((e) => {
       const msg = e instanceof Error ? e.message : String(e);
@@ -3298,13 +3317,13 @@ export function ChatPanel({
             <button
               className="btn btn-sm"
               type="button"
-              title={`Connect ${setupRequired.providerLabel}`}
+              title={`Log in to ${setupRequired.providerLabel}`}
               onClick={() => {
                 setLoginError(null);
                 setShowLogin(true);
               }}
             >
-              <Key size={11} /> Connect
+              <Key size={11} /> Log in
             </button>
           ) : (
             <button
@@ -3319,11 +3338,11 @@ export function ChatPanel({
         </div>
       ) : null}
 
-      {/* Provider login modal: native connection first, optional OMP import second. */}
+      {/* Provider manage modal: connected accounts first, then login options, optional OMP import last. */}
       {nativeMode && showLogin && selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID ? (
         <ModalPortal>
-        <div className="modal-overlay" onClick={() => closeLoginModal()} title="Close login dialog">
-          <div className="modal" onClick={(e) => e.stopPropagation()} title={`Connect ${selectedProvider.label}`}>
+        <div className="modal-overlay" onClick={() => closeLoginModal()} title="Close manage dialog">
+          <div className="modal" onClick={(e) => e.stopPropagation()} title={`Manage ${selectedProvider.label}`}>
             <div className="modal-header">
               <div className="row gap-sm">
                 <button
@@ -3334,7 +3353,7 @@ export function ChatPanel({
                 >
                   <ArrowLeft size={16} />
                 </button>
-                <h2>Connect {selectedProvider.label}</h2>
+                <h2>Manage {selectedProvider.label}</h2>
               </div>
               <button
                 className="btn-icon"
@@ -3346,6 +3365,29 @@ export function ChatPanel({
               </button>
             </div>
             <div className="modal-body stack" onClick={(e) => e.stopPropagation()}>
+              <div className="stack-sm">
+                <span className="text-sm">Connected accounts</span>
+                {selectedProvider.configured ? (
+                  <div className="provider-account-row">
+                    <span className="provider-status is-connected">
+                      <span className="provider-status-dot" />
+                      Logged in{selectedProvider.connectedVia ? ` · ${CONNECTED_VIA_LABELS[selectedProvider.connectedVia]}` : ""}
+                    </span>
+                    <button
+                      className="btn btn-sm"
+                      type="button"
+                      title={`Log out of ${selectedProvider.label} and remove the stored credential`}
+                      onClick={() => setConfirmLogoutProvider({ id: selectedProvider.id, label: selectedProvider.label })}
+                    >
+                      <LogOut size={11} /> Log out
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-muted text-sm">
+                    No account connected yet. Log in below to start using {selectedProvider.label}.
+                  </p>
+                )}
+              </div>
               {selectedProvider.id === "openai" && catalog?.providers.some((p) => p.id === "openai-codex") ? (
                 <button
                   className="btn btn-primary"
@@ -3359,7 +3401,7 @@ export function ChatPanel({
                     }
                   }}
                 >
-                  <Globe size={12} /> Have a ChatGPT subscription? Sign in with OpenAI Codex
+                  <Globe size={12} /> Have a ChatGPT subscription? Log in with OpenAI Codex
                 </button>
               ) : null}
               {selectedProvider.authMethod !== "oauth" ? (
@@ -3400,7 +3442,7 @@ export function ChatPanel({
                     disabled={!apiKey.trim() || savingCred}
                     onClick={() => void handleSaveCredential()}
                   >
-                    {savingCred ? "Saving..." : "Save API key"}
+                    {savingCred ? "Saving..." : selectedProvider.configured ? "Replace API key" : "Log in with API key"}
                   </button>
                 </div>
               ) : (
@@ -3414,12 +3456,12 @@ export function ChatPanel({
                     <button
                       className="btn btn-primary"
                       type="button"
-                      title={`Sign in to ${selectedProvider.label}`}
+                      title={`Log in to ${selectedProvider.label}`}
                       disabled={savingCred}
                       onClick={() => void handleProviderLogin()}
                     >
                       {savingCred ? <Loader2 size={12} className="spin" /> : <Key size={12} />}
-                      {savingCred ? "Waiting for sign-in..." : `Sign in to ${selectedProvider.label}`}
+                      {savingCred ? "Waiting for sign-in..." : selectedProvider.configured ? `Log in to ${selectedProvider.label} again` : `Log in to ${selectedProvider.label}`}
                     </button>
                     {savingCred ? (
                       <button
@@ -3474,7 +3516,7 @@ export function ChatPanel({
                 <details className="stack-sm">
                   <summary
                     className="text-muted text-sm"
-                    title={`Use a ${selectedProvider.label} API key instead of subscription sign-in`}
+                    title={`Use a ${selectedProvider.label} API key instead of subscription login`}
                   >
                     Use an API key instead
                   </summary>
@@ -3497,11 +3539,11 @@ export function ChatPanel({
                   <button
                     className="btn"
                     type="button"
-                    title="Save API key and connect"
+                    title="Save API key and log in"
                     disabled={!apiKey.trim() || savingCred}
                     onClick={() => void handleSaveCredential()}
                   >
-                    {savingCred ? "Saving..." : "Save API key"}
+                    {savingCred ? "Saving..." : selectedProvider.configured ? "Replace API key" : "Log in with API key"}
                   </button>
                 </details>
               ) : null}
@@ -3528,6 +3570,19 @@ export function ChatPanel({
         </div>
         </ModalPortal>
       ) : null}
+
+      {/* Log-out confirmation: destructive, removes the stored provider credential. */}
+      <ConfirmDialog
+        open={confirmLogoutProvider !== null}
+        title={`Log out of ${confirmLogoutProvider?.label ?? "provider"}?`}
+        message={`This removes the stored ${confirmLogoutProvider?.label ?? ""} credential from Basebuild's local credential store. Chats using this provider will stop working until you log in again.`}
+        confirmLabel="Log out"
+        destructive
+        onConfirm={() => {
+          if (confirmLogoutProvider) void handleProviderLogout(confirmLogoutProvider.id, confirmLogoutProvider.label);
+        }}
+        onCancel={() => setConfirmLogoutProvider(null)}
+      />
 
       {/* Command payload modal: shows the full injected skill/command body. */}
       {commandPayloadModal ? (
@@ -3763,35 +3818,10 @@ export function ChatPanel({
                             </button>
                             {provider.id !== LOCAL_PROVIDER_ID ? (
                               <div className="provider-card-actions">
-                                {provider.configured ? (
-                                  <button
-                                    className="btn btn-sm provider-card-action-btn"
-                                    type="button"
-                                    title={`Disconnect ${provider.label} and stop using its stored credential`}
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      try {
-                                        await nativeDeleteProviderCredential(provider.id);
-                                        await refreshCatalog();
-                                        addLog("debug", "Provider disconnected", `provider=${provider.id}`);
-                                      } catch (err) {
-                                        addLog("error", "Failed to disconnect provider", err instanceof Error ? err.message : String(err));
-                                      }
-                                    }}
-                                  >
-                                    <Unplug size={11} /> Disconnect
-                                  </button>
-                                ) : null}
                                 <button
                                   className="btn btn-sm provider-card-action-btn"
                                   type="button"
-                                  title={
-                                    provider.configured
-                                      ? provider.authMethod === "oauth"
-                                        ? `Sign in to ${provider.label} again`
-                                        : `Update key for ${provider.label}`
-                                      : `Connect ${provider.label}`
-                                  }
+                                  title={`Manage ${provider.label} accounts and API keys`}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setProviderId(provider.id);
@@ -3800,11 +3830,11 @@ export function ChatPanel({
                                     if (!currentIsValid && providerModels[0]) setModelId(providerModels[0].id);
                                     setShowProviderPicker(false);
                                     setShowModelPicker(false);
+                                    setLoginError(null);
                                     setShowLogin(true);
                                   }}
                                 >
-                                  {provider.authMethod === "oauth" ? <Globe size={11} /> : <Key size={11} />}
-                                  {provider.configured ? (provider.authMethod === "oauth" ? "Sign in again" : "Update key") : "Connect"}
+                                  <Settings2 size={11} /> Manage
                                 </button>
                             {provider.error ? (
                               <div className="provider-card-error text-danger text-sm" title={provider.error}>

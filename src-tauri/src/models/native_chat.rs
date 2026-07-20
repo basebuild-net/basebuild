@@ -98,6 +98,14 @@ pub struct NativeProvider {
     pub auth_method: String,
     pub api_key_url: Option<String>,
     pub model_count: i64,
+    /// Number of attached accounts (stored + OMP virtual).
+    pub account_count: i64,
+    /// Attached accounts using Basebuild-native OAuth.
+    pub oauth_count: i64,
+    /// Attached accounts using a plain API key.
+    pub api_key_count: i64,
+    /// Aggregate account health: "healthy" | "degraded" | "broken".
+    pub aggregate_health: String,
     pub last_synced_at: Option<i64>,
     pub source: String,
     pub error: Option<String>,
@@ -111,6 +119,38 @@ pub struct NativeProviderCredential {
     pub api_key: String,
     pub base_url: Option<String>,
     pub updated_at: i64,
+}
+
+/// Secret-free account row for the Manage dialog. `apiKey` material never
+/// crosses the command boundary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAccount {
+    pub id: String,
+    pub provider_id: String,
+    pub label: String,
+    /// "oauth" | "api" | "omp"
+    pub auth_method: String,
+    /// "healthy" | "rate_limited" | "auth_expired" | "error"
+    pub health: String,
+    pub cooldown_until: Option<i64>,
+    pub last_error: Option<String>,
+    pub last_used_at: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// Per-account usage aggregate for a time window.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAccountUsage {
+    pub account_id: Option<String>,
+    pub requests: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cost_total: f64,
+    /// Share of the provider's requests in the window, 0..1.
+    pub request_share: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -352,6 +392,10 @@ pub struct NativeRequestMetric {
     /// Optional human-readable plan label (e.g. "ChatGPT Plus").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan_name: Option<String>,
+    /// The provider account that served this request (multi-account
+    /// attribution). None for pre-migration rows and the local provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

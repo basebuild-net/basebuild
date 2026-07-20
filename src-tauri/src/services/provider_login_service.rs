@@ -65,7 +65,11 @@ struct LoginSession {
 
 static SESSIONS: LazyLock<Mutex<HashMap<String, LoginSession>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-static OPENAI_REFRESH_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+// (Legacy global refresh lock removed — refresh is per-account now.)
+/// Per-account refresh locks so refreshing one Codex account never blocks or
+/// overwrites another's token slot.
+static ACCOUNT_REFRESH_LOCKS: LazyLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub struct ProviderLoginService;
 
@@ -182,19 +186,111 @@ impl ProviderLoginService {
         Ok(state.clone())
     }
 
-    pub fn refresh_native_token(provider_id: &str) -> Result<(), String> {
-        if provider_id != OPENAI_CODEX_PROVIDER_ID {
+
+    /// Authenticated round-trip test for a Codex account: exchanges the
+    /// stored refresh token for a fresh access token. Proves the grant is
+    /// still valid without touching the chat path.
+    pub fn test_codex_account(
+        record: &mut crate::services::provider_account_service::ProviderAccountRecord,
+    ) -> Result<(), String> {
+        let Some(identity) = record
+            .identity_key
+            .clone()
+            .or_else(|| crate::services::provider_client::codex_account_identity(&record.api_key))
+        else {
+            return Err("This account's token carries no ChatGPT account id.".to_string());
+        };
+        let account_key = openai_account_storage_key(&identity);
+        let token = load_openai_token_at(&account_key)?
+            .or(load_openai_token()?.filter(|token| {
+                crate::services::provider_client::codex_account_identity(&token.access_token)
+                    .as_deref()
+                    == Some(identity.as_str())
+            }))
+            .ok_or_else(|| "No stored OAuth token for this account. Log in again.".to_string())?;
+        let refreshed = refresh_openai_token(&token.refresh_token)?;
+        save_openai_token_at(&account_key, &refreshed)?;
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "UPDATE native_provider_accounts SET api_key = ?1, updated_at = ?2 WHERE id = ?3",
+            params![&refreshed.access_token, now_millis() / 1000, &record.id],
+        )
+        .map_err(|error| format!("Failed to store refreshed token: {error}"))?;
+        record.api_key = refreshed.access_token;
+        Ok(())
+    }
+
+    /// Refresh the OAuth token backing one account record (Codex only; other
+    /// auth methods are a no-op). Loads the account's own token slot (legacy
+    /// single-slot as fallback for pre-migration tokens), refreshes when near
+    /// expiry under a per-account lock, persists the new token, and updates
+    /// both the record and its stored row with the fresh access token.
+    pub fn refresh_account_token(
+        record: &mut crate::services::provider_account_service::ProviderAccountRecord,
+    ) -> Result<(), String> {
+        if record.provider_id != OPENAI_CODEX_PROVIDER_ID
+            || record.auth_method != crate::services::provider_account_service::AUTH_OAUTH
+        {
             return Ok(());
         }
-        let _refresh_guard = OPENAI_REFRESH_LOCK.lock();
-        let Some(token) = load_openai_token()? else {
+        let Some(identity) = record
+            .identity_key
+            .clone()
+            .or_else(|| crate::services::provider_client::codex_account_identity(&record.api_key))
+        else {
             return Ok(());
         };
-        if token.expires_at > now_millis() + TOKEN_REFRESH_SKEW_MS {
+        let lock = {
+            let mut locks = ACCOUNT_REFRESH_LOCKS.lock();
+            locks
+                .entry(identity.clone())
+                .or_insert_with(|| Arc::new(Mutex::new(())))
+                .clone()
+        };
+        let _guard = lock.lock();
+        let account_key = openai_account_storage_key(&identity);
+        let token = match load_openai_token_at(&account_key)? {
+            Some(token) => Some(token),
+            None => {
+                // Pre-migration fallback: the legacy slot, but only when it
+                // actually belongs to this account.
+                load_openai_token()?.filter(|token| {
+                    crate::services::provider_client::codex_account_identity(&token.access_token)
+                        .as_deref()
+                        == Some(identity.as_str())
+                })
+            }
+        };
+        let Some(token) = token else {
             return Ok(());
+        };
+        let token = if token.expires_at > now_millis() + TOKEN_REFRESH_SKEW_MS {
+            token
+        } else {
+            let refreshed = refresh_openai_token(&token.refresh_token)?;
+            save_openai_token_at(&account_key, &refreshed)?;
+            // Keep the legacy single slot in sync when it mirrors this account.
+            if load_openai_token()?
+                .and_then(|t| {
+                    crate::services::provider_client::codex_account_identity(&t.access_token)
+                })
+                .as_deref()
+                == Some(identity.as_str())
+            {
+                save_openai_token_at(OPENAI_OAUTH_STORAGE_KEY, &refreshed)?;
+            }
+            refreshed
+        };
+        if token.access_token != record.api_key {
+            let conn = StorageService::connect()?;
+            conn.execute(
+                "UPDATE native_provider_accounts SET api_key = ?1, updated_at = ?2 WHERE id = ?3",
+                params![&token.access_token, now_millis() / 1000, &record.id],
+            )
+            .map_err(|error| format!("Failed to store refreshed token: {error}"))?;
+            record.api_key = token.access_token;
         }
-        let refreshed = refresh_openai_token(&token.refresh_token)?;
-        save_openai_token(&refreshed)
+        Ok(())
     }
 
     pub fn clear_native_token(provider_id: &str) -> Result<(), String> {
@@ -246,12 +342,16 @@ fn oauth_http_client() -> Result<reqwest::blocking::Client, String> {
         .map_err(|error| format!("Failed to initialize provider sign-in: {error}"))
 }
 
-fn load_openai_token() -> Result<Option<OpenAiOAuthToken>, String> {
+fn openai_account_storage_key(identity: &str) -> String {
+    format!("{OPENAI_OAUTH_STORAGE_KEY}:{identity}")
+}
+
+fn load_openai_token_at(key: &str) -> Result<Option<OpenAiOAuthToken>, String> {
     let conn = StorageService::connect()?;
     let value = conn
         .query_row(
             "SELECT value FROM app_defaults WHERE key = ?1",
-            params![OPENAI_OAUTH_STORAGE_KEY],
+            params![key],
             |row| row.get::<_, String>(0),
         )
         .optional()
@@ -264,19 +364,82 @@ fn load_openai_token() -> Result<Option<OpenAiOAuthToken>, String> {
         .transpose()
 }
 
-fn save_openai_token(token: &OpenAiOAuthToken) -> Result<(), String> {
+fn load_openai_token() -> Result<Option<OpenAiOAuthToken>, String> {
+    load_openai_token_at(OPENAI_OAUTH_STORAGE_KEY)
+}
+
+fn save_openai_token_at(key: &str, token: &OpenAiOAuthToken) -> Result<(), String> {
     let value = serde_json::to_string(token)
         .map_err(|error| format!("Failed to encode provider OAuth state: {error}"))?;
     let conn = StorageService::connect()?;
     conn.execute(
         "INSERT INTO app_defaults (key, value) VALUES (?1, ?2)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        params![OPENAI_OAUTH_STORAGE_KEY, value],
+        params![key, value],
     )
     .map_err(|error| format!("Failed to save provider OAuth state: {error}"))?;
+    Ok(())
+}
+
+/// Best-effort human label for a Codex account decoded locally from the
+/// access-token JWT: "email · plan", either half alone, or the generic
+/// subscription label. Identity details never leave the machine.
+fn codex_account_label(access_token: &str) -> String {
+    let claims = decode_jwt_claims(access_token);
+    let email = claims
+        .as_ref()
+        .and_then(|c| {
+            c.get("email")
+                .or_else(|| c.get("https://api.openai.com/profile").and_then(|p| p.get("email")))
+        })
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let plan = claims
+        .as_ref()
+        .and_then(|c| c.get("https://api.openai.com/auth"))
+        .and_then(|auth| auth.get("chatgpt_plan_type"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(|plan| {
+            let mut chars = plan.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        });
+    match (email, plan) {
+        (Some(email), Some(plan)) => format!("{email} · {plan}"),
+        (Some(email), None) => email,
+        (None, Some(plan)) => format!("ChatGPT {plan}"),
+        (None, None) => "OpenAI Codex subscription".to_string(),
+    }
+}
+
+/// Decode a JWT payload (base64url, unverified — we only read our own claims).
+fn decode_jwt_claims(token: &str) -> Option<Value> {
+    use base64::Engine;
+    let payload = token.split('.').nth(1)?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .ok()?;
+    serde_json::from_slice::<Value>(&bytes).ok()
+}
+
+fn save_openai_token(token: &OpenAiOAuthToken) -> Result<(), String> {
+    // Legacy single slot: kept in sync with the most recent login for the
+    // one-release rollback window.
+    save_openai_token_at(OPENAI_OAUTH_STORAGE_KEY, token)?;
+    // Per-account slot keyed by the ChatGPT account id claim, so several
+    // Codex accounts can coexist and refresh independently.
+    if let Some(identity) =
+        crate::services::provider_client::codex_account_identity(&token.access_token)
+    {
+        save_openai_token_at(&openai_account_storage_key(&identity), token)?;
+    }
     NativeChatService::save_credential(NativeProviderCredentialInput {
         provider_id: OPENAI_CODEX_PROVIDER_ID.to_string(),
-        label: "OpenAI Codex subscription".to_string(),
+        label: codex_account_label(&token.access_token),
         api_key: token.access_token.clone(),
         base_url: Some(NATIVE_CODEX_BASE_URL.to_string()),
     })?;
