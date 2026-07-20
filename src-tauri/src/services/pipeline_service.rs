@@ -1166,9 +1166,17 @@ impl PipelineService {
         prompt: String,
         channel: &str,
     ) -> DbResult<String> {
-        let credential = NativeChatService::list_credentials()?
-            .into_iter()
-            .find(|c| c.provider_id == provider_id);
+        // Select the healthiest account for this provider (round-robin etc.),
+        // refreshing per-account OAuth tokens before use.
+        let mut pipeline_candidates =
+            crate::services::provider_account_service::ProviderAccountService::candidates(
+                provider_id,
+                Some(session_id),
+            )?;
+        for candidate in pipeline_candidates.iter_mut() {
+            let _ = crate::services::provider_login_service::ProviderLoginService::refresh_account_token(candidate);
+        }
+        let credential = pipeline_candidates.into_iter().next();
         if credential.is_none() && provider_id != "basebuild-local" {
             return Err(format!(
                 "Provider '{}' is not configured. Connect it in Settings first.",

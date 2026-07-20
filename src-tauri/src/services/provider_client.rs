@@ -1025,6 +1025,12 @@ impl CodexStreamState {
     }
 }
 
+/// Public wrapper: stable per-account identity for a Codex OAuth access
+/// token — the ChatGPT account id claim. Used by multi-account dedupe.
+pub(crate) fn codex_account_identity(access_token: &str) -> Option<String> {
+    codex_account_id(access_token)
+}
+
 fn codex_account_id(access_token: &str) -> Option<String> {
     let payload = access_token.split('.').nth(1)?;
     let bytes = URL_SAFE_NO_PAD.decode(payload).ok()?;

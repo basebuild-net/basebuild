@@ -186,13 +186,21 @@ export function useUpdater(): UpdaterState {
   // Silent auto-update: when an update is available, install it
   // automatically with no user prompt. The "Update now" button is gone;
   // the updater installs in the background and relaunches when ready.
+  // Never in dev: the dev build runs as 0.0.0, so every release looks
+  // "newer" and auto-install would replace the dev session with the
+  // installed release build (backend also refuses in debug builds).
+  // Playwright e2e (BASEBUILD_E2E) runs the dev server against mocked
+  // commands, so the updater flow stays enabled there for coverage.
   useEffect(() => {
+    if (import.meta.env.DEV && !import.meta.env.BASEBUILD_E2E) return;
     if (status === "available" && !installInFlight.current) {
       void install();
     }
   }, [status, install]);
 
   useEffect(() => {
+    // No automatic update checks in dev builds (see auto-install note above).
+    if (import.meta.env.DEV && !import.meta.env.BASEBUILD_E2E) return;
     // Releases are Windows-only (NSIS). Skip the check on other platforms to
     // avoid a guaranteed "platform missing" error every 5 minutes.
     if (!navigator.platform.includes("Win")) return;

@@ -53,15 +53,56 @@ export type NativeProvider = {
   status: string;
   credentialOwner: string;
   configured: boolean;
+  /** How the stored credential authenticates: native OAuth, Oh My Pi, or API key. */
+  connectedVia?: "oauth" | "omp" | "api" | null;
   localOnly: boolean;
   detail: string;
   authMethod: "local" | "api_key" | "oauth" | string;
   apiKeyUrl: string | null;
+  /** Suggested API base URL for key-based connects (prefills the endpoint field). */
+  defaultBaseUrl?: string | null;
   modelCount: number;
+  /** Number of attached accounts (stored + Oh My Pi virtual). */
+  accountCount: number;
+  /** Attached accounts using Basebuild-native OAuth. */
+  oauthCount: number;
+  /** Attached accounts using a plain API key. */
+  apiKeyCount: number;
+  /** Aggregate account health: "healthy" | "degraded" | "broken". */
+  aggregateHealth: "healthy" | "degraded" | "broken" | string;
   lastSyncedAt: number | null;
   source: "bundled" | "provider_discovered" | "cli_discovered" | "hosted_fallback" | "stale_cache" | "unavailable" | string;
   error: string | null;
 };
+
+/** One attached provider account (secret-free). */
+export type ProviderAccount = {
+  id: string;
+  providerId: string;
+  label: string;
+  authMethod: "oauth" | "api" | "omp" | string;
+  health: "healthy" | "rate_limited" | "auth_expired" | "error" | string;
+  cooldownUntil?: number | null;
+  lastError?: string | null;
+  lastUsedAt?: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+/** Per-account usage aggregate over a trailing window. */
+export type ProviderAccountUsage = {
+  /** Null aggregates pre-migration rows ("unattributed"). */
+  accountId: string | null;
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  costTotal: number;
+  /** Share of the provider's requests in the window, 0..1. */
+  requestShare: number;
+};
+
+/** Account selection strategy for splitting usage across accounts. */
+export type ProviderAccountStrategy = "round_robin" | "sticky_session" | "fill_first";
 
 export type NativeModel = {
   id: string;
@@ -244,6 +285,43 @@ export async function nativeSaveProviderCredential(input: NativeProviderCredenti
 export async function nativeDeleteProviderCredential(providerId: string): Promise<void> {
   return invoke("native_delete_provider_credential", { providerId });
 }
+
+// ─── Provider accounts (multi-account) ───
+
+/** List every attached account for a provider (OAuth, API key, Oh My Pi). */
+export async function nativeProviderAccountsList(providerId: string): Promise<ProviderAccount[]> {
+  return invoke<ProviderAccount[]>("native_provider_accounts_list", { providerId });
+}
+
+/** Log out one account; sibling accounts on the provider stay attached. */
+export async function nativeProviderAccountLogout(accountId: string): Promise<void> {
+  return invoke("native_provider_account_logout", { accountId });
+}
+
+/** Rename an account's display label. */
+export async function nativeProviderAccountSetLabel(accountId: string, label: string): Promise<void> {
+  return invoke("native_provider_account_set_label", { accountId, label });
+}
+
+/** Run a minimal authenticated request and return the account with refreshed health. */
+export async function nativeProviderAccountTest(accountId: string): Promise<ProviderAccount> {
+  return invoke<ProviderAccount>("native_provider_account_test", { accountId });
+}
+
+/** Per-account usage aggregates for a provider over a trailing window (seconds). */
+export async function nativeProviderAccountUsage(providerId: string, windowSecs: number): Promise<ProviderAccountUsage[]> {
+  return invoke<ProviderAccountUsage[]>("native_provider_account_usage", { providerId, windowSecs });
+}
+
+/** Read the account selection strategy (provider-specific, falling back to global). */
+export async function nativeProviderAccountStrategy(providerId?: string | null): Promise<ProviderAccountStrategy> {
+  return invoke<ProviderAccountStrategy>("native_provider_account_strategy", { providerId: providerId ?? null });
+}
+
+/** Set the account selection strategy; omit providerId to set the global default. */
+export async function nativeProviderAccountStrategySet(providerId: string | null, strategy: ProviderAccountStrategy): Promise<void> {
+  return invoke("native_provider_account_strategy_set", { providerId, strategy });
+}
 export async function nativeChatList(projectPath: string): Promise<NativeChatSession[]> {
   return invoke<NativeChatSession[]>("native_chat_list", { projectPath });
 }
@@ -312,7 +390,7 @@ export async function nativeGenerateIdeas(input: {
 
 export type NativeProviderLoginState = {
   providerId: string;
-  status: "starting" | "waiting" | "waiting_browser" | "waiting_input" | "complete" | "error";
+  status: "starting" | "waiting" | "waiting_browser" | "waiting_input" | "complete" | "error" | "cancelled";
   message: string;
   prompt: string | null;
   complete: boolean;
@@ -336,6 +414,12 @@ export async function nativeProviderLoginSubmit(
   value: string,
 ): Promise<NativeProviderLoginState> {
   return invoke<NativeProviderLoginState>("native_provider_login_submit", { providerId, value });
+}
+
+export async function nativeProviderLoginCancel(
+  providerId: string,
+): Promise<NativeProviderLoginState> {
+  return invoke<NativeProviderLoginState>("native_provider_login_cancel", { providerId });
 }
 
 export async function nativeProviderRefreshOmpCredentials(

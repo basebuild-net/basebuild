@@ -81,11 +81,17 @@ test.describe("native chat workspace", () => {
     await page.getByTitle(/Chat input/).first().fill("should not send yet");
     await page.getByTitle("Send message").click();
 
+    // The Manage modal opens on the Connect tab; the key entry is a
+    // dedicated sub-modal behind the "Add API key" button.
     const loginModal = page.locator(".modal-overlay").filter({
-      has: page.locator("input[type='password']"),
+      has: page.locator("h2", { hasText: "Manage OpenAI API" }),
     });
     await expect(loginModal).toBeVisible();
-    await expect(loginModal.locator("input[placeholder='API key']")).toBeVisible();
+    await expect(loginModal.locator(".modal-tab.is-active")).toContainText("Connect");
+    await loginModal.locator("button", { hasText: "Add API key" }).first().click();
+    const keyModal = page.locator(".api-key-modal");
+    await expect(keyModal).toBeVisible();
+    await expect(keyModal.locator("input[placeholder='API key']")).toBeVisible();
     await expect(page.locator(".chat-message-user")).toHaveCount(messageCountBefore);
     await expect(page.getByTitle(/Chat input/).first()).toHaveValue("should not send yet");
 

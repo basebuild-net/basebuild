@@ -7,6 +7,7 @@ use crate::{
         NativeGenerateIdeasRequest, NativeGenerateIdeasResult, NativeProviderCatalog,
         NativeProviderCatalogRefreshRequest, NativeProviderCredentialInput,
         NativeProviderLoginState, NativeRequestMetric, NativeRequestMetricsSummary,
+        ProviderAccount, ProviderAccountUsage,
         NativeToolApprovalRequest, NativeToolApprovalResult, NativeToolEvent,
         ResolvedChatModelDefault,
     },
@@ -52,6 +53,89 @@ pub async fn native_catalog_sync(
     })
     .await
     .map_err(|e| format!("Catalog sync task panicked: {e}"))
+}
+
+// ─── Provider accounts (multi-account) ───
+
+#[tauri::command]
+pub fn native_provider_accounts_list(provider_id: String) -> Result<Vec<ProviderAccount>, String> {
+    if provider_id.trim().is_empty() {
+        return Err("Provider id is required.".to_string());
+    }
+    crate::services::provider_account_service::ProviderAccountService::list_accounts(&provider_id)
+}
+
+/// Log out ONE account; sibling accounts on the provider stay attached.
+#[tauri::command]
+pub fn native_provider_account_logout(account_id: String) -> Result<(), String> {
+    if account_id.trim().is_empty() {
+        return Err("Account id is required.".to_string());
+    }
+    crate::services::provider_account_service::ProviderAccountService::remove_account(&account_id)
+}
+
+#[tauri::command]
+pub fn native_provider_account_set_label(account_id: String, label: String) -> Result<(), String> {
+    if account_id.trim().is_empty() {
+        return Err("Account id is required.".to_string());
+    }
+    if label.trim().is_empty() {
+        return Err("Account label is required.".to_string());
+    }
+    crate::services::provider_account_service::ProviderAccountService::set_label(
+        &account_id,
+        &label,
+    )
+}
+
+/// Minimal authenticated request that updates the account's health state.
+#[tauri::command]
+pub async fn native_provider_account_test(account_id: String) -> Result<ProviderAccount, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::services::provider_account_service::ProviderAccountService::test_account(
+            &account_id,
+        )
+    })
+    .await
+    .map_err(|error| format!("Account test task panicked: {error}"))?
+}
+
+/// Per-account usage aggregates over a trailing window (seconds).
+#[tauri::command]
+pub fn native_provider_account_usage(
+    provider_id: String,
+    window_secs: i64,
+) -> Result<Vec<ProviderAccountUsage>, String> {
+    if provider_id.trim().is_empty() {
+        return Err("Provider id is required.".to_string());
+    }
+    crate::services::provider_account_service::ProviderAccountService::account_usage(
+        &provider_id,
+        window_secs,
+    )
+}
+
+#[tauri::command]
+pub fn native_provider_account_strategy(provider_id: Option<String>) -> Result<String, String> {
+    Ok(match provider_id.as_deref() {
+        Some(id) => {
+            crate::services::provider_account_service::ProviderAccountService::strategy_for(id)
+        }
+        None => crate::services::provider_account_service::ProviderAccountService::strategy_for(""),
+    }
+    .as_str()
+    .to_string())
+}
+
+#[tauri::command]
+pub fn native_provider_account_strategy_set(
+    provider_id: Option<String>,
+    strategy: String,
+) -> Result<(), String> {
+    crate::services::provider_account_service::ProviderAccountService::set_strategy(
+        provider_id.as_deref(),
+        &strategy,
+    )
 }
 #[tauri::command]
 pub fn native_chat_start(request: NativeChatStartRequest) -> Result<NativeChatSession, String> {
@@ -215,23 +299,34 @@ pub fn native_delete_provider_credential(provider_id: String) -> Result<(), Stri
 }
 
 /// Re-read the active OMP profile and refresh the provider catalog after an
-/// in-app or external OMP login.
+/// in-app or external OMP login. Runs on a blocking task: a forced refresh
+/// spawns OMP CLI processes and performs per-provider network discovery, and
+/// a sync command would freeze the webview (and any in-flight login polling)
+/// for the whole duration.
 #[tauri::command]
-pub fn native_provider_refresh_omp_credentials(
+pub async fn native_provider_refresh_omp_credentials(
     provider_id: Option<String>,
 ) -> Result<crate::models::native_chat::NativeProviderCatalog, String> {
-    crate::services::native_chat_service::NativeChatService::refresh_omp_credential_cache();
-    crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh(
-        provider_id,
-        true,
-    )
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::services::native_chat_service::NativeChatService::refresh_omp_credential_cache();
+        crate::services::provider_model_catalog_service::ProviderModelCatalogService::refresh(
+            provider_id,
+            true,
+        )
+    })
+    .await
+    .map_err(|error| format!("Provider-credential-refresh task panicked: {error}"))?
 }
 
 #[tauri::command]
-pub fn native_provider_login_start(
+pub async fn native_provider_login_start(
     provider_id: String,
 ) -> Result<NativeProviderLoginState, String> {
-    crate::services::provider_login_service::ProviderLoginService::start(&provider_id)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::services::provider_login_service::ProviderLoginService::start(&provider_id)
+    })
+    .await
+    .map_err(|error| format!("Provider-login-start task panicked: {error}"))?
 }
 
 #[tauri::command]
@@ -245,6 +340,13 @@ pub fn native_provider_login_submit(
     value: String,
 ) -> Result<NativeProviderLoginState, String> {
     crate::services::provider_login_service::ProviderLoginService::submit(&provider_id, &value)
+}
+
+#[tauri::command]
+pub fn native_provider_login_cancel(
+    provider_id: String,
+) -> Result<NativeProviderLoginState, String> {
+    crate::services::provider_login_service::ProviderLoginService::cancel(&provider_id)
 }
 
 #[tauri::command]

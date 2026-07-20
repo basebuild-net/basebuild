@@ -30,13 +30,17 @@ traversal, SSRF, prototype pollution, XSS, and insecure deserialization.
 
 ## Repository
 
-Basebuild is a local-first desktop control plane for AI coding agents. The chat
-system is **native-first**: an in-house Rust agent loop handles provider
-streaming, tool calling, approval gates, and ask_user interactions directly —
-no external CLI required for the primary chat experience. OhMyPi (OMP) is
-supported as a terminal panel, plan runner, and optional chat profile, but is
-not the chat transport. OpenSpec is the primary planner; a custom Basebuild
-planner may replace it in the future but is not worth building today.
+Basebuild is a local-first desktop control plane for AI coding agents. All
+features are **native-first**: they must work with no external CLI installed.
+The chat system is an in-house Rust agent loop that handles provider
+streaming, tool calling, approval gates, and ask_user interactions directly,
+and provider OAuth (e.g. OpenAI Codex authorization-code + PKCE with a
+localhost callback) is owned end to end by Basebuild. OhMyPi (OMP) is
+**additive**, never a dependency: it may enhance the experience (terminal
+panel, plan runner, optional chat profile, credential import, last-resort
+sign-in fallback) but no core feature may require it. OpenSpec is the primary
+planner; a custom Basebuild planner may replace it in the future but is not
+worth building today.
 
 - **Frontend**: React 19 + TypeScript + Vite 7 (Tauri webview), Tailwind, xterm.js.
 - **Desktop core**: Rust + Tauri v2 (`src-tauri/`).

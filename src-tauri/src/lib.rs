@@ -67,8 +67,12 @@ use commands::{
         native_chat_send, native_chat_set_global_model_default,
         native_chat_set_project_model_default, native_chat_start, native_chat_tool_events,
         native_chat_update_session_model, native_delete_provider_credential, native_generate_ideas,
-        native_provider_catalog, native_provider_catalog_refresh, native_provider_login_poll,
-        native_provider_login_start, native_provider_login_submit,
+        native_provider_account_logout, native_provider_account_set_label,
+        native_provider_account_strategy, native_provider_account_strategy_set,
+        native_provider_account_test, native_provider_account_usage,
+        native_provider_accounts_list, native_provider_catalog,
+        native_provider_catalog_refresh, native_provider_login_cancel,
+        native_provider_login_poll, native_provider_login_start, native_provider_login_submit,
         native_provider_refresh_omp_credentials, native_request_metrics,
         native_request_metrics_summary, native_request_tool_approval,
         native_save_provider_credential, native_session_latest_metric,
@@ -228,7 +232,9 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--background"]),
         ));
-    #[cfg(desktop)]
+    // Release-only: a dev build must never hand off to an installed instance
+    // and exit silently — that makes `tauri dev` appear to "show no changes".
+    #[cfg(all(desktop, not(debug_assertions)))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
         use tauri::Manager;
         if let Some(window) = app.get_webview_window("main") {
@@ -578,6 +584,14 @@ pub fn run() {
             native_provider_login_start,
             native_provider_login_poll,
             native_provider_login_submit,
+            native_provider_login_cancel,
+            native_provider_accounts_list,
+            native_provider_account_logout,
+            native_provider_account_set_label,
+            native_provider_account_test,
+            native_provider_account_usage,
+            native_provider_account_strategy,
+            native_provider_account_strategy_set,
             native_provider_refresh_omp_credentials,
             list_runtime_profiles,
             upsert_runtime_profile,

@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     env,
     sync::{LazyLock, RwLock},
     time::Duration,
@@ -65,6 +66,15 @@ struct CachedModel {
 }
 
 pub struct ProviderModelCatalogService;
+/// Classify a stored credential by its base-url sentinel: Basebuild-native
+/// OAuth, OMP-owned OAuth, or a plain API key.
+fn credential_auth_source(base_url: Option<&str>) -> &'static str {
+    match base_url {
+        Some(NATIVE_CODEX_BASE_URL) => "oauth",
+        Some(url) if url.starts_with("omp://") => "omp",
+        _ => "api",
+    }
+}
 
 impl ProviderModelCatalogService {
     pub fn catalog() -> NativeProviderCatalog {
@@ -74,8 +84,14 @@ impl ProviderModelCatalogService {
             }
         }
 
-        let configured_provider_ids =
-            NativeChatService::configured_provider_ids().unwrap_or_default();
+        let mut credential_sources: HashMap<String, String> = HashMap::new();
+        for credential in NativeChatService::list_credentials().unwrap_or_default() {
+            credential_sources
+                .entry(credential.provider_id)
+                .or_insert_with(|| {
+                    credential_auth_source(credential.base_url.as_deref()).to_string()
+                });
+        }
         let now = now_seconds();
         let cached = Self::cached_models().unwrap_or_default();
         let specs = provider_specs();
@@ -88,7 +104,7 @@ impl ProviderModelCatalogService {
                 .collect();
             if provider_cached.is_empty() {
                 models.extend(bundled_models(&spec.id));
-                if !spec.local_only && configured_provider_ids.contains(&spec.id) {
+                if !spec.local_only && credential_sources.contains_key(&spec.id) {
                     stale = true;
                 }
                 continue;
@@ -112,7 +128,7 @@ impl ProviderModelCatalogService {
 
             for item in &provider_cached {
                 if !spec.local_only
-                    && configured_provider_ids.contains(&spec.id)
+                    && credential_sources.contains_key(&spec.id)
                     && now - item.synced_at > CACHE_MAX_AGE_SECONDS
                 {
                     stale = true;
@@ -120,6 +136,20 @@ impl ProviderModelCatalogService {
                 models.push(item.model.clone());
             }
         }
+
+        // Account aggregation for catalog surfaces: stored accounts grouped by
+        // provider plus the OMP virtual account where OMP is logged in and the
+        // provider isn't blocked.
+        let account_records =
+            crate::services::provider_account_service::ProviderAccountService::list_records(None)
+                .unwrap_or_default();
+        let omp_provider_ids: Vec<String> = NativeChatService::omp_provider_ids()
+            .into_iter()
+            .filter(|id| {
+                !crate::services::provider_account_service::ProviderAccountService::is_provider_blocked(id)
+                    .unwrap_or(false)
+            })
+            .collect();
 
         let providers = specs
             .iter()
@@ -130,7 +160,7 @@ impl ProviderModelCatalogService {
                     .iter()
                     .filter(|m| m.model.provider_id == spec.id)
                     .collect();
-                let configured = spec.local_only || configured_provider_ids.contains(&spec.id);
+                let configured = spec.local_only || credential_sources.contains_key(&spec.id);
                 let all_bespoke = !spec.local_only
                     && !provider_models.is_empty()
                     && provider_models
@@ -157,11 +187,63 @@ impl ProviderModelCatalogService {
                     },
                     credential_owner: spec.credential_owner.clone(),
                     configured,
+                    connected_via: credential_sources.get(&spec.id).cloned(),
                     local_only: spec.local_only,
                     detail: spec.detail.clone(),
                     auth_method: spec.auth_method.clone(),
                     api_key_url: spec.api_key_url.clone(),
+                    default_base_url: spec.default_base_url.clone(),
                     model_count: provider_models.len() as i64,
+                    account_count: {
+                        let stored = account_records
+                            .iter()
+                            .filter(|record| record.provider_id == spec.id)
+                            .count() as i64;
+                        stored + i64::from(omp_provider_ids.contains(&spec.id))
+                    },
+                    oauth_count: account_records
+                        .iter()
+                        .filter(|record| {
+                            record.provider_id == spec.id
+                                && record.auth_method
+                                    == crate::services::provider_account_service::AUTH_OAUTH
+                        })
+                        .count() as i64,
+                    api_key_count: account_records
+                        .iter()
+                        .filter(|record| {
+                            record.provider_id == spec.id
+                                && record.auth_method
+                                    == crate::services::provider_account_service::AUTH_API
+                        })
+                        .count() as i64,
+                    aggregate_health: {
+                        let provider_accounts: Vec<_> = account_records
+                            .iter()
+                            .filter(|record| record.provider_id == spec.id)
+                            .collect();
+                        if provider_accounts.is_empty() {
+                            "healthy".to_string()
+                        } else {
+                            let usable = provider_accounts
+                                .iter()
+                                .filter(|record| {
+                                    record.health == "healthy"
+                                        || (record.health == "rate_limited"
+                                            && record
+                                                .cooldown_until
+                                                .is_none_or(|until| until <= now))
+                                })
+                                .count();
+                            if usable == provider_accounts.len() {
+                                "healthy".to_string()
+                            } else if usable > 0 {
+                                "degraded".to_string()
+                            } else {
+                                "broken".to_string()
+                            }
+                        }
+                    },
                     last_synced_at,
                     source,
                     error,
@@ -195,8 +277,13 @@ impl ProviderModelCatalogService {
             None => provider_specs(),
         };
 
+        // The canonical basebuild.net catalog fetch is shared by every
+        // provider: fetch it at most once per refresh instead of once per
+        // provider. A forced full refresh previously paid the 20s-timeout
+        // network round-trip for each of ~20 providers, freezing callers.
+        let mut catalog_synced = None;
         for spec in targets {
-            Self::refresh_provider_spec(spec, &credentials, force)?;
+            Self::refresh_provider_spec(spec, &credentials, force, &mut catalog_synced)?;
         }
 
         Self::invalidate();
@@ -217,6 +304,7 @@ impl ProviderModelCatalogService {
         spec: ProviderSpec,
         credentials: &[NativeProviderCredential],
         force: bool,
+        catalog_synced: &mut Option<crate::services::catalog_sync_service::CatalogSyncResult>,
     ) -> DbResult<()> {
         if spec.local_only {
             return Self::replace_provider_cache(
@@ -247,9 +335,10 @@ impl ProviderModelCatalogService {
         let credential = credential.expect("checked above");
 
         // Catalog sync is the primary model source. Fetch the canonical
-        // basebuild.net catalog first; if it has rows for this provider,
-        // skip per-provider /v1/models discovery entirely.
-        let catalog_synced = crate::services::catalog_sync_service::sync_catalog();
+        // basebuild.net catalog first (memoized across the refresh loop); if
+        // it has rows for this provider, skip /v1/models discovery entirely.
+        let catalog_synced = catalog_synced
+            .get_or_insert_with(crate::services::catalog_sync_service::sync_catalog);
         if catalog_synced.error.is_none()
             && Self::has_cached_provider_with_source(&spec.id, "catalog_sync")?
         {
@@ -932,9 +1021,9 @@ fn provider_overlays() -> &'static [(&'static str, ProviderOverlay)] {
                 label: "xAI (Grok)",
                 credential_owner: "user",
                 local_only: false,
-                auth_method: "api_key",
+                auth_method: "oauth",
                 api_key_url: Some("https://console.x.ai"),
-                detail: "xAI (Grok) API — enter your API key to connect.",
+                detail: "Sign in with your xAI account through Oh My Pi, or connect with an API key.",
                 default_base_url: Some("https://api.x.ai/v1"),
             },
         ),
@@ -1315,6 +1404,18 @@ mod tests {
         assert_eq!(models.len(), 1);
         assert_eq!(models[0].id, "gpt-5.5");
         assert!(models[0].supports_tools);
+    }
+
+    #[test]
+    fn credential_auth_source_classifies_base_url_sentinels() {
+        assert_eq!(credential_auth_source(Some(NATIVE_CODEX_BASE_URL)), "oauth");
+        assert_eq!(credential_auth_source(Some("omp://anthropic")), "omp");
+        assert_eq!(credential_auth_source(Some(OMP_CODEX_BASE_URL)), "omp");
+        assert_eq!(
+            credential_auth_source(Some("https://api.example.com/v1")),
+            "api"
+        );
+        assert_eq!(credential_auth_source(None), "api");
     }
 
     #[test]

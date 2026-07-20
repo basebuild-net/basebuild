@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from "react";
 import { usePromptDelivery } from "../../lib/promptDelivery";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { markStart, markEnd, formatRelativeTime } from "../../lib/timing";
@@ -24,10 +24,15 @@ import { QuestionCard } from "./QuestionCard";
 import { InteractionWorkbench } from "./InteractionWorkbench";
 import { IdeaBatchPreview, IdeaReviewWorkbench, parseIdeaBatch, type ParsedIdeaBatch, type ProposedIdea } from "./IdeaReviewWorkbench";
 import { MarkdownView } from "./MarkdownView";
+import { ConfirmDialog } from "../layout/ConfirmDialog";
+import { OptionList } from "../layout/OptionList";
 import {
   AlertCircle,
+  AlertTriangle,
+  ArrowLeft,
   Brain,
   Bot,
+  Check,
   ChevronDown,
   ChevronUp,
   Copy,
@@ -39,13 +44,17 @@ import {
   Key,
   LayoutGrid,
   Lightbulb,
+  Link,
   Loader2,
+  Plug,
   RefreshCw,
   Rocket,
+  Search,
   Send,
   Sparkles,
   Square,
-  Unplug,
+  LogOut,
+  Settings2,
   X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -76,19 +85,28 @@ import {
   nativeProviderCatalog,
   nativeProviderCatalogRefresh,
   nativeProviderRefreshOmpCredentials,
+  nativeProviderLoginCancel,
   nativeProviderLoginPoll,
   nativeProviderLoginStart,
   nativeProviderLoginSubmit,
   nativeSessionLatestMetric,
   nativeSaveProviderCredential,
+  nativeProviderAccountsList,
+  nativeProviderAccountLogout,
+  nativeProviderAccountSetLabel,
+  nativeProviderAccountTest,
+  nativeProviderAccountUsage,
   renameNativeChatSession,
   type ChatModelDefault,
   type NativeChatMessage,
   type NativeModel,
   type NativeProviderCatalog,
+  type NativeProvider,
   type NativeSetupRequired,
   type NativeProviderLoginState,
   type NativeToolEvent,
+  type ProviderAccount,
+  type ProviderAccountUsage,
 } from "../../lib/native-chat";
 import { resolveToolApproval } from "../../lib/native-chat";
 import { buildChatTimeline, type LiveSegment } from "../../lib/chatTimeline";
@@ -99,19 +117,126 @@ import { inspectProjectSchematic, type SchematicReport } from "../../lib/schemat
 import { schematicWizardAction } from "../../lib/planningActions";
 import { readSkill } from "../../lib/skills";
 import type { AgentMode } from "../../lib/sessions";
-import { readModelRecency, recordModelUse } from "../../lib/modelRecency";
+import { readModelRecency, readProviderRecency, recordModelUse, recordProviderUse } from "../../lib/modelRecency";
 import { useLogs } from "../../state/log";
 import { useDropdownPosition } from "../../state/useDropdownPosition";
 
 const SEND_TIMEOUT_MS = 45_000;
 const NATIVE_PROFILE_ID = "basebuild-native";
 const LOCAL_PROVIDER_ID = "basebuild-local";
-const POPULAR_PROVIDER_IDS = ["openai-codex", "anthropic", "google-gemini-cli", "github-copilot", "openai", "google"] as const;
 
 function waitForProviderLoginPoll(): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();
   window.setTimeout(resolve, 750);
   return promise;
+}
+
+const CONNECTED_VIA_LABELS: Record<string, string> = {
+  oauth: "OAuth",
+  omp: "Oh My Pi",
+  api: "API key",
+};
+
+const ACCOUNT_AUTH_LABELS: Record<string, string> = {
+  oauth: "OAuth",
+  omp: "Oh My Pi",
+  api: "API key",
+};
+
+const ACCOUNT_HEALTH_LABELS: Record<string, string> = {
+  healthy: "Healthy",
+  rate_limited: "Rate limited",
+  auth_expired: "Auth expired",
+  error: "Error",
+};
+
+/** Compact k/M formatting for token counts. */
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+/** Manage-modal section tabs. */
+type ManageTab = "accounts" | "connect" | "usage";
+
+/** Human request rate over a window: "≈3.2 reqs/h" when dense,
+ * "≈1 req every 6h" / "≈1 req every 1.5d" when sparse. */
+function formatRequestRate(requests: number, windowSecs: number): string | null {
+  if (requests <= 0 || windowSecs <= 0) return null;
+  const hours = windowSecs / 3600;
+  const perHour = requests / hours;
+  if (perHour >= 1) return `≈${perHour >= 10 ? perHour.toFixed(0) : perHour.toFixed(1)} reqs/h`;
+  const hoursPerReq = hours / requests;
+  if (hoursPerReq < 48) return `≈1 req every ${hoursPerReq >= 10 ? hoursPerReq.toFixed(0) : hoursPerReq.toFixed(1)}h`;
+  return `≈1 req every ${(hoursPerReq / 24).toFixed(1)}d`;
+}
+
+/** Token throughput over a window: "≈12.4k tok/h". */
+function formatTokenRate(tokens: number, windowSecs: number): string | null {
+  if (tokens <= 0 || windowSecs <= 0) return null;
+  return `≈${formatTokens(Math.round(tokens / (windowSecs / 3600)))} tok/h`;
+}
+
+/** Normalize a timestamp to milliseconds. The Rust backend stores Unix
+ * seconds; the e2e mock stores ms. Values < 10^12 are treated as seconds. */
+function toMs(ts: number | null | undefined): number | null {
+  if (ts == null) return null;
+  return ts < 1e12 ? ts * 1000 : ts;
+}
+
+/** Relative time "2h ago" / "just now" from a timestamp (seconds or ms). */
+function accountRelativeTime(ts: number | null | undefined): string | null {
+  const ms = toMs(ts);
+  if (ms == null) return null;
+  const diff = Date.now() - ms;
+  if (diff < 0) return "just now";
+  if (diff < 60_000) return "just now";
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+/** "Connected Jul 5, 2026 · 2d ago" from a timestamp (seconds or ms). */
+function accountConnectedLabel(ts: number | null | undefined): string | null {
+  const ms = toMs(ts);
+  if (ms == null) return null;
+  const date = new Date(ms).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+  const rel = accountRelativeTime(ts);
+  return rel ? `${date} · ${rel}` : date;
+}
+
+/** Seconds until a cooldown timestamp (ms), or null if not cooling down. */
+function cooldownSecondsLeft(cooldownUntil: number | null | undefined): number | null {
+  if (cooldownUntil == null) return null;
+  const ms = cooldownUntil - Date.now();
+  if (ms <= 0) return null;
+  return Math.ceil(ms / 1000);
+}
+
+/** "2 accounts · 1 OAuth · 1 API key" for provider cards (omits zero parts). */
+function accountSummaryLabel(provider: NativeProvider): string {
+  const parts: string[] = [];
+  parts.push(`${provider.accountCount} ${provider.accountCount === 1 ? "account" : "accounts"}`);
+  if (provider.oauthCount > 0) parts.push(`${provider.oauthCount} OAuth`);
+  if (provider.apiKeyCount > 0) parts.push(`${provider.apiKeyCount} API key${provider.apiKeyCount === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+}
+
+/** Auth paths a provider supports, for the catalog card meta line. */
+function providerAuthOptionsLabel(provider: NativeProvider): string {
+  if (provider.authMethod === "local") return "";
+  if (provider.authMethod === "oauth") {
+    return provider.apiKeyUrl ? "OAuth or API key" : "OAuth";
+  }
+  return "API key";
 }
 
 type LegacyChatMessage = { role: "user" | "assistant" | "system"; content: string };
@@ -229,9 +354,7 @@ function ThinkingBlock({ text }: { text: string }) {
         <Brain size={11} />
         {expanded ? "▼" : "▶"} Thinking…
       </button>
-      {expanded ? (
-        <MarkdownView text={text} className="chat-thinking-content" />
-      ) : null}
+      {expanded ? <MarkdownView text={text} className="chat-thinking-content" /> : null}
     </div>
   );
 }
@@ -574,6 +697,7 @@ export function ChatPanel({
   const firstActivityRef = useRef(true);
   // Provider connection UI.
   const [showLogin, setShowLogin] = useState(false);
+  const [managedProviderId, setManagedProviderId] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [savingCred, setSavingCred] = useState(false);
@@ -595,9 +719,14 @@ export function ChatPanel({
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelFilter, setModelFilter] = useState("");
+  const [providerFilter, setProviderFilter] = useState("");
+  useEffect(() => {
+    if (!showProviderPicker) setProviderFilter("");
+  }, [showProviderPicker]);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandRecency, setCommandRecency] = useState<Record<string, number>>(() => readCommandRecency());
   const [modelRecency, setModelRecency] = useState<Record<string, number>>(() => readModelRecency());
+  const [providerRecency, setProviderRecency] = useState<Record<string, number>>(() => readProviderRecency());
   const [commandPayloadModal, setCommandPayloadModal] = useState<{ name: string; content: string } | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [paletteActiveIndex, setPaletteActiveIndex] = useState(0);
@@ -690,21 +819,41 @@ export function ChatPanel({
   }, [catalog, modelFilter, providerId, modelRecency]);
   const nativeMode = profileId === NATIVE_PROFILE_ID;
   const selectedProvider = catalog?.providers.find((p) => p.id === providerId) ?? null;
+  const managedProvider = catalog?.providers.find((p) => p.id === managedProviderId) ?? null;
+  // Bespoke-API providers (transport_unavailable) can't chat natively until
+  // an endpoint URL is stored alongside a key.
+  const needsEndpointUrl = managedProvider?.status === "transport_unavailable";
   const selectedModel = catalog?.models.find((m) => m.id === modelId && m.providerId === providerId) ?? null;
   const orderedProviders = useMemo(() => {
     if (!catalog) return [];
     return catalog.providers.slice().sort((a, b) => {
-      const aPriority = POPULAR_PROVIDER_IDS.indexOf(a.id as (typeof POPULAR_PROVIDER_IDS)[number]);
-      const bPriority = POPULAR_PROVIDER_IDS.indexOf(b.id as (typeof POPULAR_PROVIDER_IDS)[number]);
-      return (
-        Number(b.configured) - Number(a.configured) ||
-        Number(b.id === providerId) - Number(a.id === providerId) ||
-        (aPriority < 0 ? Number.MAX_SAFE_INTEGER : aPriority) -
-          (bPriority < 0 ? Number.MAX_SAFE_INTEGER : bPriority) ||
-        a.label.localeCompare(b.label)
-      );
+      // None/local always first.
+      const aLocal = a.id === LOCAL_PROVIDER_ID ? 0 : 1;
+      const bLocal = b.id === LOCAL_PROVIDER_ID ? 0 : 1;
+      if (aLocal !== bLocal) return aLocal - bLocal;
+      // Connected providers next, sorted by recency desc then alphabetical.
+      const aConn = a.configured ? 0 : 1;
+      const bConn = b.configured ? 0 : 1;
+      if (aConn !== bConn) return aConn - bConn;
+      const aRecent = providerRecency[a.id] ?? 0;
+      const bRecent = providerRecency[b.id] ?? 0;
+      if (aRecent !== bRecent) return bRecent - aRecent;
+      return a.label.localeCompare(b.label);
     });
-  }, [catalog, providerId]);
+  }, [catalog, providerRecency]);
+  const visibleCatalogProviders = useMemo(() => {
+    const needle = providerFilter.trim().toLowerCase();
+    if (!needle) return orderedProviders;
+    return orderedProviders.filter(
+      (provider) =>
+        `${provider.id} ${provider.label} ${provider.detail}`.toLowerCase().includes(needle) ||
+        (catalog?.models.some(
+          (model) =>
+            model.providerId === provider.id &&
+            `${model.id} ${model.label}`.toLowerCase().includes(needle),
+        ) ?? false),
+    );
+  }, [orderedProviders, providerFilter, catalog]);
   const connectedProviders = orderedProviders.filter((provider) => provider.configured);
   const availableProviders = orderedProviders.filter((provider) => !provider.configured);
   const availableModels = useMemo(
@@ -1362,6 +1511,7 @@ export function ChatPanel({
             providerLabel: selectedProvider.label,
             message: `Connect ${selectedProvider.label} to send this message. Your draft was kept.`,
           });
+          setManagedProviderId(selectedProvider.id);
           setShowLogin(true);
           return;
         }
@@ -1431,6 +1581,7 @@ export function ChatPanel({
           });
           if (result.setupRequired) {
             setSetupRequired(result.setupRequired);
+            setManagedProviderId(result.setupRequired.providerId);
             setShowLogin(true);
           }
         } catch (e) {
@@ -1753,9 +1904,14 @@ export function ChatPanel({
             ? catalog?.providers.find((p) => p.id.toLowerCase() === rest.toLowerCase() || p.label.toLowerCase() === rest.toLowerCase())
             : null;
           if (provider) {
-            setProviderId(provider.id);
-            setShowLogin(provider.id !== LOCAL_PROVIDER_ID);
-            setShowProviderPicker(false);
+            if (provider.id !== LOCAL_PROVIDER_ID) {
+              setManagedProviderId(provider.id);
+              setShowLogin(true);
+              setShowProviderPicker(false);
+            } else {
+              setProviderId(provider.id);
+              setShowLogin(false);
+            }
           } else {
             setShowProviderPicker(true);
             setShowLogin(false);
@@ -2128,33 +2284,6 @@ export function ChatPanel({
     }
   }, [addLog, catalog]);
 
-  const handleSaveCredential = useCallback(async () => {
-    if (!apiKey.trim() || !providerId) return;
-    setSavingCred(true);
-    try {
-      const providerLabel = selectedProvider?.label ?? providerId;
-      await nativeSaveProviderCredential({
-        providerId,
-        label: providerLabel,
-        apiKey: apiKey.trim(),
-        baseUrl: baseUrl.trim() || null,
-      });
-      await refreshCatalog();
-      setShowLogin(false);
-      setSetupRequired(null);
-      setApiKey("");
-      setBaseUrl("");
-      setError(null);
-      onShowToast?.("Provider connected", `${selectedProvider?.label ?? providerId} is now ready.`, "success");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      addLog("error", "Failed to save provider credential", msg);
-      setLoginError(msg);
-      onShowToast?.("Failed to connect", msg, "error");
-    } finally {
-      setSavingCred(false);
-    }
-  }, [apiKey, baseUrl, providerId, selectedProvider, refreshCatalog, addLog, onShowToast]);
 
 
 
@@ -2176,7 +2305,7 @@ export function ChatPanel({
         if (state.error) {
           throw new Error(state.error);
         }
-        if (state.status === "waiting_input") {
+        if (state.status === "waiting_input" || state.status === "cancelled") {
           return;
         }
       }
@@ -2186,14 +2315,14 @@ export function ChatPanel({
   );
 
   const handleProviderLogin = useCallback(async () => {
-    if (!selectedProvider) return;
+    if (!managedProvider) return;
     setSavingCred(true);
     setLoginError(null);
     setProviderLoginInput("");
     try {
-      const state = await nativeProviderLoginStart(selectedProvider.id);
+      const state = await nativeProviderLoginStart(managedProvider.id);
       setProviderLoginState(state);
-      await pollProviderLogin(selectedProvider.id, selectedProvider.label);
+      await pollProviderLogin(managedProvider.id, managedProvider.label);
     } catch (loginFailure) {
       const message = loginFailure instanceof Error ? loginFailure.message : String(loginFailure);
       setLoginError(message);
@@ -2201,20 +2330,20 @@ export function ChatPanel({
     } finally {
       setSavingCred(false);
     }
-  }, [onShowToast, pollProviderLogin, selectedProvider]);
+  }, [onShowToast, pollProviderLogin, managedProvider]);
 
   const submitProviderLoginInput = useCallback(async () => {
-    if (!selectedProvider || !providerLoginInput.trim()) return;
+    if (!managedProvider || !providerLoginInput.trim()) return;
     setSavingCred(true);
     setLoginError(null);
     try {
       const state = await nativeProviderLoginSubmit(
-        selectedProvider.id,
+        managedProvider.id,
         providerLoginInput.trim(),
       );
       setProviderLoginState(state);
       setProviderLoginInput("");
-      await pollProviderLogin(selectedProvider.id, selectedProvider.label);
+      await pollProviderLogin(managedProvider.id, managedProvider.label);
     } catch (loginFailure) {
       const message = loginFailure instanceof Error ? loginFailure.message : String(loginFailure);
       setLoginError(message);
@@ -2222,23 +2351,24 @@ export function ChatPanel({
     } finally {
       setSavingCred(false);
     }
-  }, [onShowToast, pollProviderLogin, providerLoginInput, selectedProvider]);
+  }, [onShowToast, pollProviderLogin, providerLoginInput, managedProvider]);
 
   const refreshFromOmp = useCallback(async () => {
-    if (!selectedProvider) return;
+    if (!managedProvider) return;
     setSavingCred(true);
     setLoginError(null);
     try {
-      const refreshed = await nativeProviderRefreshOmpCredentials(selectedProvider.id);
+      const refreshed = await nativeProviderRefreshOmpCredentials(managedProvider.id);
       setCatalog(refreshed);
-      if (!refreshed.providers.some((provider) => provider.id === selectedProvider.id && provider.configured)) {
-        setLoginError(`No ${selectedProvider.label} credential was found. Run /login in Oh My Pi, then try again.`);
+      if (!refreshed.providers.some((provider) => provider.id === managedProvider.id && provider.configured)) {
+        setLoginError(`No ${managedProvider.label} credential was found. Run /login in Oh My Pi, then try again.`);
         return;
       }
       setShowLogin(false);
+      setManagedProviderId(null);
       setSetupRequired(null);
       setError(null);
-      onShowToast?.("Provider connected", `${selectedProvider.label} was imported from Oh My Pi.`, "success");
+      onShowToast?.("Provider connected", `${managedProvider.label} was imported from Oh My Pi.`, "success");
     } catch (refreshError) {
       const message = refreshError instanceof Error ? refreshError.message : String(refreshError);
       setLoginError(message);
@@ -2246,7 +2376,225 @@ export function ChatPanel({
     } finally {
       setSavingCred(false);
     }
-  }, [onShowToast, selectedProvider]);
+  }, [onShowToast, managedProvider]);
+
+  // Cancel the in-flight OAuth flow (backend worker thread stops polling and
+  // the frontend poll loop exits on the "cancelled" status). Best-effort: a
+  // missing session just means nothing was running.
+  const cancelProviderLogin = useCallback(async () => {
+    if (!managedProvider) return;
+    try {
+      const state = await nativeProviderLoginCancel(managedProvider.id);
+      setProviderLoginState(state);
+    } catch {
+      // No active sign-in — nothing to cancel.
+    }
+  }, [managedProvider]);
+
+  // Close the connect modal; abandons any in-flight sign-in. `backToCatalog`
+  // reopens the provider & model catalog modal the user came from.
+  const closeLoginModal = useCallback(
+    (backToCatalog = false) => {
+      if (providerLoginState && !providerLoginState.complete && providerLoginState.status !== "error") {
+        void cancelProviderLogin();
+      }
+      setShowLogin(false);
+      setManagedProviderId(null);
+      setLoginError(null);
+      if (backToCatalog) setShowProviderPicker(true);
+    },
+    [cancelProviderLogin, providerLoginState],
+  );
+
+  const [confirmLogoutProvider, setConfirmLogoutProvider] = useState<{ id: string; label: string } | null>(null);
+  // Per-provider account list for the Manage modal. Refetched on open and
+  // after any login/logout/test. accountRowsById is a lookup so usage rows
+  // (which carry only accountId) can be labelled.
+  const [accountRows, setAccountRows] = useState<ProviderAccount[]>([]);
+  const [accountRowsLoading, setAccountRowsLoading] = useState(false);
+  const [testingAccountId, setTestingAccountId] = useState<string | null>(null);
+  const [accountUsage, setAccountUsage] = useState<ProviderAccountUsage[]>([]);
+  const [accountUsageWindow, setAccountUsageWindow] = useState<number>(604800);
+  const [accountUsageLoading, setAccountUsageLoading] = useState(false);
+  // Manage-modal navigation + the API key entry sub-modal.
+  const [manageTab, setManageTab] = useState<ManageTab>("accounts");
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+
+  const refreshAccountRows = useCallback(async (providerId: string) => {
+    setAccountRowsLoading(true);
+    try {
+      const rows = await nativeProviderAccountsList(providerId);
+      setAccountRows(rows);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog("error", "Failed to load provider accounts", msg);
+      setAccountRows([]);
+    } finally {
+      setAccountRowsLoading(false);
+    }
+  }, [addLog]);
+
+  const refreshAccountUsage = useCallback(async (providerId: string, windowSecs: number) => {
+    setAccountUsageLoading(true);
+    try {
+      const rows = await nativeProviderAccountUsage(providerId, windowSecs);
+      setAccountUsage(rows);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog("error", "Failed to load per-account usage", msg);
+      setAccountUsage([]);
+    } finally {
+      setAccountUsageLoading(false);
+    }
+  }, [addLog]);
+
+  // Refetch account rows + usage whenever the Manage modal opens (showLogin
+  // true) or the managed provider changes while open.
+  useEffect(() => {
+    if (!showLogin || !managedProvider || managedProvider.id === LOCAL_PROVIDER_ID) return;
+    void refreshAccountRows(managedProvider.id);
+    void refreshAccountUsage(managedProvider.id, accountUsageWindow);
+  }, [showLogin, managedProvider, refreshAccountRows, refreshAccountUsage, accountUsageWindow]);
+
+  // Landing tab on open: accounts when any are attached, connect otherwise.
+  // Keyed on the provider id (not the derived provider object) so catalog
+  // refreshes while the modal is open never yank the user to another tab.
+  useEffect(() => {
+    if (!showLogin || !managedProviderId) return;
+    const provider = catalog?.providers.find((p) => p.id === managedProviderId);
+    setManageTab((provider?.accountCount ?? 0) > 0 ? "accounts" : "connect");
+    setShowApiKeyModal(false);
+    setApiKey("");
+    setBaseUrl("");
+  }, [showLogin, managedProviderId]);
+
+  // Open the API key sub-modal with a clean slate; bespoke providers get the
+  // suggested endpoint URL prefilled so "needs base URL" is a one-field fix.
+  const openApiKeyModal = useCallback(() => {
+    if (!managedProvider) return;
+    setLoginError(null);
+    setApiKey("");
+    setBaseUrl(
+      managedProvider.status === "transport_unavailable"
+        ? (managedProvider.defaultBaseUrl ?? "")
+        : "",
+    );
+    setShowApiKeyModal(true);
+  }, [managedProvider]);
+
+  // Provider-wide totals for the usage tab summary row.
+  const usageTotals = useMemo(() => ({
+    requests: accountUsage.reduce((n, r) => n + r.requests, 0),
+    input: accountUsage.reduce((n, r) => n + r.inputTokens, 0),
+    output: accountUsage.reduce((n, r) => n + r.outputTokens, 0),
+    cost: accountUsage.reduce((n, r) => n + (r.costTotal ?? 0), 0),
+  }), [accountUsage]);
+
+  // Save the API key as a connected account. Keeps the Manage modal open and
+  // lands on the Accounts tab so the new account is immediately visible.
+  const handleSaveCredential = useCallback(async () => {
+    const target = managedProviderId ?? providerId;
+    if (!apiKey.trim() || !target) return;
+    setSavingCred(true);
+    try {
+      const providerLabel = managedProvider?.label ?? target;
+      await nativeSaveProviderCredential({
+        providerId: target,
+        label: providerLabel,
+        apiKey: apiKey.trim(),
+        baseUrl: baseUrl.trim() || null,
+      });
+      await refreshCatalog();
+      await Promise.all([
+        refreshAccountRows(target),
+        refreshAccountUsage(target, accountUsageWindow),
+      ]);
+      setShowApiKeyModal(false);
+      setManageTab("accounts");
+      setSetupRequired(null);
+      setApiKey("");
+      setBaseUrl("");
+      setError(null);
+      setLoginError(null);
+      onShowToast?.("Provider connected", `${providerLabel} is now ready.`, "success");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to save provider credential", msg);
+      setLoginError(msg);
+      onShowToast?.("Failed to connect", msg, "error");
+    } finally {
+      setSavingCred(false);
+    }
+  }, [apiKey, baseUrl, providerId, managedProviderId, managedProvider, accountUsageWindow, refreshCatalog, refreshAccountRows, refreshAccountUsage, addLog, onShowToast]);
+
+  // Reset transient account state when the modal closes so a reopen starts fresh.
+  useEffect(() => {
+    if (showLogin) return;
+    setAccountRows([]);
+    setAccountUsage([]);
+    setTestingAccountId(null);
+  }, [showLogin]);
+  const handleAccountLogout = useCallback(async (accountId: string, accountLabel: string) => {
+    setConfirmLogoutProvider(null);
+    try {
+      await nativeProviderAccountLogout(accountId);
+      if (managedProvider) {
+        await Promise.all([
+          refreshAccountRows(managedProvider.id),
+          refreshAccountUsage(managedProvider.id, accountUsageWindow),
+        ]);
+      }
+      await refreshCatalog();
+      addLog("debug", "Account logged out", `account=${accountId}`);
+      onShowToast?.("Logged out", `${accountLabel} removed from the local store.`, "success");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog("error", "Failed to log out of account", msg);
+      onShowToast?.("Failed to log out", msg, "error");
+    }
+  }, [accountUsageWindow, addLog, onShowToast, refreshAccountRows, refreshAccountUsage, refreshCatalog, managedProvider]);
+
+  const handleAccountTest = useCallback(async (account: ProviderAccount) => {
+    setTestingAccountId(account.id);
+    try {
+      const updated = await nativeProviderAccountTest(account.id);
+      setAccountRows((prev) => prev.map((row) => (row.id === account.id ? updated : row)));
+      addLog("debug", "Account tested", `account=${account.id}; health=${updated.health}`);
+      onShowToast?.(
+        "Account tested",
+        `${account.label}: ${updated.health === "healthy" ? "healthy" : (updated.lastError ?? updated.health)}`,
+        updated.health === "healthy" ? "success" : "warning",
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog("error", "Account test failed", msg);
+      onShowToast?.("Account test failed", msg, "error");
+    } finally {
+      setTestingAccountId(null);
+    }
+  }, [addLog, onShowToast]);
+
+  // Provider-wide logout (used by the "Log out all" affordance when 2+
+  // accounts are attached): removes every account row + the legacy slot.
+  const handleProviderLogout = useCallback(async (targetId: string, targetLabel: string) => {
+    setConfirmLogoutProvider(null);
+    try {
+      await nativeDeleteProviderCredential(targetId);
+      await refreshCatalog();
+      if (managedProvider) {
+        await Promise.all([
+          refreshAccountRows(managedProvider.id),
+          refreshAccountUsage(managedProvider.id, accountUsageWindow),
+        ]);
+      }
+      addLog("debug", "Provider logged out", `provider=${targetId}`);
+      onShowToast?.("Logged out", `${targetLabel} credential removed from the local store.`, "success");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog("error", "Failed to log out of provider", msg);
+      onShowToast?.("Failed to log out", msg, "error");
+    }
+  }, [accountUsageWindow, addLog, onShowToast, refreshAccountRows, refreshAccountUsage, refreshCatalog, managedProvider]);
 
   const openApiKeyUrl = useCallback((url: string) => {
     return openUrl(url).catch((e) => {
@@ -2277,6 +2625,11 @@ export function ChatPanel({
     },
     [projectPath, nativeSessionId, addLog],
   );
+
+  // Escape closes the topmost surface: the API key sub-modal when open,
+  // otherwise the manage modal (abandoning any in-flight sign-in).
+  useEscapeKey(showApiKeyModal, () => setShowApiKeyModal(false));
+  useEscapeKey(showLogin && !showApiKeyModal, () => closeLoginModal());
   persistSelectionRef.current = persistSelection;
 
   const handleGenerateIdeas = useCallback(async (opts?: { categoryIds?: string[]; ideaCount?: number; direction?: string | null }) => {
@@ -2298,6 +2651,7 @@ export function ChatPanel({
         providerLabel: selectedProvider.label,
         message: `Connect ${selectedProvider.label} to generate ideas.`,
       });
+      setManagedProviderId(selectedProvider.id);
       setShowLogin(true);
       return;
     }
@@ -3232,13 +3586,14 @@ export function ChatPanel({
             <button
               className="btn btn-sm"
               type="button"
-              title={`Connect ${setupRequired.providerLabel}`}
+              title={`Log in to ${setupRequired.providerLabel}`}
               onClick={() => {
                 setLoginError(null);
+                setManagedProviderId(setupRequired.providerId);
                 setShowLogin(true);
               }}
             >
-              <Key size={11} /> Connect
+              <Key size={11} /> Log in
             </button>
           ) : (
             <button
@@ -3253,167 +3608,506 @@ export function ChatPanel({
         </div>
       ) : null}
 
-      {/* Provider login modal: native connection first, optional OMP import second. */}
-      {nativeMode && showLogin && selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID ? (
+      {/* Provider manage modal: tabbed — Accounts | Connect | Usage. The API
+          key entry lives in its own sub-modal so the tabs stay scannable. */}
+      {nativeMode && showLogin && managedProvider && managedProvider.id !== LOCAL_PROVIDER_ID ? (
         <ModalPortal>
-        <div className="modal-overlay" onClick={() => setShowLogin(false)} title="Close login dialog">
-          <div className="modal" onClick={(e) => e.stopPropagation()} title={`Connect ${selectedProvider.label}`}>
+        <div className="modal-overlay" onClick={() => closeLoginModal()} title="Close manage dialog">
+          <div className="modal" onClick={(e) => e.stopPropagation()} title={`Manage ${managedProvider.label}`}>
             <div className="modal-header">
-              <h2>Connect {selectedProvider.label}</h2>
+              <div className="row gap-sm">
+                <button
+                  className="btn-icon"
+                  title="Back to the provider & model catalog"
+                  type="button"
+                  onClick={() => closeLoginModal(true)}
+                >
+                  <ArrowLeft size={16} />
+                </button>
+                <h2>Manage {managedProvider.label}</h2>
+              </div>
               <button
                 className="btn-icon"
                 title="Close"
                 type="button"
-                onClick={() => setShowLogin(false)}
+                onClick={() => closeLoginModal()}
               >
                 <X size={16} />
               </button>
             </div>
+            <div className="modal-tabs" role="tablist" aria-label={`Manage ${managedProvider.label} sections`}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={manageTab === "accounts"}
+                className={`modal-tab${manageTab === "accounts" ? " is-active" : ""}`}
+                title={`Connected ${managedProvider.label} accounts`}
+                onClick={() => setManageTab("accounts")}
+              >
+                Accounts{accountRows.length > 0 ? ` (${accountRows.length})` : ""}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={manageTab === "connect"}
+                className={`modal-tab${manageTab === "connect" ? " is-active" : ""}`}
+                title={`Add a ${managedProvider.label} account`}
+                onClick={() => setManageTab("connect")}
+              >
+                Connect
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={manageTab === "usage"}
+                className={`modal-tab${manageTab === "usage" ? " is-active" : ""}`}
+                title={`Per-account ${managedProvider.label} usage`}
+                onClick={() => setManageTab("usage")}
+              >
+                Usage
+              </button>
+            </div>
             <div className="modal-body stack" onClick={(e) => e.stopPropagation()}>
-              {selectedProvider.authMethod !== "oauth" ? (
-                <div className="stack-sm">
-                  <p className="text-sm text-muted">
-                    Connect Basebuild directly to the provider API. The key stays in Basebuild&apos;s local credential store.
-                  </p>
-                  {selectedProvider.apiKeyUrl ? (
+              {needsEndpointUrl ? (
+                <div className="provider-callout is-warn" role="note" title={`${managedProvider.label} needs an endpoint URL`}>
+                  <AlertTriangle size={12} className="provider-callout-icon" />
+                  <div className="provider-callout-body">
+                    <span className="provider-callout-title">Endpoint URL required</span>
+                    <span className="text-sm text-muted">
+                      {managedProvider.label} uses a bespoke API. Add an API key together with its endpoint URL to enable native chat.
+                    </span>
+                  </div>
+                  <button
+                    className="btn btn-sm"
+                    type="button"
+                    title="Add an API key with an endpoint URL"
+                    onClick={() => {
+                      setManageTab("connect");
+                      openApiKeyModal();
+                    }}
+                  >
+                    Set endpoint URL
+                  </button>
+                </div>
+              ) : null}
+
+              {manageTab === "accounts" ? (
+                <div className="stack-sm" role="tabpanel" aria-label="Connected accounts">
+                  <span className="text-sm">
+                    Connected accounts
+                    {accountRows.length > 0 ? ` (${accountRows.length})` : ""}
+                  </span>
+                  {accountRowsLoading ? (
+                    <p className="text-muted text-sm">Loading accounts…</p>
+                  ) : accountRows.length === 0 ? (
+                    <div className="provider-empty-state">
+                      <p className="text-muted text-sm">
+                        No account connected yet. Connect an account to start using {managedProvider.label}.
+                      </p>
+                      <button
+                        className="btn btn-primary"
+                        type="button"
+                        title={`Connect a ${managedProvider.label} account`}
+                        onClick={() => setManageTab("connect")}
+                      >
+                        <Key size={12} /> Connect an account
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="provider-account-list">
+                      {accountRows.map((account) => {
+                        const cdLeft = cooldownSecondsLeft(account.cooldownUntil);
+                        const healthClass =
+                          account.health === "healthy" ? "is-healthy"
+                            : account.health === "rate_limited" ? "is-warn"
+                            : "is-danger";
+                        const healthText = ACCOUNT_HEALTH_LABELS[account.health] ?? account.health;
+                        const lastUsed = accountRelativeTime(account.lastUsedAt);
+                        const connected = accountConnectedLabel(account.createdAt);
+                        const authLabel = ACCOUNT_AUTH_LABELS[account.authMethod] ?? account.authMethod;
+                        const testing = testingAccountId === account.id;
+                        return (
+                          <div key={account.id} className="provider-account-row">
+                            <div className="provider-account-info">
+                              <span className={`provider-account-health ${healthClass}`} title={account.lastError ?? healthText}>
+                                <span className="provider-account-health-dot" />
+                                {account.label}
+                              </span>
+                              <span className="provider-account-meta text-muted text-sm">
+                                {authLabel}
+                                {connected ? ` · connected ${connected}` : ""}
+                                {cdLeft != null ? ` · cooldown ${cdLeft}s` : ""}
+                                {lastUsed ? ` · used ${lastUsed}` : ""}
+                              </span>
+                              {account.lastError && account.health !== "healthy" ? (
+                                <span className="provider-account-error text-danger text-sm" title={account.lastError}>
+                                  {account.lastError}
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="provider-account-actions">
+                              <button
+                                className="btn btn-sm"
+                                type="button"
+                                title={`Run a minimal authenticated request to check ${account.label}`}
+                                disabled={testing}
+                                onClick={() => void handleAccountTest(account)}
+                              >
+                                {testing ? <Loader2 size={11} className="spin" /> : <RefreshCw size={11} />} Test
+                              </button>
+                              <button
+                                className="btn btn-sm"
+                                type="button"
+                                title={`Log out of ${account.label} and remove its stored credential`}
+                                onClick={() => setConfirmLogoutProvider({ id: account.id, label: account.label })}
+                              >
+                                <LogOut size={11} /> Log out
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {accountRows.length > 1 ? (
+                        <button
+                          className="chat-link-btn"
+                          type="button"
+                          title={`Log out of every ${managedProvider.label} account and block Oh My Pi re-import`}
+                          onClick={() => setConfirmLogoutProvider({ id: managedProvider.id, label: managedProvider.label })}
+                        >
+                          Log out all accounts
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
+              {manageTab === "connect" ? (
+                <div className="stack" role="tabpanel" aria-label="Connect an account">
+                  {managedProvider.authMethod === "oauth" ? (
+                    <div className="provider-login-cta stack-sm">
+                      <p className="provider-login-cta-title">Subscription sign-in</p>
+                      <p className="provider-login-cta-desc">
+                        {managedProvider.id === "openai-codex"
+                          ? "Sign in with your ChatGPT subscription. Basebuild opens your browser and completes the OAuth flow natively."
+                          : "Sign in with your provider subscription through Oh My Pi."}
+                      </p>
+                      <div className="row gap-sm">
+                        <button
+                          className="btn btn-primary btn-lg"
+                          type="button"
+                          title={`Log in to ${managedProvider.label}`}
+                          disabled={savingCred}
+                          onClick={() => void handleProviderLogin()}
+                        >
+                          {savingCred ? <Loader2 size={14} className="spin" /> : <Key size={14} />}
+                          {savingCred ? "Waiting for sign-in..." : `Log in to ${managedProvider.label}`}
+                        </button>
+                        {savingCred ? (
+                          <button
+                            className="btn"
+                            type="button"
+                            title="Cancel this sign-in attempt"
+                            onClick={() => void cancelProviderLogin()}
+                          >
+                            Cancel
+                          </button>
+                        ) : null}
+                      </div>
+                      {providerLoginState ? (
+                        <p className="text-sm text-muted">{providerLoginState.message}</p>
+                      ) : null}
+                      {providerLoginState?.status === "waiting_input" ? (
+                        <div className="stack-sm">
+                          <input
+                            className="input"
+                            type="text"
+                            placeholder="Authorization code or callback URL"
+                            value={providerLoginInput}
+                            onChange={(event) => setProviderLoginInput(event.target.value)}
+                            title={providerLoginState.prompt ?? "Provider authorization response"}
+                          />
+                          <button
+                            className="btn btn-primary"
+                            type="button"
+                            title={`Submit the ${managedProvider.label} authorization response`}
+                            disabled={!providerLoginInput.trim() || savingCred}
+                            onClick={() => void submitProviderLoginInput()}
+                          >
+                            Continue sign-in
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="provider-login-cta stack-sm">
+                      <p className="provider-login-cta-title">API key</p>
+                      <p className="provider-login-cta-desc">
+                        Connect Basebuild directly to the provider API. The key stays in Basebuild&apos;s local credential store.
+                      </p>
+                      <div className="row gap-sm">
+                        <button
+                          className="btn btn-primary btn-lg"
+                          type="button"
+                          title={`Add a ${managedProvider.label} API key`}
+                          disabled={savingCred}
+                          onClick={() => openApiKeyModal()}
+                        >
+                          <Key size={14} /> Add API key
+                        </button>
+                        {managedProvider.apiKeyUrl ? (
+                          <button
+                            className="chat-link-btn"
+                            type="button"
+                            title={`Open ${managedProvider.label} key page`}
+                            onClick={() => void openApiKeyUrl(managedProvider.apiKeyUrl!)}
+                          >
+                            Get API key
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
+                  {managedProvider.authMethod === "oauth" && managedProvider.apiKeyUrl ? (
+                    <div className="provider-connect-section stack-sm">
+                      <span className="provider-connect-heading">API key</span>
+                      <p className="text-sm text-muted">
+                        Prefer usage-billed access? Connect with a {managedProvider.label} API key instead.
+                      </p>
+                      <div className="row gap-sm">
+                        <button
+                          className="btn"
+                          type="button"
+                          title={`Add a ${managedProvider.label} API key`}
+                          disabled={savingCred}
+                          onClick={() => openApiKeyModal()}
+                        >
+                          <Key size={12} /> Add API key
+                        </button>
+                        <button
+                          className="chat-link-btn"
+                          type="button"
+                          title={`Open ${managedProvider.label} key page`}
+                          onClick={() => void openApiKeyUrl(managedProvider.apiKeyUrl!)}
+                        >
+                          Get API key
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {managedProvider.id === "openai" && catalog?.providers.some((p) => p.id === "openai-codex") ? (
                     <button
                       className="chat-link-btn"
                       type="button"
-                      title={`Open ${selectedProvider.label} key page`}
-                      onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}
+                      title="Switch to OpenAI Codex and sign in with your ChatGPT subscription"
+                      onClick={() => {
+                        setManagedProviderId("openai-codex");
+                      }}
+                    >
+                      <Globe size={12} /> Have a ChatGPT subscription? Log in with OpenAI Codex
+                    </button>
+                  ) : null}
+                  <div className="provider-connect-section stack-sm">
+                    <span className="provider-connect-heading">Import from Oh My Pi</span>
+                    <p className="text-sm text-muted">
+                      Run <code>/login</code> in an Oh My Pi terminal, complete the provider flow, then refresh here.
+                    </p>
+                    <button
+                      className="btn"
+                      type="button"
+                      title={`Import ${managedProvider.label} credentials from Oh My Pi`}
+                      disabled={savingCred}
+                      onClick={() => void refreshFromOmp()}
+                    >
+                      <RefreshCw size={12} /> {savingCred ? "Refreshing..." : "Refresh after OMP /login"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {manageTab === "usage" ? (
+                <div className="stack-sm provider-usage-section" role="tabpanel" aria-label="Usage">
+                  <div className="row row-between">
+                    <span className="text-sm">Usage</span>
+                    <div className="provider-usage-window">
+                      <OptionList
+                        value={String(accountUsageWindow)}
+                        label="Usage window"
+                        compact
+                        onChange={(next) => setAccountUsageWindow(Number(next))}
+                        options={[
+                          { id: "86400", label: "Today", title: "Usage over the last 24 hours" },
+                          { id: "604800", label: "7 days", title: "Usage over the last 7 days" },
+                          { id: "2592000", label: "30 days", title: "Usage over the last 30 days" },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                  {accountUsageLoading ? (
+                    <p className="text-muted text-sm">Loading usage…</p>
+                  ) : accountUsage.length === 0 ? (
+                    <p className="text-muted text-sm">No usage in this window.</p>
+                  ) : (
+                    <>
+                      <div className="provider-usage-summary" title="Totals across all accounts over the selected window">
+                        <span className="provider-usage-summary-num">{usageTotals.requests} reqs</span>
+                        <span>{formatTokens(usageTotals.input)} in · {formatTokens(usageTotals.output)} out</span>
+                        {formatRequestRate(usageTotals.requests, accountUsageWindow) ? (
+                          <span className="provider-usage-rate">{formatRequestRate(usageTotals.requests, accountUsageWindow)}</span>
+                        ) : null}
+                        {formatTokenRate(usageTotals.input + usageTotals.output, accountUsageWindow) ? (
+                          <span className="provider-usage-rate">{formatTokenRate(usageTotals.input + usageTotals.output, accountUsageWindow)}</span>
+                        ) : null}
+                        {usageTotals.cost > 0 ? <span>${usageTotals.cost.toFixed(2)}</span> : null}
+                      </div>
+                      <div className="provider-usage-list">
+                        {accountUsage.map((row) => {
+                          const acct = accountRows.find((a) => a.id === row.accountId);
+                          const label = row.accountId == null
+                            ? "Unattributed (pre-upgrade)"
+                            : (acct?.label ?? row.accountId);
+                          const sharePct = Math.round((row.requestShare ?? 0) * 100);
+                          const reqRate = formatRequestRate(row.requests, accountUsageWindow);
+                          const tokRate = formatTokenRate(row.inputTokens + row.outputTokens, accountUsageWindow);
+                          return (
+                            <div key={row.accountId ?? "__null"} className="provider-usage-row">
+                              <div className="provider-usage-row-head">
+                                <span className="text-sm">{label}</span>
+                                <span className="text-muted text-sm">{row.requests} reqs</span>
+                              </div>
+                              <div className="provider-usage-row-stats text-muted text-sm">
+                                <span>{formatTokens(row.inputTokens)} in · {formatTokens(row.outputTokens)} out</span>
+                                {reqRate ? <span className="provider-usage-rate" title="Average request rate over the selected window">{reqRate}</span> : null}
+                                {tokRate ? <span className="provider-usage-rate" title="Average token throughput over the selected window">{tokRate}</span> : null}
+                                {row.costTotal > 0 ? <span>${row.costTotal.toFixed(2)}</span> : null}
+                                {row.requests > 0 ? <span>{sharePct}%</span> : null}
+                              </div>
+                              {row.requests > 0 ? (
+                                <div className="provider-usage-bar" title={`${sharePct}% of provider requests`}>
+                                  <div className="provider-usage-bar-fill" style={{ "--fill": `${Math.max(sharePct, 2)}%` } as CSSProperties} />
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : null}
+
+              {loginError ? <p className="text-danger text-sm">{loginError}</p> : null}
+            </div>
+          </div>
+
+          {/* API key sub-modal: one focused entry surface instead of naked inputs. */}
+          {showApiKeyModal ? (
+            <div className="modal-overlay" onClick={(e) => { e.stopPropagation(); setShowApiKeyModal(false); }} title="Close API key dialog">
+              <div className="modal api-key-modal" onClick={(e) => e.stopPropagation()} title={`Connect ${managedProvider.label} with an API key`}>
+                <div className="modal-header">
+                  <h2>Connect {managedProvider.label} with an API key</h2>
+                  <button
+                    className="btn-icon"
+                    title="Close API key dialog"
+                    type="button"
+                    onClick={() => setShowApiKeyModal(false)}
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+                <div className="modal-body stack">
+                  <p className="text-sm text-muted">
+                    The key is saved as a connected account in Basebuild&apos;s local credential store and never leaves this machine.
+                  </p>
+                  {managedProvider.apiKeyUrl ? (
+                    <button
+                      className="chat-link-btn"
+                      type="button"
+                      title={`Open ${managedProvider.label} key page`}
+                      onClick={() => void openApiKeyUrl(managedProvider.apiKeyUrl!)}
                     >
                       Get API key
                     </button>
                   ) : null}
-                  <input
-                    className="input"
-                    type="password"
-                    placeholder="API key"
-                    value={apiKey}
-                    onChange={(event) => setApiKey(event.target.value)}
-                    title={`API key for ${selectedProvider.label}`}
-                  />
-                  <input
-                    className="input"
-                    type="url"
-                    placeholder="Base URL (optional)"
-                    value={baseUrl}
-                    onChange={(event) => setBaseUrl(event.target.value)}
-                    title="Custom API base URL"
-                  />
-                  <button
-                    className="btn btn-primary"
-                    type="button"
-                    title="Save API key and connect"
-                    disabled={!apiKey.trim() || savingCred}
-                    onClick={() => void handleSaveCredential()}
-                  >
-                    {savingCred ? "Saving..." : "Save API key"}
-                  </button>
+                  <label className="stack-sm api-key-field">
+                    <span className="text-sm">API key</span>
+                    <input
+                      className="input"
+                      type="password"
+                      placeholder="API key"
+                      autoFocus
+                      value={apiKey}
+                      onChange={(event) => setApiKey(event.target.value)}
+                      title={`API key for ${managedProvider.label}`}
+                    />
+                  </label>
+                  <label className="stack-sm api-key-field">
+                    <span className="text-sm">Endpoint URL{needsEndpointUrl ? " (required)" : " (optional)"}</span>
+                    <input
+                      className="input"
+                      type="url"
+                      placeholder={managedProvider.defaultBaseUrl ?? "https://api.example.com/v1"}
+                      value={baseUrl}
+                      onChange={(event) => setBaseUrl(event.target.value)}
+                      title="API base URL used for requests"
+                    />
+                    {needsEndpointUrl ? (
+                      <span className="text-sm text-muted">
+                        This provider&apos;s bespoke API needs an explicit endpoint URL before native chat can route requests.
+                      </span>
+                    ) : null}
+                  </label>
+                  {loginError ? <p className="text-danger text-sm">{loginError}</p> : null}
+                  <div className="row gap-sm row-end">
+                    <button
+                      className="btn"
+                      type="button"
+                      title="Cancel and close the API key dialog"
+                      onClick={() => setShowApiKeyModal(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      type="button"
+                      title="Save API key and connect"
+                      disabled={!apiKey.trim() || (needsEndpointUrl && !baseUrl.trim()) || savingCred}
+                      onClick={() => void handleSaveCredential()}
+                    >
+                      {savingCred ? "Saving..." : "Save API key"}
+                    </button>
+                  </div>
                 </div>
-              ) : (
-                <div className="stack-sm">
-                  <p className="text-sm text-muted">
-                    {selectedProvider.id === "openai-codex"
-                      ? "Sign in natively with your ChatGPT subscription."
-                      : "Sign in with your provider subscription through Oh My Pi."}
-                  </p>
-                  <button
-                    className="btn btn-primary"
-                    type="button"
-                    title={`Sign in to ${selectedProvider.label}`}
-                    disabled={savingCred}
-                    onClick={() => void handleProviderLogin()}
-                  >
-                    {savingCred ? <Loader2 size={12} /> : <Key size={12} />}
-                    {savingCred ? "Waiting for sign-in..." : `Sign in to ${selectedProvider.label}`}
-                  </button>
-                  {providerLoginState ? (
-                    <p className="text-sm text-muted">
-                      {providerLoginState.message}
-                    </p>
-                  ) : null}
-                  {providerLoginState?.status === "waiting_input" ? (
-                    <div className="stack-sm">
-                      <input
-                        className="input"
-                        type="text"
-                        placeholder="Authorization code or callback URL"
-                        value={providerLoginInput}
-                        onChange={(event) => setProviderLoginInput(event.target.value)}
-                        title={providerLoginState.prompt ?? "Provider authorization response"}
-                      />
-                      <button
-                        className="btn"
-                        type="button"
-                        title={`Submit the ${selectedProvider.label} authorization response`}
-                        disabled={!providerLoginInput.trim() || savingCred}
-                        onClick={() => void submitProviderLoginInput()}
-                      >
-                        Continue sign-in
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              )}
-              {selectedProvider.authMethod === "oauth" && selectedProvider.apiKeyUrl ? (
-                <details className="stack-sm">
-                  <summary
-                    className="text-muted text-sm"
-                    title={`Use a ${selectedProvider.label} API key instead of subscription sign-in`}
-                  >
-                    Use an API key instead
-                  </summary>
-                  <button
-                    className="chat-link-btn"
-                    type="button"
-                    title={`Open ${selectedProvider.label} key page`}
-                    onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}
-                  >
-                    Get API key
-                  </button>
-                  <input
-                    className="input"
-                    type="password"
-                    placeholder="API key"
-                    value={apiKey}
-                    onChange={(event) => setApiKey(event.target.value)}
-                    title={`API key for ${selectedProvider.label}`}
-                  />
-                  <button
-                    className="btn"
-                    type="button"
-                    title="Save API key and connect"
-                    disabled={!apiKey.trim() || savingCred}
-                    onClick={() => void handleSaveCredential()}
-                  >
-                    {savingCred ? "Saving..." : "Save API key"}
-                  </button>
-                </details>
-              ) : null}
-              <details className="stack-sm">
-                <summary className="text-muted text-sm" title={`Import ${selectedProvider.label} credentials from Oh My Pi`}>
-                  Import from Oh My Pi (optional)
-                </summary>
-                <p className="text-sm text-muted">
-                  Run <code>/login</code> in an Oh My Pi terminal, complete the provider flow, then refresh here.
-                </p>
-                <button
-                  className="btn"
-                  type="button"
-                  title={`Import ${selectedProvider.label} credentials from Oh My Pi`}
-                  disabled={savingCred}
-                  onClick={() => void refreshFromOmp()}
-                >
-                  <RefreshCw size={12} /> {savingCred ? "Refreshing..." : "Refresh after OMP /login"}
-                </button>
-              </details>
-              {loginError ? <p className="text-danger text-sm">{loginError}</p> : null}
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
         </ModalPortal>
       ) : null}
+
+      {/* Log-out confirmation: per-account when an account id is passed,
+          provider-wide (all accounts + legacy slot) when the provider id is
+          passed (used by "Log out all"). Destructive in both cases. */}
+      <ConfirmDialog
+        open={confirmLogoutProvider !== null}
+        title={`Log out of ${confirmLogoutProvider?.label ?? "provider"}?`}
+        message={
+          confirmLogoutProvider && managedProvider && confirmLogoutProvider.id === managedProvider.id
+            ? `This removes every stored ${confirmLogoutProvider?.label ?? ""} credential from Basebuild's local credential store and blocks Oh My Pi re-import until the next explicit login. Chats using this provider will stop working until you log in again.`
+            : `This removes the stored ${confirmLogoutProvider?.label ?? ""} credential from Basebuild's local credential store. Other accounts on this provider stay connected.`
+        }
+        confirmLabel="Log out"
+        destructive
+        onConfirm={() => {
+          if (!confirmLogoutProvider || !managedProvider) return;
+          if (confirmLogoutProvider.id === managedProvider.id) {
+            void handleProviderLogout(confirmLogoutProvider.id, confirmLogoutProvider.label);
+          } else {
+            void handleAccountLogout(confirmLogoutProvider.id, confirmLogoutProvider.label);
+          }
+        }}
+        onCancel={() => setConfirmLogoutProvider(null)}
+      />
 
       {/* Command payload modal: shows the full injected skill/command body. */}
       {commandPayloadModal ? (
@@ -3599,11 +4293,34 @@ export function ChatPanel({
                         <span>Providers</span>
                         <span className="text-muted">Select one to browse its models</span>
                       </div>
+                      <div className="provider-search-wrap">
+                        <Search size={12} className="provider-search-icon" />
+                        <input
+                          className="input provider-search-input"
+                          type="search"
+                          placeholder="Search providers and models…"
+                          value={providerFilter}
+                          onChange={(event) => setProviderFilter(event.target.value)}
+                          title="Search providers and models"
+                        />
+                      </div>
                       <div className="provider-card-grid">
-                        {orderedProviders.map((provider) => (
+                        {visibleCatalogProviders.map((provider) => {
+                          const isLocal = provider.id === LOCAL_PROVIDER_ID;
+                          const healthBad = provider.accountCount > 0 && provider.aggregateHealth !== "healthy";
+                          const needsBaseUrl = provider.status === "transport_unavailable";
+                          // Auth badge: account count first, then auth method.
+                          const authBadge = isLocal
+                            ? null
+                            : provider.accountCount > 0
+                              ? `${provider.accountCount} ${provider.accountCount === 1 ? "account" : "accounts"}`
+                              : provider.authMethod === "oauth"
+                                ? provider.apiKeyUrl ? "OAuth / API key" : "OAuth"
+                                : "API key";
+                          return (
                           <div
                             key={provider.id}
-                            className={`provider-card is-${provider.configured ? "connected" : "available"}${provider.id === providerId ? " is-active" : ""}`}
+                            className={`provider-card is-${provider.configured ? "connected" : "available"}${provider.id === providerId ? " is-active" : ""}${isLocal ? " is-local" : ""}`}
                             title={`${provider.label}: ${provider.configured ? "connected" : "not connected"}; ${provider.modelCount} models`}
                           >
                             <button
@@ -3613,6 +4330,7 @@ export function ChatPanel({
                               onClick={() => {
                                 addLog("debug", "Provider selected", `provider=${provider.id}; connected=${provider.configured}`);
                                 setProviderId(provider.id);
+                                setProviderRecency(recordProviderUse(provider.id));
                                 const providerModels = catalog.models.filter((model) => model.providerId === provider.id);
                                 const currentIsValid = providerModels.some((model) => model.id === modelId);
                                 if (!currentIsValid && providerModels[0]) setModelId(providerModels[0].id);
@@ -3620,66 +4338,57 @@ export function ChatPanel({
                                 setModelFilter("");
                               }}
                             >
-                              <span className="provider-card-topline">
-                                <span className="provider-card-name">{provider.label}</span>
-                                <span
-                                  className={`provider-status is-${provider.status === "transport_unavailable" ? "warning" : provider.configured ? "connected" : "available"}`}
-                                  title={provider.status === "transport_unavailable" ? "This provider uses a bespoke API that requires a custom base URL for native chat. Set a base URL to enable the native agent loop." : undefined}
-                                >
-                                  <span className="provider-status-dot" />
-                                  {provider.status === "transport_unavailable" ? "No transport" : provider.configured ? "Connected" : "Available"}
-                                </span>
+                              <span className="provider-card-name">
+                                {isLocal ? <Plug size={11} className="provider-card-icon" /> : provider.configured ? <Check size={11} className="provider-card-icon is-ok" /> : <Link size={11} className="provider-card-icon" />}
+                                {provider.label}
                               </span>
-                              <span className="provider-card-meta">{provider.modelCount} models</span>
-                            </button>
-                            {provider.id !== LOCAL_PROVIDER_ID ? (
-                              <div className="provider-card-actions">
-                                {provider.configured ? (
-                                  <button
-                                    className="btn btn-sm provider-card-action-btn"
-                                    type="button"
-                                    title={`Disconnect ${provider.label} and stop using its stored credential`}
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      try {
-                                        await nativeDeleteProviderCredential(provider.id);
-                                        await refreshCatalog();
-                                        addLog("debug", "Provider disconnected", `provider=${provider.id}`);
-                                      } catch (err) {
-                                        addLog("error", "Failed to disconnect provider", err instanceof Error ? err.message : String(err));
-                                      }
-                                    }}
-                                  >
-                                    <Unplug size={11} /> Disconnect
-                                  </button>
+                              <span className="provider-card-middle">
+                                {authBadge ? <span className="provider-card-auth" title={providerAuthOptionsLabel(provider) || authBadge}>{authBadge}</span> : null}
+                                <span className="provider-card-meta">
+                                  {provider.modelCount} models
+                                  {provider.connectedVia ? ` · ${CONNECTED_VIA_LABELS[provider.connectedVia]}` : ""}
+                                </span>
+                                {needsBaseUrl ? (
+                                  <span className="provider-card-flag is-warn" title="This provider uses a bespoke API that requires a custom base URL for native chat. Set a base URL to enable the native agent loop.">
+                                    <AlertTriangle size={10} /> Needs base URL
+                                  </span>
                                 ) : null}
+                                {healthBad ? (
+                                  <span
+                                    className={`provider-card-flag is-${provider.aggregateHealth === "broken" ? "danger" : "warn"}`}
+                                    title={`Account health: ${provider.aggregateHealth}. Open Manage for per-account details.`}
+                                  >
+                                    <AlertTriangle size={10} /> {provider.aggregateHealth === "broken" ? "Needs attention" : "Degraded"}
+                                  </span>
+                                ) : null}
+                                {provider.error ? (
+                                  <span className="provider-card-error-text text-danger" title={provider.error}>
+                                    {provider.error}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </button>
+                            <span className="provider-card-actions">
+                              {isLocal ? (
+                                <span className="provider-card-local-tag" title="No provider connected — select a provider to chat.">Local</span>
+                              ) : (
                                 <button
                                   className="btn btn-sm provider-card-action-btn"
                                   type="button"
-                                  title={
-                                    provider.configured
-                                      ? provider.authMethod === "oauth"
-                                        ? `Sign in to ${provider.label} again`
-                                        : `Update key for ${provider.label}`
-                                      : `Connect ${provider.label}`
-                                  }
+                                  title={`Manage ${provider.label} accounts and API keys`}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setProviderId(provider.id);
-                                    const providerModels = catalog.models.filter((model) => model.providerId === provider.id);
-                                    const currentIsValid = providerModels.some((model) => model.id === modelId);
-                                    if (!currentIsValid && providerModels[0]) setModelId(providerModels[0].id);
                                     setShowProviderPicker(false);
                                     setShowModelPicker(false);
+                                    setLoginError(null);
+                                    setManagedProviderId(provider.id);
                                     setShowLogin(true);
                                   }}
                                 >
-                                  {provider.authMethod === "oauth" ? <Globe size={11} /> : <Key size={11} />}
-                                  {provider.configured ? (provider.authMethod === "oauth" ? "Sign in again" : "Update key") : "Connect"}
+                                  <Settings2 size={11} /> Manage
                                 </button>
-                            {provider.error ? (
-                              <div className="provider-card-error text-danger text-sm" title={provider.error}>
-                                <span className="provider-card-error-text">{provider.error}</span>
+                              )}
+                              {provider.error ? (
                                 <button
                                   className="btn btn-sm provider-card-retry-btn"
                                   type="button"
@@ -3696,12 +4405,14 @@ export function ChatPanel({
                                 >
                                   Retry
                                 </button>
-                              </div>
-                            ) : null}
-                              </div>
-                            ) : null}
+                              ) : null}
+                            </span>
                           </div>
-                        ))}
+                          );
+                        })}
+                        {visibleCatalogProviders.length === 0 ? (
+                          <p className="text-muted text-sm">No providers or models match your search.</p>
+                        ) : null}
                       </div>
                     </section>
                     <section className="provider-catalog-models" aria-label="Models">

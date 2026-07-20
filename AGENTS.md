@@ -7,16 +7,23 @@ violates a Mandatory Invariant is rejected regardless of feature quality.
 
 ## Architecture posture
 
-Basebuild is **native-first**: the chat system is an in-house Rust agent loop
+Basebuild is **native-first**: every feature must work natively, with no
+external CLI required. The chat system is an in-house Rust agent loop
 (`agent_loop_service.rs`) that handles provider streaming, tool calling,
-approval gates, and ask_user interactions directly. No external CLI process is
-required for the primary chat experience. All providers (OpenAI, Anthropic,
-Devin, GLM-5.2, etc.) route through this native loop.
+approval gates, and ask_user interactions directly. All providers (OpenAI,
+Anthropic, Devin, GLM-5.2, etc.) route through this native loop. Provider
+authentication is native too: OAuth flows (for example the OpenAI Codex
+authorization-code + PKCE browser flow with a localhost callback in
+`provider_login_service.rs`) are owned end to end by Basebuild, and tokens
+live in Basebuild's local database.
 
-OhMyPi (OMP) is a **supported tool**, not the chat transport. OMP may be used
-as a terminal panel, a plan runner, and an optional chat profile for users who
-want OMP's own tool ecosystem, but it is never the default or required path
-for chat. The native agent loop is the default and preferred runtime.
+OhMyPi (OMP) is **additive**, never a dependency. OMP may enhance the
+experience where installed (terminal panel, plan runner, optional chat
+profile, credential import, last-resort sign-in fallback), but no core
+feature may require OMP to function, and no primary code path may route
+through OMP when a native implementation exists. When designing a feature,
+build the native path first; wire OMP in only as an optional enhancement or
+fallback behind it.
 
 OpenSpec is the **primary planner**. Plan statuses, roadmap tracking, and
 change archives all flow through OpenSpec. Basebuild may develop its own
@@ -68,6 +75,22 @@ Non-negotiable and enforced in review. Rationale and how-to in
     - **`"in-chat"`:** does something in the conversation: injects a skill (e.g. `/schematic` injects the project-schematic skill and runs the wizard inline), generates ideas, shows command reference output, or sends a prompt to the provider. The command clears the composer input after dispatch.
     - **`"ui"`:** triggers a substantial Basebuild UI action: opens a picker/modal/tab (e.g. `/model`, `/login`), clears chat (`/clear`), stops a request (`/stop`), refreshes a catalog (`/models refresh`). A command that only shows a static text notice and does nothing else is **not allowed**. Either make it do something or remove it.
 16. **Release builds embed the frontend.** Never distribute a `tauri dev` / dev-server binary. Public releases go through the cross-platform `tauri build` matrix in [`.github/workflows/windows.yml`](./.github/workflows/windows.yml). A binary that loads the UI from `127.0.0.1:1420` (`ERR_CONNECTION_REFUSED`) is a dev build and must never ship. CI enforces the shared production config on every PR, probes the packaged Windows webview, and verifies that the draft contains Windows, Linux, macOS, and complete signed updater metadata.
+17. **Structured UX on every surface.** Every implementation ships the same
+    well-structured UX standard, not a work-in-progress layout:
+    - Multi-concern modals and panels use explicit navigation (tabs or titled
+      sections). A flat scroll of naked inputs and hidden `<details>` folds is
+      not allowed.
+    - Secret or credential entry (API keys, tokens) opens a dedicated
+      sub-modal with labeled fields and one save action, never inline inputs
+      sitting open in a list.
+    - A surfaced problem carries its fix: any warning flag (for example
+      "Needs base URL") links to the exact input or action that resolves it.
+    - Every empty state names the next step and offers its button.
+    - Enumerated 2-6 option choices use the shared `OptionList`, not native
+      selects (see DESIGN.md "Selection controls" for the exceptions).
+    - Metrics are humanized: show rates (per hour/day) beside raw totals.
+    Details and class inventory in
+    [`docs/agents/design-system.md`](./docs/agents/design-system.md).
 
 ## Before you yield
 

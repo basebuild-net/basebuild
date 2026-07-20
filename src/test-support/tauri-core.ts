@@ -224,6 +224,8 @@ type E2eState = {
   notifications: { id: string; kind: string; entityId: string; entityKind: string; projectPath: string; title: string; detail?: string; read: boolean; createdAt: number }[];
   credentials: Map<string, { providerId: string; apiKey: string; baseUrl: string | null; updatedAt: number }>;
   blockedProviders: Set<string>;
+  providerAccounts: Map<string, { id: string; providerId: string; label: string; authMethod: string; health: string; cooldownUntil: number | null; lastError: string | null; lastUsedAt: number | null; createdAt: number; updatedAt: number }>;
+  accountStrategy: string;
   notificationSettings: { overrides: Record<string, string> };
 };
 
@@ -416,6 +418,10 @@ function state(): E2eState {
         ["umans", { providerId: "umans", apiKey: "test-key", baseUrl: null, updatedAt: 1_800_000_000 }],
       ]),
       blockedProviders: new Set(),
+      providerAccounts: new Map([
+        ["umans_acct1", { id: "umans_acct1", providerId: "umans", label: "Umans key …test", authMethod: "api", health: "healthy", cooldownUntil: null, lastError: null, lastUsedAt: Date.now() - 3600_000, createdAt: 1_800_000_000, updatedAt: 1_800_000_000 }],
+      ]),
+      accountStrategy: "round_robin",
       notificationSettings: { overrides: {} },
     };
     if (globalState.__BASEBUILD_E2E_FIXTURE__ === "mvp-baseline") {
@@ -1249,7 +1255,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       s.credentials.set(providerId, {
         providerId,
         apiKey: "omp-import-test",
-        baseUrl: null,
+        baseUrl: `omp://${providerId}`,
         updatedAt: Math.floor(Date.now() / 1000),
       });
       s.blockedProviders.delete(providerId);
@@ -1297,6 +1303,18 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         error: null,
       } as T;
     }
+    case "native_provider_login_cancel": {
+      const providerId = String(args.providerId ?? "");
+      if (!providerId) throw new Error("providerId is required");
+      return {
+        providerId,
+        status: "cancelled",
+        message: "Provider sign-in cancelled.",
+        prompt: null,
+        complete: false,
+        error: null,
+      } as T;
+    }
     case "native_provider_catalog":
     case "native_provider_catalog_refresh":
     case "native_provider_refresh_omp_credentials": {
@@ -1314,24 +1332,41 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         { id: "openrouter", label: "OpenRouter", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://openrouter.ai/keys", modelCount: 19, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
         { id: "deepseek", label: "DeepSeek", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.deepseek.com/api_keys", modelCount: 2, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
         { id: "mistral", label: "Mistral", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.mistral.ai/api-keys", modelCount: 29, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-        { id: "xai", label: "xAI (Grok)", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.x.ai", modelCount: 29, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-        { id: "together", label: "Together AI", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://api.together.ai/settings/api-keys", modelCount: 32, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-        { id: "fireworks", label: "Fireworks AI", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://fireworks.ai/api-keys", modelCount: 22, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-        { id: "cerebras", label: "Cerebras", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://cloud.cerebras.ai", modelCount: 7, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-        { id: "custom", label: "Custom (OpenAI-compatible)", credentialOwner: "user", localOnly: false, detail: "Enter API key + base URL", authMethod: "api_key", apiKeyUrl: null, modelCount: 0, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "xai", label: "xAI (Grok)", credentialOwner: "user", localOnly: false, detail: "Sign in with your xAI account through Oh My Pi, or connect with an API key.", authMethod: "oauth", apiKeyUrl: "https://console.x.ai", modelCount: 29, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
       ];
       const providers = baseProviders.map((p) => {
         if (p.localOnly) {
-          return { ...p, status: "ready", configured: true };
+          return { ...p, status: "ready", configured: true, connectedVia: null, accountCount: 0, oauthCount: 0, apiKeyCount: 0, aggregateHealth: "healthy" };
         }
         const isBlocked = s.blockedProviders.has(p.id);
-        const hasCred = s.credentials.has(p.id);
-        const configured = hasCred && !isBlocked;
+        const cred = s.credentials.get(p.id);
+        const configured = Boolean(cred) && !isBlocked;
+        const connectedVia = !configured || !cred
+          ? null
+          : cred.baseUrl === "native://openai-codex"
+            ? "oauth"
+            : cred.baseUrl?.startsWith("omp://")
+              ? "omp"
+              : "api";
+        const providerAccountRows = Array.from(s.providerAccounts.values()).filter((a) => a.providerId === p.id);
+        const accountCount = providerAccountRows.length;
+        const oauthCount = providerAccountRows.filter((a) => a.authMethod === "oauth").length;
+        const apiKeyCount = providerAccountRows.filter((a) => a.authMethod === "api").length;
+        const aggregateHealth = accountCount === 0
+          ? "healthy"
+          : providerAccountRows.every((a) => a.health === "healthy") ? "healthy"
+            : providerAccountRows.some((a) => a.health === "error" || a.health === "auth_expired") ? "broken"
+            : "degraded";
         return {
           ...p,
           status: configured ? "ready" : "setup_required",
           configured,
+          connectedVia,
           detail: configured ? "Connected" : "Configure credentials",
+          accountCount,
+          oauthCount,
+          apiKeyCount,
+          aggregateHealth,
         };
       });
       return {
@@ -1768,6 +1803,80 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "save_workspace_restore_state":
       s.workspaceRestoreByProject.set((args.state as { projectPath: string }).projectPath, args.state);
       return args.state as T;
+    case "native_provider_accounts_list": {
+      const providerId = (args as { providerId?: string }).providerId ?? "";
+      return Array.from(s.providerAccounts.values())
+        .filter((a) => a.providerId === providerId)
+        .map((a) => ({
+          id: a.id,
+          providerId: a.providerId,
+          label: a.label,
+          authMethod: a.authMethod,
+          health: a.health,
+          cooldownUntil: a.cooldownUntil,
+          lastError: a.lastError,
+          lastUsedAt: a.lastUsedAt,
+          createdAt: a.createdAt,
+          updatedAt: a.updatedAt,
+        })) as T;
+    }
+    case "native_provider_account_logout": {
+      const accountId = (args as { accountId?: string }).accountId ?? "";
+      const acct = s.providerAccounts.get(accountId);
+      s.providerAccounts.delete(accountId);
+      if (acct) {
+        const remaining = Array.from(s.providerAccounts.values()).filter((a) => a.providerId === acct.providerId).length;
+        if (remaining === 0) {
+          s.credentials.delete(acct.providerId);
+          s.blockedProviders.add(acct.providerId);
+        }
+      }
+      return undefined as T;
+    }
+    case "native_provider_account_set_label": {
+      const accountId = (args as { accountId?: string }).accountId ?? "";
+      const label = (args as { label?: string }).label ?? "";
+      const acct = s.providerAccounts.get(accountId);
+      if (acct) {
+        acct.label = label;
+        acct.updatedAt = Math.floor(Date.now() / 1000);
+        s.providerAccounts.set(accountId, acct);
+      }
+      return undefined as T;
+    }
+    case "native_provider_account_test": {
+      const accountId = (args as { accountId?: string }).accountId ?? "";
+      const acct = s.providerAccounts.get(accountId);
+      if (acct) {
+        acct.health = "healthy";
+        acct.lastError = null;
+        acct.cooldownUntil = null;
+        acct.updatedAt = Math.floor(Date.now() / 1000);
+        return { ...acct } as T;
+      }
+      throw new Error("Account not found");
+    }
+    case "native_provider_account_usage": {
+      const providerId = (args as { providerId?: string }).providerId ?? "";
+      const accts = Array.from(s.providerAccounts.values()).filter((a) => a.providerId === providerId);
+      const total = 10;
+      return accts.map((a, i) => ({
+        accountId: a.id,
+        requests: i < accts.length ? total - i * 3 : 0,
+        inputTokens: 1000 * (i + 1),
+        outputTokens: 500 * (i + 1),
+        costTotal: 0.01 * (i + 1),
+        requestShare: accts.length > 0 ? (total - i * 3) / total : 0,
+      })) as T;
+    }
+    case "native_provider_account_strategy": {
+      return s.accountStrategy as T;
+    }
+    case "native_provider_account_strategy_set": {
+      const strategy = (args as { strategy?: string }).strategy ?? "round_robin";
+      s.accountStrategy = strategy;
+      return undefined as T;
+    }
     case "native_save_provider_credential": {
       // Real wrapper sends an `{ input }` envelope — mirror the Rust contract.
       const req = args.input as { providerId: string; label: string; apiKey: string; baseUrl?: string | null };
@@ -1778,11 +1887,48 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       const baseUrl = req.baseUrl ?? null;
       s.credentials.set(req.providerId, { providerId: req.providerId, apiKey: req.apiKey, baseUrl, updatedAt: Math.floor(Date.now() / 1000) });
       s.blockedProviders.delete(req.providerId);
+      // Mirror the real backend: also upsert an account row.
+      const acctId = `${req.providerId}_acct_${req.apiKey.slice(-4)}`;
+      s.providerAccounts.set(acctId, {
+        id: acctId,
+        providerId: req.providerId,
+        label: req.label || `${req.providerId} key …${req.apiKey.slice(-4)}`,
+        authMethod: "api",
+        health: "healthy",
+        cooldownUntil: null,
+        lastError: null,
+        lastUsedAt: null,
+        createdAt: Math.floor(Date.now() / 1000),
+        updatedAt: Math.floor(Date.now() / 1000),
+      });
+      return undefined as T;
+    }
+    case "__e2e_seed_provider_account": {
+      const acct = args as { id: string; providerId: string; label: string; authMethod?: string; health?: string; lastError?: string | null };
+      s.providerAccounts.set(acct.id, {
+        id: acct.id,
+        providerId: acct.providerId,
+        label: acct.label,
+        authMethod: acct.authMethod ?? "api",
+        health: acct.health ?? "healthy",
+        cooldownUntil: null,
+        lastError: acct.lastError ?? null,
+        lastUsedAt: null,
+        createdAt: Math.floor(Date.now() / 1000),
+        updatedAt: Math.floor(Date.now() / 1000),
+      });
+      s.credentials.set(acct.providerId, { providerId: acct.providerId, apiKey: "seeded", baseUrl: null, updatedAt: Math.floor(Date.now() / 1000) });
+      s.blockedProviders.delete(acct.providerId);
       return undefined as T;
     }
     case "native_delete_provider_credential": {
       const providerId = (args as { providerId?: string }).providerId ?? "unknown";
       s.blockedProviders.add(providerId);
+      // Mirror real backend: log out all accounts for this provider.
+      for (const [id, acct] of Array.from(s.providerAccounts.entries())) {
+        if (acct.providerId === providerId) s.providerAccounts.delete(id);
+      }
+      s.credentials.delete(providerId);
       return undefined as T;
     }
     case "list_categories":

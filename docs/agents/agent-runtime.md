@@ -6,13 +6,14 @@ calling, approval gates, and ask_user interactions directly. All providers
 (OpenAI, Anthropic, Devin, GLM-5.2, etc.) route through this native loop — no
 external CLI process is required for chat.
 
-OhMyPi (OMP) is a **supported tool**, not the chat transport. OMP may be used
-as a terminal panel and a plan runner. Native chat never bridges through OMP
-RPC: routes with no native transport (ChatGPT-subscription OAuth, bespoke
-agent api_kinds without a direct endpoint) are refused with typed setup
-guidance (`route_requires_omp` in `native_chat_service.rs`). The architecture
-supports future adapters (Basebuild CLI, other CLIs, IDEs) without changing
-the chat UI contract.
+OhMyPi (OMP) is **additive**, never a dependency. Every feature must work
+natively without OMP installed; OMP only enhances the experience where present
+(terminal panel, plan runner, optional chat profile, credential import,
+last-resort sign-in fallback). Native chat never bridges through OMP RPC:
+routes with no native transport (bespoke agent api_kinds without a direct
+endpoint) are refused with typed setup guidance (`route_requires_omp` in
+`native_chat_service.rs`). The architecture supports future adapters
+(Basebuild CLI, other CLIs, IDEs) without changing the chat UI contract.
 
 ## Runtime profiles
 
@@ -114,17 +115,26 @@ stored credential, `send_message` returns a typed `SetupRequired` result (not an
 error) so the composer renders an inline connect prompt **without discarding the
 drafted message**.
 
-## Provider web login
+## Provider sign-in
 
-Providers can be connected through a web/loopback flow in addition to manual
-API-key entry (`src-tauri/src/services/provider_login_service.rs`):
+Provider connection is native-first (`src-tauri/src/services/provider_login_service.rs`):
 
-- `native_provider_login_start(provider_id)` binds an ephemeral `127.0.0.1` port,
-  opens a loopback landing page in the system browser (linking to the provider's
-  key page), and captures the credential via an HTTP POST to localhost.
-- The secret is never placed in a URL query string and never logged; it is
-  persisted only through the local credential store.
-- `native_provider_login_poll` / `native_provider_login_cancel` drive the UI.
+- **OpenAI Codex (ChatGPT subscription)** signs in natively. The primary flow
+  is the standard authorization-code + PKCE browser flow: Basebuild binds the
+  registered localhost callback port (1455), opens the system browser at
+  `auth.openai.com/oauth/authorize`, validates the CSRF `state` round-trip on
+  the callback, exchanges the code itself, and stores the token in the local
+  database (refreshed before requests). If the callback port is unavailable,
+  the native device-code flow runs instead; only when the account has device
+  code authorization disabled AND OMP is installed does the flow fall back to
+  OMP as an additive last resort.
+- **OMP-owned providers** (Anthropic subscription, etc.) delegate to OMP's
+  structured RPC login; credentials remain owned and refreshed by OMP.
+- API keys can always be entered manually; the key stays in the local
+  credential store and is never placed in a URL or logged.
+- `native_provider_login_start` / `poll` / `submit` / `cancel` drive the UI.
+  Start and the OMP credential refresh run on blocking tasks so the webview
+  never freezes; cancel stops the worker thread and pollers.
 - Disconnect removes the stored credential and returns the provider to
   setup-required; the catalog refreshes without an app restart.
 

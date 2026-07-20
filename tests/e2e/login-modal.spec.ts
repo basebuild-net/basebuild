@@ -8,25 +8,31 @@ async function openProviderPicker(page: Page) {
 }
 
 test.describe("Login form is a modal, not inline", () => {
-  test("login form renders as a modal-overlay with modal class, not chat-login-form", async ({ page }) => {
+  test("API key entry renders as a dedicated modal, not chat-login-form", async ({ page }) => {
     await openFixtureProject(page);
     await openProviderPicker(page);
 
     // Use title^= to match "Connect" but not "Disconnect".
-    const connectBtn = page.locator(".provider-card[title^='OpenAI API:'] .provider-card-action-btn[title^='Connect']").first();
+    const connectBtn = page.locator(".provider-card[title^='OpenAI API:'] .provider-card-action-btn[title^='Manage']").first();
     if (await connectBtn.count() > 0) {
       await connectBtn.click();
 
       await expect(page.locator(".provider-catalog-overlay").first()).toBeHidden({ timeout: 3_000 });
 
-      const loginModal = page.locator(".modal-overlay").filter({
-        has: page.locator("input[type='password']"),
+      // The manage modal lands on Connect for an unconnected provider; the
+      // key entry opens as its own focused sub-modal.
+      const manageModal = page.locator(".modal-overlay").filter({
+        has: page.locator("h2", { hasText: "Manage OpenAI API" }),
       });
-      await expect(loginModal).toBeVisible({ timeout: 3_000 });
+      await expect(manageModal).toBeVisible({ timeout: 3_000 });
+      await manageModal.locator("button", { hasText: "Add API key" }).first().click();
 
+      const keyModal = page.locator(".api-key-modal");
+      await expect(keyModal).toBeVisible({ timeout: 3_000 });
+      await expect(keyModal.locator("input[type='password']")).toBeVisible();
       await expect(page.locator(".chat-login-form")).toHaveCount(0);
-      await expect(loginModal.locator("button", { hasText: /Save API key/i })).toBeVisible();
-      await expect(loginModal.locator(".modal-header")).toBeVisible();
+      await expect(keyModal.locator("button", { hasText: /Save API key/i })).toBeVisible();
+      await expect(keyModal.locator(".modal-header")).toBeVisible();
     }
   });
 
@@ -34,17 +40,39 @@ test.describe("Login form is a modal, not inline", () => {
     await openFixtureProject(page);
     await openProviderPicker(page);
 
-    const connectBtn = page.locator(".provider-card[title^='OpenAI API:'] .provider-card-action-btn[title^='Connect']").first();
+    const connectBtn = page.locator(".provider-card[title^='OpenAI API:'] .provider-card-action-btn[title^='Manage']").first();
     if (await connectBtn.count() > 0) {
       await connectBtn.click();
 
       const loginModal = page.locator(".modal-overlay").filter({
-        has: page.locator("input[type='password']"),
+        has: page.locator("h2", { hasText: "Manage OpenAI API" }),
       });
       await expect(loginModal).toBeVisible({ timeout: 3_000 });
 
       await loginModal.click({ position: { x: 5, y: 5 } });
       await expect(loginModal).toBeHidden({ timeout: 2_000 });
+    }
+  });
+
+  test("login modal back button returns to the provider catalog", async ({ page }) => {
+    await openFixtureProject(page);
+    await openProviderPicker(page);
+
+    const connectBtn = page.locator(".provider-card[title^='Anthropic:'] .provider-card-action-btn[title^='Manage']").first();
+    if (await connectBtn.count() > 0) {
+      await connectBtn.click();
+
+      const loginModal = page.locator(".modal-overlay").filter({
+        has: page.locator("button[title='Back to the provider & model catalog']"),
+      });
+      await expect(loginModal).toBeVisible({ timeout: 3_000 });
+      await expect(loginModal.locator("button", { hasText: /Log in to Anthropic/i })).toBeVisible();
+      // The login CTA card is at the top with the prominent button.
+      await expect(loginModal.locator(".provider-login-cta")).toBeVisible();
+
+      await loginModal.locator("button[title='Back to the provider & model catalog']").click();
+      await expect(loginModal).toBeHidden({ timeout: 2_000 });
+      await expect(page.locator(".provider-catalog-overlay").first()).toBeVisible({ timeout: 3_000 });
     }
   });
 });

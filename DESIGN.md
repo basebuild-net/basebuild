@@ -323,6 +323,26 @@ The per-chat sticky header owns provider/model/effort/permission/context; raw
 session ids, global request totals, inactive-plan placeholders, and duplicate
 model/project badges do not render.
 
+### Borders and accents
+
+Borders are minimal and honest: 1px, full perimeter, or none at all.
+
+- **Never a single-side thick border on a rounded surface.** A 2-3px left or
+  top rail on a card, callout, modal, or any container with border radius
+  reads as unfinished. If a surface has a border, the border runs all the way
+  around at 1px.
+- **State is a full-perimeter tint, not a rail.** Connected, warning, and
+  error states tint the whole 1px border (mixed toward the semantic color),
+  shift the background, or add an icon and word. Examples: connected provider
+  cards, requirement rows, approval tool cards.
+- **Prefer minimal.** Default surfaces may be borderless and rely on
+  background contrast against the parent; use borders to separate
+  interactive or nested surfaces from their container.
+- **Sanctioned partial accents are flat only.** The 2px active underline on
+  tabs and option-list items, and the 2px active bar on flush square list
+  rows (sidebar rows, menu rows, pickers), remain allowed because those
+  elements have no rounded corner on the accent edge.
+
 ### Selection controls
 
 Fixed, roomy settings choices use a **square option list**: a bordered row of

@@ -1,0 +1,249 @@
+import { expect, test, type Locator, type Page } from "@playwright/test";
+import { ensureChatPanel, openFixtureProject } from "./helpers";
+
+async function openProviderPicker(page: Page) {
+  await ensureChatPanel(page);
+  await page.locator(".chat-column-model-chip").first().click();
+  await expect(page.locator(".provider-catalog-overlay").first()).toBeVisible({ timeout: 5_000 });
+}
+
+async function openManageModal(page: Page, providerTitle: string) {
+  await openProviderPicker(page);
+  const manageBtn = page.locator(`.provider-card[title^="${providerTitle}:"] .provider-card-action-btn[title^="Manage"]`).first();
+  await expect(manageBtn).toBeVisible();
+  await manageBtn.click();
+  await expect(page.locator(".provider-catalog-overlay")).toHaveCount(0, { timeout: 3_000 });
+  return page.locator(".modal-overlay").filter({ has: page.locator("h2", { hasText: "Manage" }) }).first();
+}
+
+/** Switch to a Manage-modal tab (Accounts | Connect | Usage). */
+async function openManageTab(modal: Locator, name: string) {
+  await modal.locator(".modal-tab", { hasText: name }).click();
+}
+
+test.describe("Provider Manage dialog — multi-account", () => {
+  test("provider card shows account summary and Manage button", async ({ page }) => {
+    await openFixtureProject(page);
+    await openProviderPicker(page);
+
+    // Umans is seeded with one account in the e2e mock.
+    const umansCard = page.locator(".provider-card").filter({ hasText: "Umans" }).first();
+    await expect(umansCard).toBeVisible();
+    await expect(umansCard.locator(".provider-card-action-btn", { hasText: "Manage" })).toBeVisible();
+    await expect(umansCard.locator(".provider-card-auth")).toContainText(/1 account/);
+  });
+
+  test("Manage dialog lists connected accounts with health and actions", async ({ page }) => {
+    await openFixtureProject(page);
+    const manageModal = await openManageModal(page, "Umans");
+
+    await expect(manageModal.getByText("Connected accounts")).toBeVisible();
+    await expect(manageModal.locator(".provider-account-list")).toBeVisible();
+    await expect(manageModal.locator(".provider-account-row")).toHaveCount(1);
+    // The seeded account has a "key …test" label and healthy status.
+    await expect(manageModal.locator(".provider-account-health.is-healthy")).toBeVisible();
+    await expect(manageModal.locator(".provider-account-actions button", { hasText: "Test" })).toBeVisible();
+    await expect(manageModal.locator(".provider-account-actions button", { hasText: "Log out" })).toBeVisible();
+  });
+
+  test("per-account Log out opens confirmation dialog", async ({ page }) => {
+    await openFixtureProject(page);
+    const manageModal = await openManageModal(page, "Umans");
+    await manageModal.locator(".provider-account-actions button", { hasText: "Log out" }).click();
+
+    const confirm = page.locator(".confirm-dialog-modal").locator("..");
+    await expect(confirm).toBeVisible({ timeout: 3_000 });
+    await expect(confirm.getByText(/removes the stored.*credential/)).toBeVisible();
+
+    // Cancel keeps the account row.
+    await confirm.getByRole("button", { name: "Cancel" }).click();
+    await expect(manageModal.locator(".provider-account-row")).toHaveCount(1);
+  });
+
+  test("confirmed per-account logout removes the row", async ({ page }) => {
+    await openFixtureProject(page);
+    const manageModal = await openManageModal(page, "Umans");
+
+    await manageModal.locator(".provider-account-actions button", { hasText: "Log out" }).click();
+    const confirm = page.locator(".modal-overlay").filter({ has: page.locator(".confirm-dialog-modal") });
+    await confirm.getByRole("button", { name: "Log out" }).click();
+
+    // Account row disappears; the "No account connected" placeholder appears.
+    await expect(manageModal.locator(".provider-account-row")).toHaveCount(0, { timeout: 5_000 });
+    await expect(manageModal.getByText(/No account connected yet/)).toBeVisible();
+  });
+
+  test("Test button refreshes account health", async ({ page }) => {
+    await openFixtureProject(page);
+    const manageModal = await openManageModal(page, "Umans");
+
+    const testBtn = manageModal.locator(".provider-account-actions button", { hasText: "Test" });
+    await testBtn.click();
+    // The mock marks the account healthy; the health badge stays green.
+    await expect(manageModal.locator(".provider-account-health.is-healthy")).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("usage tab shows per-account rows with window picker", async ({ page }) => {
+    await openFixtureProject(page);
+    const manageModal = await openManageModal(page, "Umans");
+    await openManageTab(manageModal, "Usage");
+
+    await expect(manageModal.locator(".provider-usage-section")).toBeVisible();
+    await expect(manageModal.locator(".provider-usage-window")).toBeVisible();
+    await expect(manageModal.locator(".provider-usage-row")).toHaveCount(1);
+    await expect(manageModal.locator(".provider-usage-row")).toContainText(/reqs/);
+  });
+
+  test("usage tab shows provider totals and humanized rates", async ({ page }) => {
+    await openFixtureProject(page);
+    const manageModal = await openManageModal(page, "Umans");
+    await openManageTab(manageModal, "Usage");
+
+    // Provider-wide summary: totals plus rates derived from the window.
+    const summary = manageModal.locator(".provider-usage-summary");
+    await expect(summary).toBeVisible();
+    await expect(summary).toContainText(/10 reqs/);
+    // Humanized rates render beside raw totals (reqs/h or "every Nh", tok/h).
+    await expect(summary.locator(".provider-usage-rate").first()).toContainText(/req/);
+    await expect(summary.locator(".provider-usage-rate").nth(1)).toContainText(/tok\/h/);
+    // Per-row rates too.
+    await expect(manageModal.locator(".provider-usage-row .provider-usage-rate").first()).toBeVisible();
+  });
+
+  test("Manage modal has Accounts, Connect and Usage tabs", async ({ page }) => {
+    await openFixtureProject(page);
+    const manageModal = await openManageModal(page, "Umans");
+    const tabs = manageModal.locator(".modal-tab");
+    await expect(tabs).toHaveCount(3);
+    await expect(tabs.nth(0)).toContainText("Accounts");
+    await expect(tabs.nth(1)).toContainText("Connect");
+    await expect(tabs.nth(2)).toContainText("Usage");
+    // A provider with attached accounts lands on the Accounts tab.
+    await expect(manageModal.locator(".modal-tab.is-active")).toContainText("Accounts");
+  });
+
+  test("Manage modal for provider with no accounts shows placeholder", async ({ page }) => {
+    await openFixtureProject(page);
+    // OpenAI API has no seeded account, so the modal lands on Connect.
+    const manageModal = await openManageModal(page, "OpenAI API");
+    await expect(manageModal.locator(".modal-tab.is-active")).toContainText("Connect");
+    // The Accounts tab shows the empty state with a next-step button.
+    await openManageTab(manageModal, "Accounts");
+    await expect(manageModal.getByText(/No account connected yet/)).toBeVisible();
+    await expect(manageModal.locator(".provider-account-row")).toHaveCount(0);
+    await expect(manageModal.locator(".provider-empty-state button", { hasText: "Connect an account" })).toBeVisible();
+  });
+
+  test("Add API key modal saves a connected account", async ({ page }) => {
+    await openFixtureProject(page);
+    const manageModal = await openManageModal(page, "OpenAI API");
+    // Connect tab is the landing tab; the key entry opens as its own modal.
+    await manageModal.locator("button", { hasText: "Add API key" }).first().click();
+    const keyModal = page.locator(".api-key-modal");
+    await expect(keyModal).toBeVisible({ timeout: 3_000 });
+    await expect(keyModal.locator("input[type='password']")).toBeVisible();
+    await expect(keyModal.getByText(/Endpoint URL/)).toBeVisible();
+
+    await keyModal.locator("input[type='password']").fill("sk-e2e-new-key");
+    await keyModal.locator("button", { hasText: "Save API key" }).click();
+    // The key modal closes and the new account lands on the Accounts tab.
+    await expect(keyModal).toBeHidden({ timeout: 5_000 });
+    await expect(manageModal.locator(".modal-tab.is-active")).toContainText("Accounts");
+    await expect(manageModal.locator(".provider-account-row")).toHaveCount(1, { timeout: 5_000 });
+  });
+
+  test("Manage modal can be closed via Back button", async ({ page }) => {
+    await openFixtureProject(page);
+    const manageModal = await openManageModal(page, "Umans");
+    await manageModal.locator("button[title='Back to the provider & model catalog']").click();
+    await expect(manageModal).toBeHidden({ timeout: 3_000 });
+    await expect(page.locator(".provider-catalog-overlay").first()).toBeVisible({ timeout: 3_000 });
+  });
+
+  test("usage window picker switches between today/7d/30d", async ({ page }) => {
+    await openFixtureProject(page);
+    const manageModal = await openManageModal(page, "Umans");
+    await openManageTab(manageModal, "Usage");
+    const windowPicker = manageModal.locator(".provider-usage-window .option-list");
+    await expect(windowPicker).toBeVisible();
+    // Default is 7 days.
+    await expect(windowPicker.locator("button.is-active")).toHaveText("7 days");
+    // Switch to today.
+    await windowPicker.locator("button", { hasText: "Today" }).click();
+    await expect(windowPicker.locator("button.is-active")).toHaveText("Today");
+    // Switch to 30d.
+    await windowPicker.locator("button", { hasText: "30 days" }).click();
+    await expect(windowPicker.locator("button.is-active")).toHaveText("30 days");
+  });
+
+  test("Log out all button appears with 2+ accounts and clears all rows", async ({ page }) => {
+    await openFixtureProject(page);
+    // Seed a second umans account via the test hook.
+    await page.evaluate(() =>
+      (window as unknown as { __basebuildInvoke: (cmd: string, args: unknown) => Promise<unknown> })
+        .__basebuildInvoke("__e2e_seed_provider_account", {
+          id: "umans_acct2",
+          providerId: "umans",
+          label: "Umans key …aaaa",
+          authMethod: "api",
+          health: "healthy",
+        }),
+    );
+    const manageModal = await openManageModal(page, "Umans");
+    await expect(manageModal.locator(".provider-account-row")).toHaveCount(2);
+    // "Log out all" button is visible.
+    const logoutAllBtn = manageModal.locator("button", { hasText: "Log out all accounts" });
+    await expect(logoutAllBtn).toBeVisible();
+    await logoutAllBtn.click();
+    // Confirm dialog.
+    const confirm = page.locator(".modal-overlay").filter({ has: page.locator(".confirm-dialog-modal") });
+    await confirm.getByRole("button", { name: "Log out" }).click();
+    // All rows disappear.
+    await expect(manageModal.locator(".provider-account-row")).toHaveCount(0, { timeout: 5_000 });
+    await expect(manageModal.getByText(/No account connected yet/)).toBeVisible();
+  });
+
+  test("health badge shows error state with last-error tooltip", async ({ page }) => {
+    await openFixtureProject(page);
+    // Seed an account with error health.
+    await page.evaluate(() =>
+      (window as unknown as { __basebuildInvoke: (cmd: string, args: unknown) => Promise<unknown> })
+        .__basebuildInvoke("__e2e_seed_provider_account", {
+          id: "umans_acct_err",
+          providerId: "umans",
+          label: "Umans key …err1",
+          authMethod: "api",
+          health: "error",
+          lastError: "401 Unauthorized",
+        }),
+    );
+    const manageModal = await openManageModal(page, "Umans");
+    const errBadge = manageModal.locator(".provider-account-health.is-danger").first();
+    await expect(errBadge).toBeVisible();
+    await expect(errBadge).toHaveAttribute("title", "401 Unauthorized");
+    await expect(manageModal.locator(".provider-account-error")).toContainText("401 Unauthorized");
+  });
+});
+
+test.describe("Settings — account strategy picker", () => {
+  test("strategy picker is present and persists", async ({ page }) => {
+    await openFixtureProject(page);
+    // Open settings via account menu dropdown.
+    const accountBtn = page.locator('button[title*="MVPUser"], button[title*="Sign in"]').first();
+    await expect(accountBtn).toBeVisible({ timeout: 10_000 });
+    await accountBtn.click({ timeout: 10_000 });
+    const settingsItem = page.locator('button[title="Open settings"]').first();
+    await expect(settingsItem).toBeVisible({ timeout: 5_000 });
+    await settingsItem.click({ timeout: 5_000 });
+    await expect(page.locator(".settings-modal")).toBeVisible({ timeout: 15_000 });
+    const providersTab = page.locator(".settings-tab", { hasText: "Providers" }).first();
+    await providersTab.click();
+    await expect(page.locator("h3", { hasText: "Model providers" })).toBeVisible({ timeout: 5_000 });
+
+    const strategyPicker = page.locator(".provider-strategy-picker .option-list");
+    await expect(strategyPicker).toBeVisible();
+    await strategyPicker.locator("button", { hasText: "Fill first" }).click();
+    // Re-read to confirm persistence (the mock stores it in state).
+    await expect(strategyPicker.locator("button.is-active")).toHaveText("Fill first");
+  });
+});

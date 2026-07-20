@@ -13,6 +13,12 @@ const e2eAliases =
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
+  define: {
+    // Compile-time flag so runtime code can tell "Playwright e2e against the
+    // dev server" apart from a developer's own `npm run dev` session. False
+    // in every non-e2e build.
+    "import.meta.env.BASEBUILD_E2E": JSON.stringify(process.env.BASEBUILD_E2E === "1"),
+  },
   resolve: {
     alias: e2eAliases,
   },

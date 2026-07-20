@@ -13,7 +13,7 @@ pub struct StorageService;
 // Increment whenever `initialize` gains a schema-changing migration. Existing
 // databases run the idempotent initializer once per version; current databases
 // skip its ~50 table/column probes entirely on normal launches.
-const CURRENT_SCHEMA_VERSION: i64 = 5;
+const CURRENT_SCHEMA_VERSION: i64 = 6;
 
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
@@ -883,6 +883,50 @@ impl StorageService {
             );
             let _ = connection.execute(
                 "ALTER TABLE native_request_metrics ADD COLUMN plan_name TEXT",
+                [],
+            );
+        }
+
+        // Migration (multi-account-providers): extend native_provider_accounts
+        // with credential + health columns so each provider can hold several
+        // independently managed accounts, and add per-account attribution to
+        // native_request_metrics. identity_key dedupes logins that resolve to
+        // the same upstream identity (OAuth account id / API-key hash).
+        for (column, definition) in [
+            ("api_key", "TEXT"),
+            ("base_url", "TEXT"),
+            ("auth_method", "TEXT NOT NULL DEFAULT 'api'"),
+            ("identity_key", "TEXT"),
+            ("health", "TEXT NOT NULL DEFAULT 'healthy'"),
+            ("cooldown_until", "INTEGER"),
+            ("last_error", "TEXT"),
+            ("last_used_at", "INTEGER"),
+        ] {
+            let probe = format!("SELECT {column} FROM native_provider_accounts LIMIT 0");
+            if connection.prepare(&probe).is_err() {
+                connection
+                    .execute(
+                        &format!(
+                            "ALTER TABLE native_provider_accounts ADD COLUMN {column} {definition}"
+                        ),
+                        [],
+                    )
+                    .map_err(|error| {
+                        format!("Failed to add native_provider_accounts.{column}: {error}")
+                    })?;
+            }
+        }
+        let _ = connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_native_provider_accounts_identity
+             ON native_provider_accounts(provider_id, identity_key)",
+            [],
+        );
+        let has_account_id = connection
+            .prepare("SELECT account_id FROM native_request_metrics LIMIT 0")
+            .is_ok();
+        if !has_account_id {
+            let _ = connection.execute(
+                "ALTER TABLE native_request_metrics ADD COLUMN account_id TEXT",
                 [],
             );
         }

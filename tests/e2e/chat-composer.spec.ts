@@ -140,7 +140,7 @@ test.describe("Chat composer (DESIGN.md §Chat composer)", () => {
     expect(count).toBeGreaterThan(0);
 
     // Should have at least one connected (umans is seeded in fixture).
-    const connected = page.locator(".provider-card .provider-status.is-connected");
+    const connected = page.locator(".provider-card.is-connected");
     const connectedCount = await connected.count();
     expect(connectedCount).toBeGreaterThan(0);
   });
