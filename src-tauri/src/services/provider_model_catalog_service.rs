@@ -192,6 +192,7 @@ impl ProviderModelCatalogService {
                     detail: spec.detail.clone(),
                     auth_method: spec.auth_method.clone(),
                     api_key_url: spec.api_key_url.clone(),
+                    default_base_url: spec.default_base_url.clone(),
                     model_count: provider_models.len() as i64,
                     account_count: {
                         let stored = account_records

@@ -1814,7 +1814,7 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .skill-picker-item:last-child { border-bottom: none; }
 .skill-picker-item:hover { color: var(--bb-text); background: var(--bb-surface); }
 .skill-picker-item.is-active { color: var(--bb-text); background: var(--bb-surface-high); border-left: 2px solid var(--bb-cta); }
-.tool-card-approval { border: 1px solid var(--bb-warning); border-left: 3px solid var(--bb-warning); background: color-mix(in srgb, var(--bb-warning) 4%, var(--bb-surface)); }
+.tool-card-approval { border: 1px solid var(--bb-warning); background: color-mix(in srgb, var(--bb-warning) 4%, var(--bb-surface)); }
 .tool-card-approval-actions { flex-wrap: wrap; gap: 4px; padding: 6px 8px; }
 .tool-card-allow-all { color: var(--bb-warning); border-color: var(--bb-warning); }
 .tool-card-allow-all:hover { background: color-mix(in srgb, var(--bb-warning) 8%, transparent); }
@@ -1891,7 +1891,7 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .tool-card-arg-code { font-family: var(--bb-mono); font-size: 10px; color: #38bdf8; word-break: break-all; }
 .tool-card-args-full { margin-bottom: 4px; }
 .tool-card-args-json { font-family: var(--bb-mono); font-size: 9px; white-space: pre-wrap; word-break: break-word; margin: 2px 0 0; color: #555; max-height: 120px; overflow-y: auto; }
-.tool-card-approval { border: 1px solid var(--bb-warning); border-left: 3px solid var(--bb-warning); background: color-mix(in srgb, var(--bb-warning) 4%, #000); }
+.tool-card-approval { border: 1px solid var(--bb-warning); background: color-mix(in srgb, var(--bb-warning) 4%, #000); }
 .tool-card-approval-actions { flex-wrap: wrap; gap: 4px; padding: 6px 8px; }
 .tool-card-allow-all { color: var(--bb-warning); border-color: var(--bb-warning); }
 .tool-card-allow-all:hover { background: color-mix(in srgb, var(--bb-warning) 8%, transparent); }
@@ -2964,11 +2964,41 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .provider-usage-bar { height: 4px; background: var(--bb-border); border-radius: var(--bb-radius-full); overflow: hidden; }
 /* Fill width is driven by the --fill custom property set per row (no inline width). */
 .provider-usage-bar-fill { height: 100%; width: var(--fill, 0%); background: var(--bb-cta); border-radius: var(--bb-radius-full); }
+/* ─── Manage modal: tabs, callout, connect sections, usage summary ─── */
+/* Flat underline tabs directly under the modal header (full-width divider,
+   2px underline marks the active tab — the sanctioned flat-tab accent). */
+.modal-tabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--bb-border); flex-shrink: 0; }
+.modal-tab { font-size: 11px; font-weight: 600; padding: 6px 10px; color: var(--bb-muted); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-family: var(--bb-font); }
+.modal-tab:hover { color: var(--bb-text); }
+.modal-tab.is-active { color: var(--bb-text); border-bottom-color: var(--bb-cta); }
+.modal-tab:focus-visible { outline: 1px solid var(--bb-cta); outline-offset: -1px; }
+/* Warning callout: full-perimeter 1px tinted border (never a partial rail). */
+.provider-callout { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: var(--bb-radius-sm); border: 1px solid var(--bb-border); background: var(--bb-surface); }
+.provider-callout.is-warn { border-color: color-mix(in srgb, var(--bb-warning, #d97706) 40%, var(--bb-border)); background: color-mix(in srgb, var(--bb-warning, #d97706) 5%, var(--bb-surface)); }
+.provider-callout-icon { color: var(--bb-warning, #d97706); flex-shrink: 0; margin-top: 2px; }
+.provider-callout-body { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.provider-callout-title { font-size: 11px; font-weight: 700; color: var(--bb-warning, #d97706); }
+.provider-callout .btn { flex-shrink: 0; align-self: center; }
+/* Secondary connect sections (API-key alternative, OMP import). */
+.provider-connect-section { padding: 10px 12px; background: var(--bb-surface); border: 1px solid var(--bb-border); border-radius: var(--bb-radius-md); }
+.provider-connect-heading { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--bb-muted); }
+/* Empty state on the Accounts tab: message + next-step CTA. */
+.provider-empty-state { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px 12px; background: var(--bb-surface); border: 1px solid var(--bb-border); border-radius: var(--bb-radius-md); }
+/* Usage tab: provider-wide totals + per-row rates. */
+.provider-usage-summary { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 6px 8px; background: var(--bb-surface-high); border-radius: var(--bb-radius-sm); font-size: 10px; color: var(--bb-muted); }
+.provider-usage-summary-num { font-size: 12px; font-weight: 700; color: var(--bb-text); }
+.provider-usage-rate { font-family: var(--bb-mono); color: var(--bb-muted); }
+/* API key sub-modal: one focused entry surface. */
+.api-key-modal { width: 420px; max-width: 90vw; }
+.api-key-field { width: 100%; }
+.row-end { justify-content: flex-end; }
 .provider-card:hover { border-color: var(--bb-border-strong); background: var(--bb-surface); }
-.provider-card.is-connected { border-left: 3px solid var(--bb-success, #38a169); }
-.provider-card.is-available { border-left: 3px solid var(--bb-muted); opacity: 0.65; }
+/* Connection state: full-perimeter tint or background shift — never a
+   partial thick border on a rounded card (DESIGN.md "Borders & accents"). */
+.provider-card.is-connected { border-color: color-mix(in srgb, var(--bb-success, #38a169) 45%, var(--bb-border)); }
+.provider-card.is-available { opacity: 0.65; }
 .provider-card.is-active { border-color: var(--bb-cta); background: var(--bb-surface-high); opacity: 1; }
-.provider-card.is-local { border-left: 3px solid var(--bb-muted); background: color-mix(in srgb, var(--bb-muted) 6%, var(--bb-bg)); opacity: 1; }
+.provider-card.is-local { background: color-mix(in srgb, var(--bb-muted) 6%, var(--bb-bg)); opacity: 1; }
 .provider-card.is-local .provider-card-name { color: var(--bb-muted); }
 .provider-card-name { flex-shrink: 0; min-width: 100px; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 650; display: inline-flex; align-items: center; gap: 5px; }
 .provider-card-icon { color: var(--bb-muted); flex-shrink: 0; }
@@ -3028,9 +3058,10 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
   padding: 6px 8px; border: 1px solid var(--bb-border); margin-bottom: 4px;
   border-radius: var(--bb-radius-sm);
 }
-.requirement-row.is-ok { border-left: 3px solid var(--bb-success); }
-.requirement-row.is-error { border-left: 3px solid var(--bb-danger); }
-.requirement-row.is-warn { border-left: 3px solid var(--bb-warning); }
+/* Status tint runs the full perimeter (DESIGN.md "Borders & accents"). */
+.requirement-row.is-ok { border-color: color-mix(in srgb, var(--bb-success) 45%, var(--bb-border)); }
+.requirement-row.is-error { border-color: color-mix(in srgb, var(--bb-danger) 55%, var(--bb-border)); }
+.requirement-row.is-warn { border-color: color-mix(in srgb, var(--bb-warning) 50%, var(--bb-border)); }
 .requirement-badge.is-warn { color: var(--bb-warning); }
 .requirement-badge {
   display: flex; align-items: center; justify-content: center;

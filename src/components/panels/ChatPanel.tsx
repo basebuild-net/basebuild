@@ -157,6 +157,27 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
+/** Manage-modal section tabs. */
+type ManageTab = "accounts" | "connect" | "usage";
+
+/** Human request rate over a window: "≈3.2 reqs/h" when dense,
+ * "≈1 req every 6h" / "≈1 req every 1.5d" when sparse. */
+function formatRequestRate(requests: number, windowSecs: number): string | null {
+  if (requests <= 0 || windowSecs <= 0) return null;
+  const hours = windowSecs / 3600;
+  const perHour = requests / hours;
+  if (perHour >= 1) return `≈${perHour >= 10 ? perHour.toFixed(0) : perHour.toFixed(1)} reqs/h`;
+  const hoursPerReq = hours / requests;
+  if (hoursPerReq < 48) return `≈1 req every ${hoursPerReq >= 10 ? hoursPerReq.toFixed(0) : hoursPerReq.toFixed(1)}h`;
+  return `≈1 req every ${(hoursPerReq / 24).toFixed(1)}d`;
+}
+
+/** Token throughput over a window: "≈12.4k tok/h". */
+function formatTokenRate(tokens: number, windowSecs: number): string | null {
+  if (tokens <= 0 || windowSecs <= 0) return null;
+  return `≈${formatTokens(Math.round(tokens / (windowSecs / 3600)))} tok/h`;
+}
+
 /** Normalize a timestamp to milliseconds. The Rust backend stores Unix
  * seconds; the e2e mock stores ms. Values < 10^12 are treated as seconds. */
 function toMs(ts: number | null | undefined): number | null {
@@ -799,6 +820,9 @@ export function ChatPanel({
   const nativeMode = profileId === NATIVE_PROFILE_ID;
   const selectedProvider = catalog?.providers.find((p) => p.id === providerId) ?? null;
   const managedProvider = catalog?.providers.find((p) => p.id === managedProviderId) ?? null;
+  // Bespoke-API providers (transport_unavailable) can't chat natively until
+  // an endpoint URL is stored alongside a key.
+  const needsEndpointUrl = managedProvider?.status === "transport_unavailable";
   const selectedModel = catalog?.models.find((m) => m.id === modelId && m.providerId === providerId) ?? null;
   const orderedProviders = useMemo(() => {
     if (!catalog) return [];
@@ -2260,35 +2284,6 @@ export function ChatPanel({
     }
   }, [addLog, catalog]);
 
-  const handleSaveCredential = useCallback(async () => {
-    const target = managedProviderId ?? providerId;
-    if (!apiKey.trim() || !target) return;
-    setSavingCred(true);
-    try {
-      const providerLabel = managedProvider?.label ?? target;
-      await nativeSaveProviderCredential({
-        providerId: target,
-        label: providerLabel,
-        apiKey: apiKey.trim(),
-        baseUrl: baseUrl.trim() || null,
-      });
-      await refreshCatalog();
-      setShowLogin(false);
-      setManagedProviderId(null);
-      setSetupRequired(null);
-      setApiKey("");
-      setBaseUrl("");
-      setError(null);
-      onShowToast?.("Provider connected", `${providerLabel} is now ready.`, "success");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      addLog("error", "Failed to save provider credential", msg);
-      setLoginError(msg);
-      onShowToast?.("Failed to connect", msg, "error");
-    } finally {
-      setSavingCred(false);
-    }
-  }, [apiKey, baseUrl, providerId, managedProviderId, managedProvider, refreshCatalog, addLog, onShowToast]);
 
 
 
@@ -2421,6 +2416,9 @@ export function ChatPanel({
   const [accountUsage, setAccountUsage] = useState<ProviderAccountUsage[]>([]);
   const [accountUsageWindow, setAccountUsageWindow] = useState<number>(604800);
   const [accountUsageLoading, setAccountUsageLoading] = useState(false);
+  // Manage-modal navigation + the API key entry sub-modal.
+  const [manageTab, setManageTab] = useState<ManageTab>("accounts");
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
 
   const refreshAccountRows = useCallback(async (providerId: string) => {
     setAccountRowsLoading(true);
@@ -2457,6 +2455,77 @@ export function ChatPanel({
     void refreshAccountRows(managedProvider.id);
     void refreshAccountUsage(managedProvider.id, accountUsageWindow);
   }, [showLogin, managedProvider, refreshAccountRows, refreshAccountUsage, accountUsageWindow]);
+
+  // Landing tab on open: accounts when any are attached, connect otherwise.
+  // Keyed on the provider id (not the derived provider object) so catalog
+  // refreshes while the modal is open never yank the user to another tab.
+  useEffect(() => {
+    if (!showLogin || !managedProviderId) return;
+    const provider = catalog?.providers.find((p) => p.id === managedProviderId);
+    setManageTab((provider?.accountCount ?? 0) > 0 ? "accounts" : "connect");
+    setShowApiKeyModal(false);
+    setApiKey("");
+    setBaseUrl("");
+  }, [showLogin, managedProviderId]);
+
+  // Open the API key sub-modal with a clean slate; bespoke providers get the
+  // suggested endpoint URL prefilled so "needs base URL" is a one-field fix.
+  const openApiKeyModal = useCallback(() => {
+    if (!managedProvider) return;
+    setLoginError(null);
+    setApiKey("");
+    setBaseUrl(
+      managedProvider.status === "transport_unavailable"
+        ? (managedProvider.defaultBaseUrl ?? "")
+        : "",
+    );
+    setShowApiKeyModal(true);
+  }, [managedProvider]);
+
+  // Provider-wide totals for the usage tab summary row.
+  const usageTotals = useMemo(() => ({
+    requests: accountUsage.reduce((n, r) => n + r.requests, 0),
+    input: accountUsage.reduce((n, r) => n + r.inputTokens, 0),
+    output: accountUsage.reduce((n, r) => n + r.outputTokens, 0),
+    cost: accountUsage.reduce((n, r) => n + (r.costTotal ?? 0), 0),
+  }), [accountUsage]);
+
+  // Save the API key as a connected account. Keeps the Manage modal open and
+  // lands on the Accounts tab so the new account is immediately visible.
+  const handleSaveCredential = useCallback(async () => {
+    const target = managedProviderId ?? providerId;
+    if (!apiKey.trim() || !target) return;
+    setSavingCred(true);
+    try {
+      const providerLabel = managedProvider?.label ?? target;
+      await nativeSaveProviderCredential({
+        providerId: target,
+        label: providerLabel,
+        apiKey: apiKey.trim(),
+        baseUrl: baseUrl.trim() || null,
+      });
+      await refreshCatalog();
+      await Promise.all([
+        refreshAccountRows(target),
+        refreshAccountUsage(target, accountUsageWindow),
+      ]);
+      setShowApiKeyModal(false);
+      setManageTab("accounts");
+      setSetupRequired(null);
+      setApiKey("");
+      setBaseUrl("");
+      setError(null);
+      setLoginError(null);
+      onShowToast?.("Provider connected", `${providerLabel} is now ready.`, "success");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog("error", "Failed to save provider credential", msg);
+      setLoginError(msg);
+      onShowToast?.("Failed to connect", msg, "error");
+    } finally {
+      setSavingCred(false);
+    }
+  }, [apiKey, baseUrl, providerId, managedProviderId, managedProvider, accountUsageWindow, refreshCatalog, refreshAccountRows, refreshAccountUsage, addLog, onShowToast]);
 
   // Reset transient account state when the modal closes so a reopen starts fresh.
   useEffect(() => {
@@ -2557,9 +2626,10 @@ export function ChatPanel({
     [projectPath, nativeSessionId, addLog],
   );
 
-  // Escape closes the connect modal (and abandons any in-flight sign-in),
-  // matching the overlay/X/back buttons.
-  useEscapeKey(showLogin, () => closeLoginModal());
+  // Escape closes the topmost surface: the API key sub-modal when open,
+  // otherwise the manage modal (abandoning any in-flight sign-in).
+  useEscapeKey(showApiKeyModal, () => setShowApiKeyModal(false));
+  useEscapeKey(showLogin && !showApiKeyModal, () => closeLoginModal());
   persistSelectionRef.current = persistSelection;
 
   const handleGenerateIdeas = useCallback(async (opts?: { categoryIds?: string[]; ideaCount?: number; direction?: string | null }) => {
@@ -3538,7 +3608,8 @@ export function ChatPanel({
         </div>
       ) : null}
 
-      {/* Provider manage modal: connected accounts first, then login options, optional OMP import last. */}
+      {/* Provider manage modal: tabbed — Accounts | Connect | Usage. The API
+          key entry lives in its own sub-modal so the tabs stay scannable. */}
       {nativeMode && showLogin && managedProvider && managedProvider.id !== LOCAL_PROVIDER_ID ? (
         <ModalPortal>
         <div className="modal-overlay" onClick={() => closeLoginModal()} title="Close manage dialog">
@@ -3564,68 +3635,255 @@ export function ChatPanel({
                 <X size={16} />
               </button>
             </div>
+            <div className="modal-tabs" role="tablist" aria-label={`Manage ${managedProvider.label} sections`}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={manageTab === "accounts"}
+                className={`modal-tab${manageTab === "accounts" ? " is-active" : ""}`}
+                title={`Connected ${managedProvider.label} accounts`}
+                onClick={() => setManageTab("accounts")}
+              >
+                Accounts{accountRows.length > 0 ? ` (${accountRows.length})` : ""}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={manageTab === "connect"}
+                className={`modal-tab${manageTab === "connect" ? " is-active" : ""}`}
+                title={`Add a ${managedProvider.label} account`}
+                onClick={() => setManageTab("connect")}
+              >
+                Connect
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={manageTab === "usage"}
+                className={`modal-tab${manageTab === "usage" ? " is-active" : ""}`}
+                title={`Per-account ${managedProvider.label} usage`}
+                onClick={() => setManageTab("usage")}
+              >
+                Usage
+              </button>
+            </div>
             <div className="modal-body stack" onClick={(e) => e.stopPropagation()}>
-              {/* ── Login CTA at top ── */}
-              <div className="provider-login-cta stack-sm">
-                <p className="provider-login-cta-title">Log in to {managedProvider.label}</p>
-                {managedProvider.authMethod === "oauth" ? (
-                  <>
-                    <p className="provider-login-cta-desc">
-                      {managedProvider.id === "openai-codex"
-                        ? "Sign in with your ChatGPT subscription. Basebuild opens your browser and completes the OAuth flow natively."
-                        : "Sign in with your provider subscription through Oh My Pi."}
-                    </p>
-                    <div className="row gap-sm">
+              {needsEndpointUrl ? (
+                <div className="provider-callout is-warn" role="note" title={`${managedProvider.label} needs an endpoint URL`}>
+                  <AlertTriangle size={12} className="provider-callout-icon" />
+                  <div className="provider-callout-body">
+                    <span className="provider-callout-title">Endpoint URL required</span>
+                    <span className="text-sm text-muted">
+                      {managedProvider.label} uses a bespoke API. Add an API key together with its endpoint URL to enable native chat.
+                    </span>
+                  </div>
+                  <button
+                    className="btn btn-sm"
+                    type="button"
+                    title="Add an API key with an endpoint URL"
+                    onClick={() => {
+                      setManageTab("connect");
+                      openApiKeyModal();
+                    }}
+                  >
+                    Set endpoint URL
+                  </button>
+                </div>
+              ) : null}
+
+              {manageTab === "accounts" ? (
+                <div className="stack-sm" role="tabpanel" aria-label="Connected accounts">
+                  <span className="text-sm">
+                    Connected accounts
+                    {accountRows.length > 0 ? ` (${accountRows.length})` : ""}
+                  </span>
+                  {accountRowsLoading ? (
+                    <p className="text-muted text-sm">Loading accounts…</p>
+                  ) : accountRows.length === 0 ? (
+                    <div className="provider-empty-state">
+                      <p className="text-muted text-sm">
+                        No account connected yet. Connect an account to start using {managedProvider.label}.
+                      </p>
                       <button
-                        className="btn btn-primary btn-lg"
+                        className="btn btn-primary"
                         type="button"
-                        title={`Log in to ${managedProvider.label}`}
-                        disabled={savingCred}
-                        onClick={() => void handleProviderLogin()}
+                        title={`Connect a ${managedProvider.label} account`}
+                        onClick={() => setManageTab("connect")}
                       >
-                        {savingCred ? <Loader2 size={14} className="spin" /> : <Key size={14} />}
-                        {savingCred ? "Waiting for sign-in..." : `Log in to ${managedProvider.label}`}
+                        <Key size={12} /> Connect an account
                       </button>
-                      {savingCred ? (
+                    </div>
+                  ) : (
+                    <div className="provider-account-list">
+                      {accountRows.map((account) => {
+                        const cdLeft = cooldownSecondsLeft(account.cooldownUntil);
+                        const healthClass =
+                          account.health === "healthy" ? "is-healthy"
+                            : account.health === "rate_limited" ? "is-warn"
+                            : "is-danger";
+                        const healthText = ACCOUNT_HEALTH_LABELS[account.health] ?? account.health;
+                        const lastUsed = accountRelativeTime(account.lastUsedAt);
+                        const connected = accountConnectedLabel(account.createdAt);
+                        const authLabel = ACCOUNT_AUTH_LABELS[account.authMethod] ?? account.authMethod;
+                        const testing = testingAccountId === account.id;
+                        return (
+                          <div key={account.id} className="provider-account-row">
+                            <div className="provider-account-info">
+                              <span className={`provider-account-health ${healthClass}`} title={account.lastError ?? healthText}>
+                                <span className="provider-account-health-dot" />
+                                {account.label}
+                              </span>
+                              <span className="provider-account-meta text-muted text-sm">
+                                {authLabel}
+                                {connected ? ` · connected ${connected}` : ""}
+                                {cdLeft != null ? ` · cooldown ${cdLeft}s` : ""}
+                                {lastUsed ? ` · used ${lastUsed}` : ""}
+                              </span>
+                              {account.lastError && account.health !== "healthy" ? (
+                                <span className="provider-account-error text-danger text-sm" title={account.lastError}>
+                                  {account.lastError}
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="provider-account-actions">
+                              <button
+                                className="btn btn-sm"
+                                type="button"
+                                title={`Run a minimal authenticated request to check ${account.label}`}
+                                disabled={testing}
+                                onClick={() => void handleAccountTest(account)}
+                              >
+                                {testing ? <Loader2 size={11} className="spin" /> : <RefreshCw size={11} />} Test
+                              </button>
+                              <button
+                                className="btn btn-sm"
+                                type="button"
+                                title={`Log out of ${account.label} and remove its stored credential`}
+                                onClick={() => setConfirmLogoutProvider({ id: account.id, label: account.label })}
+                              >
+                                <LogOut size={11} /> Log out
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {accountRows.length > 1 ? (
                         <button
-                          className="btn"
+                          className="chat-link-btn"
                           type="button"
-                          title="Cancel this sign-in attempt"
-                          onClick={() => void cancelProviderLogin()}
+                          title={`Log out of every ${managedProvider.label} account and block Oh My Pi re-import`}
+                          onClick={() => setConfirmLogoutProvider({ id: managedProvider.id, label: managedProvider.label })}
                         >
-                          Cancel
+                          Log out all accounts
                         </button>
                       ) : null}
                     </div>
-                    {providerLoginState ? (
-                      <p className="text-sm text-muted">{providerLoginState.message}</p>
-                    ) : null}
-                    {providerLoginState?.status === "waiting_input" ? (
-                      <div className="stack-sm">
-                        <input
-                          className="input"
-                          type="text"
-                          placeholder="Authorization code or callback URL"
-                          value={providerLoginInput}
-                          onChange={(event) => setProviderLoginInput(event.target.value)}
-                          title={providerLoginState.prompt ?? "Provider authorization response"}
-                        />
+                  )}
+                </div>
+              ) : null}
+
+              {manageTab === "connect" ? (
+                <div className="stack" role="tabpanel" aria-label="Connect an account">
+                  {managedProvider.authMethod === "oauth" ? (
+                    <div className="provider-login-cta stack-sm">
+                      <p className="provider-login-cta-title">Subscription sign-in</p>
+                      <p className="provider-login-cta-desc">
+                        {managedProvider.id === "openai-codex"
+                          ? "Sign in with your ChatGPT subscription. Basebuild opens your browser and completes the OAuth flow natively."
+                          : "Sign in with your provider subscription through Oh My Pi."}
+                      </p>
+                      <div className="row gap-sm">
                         <button
-                          className="btn btn-primary"
+                          className="btn btn-primary btn-lg"
                           type="button"
-                          title={`Submit the ${managedProvider.label} authorization response`}
-                          disabled={!providerLoginInput.trim() || savingCred}
-                          onClick={() => void submitProviderLoginInput()}
+                          title={`Log in to ${managedProvider.label}`}
+                          disabled={savingCred}
+                          onClick={() => void handleProviderLogin()}
                         >
-                          Continue sign-in
+                          {savingCred ? <Loader2 size={14} className="spin" /> : <Key size={14} />}
+                          {savingCred ? "Waiting for sign-in..." : `Log in to ${managedProvider.label}`}
                         </button>
+                        {savingCred ? (
+                          <button
+                            className="btn"
+                            type="button"
+                            title="Cancel this sign-in attempt"
+                            onClick={() => void cancelProviderLogin()}
+                          >
+                            Cancel
+                          </button>
+                        ) : null}
                       </div>
-                    ) : null}
-                    {managedProvider.apiKeyUrl ? (
-                      <details className="stack-sm">
-                        <summary className="text-muted text-sm" title={`Use a ${managedProvider.label} API key instead of subscription login`}>
-                          Use an API key instead
-                        </summary>
+                      {providerLoginState ? (
+                        <p className="text-sm text-muted">{providerLoginState.message}</p>
+                      ) : null}
+                      {providerLoginState?.status === "waiting_input" ? (
+                        <div className="stack-sm">
+                          <input
+                            className="input"
+                            type="text"
+                            placeholder="Authorization code or callback URL"
+                            value={providerLoginInput}
+                            onChange={(event) => setProviderLoginInput(event.target.value)}
+                            title={providerLoginState.prompt ?? "Provider authorization response"}
+                          />
+                          <button
+                            className="btn btn-primary"
+                            type="button"
+                            title={`Submit the ${managedProvider.label} authorization response`}
+                            disabled={!providerLoginInput.trim() || savingCred}
+                            onClick={() => void submitProviderLoginInput()}
+                          >
+                            Continue sign-in
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="provider-login-cta stack-sm">
+                      <p className="provider-login-cta-title">API key</p>
+                      <p className="provider-login-cta-desc">
+                        Connect Basebuild directly to the provider API. The key stays in Basebuild&apos;s local credential store.
+                      </p>
+                      <div className="row gap-sm">
+                        <button
+                          className="btn btn-primary btn-lg"
+                          type="button"
+                          title={`Add a ${managedProvider.label} API key`}
+                          disabled={savingCred}
+                          onClick={() => openApiKeyModal()}
+                        >
+                          <Key size={14} /> Add API key
+                        </button>
+                        {managedProvider.apiKeyUrl ? (
+                          <button
+                            className="chat-link-btn"
+                            type="button"
+                            title={`Open ${managedProvider.label} key page`}
+                            onClick={() => void openApiKeyUrl(managedProvider.apiKeyUrl!)}
+                          >
+                            Get API key
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
+                  {managedProvider.authMethod === "oauth" && managedProvider.apiKeyUrl ? (
+                    <div className="provider-connect-section stack-sm">
+                      <span className="provider-connect-heading">API key</span>
+                      <p className="text-sm text-muted">
+                        Prefer usage-billed access? Connect with a {managedProvider.label} API key instead.
+                      </p>
+                      <div className="row gap-sm">
+                        <button
+                          className="btn"
+                          type="button"
+                          title={`Add a ${managedProvider.label} API key`}
+                          disabled={savingCred}
+                          onClick={() => openApiKeyModal()}
+                        >
+                          <Key size={12} /> Add API key
+                        </button>
                         <button
                           className="chat-link-btn"
                           type="button"
@@ -3634,163 +3892,41 @@ export function ChatPanel({
                         >
                           Get API key
                         </button>
-                        <input
-                          className="input"
-                          type="password"
-                          placeholder="API key"
-                          value={apiKey}
-                          onChange={(event) => setApiKey(event.target.value)}
-                          title={`API key for ${managedProvider.label}`}
-                        />
-                        <button
-                          className="btn btn-primary"
-                          type="button"
-                          title="Save API key and log in"
-                          disabled={!apiKey.trim() || savingCred}
-                          onClick={() => void handleSaveCredential()}
-                        >
-                          {savingCred ? "Saving..." : "Log in with API key"}
-                        </button>
-                      </details>
-                    ) : null}
-                  </>
-                ) : (
-                  <>
-                    <p className="provider-login-cta-desc">
-                      Connect Basebuild directly to the provider API. The key stays in Basebuild&apos;s local credential store.
-                    </p>
-                    {managedProvider.apiKeyUrl ? (
-                      <button
-                        className="chat-link-btn"
-                        type="button"
-                        title={`Open ${managedProvider.label} key page`}
-                        onClick={() => void openApiKeyUrl(managedProvider.apiKeyUrl!)}
-                      >
-                        Get API key
-                      </button>
-                    ) : null}
-                    <input
-                      className="input"
-                      type="password"
-                      placeholder="API key"
-                      value={apiKey}
-                      onChange={(event) => setApiKey(event.target.value)}
-                      title={`API key for ${managedProvider.label}`}
-                    />
-                    <input
-                      className="input"
-                      type="url"
-                      placeholder="Base URL (optional)"
-                      value={baseUrl}
-                      onChange={(event) => setBaseUrl(event.target.value)}
-                      title="Custom API base URL"
-                    />
+                      </div>
+                    </div>
+                  ) : null}
+                  {managedProvider.id === "openai" && catalog?.providers.some((p) => p.id === "openai-codex") ? (
                     <button
-                      className="btn btn-primary btn-lg"
+                      className="chat-link-btn"
                       type="button"
-                      title="Save API key and connect"
-                      disabled={!apiKey.trim() || savingCred}
-                      onClick={() => void handleSaveCredential()}
+                      title="Switch to OpenAI Codex and sign in with your ChatGPT subscription"
+                      onClick={() => {
+                        setManagedProviderId("openai-codex");
+                      }}
                     >
-                      {savingCred ? "Saving..." : "Log in with API key"}
+                      <Globe size={12} /> Have a ChatGPT subscription? Log in with OpenAI Codex
                     </button>
-                  </>
-                )}
-                {managedProvider.id === "openai" && catalog?.providers.some((p) => p.id === "openai-codex") ? (
-                  <button
-                    className="chat-link-btn"
-                    type="button"
-                    title="Switch to OpenAI Codex and sign in with your ChatGPT subscription"
-                    onClick={() => {
-                      setManagedProviderId("openai-codex");
-                    }}
-                  >
-                    <Globe size={12} /> Have a ChatGPT subscription? Log in with OpenAI Codex
-                  </button>
-                ) : null}
-              </div>
-
-              {/* ── Connected accounts ── */}
-              <div className="stack-sm">
-                <span className="text-sm">
-                  Connected accounts
-                  {accountRows.length > 0 ? ` (${accountRows.length})` : ""}
-                </span>
-                {accountRowsLoading ? (
-                  <p className="text-muted text-sm">Loading accounts…</p>
-                ) : accountRows.length === 0 ? (
-                  <p className="text-muted text-sm">
-                    No account connected yet. Log in above to start using {managedProvider.label}.
-                  </p>
-                ) : (
-                  <div className="provider-account-list">
-                    {accountRows.map((account) => {
-                      const cdLeft = cooldownSecondsLeft(account.cooldownUntil);
-                      const healthClass =
-                        account.health === "healthy" ? "is-healthy"
-                          : account.health === "rate_limited" ? "is-warn"
-                          : "is-danger";
-                      const healthText = ACCOUNT_HEALTH_LABELS[account.health] ?? account.health;
-                      const lastUsed = accountRelativeTime(account.lastUsedAt);
-                      const connected = accountConnectedLabel(account.createdAt);
-                      const authLabel = ACCOUNT_AUTH_LABELS[account.authMethod] ?? account.authMethod;
-                      const testing = testingAccountId === account.id;
-                      return (
-                        <div key={account.id} className="provider-account-row">
-                          <div className="provider-account-info">
-                            <span className={`provider-account-health ${healthClass}`} title={account.lastError ?? healthText}>
-                              <span className="provider-account-health-dot" />
-                              {account.label}
-                            </span>
-                            <span className="provider-account-meta text-muted text-sm">
-                              {authLabel}
-                              {connected ? ` · connected ${connected}` : ""}
-                              {cdLeft != null ? ` · cooldown ${cdLeft}s` : ""}
-                              {lastUsed ? ` · used ${lastUsed}` : ""}
-                            </span>
-                            {account.lastError && account.health !== "healthy" ? (
-                              <span className="provider-account-error text-danger text-sm" title={account.lastError}>
-                                {account.lastError}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="provider-account-actions">
-                            <button
-                              className="btn btn-sm"
-                              type="button"
-                              title={`Run a minimal authenticated request to check ${account.label}`}
-                              disabled={testing}
-                              onClick={() => void handleAccountTest(account)}
-                            >
-                              {testing ? <Loader2 size={11} className="spin" /> : <RefreshCw size={11} />} Test
-                            </button>
-                            <button
-                              className="btn btn-sm"
-                              type="button"
-                              title={`Log out of ${account.label} and remove its stored credential`}
-                              onClick={() => setConfirmLogoutProvider({ id: account.id, label: account.label })}
-                            >
-                              <LogOut size={11} /> Log out
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {accountRows.length > 1 ? (
-                      <button
-                        className="chat-link-btn"
-                        type="button"
-                        title={`Log out of every ${managedProvider.label} account and block Oh My Pi re-import`}
-                        onClick={() => setConfirmLogoutProvider({ id: managedProvider.id, label: managedProvider.label })}
-                      >
-                        Log out all accounts
-                      </button>
-                    ) : null}
+                  ) : null}
+                  <div className="provider-connect-section stack-sm">
+                    <span className="provider-connect-heading">Import from Oh My Pi</span>
+                    <p className="text-sm text-muted">
+                      Run <code>/login</code> in an Oh My Pi terminal, complete the provider flow, then refresh here.
+                    </p>
+                    <button
+                      className="btn"
+                      type="button"
+                      title={`Import ${managedProvider.label} credentials from Oh My Pi`}
+                      disabled={savingCred}
+                      onClick={() => void refreshFromOmp()}
+                    >
+                      <RefreshCw size={12} /> {savingCred ? "Refreshing..." : "Refresh after OMP /login"}
+                    </button>
                   </div>
-                )}
-              </div>
-              {accountRows.length > 0 || accountUsage.length > 0 ? (
-                <div className="stack-sm provider-usage-section">
+                </div>
+              ) : null}
+
+              {manageTab === "usage" ? (
+                <div className="stack-sm provider-usage-section" role="tabpanel" aria-label="Usage">
                   <div className="row row-between">
                     <span className="text-sm">Usage</span>
                     <div className="provider-usage-window">
@@ -3812,57 +3948,139 @@ export function ChatPanel({
                   ) : accountUsage.length === 0 ? (
                     <p className="text-muted text-sm">No usage in this window.</p>
                   ) : (
-                    <div className="provider-usage-list">
-                      {accountUsage.map((row) => {
-                        const acct = accountRows.find((a) => a.id === row.accountId);
-                        const label = row.accountId == null
-                          ? "Unattributed (pre-upgrade)"
-                          : (acct?.label ?? row.accountId);
-                        const sharePct = Math.round((row.requestShare ?? 0) * 100);
-                        return (
-                          <div key={row.accountId ?? "__null"} className="provider-usage-row">
-                            <div className="provider-usage-row-head">
-                              <span className="text-sm">{label}</span>
-                              <span className="text-muted text-sm">{row.requests} reqs</span>
-                            </div>
-                            <div className="provider-usage-row-stats text-muted text-sm">
-                              <span>{formatTokens(row.inputTokens)} in · {formatTokens(row.outputTokens)} out</span>
-                              {row.costTotal > 0 ? <span>${row.costTotal.toFixed(2)}</span> : null}
-                              {row.requests > 0 ? <span>{sharePct}%</span> : null}
-                            </div>
-                            {row.requests > 0 ? (
-                              <div className="provider-usage-bar" title={`${sharePct}% of provider requests`}>
-                                <div className="provider-usage-bar-fill" style={{ "--fill": `${Math.max(sharePct, 2)}%` } as CSSProperties} />
+                    <>
+                      <div className="provider-usage-summary" title="Totals across all accounts over the selected window">
+                        <span className="provider-usage-summary-num">{usageTotals.requests} reqs</span>
+                        <span>{formatTokens(usageTotals.input)} in · {formatTokens(usageTotals.output)} out</span>
+                        {formatRequestRate(usageTotals.requests, accountUsageWindow) ? (
+                          <span className="provider-usage-rate">{formatRequestRate(usageTotals.requests, accountUsageWindow)}</span>
+                        ) : null}
+                        {formatTokenRate(usageTotals.input + usageTotals.output, accountUsageWindow) ? (
+                          <span className="provider-usage-rate">{formatTokenRate(usageTotals.input + usageTotals.output, accountUsageWindow)}</span>
+                        ) : null}
+                        {usageTotals.cost > 0 ? <span>${usageTotals.cost.toFixed(2)}</span> : null}
+                      </div>
+                      <div className="provider-usage-list">
+                        {accountUsage.map((row) => {
+                          const acct = accountRows.find((a) => a.id === row.accountId);
+                          const label = row.accountId == null
+                            ? "Unattributed (pre-upgrade)"
+                            : (acct?.label ?? row.accountId);
+                          const sharePct = Math.round((row.requestShare ?? 0) * 100);
+                          const reqRate = formatRequestRate(row.requests, accountUsageWindow);
+                          const tokRate = formatTokenRate(row.inputTokens + row.outputTokens, accountUsageWindow);
+                          return (
+                            <div key={row.accountId ?? "__null"} className="provider-usage-row">
+                              <div className="provider-usage-row-head">
+                                <span className="text-sm">{label}</span>
+                                <span className="text-muted text-sm">{row.requests} reqs</span>
                               </div>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                    </div>
+                              <div className="provider-usage-row-stats text-muted text-sm">
+                                <span>{formatTokens(row.inputTokens)} in · {formatTokens(row.outputTokens)} out</span>
+                                {reqRate ? <span className="provider-usage-rate" title="Average request rate over the selected window">{reqRate}</span> : null}
+                                {tokRate ? <span className="provider-usage-rate" title="Average token throughput over the selected window">{tokRate}</span> : null}
+                                {row.costTotal > 0 ? <span>${row.costTotal.toFixed(2)}</span> : null}
+                                {row.requests > 0 ? <span>{sharePct}%</span> : null}
+                              </div>
+                              {row.requests > 0 ? (
+                                <div className="provider-usage-bar" title={`${sharePct}% of provider requests`}>
+                                  <div className="provider-usage-bar-fill" style={{ "--fill": `${Math.max(sharePct, 2)}%` } as CSSProperties} />
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
                   )}
                 </div>
               ) : null}
-              {/* ── OMP import (optional) ── */}
-              <details className="stack-sm">
-                <summary className="text-muted text-sm" title={`Import ${managedProvider.label} credentials from Oh My Pi`}>
-                  Import from Oh My Pi (optional)
-                </summary>
-                <p className="text-sm text-muted">
-                  Run <code>/login</code> in an Oh My Pi terminal, complete the provider flow, then refresh here.
-                </p>
-                <button
-                  className="btn"
-                  type="button"
-                  title={`Import ${managedProvider.label} credentials from Oh My Pi`}
-                  disabled={savingCred}
-                  onClick={() => void refreshFromOmp()}
-                >
-                  <RefreshCw size={12} /> {savingCred ? "Refreshing..." : "Refresh after OMP /login"}
-                </button>
-              </details>
+
               {loginError ? <p className="text-danger text-sm">{loginError}</p> : null}
             </div>
           </div>
+
+          {/* API key sub-modal: one focused entry surface instead of naked inputs. */}
+          {showApiKeyModal ? (
+            <div className="modal-overlay" onClick={(e) => { e.stopPropagation(); setShowApiKeyModal(false); }} title="Close API key dialog">
+              <div className="modal api-key-modal" onClick={(e) => e.stopPropagation()} title={`Connect ${managedProvider.label} with an API key`}>
+                <div className="modal-header">
+                  <h2>Connect {managedProvider.label} with an API key</h2>
+                  <button
+                    className="btn-icon"
+                    title="Close API key dialog"
+                    type="button"
+                    onClick={() => setShowApiKeyModal(false)}
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+                <div className="modal-body stack">
+                  <p className="text-sm text-muted">
+                    The key is saved as a connected account in Basebuild&apos;s local credential store and never leaves this machine.
+                  </p>
+                  {managedProvider.apiKeyUrl ? (
+                    <button
+                      className="chat-link-btn"
+                      type="button"
+                      title={`Open ${managedProvider.label} key page`}
+                      onClick={() => void openApiKeyUrl(managedProvider.apiKeyUrl!)}
+                    >
+                      Get API key
+                    </button>
+                  ) : null}
+                  <label className="stack-sm api-key-field">
+                    <span className="text-sm">API key</span>
+                    <input
+                      className="input"
+                      type="password"
+                      placeholder="API key"
+                      autoFocus
+                      value={apiKey}
+                      onChange={(event) => setApiKey(event.target.value)}
+                      title={`API key for ${managedProvider.label}`}
+                    />
+                  </label>
+                  <label className="stack-sm api-key-field">
+                    <span className="text-sm">Endpoint URL{needsEndpointUrl ? " (required)" : " (optional)"}</span>
+                    <input
+                      className="input"
+                      type="url"
+                      placeholder={managedProvider.defaultBaseUrl ?? "https://api.example.com/v1"}
+                      value={baseUrl}
+                      onChange={(event) => setBaseUrl(event.target.value)}
+                      title="API base URL used for requests"
+                    />
+                    {needsEndpointUrl ? (
+                      <span className="text-sm text-muted">
+                        This provider&apos;s bespoke API needs an explicit endpoint URL before native chat can route requests.
+                      </span>
+                    ) : null}
+                  </label>
+                  {loginError ? <p className="text-danger text-sm">{loginError}</p> : null}
+                  <div className="row gap-sm row-end">
+                    <button
+                      className="btn"
+                      type="button"
+                      title="Cancel and close the API key dialog"
+                      onClick={() => setShowApiKeyModal(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      type="button"
+                      title="Save API key and connect"
+                      disabled={!apiKey.trim() || (needsEndpointUrl && !baseUrl.trim()) || savingCred}
+                      onClick={() => void handleSaveCredential()}
+                    >
+                      {savingCred ? "Saving..." : "Save API key"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
         </ModalPortal>
       ) : null}

@@ -17,6 +17,12 @@ change. This document links to it and adds agent-specific rules.
   hardcoded radius values — tokens only.
 - **No decorative borders.** Layer on whitespace, hover lifts, and uppercase
   typography.
+- **Borders: 1px, full perimeter, or none.** Never a single-side thick border
+  (2-3px rail) on any rounded surface. Semantic state tints the whole 1px
+  border via `color-mix`, shifts the background, or adds an icon and word.
+  The only partial accents allowed are the 2px active underline on flat tabs
+  and option-list items, and the 2px active bar on flush square list rows.
+  See DESIGN.md "Borders and accents".
 - **Fonts:** Space Grotesk (UI), JetBrains Mono (numbers, paths, code, terminal).
 - **Disciplined spacing.** 4px-based scale (`--bb-space-xs` through
   `--bb-space-xl`) with more whitespace than the old dense contract. Compact
@@ -162,9 +168,31 @@ dependencies are NOT adopted.
   truncate with tooltip text rather than wrapping over header actions.
 - `.provider-catalog-modal` — two-pane provider/model configuration workspace.
   `.provider-card-grid` fits two provider cards per row; `.provider-card`
-  combines green Connected or grey Available rail/dot/text with model count.
-  `.provider-model-list` is provider-scoped and searchable, with compact
-  `.provider-capability` badges. This is a modal, not a composer dropdown.
+  marks connection state with a full-perimeter success-tinted border, dot,
+  and text plus model count (no partial rail). This is a modal, not a
+  composer dropdown.
+- `.provider-model-list` is provider-scoped and searchable, with compact
+  `.provider-capability` badges.
+- **Provider Manage modal** (`ChatPanel.tsx`) is tabbed: `.modal-tabs` /
+  `.modal-tab` render flat underline tabs directly under the modal header
+  (Accounts, Connect, Usage). Rules for structured surfaces:
+  - Multi-concern modals get explicit navigation (tabs or titled sections),
+    never one flat scroll of inputs and hidden `<details>` folds.
+  - Secret entry (API keys) happens in a dedicated sub-modal
+    (`.api-key-modal`) with labeled fields (`.api-key-field`) and a single
+    save action, never as naked inline inputs in a list.
+  - `.provider-callout` (+ `.is-warn`, `.provider-callout-icon`,
+    `.provider-callout-body`, `.provider-callout-title`) is the blocking-issue
+    banner (for example "Endpoint URL required") with the fix action inline.
+  - `.provider-connect-section` / `.provider-connect-heading` are titled
+    secondary sections on the Connect tab (API-key alternative, OMP import).
+  - `.provider-empty-state` renders every empty list with a message plus the
+    next-step button (for example "Connect an account").
+  - `.provider-usage-summary` (+ `.provider-usage-summary-num`) shows
+    provider-wide totals; `.provider-usage-rate` renders humanized rates
+    (`≈3.2 reqs/h`, `≈1 req every 6h`, `≈12.4k tok/h`) beside raw totals so
+    usage reads as behavior, not bare numbers.
+  - `.row-end` right-aligns a `.row` (modal action rows).
 
 Use popovers only for short single-step menus (roughly 6-8 rows). Searchable
 catalogs, forms, previews, and multi-column configuration belong in a named

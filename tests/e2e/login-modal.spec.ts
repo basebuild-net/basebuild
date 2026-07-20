@@ -8,7 +8,7 @@ async function openProviderPicker(page: Page) {
 }
 
 test.describe("Login form is a modal, not inline", () => {
-  test("login form renders as a modal-overlay with modal class, not chat-login-form", async ({ page }) => {
+  test("API key entry renders as a dedicated modal, not chat-login-form", async ({ page }) => {
     await openFixtureProject(page);
     await openProviderPicker(page);
 
@@ -19,14 +19,20 @@ test.describe("Login form is a modal, not inline", () => {
 
       await expect(page.locator(".provider-catalog-overlay").first()).toBeHidden({ timeout: 3_000 });
 
-      const loginModal = page.locator(".modal-overlay").filter({
-        has: page.locator("input[type='password']"),
+      // The manage modal lands on Connect for an unconnected provider; the
+      // key entry opens as its own focused sub-modal.
+      const manageModal = page.locator(".modal-overlay").filter({
+        has: page.locator("h2", { hasText: "Manage OpenAI API" }),
       });
-      await expect(loginModal).toBeVisible({ timeout: 3_000 });
+      await expect(manageModal).toBeVisible({ timeout: 3_000 });
+      await manageModal.locator("button", { hasText: "Add API key" }).first().click();
 
+      const keyModal = page.locator(".api-key-modal");
+      await expect(keyModal).toBeVisible({ timeout: 3_000 });
+      await expect(keyModal.locator("input[type='password']")).toBeVisible();
       await expect(page.locator(".chat-login-form")).toHaveCount(0);
-      await expect(loginModal.locator("button", { hasText: /Log in with API key/i })).toBeVisible();
-      await expect(loginModal.locator(".modal-header")).toBeVisible();
+      await expect(keyModal.locator("button", { hasText: /Save API key/i })).toBeVisible();
+      await expect(keyModal.locator(".modal-header")).toBeVisible();
     }
   });
 
@@ -39,7 +45,7 @@ test.describe("Login form is a modal, not inline", () => {
       await connectBtn.click();
 
       const loginModal = page.locator(".modal-overlay").filter({
-        has: page.locator("input[type='password']"),
+        has: page.locator("h2", { hasText: "Manage OpenAI API" }),
       });
       await expect(loginModal).toBeVisible({ timeout: 3_000 });
 

@@ -57,18 +57,21 @@ test.describe("Provider credential lifecycle", () => {
     await confirm.getByRole("button", { name: "Log out" }).click();
     await page.waitForTimeout(500);
 
-    // The Manage button is still present (it is always shown for non-local
-    // Account row disappears; the Manage button is always present on the card.
+    // Account row disappears; the empty state offers the next step.
     await expect(manageModal.locator(".provider-account-row")).toHaveCount(0, { timeout: 5_000 });
+    await manageModal.locator(".provider-empty-state button", { hasText: "Connect an account" }).click();
 
-    const loginModal = page.locator(".modal-overlay").filter({
-      has: page.locator('button[title="Save API key and connect"]'),
-    });
-    await expect(loginModal).toBeVisible({ timeout: 3_000 });
-    await expect(loginModal.getByText("Connect Basebuild directly to the provider API")).toBeVisible();
-    await expect(loginModal.locator("input[type='password']")).toBeVisible();
-    await expect(loginModal.locator("button", { hasText: "Log in with API key" })).toBeVisible();
-    await expect(loginModal.locator("summary", { hasText: "Import from Oh My Pi" })).toBeVisible();
+    // The Connect tab hosts the API-key CTA and the OMP import section.
+    await expect(manageModal.locator(".modal-tab.is-active")).toContainText("Connect");
+    await expect(manageModal.getByText("Connect Basebuild directly to the provider API")).toBeVisible();
+    await expect(manageModal.locator(".provider-connect-heading", { hasText: "Import from Oh My Pi" })).toBeVisible();
+
+    // The key entry itself opens as a dedicated sub-modal.
+    await manageModal.locator("button", { hasText: "Add API key" }).first().click();
+    const keyModal = page.locator(".api-key-modal");
+    await expect(keyModal).toBeVisible({ timeout: 3_000 });
+    await expect(keyModal.locator("input[type='password']")).toBeVisible();
+    await expect(keyModal.locator("button[title='Save API key and connect']")).toBeVisible();
   });
 
   test("subscription provider completes native OAuth without exposing an API-key field", async ({ page }) => {
@@ -102,7 +105,7 @@ test.describe("Provider credential lifecycle", () => {
     await connectBtn.click();
 
     const loginModal = page.locator(".modal-overlay").filter({
-      has: page.locator('button[title="Save API key and connect"]'),
+      has: page.locator("h2", { hasText: "Manage OpenAI API" }),
     });
     await expect(loginModal).toBeVisible({ timeout: 3_000 });
     await expect(loginModal.locator(".modal-header").first()).toBeVisible();
@@ -118,7 +121,7 @@ test.describe("Provider credential lifecycle", () => {
     await connectBtn.click();
 
     const loginModal = page.locator(".modal-overlay").filter({
-      has: page.locator('button[title="Save API key and connect"]'),
+      has: page.locator("h2", { hasText: "Manage OpenAI API" }),
     });
     await expect(loginModal).toBeVisible({ timeout: 3_000 });
     await loginModal.click({ position: { x: 5, y: 5 } });

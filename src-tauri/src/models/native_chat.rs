@@ -97,6 +97,10 @@ pub struct NativeProvider {
     pub detail: String,
     pub auth_method: String,
     pub api_key_url: Option<String>,
+    /// Suggested API base URL for key-based connects (prefills the endpoint
+    /// field in the Manage dialog). None when the provider has no HTTP default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_base_url: Option<String>,
     pub model_count: i64,
     /// Number of attached accounts (stored + OMP virtual).
     pub account_count: i64,

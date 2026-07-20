@@ -59,6 +59,8 @@ export type NativeProvider = {
   detail: string;
   authMethod: "local" | "api_key" | "oauth" | string;
   apiKeyUrl: string | null;
+  /** Suggested API base URL for key-based connects (prefills the endpoint field). */
+  defaultBaseUrl?: string | null;
   modelCount: number;
   /** Number of attached accounts (stored + Oh My Pi virtual). */
   accountCount: number;
