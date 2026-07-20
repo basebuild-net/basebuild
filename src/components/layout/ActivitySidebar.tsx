@@ -442,15 +442,15 @@ export function ActivitySidebar({
           <button className="btn-icon" type="button" title="Settings" onClick={onOpenSettings}>
             <Settings2 size={14} />
           </button>
-          {updates.info?.available ? (
+          {updates.status === "downloaded" || updates.status === "installing" ? (
             <button
               className="update-taskbar-btn"
               type="button"
-              title={`Download and install Basebuild ${updates.info.version ?? ""}`}
-              onClick={() => void updates.install()}
+              title={`Basebuild ${updates.info?.version ?? ""} is downloaded — click to restart and apply it`}
+              onClick={() => void updates.restartToApply()}
               disabled={updates.status === "installing"}
             >
-              <span>{updates.status === "installing" ? "…" : "↑"}</span>
+              <span>{updates.status === "installing" ? "…" : "↻"}</span>
             </button>
           ) : null}
         </div>

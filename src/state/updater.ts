@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  applyDownloadedUpdate,
   checkForUpdates,
   clearSkippedUpdate,
+  downloadUpdate,
   getSkippedUpdateVersion,
-  installUpdate,
-  installUpdateWithProgress,
   onUpdaterProgress,
-  skipUpdateVersion,
   type UpdateChannelStatus,
   type UpdateInfo,
   type UpdateProgress,
@@ -19,6 +18,8 @@ export type UpdateStatus =
   | "checking"
   | "available"
   | "up_to_date"
+  | "downloading"
+  | "downloaded"
   | "installing"
   | "error";
 
@@ -29,9 +30,9 @@ export type UpdaterState = {
   lastCheckedAt: number | null;
   progress: UpdateProgress | null;
   checkNow: () => Promise<void>;
-  install: () => Promise<void>;
-  installWithProgress: () => Promise<void>;
-  skipVersion: (version: string) => Promise<void>;
+  download: () => Promise<void>;
+  /** Install the staged update and restart. User-triggered only. */
+  restartToApply: () => Promise<void>;
 };
 
 function messageFromError(error: unknown): string {
@@ -95,10 +96,20 @@ export function useUpdater(): UpdaterState {
   const [lastCheckedAt, setLastCheckedAt] = useState<number | null>(null);
   const [progress, setProgress] = useState<UpdateProgress | null>(null);
   const checkInFlight = useRef(false);
-  const installInFlight = useRef(false);
+  const downloadInFlight = useRef(false);
+  const applyInFlight = useRef(false);
+  // Mirror of `status` for callbacks with empty dep lists.
+  const statusRef = useRef<UpdateStatus>("idle");
+  statusRef.current = status;
 
   const checkNow = useCallback(async () => {
-    if (checkInFlight.current || installInFlight.current) return;
+    if (checkInFlight.current || downloadInFlight.current || applyInFlight.current) return;
+    // A staged download is version-pinned; re-checking would clobber the
+    // "restart to apply" state. The staged version installs on next restart,
+    // after which checks resume.
+    if (statusRef.current === "downloading" || statusRef.current === "downloaded" || statusRef.current === "installing") {
+      return;
+    }
     checkInFlight.current = true;
     setStatus("checking");
     try {
@@ -118,32 +129,39 @@ export function useUpdater(): UpdaterState {
     }
   }, []);
 
-  const install = useCallback(async () => {
-    if (installInFlight.current) return;
-    installInFlight.current = true;
-    setStatus("installing");
-    try {
-      await installUpdate();
-    } catch (e) {
-      const message = messageFromError(e);
-      setError(message);
-      setInfo((current) => ({
-        ...(current ?? errorInfo(message)),
-        notes: `Install failed: ${message}`,
-      }));
-      setStatus("error");
-    } finally {
-      installInFlight.current = false;
-    }
-  }, []);
-
-  const installWithProgress = useCallback(async () => {
-    if (installInFlight.current) return;
-    installInFlight.current = true;
-    setStatus("installing");
+  // Download and stage the update in the background. Never installs and
+  // never restarts — the app keeps running until the user explicitly
+  // applies the update (or the next launch does).
+  const download = useCallback(async () => {
+    if (downloadInFlight.current || applyInFlight.current) return;
+    downloadInFlight.current = true;
+    setStatus("downloading");
     setProgress(null);
     try {
-      await installUpdateWithProgress();
+      await downloadUpdate();
+      setStatus("downloaded");
+    } catch (e) {
+      const message = messageFromError(e);
+      setError(message);
+      setInfo((current) => ({
+        ...(current ?? errorInfo(message)),
+        notes: `Download failed: ${message}`,
+      }));
+      setStatus("error");
+    } finally {
+      downloadInFlight.current = false;
+    }
+  }, []);
+
+  // Install the staged update and restart. Only ever invoked from an
+  // explicit user action ("Restart to apply update") or the startup splash.
+  const restartToApply = useCallback(async () => {
+    if (applyInFlight.current) return;
+    applyInFlight.current = true;
+    setStatus("installing");
+    try {
+      await applyDownloadedUpdate();
+      // On success the process restarts; this line is never reached.
     } catch (e) {
       const message = messageFromError(e);
       setError(message);
@@ -151,21 +169,14 @@ export function useUpdater(): UpdaterState {
         ...(current ?? errorInfo(message)),
         notes: `Install failed: ${message}`,
       }));
-      setStatus("error");
+      // The payload stays staged backend-side; keep the restart CTA visible.
+      setStatus("downloaded");
     } finally {
-      installInFlight.current = false;
+      applyInFlight.current = false;
     }
   }, []);
 
-  const skipVersion = useCallback(async (version: string) => {
-    await skipUpdateVersion(version);
-    // Clear the in-memory availability so the splash doesn't prompt.
-    setInfo((current) =>
-      current ? { ...current, skipped: true } : current,
-    );
-  }, []);
-
-  // Listen for progress events from the backend during install.
+  // Listen for progress events from the backend during download/install.
   useEffect(() => {
     const unlistenPromise = onUpdaterProgress((p) => setProgress(p));
     return () => {
@@ -183,23 +194,23 @@ export function useUpdater(): UpdaterState {
     })();
   }, [info?.available, info?.version]);
 
-  // Silent auto-update: when an update is available, install it
-  // automatically with no user prompt. The "Update now" button is gone;
-  // the updater installs in the background and relaunches when ready.
+  // Background auto-DOWNLOAD (not install): when an update is available,
+  // stage it silently. The app is never restarted mid-session — the update
+  // applies when the user clicks "Restart to apply update" or on the next
+  // launch via the startup splash.
   // Never in dev: the dev build runs as 0.0.0, so every release looks
-  // "newer" and auto-install would replace the dev session with the
-  // installed release build (backend also refuses in debug builds).
-  // Playwright e2e (BASEBUILD_E2E) runs the dev server against mocked
-  // commands, so the updater flow stays enabled there for coverage.
+  // "newer" (backend also refuses in debug builds). Playwright e2e
+  // (BASEBUILD_E2E) runs the dev server against mocked commands, so the
+  // updater flow stays enabled there for coverage.
   useEffect(() => {
     if (import.meta.env.DEV && !import.meta.env.BASEBUILD_E2E) return;
-    if (status === "available" && !installInFlight.current) {
-      void install();
+    if (status === "available" && info?.available && !info.skipped) {
+      void download();
     }
-  }, [status, install]);
+  }, [status, info, download]);
 
   useEffect(() => {
-    // No automatic update checks in dev builds (see auto-install note above).
+    // No automatic update checks in dev builds (see auto-download note above).
     if (import.meta.env.DEV && !import.meta.env.BASEBUILD_E2E) return;
     // Releases are Windows-only (NSIS). Skip the check on other platforms to
     // avoid a guaranteed "platform missing" error every 5 minutes.
@@ -216,8 +227,7 @@ export function useUpdater(): UpdaterState {
     lastCheckedAt,
     progress,
     checkNow,
-    install,
-    installWithProgress,
-    skipVersion,
+    download,
+    restartToApply,
   };
 }

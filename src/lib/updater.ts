@@ -31,7 +31,7 @@ export type UpdateInfo = {
   skipped: boolean;
 };
 
-export type UpdateStep = "downloading" | "installing" | "restarting";
+export type UpdateStep = "downloading" | "downloaded" | "installing" | "restarting";
 
 export type UpdateProgress = {
   step: string;
@@ -44,16 +44,16 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
   return invoke<UpdateInfo>("check_for_updates");
 }
 
-export async function installUpdate(): Promise<void> {
-  return invoke("install_update");
+/** Download and stage an update in the background. Does NOT install or
+ *  restart — the update applies only via `applyDownloadedUpdate`.
+ *  Resolves with the staged version. */
+export async function downloadUpdate(): Promise<string> {
+  return invoke<string>("download_update");
 }
 
-export async function installUpdateWithProgress(): Promise<void> {
-  return invoke("install_update_with_progress");
-}
-
-export async function skipUpdateVersion(version: string): Promise<void> {
-  return invoke("skip_update_version", { version });
+/** Install the staged update and restart the app. User-triggered only. */
+export async function applyDownloadedUpdate(): Promise<void> {
+  return invoke("apply_downloaded_update");
 }
 
 export async function clearSkippedUpdate(): Promise<void> {

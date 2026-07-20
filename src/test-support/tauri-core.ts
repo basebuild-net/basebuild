@@ -2300,7 +2300,9 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "clear_skipped_update":
     case "skip_update_version":
       return undefined as T;
-    case "install_update":
+    case "download_update":
+      return "0.0.5" as T;
+    case "apply_downloaded_update":
       s.updateInstallCount += 1;
       return undefined as T;
     case "auth_status":
