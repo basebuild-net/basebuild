@@ -127648,6 +127648,27 @@
 			"contextWindow": 262144,
 			"maxTokens": 32768
 		},
+		"kimi-for-coding": {
+			"id": "kimi-for-coding",
+			"name": "Kimi K2.7 Code",
+			"api": "anthropic-messages",
+			"provider": "kimi-for-coding",
+			"baseUrl": "https://api.kimi.com/coding/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image",
+				"video"
+			],
+			"cost": {
+				"input": 0,
+				"output": 0,
+				"cacheRead": 0,
+				"cacheWrite": 0
+			},
+			"contextWindow": 262144,
+			"maxTokens": 32768
+		},
 		"k3": {
 			"id": "k3",
 			"name": "Kimi K3",
