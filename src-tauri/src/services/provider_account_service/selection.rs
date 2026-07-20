@@ -230,6 +230,7 @@ mod tests {
     /// Seed `count` healthy API-key accounts on `provider_id` and return their
     /// ids in created order. Uses distinct keys so identities never dedupe.
     fn seed_accounts(provider_id: &str, count: usize) -> Vec<String> {
+        let conn = StorageService::connect().expect("connect for seed");
         (0..count)
             .map(|index| {
                 let (record, _) = ProviderAccountService::upsert_account(
@@ -241,8 +242,14 @@ mod tests {
                     &format!("sk256:{provider_id}:{index}"),
                 )
                 .expect("seed account");
-                // gen_id is nanosecond-based; force distinct created_at order.
-                std::thread::sleep(std::time::Duration::from_millis(2));
+                // now_seconds() is second-resolution, so same-second seeds
+                // would otherwise tie on created_at and fall back to SQLite's
+                // unspecified tie order. Backdate deterministically instead.
+                conn.execute(
+                    "UPDATE native_provider_accounts SET created_at = ?1 WHERE id = ?2",
+                    params![1_000_000 + index as i64, &record.id],
+                )
+                .expect("backdate created_at");
                 record.id
             })
             .collect()
