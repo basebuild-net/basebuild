@@ -85,6 +85,11 @@ import {
   nativeProviderLoginSubmit,
   nativeSessionLatestMetric,
   nativeSaveProviderCredential,
+  nativeProviderAccountsList,
+  nativeProviderAccountLogout,
+  nativeProviderAccountSetLabel,
+  nativeProviderAccountTest,
+  nativeProviderAccountUsage,
   renameNativeChatSession,
   type ChatModelDefault,
   type NativeChatMessage,
@@ -94,6 +99,8 @@ import {
   type NativeSetupRequired,
   type NativeProviderLoginState,
   type NativeToolEvent,
+  type ProviderAccount,
+  type ProviderAccountUsage,
 } from "../../lib/native-chat";
 import { resolveToolApproval } from "../../lib/native-chat";
 import { buildChatTimeline, type LiveSegment } from "../../lib/chatTimeline";
@@ -124,6 +131,56 @@ const CONNECTED_VIA_LABELS: Record<string, string> = {
   omp: "Oh My Pi",
   api: "API key",
 };
+
+const ACCOUNT_AUTH_LABELS: Record<string, string> = {
+  oauth: "OAuth",
+  omp: "Oh My Pi",
+  api: "API key",
+};
+
+const ACCOUNT_HEALTH_LABELS: Record<string, string> = {
+  healthy: "Healthy",
+  rate_limited: "Rate limited",
+  auth_expired: "Auth expired",
+  error: "Error",
+};
+
+/** Compact k/M formatting for token counts. */
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+/** Relative time "2h ago" / "just now" from a millisecond timestamp. */
+function accountRelativeTime(ms: number | null | undefined): string | null {
+  if (ms == null) return null;
+  const diff = Date.now() - ms;
+  if (diff < 60_000) return "just now";
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+/** Seconds until a cooldown timestamp (ms), or null if not cooling down. */
+function cooldownSecondsLeft(cooldownUntil: number | null | undefined): number | null {
+  if (cooldownUntil == null) return null;
+  const ms = cooldownUntil - Date.now();
+  if (ms <= 0) return null;
+  return Math.ceil(ms / 1000);
+}
+
+/** "2 accounts · 1 OAuth · 1 API key" for provider cards (omits zero parts). */
+function accountSummaryLabel(provider: NativeProvider): string {
+  const parts: string[] = [];
+  parts.push(`${provider.accountCount} ${provider.accountCount === 1 ? "account" : "accounts"}`);
+  if (provider.oauthCount > 0) parts.push(`${provider.oauthCount} OAuth`);
+  if (provider.apiKeyCount > 0) parts.push(`${provider.apiKeyCount} API key${provider.apiKeyCount === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+}
 
 /** Auth paths a provider supports, for the catalog card meta line. */
 function providerAuthOptionsLabel(provider: NativeProvider): string {
@@ -2307,19 +2364,118 @@ export function ChatPanel({
       }
       setShowLogin(false);
       setLoginError(null);
-      if (backToCatalog) setShowProviderPicker(true);
     },
     [cancelProviderLogin, providerLoginState],
   );
 
-  // Log out of a provider: removes the stored credential from the local
-  // credential store (and blocks OMP re-import until the next explicit login).
   const [confirmLogoutProvider, setConfirmLogoutProvider] = useState<{ id: string; label: string } | null>(null);
+  // Per-provider account list for the Manage modal. Refetched on open and
+  // after any login/logout/test. accountRowsById is a lookup so usage rows
+  // (which carry only accountId) can be labelled.
+  const [accountRows, setAccountRows] = useState<ProviderAccount[]>([]);
+  const [accountRowsLoading, setAccountRowsLoading] = useState(false);
+  const [testingAccountId, setTestingAccountId] = useState<string | null>(null);
+  const [accountUsage, setAccountUsage] = useState<ProviderAccountUsage[]>([]);
+  const [accountUsageWindow, setAccountUsageWindow] = useState<number>(604800);
+  const [accountUsageLoading, setAccountUsageLoading] = useState(false);
+
+  const refreshAccountRows = useCallback(async (providerId: string) => {
+    setAccountRowsLoading(true);
+    try {
+      const rows = await nativeProviderAccountsList(providerId);
+      setAccountRows(rows);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog("error", "Failed to load provider accounts", msg);
+      setAccountRows([]);
+    } finally {
+      setAccountRowsLoading(false);
+    }
+  }, [addLog]);
+
+  const refreshAccountUsage = useCallback(async (providerId: string, windowSecs: number) => {
+    setAccountUsageLoading(true);
+    try {
+      const rows = await nativeProviderAccountUsage(providerId, windowSecs);
+      setAccountUsage(rows);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog("error", "Failed to load per-account usage", msg);
+      setAccountUsage([]);
+    } finally {
+      setAccountUsageLoading(false);
+    }
+  }, [addLog]);
+
+  // Refetch account rows + usage whenever the Manage modal opens (showLogin
+  // true) or the selected provider changes while open.
+  useEffect(() => {
+    if (!showLogin || !selectedProvider || selectedProvider.id === LOCAL_PROVIDER_ID) return;
+    void refreshAccountRows(selectedProvider.id);
+    void refreshAccountUsage(selectedProvider.id, accountUsageWindow);
+  }, [showLogin, selectedProvider, refreshAccountRows, refreshAccountUsage, accountUsageWindow]);
+
+  // Reset transient account state when the modal closes so a reopen starts fresh.
+  useEffect(() => {
+    if (showLogin) return;
+    setAccountRows([]);
+    setAccountUsage([]);
+    setTestingAccountId(null);
+  }, [showLogin]);
+
+  const handleAccountLogout = useCallback(async (accountId: string, accountLabel: string) => {
+    setConfirmLogoutProvider(null);
+    try {
+      await nativeProviderAccountLogout(accountId);
+      if (selectedProvider) {
+        await Promise.all([
+          refreshAccountRows(selectedProvider.id),
+          refreshAccountUsage(selectedProvider.id, accountUsageWindow),
+        ]);
+      }
+      await refreshCatalog();
+      addLog("debug", "Account logged out", `account=${accountId}`);
+      onShowToast?.("Logged out", `${accountLabel} removed from the local store.`, "success");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog("error", "Failed to log out of account", msg);
+      onShowToast?.("Failed to log out", msg, "error");
+    }
+  }, [accountUsageWindow, addLog, onShowToast, refreshAccountRows, refreshAccountUsage, refreshCatalog, selectedProvider]);
+
+  const handleAccountTest = useCallback(async (account: ProviderAccount) => {
+    setTestingAccountId(account.id);
+    try {
+      const updated = await nativeProviderAccountTest(account.id);
+      setAccountRows((prev) => prev.map((row) => (row.id === account.id ? updated : row)));
+      addLog("debug", "Account tested", `account=${account.id}; health=${updated.health}`);
+      onShowToast?.(
+        "Account tested",
+        `${account.label}: ${updated.health === "healthy" ? "healthy" : (updated.lastError ?? updated.health)}`,
+        updated.health === "healthy" ? "success" : "warning",
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog("error", "Account test failed", msg);
+      onShowToast?.("Account test failed", msg, "error");
+    } finally {
+      setTestingAccountId(null);
+    }
+  }, [addLog, onShowToast]);
+
+  // Provider-wide logout (used by the "Log out all" affordance when 2+
+  // accounts are attached): removes every account row + the legacy slot.
   const handleProviderLogout = useCallback(async (targetId: string, targetLabel: string) => {
     setConfirmLogoutProvider(null);
     try {
       await nativeDeleteProviderCredential(targetId);
       await refreshCatalog();
+      if (selectedProvider) {
+        await Promise.all([
+          refreshAccountRows(selectedProvider.id),
+          refreshAccountUsage(selectedProvider.id, accountUsageWindow),
+        ]);
+      }
       addLog("debug", "Provider logged out", `provider=${targetId}`);
       onShowToast?.("Logged out", `${targetLabel} credential removed from the local store.`, "success");
     } catch (err) {
@@ -2327,7 +2483,7 @@ export function ChatPanel({
       addLog("error", "Failed to log out of provider", msg);
       onShowToast?.("Failed to log out", msg, "error");
     }
-  }, [addLog, onShowToast, refreshCatalog]);
+  }, [accountUsageWindow, addLog, onShowToast, refreshAccountRows, refreshAccountUsage, refreshCatalog, selectedProvider]);
 
   const openApiKeyUrl = useCallback((url: string) => {
     return openUrl(url).catch((e) => {
@@ -3366,28 +3522,131 @@ export function ChatPanel({
             </div>
             <div className="modal-body stack" onClick={(e) => e.stopPropagation()}>
               <div className="stack-sm">
-                <span className="text-sm">Connected accounts</span>
-                {selectedProvider.configured ? (
-                  <div className="provider-account-row">
-                    <span className="provider-status is-connected">
-                      <span className="provider-status-dot" />
-                      Logged in{selectedProvider.connectedVia ? ` · ${CONNECTED_VIA_LABELS[selectedProvider.connectedVia]}` : ""}
-                    </span>
-                    <button
-                      className="btn btn-sm"
-                      type="button"
-                      title={`Log out of ${selectedProvider.label} and remove the stored credential`}
-                      onClick={() => setConfirmLogoutProvider({ id: selectedProvider.id, label: selectedProvider.label })}
-                    >
-                      <LogOut size={11} /> Log out
-                    </button>
-                  </div>
-                ) : (
+                <span className="text-sm">
+                  Connected accounts
+                  {accountRows.length > 0 ? ` (${accountRows.length})` : ""}
+                </span>
+                {accountRowsLoading ? (
+                  <p className="text-muted text-sm">Loading accounts…</p>
+                ) : accountRows.length === 0 ? (
                   <p className="text-muted text-sm">
                     No account connected yet. Log in below to start using {selectedProvider.label}.
                   </p>
+                ) : (
+                  <div className="provider-account-list">
+                    {accountRows.map((account) => {
+                      const cdLeft = cooldownSecondsLeft(account.cooldownUntil);
+                      const healthClass =
+                        account.health === "healthy" ? "is-healthy"
+                          : account.health === "rate_limited" ? "is-warn"
+                          : "is-danger";
+                      const healthText = ACCOUNT_HEALTH_LABELS[account.health] ?? account.health;
+                      const lastUsed = accountRelativeTime(account.lastUsedAt);
+                      const authLabel = ACCOUNT_AUTH_LABELS[account.authMethod] ?? account.authMethod;
+                      const testing = testingAccountId === account.id;
+                      return (
+                        <div key={account.id} className="provider-account-row">
+                          <div className="provider-account-info">
+                            <span className={`provider-account-health ${healthClass}`} title={account.lastError ?? healthText}>
+                              <span className="provider-account-health-dot" />
+                              {account.label}
+                            </span>
+                            <span className="provider-account-meta text-muted text-sm">
+                              {authLabel}
+                              {cdLeft != null ? ` · cooldown ${cdLeft}s` : ""}
+                              {lastUsed ? ` · ${lastUsed}` : ""}
+                            </span>
+                            {account.lastError && account.health !== "healthy" ? (
+                              <span className="provider-account-error text-danger text-sm" title={account.lastError}>
+                                {account.lastError}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="provider-account-actions">
+                            <button
+                              className="btn btn-sm"
+                              type="button"
+                              title={`Run a minimal authenticated request to check ${account.label}`}
+                              disabled={testing}
+                              onClick={() => void handleAccountTest(account)}
+                            >
+                              {testing ? <Loader2 size={11} className="spin" /> : <RefreshCw size={11} />} Test
+                            </button>
+                            <button
+                              className="btn btn-sm"
+                              type="button"
+                              title={`Log out of ${account.label} and remove its stored credential`}
+                              onClick={() => setConfirmLogoutProvider({ id: account.id, label: account.label })}
+                            >
+                              <LogOut size={11} /> Log out
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {accountRows.length > 1 ? (
+                      <button
+                        className="chat-link-btn"
+                        type="button"
+                        title={`Log out of every ${selectedProvider.label} account and block Oh My Pi re-import`}
+                        onClick={() => setConfirmLogoutProvider({ id: selectedProvider.id, label: selectedProvider.label })}
+                      >
+                        Log out all accounts
+                      </button>
+                    ) : null}
+                  </div>
                 )}
               </div>
+              {accountRows.length > 0 || accountUsage.length > 0 ? (
+                <div className="stack-sm provider-usage-section">
+                  <div className="row row-between">
+                    <span className="text-sm">Usage</span>
+                    <select
+                      className="input provider-usage-window"
+                      title="Usage window"
+                      value={accountUsageWindow}
+                      onChange={(e) => setAccountUsageWindow(Number(e.target.value))}
+                    >
+                      <option value={86400}>Today</option>
+                      <option value={604800}>7 days</option>
+                      <option value={2592000}>30 days</option>
+                    </select>
+                  </div>
+                  {accountUsageLoading ? (
+                    <p className="text-muted text-sm">Loading usage…</p>
+                  ) : accountUsage.length === 0 ? (
+                    <p className="text-muted text-sm">No usage in this window.</p>
+                  ) : (
+                    <div className="provider-usage-list">
+                      {accountUsage.map((row) => {
+                        const acct = accountRows.find((a) => a.id === row.accountId);
+                        const label = row.accountId == null
+                          ? "Unattributed (pre-upgrade)"
+                          : (acct?.label ?? row.accountId);
+                        const sharePct = Math.round((row.requestShare ?? 0) * 100);
+                        return (
+                          <div key={row.accountId ?? "__null"} className="provider-usage-row">
+                            <div className="provider-usage-row-head">
+                              <span className="text-sm">{label}</span>
+                              <span className="text-muted text-sm">{row.requests} reqs</span>
+                            </div>
+                            <div className="provider-usage-row-stats text-muted text-sm">
+                              <span>{formatTokens(row.inputTokens)} in · {formatTokens(row.outputTokens)} out</span>
+                              {row.costTotal > 0 ? <span>${row.costTotal.toFixed(2)}</span> : null}
+                              {row.requests > 0 ? <span>{sharePct}%</span> : null}
+                            </div>
+                            {row.requests > 0 ? (
+                              <div className="provider-usage-bar" title={`${sharePct}% of provider requests`}>
+                                <div className="provider-usage-bar-fill" style={{ width: `${Math.max(sharePct, 2)}%` }} />
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : null}
               {selectedProvider.id === "openai" && catalog?.providers.some((p) => p.id === "openai-codex") ? (
                 <button
                   className="btn btn-primary"
@@ -3571,15 +3830,26 @@ export function ChatPanel({
         </ModalPortal>
       ) : null}
 
-      {/* Log-out confirmation: destructive, removes the stored provider credential. */}
+      {/* Log-out confirmation: per-account when an account id is passed,
+          provider-wide (all accounts + legacy slot) when the provider id is
+          passed (used by "Log out all"). Destructive in both cases. */}
       <ConfirmDialog
         open={confirmLogoutProvider !== null}
         title={`Log out of ${confirmLogoutProvider?.label ?? "provider"}?`}
-        message={`This removes the stored ${confirmLogoutProvider?.label ?? ""} credential from Basebuild's local credential store. Chats using this provider will stop working until you log in again.`}
+        message={
+          confirmLogoutProvider && selectedProvider && confirmLogoutProvider.id === selectedProvider.id
+            ? `This removes every stored ${confirmLogoutProvider?.label ?? ""} credential from Basebuild's local credential store and blocks Oh My Pi re-import until the next explicit login. Chats using this provider will stop working until you log in again.`
+            : `This removes the stored ${confirmLogoutProvider?.label ?? ""} credential from Basebuild's local credential store. Other accounts on this provider stay connected.`
+        }
         confirmLabel="Log out"
         destructive
         onConfirm={() => {
-          if (confirmLogoutProvider) void handleProviderLogout(confirmLogoutProvider.id, confirmLogoutProvider.label);
+          if (!confirmLogoutProvider || !selectedProvider) return;
+          if (confirmLogoutProvider.id === selectedProvider.id) {
+            void handleProviderLogout(confirmLogoutProvider.id, confirmLogoutProvider.label);
+          } else {
+            void handleAccountLogout(confirmLogoutProvider.id, confirmLogoutProvider.label);
+          }
         }}
         onCancel={() => setConfirmLogoutProvider(null)}
       />
@@ -3814,7 +4084,17 @@ export function ChatPanel({
                               <span className="provider-card-meta">
                                 {provider.modelCount} models
                                 {providerAuthOptionsLabel(provider) ? ` · ${providerAuthOptionsLabel(provider)}` : ""}
+                                {provider.accountCount > 0 ? ` · ${accountSummaryLabel(provider)}` : ""}
                               </span>
+                              {provider.accountCount > 0 && provider.aggregateHealth !== "healthy" ? (
+                                <span
+                                  className={`provider-status is-${provider.aggregateHealth === "broken" ? "danger" : "warning"}`}
+                                  title={`Account health: ${provider.aggregateHealth}. Open Manage for per-account details.`}
+                                >
+                                  <span className="provider-status-dot" />
+                                  {provider.aggregateHealth === "broken" ? "Needs attention" : "Degraded"}
+                                </span>
+                              ) : null}
                             </button>
                             {provider.id !== LOCAL_PROVIDER_ID ? (
                               <div className="provider-card-actions">

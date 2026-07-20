@@ -27,11 +27,14 @@ import {
   nativeProviderLoginStart,
   nativeProviderLoginSubmit,
   nativeProviderRefreshOmpCredentials,
+  nativeProviderAccountStrategy,
+  nativeProviderAccountStrategySet,
   nativeSaveProviderCredential,
   nativeDeleteProviderCredential,
   type NativeProvider,
   type NativeProviderCatalog,
   type NativeProviderLoginState,
+  type ProviderAccountStrategy,
 } from "../../lib/native-chat";
 import {
   getRuntimeDefaults,
@@ -1690,6 +1693,28 @@ function ModelProvidersPanel() {
   const [logoutTarget, setLogoutTarget] = useState<{ id: string; label: string } | null>(null);
   const [loginStates, setLoginStates] = useState<Record<string, NativeProviderLoginState>>({});
   const [loginDrafts, setLoginDrafts] = useState<Record<string, string>>({});
+  const [strategy, setStrategy] = useState<ProviderAccountStrategy>("round_robin");
+  const [strategyLoading, setStrategyLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void nativeProviderAccountStrategy(null)
+      .then((s) => { if (!cancelled) setStrategy(s); })
+      .catch(() => { /* leave default on error */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  const updateStrategy = useCallback(async (next: ProviderAccountStrategy) => {
+    setStrategy(next);
+    setStrategyLoading(true);
+    try {
+      await nativeProviderAccountStrategySet(null, next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setStrategyLoading(false);
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -1865,6 +1890,20 @@ function ModelProvidersPanel() {
       <p className="text-muted text-sm">
         Log in with a provider subscription when OAuth is available. API keys are reserved for providers without a supported sign-in flow.
       </p>
+      <label className="stack-sm provider-strategy-picker" htmlFor="provider-account-strategy" title="How Basebuild splits usage across multiple accounts on the same provider. Per-provider overrides can be set in the chat Manage dialog.">
+        <span className="text-sm">Split usage across accounts</span>
+        <select
+          id="provider-account-strategy"
+          className="input"
+          value={strategy}
+          disabled={strategyLoading}
+          onChange={(e) => void updateStrategy(e.target.value as ProviderAccountStrategy)}
+        >
+          <option value="round_robin">Round-robin (even rotation)</option>
+          <option value="sticky_session">Sticky per chat (one account per session)</option>
+          <option value="fill_first">Fill first (drain account 1 before account 2)</option>
+        </select>
+      </label>
       <label className="stack-sm" htmlFor="provider-model-search">
         <span className="text-sm">Search providers and models</span>
         <span className="input-with-icon">
@@ -2008,6 +2047,16 @@ function ModelProvidersPanel() {
                       {provider.configured ? (
                         <span className="text-muted text-sm">
                           {" "}connected via {provider.connectedVia === "oauth" ? "OAuth" : provider.connectedVia === "omp" ? "Oh My Pi" : "API key"}
+                          {provider.accountCount > 1 ? ` · ${provider.accountCount} accounts` : ""}
+                        </span>
+                      ) : null}
+                      {provider.configured && provider.aggregateHealth !== "healthy" ? (
+                        <span
+                          className={`text-sm text-${provider.aggregateHealth === "broken" ? "danger" : "muted"}`}
+                          title={`Account health: ${provider.aggregateHealth}. Open the chat Manage dialog for per-account details.`}
+                        >
+                          {" "}<AlertTriangle size={11} className="inline-icon" />
+                          {provider.aggregateHealth === "broken" ? "Needs attention" : "Degraded"}
                         </span>
                       ) : null}
                       {provider.modelCount > 0 ? (

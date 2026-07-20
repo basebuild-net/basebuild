@@ -2924,6 +2924,30 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .provider-card-action-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; padding: 2px 6px; }
 /* Connected-account row inside the provider manage modal. */
 .provider-account-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; background: var(--bb-surface); border: 1px solid var(--bb-border); border-radius: var(--bb-radius-sm); }
+.provider-account-list { display: flex; flex-direction: column; gap: 6px; }
+.provider-account-row { padding: 8px 10px; }
+.provider-account-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.provider-account-health { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+.provider-account-health-dot { width: 8px; height: 8px; border-radius: var(--bb-radius-full); background: var(--bb-muted); flex-shrink: 0; }
+.provider-account-health.is-healthy { color: var(--bb-success, #38a169); }
+.provider-account-health.is-healthy .provider-account-health-dot { background: var(--bb-success, #38a169); }
+.provider-account-health.is-warn { color: var(--bb-warning, #d97706); }
+.provider-account-health.is-warn .provider-account-health-dot { background: var(--bb-warning, #d97706); }
+.provider-account-health.is-danger { color: var(--bb-danger, #dc2626); }
+.provider-account-health.is-danger .provider-account-health-dot { background: var(--bb-danger, #dc2626); }
+.provider-account-meta { font-size: 10px; }
+.provider-account-error { font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-account-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.provider-usage-section { padding: 8px 10px; background: var(--bb-surface); border: 1px solid var(--bb-border); border-radius: var(--bb-radius-sm); }
+.provider-usage-window { max-width: 140px; }
+.provider-usage-list { display: flex; flex-direction: column; gap: 8px; }
+.provider-usage-row { display: flex; flex-direction: column; gap: 2px; }
+.provider-usage-row-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.provider-usage-row-stats { display: flex; gap: 10px; flex-wrap: wrap; font-size: 10px; }
+.provider-usage-bar { height: 4px; background: var(--bb-border); border-radius: var(--bb-radius-full); overflow: hidden; }
+.provider-usage-bar-fill { height: 100%; background: var(--bb-success, #38a169); transition: width 0.2s ease; }
+.provider-strategy-picker { max-width: 260px; }
+.inline-icon { vertical-align: -2px; }
 .provider-card:hover { border-color: var(--bb-border-strong); background: var(--bb-surface); }
 .provider-card.is-connected { border-left: 3px solid var(--bb-success, #38a169); }
 .provider-card.is-available { border-left: 3px solid var(--bb-muted); opacity: 0.72; }
