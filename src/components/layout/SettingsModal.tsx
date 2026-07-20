@@ -445,7 +445,10 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
   ];
 
   const updateChecking = updates.status === "checking";
+  const updateDownloading = updates.status === "downloading";
+  const updateDownloaded = updates.status === "downloaded";
   const updateInstalling = updates.status === "installing";
+  const updateBusy = updateDownloading || updateInstalling;
   // Latest version: explicit when an update is available; otherwise the
   // running version is the latest (up-to-date). Unknown until checked.
   const latestVersion =
@@ -496,7 +499,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                     type="button"
                     title="Check for updates now"
                     onClick={() => void updates.checkNow()}
-                    disabled={updateChecking || updateInstalling}
+                    disabled={updateChecking || updateBusy || updateDownloaded}
                   >
                     <RefreshCw size={12} className={updateChecking ? "spin" : ""} /> Check for updates
                   </button>
@@ -518,15 +521,27 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                       <div className="requirement-name">Version {updates.info.version} available</div>
                       {updates.info.notes ? <div className="requirement-detail text-muted text-sm update-notes">{updates.info.notes}</div> : null}
                       {updates.info.downloadUrl ? <div className="requirement-detail text-muted text-sm mono update-notes">{updates.info.downloadUrl}</div> : null}
-                      <button
-                        className="btn btn-update btn-sm update-action-row"
-                        type="button"
-                        title="Download and install this update"
-                        onClick={() => void updates.install()}
-                        disabled={updateInstalling}
-                      >
-                        <Download size={12} /> {updateInstalling ? "Installing…" : "One-click update"}
-                      </button>
+                      {updateDownloaded || updateInstalling ? (
+                        <button
+                          className="btn btn-update btn-sm update-action-row"
+                          type="button"
+                          title="Restart Basebuild to apply the downloaded update"
+                          onClick={() => void updates.restartToApply()}
+                          disabled={updateInstalling}
+                        >
+                          <RefreshCw size={12} className={updateInstalling ? "spin" : ""} /> {updateInstalling ? "Restarting…" : "Restart to apply update"}
+                        </button>
+                      ) : (
+                        <button
+                          className="btn btn-update btn-sm update-action-row"
+                          type="button"
+                          title="Download this update in the background — it applies when you restart"
+                          onClick={() => void updates.download()}
+                          disabled={updateBusy}
+                        >
+                          <Download size={12} /> {updateDownloading ? "Downloading…" : "Download update"}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ) : updates.info ? (

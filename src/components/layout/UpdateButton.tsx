@@ -9,22 +9,38 @@ type UpdateButtonProps = {
 export function UpdateButton({ updates, onOpenSettings }: UpdateButtonProps) {
   const { info, status } = updates;
   const checking = status === "checking";
-  const installing = status === "installing";
+  const versionLabel = info?.version ? ` ${info.version}` : "";
 
-  if (info?.available) {
-    const versionLabel = info.version ? ` ${info.version}` : "";
-    // Silent auto-update: no install CTA. Show a calm status indicator only;
-    // the updater installs in the background via useUpdater's auto-install.
+  if (status === "downloaded" || status === "installing") {
+    // The update is staged locally. Never restart on our own — surface an
+    // explicit CTA and let the user decide when to apply it.
+    const installing = status === "installing";
+    return (
+      <button
+        className="update-taskbar-btn"
+        type="button"
+        title={`Basebuild${versionLabel} is downloaded — click to restart and apply it`}
+        onClick={() => void updates.restartToApply()}
+        disabled={installing}
+      >
+        <RefreshCw size={13} className={installing ? "spin" : ""} />
+        <span>{installing ? "Restarting…" : "Restart to apply update"}</span>
+      </button>
+    );
+  }
+
+  if (info?.available || status === "downloading") {
+    // Background download in progress: calm, non-interactive status only.
     return (
       <button
         className="update-taskbar-status"
         type="button"
-        title={`Downloading Basebuild${versionLabel} in the background — it will relaunch when ready`}
+        title={`Downloading Basebuild${versionLabel} in the background — you can keep working; it applies when you restart`}
         onClick={onOpenSettings}
         disabled
       >
         <Download size={13} />
-        <span>{installing ? "Installing…" : `Updating${versionLabel}`}</span>
+        <span>{`Downloading${versionLabel}…`}</span>
       </button>
     );
   }

@@ -12,7 +12,6 @@ type StartupSplashProps = {
 /// Splash phase drives the UI state machine.
 type SplashPhase =
   | "checking"
-  | "optional"
   | "mandatory"
   | "progress"
   | "error"
@@ -27,12 +26,26 @@ export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
     void appVersion().then(setVersion).catch(() => {});
   }, []);
 
-  // React to updater state changes.
+  // React to updater state changes. The splash is the ONLY place an update
+  // is applied automatically: at startup nothing is open yet, so a restart
+  // is free and a closed/re-opened app comes up already updated. Once the
+  // splash is dismissed, updates only download in the background and apply
+  // via the explicit "Restart to apply update" button.
   useEffect(() => {
     const { status, info } = updates;
 
-    // If install is in progress, show progress.
-    if (status === "installing") {
+    // Update staged and ready → install and restart into the new version.
+    if (status === "downloaded") {
+      setPhase("progress");
+      if (!autoStarted) {
+        setAutoStarted(true);
+        void updates.restartToApply();
+      }
+      return;
+    }
+
+    // Download or install in progress → show progress.
+    if (status === "downloading" || status === "installing") {
       setPhase("progress");
       return;
     }
@@ -56,7 +69,7 @@ export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
       return;
     }
 
-    // Update available — check policy.
+    // Update available — the background download starts automatically.
     if (info.available) {
       // If user already skipped this exact version, proceed.
       if (info.skipped) {
@@ -64,28 +77,14 @@ export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
         onComplete();
         return;
       }
-
-      if (info.policy.mandatory) {
-        setPhase("mandatory");
-        // Auto-start the mandatory update once.
-        if (!autoStarted) {
-          setAutoStarted(true);
-          void updates.installWithProgress();
-        }
-      } else {
-        setPhase("optional");
-      }
+      setPhase(info.policy.mandatory ? "mandatory" : "progress");
     }
   }, [updates, onComplete, autoStarted]);
 
-  const handleUpgrade = () => {
-    void updates.installWithProgress();
-  };
-
-  const handleSkip = () => {
-    if (updates.info?.version) {
-      void updates.skipVersion(updates.info.version);
-    }
+  // Enter the app while the download continues in the background. The
+  // staged update is applied later via the taskbar "Restart to apply
+  // update" button (or automatically on the next launch).
+  const handleContinueWithoutRestart = () => {
     setPhase("ready");
     onComplete();
   };
@@ -115,38 +114,39 @@ export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
           </div>
         )}
 
-        {phase === "optional" && updates.info && (
-          <div className="splash-update-info">
-            <div className="splash-update-title">
-              Version {updates.info.version} available
+        {phase === "progress" && (
+          <div className="splash-progress">
+            <div className="splash-status">
+              {updates.status === "installing" || updates.status === "downloaded"
+                ? "Restarting to apply update…"
+                : updates.progress?.step === "installing"
+                  ? "Installing…"
+                  : updates.progress?.step === "restarting"
+                    ? "Restarting…"
+                    : `Downloading update${updates.info?.version ? ` ${updates.info.version}` : ""}…`}
             </div>
-            {updates.info.policy.releaseSummary ? (
-              <p className="splash-update-summary text-muted text-sm">
-                {updates.info.policy.releaseSummary}
-              </p>
-            ) : updates.info.notes ? (
-              <p className="splash-update-summary text-muted text-sm">
-                {updates.info.notes}
-              </p>
+            {progressPct !== null ? (
+              <div className="splash-progress-bar">
+                <div className="splash-progress-fill" style={{ width: `${progressPct}%` }} />
+              </div>
+            ) : (
+              <div className="splash-progress-indeterminate" />
+            )}
+            {updates.progress?.message ? (
+              <p className="splash-progress-message text-muted text-sm">{updates.progress.message}</p>
             ) : null}
-            <div className="splash-actions">
-              <button
-                className="btn btn-update btn-sm"
-                type="button"
-                title={`Download and install Basebuild ${updates.info.version ?? ""}`}
-                onClick={handleUpgrade}
-              >
-                <Download size={12} /> Upgrade
-              </button>
-              <button
-                className="btn btn-ghost btn-sm"
-                type="button"
-                title="Skip this update for now"
-                onClick={handleSkip}
-              >
-                Skip update for now
-              </button>
-            </div>
+            {!updates.info?.policy.mandatory && updates.status === "downloading" ? (
+              <div className="splash-actions">
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  title="Use Basebuild now — the update keeps downloading and applies when you restart"
+                  onClick={handleContinueWithoutRestart}
+                >
+                  Continue without restarting
+                </button>
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -172,24 +172,6 @@ export function StartupSplash({ updates, onComplete }: StartupSplashProps) {
                 <Download size={12} /> Updating…
               </button>
             </div>
-          </div>
-        )}
-
-        {phase === "progress" && (
-          <div className="splash-progress">
-            <div className="splash-status">
-              {updates.progress?.step === "installing" ? "Installing…" : updates.progress?.step === "restarting" ? "Restarting…" : "Downloading…"}
-            </div>
-            {progressPct !== null ? (
-              <div className="splash-progress-bar">
-                <div className="splash-progress-fill" style={{ width: `${progressPct}%` }} />
-              </div>
-            ) : (
-              <div className="splash-progress-indeterminate" />
-            )}
-            {updates.progress?.message ? (
-              <p className="splash-progress-message text-muted text-sm">{updates.progress.message}</p>
-            ) : null}
           </div>
         )}
 

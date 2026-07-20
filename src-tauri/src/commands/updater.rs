@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
-use tauri_plugin_updater::{Error as UpdaterPluginError, UpdaterExt};
+use tauri_plugin_updater::{Error as UpdaterPluginError, Update, UpdaterExt};
 
 use crate::services::updater_service::{
     clear_skipped_version, get_skipped_version, set_skipped_version, UpdatePolicy,
@@ -344,46 +345,43 @@ pub async fn check_for_updates(app: AppHandle) -> Result<UpdateInfo, String> {
     }
 }
 
-#[tauri::command]
-pub async fn install_update(app: AppHandle) -> Result<(), String> {
-    if updates_disabled_in_dev() {
-        return Err("Updates are disabled in dev builds.".to_string());
-    }
-    let updater = app
-        .updater()
-        .map_err(|e| format!("Failed to get updater: {e}"))?;
-
-    let update = updater
-        .check()
-        .await
-        .map_err(|e| {
-            let status = UpdateChannelStatus::from_plugin_error(&e);
-            let explanation = status.explanation();
-            format!("Failed to check for updates: {e} | channel_status={status:?} | {explanation}")
-        })?
-        .ok_or("No update available")?;
-
-    parse_static_update_manifest_value(&update.raw_json, &update.target)?;
-
-    update
-        .download_and_install(|_, _| {}, || {})
-        .await
-        .map_err(|e| {
-            let status = UpdateChannelStatus::from_plugin_error(&e);
-            let explanation = status.explanation();
-            format!("Failed to install update: {e} | channel_status={status:?} | {explanation}")
-        })?;
-
-    app.restart();
+/// A fully downloaded, signature-verified update payload staged in memory,
+/// awaiting an explicit user-triggered install ("Restart to apply update").
+/// Downloading never restarts the app; only `apply_downloaded_update` does.
+struct PendingUpdate {
+    update: Update,
+    bytes: Vec<u8>,
 }
 
-/// Download and install an update with progress events emitted to the
-/// frontend. Emits `updater://progress` with `{ step, downloaded, total }`
-/// during download, then delegates to the Tauri plugin's install path
-/// (NSIS for installer builds, or the portable handoff for portable
-/// builds when supported).
+static PENDING_UPDATE: Mutex<Option<PendingUpdate>> = Mutex::new(None);
+
+fn emit_progress(
+    app: &AppHandle,
+    step: UpdateStep,
+    downloaded: usize,
+    total: Option<u64>,
+    message: String,
+) {
+    let _ = app.emit(
+        UPDATER_PROGRESS_EVENT,
+        UpdateProgress {
+            step: step.to_string(),
+            downloaded,
+            total,
+            message,
+        },
+    );
+}
+
+/// Download and stage an update WITHOUT installing or restarting. Emits
+/// `updater://progress` (`downloading` chunks, then `downloaded`) and keeps
+/// the verified payload in memory. The update is applied only when the user
+/// clicks "Restart to apply update" (`apply_downloaded_update`) — the app is
+/// never restarted out from under a working session. Returns the staged
+/// version. Idempotent: if the same version is already staged, it is not
+/// re-downloaded.
 #[tauri::command]
-pub async fn install_update_with_progress(app: AppHandle) -> Result<(), String> {
+pub async fn download_update(app: AppHandle) -> Result<String, String> {
     if updates_disabled_in_dev() {
         return Err("Updates are disabled in dev builds.".to_string());
     }
@@ -403,60 +401,110 @@ pub async fn install_update_with_progress(app: AppHandle) -> Result<(), String> 
 
     parse_static_update_manifest_value(&update.raw_json, &update.target)?;
 
-    let app_handle = app.clone();
     let version = update.version.clone();
 
-    let _ = app_handle.emit(
-        UPDATER_PROGRESS_EVENT,
-        UpdateProgress {
-            step: UpdateStep::Downloading.to_string(),
-            downloaded: 0,
-            total: None,
-            message: format!("Downloading Basebuild {version}…"),
-        },
+    // Same version already staged? Re-announce readiness without another
+    // multi-megabyte download.
+    let already_staged = PENDING_UPDATE
+        .lock()
+        .map_err(|_| "Update state lock poisoned".to_string())?
+        .as_ref()
+        .is_some_and(|pending| pending.update.version == version);
+    if already_staged {
+        emit_progress(
+            &app,
+            UpdateStep::Downloaded,
+            0,
+            None,
+            format!("Basebuild {version} is ready — restart to apply."),
+        );
+        return Ok(version);
+    }
+
+    emit_progress(
+        &app,
+        UpdateStep::Downloading,
+        0,
+        None,
+        format!("Downloading Basebuild {version}…"),
     );
 
-    // Use the plugin's download (which verifies signature) then install.
-    update
-        .download_and_install(
-            |chunk_len, content_length| {
-                let _ = app_handle.emit(
-                    UPDATER_PROGRESS_EVENT,
-                    UpdateProgress {
-                        step: UpdateStep::Downloading.to_string(),
-                        downloaded: chunk_len,
-                        total: content_length,
-                        message: format!("Downloading Basebuild {version}…"),
-                    },
+    let app_handle = app.clone();
+    let progress_version = version.clone();
+    let bytes = update
+        .download(
+            move |chunk_len, content_length| {
+                emit_progress(
+                    &app_handle,
+                    UpdateStep::Downloading,
+                    chunk_len,
+                    content_length,
+                    format!("Downloading Basebuild {progress_version}…"),
                 );
             },
-            || {
-                let _ = app_handle.emit(
-                    UPDATER_PROGRESS_EVENT,
-                    UpdateProgress {
-                        step: UpdateStep::Installing.to_string(),
-                        downloaded: 0,
-                        total: None,
-                        message: "Installing update…".to_string(),
-                    },
-                );
-            },
+            || {},
         )
         .await
         .map_err(|e| {
             let status = UpdateChannelStatus::from_plugin_error(&e);
             let explanation = status.explanation();
-            format!("Failed to install update: {e} | channel_status={status:?} | {explanation}")
+            format!("Failed to download update: {e} | channel_status={status:?} | {explanation}")
         })?;
 
-    let _ = app_handle.emit(
-        UPDATER_PROGRESS_EVENT,
-        UpdateProgress {
-            step: UpdateStep::Restarting.to_string(),
-            downloaded: 0,
-            total: None,
-            message: "Restarting Basebuild…".to_string(),
-        },
+    *PENDING_UPDATE
+        .lock()
+        .map_err(|_| "Update state lock poisoned".to_string())? =
+        Some(PendingUpdate { update, bytes });
+
+    emit_progress(
+        &app,
+        UpdateStep::Downloaded,
+        0,
+        None,
+        format!("Basebuild {version} is ready — restart to apply."),
+    );
+
+    Ok(version)
+}
+
+/// Install the previously downloaded update and restart. Only ever called
+/// from an explicit user action (the "Restart to apply update" button or the
+/// startup splash). On Windows the plugin launches the NSIS installer and
+/// exits the process; the installer relaunches the app.
+#[tauri::command]
+pub async fn apply_downloaded_update(app: AppHandle) -> Result<(), String> {
+    let pending = PENDING_UPDATE
+        .lock()
+        .map_err(|_| "Update state lock poisoned".to_string())?
+        .take()
+        .ok_or("No downloaded update to apply. Download an update first.")?;
+
+    emit_progress(
+        &app,
+        UpdateStep::Installing,
+        0,
+        None,
+        "Installing update…".to_string(),
+    );
+
+    if let Err(e) = pending.update.install(&pending.bytes) {
+        let status = UpdateChannelStatus::from_plugin_error(&e);
+        let explanation = status.explanation();
+        let message =
+            format!("Failed to install update: {e} | channel_status={status:?} | {explanation}");
+        // Keep the payload staged so the user can retry without re-downloading.
+        if let Ok(mut slot) = PENDING_UPDATE.lock() {
+            *slot = Some(pending);
+        }
+        return Err(message);
+    }
+
+    emit_progress(
+        &app,
+        UpdateStep::Restarting,
+        0,
+        None,
+        "Restarting Basebuild…".to_string(),
     );
 
     app.restart();
@@ -496,9 +544,9 @@ pub struct UpdateProgress {
 }
 
 /// Update lifecycle steps, serialized as strings for the frontend.
-#[derive(Debug, Clone)]
 pub enum UpdateStep {
     Downloading,
+    Downloaded,
     Installing,
     Restarting,
 }
@@ -507,6 +555,7 @@ impl UpdateStep {
     pub fn to_string(&self) -> String {
         match self {
             Self::Downloading => "downloading".to_string(),
+            Self::Downloaded => "downloaded".to_string(),
             Self::Installing => "installing".to_string(),
             Self::Restarting => "restarting".to_string(),
         }
