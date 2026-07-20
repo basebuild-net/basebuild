@@ -17,8 +17,20 @@ if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
     throw "install.ps1 supports Windows only. Use install.sh on Linux or macOS."
 }
 
-$architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
-if ($architecture -ne "X64") {
+# Detect the OS architecture from environment variables. Avoid
+# [RuntimeInformation]::OSArchitecture: on some Windows PowerShell 5.1 / older
+# .NET Framework builds that property is missing, and Set-StrictMode -Version
+# Latest turns the missing member into a hard "property cannot be found"
+# failure that aborts the whole `irm ... | iex` install. PROCESSOR_ARCHITEW6432
+# carries the real architecture when a 32-bit shell runs on 64-bit Windows
+# (WOW64); otherwise PROCESSOR_ARCHITECTURE is authoritative.
+$architecture = if ($env:PROCESSOR_ARCHITEW6432) {
+    $env:PROCESSOR_ARCHITEW6432
+}
+else {
+    $env:PROCESSOR_ARCHITECTURE
+}
+if ($architecture -ne "AMD64") {
     throw "Basebuild currently publishes Windows x64 releases only; detected $architecture."
 }
 
