@@ -214,10 +214,10 @@ test.describe("Design system invariants (DESIGN.md)", () => {
       expect(count).toBeGreaterThanOrEqual(5);
 
       // Each button should have a tooltip.
-      for (let i = 0; i < count; i++) {
-        const title = await buttons.nth(i).getAttribute("title");
+      const titles = await buttons.evaluateAll((els) => els.map((el) => el.getAttribute("title")));
+      titles.forEach((title, i) => {
         expect(title, `Stage button ${i} should have a tooltip`).toBeTruthy();
-      }
+      });
     }
   });
 });
