@@ -378,10 +378,10 @@ impl ProviderAccountService {
             Some(id) => {
                 conn.execute(
                     "UPDATE native_provider_accounts
-                     SET api_key = ?1, base_url = ?2, health = 'healthy', status = 'active',
-                         cooldown_until = NULL, last_error = NULL, updated_at = ?3
-                     WHERE id = ?4",
-                    params![api_key, base_url, now, &id],
+                     SET label = ?1, api_key = ?2, base_url = ?3, health = 'healthy', status = 'active',
+                         cooldown_until = NULL, last_error = NULL, updated_at = ?4
+                     WHERE id = ?5",
+                    params![label, api_key, base_url, now, &id],
                 )
                 .map_err(|e| e.to_string())?;
                 (id, true)
@@ -1014,5 +1014,91 @@ impl ProviderAccountService {
                 record.provider_id
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_util::test::isolated_home;
+
+    /// Task 1.4: `ensure_migrated` must be idempotent — running it twice must
+    /// not duplicate rows, not error, and leave the accounts table reflecting
+    /// the single legacy credential. The in-process `MIGRATED` flag is reset
+    /// to force the second pass through the actual migration code path.
+    #[test]
+    fn ensure_migrated_is_idempotent() {
+        let (_dir, _guard) = isolated_home();
+
+        // Seed a legacy credential row as if the user connected before upgrade.
+        {
+            let conn = StorageService::connect().expect("connect for seed");
+            conn.execute(
+                "INSERT INTO native_provider_credentials
+                   (provider_id, label, api_key, base_url, updated_at)
+                 VALUES ('openai', 'OpenAI', 'sk-test-1234', NULL, 0)",
+                [],
+            )
+            .expect("seed legacy credential");
+        }
+        // Reset the in-process guard so the migration actually runs (a prior
+        // test may have set it). The static is process-scoped, not per-DB.
+        MIGRATED.store(false, Ordering::Release);
+        // First migration: copies the legacy row into the accounts table.
+        ProviderAccountService::ensure_migrated();
+        let rows = ProviderAccountService::list_records(Some("openai"))
+            .expect("list after first migration");
+        assert_eq!(rows.len(), 1, "first migration should produce one account row");
+        assert_eq!(rows[0].api_key, "sk-test-1234");
+
+        // Reset the in-process guard and run again. The UNIQUE(provider_id,
+        // identity_key) index + the `existing_id` check in upsert must keep
+        // this a no-op rather than duplicating.
+        MIGRATED.store(false, Ordering::Release);
+        ProviderAccountService::ensure_migrated();
+
+        let rows_again = ProviderAccountService::list_records(Some("openai"))
+            .expect("list after second migration");
+        assert_eq!(
+            rows_again.len(),
+            1,
+            "second migration must not duplicate the account row"
+        );
+        assert_eq!(rows_again[0].api_key, "sk-test-1234");
+    }
+
+    /// Task 1.4 companion: upserting the same identity twice updates in place
+    /// rather than inserting a duplicate (the dedup contract).
+    #[test]
+    fn upsert_account_dedupes_by_identity() {
+        let (_dir, _guard) = isolated_home();
+
+        let (first, updated_first) = ProviderAccountService::upsert_account(
+            "anthropic",
+ "Claude",
+            "api",
+            "sk-aaa",
+            None,
+            "sk256:abc",
+        )
+        .expect("first upsert");
+        assert!(!updated_first, "first upsert should be an insert");
+
+        let (second, updated_second) = ProviderAccountService::upsert_account(
+            "anthropic",
+            "Claude (renamed)",
+            "api",
+            "sk-aaa",
+            None,
+            "sk256:abc",
+        )
+        .expect("second upsert");
+        assert!(updated_second, "second upsert should be an update");
+        assert_eq!(first.id, second.id, "dedup must reuse the same row id");
+        assert_eq!(second.label, "Claude (renamed)");
+
+        let rows = ProviderAccountService::list_records(Some("anthropic"))
+            .expect("list after dedup");
+        assert_eq!(rows.len(), 1, "only one row for the identity");
     }
 }
