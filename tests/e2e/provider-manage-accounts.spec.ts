@@ -87,6 +87,85 @@ test.describe("Provider Manage dialog — multi-account", () => {
     await expect(manageModal.locator(".provider-usage-row")).toHaveCount(1);
     await expect(manageModal.locator(".provider-usage-row")).toContainText(/reqs/);
   });
+
+  test("Manage modal for provider with no accounts shows placeholder", async ({ page }) => {
+    await openFixtureProject(page);
+    // OpenAI API has no seeded account.
+    const manageModal = await openManageModal(page, "OpenAI API");
+    await expect(manageModal.getByText(/No account connected yet/)).toBeVisible();
+    await expect(manageModal.locator(".provider-account-row")).toHaveCount(0);
+  });
+
+  test("Manage modal can be closed via Back button", async ({ page }) => {
+    await openFixtureProject(page);
+    const manageModal = await openManageModal(page, "Umans");
+    await manageModal.locator("button[title='Back to the provider & model catalog']").click();
+    await expect(manageModal).toBeHidden({ timeout: 3_000 });
+    await expect(page.locator(".provider-catalog-overlay").first()).toBeVisible({ timeout: 3_000 });
+  });
+
+  test("usage window picker switches between today/7d/30d", async ({ page }) => {
+    await openFixtureProject(page);
+    const manageModal = await openManageModal(page, "Umans");
+    const windowSelect = manageModal.locator(".provider-usage-window");
+    await expect(windowSelect).toBeVisible();
+    // Default is "7d" (604800).
+    await expect(windowSelect).toHaveValue("604800");
+    // Switch to today.
+    await windowSelect.selectOption("86400");
+    await expect(windowSelect).toHaveValue("86400");
+    // Switch to 30d.
+    await windowSelect.selectOption("2592000");
+    await expect(windowSelect).toHaveValue("2592000");
+  });
+
+  test("Log out all button appears with 2+ accounts and clears all rows", async ({ page }) => {
+    await openFixtureProject(page);
+    // Seed a second umans account via the test hook.
+    await page.evaluate(() =>
+      (window as unknown as { __basebuildInvoke: (cmd: string, args: unknown) => Promise<unknown> })
+        .__basebuildInvoke("__e2e_seed_provider_account", {
+          id: "umans_acct2",
+          providerId: "umans",
+          label: "Umans key …aaaa",
+          authMethod: "api",
+          health: "healthy",
+        }),
+    );
+    const manageModal = await openManageModal(page, "Umans");
+    await expect(manageModal.locator(".provider-account-row")).toHaveCount(2);
+    // "Log out all" button is visible.
+    const logoutAllBtn = manageModal.locator("button", { hasText: "Log out all accounts" });
+    await expect(logoutAllBtn).toBeVisible();
+    await logoutAllBtn.click();
+    // Confirm dialog.
+    const confirm = page.locator(".modal-overlay").filter({ has: page.locator(".confirm-dialog-modal") });
+    await confirm.getByRole("button", { name: "Log out" }).click();
+    // All rows disappear.
+    await expect(manageModal.locator(".provider-account-row")).toHaveCount(0, { timeout: 5_000 });
+    await expect(manageModal.getByText(/No account connected yet/)).toBeVisible();
+  });
+
+  test("health badge shows error state with last-error tooltip", async ({ page }) => {
+    await openFixtureProject(page);
+    // Seed an account with error health.
+    await page.evaluate(() =>
+      (window as unknown as { __basebuildInvoke: (cmd: string, args: unknown) => Promise<unknown> })
+        .__basebuildInvoke("__e2e_seed_provider_account", {
+          id: "umans_acct_err",
+          providerId: "umans",
+          label: "Umans key …err1",
+          authMethod: "api",
+          health: "error",
+          lastError: "401 Unauthorized",
+        }),
+    );
+    const manageModal = await openManageModal(page, "Umans");
+    const errBadge = manageModal.locator(".provider-account-health.is-danger").first();
+    await expect(errBadge).toBeVisible();
+    await expect(errBadge).toHaveAttribute("title", "401 Unauthorized");
+    await expect(manageModal.locator(".provider-account-error")).toContainText("401 Unauthorized");
+  });
 });
 
 test.describe("Settings — account strategy picker", () => {

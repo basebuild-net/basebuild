@@ -1887,11 +1887,48 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       const baseUrl = req.baseUrl ?? null;
       s.credentials.set(req.providerId, { providerId: req.providerId, apiKey: req.apiKey, baseUrl, updatedAt: Math.floor(Date.now() / 1000) });
       s.blockedProviders.delete(req.providerId);
+      // Mirror the real backend: also upsert an account row.
+      const acctId = `${req.providerId}_acct_${req.apiKey.slice(-4)}`;
+      s.providerAccounts.set(acctId, {
+        id: acctId,
+        providerId: req.providerId,
+        label: req.label || `${req.providerId} key …${req.apiKey.slice(-4)}`,
+        authMethod: "api",
+        health: "healthy",
+        cooldownUntil: null,
+        lastError: null,
+        lastUsedAt: null,
+        createdAt: Math.floor(Date.now() / 1000),
+        updatedAt: Math.floor(Date.now() / 1000),
+      });
+      return undefined as T;
+    }
+    case "__e2e_seed_provider_account": {
+      const acct = args as { id: string; providerId: string; label: string; authMethod?: string; health?: string; lastError?: string | null };
+      s.providerAccounts.set(acct.id, {
+        id: acct.id,
+        providerId: acct.providerId,
+        label: acct.label,
+        authMethod: acct.authMethod ?? "api",
+        health: acct.health ?? "healthy",
+        cooldownUntil: null,
+        lastError: acct.lastError ?? null,
+        lastUsedAt: null,
+        createdAt: Math.floor(Date.now() / 1000),
+        updatedAt: Math.floor(Date.now() / 1000),
+      });
+      s.credentials.set(acct.providerId, { providerId: acct.providerId, apiKey: "seeded", baseUrl: null, updatedAt: Math.floor(Date.now() / 1000) });
+      s.blockedProviders.delete(acct.providerId);
       return undefined as T;
     }
     case "native_delete_provider_credential": {
       const providerId = (args as { providerId?: string }).providerId ?? "unknown";
       s.blockedProviders.add(providerId);
+      // Mirror real backend: log out all accounts for this provider.
+      for (const [id, acct] of Array.from(s.providerAccounts.entries())) {
+        if (acct.providerId === providerId) s.providerAccounts.delete(id);
+      }
+      s.credentials.delete(providerId);
       return undefined as T;
     }
     case "list_categories":
