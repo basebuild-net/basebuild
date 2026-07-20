@@ -61,7 +61,8 @@ test.describe("Login form is a modal, not inline", () => {
       });
       await expect(loginModal).toBeVisible({ timeout: 3_000 });
       await expect(loginModal.locator("button", { hasText: /Log in to Anthropic/i })).toBeVisible();
-      await expect(loginModal.locator("button[title='Open the Anthropic API key page in your browser']")).toBeVisible();
+      // The login CTA card is at the top with the prominent button.
+      await expect(loginModal.locator(".provider-login-cta")).toBeVisible();
 
       await loginModal.locator("button[title='Back to the provider & model catalog']").click();
       await expect(loginModal).toBeHidden({ timeout: 2_000 });

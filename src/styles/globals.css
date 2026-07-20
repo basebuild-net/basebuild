@@ -2922,6 +2922,20 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .provider-card-select { display: flex; flex-direction: column; gap: 5px; background: none; border: none; padding: 0; cursor: pointer; text-align: left; color: inherit; min-width: 0; }
 .provider-card-actions { display: flex; gap: 4px; flex-wrap: wrap; }
 .provider-card-action-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; padding: 2px 6px; }
+/* Primary CTA button — orange brand accent for the main action in a section. */
+.btn-primary { background: var(--bb-cta); border-color: var(--bb-cta); color: var(--bb-on-cta); font-weight: 600; }
+.btn-primary:hover { background: var(--bb-cta-hover); border-color: var(--bb-cta-hover); }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+/* Large button — more significant than the default. */
+.btn-lg { padding: 8px 16px; font-size: 13px; min-height: 36px; }
+.btn-lg svg { width: 14px; height: 14px; }
+/* Login CTA card at the top of the provider manage modal. */
+.provider-login-cta { padding: 12px 14px; background: color-mix(in srgb, var(--bb-cta) 6%, var(--bb-surface)); border: 1px solid color-mix(in srgb, var(--bb-cta) 34%, var(--bb-border)); border-radius: var(--bb-radius-md); }
+.provider-login-cta-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--bb-cta); margin: 0; }
+.provider-login-cta-desc { font-size: 11px; color: var(--bb-muted); margin: 0; }
+.provider-login-cta .input { background: var(--bb-bg); }
+.provider-account-connected { font-size: 10px; color: var(--bb-muted); white-space: nowrap; }
+
 /* Connected-account row inside the provider manage modal. */
 .provider-account-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; background: var(--bb-surface); border: 1px solid var(--bb-border); border-radius: var(--bb-radius-sm); }
 .provider-account-list { display: flex; flex-direction: column; gap: 6px; }

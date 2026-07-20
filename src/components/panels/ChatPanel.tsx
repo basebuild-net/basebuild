@@ -152,10 +152,19 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
-/** Relative time "2h ago" / "just now" from a millisecond timestamp. */
-function accountRelativeTime(ms: number | null | undefined): string | null {
+/** Normalize a timestamp to milliseconds. The Rust backend stores Unix
+ * seconds; the e2e mock stores ms. Values < 10^12 are treated as seconds. */
+function toMs(ts: number | null | undefined): number | null {
+  if (ts == null) return null;
+  return ts < 1e12 ? ts * 1000 : ts;
+}
+
+/** Relative time "2h ago" / "just now" from a timestamp (seconds or ms). */
+function accountRelativeTime(ts: number | null | undefined): string | null {
+  const ms = toMs(ts);
   if (ms == null) return null;
   const diff = Date.now() - ms;
+  if (diff < 0) return "just now";
   if (diff < 60_000) return "just now";
   const mins = Math.floor(diff / 60_000);
   if (mins < 60) return `${mins}m ago`;
@@ -163,6 +172,19 @@ function accountRelativeTime(ms: number | null | undefined): string | null {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+/** "Connected Jul 5, 2026 · 2d ago" from a timestamp (seconds or ms). */
+function accountConnectedLabel(ts: number | null | undefined): string | null {
+  const ms = toMs(ts);
+  if (ms == null) return null;
+  const date = new Date(ms).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+  const rel = accountRelativeTime(ts);
+  return rel ? `${date} · ${rel}` : date;
 }
 
 /** Seconds until a cooldown timestamp (ms), or null if not cooling down. */
@@ -3522,6 +3544,156 @@ export function ChatPanel({
               </button>
             </div>
             <div className="modal-body stack" onClick={(e) => e.stopPropagation()}>
+              {/* ── Login CTA at top ── */}
+              <div className="provider-login-cta stack-sm">
+                <p className="provider-login-cta-title">Log in to {selectedProvider.label}</p>
+                {selectedProvider.authMethod === "oauth" ? (
+                  <>
+                    <p className="provider-login-cta-desc">
+                      {selectedProvider.id === "openai-codex"
+                        ? "Sign in with your ChatGPT subscription. Basebuild opens your browser and completes the OAuth flow natively."
+                        : "Sign in with your provider subscription through Oh My Pi."}
+                    </p>
+                    <div className="row gap-sm">
+                      <button
+                        className="btn btn-primary btn-lg"
+                        type="button"
+                        title={`Log in to ${selectedProvider.label}`}
+                        disabled={savingCred}
+                        onClick={() => void handleProviderLogin()}
+                      >
+                        {savingCred ? <Loader2 size={14} className="spin" /> : <Key size={14} />}
+                        {savingCred ? "Waiting for sign-in..." : `Log in to ${selectedProvider.label}`}
+                      </button>
+                      {savingCred ? (
+                        <button
+                          className="btn"
+                          type="button"
+                          title="Cancel this sign-in attempt"
+                          onClick={() => void cancelProviderLogin()}
+                        >
+                          Cancel
+                        </button>
+                      ) : null}
+                    </div>
+                    {providerLoginState ? (
+                      <p className="text-sm text-muted">{providerLoginState.message}</p>
+                    ) : null}
+                    {providerLoginState?.status === "waiting_input" ? (
+                      <div className="stack-sm">
+                        <input
+                          className="input"
+                          type="text"
+                          placeholder="Authorization code or callback URL"
+                          value={providerLoginInput}
+                          onChange={(event) => setProviderLoginInput(event.target.value)}
+                          title={providerLoginState.prompt ?? "Provider authorization response"}
+                        />
+                        <button
+                          className="btn btn-primary"
+                          type="button"
+                          title={`Submit the ${selectedProvider.label} authorization response`}
+                          disabled={!providerLoginInput.trim() || savingCred}
+                          onClick={() => void submitProviderLoginInput()}
+                        >
+                          Continue sign-in
+                        </button>
+                      </div>
+                    ) : null}
+                    {selectedProvider.apiKeyUrl ? (
+                      <details className="stack-sm">
+                        <summary className="text-muted text-sm" title={`Use a ${selectedProvider.label} API key instead of subscription login`}>
+                          Use an API key instead
+                        </summary>
+                        <button
+                          className="chat-link-btn"
+                          type="button"
+                          title={`Open ${selectedProvider.label} key page`}
+                          onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}
+                        >
+                          Get API key
+                        </button>
+                        <input
+                          className="input"
+                          type="password"
+                          placeholder="API key"
+                          value={apiKey}
+                          onChange={(event) => setApiKey(event.target.value)}
+                          title={`API key for ${selectedProvider.label}`}
+                        />
+                        <button
+                          className="btn btn-primary"
+                          type="button"
+                          title="Save API key and log in"
+                          disabled={!apiKey.trim() || savingCred}
+                          onClick={() => void handleSaveCredential()}
+                        >
+                          {savingCred ? "Saving..." : "Log in with API key"}
+                        </button>
+                      </details>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <p className="provider-login-cta-desc">
+                      Connect Basebuild directly to the provider API. The key stays in Basebuild&apos;s local credential store.
+                    </p>
+                    {selectedProvider.apiKeyUrl ? (
+                      <button
+                        className="chat-link-btn"
+                        type="button"
+                        title={`Open ${selectedProvider.label} key page`}
+                        onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}
+                      >
+                        Get API key
+                      </button>
+                    ) : null}
+                    <input
+                      className="input"
+                      type="password"
+                      placeholder="API key"
+                      value={apiKey}
+                      onChange={(event) => setApiKey(event.target.value)}
+                      title={`API key for ${selectedProvider.label}`}
+                    />
+                    <input
+                      className="input"
+                      type="url"
+                      placeholder="Base URL (optional)"
+                      value={baseUrl}
+                      onChange={(event) => setBaseUrl(event.target.value)}
+                      title="Custom API base URL"
+                    />
+                    <button
+                      className="btn btn-primary btn-lg"
+                      type="button"
+                      title="Save API key and connect"
+                      disabled={!apiKey.trim() || savingCred}
+                      onClick={() => void handleSaveCredential()}
+                    >
+                      {savingCred ? "Saving..." : "Log in with API key"}
+                    </button>
+                  </>
+                )}
+                {selectedProvider.id === "openai" && catalog?.providers.some((p) => p.id === "openai-codex") ? (
+                  <button
+                    className="chat-link-btn"
+                    type="button"
+                    title="Switch to OpenAI Codex and sign in with your ChatGPT subscription"
+                    onClick={() => {
+                      setProviderId("openai-codex");
+                      const codexModels = catalog.models.filter((model) => model.providerId === "openai-codex");
+                      if (codexModels[0] && !codexModels.some((model) => model.id === modelId)) {
+                        setModelId(codexModels[0].id);
+                      }
+                    }}
+                  >
+                    <Globe size={12} /> Have a ChatGPT subscription? Log in with OpenAI Codex
+                  </button>
+                ) : null}
+              </div>
+
+              {/* ── Connected accounts ── */}
               <div className="stack-sm">
                 <span className="text-sm">
                   Connected accounts
@@ -3531,7 +3703,7 @@ export function ChatPanel({
                   <p className="text-muted text-sm">Loading accounts…</p>
                 ) : accountRows.length === 0 ? (
                   <p className="text-muted text-sm">
-                    No account connected yet. Log in below to start using {selectedProvider.label}.
+                    No account connected yet. Log in above to start using {selectedProvider.label}.
                   </p>
                 ) : (
                   <div className="provider-account-list">
@@ -3543,6 +3715,7 @@ export function ChatPanel({
                           : "is-danger";
                       const healthText = ACCOUNT_HEALTH_LABELS[account.health] ?? account.health;
                       const lastUsed = accountRelativeTime(account.lastUsedAt);
+                      const connected = accountConnectedLabel(account.createdAt);
                       const authLabel = ACCOUNT_AUTH_LABELS[account.authMethod] ?? account.authMethod;
                       const testing = testingAccountId === account.id;
                       return (
@@ -3554,8 +3727,9 @@ export function ChatPanel({
                             </span>
                             <span className="provider-account-meta text-muted text-sm">
                               {authLabel}
+                              {connected ? ` · connected ${connected}` : ""}
                               {cdLeft != null ? ` · cooldown ${cdLeft}s` : ""}
-                              {lastUsed ? ` · ${lastUsed}` : ""}
+                              {lastUsed ? ` · used ${lastUsed}` : ""}
                             </span>
                             {account.lastError && account.health !== "healthy" ? (
                               <span className="provider-account-error text-danger text-sm" title={account.lastError}>
@@ -3648,165 +3822,7 @@ export function ChatPanel({
                   )}
                 </div>
               ) : null}
-              {selectedProvider.id === "openai" && catalog?.providers.some((p) => p.id === "openai-codex") ? (
-                <button
-                  className="btn btn-primary"
-                  type="button"
-                  title="Switch to OpenAI Codex and sign in with your ChatGPT subscription"
-                  onClick={() => {
-                    setProviderId("openai-codex");
-                    const codexModels = catalog.models.filter((model) => model.providerId === "openai-codex");
-                    if (codexModels[0] && !codexModels.some((model) => model.id === modelId)) {
-                      setModelId(codexModels[0].id);
-                    }
-                  }}
-                >
-                  <Globe size={12} /> Have a ChatGPT subscription? Log in with OpenAI Codex
-                </button>
-              ) : null}
-              {selectedProvider.authMethod !== "oauth" ? (
-                <div className="stack-sm">
-                  <p className="text-sm text-muted">
-                    Connect Basebuild directly to the provider API. The key stays in Basebuild&apos;s local credential store.
-                  </p>
-                  {selectedProvider.apiKeyUrl ? (
-                    <button
-                      className="chat-link-btn"
-                      type="button"
-                      title={`Open ${selectedProvider.label} key page`}
-                      onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}
-                    >
-                      Get API key
-                    </button>
-                  ) : null}
-                  <input
-                    className="input"
-                    type="password"
-                    placeholder="API key"
-                    value={apiKey}
-                    onChange={(event) => setApiKey(event.target.value)}
-                    title={`API key for ${selectedProvider.label}`}
-                  />
-                  <input
-                    className="input"
-                    type="url"
-                    placeholder="Base URL (optional)"
-                    value={baseUrl}
-                    onChange={(event) => setBaseUrl(event.target.value)}
-                    title="Custom API base URL"
-                  />
-                  <button
-                    className="btn btn-primary"
-                    type="button"
-                    title="Save API key and connect"
-                    disabled={!apiKey.trim() || savingCred}
-                    onClick={() => void handleSaveCredential()}
-                  >
-                    {savingCred ? "Saving..." : selectedProvider.configured ? "Replace API key" : "Log in with API key"}
-                  </button>
-                </div>
-              ) : (
-                <div className="stack-sm">
-                  <p className="text-sm text-muted">
-                    {selectedProvider.id === "openai-codex"
-                      ? "Sign in with your ChatGPT subscription. Basebuild opens your browser and completes the OAuth flow natively — the token stays in Basebuild's local credential store."
-                      : "Sign in with your provider subscription through Oh My Pi."}
-                  </p>
-                  <div className="row gap-sm">
-                    <button
-                      className="btn btn-primary"
-                      type="button"
-                      title={`Log in to ${selectedProvider.label}`}
-                      disabled={savingCred}
-                      onClick={() => void handleProviderLogin()}
-                    >
-                      {savingCred ? <Loader2 size={12} className="spin" /> : <Key size={12} />}
-                      {savingCred ? "Waiting for sign-in..." : selectedProvider.configured ? `Log in to ${selectedProvider.label} again` : `Log in to ${selectedProvider.label}`}
-                    </button>
-                    {savingCred ? (
-                      <button
-                        className="btn"
-                        type="button"
-                        title="Cancel this sign-in attempt"
-                        onClick={() => void cancelProviderLogin()}
-                      >
-                        Cancel
-                      </button>
-                    ) : null}
-                    {selectedProvider.apiKeyUrl ? (
-                      <button
-                        className="chat-link-btn"
-                        type="button"
-                        title={`Open the ${selectedProvider.label} API key page in your browser`}
-                        onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}
-                      >
-                        Get API key
-                      </button>
-                    ) : null}
-                  </div>
-                  {providerLoginState ? (
-                    <p className="text-sm text-muted">
-                      {providerLoginState.message}
-                    </p>
-                  ) : null}
-                  {providerLoginState?.status === "waiting_input" ? (
-                    <div className="stack-sm">
-                      <input
-                        className="input"
-                        type="text"
-                        placeholder="Authorization code or callback URL"
-                        value={providerLoginInput}
-                        onChange={(event) => setProviderLoginInput(event.target.value)}
-                        title={providerLoginState.prompt ?? "Provider authorization response"}
-                      />
-                      <button
-                        className="btn"
-                        type="button"
-                        title={`Submit the ${selectedProvider.label} authorization response`}
-                        disabled={!providerLoginInput.trim() || savingCred}
-                        onClick={() => void submitProviderLoginInput()}
-                      >
-                        Continue sign-in
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              )}
-              {selectedProvider.authMethod === "oauth" && selectedProvider.apiKeyUrl ? (
-                <details className="stack-sm">
-                  <summary
-                    className="text-muted text-sm"
-                    title={`Use a ${selectedProvider.label} API key instead of subscription login`}
-                  >
-                    Use an API key instead
-                  </summary>
-                  <button
-                    className="chat-link-btn"
-                    type="button"
-                    title={`Open ${selectedProvider.label} key page`}
-                    onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}
-                  >
-                    Get API key
-                  </button>
-                  <input
-                    className="input"
-                    type="password"
-                    placeholder="API key"
-                    value={apiKey}
-                    onChange={(event) => setApiKey(event.target.value)}
-                    title={`API key for ${selectedProvider.label}`}
-                  />
-                  <button
-                    className="btn"
-                    type="button"
-                    title="Save API key and log in"
-                    disabled={!apiKey.trim() || savingCred}
-                    onClick={() => void handleSaveCredential()}
-                  >
-                    {savingCred ? "Saving..." : selectedProvider.configured ? "Replace API key" : "Log in with API key"}
-                  </button>
-                </details>
-              ) : null}
+              {/* ── OMP import (optional) ── */}
               <details className="stack-sm">
                 <summary className="text-muted text-sm" title={`Import ${selectedProvider.label} credentials from Oh My Pi`}>
                   Import from Oh My Pi (optional)
