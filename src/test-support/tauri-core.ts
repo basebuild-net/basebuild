@@ -1332,7 +1332,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
         { id: "openrouter", label: "OpenRouter", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://openrouter.ai/keys", modelCount: 19, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
         { id: "deepseek", label: "DeepSeek", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://platform.deepseek.com/api_keys", modelCount: 2, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
         { id: "mistral", label: "Mistral", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.mistral.ai/api-keys", modelCount: 29, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
-        { id: "xai", label: "xAI (Grok)", credentialOwner: "user", localOnly: false, detail: "Configure credentials", authMethod: "api_key", apiKeyUrl: "https://console.x.ai", modelCount: 29, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
+        { id: "xai", label: "xAI (Grok)", credentialOwner: "user", localOnly: false, detail: "Sign in with your xAI account through Oh My Pi, or connect with an API key.", authMethod: "oauth", apiKeyUrl: "https://console.x.ai", modelCount: 29, lastSyncedAt: 1_800_000_000, source: "bundled", error: null },
       ];
       const providers = baseProviders.map((p) => {
         if (p.localOnly) {

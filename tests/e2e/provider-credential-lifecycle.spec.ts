@@ -17,8 +17,7 @@ test.describe("Provider credential lifecycle", () => {
     await expect(umansCard).toBeVisible();
 
     // Should show as connected.
-    const status = umansCard.locator(".provider-status.is-connected").first();
-    await expect(status).toBeVisible();
+    await expect(umansCard).toHaveClass(/is-connected/);
   });
 
   test("disconnect removes connected status", async ({ page }) => {
@@ -91,7 +90,7 @@ test.describe("Provider credential lifecycle", () => {
 
     await openProviderPicker(page);
     const codexCard = page.locator(".provider-card").filter({ hasText: "OpenAI Codex" }).first();
-    await expect(codexCard.locator(".provider-status.is-connected")).toBeVisible();
+    await expect(codexCard).toHaveClass(/is-connected/);
   });
 
   test("login modal has header and close button", async ({ page }) => {
@@ -131,12 +130,12 @@ test.describe("Provider credential lifecycle", () => {
     await openProviderPicker(page);
 
     // Should have connected providers (umans + basebuild-local).
-    const connected = page.locator(".provider-card .provider-status.is-connected");
+    const connected = page.locator(".provider-card.is-connected");
     const connectedCount = await connected.count();
     expect(connectedCount).toBeGreaterThanOrEqual(2);
 
     // Should have available providers (openai, anthropic, etc.).
-    const available = page.locator(".provider-card .provider-status.is-available");
+    const available = page.locator(".provider-card.is-available");
     const availableCount = await available.count();
     expect(availableCount).toBeGreaterThanOrEqual(2);
   });
@@ -331,12 +330,12 @@ test.describe("Provider OAuth and discovery", () => {
 
     // Auth availability is visible per card: OAuth-capable vs key-only.
     const codexCard = page.locator(".provider-card").filter({ hasText: "OpenAI Codex" }).first();
-    await expect(codexCard.locator(".provider-card-meta")).toContainText("OAuth");
+    await expect(codexCard.locator(".provider-card-auth")).toContainText("OAuth");
     const anthropicCard = page.locator(".provider-card").filter({ hasText: "Anthropic" }).first();
-    await expect(anthropicCard.locator(".provider-card-meta")).toContainText("OAuth or API key");
+    await expect(anthropicCard.locator(".provider-card-auth")).toContainText("OAuth / API key");
     // Connected providers show how they authenticate.
     const umansCard = page.locator(".provider-card").filter({ hasText: "Umans" }).first();
-    await expect(umansCard.locator(".provider-status")).toContainText("Connected · API key");
+    await expect(umansCard.locator(".provider-card-meta")).toContainText("API key");
 
     // Search narrows the provider grid.
     const search = page.getByTitle("Search providers and models");
@@ -366,12 +365,12 @@ test.describe("Transport unavailable state", () => {
     // Devin is a bespoke provider (devin-agent api_kind). In the fixture it
     // has base_url from the catalog, so it should show as Connected, not
     // transport_unavailable. We verify the status rendering works by
-    // checking that the "No transport" text does NOT appear for Devin.
+    // Devin has base_url from catalog, so should be "Connected" not "Needs base URL".
     const devinCard = page.locator(".provider-card").filter({ hasText: "Devin.ai" }).first();
     if (await devinCard.count() > 0) {
-      const statusText = await devinCard.locator(".provider-status").textContent();
-      // Devin has base_url from catalog, so should be "Connected" not "No transport".
-      expect(statusText).not.toContain("No transport");
+      const cardText = await devinCard.textContent();
+      // Devin has base_url from catalog, so should NOT show "Needs base URL".
+      expect(cardText).not.toContain("Needs base URL");
     }
 
     // Verify the warning status class exists in the stylesheet (CSS is present).

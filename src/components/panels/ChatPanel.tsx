@@ -27,9 +27,11 @@ import { MarkdownView } from "./MarkdownView";
 import { ConfirmDialog } from "../layout/ConfirmDialog";
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowLeft,
   Brain,
   Bot,
+  Check,
   ChevronDown,
   ChevronUp,
   Copy,
@@ -41,9 +43,12 @@ import {
   Key,
   LayoutGrid,
   Lightbulb,
+  Link,
   Loader2,
+  Plug,
   RefreshCw,
   Rocket,
+  Search,
   Send,
   Sparkles,
   Square,
@@ -111,14 +116,13 @@ import { inspectProjectSchematic, type SchematicReport } from "../../lib/schemat
 import { schematicWizardAction } from "../../lib/planningActions";
 import { readSkill } from "../../lib/skills";
 import type { AgentMode } from "../../lib/sessions";
-import { readModelRecency, recordModelUse } from "../../lib/modelRecency";
+import { readModelRecency, readProviderRecency, recordModelUse, recordProviderUse } from "../../lib/modelRecency";
 import { useLogs } from "../../state/log";
 import { useDropdownPosition } from "../../state/useDropdownPosition";
 
 const SEND_TIMEOUT_MS = 45_000;
 const NATIVE_PROFILE_ID = "basebuild-native";
 const LOCAL_PROVIDER_ID = "basebuild-local";
-const POPULAR_PROVIDER_IDS = ["openai-codex", "anthropic", "google-gemini-cli", "github-copilot", "openai", "google"] as const;
 
 function waitForProviderLoginPoll(): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -328,9 +332,7 @@ function ThinkingBlock({ text }: { text: string }) {
         <Brain size={11} />
         {expanded ? "▼" : "▶"} Thinking…
       </button>
-      {expanded ? (
-        <MarkdownView text={text} className="chat-thinking-content" />
-      ) : null}
+      {expanded ? <MarkdownView text={text} className="chat-thinking-content" /> : null}
     </div>
   );
 }
@@ -673,6 +675,7 @@ export function ChatPanel({
   const firstActivityRef = useRef(true);
   // Provider connection UI.
   const [showLogin, setShowLogin] = useState(false);
+  const [managedProviderId, setManagedProviderId] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [savingCred, setSavingCred] = useState(false);
@@ -701,6 +704,7 @@ export function ChatPanel({
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandRecency, setCommandRecency] = useState<Record<string, number>>(() => readCommandRecency());
   const [modelRecency, setModelRecency] = useState<Record<string, number>>(() => readModelRecency());
+  const [providerRecency, setProviderRecency] = useState<Record<string, number>>(() => readProviderRecency());
   const [commandPayloadModal, setCommandPayloadModal] = useState<{ name: string; content: string } | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [paletteActiveIndex, setPaletteActiveIndex] = useState(0);
@@ -793,21 +797,25 @@ export function ChatPanel({
   }, [catalog, modelFilter, providerId, modelRecency]);
   const nativeMode = profileId === NATIVE_PROFILE_ID;
   const selectedProvider = catalog?.providers.find((p) => p.id === providerId) ?? null;
+  const managedProvider = catalog?.providers.find((p) => p.id === managedProviderId) ?? null;
   const selectedModel = catalog?.models.find((m) => m.id === modelId && m.providerId === providerId) ?? null;
   const orderedProviders = useMemo(() => {
     if (!catalog) return [];
     return catalog.providers.slice().sort((a, b) => {
-      const aPriority = POPULAR_PROVIDER_IDS.indexOf(a.id as (typeof POPULAR_PROVIDER_IDS)[number]);
-      const bPriority = POPULAR_PROVIDER_IDS.indexOf(b.id as (typeof POPULAR_PROVIDER_IDS)[number]);
-      return (
-        Number(b.configured) - Number(a.configured) ||
-        Number(b.id === providerId) - Number(a.id === providerId) ||
-        (aPriority < 0 ? Number.MAX_SAFE_INTEGER : aPriority) -
-          (bPriority < 0 ? Number.MAX_SAFE_INTEGER : bPriority) ||
-        a.label.localeCompare(b.label)
-      );
+      // None/local always first.
+      const aLocal = a.id === LOCAL_PROVIDER_ID ? 0 : 1;
+      const bLocal = b.id === LOCAL_PROVIDER_ID ? 0 : 1;
+      if (aLocal !== bLocal) return aLocal - bLocal;
+      // Connected providers next, sorted by recency desc then alphabetical.
+      const aConn = a.configured ? 0 : 1;
+      const bConn = b.configured ? 0 : 1;
+      if (aConn !== bConn) return aConn - bConn;
+      const aRecent = providerRecency[a.id] ?? 0;
+      const bRecent = providerRecency[b.id] ?? 0;
+      if (aRecent !== bRecent) return bRecent - aRecent;
+      return a.label.localeCompare(b.label);
     });
-  }, [catalog, providerId]);
+  }, [catalog, providerRecency]);
   const visibleCatalogProviders = useMemo(() => {
     const needle = providerFilter.trim().toLowerCase();
     if (!needle) return orderedProviders;
@@ -1478,6 +1486,7 @@ export function ChatPanel({
             providerLabel: selectedProvider.label,
             message: `Connect ${selectedProvider.label} to send this message. Your draft was kept.`,
           });
+          setManagedProviderId(selectedProvider.id);
           setShowLogin(true);
           return;
         }
@@ -1547,6 +1556,7 @@ export function ChatPanel({
           });
           if (result.setupRequired) {
             setSetupRequired(result.setupRequired);
+            setManagedProviderId(result.setupRequired.providerId);
             setShowLogin(true);
           }
         } catch (e) {
@@ -1869,9 +1879,14 @@ export function ChatPanel({
             ? catalog?.providers.find((p) => p.id.toLowerCase() === rest.toLowerCase() || p.label.toLowerCase() === rest.toLowerCase())
             : null;
           if (provider) {
-            setProviderId(provider.id);
-            setShowLogin(provider.id !== LOCAL_PROVIDER_ID);
-            setShowProviderPicker(false);
+            if (provider.id !== LOCAL_PROVIDER_ID) {
+              setManagedProviderId(provider.id);
+              setShowLogin(true);
+              setShowProviderPicker(false);
+            } else {
+              setProviderId(provider.id);
+              setShowLogin(false);
+            }
           } else {
             setShowProviderPicker(true);
             setShowLogin(false);
@@ -2245,23 +2260,25 @@ export function ChatPanel({
   }, [addLog, catalog]);
 
   const handleSaveCredential = useCallback(async () => {
-    if (!apiKey.trim() || !providerId) return;
+    const target = managedProviderId ?? providerId;
+    if (!apiKey.trim() || !target) return;
     setSavingCred(true);
     try {
-      const providerLabel = selectedProvider?.label ?? providerId;
+      const providerLabel = managedProvider?.label ?? target;
       await nativeSaveProviderCredential({
-        providerId,
+        providerId: target,
         label: providerLabel,
         apiKey: apiKey.trim(),
         baseUrl: baseUrl.trim() || null,
       });
       await refreshCatalog();
       setShowLogin(false);
+      setManagedProviderId(null);
       setSetupRequired(null);
       setApiKey("");
       setBaseUrl("");
       setError(null);
-      onShowToast?.("Provider connected", `${selectedProvider?.label ?? providerId} is now ready.`, "success");
+      onShowToast?.("Provider connected", `${providerLabel} is now ready.`, "success");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog("error", "Failed to save provider credential", msg);
@@ -2270,7 +2287,7 @@ export function ChatPanel({
     } finally {
       setSavingCred(false);
     }
-  }, [apiKey, baseUrl, providerId, selectedProvider, refreshCatalog, addLog, onShowToast]);
+  }, [apiKey, baseUrl, providerId, managedProviderId, managedProvider, refreshCatalog, addLog, onShowToast]);
 
 
 
@@ -2302,14 +2319,14 @@ export function ChatPanel({
   );
 
   const handleProviderLogin = useCallback(async () => {
-    if (!selectedProvider) return;
+    if (!managedProvider) return;
     setSavingCred(true);
     setLoginError(null);
     setProviderLoginInput("");
     try {
-      const state = await nativeProviderLoginStart(selectedProvider.id);
+      const state = await nativeProviderLoginStart(managedProvider.id);
       setProviderLoginState(state);
-      await pollProviderLogin(selectedProvider.id, selectedProvider.label);
+      await pollProviderLogin(managedProvider.id, managedProvider.label);
     } catch (loginFailure) {
       const message = loginFailure instanceof Error ? loginFailure.message : String(loginFailure);
       setLoginError(message);
@@ -2317,20 +2334,20 @@ export function ChatPanel({
     } finally {
       setSavingCred(false);
     }
-  }, [onShowToast, pollProviderLogin, selectedProvider]);
+  }, [onShowToast, pollProviderLogin, managedProvider]);
 
   const submitProviderLoginInput = useCallback(async () => {
-    if (!selectedProvider || !providerLoginInput.trim()) return;
+    if (!managedProvider || !providerLoginInput.trim()) return;
     setSavingCred(true);
     setLoginError(null);
     try {
       const state = await nativeProviderLoginSubmit(
-        selectedProvider.id,
+        managedProvider.id,
         providerLoginInput.trim(),
       );
       setProviderLoginState(state);
       setProviderLoginInput("");
-      await pollProviderLogin(selectedProvider.id, selectedProvider.label);
+      await pollProviderLogin(managedProvider.id, managedProvider.label);
     } catch (loginFailure) {
       const message = loginFailure instanceof Error ? loginFailure.message : String(loginFailure);
       setLoginError(message);
@@ -2338,23 +2355,24 @@ export function ChatPanel({
     } finally {
       setSavingCred(false);
     }
-  }, [onShowToast, pollProviderLogin, providerLoginInput, selectedProvider]);
+  }, [onShowToast, pollProviderLogin, providerLoginInput, managedProvider]);
 
   const refreshFromOmp = useCallback(async () => {
-    if (!selectedProvider) return;
+    if (!managedProvider) return;
     setSavingCred(true);
     setLoginError(null);
     try {
-      const refreshed = await nativeProviderRefreshOmpCredentials(selectedProvider.id);
+      const refreshed = await nativeProviderRefreshOmpCredentials(managedProvider.id);
       setCatalog(refreshed);
-      if (!refreshed.providers.some((provider) => provider.id === selectedProvider.id && provider.configured)) {
-        setLoginError(`No ${selectedProvider.label} credential was found. Run /login in Oh My Pi, then try again.`);
+      if (!refreshed.providers.some((provider) => provider.id === managedProvider.id && provider.configured)) {
+        setLoginError(`No ${managedProvider.label} credential was found. Run /login in Oh My Pi, then try again.`);
         return;
       }
       setShowLogin(false);
+      setManagedProviderId(null);
       setSetupRequired(null);
       setError(null);
-      onShowToast?.("Provider connected", `${selectedProvider.label} was imported from Oh My Pi.`, "success");
+      onShowToast?.("Provider connected", `${managedProvider.label} was imported from Oh My Pi.`, "success");
     } catch (refreshError) {
       const message = refreshError instanceof Error ? refreshError.message : String(refreshError);
       setLoginError(message);
@@ -2362,20 +2380,20 @@ export function ChatPanel({
     } finally {
       setSavingCred(false);
     }
-  }, [onShowToast, selectedProvider]);
+  }, [onShowToast, managedProvider]);
 
   // Cancel the in-flight OAuth flow (backend worker thread stops polling and
   // the frontend poll loop exits on the "cancelled" status). Best-effort: a
   // missing session just means nothing was running.
   const cancelProviderLogin = useCallback(async () => {
-    if (!selectedProvider) return;
+    if (!managedProvider) return;
     try {
-      const state = await nativeProviderLoginCancel(selectedProvider.id);
+      const state = await nativeProviderLoginCancel(managedProvider.id);
       setProviderLoginState(state);
     } catch {
       // No active sign-in — nothing to cancel.
     }
-  }, [selectedProvider]);
+  }, [managedProvider]);
 
   // Close the connect modal; abandons any in-flight sign-in. `backToCatalog`
   // reopens the provider & model catalog modal the user came from.
@@ -2385,6 +2403,7 @@ export function ChatPanel({
         void cancelProviderLogin();
       }
       setShowLogin(false);
+      setManagedProviderId(null);
       setLoginError(null);
       if (backToCatalog) setShowProviderPicker(true);
     },
@@ -2431,12 +2450,12 @@ export function ChatPanel({
   }, [addLog]);
 
   // Refetch account rows + usage whenever the Manage modal opens (showLogin
-  // true) or the selected provider changes while open.
+  // true) or the managed provider changes while open.
   useEffect(() => {
-    if (!showLogin || !selectedProvider || selectedProvider.id === LOCAL_PROVIDER_ID) return;
-    void refreshAccountRows(selectedProvider.id);
-    void refreshAccountUsage(selectedProvider.id, accountUsageWindow);
-  }, [showLogin, selectedProvider, refreshAccountRows, refreshAccountUsage, accountUsageWindow]);
+    if (!showLogin || !managedProvider || managedProvider.id === LOCAL_PROVIDER_ID) return;
+    void refreshAccountRows(managedProvider.id);
+    void refreshAccountUsage(managedProvider.id, accountUsageWindow);
+  }, [showLogin, managedProvider, refreshAccountRows, refreshAccountUsage, accountUsageWindow]);
 
   // Reset transient account state when the modal closes so a reopen starts fresh.
   useEffect(() => {
@@ -2445,15 +2464,14 @@ export function ChatPanel({
     setAccountUsage([]);
     setTestingAccountId(null);
   }, [showLogin]);
-
   const handleAccountLogout = useCallback(async (accountId: string, accountLabel: string) => {
     setConfirmLogoutProvider(null);
     try {
       await nativeProviderAccountLogout(accountId);
-      if (selectedProvider) {
+      if (managedProvider) {
         await Promise.all([
-          refreshAccountRows(selectedProvider.id),
-          refreshAccountUsage(selectedProvider.id, accountUsageWindow),
+          refreshAccountRows(managedProvider.id),
+          refreshAccountUsage(managedProvider.id, accountUsageWindow),
         ]);
       }
       await refreshCatalog();
@@ -2464,7 +2482,7 @@ export function ChatPanel({
       addLog("error", "Failed to log out of account", msg);
       onShowToast?.("Failed to log out", msg, "error");
     }
-  }, [accountUsageWindow, addLog, onShowToast, refreshAccountRows, refreshAccountUsage, refreshCatalog, selectedProvider]);
+  }, [accountUsageWindow, addLog, onShowToast, refreshAccountRows, refreshAccountUsage, refreshCatalog, managedProvider]);
 
   const handleAccountTest = useCallback(async (account: ProviderAccount) => {
     setTestingAccountId(account.id);
@@ -2493,10 +2511,10 @@ export function ChatPanel({
     try {
       await nativeDeleteProviderCredential(targetId);
       await refreshCatalog();
-      if (selectedProvider) {
+      if (managedProvider) {
         await Promise.all([
-          refreshAccountRows(selectedProvider.id),
-          refreshAccountUsage(selectedProvider.id, accountUsageWindow),
+          refreshAccountRows(managedProvider.id),
+          refreshAccountUsage(managedProvider.id, accountUsageWindow),
         ]);
       }
       addLog("debug", "Provider logged out", `provider=${targetId}`);
@@ -2506,7 +2524,7 @@ export function ChatPanel({
       addLog("error", "Failed to log out of provider", msg);
       onShowToast?.("Failed to log out", msg, "error");
     }
-  }, [accountUsageWindow, addLog, onShowToast, refreshAccountRows, refreshAccountUsage, refreshCatalog, selectedProvider]);
+  }, [accountUsageWindow, addLog, onShowToast, refreshAccountRows, refreshAccountUsage, refreshCatalog, managedProvider]);
 
   const openApiKeyUrl = useCallback((url: string) => {
     return openUrl(url).catch((e) => {
@@ -2562,6 +2580,7 @@ export function ChatPanel({
         providerLabel: selectedProvider.label,
         message: `Connect ${selectedProvider.label} to generate ideas.`,
       });
+      setManagedProviderId(selectedProvider.id);
       setShowLogin(true);
       return;
     }
@@ -3499,6 +3518,7 @@ export function ChatPanel({
               title={`Log in to ${setupRequired.providerLabel}`}
               onClick={() => {
                 setLoginError(null);
+                setManagedProviderId(setupRequired.providerId);
                 setShowLogin(true);
               }}
             >
@@ -3518,10 +3538,10 @@ export function ChatPanel({
       ) : null}
 
       {/* Provider manage modal: connected accounts first, then login options, optional OMP import last. */}
-      {nativeMode && showLogin && selectedProvider && selectedProvider.id !== LOCAL_PROVIDER_ID ? (
+      {nativeMode && showLogin && managedProvider && managedProvider.id !== LOCAL_PROVIDER_ID ? (
         <ModalPortal>
         <div className="modal-overlay" onClick={() => closeLoginModal()} title="Close manage dialog">
-          <div className="modal" onClick={(e) => e.stopPropagation()} title={`Manage ${selectedProvider.label}`}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} title={`Manage ${managedProvider.label}`}>
             <div className="modal-header">
               <div className="row gap-sm">
                 <button
@@ -3532,7 +3552,7 @@ export function ChatPanel({
                 >
                   <ArrowLeft size={16} />
                 </button>
-                <h2>Manage {selectedProvider.label}</h2>
+                <h2>Manage {managedProvider.label}</h2>
               </div>
               <button
                 className="btn-icon"
@@ -3546,11 +3566,11 @@ export function ChatPanel({
             <div className="modal-body stack" onClick={(e) => e.stopPropagation()}>
               {/* ── Login CTA at top ── */}
               <div className="provider-login-cta stack-sm">
-                <p className="provider-login-cta-title">Log in to {selectedProvider.label}</p>
-                {selectedProvider.authMethod === "oauth" ? (
+                <p className="provider-login-cta-title">Log in to {managedProvider.label}</p>
+                {managedProvider.authMethod === "oauth" ? (
                   <>
                     <p className="provider-login-cta-desc">
-                      {selectedProvider.id === "openai-codex"
+                      {managedProvider.id === "openai-codex"
                         ? "Sign in with your ChatGPT subscription. Basebuild opens your browser and completes the OAuth flow natively."
                         : "Sign in with your provider subscription through Oh My Pi."}
                     </p>
@@ -3558,12 +3578,12 @@ export function ChatPanel({
                       <button
                         className="btn btn-primary btn-lg"
                         type="button"
-                        title={`Log in to ${selectedProvider.label}`}
+                        title={`Log in to ${managedProvider.label}`}
                         disabled={savingCred}
                         onClick={() => void handleProviderLogin()}
                       >
                         {savingCred ? <Loader2 size={14} className="spin" /> : <Key size={14} />}
-                        {savingCred ? "Waiting for sign-in..." : `Log in to ${selectedProvider.label}`}
+                        {savingCred ? "Waiting for sign-in..." : `Log in to ${managedProvider.label}`}
                       </button>
                       {savingCred ? (
                         <button
@@ -3592,7 +3612,7 @@ export function ChatPanel({
                         <button
                           className="btn btn-primary"
                           type="button"
-                          title={`Submit the ${selectedProvider.label} authorization response`}
+                          title={`Submit the ${managedProvider.label} authorization response`}
                           disabled={!providerLoginInput.trim() || savingCred}
                           onClick={() => void submitProviderLoginInput()}
                         >
@@ -3600,16 +3620,16 @@ export function ChatPanel({
                         </button>
                       </div>
                     ) : null}
-                    {selectedProvider.apiKeyUrl ? (
+                    {managedProvider.apiKeyUrl ? (
                       <details className="stack-sm">
-                        <summary className="text-muted text-sm" title={`Use a ${selectedProvider.label} API key instead of subscription login`}>
+                        <summary className="text-muted text-sm" title={`Use a ${managedProvider.label} API key instead of subscription login`}>
                           Use an API key instead
                         </summary>
                         <button
                           className="chat-link-btn"
                           type="button"
-                          title={`Open ${selectedProvider.label} key page`}
-                          onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}
+                          title={`Open ${managedProvider.label} key page`}
+                          onClick={() => void openApiKeyUrl(managedProvider.apiKeyUrl!)}
                         >
                           Get API key
                         </button>
@@ -3619,7 +3639,7 @@ export function ChatPanel({
                           placeholder="API key"
                           value={apiKey}
                           onChange={(event) => setApiKey(event.target.value)}
-                          title={`API key for ${selectedProvider.label}`}
+                          title={`API key for ${managedProvider.label}`}
                         />
                         <button
                           className="btn btn-primary"
@@ -3638,12 +3658,12 @@ export function ChatPanel({
                     <p className="provider-login-cta-desc">
                       Connect Basebuild directly to the provider API. The key stays in Basebuild&apos;s local credential store.
                     </p>
-                    {selectedProvider.apiKeyUrl ? (
+                    {managedProvider.apiKeyUrl ? (
                       <button
                         className="chat-link-btn"
                         type="button"
-                        title={`Open ${selectedProvider.label} key page`}
-                        onClick={() => void openApiKeyUrl(selectedProvider.apiKeyUrl!)}
+                        title={`Open ${managedProvider.label} key page`}
+                        onClick={() => void openApiKeyUrl(managedProvider.apiKeyUrl!)}
                       >
                         Get API key
                       </button>
@@ -3654,7 +3674,7 @@ export function ChatPanel({
                       placeholder="API key"
                       value={apiKey}
                       onChange={(event) => setApiKey(event.target.value)}
-                      title={`API key for ${selectedProvider.label}`}
+                      title={`API key for ${managedProvider.label}`}
                     />
                     <input
                       className="input"
@@ -3675,17 +3695,13 @@ export function ChatPanel({
                     </button>
                   </>
                 )}
-                {selectedProvider.id === "openai" && catalog?.providers.some((p) => p.id === "openai-codex") ? (
+                {managedProvider.id === "openai" && catalog?.providers.some((p) => p.id === "openai-codex") ? (
                   <button
                     className="chat-link-btn"
                     type="button"
                     title="Switch to OpenAI Codex and sign in with your ChatGPT subscription"
                     onClick={() => {
-                      setProviderId("openai-codex");
-                      const codexModels = catalog.models.filter((model) => model.providerId === "openai-codex");
-                      if (codexModels[0] && !codexModels.some((model) => model.id === modelId)) {
-                        setModelId(codexModels[0].id);
-                      }
+                      setManagedProviderId("openai-codex");
                     }}
                   >
                     <Globe size={12} /> Have a ChatGPT subscription? Log in with OpenAI Codex
@@ -3703,7 +3719,7 @@ export function ChatPanel({
                   <p className="text-muted text-sm">Loading accounts…</p>
                 ) : accountRows.length === 0 ? (
                   <p className="text-muted text-sm">
-                    No account connected yet. Log in above to start using {selectedProvider.label}.
+                    No account connected yet. Log in above to start using {managedProvider.label}.
                   </p>
                 ) : (
                   <div className="provider-account-list">
@@ -3763,8 +3779,8 @@ export function ChatPanel({
                       <button
                         className="chat-link-btn"
                         type="button"
-                        title={`Log out of every ${selectedProvider.label} account and block Oh My Pi re-import`}
-                        onClick={() => setConfirmLogoutProvider({ id: selectedProvider.id, label: selectedProvider.label })}
+                        title={`Log out of every ${managedProvider.label} account and block Oh My Pi re-import`}
+                        onClick={() => setConfirmLogoutProvider({ id: managedProvider.id, label: managedProvider.label })}
                       >
                         Log out all accounts
                       </button>
@@ -3824,7 +3840,7 @@ export function ChatPanel({
               ) : null}
               {/* ── OMP import (optional) ── */}
               <details className="stack-sm">
-                <summary className="text-muted text-sm" title={`Import ${selectedProvider.label} credentials from Oh My Pi`}>
+                <summary className="text-muted text-sm" title={`Import ${managedProvider.label} credentials from Oh My Pi`}>
                   Import from Oh My Pi (optional)
                 </summary>
                 <p className="text-sm text-muted">
@@ -3833,7 +3849,7 @@ export function ChatPanel({
                 <button
                   className="btn"
                   type="button"
-                  title={`Import ${selectedProvider.label} credentials from Oh My Pi`}
+                  title={`Import ${managedProvider.label} credentials from Oh My Pi`}
                   disabled={savingCred}
                   onClick={() => void refreshFromOmp()}
                 >
@@ -3854,15 +3870,15 @@ export function ChatPanel({
         open={confirmLogoutProvider !== null}
         title={`Log out of ${confirmLogoutProvider?.label ?? "provider"}?`}
         message={
-          confirmLogoutProvider && selectedProvider && confirmLogoutProvider.id === selectedProvider.id
+          confirmLogoutProvider && managedProvider && confirmLogoutProvider.id === managedProvider.id
             ? `This removes every stored ${confirmLogoutProvider?.label ?? ""} credential from Basebuild's local credential store and blocks Oh My Pi re-import until the next explicit login. Chats using this provider will stop working until you log in again.`
             : `This removes the stored ${confirmLogoutProvider?.label ?? ""} credential from Basebuild's local credential store. Other accounts on this provider stay connected.`
         }
         confirmLabel="Log out"
         destructive
         onConfirm={() => {
-          if (!confirmLogoutProvider || !selectedProvider) return;
-          if (confirmLogoutProvider.id === selectedProvider.id) {
+          if (!confirmLogoutProvider || !managedProvider) return;
+          if (confirmLogoutProvider.id === managedProvider.id) {
             void handleProviderLogout(confirmLogoutProvider.id, confirmLogoutProvider.label);
           } else {
             void handleAccountLogout(confirmLogoutProvider.id, confirmLogoutProvider.label);
@@ -4055,19 +4071,34 @@ export function ChatPanel({
                         <span>Providers</span>
                         <span className="text-muted">Select one to browse its models</span>
                       </div>
-                      <input
-                        className="input"
-                        type="search"
-                        placeholder="Search providers and models..."
-                        value={providerFilter}
-                        onChange={(event) => setProviderFilter(event.target.value)}
-                        title="Search providers and models"
-                      />
+                      <div className="provider-search-wrap">
+                        <Search size={12} className="provider-search-icon" />
+                        <input
+                          className="input provider-search-input"
+                          type="search"
+                          placeholder="Search providers and models…"
+                          value={providerFilter}
+                          onChange={(event) => setProviderFilter(event.target.value)}
+                          title="Search providers and models"
+                        />
+                      </div>
                       <div className="provider-card-grid">
-                        {visibleCatalogProviders.map((provider) => (
+                        {visibleCatalogProviders.map((provider) => {
+                          const isLocal = provider.id === LOCAL_PROVIDER_ID;
+                          const healthBad = provider.accountCount > 0 && provider.aggregateHealth !== "healthy";
+                          const needsBaseUrl = provider.status === "transport_unavailable";
+                          // Auth badge: account count first, then auth method.
+                          const authBadge = isLocal
+                            ? null
+                            : provider.accountCount > 0
+                              ? `${provider.accountCount} ${provider.accountCount === 1 ? "account" : "accounts"}`
+                              : provider.authMethod === "oauth"
+                                ? provider.apiKeyUrl ? "OAuth / API key" : "OAuth"
+                                : "API key";
+                          return (
                           <div
                             key={provider.id}
-                            className={`provider-card is-${provider.configured ? "connected" : "available"}${provider.id === providerId ? " is-active" : ""}`}
+                            className={`provider-card is-${provider.configured ? "connected" : "available"}${provider.id === providerId ? " is-active" : ""}${isLocal ? " is-local" : ""}`}
                             title={`${provider.label}: ${provider.configured ? "connected" : "not connected"}; ${provider.modelCount} models`}
                           >
                             <button
@@ -4077,6 +4108,7 @@ export function ChatPanel({
                               onClick={() => {
                                 addLog("debug", "Provider selected", `provider=${provider.id}; connected=${provider.configured}`);
                                 setProviderId(provider.id);
+                                setProviderRecency(recordProviderUse(provider.id));
                                 const providerModels = catalog.models.filter((model) => model.providerId === provider.id);
                                 const currentIsValid = providerModels.some((model) => model.id === modelId);
                                 if (!currentIsValid && providerModels[0]) setModelId(providerModels[0].id);
@@ -4084,58 +4116,57 @@ export function ChatPanel({
                                 setModelFilter("");
                               }}
                             >
-                              <span className="provider-card-topline">
-                                <span className="provider-card-name">{provider.label}</span>
-                                <span
-                                  className={`provider-status is-${provider.status === "transport_unavailable" ? "warning" : provider.configured ? "connected" : "available"}`}
-                                  title={provider.status === "transport_unavailable" ? "This provider uses a bespoke API that requires a custom base URL for native chat. Set a base URL to enable the native agent loop." : undefined}
-                                >
-                                  <span className="provider-status-dot" />
-                                  {provider.status === "transport_unavailable"
-                                    ? "No transport"
-                                    : provider.configured
-                                      ? `Connected${provider.connectedVia ? ` · ${CONNECTED_VIA_LABELS[provider.connectedVia]}` : ""}`
-                                      : "Available"}
-                                </span>
+                              <span className="provider-card-name">
+                                {isLocal ? <Plug size={11} className="provider-card-icon" /> : provider.configured ? <Check size={11} className="provider-card-icon is-ok" /> : <Link size={11} className="provider-card-icon" />}
+                                {provider.label}
                               </span>
-                              <span className="provider-card-meta">
-                                {provider.modelCount} models
-                                {providerAuthOptionsLabel(provider) ? ` · ${providerAuthOptionsLabel(provider)}` : ""}
-                                {provider.accountCount > 0 ? ` · ${accountSummaryLabel(provider)}` : ""}
-                              </span>
-                              {provider.accountCount > 0 && provider.aggregateHealth !== "healthy" ? (
-                                <span
-                                  className={`provider-status is-${provider.aggregateHealth === "broken" ? "danger" : "warning"}`}
-                                  title={`Account health: ${provider.aggregateHealth}. Open Manage for per-account details.`}
-                                >
-                                  <span className="provider-status-dot" />
-                                  {provider.aggregateHealth === "broken" ? "Needs attention" : "Degraded"}
+                              <span className="provider-card-middle">
+                                {authBadge ? <span className="provider-card-auth" title={providerAuthOptionsLabel(provider) || authBadge}>{authBadge}</span> : null}
+                                <span className="provider-card-meta">
+                                  {provider.modelCount} models
+                                  {provider.connectedVia ? ` · ${CONNECTED_VIA_LABELS[provider.connectedVia]}` : ""}
                                 </span>
-                              ) : null}
+                                {needsBaseUrl ? (
+                                  <span className="provider-card-flag is-warn" title="This provider uses a bespoke API that requires a custom base URL for native chat. Set a base URL to enable the native agent loop.">
+                                    <AlertTriangle size={10} /> Needs base URL
+                                  </span>
+                                ) : null}
+                                {healthBad ? (
+                                  <span
+                                    className={`provider-card-flag is-${provider.aggregateHealth === "broken" ? "danger" : "warn"}`}
+                                    title={`Account health: ${provider.aggregateHealth}. Open Manage for per-account details.`}
+                                  >
+                                    <AlertTriangle size={10} /> {provider.aggregateHealth === "broken" ? "Needs attention" : "Degraded"}
+                                  </span>
+                                ) : null}
+                                {provider.error ? (
+                                  <span className="provider-card-error-text text-danger" title={provider.error}>
+                                    {provider.error}
+                                  </span>
+                                ) : null}
+                              </span>
                             </button>
-                            {provider.id !== LOCAL_PROVIDER_ID ? (
-                              <div className="provider-card-actions">
+                            <span className="provider-card-actions">
+                              {isLocal ? (
+                                <span className="provider-card-local-tag" title="No provider connected — select a provider to chat.">Local</span>
+                              ) : (
                                 <button
                                   className="btn btn-sm provider-card-action-btn"
                                   type="button"
                                   title={`Manage ${provider.label} accounts and API keys`}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setProviderId(provider.id);
-                                    const providerModels = catalog.models.filter((model) => model.providerId === provider.id);
-                                    const currentIsValid = providerModels.some((model) => model.id === modelId);
-                                    if (!currentIsValid && providerModels[0]) setModelId(providerModels[0].id);
                                     setShowProviderPicker(false);
                                     setShowModelPicker(false);
                                     setLoginError(null);
+                                    setManagedProviderId(provider.id);
                                     setShowLogin(true);
                                   }}
                                 >
                                   <Settings2 size={11} /> Manage
                                 </button>
-                            {provider.error ? (
-                              <div className="provider-card-error text-danger text-sm" title={provider.error}>
-                                <span className="provider-card-error-text">{provider.error}</span>
+                              )}
+                              {provider.error ? (
                                 <button
                                   className="btn btn-sm provider-card-retry-btn"
                                   type="button"
@@ -4152,12 +4183,11 @@ export function ChatPanel({
                                 >
                                   Retry
                                 </button>
-                              </div>
-                            ) : null}
-                              </div>
-                            ) : null}
+                              ) : null}
+                            </span>
                           </div>
-                        ))}
+                          );
+                        })}
                         {visibleCatalogProviders.length === 0 ? (
                           <p className="text-muted text-sm">No providers or models match your search.</p>
                         ) : null}

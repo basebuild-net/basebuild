@@ -25,7 +25,7 @@ test.describe("Provider Manage dialog — multi-account", () => {
     const umansCard = page.locator(".provider-card").filter({ hasText: "Umans" }).first();
     await expect(umansCard).toBeVisible();
     await expect(umansCard.locator(".provider-card-action-btn", { hasText: "Manage" })).toBeVisible();
-    await expect(umansCard.locator(".provider-card-meta")).toContainText(/1 account/);
+    await expect(umansCard.locator(".provider-card-auth")).toContainText(/1 account/);
   });
 
   test("Manage dialog lists connected accounts with health and actions", async ({ page }) => {
