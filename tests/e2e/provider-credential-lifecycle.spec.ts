@@ -25,45 +25,42 @@ test.describe("Provider credential lifecycle", () => {
     await openFixtureProject(page);
     await openProviderPicker(page);
 
-    // Find the umans disconnect button.
+    // Open the Manage modal for umans.
     const umansCard = page.locator(".provider-card").filter({ hasText: "Umans" }).first();
-    const disconnectBtn = umansCard.locator(".provider-card-action-btn", { hasText: "Disconnect" }).first();
-
-    // Should be visible since umans is connected.
-    await expect(disconnectBtn).toBeVisible();
-
-    // Click disconnect.
-    await disconnectBtn.click();
-    await page.waitForTimeout(500);
-
-    // Umans should now show as available, not connected.
-    const availableStatus = umansCard.locator(".provider-status.is-available").first();
-    await expect(availableStatus).toBeVisible();
-  });
-
-  test("connect button appears after disconnect", async ({ page }) => {
-    await openFixtureProject(page);
-    await openProviderPicker(page);
-
-    const umansCard = page.locator(".provider-card").filter({ hasText: "Umans" }).first();
-    const disconnectBtn = umansCard.locator(".provider-card-action-btn", { hasText: "Disconnect" }).first();
-
-    await disconnectBtn.click();
-    await page.waitForTimeout(500);
-
-    // Now a Connect button should appear (title starts with "Connect").
-    const connectBtn = umansCard.locator('.provider-card-action-btn[title^="Connect"]').first();
-    await expect(connectBtn).toBeVisible();
-  });
-
-  test("clicking connect opens native API-key login with optional OMP import", async ({ page }) => {
-    await openFixtureProject(page);
-    await openProviderPicker(page);
-
-    const connectBtn = page.locator('.provider-card[title^="OpenAI API:"] .provider-card-action-btn[title^="Connect"]').first();
-    await expect(connectBtn).toBeVisible();
-    await connectBtn.click();
+    const manageBtn = umansCard.locator(".provider-card-action-btn", { hasText: "Manage" }).first();
+    await expect(manageBtn).toBeVisible();
+    await manageBtn.click();
     await expect(page.locator(".provider-catalog-overlay")).toHaveCount(0, { timeout: 3_000 });
+
+    // Log out all accounts from the manage modal.
+    const manageModal = page.locator(".modal-overlay").filter({ has: page.locator("h2", { hasText: "Manage" }) }).first();
+    await manageModal.locator(".provider-account-actions button", { hasText: "Log out" }).first().click();
+    const confirm = page.locator(".modal-overlay").filter({ has: page.locator(".confirm-dialog-modal") });
+    await confirm.getByRole("button", { name: "Log out" }).click();
+    // The account row disappears and the placeholder appears.
+    await expect(manageModal.locator(".provider-account-row")).toHaveCount(0, { timeout: 5_000 });
+    await expect(manageModal.getByText(/No account connected yet/)).toBeVisible();
+  });
+
+  test("Manage button is always present after disconnect", async ({ page }) => {
+    await openFixtureProject(page);
+    await openProviderPicker(page);
+
+    const umansCard = page.locator(".provider-card").filter({ hasText: "Umans" }).first();
+    const manageBtn = umansCard.locator(".provider-card-action-btn", { hasText: "Manage" }).first();
+    await manageBtn.click();
+    await expect(page.locator(".provider-catalog-overlay")).toHaveCount(0, { timeout: 3_000 });
+
+    // Log out from the manage modal.
+    const manageModal = page.locator(".modal-overlay").filter({ has: page.locator("h2", { hasText: "Manage" }) }).first();
+    await manageModal.locator(".provider-account-actions button", { hasText: "Log out" }).first().click();
+    const confirm = page.locator(".modal-overlay").filter({ has: page.locator(".confirm-dialog-modal") });
+    await confirm.getByRole("button", { name: "Log out" }).click();
+    await page.waitForTimeout(500);
+
+    // The Manage button is still present (it is always shown for non-local
+    // Account row disappears; the Manage button is always present on the card.
+    await expect(manageModal.locator(".provider-account-row")).toHaveCount(0, { timeout: 5_000 });
 
     const loginModal = page.locator(".modal-overlay").filter({
       has: page.locator('button[title="Save API key and connect"]'),
@@ -71,7 +68,7 @@ test.describe("Provider credential lifecycle", () => {
     await expect(loginModal).toBeVisible({ timeout: 3_000 });
     await expect(loginModal.getByText("Connect Basebuild directly to the provider API")).toBeVisible();
     await expect(loginModal.locator("input[type='password']")).toBeVisible();
-    await expect(loginModal.locator("button", { hasText: "Save API key" })).toBeVisible();
+    await expect(loginModal.locator("button", { hasText: "Log in with API key" })).toBeVisible();
     await expect(loginModal.locator("summary", { hasText: "Import from Oh My Pi" })).toBeVisible();
   });
 
@@ -79,17 +76,17 @@ test.describe("Provider credential lifecycle", () => {
     await openFixtureProject(page);
     await openProviderPicker(page);
 
-    const connectBtn = page.locator('.provider-card[title^="OpenAI Codex:"] .provider-card-action-btn[title^="Connect"]').first();
+    const connectBtn = page.locator('.provider-card[title^="OpenAI Codex:"] .provider-card-action-btn[title^="Manage"]').first();
     await expect(connectBtn).toBeVisible();
     await connectBtn.click();
 
     const loginModal = page.locator(".modal-overlay").filter({
-      has: page.getByRole("button", { name: "Sign in to OpenAI Codex" }),
+      has: page.getByRole("button", { name: "Log in to OpenAI Codex" }),
     });
     await expect(loginModal).toBeVisible({ timeout: 3_000 });
     await expect(loginModal.getByText("completes the OAuth flow natively")).toBeVisible();
     await expect(loginModal.locator("input[type='password']")).toHaveCount(0);
-    await loginModal.getByRole("button", { name: "Sign in to OpenAI Codex" }).click();
+    await loginModal.getByRole("button", { name: "Log in to OpenAI Codex" }).click();
     await expect(loginModal).not.toBeVisible({ timeout: 5_000 });
 
     await openProviderPicker(page);
@@ -101,7 +98,7 @@ test.describe("Provider credential lifecycle", () => {
     await openFixtureProject(page);
     await openProviderPicker(page);
 
-    const connectBtn = page.locator('.provider-card[title^="OpenAI API:"] .provider-card-action-btn[title^="Connect"]').first();
+    const connectBtn = page.locator('.provider-card[title^="OpenAI API:"] .provider-card-action-btn[title^="Manage"]').first();
     await expect(connectBtn).toBeVisible();
     await connectBtn.click();
 
@@ -117,7 +114,7 @@ test.describe("Provider credential lifecycle", () => {
     await openFixtureProject(page);
     await openProviderPicker(page);
 
-    const connectBtn = page.locator('.provider-card[title^="OpenAI API:"] .provider-card-action-btn[title^="Connect"]').first();
+    const connectBtn = page.locator('.provider-card[title^="OpenAI API:"] .provider-card-action-btn[title^="Manage"]').first();
     await expect(connectBtn).toBeVisible();
     await connectBtn.click();
 
@@ -175,7 +172,7 @@ test.describe("Provider credential lifecycle", () => {
 });
 
 test.describe("Provider update-key flow", () => {
-  test("configured provider shows Update key button in picker", async ({ page }) => {
+  test("configured provider shows Manage button in picker", async ({ page }) => {
     await openFixtureProject(page);
     await openProviderPicker(page);
 
@@ -183,13 +180,13 @@ test.describe("Provider update-key flow", () => {
     const umansCard = page.locator(".provider-card").filter({ hasText: "Umans" }).first();
     await expect(umansCard).toBeVisible();
 
-    // Should show "Update key" button (renamed from "Reconnect").
-    const updateKeyBtn = umansCard.locator("button", { hasText: "Update key" });
-    await expect(updateKeyBtn).toBeVisible();
-    await expect(updateKeyBtn).toHaveAttribute("title", /Update key for Umans/);
+    // Provider cards now show a single Manage button (replacing Disconnect+Connect).
+    const manageBtn = umansCard.locator("button", { hasText: "Manage" });
+    await expect(manageBtn).toBeVisible();
+    await expect(manageBtn).toHaveAttribute("title", /Manage Umans/);
   });
 
-  test("configured provider shows Disconnect and Update key in settings", async ({ page }) => {
+  test("configured provider shows Log out and Update API key in settings", async ({ page }) => {
     await openFixtureProject(page);
     // Open settings via account menu (same pattern as ui-gates test).
     const accountBtn = page.locator('button[title*="MVPUser"], button[title*="Sign in"]').first();
@@ -204,12 +201,12 @@ test.describe("Provider update-key flow", () => {
     await page.waitForTimeout(500);
     await expect(page.locator("h3", { hasText: "Model providers" })).toBeVisible({ timeout: 5000 });
 
-    // Umans should be configured with Disconnect and Update key buttons.
+    // Umans should be configured with Log out and Update API key buttons.
     const umansRow = page.locator(".requirement-row").filter({ hasText: "Umans" }).first();
     await expect(umansRow).toBeVisible();
-    const disconnectBtn = umansRow.locator("button", { hasText: "Disconnect" });
+    const disconnectBtn = umansRow.locator("button", { hasText: "Log out" });
     await expect(disconnectBtn).toBeVisible();
-    const updateKeyBtn = umansRow.locator("button", { hasText: "Update key" });
+    const updateKeyBtn = umansRow.locator("button", { hasText: "Update API key" });
     await expect(updateKeyBtn).toBeVisible();
   });
 });
@@ -232,17 +229,17 @@ test.describe("Settings credential save", () => {
     await openFixtureProject(page);
     await openSettingsProviders(page);
 
-    // OpenAI API starts unconfigured: has the paste-key input, no Disconnect.
+    // OpenAI API starts unconfigured: has the paste-key input, no Log out.
     const row = page.locator(".requirement-row").filter({ hasText: "OpenAI API" }).first();
     await expect(row).toBeVisible();
-    await expect(row.locator("button", { hasText: "Disconnect" })).toHaveCount(0);
+    await expect(row.locator("button", { hasText: "Log out" })).toHaveCount(0);
 
     await row.locator('input[placeholder="API key"]').fill("sk-ant-e2e-test");
     await row.locator("button", { hasText: "Save key" }).click();
 
     await expect(row.getByText("connected")).toBeVisible({ timeout: 5_000 });
-    await expect(row.locator("button", { hasText: "Disconnect" })).toBeVisible();
-    await expect(row.locator("button", { hasText: "Update key" })).toBeVisible();
+    await expect(row.locator("button", { hasText: "Log out" })).toBeVisible();
+    await expect(row.locator("button", { hasText: "Update API key" })).toBeVisible();
   });
 
   test("update key on a connected provider keeps it connected", async ({ page }) => {
@@ -251,8 +248,8 @@ test.describe("Settings credential save", () => {
 
     // Umans is seeded connected. Open the update form and rotate the key.
     const row = page.locator(".requirement-row").filter({ hasText: "Umans" }).first();
-    await expect(row.locator("button", { hasText: "Update key" })).toBeVisible();
-    await row.locator("button", { hasText: "Update key" }).click();
+    await expect(row.locator("button", { hasText: "Update API key" })).toBeVisible();
+    await row.locator("button", { hasText: "Update API key" }).click();
 
     const keyInput = row.locator('input[placeholder="New API key"]');
     await expect(keyInput).toBeVisible();
@@ -262,7 +259,7 @@ test.describe("Settings credential save", () => {
     // Rotation succeeds: form closes, provider stays connected.
     await expect(row.locator('input[placeholder="New API key"]')).toHaveCount(0, { timeout: 5_000 });
     await expect(row.getByText("connected")).toBeVisible();
-    await expect(row.locator("button", { hasText: "Disconnect" })).toBeVisible();
+    await expect(row.locator("button", { hasText: "Log out" })).toBeVisible();
   });
 
   test("failed save keeps the draft and shows an error", async ({ page }) => {
@@ -278,7 +275,7 @@ test.describe("Settings credential save", () => {
     // Error surfaces, draft is preserved, provider stays unconfigured.
     await expect(page.locator(".settings-modal .text-danger", { hasText: "Invalid API key" })).toBeVisible({ timeout: 5_000 });
     await expect(keyInput).toHaveValue("invalid-key");
-    await expect(row.locator("button", { hasText: "Disconnect" })).toHaveCount(0);
+    await expect(row.locator("button", { hasText: "Log out" })).toHaveCount(0);
   });
 });
 
@@ -292,7 +289,7 @@ test.describe("Provider OAuth and discovery", () => {
     const codexRow = page.locator(".requirement-row").filter({ hasText: "OpenAI Codex" }).first();
     await expect(codexRow).toBeVisible();
     await expect(page.locator(".requirement-row").filter({ hasText: "Anthropic" })).toHaveCount(0);
-    await expect(codexRow.getByText("Sign in natively with your ChatGPT subscription")).toBeVisible();
+    await expect(codexRow.getByText("Log in natively with your ChatGPT subscription")).toBeVisible();
 
     await page.evaluate(async () => {
       const global = globalThis as {
@@ -302,10 +299,10 @@ test.describe("Provider OAuth and discovery", () => {
     });
     await page.getByRole("button", { name: "Refresh providers" }).click();
     await expect(codexRow.getByText("connected")).toBeVisible({ timeout: 5_000 });
-    await expect(codexRow.getByRole("button", { name: "Disconnect" })).toBeVisible();
+    await expect(codexRow.getByRole("button", { name: "Log out" })).toBeVisible();
     // Connected OAuth providers keep a re-auth path and never show a key form.
-    await expect(codexRow.getByRole("button", { name: "Sign in again" })).toBeVisible();
-    await expect(codexRow.locator("button", { hasText: "Update key" })).toHaveCount(0);
+    await expect(codexRow.getByRole("button", { name: "Log in again" })).toBeVisible();
+    await expect(codexRow.locator("button", { hasText: "Update API key" })).toHaveCount(0);
   });
 
   test("dual-auth provider offers OAuth first with an API-key fallback", async ({ page }) => {
@@ -313,7 +310,7 @@ test.describe("Provider OAuth and discovery", () => {
     await openSettingsProviders(page);
 
     const row = page.locator(".requirement-row").filter({ hasText: "Anthropic" }).first();
-    await expect(row.getByRole("button", { name: /Sign in to Anthropic/ })).toBeVisible();
+    await expect(row.getByRole("button", { name: /Log in to Anthropic/ })).toBeVisible();
     // The key form is a collapsed fallback, not the primary path.
     const fallback = row.locator("details").filter({ hasText: "Use an API key instead" });
     await expect(fallback).toBeVisible();
@@ -324,8 +321,8 @@ test.describe("Provider OAuth and discovery", () => {
     await row.locator("button", { hasText: "Save key" }).click();
     await expect(row.getByText("connected")).toBeVisible({ timeout: 5_000 });
     // Connected dual-auth providers keep both re-auth paths.
-    await expect(row.getByRole("button", { name: "Sign in again" })).toBeVisible();
-    await expect(row.locator("button", { hasText: "Update key" })).toBeVisible();
+    await expect(row.getByRole("button", { name: "Log in again" })).toBeVisible();
+    await expect(row.locator("button", { hasText: "Update API key" })).toBeVisible();
   });
 
   test("catalog modal has provider search and auth-source badges", async ({ page }) => {

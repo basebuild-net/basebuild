@@ -2364,6 +2364,7 @@ export function ChatPanel({
       }
       setShowLogin(false);
       setLoginError(null);
+      if (backToCatalog) setShowProviderPicker(true);
     },
     [cancelProviderLogin, providerLoginState],
   );

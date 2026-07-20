@@ -13,7 +13,7 @@ test.describe("Login form is a modal, not inline", () => {
     await openProviderPicker(page);
 
     // Use title^= to match "Connect" but not "Disconnect".
-    const connectBtn = page.locator(".provider-card[title^='OpenAI API:'] .provider-card-action-btn[title^='Connect']").first();
+    const connectBtn = page.locator(".provider-card[title^='OpenAI API:'] .provider-card-action-btn[title^='Manage']").first();
     if (await connectBtn.count() > 0) {
       await connectBtn.click();
 
@@ -25,7 +25,7 @@ test.describe("Login form is a modal, not inline", () => {
       await expect(loginModal).toBeVisible({ timeout: 3_000 });
 
       await expect(page.locator(".chat-login-form")).toHaveCount(0);
-      await expect(loginModal.locator("button", { hasText: /Save API key/i })).toBeVisible();
+      await expect(loginModal.locator("button", { hasText: /Log in with API key/i })).toBeVisible();
       await expect(loginModal.locator(".modal-header")).toBeVisible();
     }
   });
@@ -34,7 +34,7 @@ test.describe("Login form is a modal, not inline", () => {
     await openFixtureProject(page);
     await openProviderPicker(page);
 
-    const connectBtn = page.locator(".provider-card[title^='OpenAI API:'] .provider-card-action-btn[title^='Connect']").first();
+    const connectBtn = page.locator(".provider-card[title^='OpenAI API:'] .provider-card-action-btn[title^='Manage']").first();
     if (await connectBtn.count() > 0) {
       await connectBtn.click();
 
@@ -52,7 +52,7 @@ test.describe("Login form is a modal, not inline", () => {
     await openFixtureProject(page);
     await openProviderPicker(page);
 
-    const connectBtn = page.locator(".provider-card[title^='Anthropic:'] .provider-card-action-btn[title^='Connect']").first();
+    const connectBtn = page.locator(".provider-card[title^='Anthropic:'] .provider-card-action-btn[title^='Manage']").first();
     if (await connectBtn.count() > 0) {
       await connectBtn.click();
 
@@ -60,7 +60,7 @@ test.describe("Login form is a modal, not inline", () => {
         has: page.locator("button[title='Back to the provider & model catalog']"),
       });
       await expect(loginModal).toBeVisible({ timeout: 3_000 });
-      await expect(loginModal.locator("button", { hasText: /Sign in to Anthropic/i })).toBeVisible();
+      await expect(loginModal.locator("button", { hasText: /Log in to Anthropic/i })).toBeVisible();
       await expect(loginModal.locator("button[title='Open the Anthropic API key page in your browser']")).toBeVisible();
 
       await loginModal.locator("button[title='Back to the provider & model catalog']").click();

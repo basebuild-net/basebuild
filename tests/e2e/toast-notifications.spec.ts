@@ -209,7 +209,7 @@ test.describe("Taskbar notification bar system", () => {
 
     // Find umans disconnect button.
     const umansCard = page.locator(".provider-card").filter({ hasText: "Umans" }).first();
-    const disconnectBtn = umansCard.locator(".provider-card-action-btn", { hasText: "Disconnect" }).first();
+    const disconnectBtn = umansCard.locator(".provider-card-action-btn", { hasText: "Manage" }).first();
 
     if (await disconnectBtn.count() > 0) {
       await disconnectBtn.click();
