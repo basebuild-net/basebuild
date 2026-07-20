@@ -13,3 +13,11 @@ pub fn app_version() -> &'static str {
 pub fn open_url(url: String) -> Result<(), String> {
     open::that(&url).map_err(|e| format!("Failed to open URL: {e}"))
 }
+
+/// Fully restart the Basebuild process — the last-resort recovery action when
+/// reloading the webview cannot recover a wedged UI or a panicked backend.
+/// `AppHandle::restart` re-execs the current binary and never returns.
+#[tauri::command]
+pub fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}

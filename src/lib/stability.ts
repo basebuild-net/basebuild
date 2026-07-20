@@ -49,3 +49,14 @@ export async function stabilityViolations(): Promise<CommandTelemetryEntry[]> {
 export async function stabilityRendererHeartbeat(): Promise<void> {
   return invoke("stability_renderer_heartbeat");
 }
+
+/** Persist a renderer crash so it survives the recovery reload/restart and
+ *  appears in the Debug panel alongside Rust panics and freezes. Best-effort;
+ *  callers ignore failures so recovery is never blocked. */
+export async function stabilityRecordRendererCrash(
+  source: string,
+  message: string,
+  details: string,
+): Promise<void> {
+  return invoke("stability_record_renderer_crash", { source, message, details });
+}

@@ -8,3 +8,10 @@ export async function appVersion(): Promise<string> {
 export async function openUrl(url: string): Promise<void> {
   return invoke<void>("open_url", { url });
 }
+
+/** Fully restart the Basebuild process. The last-resort recovery action when
+ *  reloading the webview cannot recover the UI or a wedged backend. Never
+ *  resolves — the process re-execs into a fresh instance. */
+export async function restartApp(): Promise<void> {
+  return invoke<void>("restart_app");
+}
