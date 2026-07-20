@@ -17,7 +17,7 @@ use commands::{
         get_analytics_consent, list_analytics_events, record_analytics_event,
         set_analytics_consent,
     },
-    app::{app_version, open_url},
+    app::{app_version, open_url, restart_app},
     auth::{
         auth_fetch_profile, auth_get_token, auth_poll_device_flow, auth_sign_out,
         auth_start_device_flow, auth_status,
@@ -151,8 +151,8 @@ use commands::{
     slash_commands::{expand_slash_command, list_slash_commands},
     stability::{
         stability_delete_report, stability_list_reports, stability_mark_seen,
-        stability_read_report, stability_recent_telemetry, stability_renderer_heartbeat,
-        stability_unseen_count, stability_violations,
+        stability_read_report, stability_recent_telemetry, stability_record_renderer_crash,
+        stability_renderer_heartbeat, stability_unseen_count, stability_violations,
     },
     startup::{
         startup_disable, startup_enable, startup_get_status, startup_launch_mode, startup_reconcile,
@@ -352,6 +352,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_version,
             open_url,
+            restart_app,
             remember_recent_project,
             list_recent_projects,
             get_last_focused_project,
@@ -468,6 +469,7 @@ pub fn run() {
             stability_violations,
             stability_renderer_heartbeat,
             stability_recent_telemetry,
+            stability_record_renderer_crash,
             openspec_task_progress,
             openspec_parse_task_progress,
             openspec_derive_change_name,

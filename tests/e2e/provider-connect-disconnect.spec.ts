@@ -19,13 +19,11 @@ test.describe("Provider connect/disconnect via modal", () => {
     await openProviderPicker(page);
 
     const cards = page.locator(".provider-card");
-    const count = await cards.count();
-    expect(count).toBeGreaterThan(0);
-
-    for (let i = 0; i < count; i++) {
-      const title = await cards.nth(i).getAttribute("title");
+    const titles = await cards.evaluateAll((els) => els.map((el) => el.getAttribute("title")));
+    expect(titles.length).toBeGreaterThan(0);
+    titles.forEach((title) => {
       expect(title).toBeTruthy();
-    }
+    });
   });
 
   test("Manage button is present for connected non-local providers", async ({ page }) => {

@@ -64,12 +64,11 @@ test.describe("Visual planning command center", () => {
 
     // Each stage card must have a title attribute.
     const cards = page.locator(".planning-stage-card");
-    const count = await cards.count();
-    for (let i = 0; i < count; i++) {
-      const title = await cards.nth(i).getAttribute("title");
+    const titles = await cards.evaluateAll((els) => els.map((el) => el.getAttribute("title")));
+    titles.forEach((title) => {
       expect(title).toBeTruthy();
       expect(title!.length).toBeGreaterThan(0);
-    }
+    });
   });
 
   test("ideas indicator provides complete quick management actions", async ({ page }) => {

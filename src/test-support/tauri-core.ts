@@ -615,6 +615,13 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "stability_recent_telemetry":
     case "stability_violations":
       return [] as T;
+    case "restart_app":
+      return undefined as T;
+    case "stability_record_renderer_crash": {
+      const g = globalThis as typeof globalThis & { __BASEBUILD_RENDERER_CRASHES__?: unknown[] };
+      (g.__BASEBUILD_RENDERER_CRASHES__ ??= []).push(args);
+      return undefined as T;
+    }
     case "detect_project":
       return { path: args.path as string, gitRoot: args.path as string, hasGit: true, hasOpenSpec: true, hasBasebuild: true } as T;
     case "git_status": {

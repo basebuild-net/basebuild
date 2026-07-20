@@ -27,10 +27,10 @@ test.describe("Agent status indicators", () => {
     const otherDots = page.locator(".activity-sidebar-project-row:not(.is-active) .agent-status-dot");
     const count = await otherDots.count();
     expect(count).toBeGreaterThanOrEqual(2);
-    for (let i = 0; i < count; i++) {
-      const cls = await otherDots.nth(i).getAttribute("class");
+    const classes = await otherDots.evaluateAll((els) => els.map((el) => el.getAttribute("class")));
+    classes.forEach((cls) => {
       expect(cls).toContain("agent-status-idle");
-    }
+    });
   });
 
   test("status dot has tooltip with agent status", async ({ page }) => {

@@ -36,13 +36,11 @@ test.describe("Left sidebar structure (DESIGN.md §Layout)", () => {
       await page.waitForTimeout(500);
       rows = page.locator(".activity-sidebar-row");
     }
-    const count = await rows.count();
-    expect(count).toBeGreaterThan(0);
-
-    for (let i = 0; i < count; i++) {
-      const title = await rows.nth(i).getAttribute("title");
+    const titles = await rows.evaluateAll((els) => els.map((el) => el.getAttribute("title")));
+    expect(titles.length).toBeGreaterThan(0);
+    titles.forEach((title, i) => {
       expect(title, `Sidebar row ${i} should have a tooltip`).toBeTruthy();
-    }
+    });
   });
 
   test("sidebar account row is visible", async ({ page }) => {
@@ -79,14 +77,13 @@ test.describe("Left sidebar structure (DESIGN.md §Layout)", () => {
     await openFixtureProject(page);
 
     const sidebar = page.locator(".project-chat-sidebar").first();
-    const buttons = sidebar.locator("button:visible");
-    const count = await buttons.count();
-    expect(count).toBeGreaterThan(0);
-
-    for (let i = 0; i < count; i++) {
-      const title = await buttons.nth(i).getAttribute("title");
+    const titles = await sidebar
+      .locator("button:visible")
+      .evaluateAll((els) => els.map((el) => el.getAttribute("title")));
+    expect(titles.length).toBeGreaterThan(0);
+    titles.forEach((title, i) => {
       expect(title, `Sidebar button ${i} should have a tooltip`).toBeTruthy();
-    }
+    });
   });
 });
 
@@ -109,11 +106,10 @@ test.describe("Planning indicators (DESIGN.md §Planning cockpit)", () => {
     const strip = page.locator(".planning-indicators").first();
     if (await strip.count() > 0) {
       const buttons = strip.locator(".planning-indicator");
-      const count = await buttons.count();
-      for (let i = 0; i < count; i++) {
-        const title = await buttons.nth(i).getAttribute("title");
+      const titles = await buttons.evaluateAll((els) => els.map((el) => el.getAttribute("title")));
+      titles.forEach((title, i) => {
         expect(title, `Planning indicator button ${i} should have a tooltip`).toBeTruthy();
-      }
+      });
     }
   });
 
@@ -167,11 +163,10 @@ test.describe("Chat header (DESIGN.md §Center chat surface)", () => {
     const header = page.locator(".chat-header").first();
     if (await header.count() > 0) {
       const buttons = header.locator("button");
-      const count = await buttons.count();
-      for (let i = 0; i < count; i++) {
-        const title = await buttons.nth(i).getAttribute("title");
+      const titles = await buttons.evaluateAll((els) => els.map((el) => el.getAttribute("title")));
+      titles.forEach((title, i) => {
         expect(title, `Chat header button ${i} should have a tooltip`).toBeTruthy();
-      }
+      });
     }
   });
 });

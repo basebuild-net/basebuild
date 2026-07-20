@@ -126,7 +126,7 @@ pub fn set_last_active_session(project_path: String, session_id: String) -> Resu
 pub fn reveal_in_explorer(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("explorer")
+        crate::services::process_helpers::hidden_command("explorer")
             .arg(&path)
             .spawn()
             .map_err(|e| format!("Failed to open explorer: {e}"))?;

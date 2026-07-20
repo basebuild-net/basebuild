@@ -49,3 +49,19 @@ pub fn stability_renderer_heartbeat() -> Result<(), String> {
     stability_service::renderer_heartbeat();
     Ok(())
 }
+
+/// Persist a renderer-side crash (React error boundary, window error, or
+/// unhandled promise rejection) as a stability report so it survives the
+/// recovery reload/restart and surfaces in the Debug panel alongside Rust
+/// panics and freezes. Rust panics are already persisted by the panic hook,
+/// so the frontend only calls this for renderer-origin failures.
+#[tauri::command]
+pub fn stability_record_renderer_crash(
+    source: String,
+    message: String,
+    details: String,
+) -> Result<(), String> {
+    let summary = format!("Renderer crash ({source}): {message}");
+    stability_service::StabilityReport::write("renderer", &summary, &details)?;
+    Ok(())
+}
