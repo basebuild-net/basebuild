@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from "react";
 import { usePromptDelivery } from "../../lib/promptDelivery";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { markStart, markEnd, formatRelativeTime } from "../../lib/timing";
@@ -25,6 +25,7 @@ import { InteractionWorkbench } from "./InteractionWorkbench";
 import { IdeaBatchPreview, IdeaReviewWorkbench, parseIdeaBatch, type ParsedIdeaBatch, type ProposedIdea } from "./IdeaReviewWorkbench";
 import { MarkdownView } from "./MarkdownView";
 import { ConfirmDialog } from "../layout/ConfirmDialog";
+import { OptionList } from "../layout/OptionList";
 import {
   AlertCircle,
   AlertTriangle,
@@ -3792,16 +3793,19 @@ export function ChatPanel({
                 <div className="stack-sm provider-usage-section">
                   <div className="row row-between">
                     <span className="text-sm">Usage</span>
-                    <select
-                      className="input provider-usage-window"
-                      title="Usage window"
-                      value={accountUsageWindow}
-                      onChange={(e) => setAccountUsageWindow(Number(e.target.value))}
-                    >
-                      <option value={86400}>Today</option>
-                      <option value={604800}>7 days</option>
-                      <option value={2592000}>30 days</option>
-                    </select>
+                    <div className="provider-usage-window">
+                      <OptionList
+                        value={String(accountUsageWindow)}
+                        label="Usage window"
+                        compact
+                        onChange={(next) => setAccountUsageWindow(Number(next))}
+                        options={[
+                          { id: "86400", label: "Today", title: "Usage over the last 24 hours" },
+                          { id: "604800", label: "7 days", title: "Usage over the last 7 days" },
+                          { id: "2592000", label: "30 days", title: "Usage over the last 30 days" },
+                        ]}
+                      />
+                    </div>
                   </div>
                   {accountUsageLoading ? (
                     <p className="text-muted text-sm">Loading usage…</p>
@@ -3828,7 +3832,7 @@ export function ChatPanel({
                             </div>
                             {row.requests > 0 ? (
                               <div className="provider-usage-bar" title={`${sharePct}% of provider requests`}>
-                                <div className="provider-usage-bar-fill" style={{ width: `${Math.max(sharePct, 2)}%` }} />
+                                <div className="provider-usage-bar-fill" style={{ "--fill": `${Math.max(sharePct, 2)}%` } as CSSProperties} />
                               </div>
                             ) : null}
                           </div>

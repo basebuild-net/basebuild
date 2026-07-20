@@ -2956,12 +2956,14 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .provider-account-error { font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .provider-account-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .provider-usage-section { padding: 8px 10px; background: var(--bb-surface); border: 1px solid var(--bb-border); border-radius: var(--bb-radius-sm); }
-.provider-usage-window { max-width: 140px; }
+.provider-usage-window { display: flex; justify-content: flex-end; }
 .provider-usage-list { display: flex; flex-direction: column; gap: 8px; }
 .provider-usage-row { display: flex; flex-direction: column; gap: 2px; }
 .provider-usage-row-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .provider-usage-row-stats { display: flex; gap: 10px; flex-wrap: wrap; font-size: 10px; }
 .provider-usage-bar { height: 4px; background: var(--bb-border); border-radius: var(--bb-radius-full); overflow: hidden; }
+/* Fill width is driven by the --fill custom property set per row (no inline width). */
+.provider-usage-bar-fill { height: 100%; width: var(--fill, 0%); background: var(--bb-cta); border-radius: var(--bb-radius-full); }
 .provider-card:hover { border-color: var(--bb-border-strong); background: var(--bb-surface); }
 .provider-card.is-connected { border-left: 3px solid var(--bb-success, #38a169); }
 .provider-card.is-available { border-left: 3px solid var(--bb-muted); opacity: 0.65; }

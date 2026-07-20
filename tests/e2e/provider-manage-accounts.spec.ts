@@ -107,16 +107,16 @@ test.describe("Provider Manage dialog — multi-account", () => {
   test("usage window picker switches between today/7d/30d", async ({ page }) => {
     await openFixtureProject(page);
     const manageModal = await openManageModal(page, "Umans");
-    const windowSelect = manageModal.locator(".provider-usage-window");
-    await expect(windowSelect).toBeVisible();
-    // Default is "7d" (604800).
-    await expect(windowSelect).toHaveValue("604800");
+    const windowPicker = manageModal.locator(".provider-usage-window .option-list");
+    await expect(windowPicker).toBeVisible();
+    // Default is 7 days.
+    await expect(windowPicker.locator("button.is-active")).toHaveText("7 days");
     // Switch to today.
-    await windowSelect.selectOption("86400");
-    await expect(windowSelect).toHaveValue("86400");
+    await windowPicker.locator("button", { hasText: "Today" }).click();
+    await expect(windowPicker.locator("button.is-active")).toHaveText("Today");
     // Switch to 30d.
-    await windowSelect.selectOption("2592000");
-    await expect(windowSelect).toHaveValue("2592000");
+    await windowPicker.locator("button", { hasText: "30 days" }).click();
+    await expect(windowPicker.locator("button.is-active")).toHaveText("30 days");
   });
 
   test("Log out all button appears with 2+ accounts and clears all rows", async ({ page }) => {
@@ -183,10 +183,10 @@ test.describe("Settings — account strategy picker", () => {
     await providersTab.click();
     await expect(page.locator("h3", { hasText: "Model providers" })).toBeVisible({ timeout: 5_000 });
 
-    const strategySelect = page.locator("#provider-account-strategy");
-    await expect(strategySelect).toBeVisible();
-    await strategySelect.selectOption("fill_first");
+    const strategyPicker = page.locator(".provider-strategy-picker .option-list");
+    await expect(strategyPicker).toBeVisible();
+    await strategyPicker.locator("button", { hasText: "Fill first" }).click();
     // Re-read to confirm persistence (the mock stores it in state).
-    await expect(strategySelect).toHaveValue("fill_first");
+    await expect(strategyPicker.locator("button.is-active")).toHaveText("Fill first");
   });
 });

@@ -1890,20 +1890,20 @@ function ModelProvidersPanel() {
       <p className="text-muted text-sm">
         Log in with a provider subscription when OAuth is available. API keys are reserved for providers without a supported sign-in flow.
       </p>
-      <label className="stack-sm provider-strategy-picker" htmlFor="provider-account-strategy" title="How Basebuild splits usage across multiple accounts on the same provider. Per-provider overrides can be set in the chat Manage dialog.">
+      <div className="stack-sm provider-strategy-picker" title="How Basebuild splits usage across multiple accounts on the same provider. Per-provider overrides can be set in the chat Manage dialog.">
         <span className="text-sm">Split usage across accounts</span>
-        <select
-          id="provider-account-strategy"
-          className="input"
+        <OptionList<ProviderAccountStrategy>
           value={strategy}
           disabled={strategyLoading}
-          onChange={(e) => void updateStrategy(e.target.value as ProviderAccountStrategy)}
-        >
-          <option value="round_robin">Round-robin (even rotation)</option>
-          <option value="sticky_session">Sticky per chat (one account per session)</option>
-          <option value="fill_first">Fill first (drain account 1 before account 2)</option>
-        </select>
-      </label>
+          label="Split usage across accounts"
+          onChange={(next) => void updateStrategy(next)}
+          options={[
+            { id: "round_robin", label: "Round-robin", title: "Rotate requests evenly across every connected account" },
+            { id: "sticky_session", label: "Sticky per chat", title: "Each chat session keeps using the same account" },
+            { id: "fill_first", label: "Fill first", title: "Drain the first account before touching the next" },
+          ]}
+        />
+      </div>
       <label className="stack-sm" htmlFor="provider-model-search">
         <span className="text-sm">Search providers and models</span>
         <span className="input-with-icon">

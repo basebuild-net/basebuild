@@ -76,6 +76,12 @@ pub fn native_provider_account_logout(account_id: String) -> Result<(), String> 
 
 #[tauri::command]
 pub fn native_provider_account_set_label(account_id: String, label: String) -> Result<(), String> {
+    if account_id.trim().is_empty() {
+        return Err("Account id is required.".to_string());
+    }
+    if label.trim().is_empty() {
+        return Err("Account label is required.".to_string());
+    }
     crate::services::provider_account_service::ProviderAccountService::set_label(
         &account_id,
         &label,

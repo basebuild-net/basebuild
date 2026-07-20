@@ -545,9 +545,15 @@ impl NativeChatService {
         )
         .map_err(|e| e.to_string())?;
         // Per-account OAuth token slots plus the legacy single-slot key.
+        // Exact key OR ':'-scoped prefix so a provider id that happens to be
+        // a prefix of another (e.g. 'openai' vs 'openai-codex') never sweeps
+        // the sibling's slots.
         conn.execute(
-            "DELETE FROM app_defaults WHERE key LIKE ?1",
-            params![format!("provider_oauth:{provider_id}%")],
+            "DELETE FROM app_defaults WHERE key = ?1 OR key LIKE ?2",
+            params![
+                format!("provider_oauth:{provider_id}"),
+                format!("provider_oauth:{provider_id}:%")
+            ],
         )
         .map_err(|e| e.to_string())?;
         crate::services::provider_login_service::ProviderLoginService::clear_native_token(
