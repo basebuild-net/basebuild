@@ -176,7 +176,7 @@ export function PanelHeader(props: PanelHeaderProps) {
               onClick={(e) => { e.stopPropagation(); onSwitchTab?.(tab.id); }}
               onAuxClick={(e) => { if (e.button === 1) { e.stopPropagation(); e.preventDefault(); onCloseTab?.(tab.id); } }}
             >
-              <TabIcon size={9} className="panel-header-tab-icon" />
+              <TabIcon size={12} className="panel-header-tab-icon" />
               {editing && isActiveTab ? (
                 <input
                   className="input panel-header-tab-title-input"
@@ -219,7 +219,7 @@ export function PanelHeader(props: PanelHeaderProps) {
                 title={isBgTab ? "Close tab — the background agent keeps running" : "Close tab"}
                 onClick={(e) => { e.stopPropagation(); onCloseTab?.(tab.id); }}
               >
-                <X size={8} />
+                <X size={11} />
               </button>
             </div>
           );
@@ -230,7 +230,7 @@ export function PanelHeader(props: PanelHeaderProps) {
           title="Add a new tab to this panel"
           onClick={(e) => { e.stopPropagation(); onAddTab(); }}
         >
-          <Plus size={11} />
+          <Plus size={13} />
         </button>
       </div>
       <div className="panel-header-actions">
