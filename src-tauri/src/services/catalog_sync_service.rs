@@ -158,8 +158,8 @@ fn sync_catalog_inner() -> Result<CatalogSyncResult, String> {
                     "INSERT INTO native_provider_model_cache
                     (provider_id, model_id, label, context_window, max_tokens,
                      supports_reasoning, supported_efforts, supports_images, source,
-                     synced_at, error, model_api_id, api_kind, base_url)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'catalog_sync', ?9, NULL, ?10, ?11, ?12)
+                     synced_at, error, model_api_id, api_kind, base_url, detected_by)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'catalog_sync', ?9, NULL, ?10, ?11, ?12, '[\"catalog_sync\"]')
                  ON CONFLICT(provider_id, model_id) DO UPDATE SET
                     label = excluded.label,
                     context_window = excluded.context_window,

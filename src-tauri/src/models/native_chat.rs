@@ -221,6 +221,14 @@ pub struct NativeModel {
     /// Per-million-token output cost (USD), from the model catalog.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost_output: Option<f64>,
+    /// Every catalog source that lists this (provider, model) pair, in
+    /// priority order: `catalog_sync` (basebuild.net), `bundled` (shipped
+    /// static catalog), `provider_discovered` (provider `/v1/models`),
+    /// `omp_cli` (`omp models`), `hosted_fallback`. Cross-referenced during
+    /// refresh so the UI can flag which models a live source actually
+    /// confirmed vs. which are catalog-only. Empty for legacy rows.
+    #[serde(default)]
+    pub detected_by: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

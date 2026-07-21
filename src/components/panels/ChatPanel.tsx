@@ -137,6 +137,29 @@ const CONNECTED_VIA_LABELS: Record<string, string> = {
   api: "API key",
 };
 
+/** Friendly names for the catalog sources cross-referenced during refresh. */
+const MODEL_SOURCE_LABELS: Record<string, string> = {
+  catalog_sync: "basebuild.net catalog",
+  bundled: "built-in catalog",
+  provider_discovered: "provider API",
+  omp_cli: "Oh My Pi",
+  hosted_fallback: "hosted directory",
+};
+
+/** Describe which sources confirmed a model. A live source (the provider's own
+ *  /v1/models or `omp models`) means the model was actually detected as
+ *  available, not merely listed in a static catalog — that earns the check. */
+function modelDetection(model: NativeModel): { live: boolean; tooltip: string } {
+  const sources = model.detectedBy ?? [];
+  const live = sources.some((s) => s === "provider_discovered" || s === "omp_cli");
+  const names = sources.map((s) => MODEL_SOURCE_LABELS[s] ?? s);
+  if (names.length === 0) return { live: false, tooltip: `Source: ${model.source}` };
+  return {
+    live,
+    tooltip: `${live ? "Detected available by" : "Listed in"}: ${names.join(", ")}`,
+  };
+}
+
 const ACCOUNT_AUTH_LABELS: Record<string, string> = {
   oauth: "OAuth",
   omp: "Oh My Pi",
@@ -4437,12 +4460,12 @@ export function ChatPanel({
                         }}
                       />
                       <div className="provider-model-list">
-                        {filteredModels.map((model) => (
+                        {filteredModels.map((model) => { const detection = modelDetection(model); return (
                           <button
                             key={`${model.providerId}:${model.id}`}
                             className={`provider-model-row${model.id === modelId && model.providerId === providerId ? " is-active" : ""}`}
                             type="button"
-                            title={`${selectedProvider?.label ?? model.providerId} / ${model.id}. Source: ${model.source}`}
+                            title={`${selectedProvider?.label ?? model.providerId} / ${model.id}. ${detection.tooltip}`}
                             onClick={() => {
                               addLog("debug", "Model selected", `provider=${model.providerId}; model=${model.id}`);
                               setProviderId(model.providerId);
@@ -4465,12 +4488,17 @@ export function ChatPanel({
                                   used {formatRelativeTime(modelRecency[`${model.providerId}/${model.id}`]!)}
                                 </span>
                               ) : null}
+                              {detection.live ? (
+                                <span className="provider-capability is-positive" title={detection.tooltip}>
+                                  <Check size={11} aria-hidden="true" /> Detected
+                                </span>
+                              ) : null}
                               {model.supportsTools ? <span className="provider-capability is-positive">Tools</span> : null}
                               {model.supportsReasoning ? <span className="provider-capability">Reasoning</span> : null}
                               <span className="provider-capability">{model.supportedEfforts.length ? model.supportedEfforts.join("/") : "Standard"}</span>
                             </span>
                           </button>
-                        ))}
+                        ); })}
                         {filteredModels.length === 0 ? <p className="text-muted text-sm provider-model-empty">No matching models.</p> : null}
                       </div>
                     </section>

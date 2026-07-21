@@ -13,7 +13,7 @@ pub struct StorageService;
 // Increment whenever `initialize` gains a schema-changing migration. Existing
 // databases run the idempotent initializer once per version; current databases
 // skip its ~50 table/column probes entirely on normal launches.
-const CURRENT_SCHEMA_VERSION: i64 = 6;
+const CURRENT_SCHEMA_VERSION: i64 = 7;
 
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
@@ -984,6 +984,22 @@ impl StorageService {
         if !has_model_api_id {
             let _ = connection.execute(
                 "ALTER TABLE native_provider_model_cache ADD COLUMN model_api_id TEXT",
+                [],
+            );
+        }
+
+        // Migration (model-detection-cross-reference): add detected_by to
+        // native_provider_model_cache. JSON array of the catalog sources that
+        // listed each (provider, model) pair (e.g. ["catalog_sync","bundled",
+        // "provider_discovered"]), cross-referenced during refresh so the UI
+        // can flag live-confirmed vs. catalog-only models. Defaults to '[]'
+        // for legacy rows.
+        let has_detected_by = connection
+            .prepare("SELECT detected_by FROM native_provider_model_cache LIMIT 0")
+            .is_ok();
+        if !has_detected_by {
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN detected_by TEXT NOT NULL DEFAULT '[]'",
                 [],
             );
         }

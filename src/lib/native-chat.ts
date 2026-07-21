@@ -127,6 +127,12 @@ export type NativeModel = {
   costInput?: number | null;
   /** Per-million-token output cost (USD), null when unknown. */
   costOutput?: number | null;
+  /** Every catalog source that lists this model, cross-referenced during
+   *  refresh: "catalog_sync" (basebuild.net), "bundled" (shipped static
+   *  catalog), "provider_discovered" (provider /v1/models), "omp_cli"
+   *  (`omp models`), "hosted_fallback". A live source (provider_discovered /
+   *  omp_cli) means the model was confirmed available, not just catalogued. */
+  detectedBy?: string[];
 };
 
 export type NativeEffortLevel = {
