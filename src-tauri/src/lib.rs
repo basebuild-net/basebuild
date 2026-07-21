@@ -286,9 +286,11 @@ pub fn run() {
                     _ => {}
                 })
                 .build(app)?;
-            crate::services::omp_telemetry_service::OmpTelemetryService::start_loop(
-                app.handle().clone(),
-            );
+            // OMP telemetry is native-first opt-in: the polling loop is NOT
+            // started at launch (doing so spawned `omp stats/usage` probe
+            // processes on every run, even without OMP installed). The loop
+            // starts on demand (idempotent) when the OMP HUD mounts via the
+            // `omp_telemetry_start` command in `useOmpTelemetry`.
             // Restore connectors: mark all as disconnected (no silent auto-launch).
             let _ = crate::services::connector_service::ConnectorService::restore_on_startup();
             // Start the auto-sync loop (off by default; gates re-checked each tick).

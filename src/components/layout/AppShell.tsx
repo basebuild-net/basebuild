@@ -1927,6 +1927,7 @@ export function AppShell({ updates }: AppShellProps) {
                 onOpenChanges={() => setChangesModalOpen(true)}
                 onOpenPlans={() => openPlanningModal("plans")}
                 onCreatePanel={handleCreateTypedPanel}
+                ompInstalled={ompInstalled}
               />
               <PlanningIndicators
                 plans={plans.plans}
