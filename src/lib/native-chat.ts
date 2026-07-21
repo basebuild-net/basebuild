@@ -127,6 +127,12 @@ export type NativeModel = {
   costInput?: number | null;
   /** Per-million-token output cost (USD), null when unknown. */
   costOutput?: number | null;
+  /** Every catalog source that lists this model, cross-referenced during
+   *  refresh: "catalog_sync" (basebuild.net), "bundled" (shipped static
+   *  catalog), "provider_discovered" (provider /v1/models), "omp_cli"
+   *  (`omp models`), "hosted_fallback". A live source (provider_discovered /
+   *  omp_cli) means the model was confirmed available, not just catalogued. */
+  detectedBy?: string[];
 };
 
 export type NativeEffortLevel = {
@@ -494,4 +500,17 @@ export async function resolveToolApproval(
     decision,
     commandPrefix: commandPrefix ?? null,
   });
+}
+
+/** Anonymous provider/model popularity from basebuild.net (installs per
+ *  provider and per `provider/model`). Public aggregate data; empty maps when
+ *  the fetch fails so callers fall back to curated ordering. */
+export type ProviderPopularity = {
+  providers: Record<string, number>;
+  models: Record<string, number>;
+  error: string | null;
+};
+
+export async function nativeProviderPopularity(): Promise<ProviderPopularity> {
+  return invoke<ProviderPopularity>("native_provider_popularity");
 }

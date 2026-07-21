@@ -96,6 +96,7 @@ import {
   nativeProviderAccountSetLabel,
   nativeProviderAccountTest,
   nativeProviderAccountUsage,
+  nativeProviderPopularity,
   renameNativeChatSession,
   type ChatModelDefault,
   type NativeChatMessage,
@@ -118,6 +119,7 @@ import { schematicWizardAction } from "../../lib/planningActions";
 import { readSkill } from "../../lib/skills";
 import type { AgentMode } from "../../lib/sessions";
 import { readModelRecency, readProviderRecency, recordModelUse, recordProviderUse } from "../../lib/modelRecency";
+import { compareProviders } from "../../lib/providerRanking";
 import { useLogs } from "../../state/log";
 import { useDropdownPosition } from "../../state/useDropdownPosition";
 
@@ -136,6 +138,29 @@ const CONNECTED_VIA_LABELS: Record<string, string> = {
   omp: "Oh My Pi",
   api: "API key",
 };
+
+/** Friendly names for the catalog sources cross-referenced during refresh. */
+const MODEL_SOURCE_LABELS: Record<string, string> = {
+  catalog_sync: "basebuild.net catalog",
+  bundled: "built-in catalog",
+  provider_discovered: "provider API",
+  omp_cli: "Oh My Pi",
+  hosted_fallback: "hosted directory",
+};
+
+/** Describe which sources confirmed a model. A live source (the provider's own
+ *  /v1/models or `omp models`) means the model was actually detected as
+ *  available, not merely listed in a static catalog — that earns the check. */
+function modelDetection(model: NativeModel): { live: boolean; tooltip: string } {
+  const sources = model.detectedBy ?? [];
+  const live = sources.some((s) => s === "provider_discovered" || s === "omp_cli");
+  const names = sources.map((s) => MODEL_SOURCE_LABELS[s] ?? s);
+  if (names.length === 0) return { live: false, tooltip: `Source: ${model.source}` };
+  return {
+    live,
+    tooltip: `${live ? "Detected available by" : "Listed in"}: ${names.join(", ")}`,
+  };
+}
 
 const ACCOUNT_AUTH_LABELS: Record<string, string> = {
   oauth: "OAuth",
@@ -727,6 +752,7 @@ export function ChatPanel({
   const [commandRecency, setCommandRecency] = useState<Record<string, number>>(() => readCommandRecency());
   const [modelRecency, setModelRecency] = useState<Record<string, number>>(() => readModelRecency());
   const [providerRecency, setProviderRecency] = useState<Record<string, number>>(() => readProviderRecency());
+  const [providerPopularity, setProviderPopularity] = useState<Record<string, number>>({});
   const [commandPayloadModal, setCommandPayloadModal] = useState<{ name: string; content: string } | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [paletteActiveIndex, setPaletteActiveIndex] = useState(0);
@@ -826,21 +852,28 @@ export function ChatPanel({
   const selectedModel = catalog?.models.find((m) => m.id === modelId && m.providerId === providerId) ?? null;
   const orderedProviders = useMemo(() => {
     if (!catalog) return [];
-    return catalog.providers.slice().sort((a, b) => {
-      // None/local always first.
-      const aLocal = a.id === LOCAL_PROVIDER_ID ? 0 : 1;
-      const bLocal = b.id === LOCAL_PROVIDER_ID ? 0 : 1;
-      if (aLocal !== bLocal) return aLocal - bLocal;
-      // Connected providers next, sorted by recency desc then alphabetical.
-      const aConn = a.configured ? 0 : 1;
-      const bConn = b.configured ? 0 : 1;
-      if (aConn !== bConn) return aConn - bConn;
-      const aRecent = providerRecency[a.id] ?? 0;
-      const bRecent = providerRecency[b.id] ?? 0;
-      if (aRecent !== bRecent) return bRecent - aRecent;
-      return a.label.localeCompare(b.label);
-    });
-  }, [catalog, providerRecency]);
+    return catalog.providers
+      .slice()
+      .sort((a, b) =>
+        compareProviders(a, b, { recency: providerRecency, popularity: providerPopularity }),
+      );
+  }, [catalog, providerRecency, providerPopularity]);
+  // Global anonymous usage popularity (basebuild.net) for usage-based
+  // provider ordering. Public aggregate data; failure leaves the map empty and
+  // ordering falls back to curated popular-first.
+  useEffect(() => {
+    let cancelled = false;
+    void nativeProviderPopularity()
+      .then((p) => {
+        if (!cancelled) setProviderPopularity(p.providers ?? {});
+      })
+      .catch(() => {
+        /* keep curated ordering */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const visibleCatalogProviders = useMemo(() => {
     const needle = providerFilter.trim().toLowerCase();
     if (!needle) return orderedProviders;
@@ -4437,12 +4470,12 @@ export function ChatPanel({
                         }}
                       />
                       <div className="provider-model-list">
-                        {filteredModels.map((model) => (
+                        {filteredModels.map((model) => { const detection = modelDetection(model); return (
                           <button
                             key={`${model.providerId}:${model.id}`}
                             className={`provider-model-row${model.id === modelId && model.providerId === providerId ? " is-active" : ""}`}
                             type="button"
-                            title={`${selectedProvider?.label ?? model.providerId} / ${model.id}. Source: ${model.source}`}
+                            title={`${selectedProvider?.label ?? model.providerId} / ${model.id}. ${detection.tooltip}`}
                             onClick={() => {
                               addLog("debug", "Model selected", `provider=${model.providerId}; model=${model.id}`);
                               setProviderId(model.providerId);
@@ -4465,12 +4498,17 @@ export function ChatPanel({
                                   used {formatRelativeTime(modelRecency[`${model.providerId}/${model.id}`]!)}
                                 </span>
                               ) : null}
+                              {detection.live ? (
+                                <span className="provider-capability is-positive" title={detection.tooltip}>
+                                  <Check size={11} aria-hidden="true" /> Detected
+                                </span>
+                              ) : null}
                               {model.supportsTools ? <span className="provider-capability is-positive">Tools</span> : null}
                               {model.supportsReasoning ? <span className="provider-capability">Reasoning</span> : null}
                               <span className="provider-capability">{model.supportedEfforts.length ? model.supportedEfforts.join("/") : "Standard"}</span>
                             </span>
                           </button>
-                        ))}
+                        ); })}
                         {filteredModels.length === 0 ? <p className="text-muted text-sm provider-model-empty">No matching models.</p> : null}
                       </div>
                     </section>

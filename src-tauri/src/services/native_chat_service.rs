@@ -432,7 +432,7 @@ impl NativeChatService {
     /// tokens internally; results are cached for 5 min to avoid per-send CLI
     /// spawns. OMP provider ids map directly to Basebuild catalog ids.
     fn omp_credentials() -> Vec<NativeProviderCredential> {
-        Self::omp_credentials_from(&omp_agent_dir().join("agent.db"))
+        Self::omp_credentials_from(&omp_agent_dir().join("agent.db"), false)
     }
 
     /// Provider ids with an active OMP credential (one pass over the OMP db).
@@ -461,14 +461,24 @@ impl NativeChatService {
     }
 
     /// Return the active OMP key for a provider as a transport fallback.
+    /// Resolves the live OAuth token lazily (only for the requested provider),
+    /// so routine enumeration never spawns `omp token`.
     pub(crate) fn omp_api_key(provider_id: &str) -> Option<String> {
-        Self::omp_credentials()
+        let credential = Self::omp_credentials()
             .into_iter()
-            .find(|credential| credential.provider_id == provider_id)
-            .map(|credential| credential.api_key)
+            .find(|credential| credential.provider_id == provider_id)?;
+        match credential.base_url.as_deref() {
+            // OAuth OMP credential: the enumeration placeholder is not a real
+            // token; fetch it live now (cached 5 min in omp_oauth_token).
+            Some(url) if url.starts_with("omp://") => omp_oauth_token(&credential.label),
+            _ => Some(credential.api_key),
+        }
     }
 
-    fn omp_credentials_from(db_path: &std::path::Path) -> Vec<NativeProviderCredential> {
+    fn omp_credentials_from(
+        db_path: &std::path::Path,
+        resolve_tokens: bool,
+    ) -> Vec<NativeProviderCredential> {
         if !db_path.exists() {
             return Vec::new();
         }
@@ -502,7 +512,18 @@ impl NativeChatService {
                         "api_key" => serde_json::from_str::<Value>(&data).ok().and_then(|v| {
                             v.get("key").and_then(|k| k.as_str()).map(String::from)
                         })?,
-                        "oauth" => omp_oauth_token(&omp_id)?,
+                        "oauth" => {
+                            // Enumeration (resolve_tokens=false) must never spawn
+                            // `omp token`: it is only needed at send time, and
+                            // OAuth OMP providers route through OmpRpcClient which
+                            // self-authenticates. Use a placeholder so the account
+                            // still lists; omp_api_key resolves the real token.
+                            if resolve_tokens {
+                                omp_oauth_token(&omp_id)?
+                            } else {
+                                format!("omp-oauth:{omp_id}")
+                            }
+                        }
                         _ => return None,
                     };
                     if key.is_empty() {
@@ -3074,7 +3095,7 @@ mod tests {
             ],
         );
 
-        let creds = NativeChatService::omp_credentials_from(&db_path);
+        let creds = NativeChatService::omp_credentials_from(&db_path, false);
         assert_eq!(creds.len(), 2, "expected only umans + anthropic: {creds:?}");
         let umans = creds
             .iter()
@@ -3098,7 +3119,7 @@ mod tests {
     #[test]
     fn omp_credentials_missing_db_returns_empty() {
         let dir = tempfile::TempDir::new().unwrap();
-        assert!(NativeChatService::omp_credentials_from(&dir.path().join("agent.db")).is_empty());
+        assert!(NativeChatService::omp_credentials_from(&dir.path().join("agent.db"), false).is_empty());
     }
 
     #[test]

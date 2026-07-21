@@ -108,6 +108,7 @@ import {
 } from "../../lib/runConcurrency";
 import { useEscapeKey } from "../../lib/useEscapeKey";
 import { listResolvedSkills, readResolvedSkill, type ResolvedSkill } from "../../lib/skillRegistry";
+import { POPULAR_PROVIDER_IDS } from "../../lib/providerRanking";
 import { useTheme, type AppTheme } from "../../state/useTheme";
 import { ModalPortal } from "../ModalPortal";
 import {
@@ -1682,14 +1683,7 @@ function ProviderPlansPanel({ gatesPass }: { gatesPass: boolean }) {
   );
 }
 
-const POPULAR_PROVIDER_IDS = [
-  "openai-codex",
-  "anthropic",
-  "google-gemini-cli",
-  "github-copilot",
-  "openai",
-  "google",
-] as const;
+
 
 function waitForProviderLoginPoll(): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();

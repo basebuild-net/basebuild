@@ -316,64 +316,96 @@ impl ProviderModelCatalogService {
         }
 
         let credential = credentials.iter().find(|c| c.provider_id == spec.id);
-        if credential.is_none() {
-            if Self::has_cached_provider(&spec.id)? {
-                return Ok(());
+
+        // Fast path: a fresh cache needs no work and — crucially — no network.
+        // The catalog sync below only runs once at least one provider is stale.
+        if !force {
+            match credential {
+                None if Self::has_cached_provider(&spec.id)? => return Ok(()),
+                Some(_) if Self::provider_cache_fresh(&spec.id)? => return Ok(()),
+                _ => {}
             }
-            return Self::replace_provider_cache(
-                &spec.id,
-                bundled_models(&spec.id),
-                "bundled",
-                None,
-            );
         }
 
-        if !force && Self::provider_cache_fresh(&spec.id)? {
-            return Ok(());
+        // Run the basebuild.net catalog sync once per refresh (memoized). It
+        // upserts canonical `catalog_sync` rows for every provider before any
+        // per-provider merge runs, so each provider's catalog rows are intact
+        // when its own merge reads them below.
+        let _ =
+            catalog_synced.get_or_insert_with(crate::services::catalog_sync_service::sync_catalog);
+
+        // Static references, always available: the basebuild.net catalog and
+        // the shipped bundled catalog. They seed the cross-reference so a model
+        // present in the catalog but absent from the live source still lists.
+        let mut sources: Vec<(&str, Vec<NativeModel>)> = Vec::new();
+        let catalog_models = Self::catalog_cached_models(&spec.id)?;
+        if !catalog_models.is_empty() {
+            sources.push(("catalog_sync", catalog_models));
         }
+        sources.push(("bundled", bundled_models(&spec.id)));
 
-        let credential = credential.expect("checked above");
-
-        // Catalog sync is the primary model source. Fetch the canonical
-        // basebuild.net catalog first (memoized across the refresh loop); if
-        // it has rows for this provider, skip /v1/models discovery entirely.
-        let catalog_synced = catalog_synced
-            .get_or_insert_with(crate::services::catalog_sync_service::sync_catalog);
-        if catalog_synced.error.is_none()
-            && Self::has_cached_provider_with_source(&spec.id, "catalog_sync")?
-        {
-            return Ok(());
-        }
-
-        let credential_base_url = credential.base_url.as_deref();
-        let discovered = if credential_base_url == Some(NATIVE_CODEX_BASE_URL) {
-            Ok(native_codex_oauth_models())
-        } else if credential_base_url == Some(OMP_CODEX_BASE_URL) {
-            // OMP's RPC bridge currently exposes authenticated text generation.
-            Ok(omp_codex_oauth_models())
-        } else if credential_base_url.is_some_and(|value| value.starts_with("omp://")) {
-            match Self::discover_via_omp_cli(&spec.id) {
-                Ok(models) if !models.is_empty() => Ok(models),
-                _ => Ok(bundled_models(&spec.id)),
-            }
-        } else if is_bespoke_provider(&spec.id) {
-            // Bespoke-protocol providers (devin-agent, cursor-agent, etc.)
-            // are not OpenAI-compatible. Try `omp models` for live
-            // discovery; fall back to the bundled catalog.
-            match Self::discover_via_omp_cli(&spec.id) {
-                Ok(models) if !models.is_empty() => Ok(models),
-                _ => Ok(bundled_models(&spec.id)),
-            }
-        } else {
-            Self::discover_openai_compatible(spec.clone(), credential)
+        let Some(credential) = credential else {
+            // No credential: only static sources to cross-reference.
+            let merged = merge_model_sources(sources);
+            return Self::replace_provider_cache(&spec.id, merged, "bundled", None);
         };
 
-        match discovered {
+        let credential_base_url = credential.base_url.as_deref();
+
+        // Codex OAuth / OMP-codex have no live `/v1/models` endpoint; the
+        // catalog's `openai-codex` provider (already in `sources` as bundled/
+        // catalog_sync) is the model set. Insert the tool-corrected variant
+        // FIRST so it wins the canonical record over the raw catalog rows,
+        // while those still contribute their detection labels.
+        if credential_base_url == Some(NATIVE_CODEX_BASE_URL) {
+            sources.insert(0, ("bundled", native_codex_oauth_models()));
+            let merged = merge_model_sources(sources);
+            return Self::replace_provider_cache(&spec.id, merged, "bundled", None);
+        }
+        if credential_base_url == Some(OMP_CODEX_BASE_URL) {
+            sources.insert(0, ("bundled", omp_codex_oauth_models()));
+            let merged = merge_model_sources(sources);
+            return Self::replace_provider_cache(&spec.id, merged, "bundled", None);
+        }
+
+        // Live detection: the endpoint the credential routes to. OMP-backed and
+        // bespoke providers use `omp models`; everything else is OpenAI-
+        // compatible `/v1/models`. Its models are cross-referenced against the
+        // static sources and tagged so the UI can flag live-confirmed models.
+        let (live_label, live): (&str, DbResult<Vec<NativeModel>>) = if credential_base_url
+            .is_some_and(|value| value.starts_with("omp://"))
+            || is_bespoke_provider(&spec.id)
+        {
+            ("omp_cli", Self::discover_via_omp_cli(&spec.id))
+        } else {
+            (
+                "provider_discovered",
+                Self::discover_openai_compatible(spec.clone(), credential),
+            )
+        };
+
+        match live {
             Ok(models) if !models.is_empty() => {
-                Self::replace_provider_cache(&spec.id, models, "provider_discovered", None)
+                sources.push((live_label, models));
+                let merged = merge_model_sources(sources);
+                Self::replace_provider_cache(&spec.id, merged, "provider_discovered", None)
             }
-            Ok(_) => Self::fallback_or_preserve(spec, "Provider returned no models."),
-            Err(error) => Self::fallback_or_preserve(spec, &error),
+            Ok(_) => {
+                let merged = merge_model_sources(sources);
+                if merged.is_empty() {
+                    Self::fallback_or_preserve(spec, "Provider returned no models.")
+                } else {
+                    Self::replace_provider_cache(&spec.id, merged, "bundled", None)
+                }
+            }
+            Err(error) => {
+                let merged = merge_model_sources(sources);
+                if merged.is_empty() {
+                    Self::fallback_or_preserve(spec, &error)
+                } else {
+                    Self::replace_provider_cache(&spec.id, merged, "bundled", Some(error))
+                }
+            }
         }
     }
 
@@ -474,6 +506,7 @@ impl ProviderModelCatalogService {
                     base_url: String::new(),
                     cost_input: None,
                     cost_output: None,
+                    detected_by: Vec::new(),
                 },
                 "provider_discovered",
             ));
@@ -583,6 +616,7 @@ impl ProviderModelCatalogService {
                     base_url,
                     cost_input,
                     cost_output,
+                    detected_by: Vec::new(),
                 },
                 "omp_cli",
             ));
@@ -727,6 +761,7 @@ impl ProviderModelCatalogService {
                         base_url: String::new(),
                         cost_input: None,
                         cost_output: None,
+                        detected_by: Vec::new(),
                     },
                     "hosted_fallback",
                 ))
@@ -740,7 +775,7 @@ impl ProviderModelCatalogService {
             .prepare(
                 "SELECT provider_id, model_id, label, context_window, max_tokens, supports_reasoning,
                         supported_efforts, supports_images, source, synced_at, error, model_api_id,
-                        api_kind, base_url, cost_input, cost_output, bundled_version
+                        api_kind, base_url, cost_input, cost_output, bundled_version, detected_by
                  FROM native_provider_model_cache
                  ORDER BY provider_id, label",
             )
@@ -754,6 +789,8 @@ impl ProviderModelCatalogService {
                     serde_json::from_str::<Vec<String>>(&supported_raw).unwrap_or_default();
                 let local_only = provider_id == LOCAL_PROVIDER_ID;
                 let api_kind = row.get::<_, Option<String>>(12)?.unwrap_or_default();
+                let detected_by = serde_json::from_str::<Vec<String>>(&row.get::<_, String>(17)?)
+                    .unwrap_or_default();
                 Ok(CachedModel {
                     model: NativeModel {
                         id: model_id,
@@ -780,6 +817,7 @@ impl ProviderModelCatalogService {
                         base_url: row.get::<_, Option<String>>(13)?.unwrap_or_default(),
                         cost_input: row.get::<_, Option<f64>>(14)?,
                         cost_output: row.get::<_, Option<f64>>(15)?,
+                        detected_by,
                     },
                     synced_at: row.get(9)?,
                     error: row.get(10)?,
@@ -805,17 +843,29 @@ impl ProviderModelCatalogService {
         )
         .map_err(|e| format!("Failed to clear model cache: {e}"))?;
         for model in models {
-            let bundled_version = if source == "bundled" {
+            let row_source = if model.source.is_empty() {
+                source
+            } else {
+                model.source.as_str()
+            };
+            let bundled_version = if row_source == "bundled" {
                 Some(model_catalog::CATALOG_VERSION.trim().to_string())
             } else {
                 None
             };
+            let detected_by = if model.detected_by.is_empty() {
+                vec![row_source.to_string()]
+            } else {
+                model.detected_by.clone()
+            };
+            let detected_by_json =
+                serde_json::to_string(&detected_by).unwrap_or_else(|_| "[]".to_string());
             conn.execute(
                 "INSERT INTO native_provider_model_cache
                  (provider_id, model_id, label, context_window, max_tokens, supports_reasoning,
                   supported_efforts, supports_images, source, synced_at, error, model_api_id,
-                  api_kind, base_url, cost_input, cost_output, bundled_version)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                  api_kind, base_url, cost_input, cost_output, bundled_version, detected_by)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
                 params![
                     provider_id,
                     model.id,
@@ -825,7 +875,7 @@ impl ProviderModelCatalogService {
                     model.supports_reasoning as i32,
                     serde_json::to_string(&model.supported_efforts).unwrap_or_else(|_| "[]".to_string()),
                     model.supports_images as i32,
-                    source,
+                    row_source,
                     now,
                     error,
                     model.model_api_id,
@@ -834,11 +884,24 @@ impl ProviderModelCatalogService {
                     model.cost_input,
                     model.cost_output,
                     bundled_version,
+                    detected_by_json,
                 ],
             )
             .map_err(|e| format!("Failed to save model cache row: {e}"))?;
         }
         Ok(())
+    }
+
+    /// The basebuild.net `catalog_sync` rows currently cached for a provider,
+    /// rebuilt into `NativeModel`s so the refresh merge can cross-reference
+    /// them. Reads the shared cache (populated by `sync_catalog` earlier in the
+    /// same refresh) and keeps only canonical catalog rows.
+    fn catalog_cached_models(provider_id: &str) -> DbResult<Vec<NativeModel>> {
+        Ok(Self::cached_models()?
+            .into_iter()
+            .filter(|c| c.model.provider_id == provider_id && c.model.source == "catalog_sync")
+            .map(|c| c.model)
+            .collect())
     }
 
     fn mark_provider_error(provider_id: &str, error: &str) -> DbResult<()> {
@@ -849,18 +912,6 @@ impl ProviderModelCatalogService {
         )
         .map_err(|e| format!("Failed to mark model cache stale: {e}"))?;
         Ok(())
-    }
-
-    fn has_cached_provider_with_source(provider_id: &str, source: &str) -> DbResult<bool> {
-        let conn = StorageService::connect()?;
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM native_provider_model_cache WHERE provider_id = ?1 AND source = ?2",
-                params![provider_id, source],
-                |r| r.get(0),
-            )
-            .map_err(|e| e.to_string())?;
-        Ok(count > 0)
     }
 
     fn has_cached_provider(provider_id: &str) -> DbResult<bool> {
@@ -1187,6 +1238,7 @@ fn bundled_models(provider_id: &str) -> Vec<NativeModel> {
                 base_url: String::new(),
                 cost_input: None,
                 cost_output: None,
+                detected_by: Vec::new(),
             },
             "bundled",
         )],
@@ -1246,28 +1298,40 @@ fn bundled_from_catalog(provider_id: &str, cm: &model_catalog::CatalogModel) -> 
             base_url: cm.base_url.clone(),
             cost_input,
             cost_output,
+            detected_by: Vec::new(),
         },
         "bundled",
     )
 }
 
+/// The native (ChatGPT-subscription) `openai-codex` provider's models. The
+/// catalog's `openai-codex` provider is the authoritative set — the real
+/// Codex-backend model ids (`gpt-5`, `gpt-5-codex`, `gpt-5.1-codex-max`, …)
+/// with the `openai-codex-responses` wire kind — so we reuse it rather than
+/// re-labelling the OpenAI API catalog (which carries the wrong endpoint and
+/// lists models the subscription backend never serves).
+///
+/// One override: the generic transport table marks `openai-codex-responses`
+/// tool-incapable, but the native `OpenAiCodexClient` does carry tool schemas,
+/// so force `supports_tools` on for this OAuth path.
 fn native_codex_oauth_models() -> Vec<NativeModel> {
-    bundled_models("openai")
+    bundled_models("openai-codex")
         .into_iter()
-        .filter(|model| model.id == "gpt-5.5")
         .map(|mut model| {
-            model.provider_id = "openai-codex".to_string();
+            model.supports_tools = true;
             model
         })
         .collect()
 }
 
+/// Same authoritative `openai-codex` catalog set as
+/// [`native_codex_oauth_models`], but routed through OMP's RPC bridge, which
+/// currently exposes authenticated text generation only — tool calling stays
+/// disabled (the catalog already marks `openai-codex-responses` tool-incapable).
 fn omp_codex_oauth_models() -> Vec<NativeModel> {
-    bundled_models("openai")
+    bundled_models("openai-codex")
         .into_iter()
-        .filter(|model| model.id == "gpt-5.5")
         .map(|mut model| {
-            model.provider_id = "openai-codex".to_string();
             model.supports_tools = false;
             model
         })
@@ -1276,7 +1340,44 @@ fn omp_codex_oauth_models() -> Vec<NativeModel> {
 
 fn model_with_source(mut model: NativeModel, source: &str) -> NativeModel {
     model.source = source.to_string();
+    if model.detected_by.is_empty() {
+        model.detected_by = vec![source.to_string()];
+    }
     model
+}
+
+/// Merge model lists from several catalog sources into one deduplicated list.
+/// The first source that carries a given model id provides the canonical
+/// record — so richer static metadata (api_kind, base_url, cost, model_api_id)
+/// wins over a bare live listing — while every source that lists the id adds
+/// its label to `detected_by`. Input order therefore sets both record
+/// precedence and the `source` field; the caller passes static sources
+/// (catalog_sync, bundled) before live ones (provider_discovered, omp_cli).
+fn merge_model_sources(sources: Vec<(&str, Vec<NativeModel>)>) -> Vec<NativeModel> {
+    let mut order: Vec<String> = Vec::new();
+    let mut merged: std::collections::HashMap<String, NativeModel> =
+        std::collections::HashMap::new();
+    for (label, models) in sources {
+        for mut model in models {
+            if let Some(existing) = merged.get_mut(&model.id) {
+                if !existing.detected_by.iter().any(|s| s == label) {
+                    existing.detected_by.push(label.to_string());
+                }
+            } else {
+                let key = model.id.clone();
+                model.source = label.to_string();
+                model.detected_by = vec![label.to_string()];
+                order.push(key.clone());
+                merged.insert(key, model);
+            }
+        }
+    }
+    let mut out: Vec<NativeModel> = order
+        .into_iter()
+        .filter_map(|key| merged.remove(&key))
+        .collect();
+    out.sort_by(|a, b| a.label.cmp(&b.label));
+    out
 }
 
 fn effort_levels() -> Vec<NativeEffortLevel> {
@@ -1391,19 +1492,90 @@ mod tests {
     use super::*;
 
     #[test]
-    fn omp_codex_oauth_models_only_lists_verified_model_without_tools() {
+    fn omp_codex_oauth_models_from_catalog_without_tools() {
         let models = omp_codex_oauth_models();
-        assert_eq!(models.len(), 1);
-        assert_eq!(models[0].id, "gpt-5.5");
-        assert!(!models[0].supports_tools);
+        let catalog = bundled_models("openai-codex");
+        assert_eq!(models.len(), catalog.len());
+        assert!(models.len() > 1);
+        assert!(models.iter().all(|m| m.provider_id == "openai-codex"));
+        assert!(models.iter().all(|m| !m.supports_tools));
+        // Real Codex-backend model ids, not the OpenAI API catalog.
+        assert!(models.iter().any(|m| m.id == "gpt-5-codex"));
     }
 
     #[test]
-    fn native_codex_oauth_model_keeps_tool_support() {
+    fn native_codex_oauth_models_from_catalog_force_tool_support() {
         let models = native_codex_oauth_models();
-        assert_eq!(models.len(), 1);
-        assert_eq!(models[0].id, "gpt-5.5");
-        assert!(models[0].supports_tools);
+        let catalog = bundled_models("openai-codex");
+        assert_eq!(models.len(), catalog.len());
+        assert!(models.len() > 1);
+        assert!(models.iter().all(|m| m.provider_id == "openai-codex"));
+        assert!(models.iter().any(|m| m.id == "gpt-5-codex"));
+        // The native OpenAiCodexClient carries tool schemas, so every model is
+        // tool-capable even though the catalog wire kind is marked otherwise.
+        assert!(models.iter().all(|m| m.supports_tools));
+        // Uses the authoritative openai-codex catalog, not the OpenAI API set.
+        assert!(models.iter().all(|m| m.api_kind == "openai-codex-responses"));
+    }
+
+    #[test]
+    fn merge_model_sources_unions_detection_and_keeps_first_record() {
+        let mk = |id: &str, label: &str, api_kind: &str| NativeModel {
+            id: id.to_string(),
+            provider_id: "p".to_string(),
+            label: label.to_string(),
+            supports_effort: false,
+            supports_streaming: true,
+            supports_tools: true,
+            local_only: false,
+            context_window: None,
+            max_tokens: None,
+            supports_reasoning: false,
+            supported_efforts: Vec::new(),
+            supports_images: false,
+            source: String::new(),
+            model_api_id: None,
+            api_kind: api_kind.to_string(),
+            base_url: String::new(),
+            cost_input: None,
+            cost_output: None,
+            detected_by: Vec::new(),
+        };
+        let merged = merge_model_sources(vec![
+            (
+                "catalog_sync",
+                vec![mk("a", "Alpha", "openai-responses"), mk("b", "Beta", "")],
+            ),
+            (
+                "bundled",
+                vec![mk("a", "Alpha", "bundled-kind"), mk("c", "Cee", "")],
+            ),
+            (
+                "provider_discovered",
+                vec![mk("a", "Alpha", "live-kind"), mk("c", "Cee", "")],
+            ),
+        ]);
+
+        // Deduped by id: a, b, c.
+        assert_eq!(merged.len(), 3);
+        let a = merged.iter().find(|m| m.id == "a").unwrap();
+        // First source (catalog_sync) provides the canonical record + source,
+        // so richer static metadata wins over the bare live listing.
+        assert_eq!(a.source, "catalog_sync");
+        assert_eq!(a.api_kind, "openai-responses");
+        // Detection unions every source that listed the id, in encounter order.
+        assert_eq!(
+            a.detected_by,
+            vec!["catalog_sync", "bundled", "provider_discovered"]
+        );
+        let b = merged.iter().find(|m| m.id == "b").unwrap();
+        assert_eq!(b.detected_by, vec!["catalog_sync"]);
+        let c = merged.iter().find(|m| m.id == "c").unwrap();
+        assert_eq!(c.source, "bundled");
+        assert_eq!(c.detected_by, vec!["bundled", "provider_discovered"]);
+        // Output is sorted by label.
+        let labels: Vec<&str> = merged.iter().map(|m| m.label.as_str()).collect();
+        assert_eq!(labels, vec!["Alpha", "Beta", "Cee"]);
     }
 
     #[test]
@@ -1558,6 +1730,7 @@ mod tests {
             base_url: String::new(),
             cost_input: None,
             cost_output: None,
+            detected_by: Vec::new(),
         }];
         let all_bespoke = models.iter().all(|m| is_bespoke_api_kind(&m.api_kind));
         let has_base_url = models.iter().any(|m| !m.base_url.is_empty());
@@ -1594,6 +1767,7 @@ mod tests {
             base_url: "https://custom.api.com/v1".to_string(),
             cost_input: None,
             cost_output: None,
+            detected_by: Vec::new(),
         }];
         let all_bespoke = models.iter().all(|m| is_bespoke_api_kind(&m.api_kind));
         let has_base_url = models.iter().any(|m| !m.base_url.is_empty());

@@ -1181,6 +1181,8 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     }
     case "native_catalog_sync":
       return { synced: 4, skipped: 0, error: null } as T;
+    case "native_provider_popularity":
+      return { providers: {}, models: {}, error: null } as T;
     case "execution_advice_get": {
       const roleAdvice = (role: "planner" | "coder") => ({
         role,
