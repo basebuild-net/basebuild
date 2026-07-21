@@ -352,16 +352,18 @@ impl ProviderModelCatalogService {
 
         let credential_base_url = credential.base_url.as_deref();
 
-        // Codex OAuth / OMP-codex re-expose the bundled OpenAI catalog and have
-        // no live `/v1/models` endpoint, so they contribute as a bundled source
-        // rather than a live-detected one.
+        // Codex OAuth / OMP-codex have no live `/v1/models` endpoint; the
+        // catalog's `openai-codex` provider (already in `sources` as bundled/
+        // catalog_sync) is the model set. Insert the tool-corrected variant
+        // FIRST so it wins the canonical record over the raw catalog rows,
+        // while those still contribute their detection labels.
         if credential_base_url == Some(NATIVE_CODEX_BASE_URL) {
-            sources.push(("bundled", native_codex_oauth_models()));
+            sources.insert(0, ("bundled", native_codex_oauth_models()));
             let merged = merge_model_sources(sources);
             return Self::replace_provider_cache(&spec.id, merged, "bundled", None);
         }
         if credential_base_url == Some(OMP_CODEX_BASE_URL) {
-            sources.push(("bundled", omp_codex_oauth_models()));
+            sources.insert(0, ("bundled", omp_codex_oauth_models()));
             let merged = merge_model_sources(sources);
             return Self::replace_provider_cache(&spec.id, merged, "bundled", None);
         }
@@ -1302,29 +1304,34 @@ fn bundled_from_catalog(provider_id: &str, cm: &model_catalog::CatalogModel) -> 
     )
 }
 
-/// The OAuth (ChatGPT-subscription) `openai-codex` provider mirrors the full
-/// OpenAI model catalog. The ChatGPT-subscription Codex backend only serves the
-/// GPT-5/Codex family, so models outside it may fail at request time, but the
-/// catalog is surfaced in full so users can see and pick any OpenAI model
-/// rather than a single hard-coded entry.
+/// The native (ChatGPT-subscription) `openai-codex` provider's models. The
+/// catalog's `openai-codex` provider is the authoritative set — the real
+/// Codex-backend model ids (`gpt-5`, `gpt-5-codex`, `gpt-5.1-codex-max`, …)
+/// with the `openai-codex-responses` wire kind — so we reuse it rather than
+/// re-labelling the OpenAI API catalog (which carries the wrong endpoint and
+/// lists models the subscription backend never serves).
+///
+/// One override: the generic transport table marks `openai-codex-responses`
+/// tool-incapable, but the native `OpenAiCodexClient` does carry tool schemas,
+/// so force `supports_tools` on for this OAuth path.
 fn native_codex_oauth_models() -> Vec<NativeModel> {
-    bundled_models("openai")
+    bundled_models("openai-codex")
         .into_iter()
         .map(|mut model| {
-            model.provider_id = "openai-codex".to_string();
+            model.supports_tools = true;
             model
         })
         .collect()
 }
 
-/// Same catalog as [`native_codex_oauth_models`], but routed through OMP's RPC
-/// bridge, which currently exposes authenticated text generation only — tool
-/// calling is disabled for every model on this path.
+/// Same authoritative `openai-codex` catalog set as
+/// [`native_codex_oauth_models`], but routed through OMP's RPC bridge, which
+/// currently exposes authenticated text generation only — tool calling stays
+/// disabled (the catalog already marks `openai-codex-responses` tool-incapable).
 fn omp_codex_oauth_models() -> Vec<NativeModel> {
-    bundled_models("openai")
+    bundled_models("openai-codex")
         .into_iter()
         .map(|mut model| {
-            model.provider_id = "openai-codex".to_string();
             model.supports_tools = false;
             model
         })
@@ -1485,28 +1492,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn omp_codex_oauth_models_mirror_catalog_without_tools() {
+    fn omp_codex_oauth_models_from_catalog_without_tools() {
         let models = omp_codex_oauth_models();
-        let bundled = bundled_models("openai");
-        assert_eq!(models.len(), bundled.len());
+        let catalog = bundled_models("openai-codex");
+        assert_eq!(models.len(), catalog.len());
         assert!(models.len() > 1);
         assert!(models.iter().all(|m| m.provider_id == "openai-codex"));
         assert!(models.iter().all(|m| !m.supports_tools));
-        assert!(models.iter().any(|m| m.id == "gpt-5.5"));
+        // Real Codex-backend model ids, not the OpenAI API catalog.
+        assert!(models.iter().any(|m| m.id == "gpt-5-codex"));
     }
 
     #[test]
-    fn native_codex_oauth_models_mirror_catalog_keeping_tool_support() {
+    fn native_codex_oauth_models_from_catalog_force_tool_support() {
         let models = native_codex_oauth_models();
-        let bundled = bundled_models("openai");
-        assert_eq!(models.len(), bundled.len());
+        let catalog = bundled_models("openai-codex");
+        assert_eq!(models.len(), catalog.len());
         assert!(models.len() > 1);
         assert!(models.iter().all(|m| m.provider_id == "openai-codex"));
-        assert!(models.iter().any(|m| m.id == "gpt-5.5"));
-        // Tool support is preserved from the catalog (not force-disabled).
-        let native = models.iter().find(|m| m.id == "gpt-5.5").unwrap();
-        let bundled_5_5 = bundled.iter().find(|m| m.id == "gpt-5.5").unwrap();
-        assert_eq!(native.supports_tools, bundled_5_5.supports_tools);
+        assert!(models.iter().any(|m| m.id == "gpt-5-codex"));
+        // The native OpenAiCodexClient carries tool schemas, so every model is
+        // tool-capable even though the catalog wire kind is marked otherwise.
+        assert!(models.iter().all(|m| m.supports_tools));
+        // Uses the authoritative openai-codex catalog, not the OpenAI API set.
+        assert!(models.iter().all(|m| m.api_kind == "openai-codex-responses"));
     }
 
     #[test]

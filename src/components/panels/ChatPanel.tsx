@@ -118,6 +118,7 @@ import { schematicWizardAction } from "../../lib/planningActions";
 import { readSkill } from "../../lib/skills";
 import type { AgentMode } from "../../lib/sessions";
 import { readModelRecency, readProviderRecency, recordModelUse, recordProviderUse } from "../../lib/modelRecency";
+import { compareProviders } from "../../lib/providerRanking";
 import { useLogs } from "../../state/log";
 import { useDropdownPosition } from "../../state/useDropdownPosition";
 
@@ -849,20 +850,9 @@ export function ChatPanel({
   const selectedModel = catalog?.models.find((m) => m.id === modelId && m.providerId === providerId) ?? null;
   const orderedProviders = useMemo(() => {
     if (!catalog) return [];
-    return catalog.providers.slice().sort((a, b) => {
-      // None/local always first.
-      const aLocal = a.id === LOCAL_PROVIDER_ID ? 0 : 1;
-      const bLocal = b.id === LOCAL_PROVIDER_ID ? 0 : 1;
-      if (aLocal !== bLocal) return aLocal - bLocal;
-      // Connected providers next, sorted by recency desc then alphabetical.
-      const aConn = a.configured ? 0 : 1;
-      const bConn = b.configured ? 0 : 1;
-      if (aConn !== bConn) return aConn - bConn;
-      const aRecent = providerRecency[a.id] ?? 0;
-      const bRecent = providerRecency[b.id] ?? 0;
-      if (aRecent !== bRecent) return bRecent - aRecent;
-      return a.label.localeCompare(b.label);
-    });
+    return catalog.providers
+      .slice()
+      .sort((a, b) => compareProviders(a, b, { recency: providerRecency }));
   }, [catalog, providerRecency]);
   const visibleCatalogProviders = useMemo(() => {
     const needle = providerFilter.trim().toLowerCase();
