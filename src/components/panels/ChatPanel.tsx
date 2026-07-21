@@ -96,6 +96,7 @@ import {
   nativeProviderAccountSetLabel,
   nativeProviderAccountTest,
   nativeProviderAccountUsage,
+  nativeProviderPopularity,
   renameNativeChatSession,
   type ChatModelDefault,
   type NativeChatMessage,
@@ -751,6 +752,7 @@ export function ChatPanel({
   const [commandRecency, setCommandRecency] = useState<Record<string, number>>(() => readCommandRecency());
   const [modelRecency, setModelRecency] = useState<Record<string, number>>(() => readModelRecency());
   const [providerRecency, setProviderRecency] = useState<Record<string, number>>(() => readProviderRecency());
+  const [providerPopularity, setProviderPopularity] = useState<Record<string, number>>({});
   const [commandPayloadModal, setCommandPayloadModal] = useState<{ name: string; content: string } | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [paletteActiveIndex, setPaletteActiveIndex] = useState(0);
@@ -852,8 +854,26 @@ export function ChatPanel({
     if (!catalog) return [];
     return catalog.providers
       .slice()
-      .sort((a, b) => compareProviders(a, b, { recency: providerRecency }));
-  }, [catalog, providerRecency]);
+      .sort((a, b) =>
+        compareProviders(a, b, { recency: providerRecency, popularity: providerPopularity }),
+      );
+  }, [catalog, providerRecency, providerPopularity]);
+  // Global anonymous usage popularity (basebuild.net) for usage-based
+  // provider ordering. Public aggregate data; failure leaves the map empty and
+  // ordering falls back to curated popular-first.
+  useEffect(() => {
+    let cancelled = false;
+    void nativeProviderPopularity()
+      .then((p) => {
+        if (!cancelled) setProviderPopularity(p.providers ?? {});
+      })
+      .catch(() => {
+        /* keep curated ordering */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const visibleCatalogProviders = useMemo(() => {
     const needle = providerFilter.trim().toLowerCase();
     if (!needle) return orderedProviders;

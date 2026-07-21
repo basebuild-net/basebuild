@@ -55,6 +55,14 @@ pub async fn native_catalog_sync(
     .map_err(|e| format!("Catalog sync task panicked: {e}"))
 }
 
+#[tauri::command]
+pub async fn native_provider_popularity(
+) -> Result<crate::services::catalog_sync_service::ProviderPopularity, String> {
+    tauri::async_runtime::spawn_blocking(crate::services::catalog_sync_service::fetch_popularity)
+        .await
+        .map_err(|e| format!("Popularity fetch task panicked: {e}"))
+}
+
 // ─── Provider accounts (multi-account) ───
 
 #[tauri::command]

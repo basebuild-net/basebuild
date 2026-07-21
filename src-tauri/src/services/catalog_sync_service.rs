@@ -95,6 +95,74 @@ pub fn sync_catalog() -> CatalogSyncResult {
     }
 }
 
+/// Anonymous provider/model popularity fetched from
+/// `basebuild.net/api/stats/popularity`: installs-per-provider and installs-
+/// per-`provider/model`. Public aggregate data — no auth, no user data — so
+/// reading it is ungated (only the reverse direction, sharing your own usage,
+/// is permission-gated). Serialised to the desktop for usage-based ordering.
+#[derive(Debug, Clone, serde::Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderPopularity {
+    pub providers: std::collections::HashMap<String, i64>,
+    pub models: std::collections::HashMap<String, i64>,
+    /// Set when the fetch failed; maps stay empty and the UI falls back to
+    /// curated ordering.
+    pub error: Option<String>,
+}
+
+/// Fetch anonymous popularity. Never errors hard: any network/parse failure
+/// yields empty maps plus an `error` note so ordering degrades to curated.
+pub fn fetch_popularity() -> ProviderPopularity {
+    fn fail(error: String) -> ProviderPopularity {
+        ProviderPopularity {
+            error: Some(error),
+            ..Default::default()
+        }
+    }
+    let base =
+        env::var("BASEBUILD_CATALOG_URL").unwrap_or_else(|_| DEFAULT_CATALOG_BASE_URL.to_string());
+    let url = format!("{}/api/stats/popularity", base.trim_end_matches('/'));
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+    {
+        Ok(client) => client,
+        Err(e) => return fail(format!("Failed to build popularity client: {e}")),
+    };
+    let resp = match client.get(&url).send() {
+        Ok(resp) => resp,
+        Err(e) => return fail(format!("Failed to fetch popularity: {e}")),
+    };
+    if !resp.status().is_success() {
+        return fail(format!("Popularity endpoint returned HTTP {}", resp.status()));
+    }
+    let payload: serde_json::Value = match resp.json() {
+        Ok(value) => value,
+        Err(e) => return fail(format!("Failed to parse popularity: {e}")),
+    };
+    let installs = |key: &str| -> std::collections::HashMap<String, i64> {
+        payload
+            .get(key)
+            .and_then(|value| value.as_object())
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(slug, counts)| {
+                        counts
+                            .get("installs")
+                            .and_then(serde_json::Value::as_i64)
+                            .map(|n| (slug.clone(), n))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    ProviderPopularity {
+        providers: installs("providers"),
+        models: installs("models"),
+        error: None,
+    }
+}
+
 fn sync_catalog_inner() -> Result<CatalogSyncResult, String> {
     let base =
         env::var("BASEBUILD_CATALOG_URL").unwrap_or_else(|_| DEFAULT_CATALOG_BASE_URL.to_string());

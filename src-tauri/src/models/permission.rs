@@ -48,8 +48,9 @@ impl Default for PermissionRules {
 
 impl PermissionRules {
     /// Conservative defaults: ask before sensitive actions, analytics off.
-    /// Used by explicit "reset to safe" actions only — not the install
-    /// default. See `telemetry_default` for the default-on posture.
+    /// Used by explicit "reset to safe" actions. Analytics-wise this now
+    /// matches `telemetry_default` (both opt-in / off); it additionally exists
+    /// as the semantic "reset everything to the safest posture" target.
     pub fn conservative() -> Self {
         Self {
             allow_command_execution: PermissionDecision::Ask,
@@ -61,18 +62,18 @@ impl PermissionRules {
         }
     }
 
-    /// Default-on telemetry posture: usage analytics collection and
-    /// anonymous upload enabled, sensitive actions still ask. This is the
-    /// fresh-install default; the first-run modal surfaces an explicit
-    /// opt-out. `allow_detailed_diagnostics` stays off (it covers
-    /// free-text diagnostics, not aggregate telemetry).
+    /// Default privacy posture: usage analytics OFF (opt-in). Aggregate usage
+    /// collection and anonymous upload are disabled on a fresh install; the
+    /// user turns them on explicitly (first-run modal / Privacy settings),
+    /// which is the only way usage is shared with basebuild.net. Sensitive
+    /// actions still ask. Matches the "analytics disabled by default" policy.
     pub fn telemetry_default() -> Self {
         Self {
             allow_command_execution: PermissionDecision::Ask,
             allow_external_context: PermissionDecision::Ask,
             allow_file_modification: PermissionDecision::Ask,
-            allow_usage_analytics_collection: true,
-            allow_usage_analytics_upload: true,
+            allow_usage_analytics_collection: false,
+            allow_usage_analytics_upload: false,
             allow_detailed_diagnostics: false,
         }
     }

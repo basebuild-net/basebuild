@@ -501,3 +501,16 @@ export async function resolveToolApproval(
     commandPrefix: commandPrefix ?? null,
   });
 }
+
+/** Anonymous provider/model popularity from basebuild.net (installs per
+ *  provider and per `provider/model`). Public aggregate data; empty maps when
+ *  the fetch fails so callers fall back to curated ordering. */
+export type ProviderPopularity = {
+  providers: Record<string, number>;
+  models: Record<string, number>;
+  error: string | null;
+};
+
+export async function nativeProviderPopularity(): Promise<ProviderPopularity> {
+  return invoke<ProviderPopularity>("native_provider_popularity");
+}

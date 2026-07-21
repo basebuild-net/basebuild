@@ -33,14 +33,11 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
         const [p, d, c, s] = await Promise.all([listRuntimeProfiles(), getRuntimeDefaults(), getAnalyticsConsent(), startupGetStatus().catch(() => null)]);
         setProfiles(p);
         setDefaults(d);
-        // First-run consent defaults to opt-in (recommended). The user can
-        // uncheck in this step. This mirrors the backend's telemetry_default()
-        // install default and the spec's "default-on with first-run opt-out".
-        setConsent({
-          ...c,
-          collectionEnabled: true,
-          uploadEnabled: true,
-        });
+        // Usage sharing is OPT-IN: default OFF. Use the stored consent (which
+        // the backend seeds disabled) rather than pre-checking the box, so
+        // nothing is shared unless the user explicitly turns it on here or in
+        // Settings → Privacy.
+        setConsent(c);
         setStartupStatus(s);
       } catch {
         // ignore
@@ -224,14 +221,14 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
             <>
               <h3>Help improve Basebuild</h3>
               <p className="text-muted text-sm">
-                Send anonymous usage stats to basebuild.net so we can build the features you actually use?
-                Aggregates only — model, provider, tokens, cost, timing. Never prompts, source code, or secrets.
-                You can opt out anytime in Settings → Privacy.
+                Share anonymous usage stats with basebuild.net so we can build the features people actually use?
+                Aggregates only — model, provider, tokens, cost, timing. Never your name, prompts, source code, or secrets.
+                Off by default; turn it on or off anytime in Settings → Privacy, and control what shows publicly on your basebuild.net account.
               </p>
               <label className="row gap-sm">
                 <input
                   type="checkbox"
-                  title="Send anonymous usage stats to basebuild.net (recommended)"
+                  title="Share anonymous usage stats with basebuild.net (optional, off by default)"
                   checked={consent.collectionEnabled && consent.uploadEnabled}
                   onChange={(e) => setConsent({
                     ...consent,
@@ -239,7 +236,7 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
                     uploadEnabled: e.target.checked,
                   })}
                 />
-                <span className="text-sm">Yes, send anonymous usage stats (recommended)</span>
+                <span className="text-sm">Share anonymous usage stats (optional)</span>
               </label>
               <div className="row">
                 <button className="btn" type="button" title="Go back" onClick={() => setStep("startup")}>Back</button>
