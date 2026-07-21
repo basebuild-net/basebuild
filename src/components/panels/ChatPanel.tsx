@@ -123,184 +123,33 @@ import { compareProviders } from "../../lib/providerRanking";
 import { useLogs } from "../../state/log";
 import { useDropdownPosition } from "../../state/useDropdownPosition";
 
-const SEND_TIMEOUT_MS = 45_000;
-const NATIVE_PROFILE_ID = "basebuild-native";
-const LOCAL_PROVIDER_ID = "basebuild-local";
-
-function waitForProviderLoginPoll(): Promise<void> {
-  const { promise, resolve } = Promise.withResolvers<void>();
-  window.setTimeout(resolve, 750);
-  return promise;
-}
-
-const CONNECTED_VIA_LABELS: Record<string, string> = {
-  oauth: "OAuth",
-  omp: "Oh My Pi",
-  api: "API key",
-};
-
-/** Friendly names for the catalog sources cross-referenced during refresh. */
-const MODEL_SOURCE_LABELS: Record<string, string> = {
-  catalog_sync: "basebuild.net catalog",
-  bundled: "built-in catalog",
-  provider_discovered: "provider API",
-  omp_cli: "Oh My Pi",
-  hosted_fallback: "hosted directory",
-};
-
-/** Describe which sources confirmed a model. A live source (the provider's own
- *  /v1/models or `omp models`) means the model was actually detected as
- *  available, not merely listed in a static catalog — that earns the check. */
-function modelDetection(model: NativeModel): { live: boolean; tooltip: string } {
-  const sources = model.detectedBy ?? [];
-  const live = sources.some((s) => s === "provider_discovered" || s === "omp_cli");
-  const names = sources.map((s) => MODEL_SOURCE_LABELS[s] ?? s);
-  if (names.length === 0) return { live: false, tooltip: `Source: ${model.source}` };
-  return {
-    live,
-    tooltip: `${live ? "Detected available by" : "Listed in"}: ${names.join(", ")}`,
-  };
-}
-
-const ACCOUNT_AUTH_LABELS: Record<string, string> = {
-  oauth: "OAuth",
-  omp: "Oh My Pi",
-  api: "API key",
-};
-
-const ACCOUNT_HEALTH_LABELS: Record<string, string> = {
-  healthy: "Healthy",
-  rate_limited: "Rate limited",
-  auth_expired: "Auth expired",
-  error: "Error",
-};
-
-/** Compact k/M formatting for token counts. */
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
-}
-
-/** Manage-modal section tabs. */
-type ManageTab = "accounts" | "connect" | "usage";
-
-/** Human request rate over a window: "≈3.2 reqs/h" when dense,
- * "≈1 req every 6h" / "≈1 req every 1.5d" when sparse. */
-function formatRequestRate(requests: number, windowSecs: number): string | null {
-  if (requests <= 0 || windowSecs <= 0) return null;
-  const hours = windowSecs / 3600;
-  const perHour = requests / hours;
-  if (perHour >= 1) return `≈${perHour >= 10 ? perHour.toFixed(0) : perHour.toFixed(1)} reqs/h`;
-  const hoursPerReq = hours / requests;
-  if (hoursPerReq < 48) return `≈1 req every ${hoursPerReq >= 10 ? hoursPerReq.toFixed(0) : hoursPerReq.toFixed(1)}h`;
-  return `≈1 req every ${(hoursPerReq / 24).toFixed(1)}d`;
-}
-
-/** Token throughput over a window: "≈12.4k tok/h". */
-function formatTokenRate(tokens: number, windowSecs: number): string | null {
-  if (tokens <= 0 || windowSecs <= 0) return null;
-  return `≈${formatTokens(Math.round(tokens / (windowSecs / 3600)))} tok/h`;
-}
-
-/** Normalize a timestamp to milliseconds. The Rust backend stores Unix
- * seconds; the e2e mock stores ms. Values < 10^12 are treated as seconds. */
-function toMs(ts: number | null | undefined): number | null {
-  if (ts == null) return null;
-  return ts < 1e12 ? ts * 1000 : ts;
-}
-
-/** Relative time "2h ago" / "just now" from a timestamp (seconds or ms). */
-function accountRelativeTime(ts: number | null | undefined): string | null {
-  const ms = toMs(ts);
-  if (ms == null) return null;
-  const diff = Date.now() - ms;
-  if (diff < 0) return "just now";
-  if (diff < 60_000) return "just now";
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
-/** "Connected Jul 5, 2026 · 2d ago" from a timestamp (seconds or ms). */
-function accountConnectedLabel(ts: number | null | undefined): string | null {
-  const ms = toMs(ts);
-  if (ms == null) return null;
-  const date = new Date(ms).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-  const rel = accountRelativeTime(ts);
-  return rel ? `${date} · ${rel}` : date;
-}
-
-/** Seconds until a cooldown timestamp (ms), or null if not cooling down. */
-function cooldownSecondsLeft(cooldownUntil: number | null | undefined): number | null {
-  if (cooldownUntil == null) return null;
-  const ms = cooldownUntil - Date.now();
-  if (ms <= 0) return null;
-  return Math.ceil(ms / 1000);
-}
-
-/** "2 accounts · 1 OAuth · 1 API key" for provider cards (omits zero parts). */
-function accountSummaryLabel(provider: NativeProvider): string {
-  const parts: string[] = [];
-  parts.push(`${provider.accountCount} ${provider.accountCount === 1 ? "account" : "accounts"}`);
-  if (provider.oauthCount > 0) parts.push(`${provider.oauthCount} OAuth`);
-  if (provider.apiKeyCount > 0) parts.push(`${provider.apiKeyCount} API key${provider.apiKeyCount === 1 ? "" : "s"}`);
-  return parts.join(" · ");
-}
-
-/** Auth paths a provider supports, for the catalog card meta line. */
-function providerAuthOptionsLabel(provider: NativeProvider): string {
-  if (provider.authMethod === "local") return "";
-  if (provider.authMethod === "oauth") {
-    return provider.apiKeyUrl ? "OAuth or API key" : "OAuth";
-  }
-  return "API key";
-}
-
-type LegacyChatMessage = { role: "user" | "assistant" | "system"; content: string };
-
-/**
- * Detect enumerated quick-reply options in a completed assistant message.
- * Conservative: only matches `^[A-H][).:\s]\s` patterns or explicit
- * "reply with X/Y" phrasing. Skips content inside code fences. Returns
- * at most 8 option labels.
- */
-function detectProseQuickReplies(content: string): string[] {
-  // Strip code fences so we don't match code blocks.
-  const stripped = content.replace(/```[\s\S]*?```/g, "");
-  const lines = stripped.split("\n");
-  const options: string[] = [];
-  const optionPattern = /^([A-H])[)\.:]\s+(.+)/;
-  for (const line of lines) {
-    const m = line.match(optionPattern);
-    if (m) {
-      const label = `${m[1]}. ${m[2].trim()}`;
-      if (label.length <= 80 && !options.includes(label)) {
-        options.push(label);
-      }
-    }
-    if (options.length >= 8) break;
-  }
-  // Also check for "reply with X/Y/Z" phrasing.
-  if (options.length === 0) {
-    const replyMatch = stripped.match(/reply with\s+([A-Za-z0-9 ]+(?:\/[A-Za-z0-9 ]+)+)/i);
-    if (replyMatch) {
-      const parts = replyMatch[1].split("/").map((s) => s.trim()).filter(Boolean);
-      for (const part of parts) {
-        if (part.length <= 40 && !options.includes(part)) options.push(part);
-      }
-    }
-  }
-  return options;
-}
-
+import {
+  SEND_TIMEOUT_MS,
+  NATIVE_PROFILE_ID,
+  LOCAL_PROVIDER_ID,
+  waitForProviderLoginPoll,
+  CONNECTED_VIA_LABELS,
+  modelDetection,
+  ACCOUNT_AUTH_LABELS,
+  ACCOUNT_HEALTH_LABELS,
+  formatTokens,
+  formatRequestRate,
+  formatTokenRate,
+  accountRelativeTime,
+  accountConnectedLabel,
+  cooldownSecondsLeft,
+  providerAuthOptionsLabel,
+  detectProseQuickReplies,
+  formatElapsed,
+  resolveAssistantLabel,
+  type ManageTab,
+  type LegacyChatMessage,
+} from "./chat/chatFormat";
+import { ThinkingBlock, UserMessageContent } from "./chat/ChatMessageParts";
+import { ToolEventCard } from "./chat/ToolEventCard";
+import { ChatTranscript } from "./chat/ChatTranscript";
+import { ProviderManageModal } from "./chat/ProviderManageModal";
+import { ProviderCatalogModal } from "./chat/ProviderCatalogModal";
 type ChatPanelProps = {
   projectPath: string;
   chatSessionId?: string | null;
@@ -338,260 +187,6 @@ type ChatPanelProps = {
   backgroundAgent?: boolean;
 };
 
-
-function formatElapsed(seconds: number): string {
-  if (seconds < 60) return seconds === 1 ? "1 second" : `${seconds} seconds`;
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  const minLabel = m === 1 ? "1 min" : `${m} min`;
-  const secLabel = s === 1 ? "1 sec" : `${s} sec`;
-  if (m < 60) return `${minLabel} ${secLabel}`;
-  const h = Math.floor(m / 60);
-  const remainingMin = m % 60;
-  const hourLabel = h === 1 ? "1 h" : `${h} h`;
-  const remMinLabel = remainingMin === 1 ? "1 min" : `${remainingMin} min`;
-  return `${hourLabel} ${remMinLabel}`;
-}
-
-function resolveAssistantLabel(
-  catalog: NativeProviderCatalog | null,
-  selectedModel: NativeModel | null,
-  modelId: string,
-  providerId: string | null,
-): string {
-  if (providerId && modelId) {
-    const catalogModel = catalog?.models.find((m) => m.providerId === providerId && m.id === modelId);
-    if (catalogModel) return catalogModel.label;
-  }
-  return selectedModel?.label ?? modelId ?? "Assistant";
-}
-
-function ThinkingBlock({ text }: { text: string }) {
-  const [expanded, setExpanded] = useState(true);
-  return (
-    <div className="chat-thinking-block" title="Model thinking — click to expand">
-      <button
-        className="chat-thinking-toggle"
-        type="button"
-        title={expanded ? "Collapse model thinking trace" : "Expand model thinking trace"}
-        onClick={() => setExpanded(!expanded)}
-      >
-        <Brain size={11} />
-        {expanded ? "▼" : "▶"} Thinking…
-      </button>
-      {expanded ? <MarkdownView text={text} className="chat-thinking-content" /> : null}
-    </div>
-  );
-}
-function UserMessageContent({
-  content,
-  onViewPayload,
-}: {
-  content: string;
-  onViewPayload: (name: string, payload: string) => void;
-}) {
-  const parsed = useMemo(() => parseCommandPayload(content), [content]);
-  if (!parsed) return <pre className="chat-message-content">{content}</pre>;
-  return (
-    <div className="chat-message-content">
-      <button
-        className="chat-command-chip"
-        type="button"
-        title={`View full ${parsed.name} payload`}
-        onClick={() => onViewPayload(parsed.name, parsed.content)}
-      >
-        {parsed.name}
-      </button>
-      {parsed.trailing ? <span className="chat-command-trailing">{parsed.trailing}</span> : null}
-    </div>
-  );
-}
-
-// Module-level expansion state for tool cards. Keyed by tool event id,
-// survives re-renders during streaming so a card the user expanded stays
-// expanded as the event updates from pending → running → success.
-const toolCardExpanded = new Map<string, boolean>();
-
-
-function ToolEventCard({
-  event,
-  onResolveApproval,
-  debugMode,
-  onSetApprovalMode,
-  ideas = [],
-  onOpenIdeaBatch,
-}: {
-  event: NativeToolEvent;
-  onResolveApproval?: (decision: "allow" | "allow_session" | "deny") => void;
-  debugMode?: boolean;
-  onSetApprovalMode?: (mode: "safe" | "balanced" | "auto") => void;
-  ideas?: Idea[];
-  onOpenIdeaBatch?: (toolId: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(() => toolCardExpanded.get(event.id) ?? false);
-  const toggleExpanded = useCallback(() => {
-    setExpanded((prev) => {
-      const next = !prev;
-      toolCardExpanded.set(event.id, next);
-      return next;
-    });
-  }, [event.id]);
-
-  const isRunning = event.status === "running" || event.status === "pending";
-  const isError = event.status === "error" || event.status === "denied";
-  const isApproval = event.status === "pending";
-  const isCommand = event.kind === "run_command" || event.kind === "command";
-  const isEdit = event.kind === "edit_file" || event.kind === "write_file";
-  const isMetrics = event.kind === "request_metrics";
-  const icon = isApproval ? "🔐" : isCommand ? "▶" : isEdit ? "✎" : isMetrics ? "📊" : "🔧";
-  const statusClass = isRunning ? "running" : isError ? "error" : event.status === "success" || event.status === "recorded" || event.status === "allow" ? "success" : "info";
-  const showExpanded = expanded || isApproval;
-
-  // Prefer the structured diff field from the backend; fall back to
-  // parsing the summary for legacy events that predate the diff column.
-  const hasDiff = isEdit && (event.diff != null || /^[+-]/m.test(event.summary));
-  const diffText = event.diff ?? (hasDiff ? event.summary : "");
-  const diffLines = diffText.split("\n").filter((l) => l.length > 0);
-
-  const timeStr = event.createdAt
-    ? new Date(event.createdAt * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-    : null;
-  const activeDuration = isRunning && event.createdAt
-    ? formatElapsed(Math.max(0, Math.floor(Date.now() / 1000) - event.createdAt))
-    : null;
-
-  // Parse arguments for structured display.
-  const parsedArgs = (() => {
-    if (!event.arguments) return null;
-    try {
-      return JSON.parse(event.arguments);
-    } catch {
-      return null;
-    }
-  })();
-
-  const ideaBatch = event.kind === "propose_ideas" ? parseIdeaBatch(parsedArgs) : null;
-  if (ideaBatch) {
-    return (
-      <IdeaBatchPreview
-        {...ideaBatch}
-        status={event.status}
-        ideas={ideas}
-        onOpen={() => onOpenIdeaBatch?.(event.id)}
-      />
-    );
-  }
-
-  // Extract key fields from parsed args depending on tool kind.
-  const argDisplay = (() => {
-    if (!parsedArgs) return null;
-    if (isCommand) {
-      const cmd = typeof parsedArgs === "object" && parsedArgs !== null && "command" in parsedArgs
-        ? String(parsedArgs.command)
-        : null;
-      return cmd ? { label: "Command", value: cmd } : null;
-    }
-    if (isEdit) {
-      const path = typeof parsedArgs === "object" && parsedArgs !== null && "path" in parsedArgs
-        ? String(parsedArgs.path)
-        : null;
-      return path ? { label: "File", value: path } : null;
-    }
-    // Generic: look for common fields.
-    if (typeof parsedArgs === "object" && parsedArgs !== null) {
-      for (const key of ["path", "file", "filePath", "directory", "dir", "pattern", "query", "url", "command"]) {
-        if (key in parsedArgs) {
-          return { label: key.charAt(0).toUpperCase() + key.slice(1), value: String(parsedArgs[key]) };
-        }
-      }
-    }
-    return null;
-  })();
-
-  // Approval provenance: how was this tool call decided?
-  const provenance = (() => {
-    if (!event.decision) return null;
-    const dec = event.decision;
-    if (dec === "approved") {
-      return event.ruleSource ? `Allowed by rule: ${event.ruleSource}` : "Allowed by user";
-    }
-    if (dec === "denied") {
-      return event.ruleSource ? `Denied by rule: ${event.ruleSource}` : "Denied by user";
-    }
-    if (dec === "auto") return "Auto-approved (session mode)";
-    if (dec === "pending") return "Approval pending";
-    return dec;
-  })();
-
-  return (
-    <div data-tool-id={event.id} className={`tool-card tool-card-${statusClass}${isApproval ? " tool-card-approval" : ""}`} title={`${event.kind}: ${event.status}${timeStr ? ` at ${timeStr}` : ""}${provenance ? ` — ${provenance}` : ""}`}>
-      <div className="tool-card-header" onClick={() => { if (!isApproval) toggleExpanded(); }} role={isApproval ? undefined : "button"} tabIndex={isApproval ? -1 : 0} aria-expanded={isApproval ? undefined : expanded}>
-        <span className="tool-card-icon">{icon}</span>
-        <span className={`tool-card-name is-${event.kind.replace(/_/g, "-")}`}>{event.kind.replace(/_/g, " ")}</span>
-        {argDisplay ? <code className="tool-card-arg-value" title={`${argDisplay.label}: ${argDisplay.value}`}>{argDisplay.value}</code> : null}
-        <span className={`tool-card-status tool-card-status-${statusClass}`}>
-          {event.status}{activeDuration ? ` · ${activeDuration}` : ""}
-        </span>
-        {timeStr ? <span className="tool-card-time text-muted">{timeStr}</span> : null}
-        {!isApproval ? <span className="tool-card-expand">{expanded ? "▼" : "▶"}</span> : null}
-      </div>
-      {showExpanded ? (
-        <div className="tool-card-body">
-          {argDisplay ? (
-            <div className="tool-card-arg-detail" title={`${argDisplay.label} passed to this tool`}>
-              <span className="tool-card-arg-label">{argDisplay.label}:</span>
-              <code className="tool-card-arg-code">{argDisplay.value}</code>
-            </div>
-          ) : null}
-          {parsedArgs ? (
-            <div className="tool-card-args-full" title="Full arguments JSON">
-              <span className="tool-card-arg-label">Full args:</span>
-              <pre className="tool-card-args-json">{JSON.stringify(parsedArgs, null, 2)}</pre>
-            </div>
-          ) : null}
-          {hasDiff ? (
-            <pre className="tool-card-diff" title="Unified line diff (added/removed lines)">
-              {diffLines.map((line, i) => (
-                <span key={i} className={line.startsWith("+") ? "diff-add" : line.startsWith("-") ? "diff-del" : "diff-ctx"}>{line}{"\n"}</span>
-              ))}
-            </pre>
-          ) : !isApproval ? (
-            <pre className="tool-card-summary">{event.summary}</pre>
-          ) : null}
-          {provenance ? (
-            <div className="tool-card-provenance text-muted text-sm" title={`Decision: ${event.decision}${event.ruleSource ? ` — rule: ${event.ruleSource}` : ""}`}>
-              {provenance}
-            </div>
-          ) : null}
-          {debugMode ? (
-            <div className="tool-card-debug" title="Raw event data (debug mode)">
-              <span className="tool-card-debug-label">Debug:</span>
-              <pre className="tool-card-debug-data">{JSON.stringify(event, null, 2)}</pre>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-      {!showExpanded && event.summary ? (
-        <div className="tool-card-summary-truncated text-muted text-sm">{event.summary.slice(0, 120)}{event.summary.length > 120 ? "…" : ""}</div>
-      ) : null}
-      {isApproval && isRunning && onResolveApproval ? (
-        <div className="tool-card-actions tool-card-approval-actions">
-          <button className="btn btn-sm btn-primary" title="Allow this tool call once" type="button" onClick={() => onResolveApproval("allow")}>Allow Once</button>
-          <button className="btn btn-sm" title="Allow all calls to this tool for this session" type="button" onClick={() => onResolveApproval("allow_session")}>Allow Session</button>
-          <button className="btn btn-sm" title="Deny this tool call" type="button" onClick={() => onResolveApproval("deny")}>Deny</button>
-          {onSetApprovalMode ? (
-            <button className="btn btn-sm tool-card-allow-all" title="Switch to Auto mode: allow all tool calls without asking. You can change this back in Settings." type="button" onClick={() => onSetApprovalMode("auto")}>Allow All (Auto)</button>
-          ) : null}
-        </div>
-      ) : null}
-      {isApproval && isRunning && !onResolveApproval ? (
-        <div className="tool-card-actions text-muted text-sm" title="Approval resolution is not available for this event">
-          <span>Approval pending — waiting for resolution</span>
-        </div>
-      ) : null}
-    </div>
-  );
-}
 export function ChatPanel({
   projectPath,
   chatSessionId,
@@ -3064,391 +2659,49 @@ export function ChatPanel({
         </ModalPortal>
       ) : null}
       {/* Messages area */}
-      <div className="chat-messages" ref={scrollRef}>
-        {nativeMode
-          ? (() => {
-              // Flat chronological timeline: merge messages + tool events +
-              // reasoning into a single sorted list, rendered in order.
-              // No grouping — each tool call is its own row. Thinking blocks
-              // render as separate rows, split around tool calls/questions.
-              const events = chatTimeline;
-              // Compute last user/assistant message IDs for action rail.
-              let lastUserId: string | null = null;
-              let lastAssistantId: string | null = null;
-              for (const ev of events) {
-                if (ev.kind === "user") lastUserId = ev.id;
-                if (ev.kind === "assistant") lastAssistantId = ev.id;
-              }
-
-              // Render the flat chronological list — consecutive tool
-              // events are grouped into a compact grid.
-              const rendered: React.ReactNode[] = [];
-              let toolBatch: Extract<(typeof events)[number], { kind: "tool" }>[] = [];
-              function flushToolBatch() {
-                if (toolBatch.length === 0) return;
-                if (toolBatch.length === 1) {
-                  const ev = toolBatch[0];
-                  rendered.push(
-                    <ToolEventCard
-                      key={`tool-${ev.id}`}
-                      event={ev.event}
-                      debugMode={debugMode}
-                      onResolveApproval={ev.event.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined}
-                      onSetApprovalMode={handleSetApprovalMode}
-                      ideas={ideaState.ideas}
-                      onOpenIdeaBatch={(toolId) => {
-                        minimizedIdeaBatchIdsRef.current.delete(toolId);
-                        setFocusedIdeaBatchId(toolId);
-                      }}
-                    />
-                  );
-                } else {
-                  rendered.push(
-                    <div className="tool-card-grid" key={`grid-${toolBatch[0].id}`}>
-                      {toolBatch.map((ev) => (
-                        <ToolEventCard
-                          key={`tool-${ev.id}`}
-                          event={ev.event}
-                          debugMode={debugMode}
-                          onResolveApproval={ev.event.status === "pending" ? (decision) => void handleResolveApproval(ev.id, decision) : undefined}
-                          onSetApprovalMode={handleSetApprovalMode}
-                          ideas={ideaState.ideas}
-                          onOpenIdeaBatch={(toolId) => {
-                            minimizedIdeaBatchIdsRef.current.delete(toolId);
-                            setFocusedIdeaBatchId(toolId);
-                          }}
-                        />
-                      ))}
-                    </div>
-                  );
-                }
-                toolBatch = [];
-              }
-              for (const ev of events) {
-                if (ev.kind === "tool") {
-                  toolBatch.push(ev);
-                  continue;
-                }
-                flushToolBatch();
-                if (ev.kind === "interaction") {
-                  // Pending questions replace the composer in the focused
-                  // workbench; answered/cancelled items render inline here.
-                  if (ev.interaction.status === "pending") continue;
-                  rendered.push(
-                    <QuestionCard
-                      key={`intr-${ev.id}`}
-                      interaction={ev.interaction}
-                      onResolved={(resolved) => setInteractions((prev) => prev.map((i) => i.id === resolved.id ? resolved : i))}
-                      onCancelled={(id) => setInteractions((prev) => prev.map((i) => i.id === id ? { ...i, status: "cancelled" } : i))}
-                    />,
-                  );
-                  continue;
-                }
-                // Render reasoning as a separate thinking block row before
-                // the message content, so thinking splits around tool calls.
-                const isOfflineTurn = ev.kind === "assistant" && ev.providerId === LOCAL_PROVIDER_ID;
-                const timeStr = ev.createdAt != null
-                  ? new Date(ev.createdAt * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-                  : null;
-                const fullDate = ev.createdAt != null ? new Date(ev.createdAt * 1000).toLocaleString() : null;
-                // Thinking block as its own row (split around interruptions).
-                if (ev.reasoning && ev.reasoning.trim()) {
-                  rendered.push(
-                    <ThinkingBlock key={`thinking-${ev.id}`} text={ev.reasoning} />,
-                  );
-                }
-                // Reasoning-only rows (no text in this iteration) get just
-                // the thinking block — skip the empty message bubble.
-                if (ev.kind === "assistant" && !ev.content.trim()) continue;
-                rendered.push(
-                  <div key={ev.id} className={`chat-message chat-message-${ev.kind}`} aria-label={`${ev.kind === "user" ? "You" : ev.kind === "assistant" ? "Assistant" : "System"}: ${ev.content.slice(0, 100)}`}>
-                    <span className="chat-message-role">
-                      {ev.kind === "user" ? "You" : ev.kind === "assistant" ? resolveAssistantLabel(catalog, selectedModel, ev.modelId ?? modelId, ev.providerId) : "System"}
-                      {isOfflineTurn ? <span className="chat-offline-tag" title="No external model was contacted">Offline</span> : null}
-                      {timeStr ? <span className="chat-message-time" title={fullDate ?? ""}>{timeStr}</span> : null}
-                    </span>
-                    {ev.kind === "assistant"
-                      ? <MarkdownView text={ev.content} className="chat-message-content" />
-                      : ev.kind === "user"
-                        ? <UserMessageContent content={ev.content} onViewPayload={(name, payload) => setCommandPayloadModal({ name, content: payload })} />
-                        : <pre className="chat-message-content">{ev.content}</pre>}
-                    {ev.kind === "user" || ev.kind === "assistant" ? (
-                      <div className="chat-message-actions">
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-icon-sm chat-message-action-copy"
-                          title="Copy message source text to clipboard"
-                          onClick={() => void handleCopyMessage(ev.content)}
-                        >
-                          <Copy size={11} />
-                        </button>
-                        {ev.kind === "assistant" && ev.id === lastAssistantId && !streaming ? (
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-icon-sm chat-message-action-retry"
-                            title="Retry — re-send the last user message as a new turn"
-                            onClick={() => void handleRetryMessage()}
-                          >
-                            <RefreshCw size={11} />
-                          </button>
-                        ) : null}
-                        {ev.kind === "user" && ev.id === lastUserId && !streaming ? (
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-icon-sm chat-message-action-edit"
-                            title="Edit and resend — load this message into the composer"
-                            onClick={() => handleEditAndResend()}
-                          >
-                            <Edit2 size={11} />
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>,
-                );
-              }
-              flushToolBatch();
-
-              // Loading row for queued state.
-              if (loading && !streaming) {
-                rendered.push(
-                  <div key="loading-queued" className="chat-loading-row" title="Request in progress">
-                    <Loader2 size={12} className="is-spinning" />
-                    <span className="text-sm text-muted">Working…</span>
-                  </div>,
-                );
-              }
-
-              return rendered;
-            })()
-          : renderMessages.map((msg, index) => {
-              const key = `legacy-${index}`;
-              return (
-                <div key={key} className={`chat-message chat-message-${msg.role}`}>
-                  <span className="chat-message-role">
-                    {msg.role === "user" ? "You" : msg.role === "assistant" ? resolveAssistantLabel(catalog, selectedModel, modelId, providerId) : "System"}
-                  </span>
-                  {msg.role === "user"
-                    ? <UserMessageContent content={msg.content} onViewPayload={(name, payload) => setCommandPayloadModal({ name, content: payload })} />
-                    : <pre className="chat-message-content">{msg.content}</pre>}
-                </div>
-              );
-            })}
-
-        {/* Thinking block — visible while streaming and after stop */}
-        {reasoningText ? (
-          <div className="chat-message chat-message-assistant chat-message-reasoning" title="Live chain-of-thought from the model. Final answer follows.">
-            <span className="chat-message-role">
-              Thinking{streaming ? "…" : " (stopped)"}
-              {streaming ? <span className="chat-elapsed-badge" title={`Thinking for ${formatElapsed(phaseElapsed)}`}>{formatElapsed(phaseElapsed)}</span> : null}
-            </span>
-            <pre className="chat-message-content chat-reasoning-live">{reasoningText}{streaming ? <span className="chat-cursor" /> : null}</pre>
-          </div>
-        ) : null}
-
-        {/* Assistant text — visible while streaming and after stop */}
-        {streamText ? (
-          <div className="chat-message chat-message-assistant">
-            <span className="chat-message-role">
-              {selectedModel?.label ?? modelId}
-              {streaming ? <span className="chat-elapsed-badge" title={`Elapsed: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span> : null}
-            </span>
-            <div className="chat-message-content"><MarkdownView text={streamText} />{streaming ? <span className="chat-cursor" /> : null}</div>
-          </div>
-        ) : null}
-        {/* Provider is writing a tool call — its JSON streams on a hidden
-            channel, so without this row the transcript freezes mid-turn. */}
-        {streaming && streamPhase !== "tools" && toolCallChars > 0 ? (
-          <div
-            className="chat-loading chat-loading-active"
-            title={`The model is writing a ${pendingToolName ? pendingToolName.replace(/_/g, " ") : "tool"} call (${(toolCallChars / 1024).toFixed(1)} KB streamed). It appears as a tool card when complete.`}
-          >
-            <LogoPulse size={14} className="chat-loading-spinner" />
-            <span className="chat-loading-label">
-              Writing {pendingToolName ? pendingToolName.replace(/_/g, " ") : "tool call"}…
-            </span>
-            <span className="chat-loading-count" title={`${(toolCallChars / 1024).toFixed(1)} KB of tool arguments streamed`}>
-              {(toolCallChars / 1024).toFixed(1)} KB
-            </span>
-            <span className="chat-elapsed-badge" title={`Phase: ${formatElapsed(phaseElapsed)}`}>{formatElapsed(phaseElapsed)}</span>
-          </div>
-        ) : null}
-
-        {/* Quiet-provider hint: streaming but nothing arrived for 30s+. */}
-        {streaming && streamPhase !== "tools" && quietSeconds >= 30 ? (
-          <div className="chat-loading" title={`No streamed output for ${quietSeconds}s. The provider may be slow; keep waiting or stop the turn.`}>
-            <span className="chat-loading-label">Still waiting — no output for {quietSeconds}s…</span>
-            <button
-              className="chat-tool-stalled-cancel"
-              type="button"
-              title="Stop the current turn"
-              onClick={() => void handleStopNative()}
-            >
-              Stop
-            </button>
-          </div>
-        ) : null}
-
-        {/* Waiting for first token with elapsed timer */}
-        {streaming && streamPhase === "thinking" && !streamText && !reasoningText && toolCallChars === 0 ? (
-          <div className="chat-message chat-thinking-indicator" title={`Waiting for the model to start responding (${formatElapsed(phaseElapsed)})`}>
-            <span className="chat-message-role">
-              {selectedModel?.label ?? modelId}
-              <span className="chat-elapsed-badge" title={`Thinking for ${formatElapsed(phaseElapsed)}`}>{formatElapsed(phaseElapsed)}</span>
-            </span>
-            <div className="chat-thinking-dots">
-              <span className="chat-thinking-dot" />
-              <span className="chat-thinking-dot" />
-              <span className="chat-thinking-dot" />
-            </div>
-          </div>
-        ) : null}
-
-        {/* Running tools with tool names, count, and elapsed timer */}
-        {streaming && streamPhase === "tools" ? (() => {
-          const pendingTools = toolEvents.filter((e) => e.status === "pending");
-          const runningTools = toolEvents.filter((e) => e.status === "running");
-          const completedTools = toolEvents.filter((e) => e.status === "success" || e.status === "error" || e.status === "denied" || e.status === "approved");
-          const activeTools = [...pendingTools, ...runningTools];
-          const toolNames = activeTools.length > 0
-            ? activeTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")
-            : "tools";
-          const isWaitingApproval = pendingTools.length > 0;
-          // Search scope: extract query/pattern from the latest running search tool.
-          const searchToolKinds = ["search_files", "search_files_in_workspace", "grep", "search"];
-          const searchTool = runningTools.find((e) =>
-            searchToolKinds.some((k) => e.kind.toLowerCase().includes(k))
-          );
-          const searchScope = (() => {
-            if (!searchTool || !searchTool.arguments) return null;
-            try {
-              const parsed = JSON.parse(searchTool.arguments);
-              if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-                const q = (parsed as Record<string, unknown>).query
-                  ?? (parsed as Record<string, unknown>).pattern
-                  ?? (parsed as Record<string, unknown>).search
-                  ?? null;
-                return q ? String(q) : null;
-              }
-            } catch { /* ignore malformed JSON */ }
-            return null;
-          })();
-          // "Xs ago" elapsed since the last tool event.
-          const toolAgoText = toolAgoSeconds > 0
-            ? toolAgoSeconds < 60
-              ? `${toolAgoSeconds}s ago`
-              : `${Math.floor(toolAgoSeconds / 60)}m ${toolAgoSeconds % 60}s ago`
-            : null;
-          return (
-            <div
-              className={`chat-loading chat-loading-active chat-loading-tools${isWaitingApproval ? " chat-loading-approval" : ""}`}
-              title={
-                isWaitingApproval
-                  ? `Waiting for approval: ${pendingTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")}. Click the approval card to allow or deny. Waiting for ${formatElapsed(phaseElapsed)}.`
-                  : `Executing: ${toolNames} (${activeTools.length} running, ${completedTools.length} done). Running for ${formatElapsed(phaseElapsed)}.`
-              }
-            >
-              <LogoPulse size={14} className="chat-loading-spinner" />
-              <span className="chat-loading-label">
-                {isWaitingApproval
-                  ? `Waiting for approval: ${pendingTools.map((e) => e.kind.replace(/_/g, " ")).join(", ")}…`
-                  : activeTools.length > 0
-                    ? `${toolNames}…`
-                    : "Running tools…"}
-              </span>
-              {stalled ? (
-                <span className="chat-tool-stalled" title={`Stalled: no tool events for ${toolAgoSeconds}s. Last tool: ${lastToolKind.replace(/_/g, " ")}. Click Cancel to stop.`}>
-                  Stalled · {lastToolKind.replace(/_/g, " ")}
-                  <button
-                    className="chat-tool-stalled-cancel"
-                    type="button"
-                    title="Cancel the stalled agent run"
-                    onClick={() => void handleStopNative()}
-                  >
-                    Cancel
-                  </button>
-                </span>
-              ) : null}
-              {searchScope ? (
-                <span className="chat-tool-scope" title={`Searching: ${searchScope}`}>
-                  Searching: {searchScope}
-                </span>
-              ) : null}
-              {toolAgoText ? (
-                <span className="chat-tool-elapsed" title={`Last tool event ${toolAgoText}`}>
-                  {toolAgoText}
-                </span>
-              ) : null}
-              {activeTools.length > 0 || completedTools.length > 0 ? (
-                <span className="chat-loading-count" title={`${pendingTools.length} pending, ${runningTools.length} running, ${completedTools.length} completed`}>
-                  {pendingTools.length > 0 ? `${pendingTools.length} pending` : ""}
-                  {pendingTools.length > 0 && runningTools.length > 0 ? " · " : ""}
-                  {runningTools.length > 0 ? `${runningTools.length} running` : ""}
-                  {(pendingTools.length > 0 || runningTools.length > 0) && completedTools.length > 0 ? " · " : ""}
-                  {completedTools.length > 0 ? `${completedTools.length} done` : ""}
-                </span>
-              ) : null}
-              <span className="chat-elapsed-badge" title={`Tool phase: ${formatElapsed(phaseElapsed)}`}>{formatElapsed(phaseElapsed)}</span>
-            </div>
-          );
-        })() : null}
-
-        {loading && !streaming ? (
-          <div className="chat-loading">{nativeMode ? "Working…" : "Agent is typing…"}</div>
-        ) : null}
-        {interruptedRun && !streaming ? (
-          <div className="chat-stuck-bar chat-recovery-bar" role="status">
-            <AlertCircle size={12} />
-            <span className="text-sm">Previous run was interrupted. Saved messages, thinking, and tool progress are shown above.</span>
-            <button
-              className="btn btn-sm"
-              type="button"
-              title="Prepare a safe continuation message without automatically repeating tools"
-              onClick={() => {
-                setInput("Continue from the saved checkpoint. Review what completed before retrying any tool.");
-                window.requestAnimationFrame(() => chatInputRef.current?.focus());
-              }}
-            >
-              Continue
-            </button>
-          </div>
-        ) : null}
-        {stuck ? (
-          <div className="chat-stuck-bar">
-            <AlertCircle size={12} />
-            <span className="text-sm">Agent frozen. No response after {SEND_TIMEOUT_MS / 1000}s.</span>
-            <button className="btn btn-sm" type="button" title="Stop and restart the agent" onClick={() => void handleStopAgent()}>
-              <RefreshCw size={12} /> Restart
-            </button>
-          </div>
-        ) : null}
-        {!streaming && !loading && interactions.length === 0 ? (() => {
-          // Find the last assistant message content from renderMessages.
-          let lastAssistantContent: string | null = null;
-          for (let i = renderMessages.length - 1; i >= 0; i--) {
-            const msg = renderMessages[i];
-            if (msg.role === "assistant") { lastAssistantContent = msg.content; break; }
-          }
-          if (!lastAssistantContent) return null;
-          const chips = detectProseQuickReplies(lastAssistantContent);
-          if (chips.length < 2) return null;
-          return (
-            <div className="chat-quick-replies" title="Quick-reply options detected from the last message">
-              {chips.map((chip) => (
-                <button
-                  key={chip}
-                  type="button"
-                  className="chat-quick-reply-chip"
-                  title={`Send: ${chip}`}
-                  onClick={() => void sendMessage(chip)}
-                >
-                  {chip}
-                </button>
-              ))}
-            </div>
-          );
-        })() : null}
-      </div>
+      <ChatTranscript
+        scrollRef={scrollRef}
+        chatInputRef={chatInputRef}
+        nativeMode={nativeMode}
+        chatTimeline={chatTimeline}
+        debugMode={debugMode}
+        ideas={ideaState.ideas}
+        catalog={catalog}
+        selectedModel={selectedModel}
+        modelId={modelId}
+        providerId={providerId}
+        streaming={streaming}
+        loading={loading}
+        renderMessages={renderMessages}
+        reasoningText={reasoningText}
+        streamText={streamText}
+        streamPhase={streamPhase}
+        phaseElapsed={phaseElapsed}
+        elapsed={elapsed}
+        toolCallChars={toolCallChars}
+        pendingToolName={pendingToolName}
+        quietSeconds={quietSeconds}
+        toolEvents={toolEvents}
+        stalled={stalled}
+        toolAgoSeconds={toolAgoSeconds}
+        lastToolKind={lastToolKind}
+        interruptedRun={interruptedRun}
+        stuck={stuck}
+        interactions={interactions}
+        minimizedIdeaBatchIdsRef={minimizedIdeaBatchIdsRef}
+        handleResolveApproval={handleResolveApproval}
+        handleSetApprovalMode={handleSetApprovalMode}
+        setInteractions={setInteractions}
+        setFocusedIdeaBatchId={setFocusedIdeaBatchId}
+        setCommandPayloadModal={setCommandPayloadModal}
+        setInput={setInput}
+        handleCopyMessage={handleCopyMessage}
+        handleRetryMessage={handleRetryMessage}
+        handleEditAndResend={handleEditAndResend}
+        handleStopNative={handleStopNative}
+        handleStopAgent={handleStopAgent}
+        sendMessage={sendMessage}
+      />
       {/* Sticky approval bar — always visible above the composer whenever a
           tool call is awaiting approval, independent of scroll position or
           streaming state. The in-transcript card can scroll out of view when
@@ -3644,478 +2897,43 @@ export function ChatPanel({
       {/* Provider manage modal: tabbed — Accounts | Connect | Usage. The API
           key entry lives in its own sub-modal so the tabs stay scannable. */}
       {nativeMode && showLogin && managedProvider && managedProvider.id !== LOCAL_PROVIDER_ID ? (
-        <ModalPortal>
-        <div className="modal-overlay" onClick={() => closeLoginModal()} title="Close manage dialog">
-          <div className="modal" onClick={(e) => e.stopPropagation()} title={`Manage ${managedProvider.label}`}>
-            <div className="modal-header">
-              <div className="row gap-sm">
-                <button
-                  className="btn-icon"
-                  title="Back to the provider & model catalog"
-                  type="button"
-                  onClick={() => closeLoginModal(true)}
-                >
-                  <ArrowLeft size={16} />
-                </button>
-                <h2>Manage {managedProvider.label}</h2>
-              </div>
-              <button
-                className="btn-icon"
-                title="Close"
-                type="button"
-                onClick={() => closeLoginModal()}
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <div className="modal-tabs" role="tablist" aria-label={`Manage ${managedProvider.label} sections`}>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={manageTab === "accounts"}
-                className={`modal-tab${manageTab === "accounts" ? " is-active" : ""}`}
-                title={`Connected ${managedProvider.label} accounts`}
-                onClick={() => setManageTab("accounts")}
-              >
-                Accounts{accountRows.length > 0 ? ` (${accountRows.length})` : ""}
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={manageTab === "connect"}
-                className={`modal-tab${manageTab === "connect" ? " is-active" : ""}`}
-                title={`Add a ${managedProvider.label} account`}
-                onClick={() => setManageTab("connect")}
-              >
-                Connect
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={manageTab === "usage"}
-                className={`modal-tab${manageTab === "usage" ? " is-active" : ""}`}
-                title={`Per-account ${managedProvider.label} usage`}
-                onClick={() => setManageTab("usage")}
-              >
-                Usage
-              </button>
-            </div>
-            <div className="modal-body stack" onClick={(e) => e.stopPropagation()}>
-              {needsEndpointUrl ? (
-                <div className="provider-callout is-warn" role="note" title={`${managedProvider.label} needs an endpoint URL`}>
-                  <AlertTriangle size={12} className="provider-callout-icon" />
-                  <div className="provider-callout-body">
-                    <span className="provider-callout-title">Endpoint URL required</span>
-                    <span className="text-sm text-muted">
-                      {managedProvider.label} uses a bespoke API. Add an API key together with its endpoint URL to enable native chat.
-                    </span>
-                  </div>
-                  <button
-                    className="btn btn-sm"
-                    type="button"
-                    title="Add an API key with an endpoint URL"
-                    onClick={() => {
-                      setManageTab("connect");
-                      openApiKeyModal();
-                    }}
-                  >
-                    Set endpoint URL
-                  </button>
-                </div>
-              ) : null}
-
-              {manageTab === "accounts" ? (
-                <div className="stack-sm" role="tabpanel" aria-label="Connected accounts">
-                  <span className="text-sm">
-                    Connected accounts
-                    {accountRows.length > 0 ? ` (${accountRows.length})` : ""}
-                  </span>
-                  {accountRowsLoading ? (
-                    <p className="text-muted text-sm">Loading accounts…</p>
-                  ) : accountRows.length === 0 ? (
-                    <div className="provider-empty-state">
-                      <p className="text-muted text-sm">
-                        No account connected yet. Connect an account to start using {managedProvider.label}.
-                      </p>
-                      <button
-                        className="btn btn-primary"
-                        type="button"
-                        title={`Connect a ${managedProvider.label} account`}
-                        onClick={() => setManageTab("connect")}
-                      >
-                        <Key size={12} /> Connect an account
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="provider-account-list">
-                      {accountRows.map((account) => {
-                        const cdLeft = cooldownSecondsLeft(account.cooldownUntil);
-                        const healthClass =
-                          account.health === "healthy" ? "is-healthy"
-                            : account.health === "rate_limited" ? "is-warn"
-                            : "is-danger";
-                        const healthText = ACCOUNT_HEALTH_LABELS[account.health] ?? account.health;
-                        const lastUsed = accountRelativeTime(account.lastUsedAt);
-                        const connected = accountConnectedLabel(account.createdAt);
-                        const authLabel = ACCOUNT_AUTH_LABELS[account.authMethod] ?? account.authMethod;
-                        const testing = testingAccountId === account.id;
-                        return (
-                          <div key={account.id} className="provider-account-row">
-                            <div className="provider-account-info">
-                              <span className={`provider-account-health ${healthClass}`} title={account.lastError ?? healthText}>
-                                <span className="provider-account-health-dot" />
-                                {account.label}
-                              </span>
-                              <span className="provider-account-meta text-muted text-sm">
-                                {authLabel}
-                                {connected ? ` · connected ${connected}` : ""}
-                                {cdLeft != null ? ` · cooldown ${cdLeft}s` : ""}
-                                {lastUsed ? ` · used ${lastUsed}` : ""}
-                              </span>
-                              {account.lastError && account.health !== "healthy" ? (
-                                <span className="provider-account-error text-danger text-sm" title={account.lastError}>
-                                  {account.lastError}
-                                </span>
-                              ) : null}
-                            </div>
-                            <div className="provider-account-actions">
-                              <button
-                                className="btn btn-sm"
-                                type="button"
-                                title={`Run a minimal authenticated request to check ${account.label}`}
-                                disabled={testing}
-                                onClick={() => void handleAccountTest(account)}
-                              >
-                                {testing ? <Loader2 size={11} className="spin" /> : <RefreshCw size={11} />} Test
-                              </button>
-                              <button
-                                className="btn btn-sm"
-                                type="button"
-                                title={`Log out of ${account.label} and remove its stored credential`}
-                                onClick={() => setConfirmLogoutProvider({ id: account.id, label: account.label })}
-                              >
-                                <LogOut size={11} /> Log out
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {accountRows.length > 1 ? (
-                        <button
-                          className="chat-link-btn"
-                          type="button"
-                          title={`Log out of every ${managedProvider.label} account and block Oh My Pi re-import`}
-                          onClick={() => setConfirmLogoutProvider({ id: managedProvider.id, label: managedProvider.label })}
-                        >
-                          Log out all accounts
-                        </button>
-                      ) : null}
-                    </div>
-                  )}
-                </div>
-              ) : null}
-
-              {manageTab === "connect" ? (
-                <div className="stack" role="tabpanel" aria-label="Connect an account">
-                  {managedProvider.authMethod === "oauth" ? (
-                    <div className="provider-login-cta stack-sm">
-                      <p className="provider-login-cta-title">Subscription sign-in</p>
-                      <p className="provider-login-cta-desc">
-                        {managedProvider.id === "openai-codex"
-                          ? "Sign in with your ChatGPT subscription. Basebuild opens your browser and completes the OAuth flow natively."
-                          : "Sign in with your provider subscription through Oh My Pi."}
-                      </p>
-                      <div className="row gap-sm">
-                        <button
-                          className="btn btn-primary btn-lg"
-                          type="button"
-                          title={`Log in to ${managedProvider.label}`}
-                          disabled={savingCred}
-                          onClick={() => void handleProviderLogin()}
-                        >
-                          {savingCred ? <Loader2 size={14} className="spin" /> : <Key size={14} />}
-                          {savingCred ? "Waiting for sign-in..." : `Log in to ${managedProvider.label}`}
-                        </button>
-                        {savingCred ? (
-                          <button
-                            className="btn"
-                            type="button"
-                            title="Cancel this sign-in attempt"
-                            onClick={() => void cancelProviderLogin()}
-                          >
-                            Cancel
-                          </button>
-                        ) : null}
-                      </div>
-                      {providerLoginState ? (
-                        <p className="text-sm text-muted">{providerLoginState.message}</p>
-                      ) : null}
-                      {providerLoginState?.status === "waiting_input" ? (
-                        <div className="stack-sm">
-                          <input
-                            className="input"
-                            type="text"
-                            placeholder="Authorization code or callback URL"
-                            value={providerLoginInput}
-                            onChange={(event) => setProviderLoginInput(event.target.value)}
-                            title={providerLoginState.prompt ?? "Provider authorization response"}
-                          />
-                          <button
-                            className="btn btn-primary"
-                            type="button"
-                            title={`Submit the ${managedProvider.label} authorization response`}
-                            disabled={!providerLoginInput.trim() || savingCred}
-                            onClick={() => void submitProviderLoginInput()}
-                          >
-                            Continue sign-in
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="provider-login-cta stack-sm">
-                      <p className="provider-login-cta-title">API key</p>
-                      <p className="provider-login-cta-desc">
-                        Connect Basebuild directly to the provider API. The key stays in Basebuild&apos;s local credential store.
-                      </p>
-                      <div className="row gap-sm">
-                        <button
-                          className="btn btn-primary btn-lg"
-                          type="button"
-                          title={`Add a ${managedProvider.label} API key`}
-                          disabled={savingCred}
-                          onClick={() => openApiKeyModal()}
-                        >
-                          <Key size={14} /> Add API key
-                        </button>
-                        {managedProvider.apiKeyUrl ? (
-                          <button
-                            className="chat-link-btn"
-                            type="button"
-                            title={`Open ${managedProvider.label} key page`}
-                            onClick={() => void openApiKeyUrl(managedProvider.apiKeyUrl!)}
-                          >
-                            Get API key
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  )}
-                  {managedProvider.authMethod === "oauth" && managedProvider.apiKeyUrl ? (
-                    <div className="provider-connect-section stack-sm">
-                      <span className="provider-connect-heading">API key</span>
-                      <p className="text-sm text-muted">
-                        Prefer usage-billed access? Connect with a {managedProvider.label} API key instead.
-                      </p>
-                      <div className="row gap-sm">
-                        <button
-                          className="btn"
-                          type="button"
-                          title={`Add a ${managedProvider.label} API key`}
-                          disabled={savingCred}
-                          onClick={() => openApiKeyModal()}
-                        >
-                          <Key size={12} /> Add API key
-                        </button>
-                        <button
-                          className="chat-link-btn"
-                          type="button"
-                          title={`Open ${managedProvider.label} key page`}
-                          onClick={() => void openApiKeyUrl(managedProvider.apiKeyUrl!)}
-                        >
-                          Get API key
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                  {managedProvider.id === "openai" && catalog?.providers.some((p) => p.id === "openai-codex") ? (
-                    <button
-                      className="chat-link-btn"
-                      type="button"
-                      title="Switch to OpenAI Codex and sign in with your ChatGPT subscription"
-                      onClick={() => {
-                        setManagedProviderId("openai-codex");
-                      }}
-                    >
-                      <Globe size={12} /> Have a ChatGPT subscription? Log in with OpenAI Codex
-                    </button>
-                  ) : null}
-                  <div className="provider-connect-section stack-sm">
-                    <span className="provider-connect-heading">Import from Oh My Pi</span>
-                    <p className="text-sm text-muted">
-                      Run <code>/login</code> in an Oh My Pi terminal, complete the provider flow, then refresh here.
-                    </p>
-                    <button
-                      className="btn"
-                      type="button"
-                      title={`Import ${managedProvider.label} credentials from Oh My Pi`}
-                      disabled={savingCred}
-                      onClick={() => void refreshFromOmp()}
-                    >
-                      <RefreshCw size={12} /> {savingCred ? "Refreshing..." : "Refresh after OMP /login"}
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-
-              {manageTab === "usage" ? (
-                <div className="stack-sm provider-usage-section" role="tabpanel" aria-label="Usage">
-                  <div className="row row-between">
-                    <span className="text-sm">Usage</span>
-                    <div className="provider-usage-window">
-                      <OptionList
-                        value={String(accountUsageWindow)}
-                        label="Usage window"
-                        compact
-                        onChange={(next) => setAccountUsageWindow(Number(next))}
-                        options={[
-                          { id: "86400", label: "Today", title: "Usage over the last 24 hours" },
-                          { id: "604800", label: "7 days", title: "Usage over the last 7 days" },
-                          { id: "2592000", label: "30 days", title: "Usage over the last 30 days" },
-                        ]}
-                      />
-                    </div>
-                  </div>
-                  {accountUsageLoading ? (
-                    <p className="text-muted text-sm">Loading usage…</p>
-                  ) : accountUsage.length === 0 ? (
-                    <p className="text-muted text-sm">No usage in this window.</p>
-                  ) : (
-                    <>
-                      <div className="provider-usage-summary" title="Totals across all accounts over the selected window">
-                        <span className="provider-usage-summary-num">{usageTotals.requests} reqs</span>
-                        <span>{formatTokens(usageTotals.input)} in · {formatTokens(usageTotals.output)} out</span>
-                        {formatRequestRate(usageTotals.requests, accountUsageWindow) ? (
-                          <span className="provider-usage-rate">{formatRequestRate(usageTotals.requests, accountUsageWindow)}</span>
-                        ) : null}
-                        {formatTokenRate(usageTotals.input + usageTotals.output, accountUsageWindow) ? (
-                          <span className="provider-usage-rate">{formatTokenRate(usageTotals.input + usageTotals.output, accountUsageWindow)}</span>
-                        ) : null}
-                        {usageTotals.cost > 0 ? <span>${usageTotals.cost.toFixed(2)}</span> : null}
-                      </div>
-                      <div className="provider-usage-list">
-                        {accountUsage.map((row) => {
-                          const acct = accountRows.find((a) => a.id === row.accountId);
-                          const label = row.accountId == null
-                            ? "Unattributed (pre-upgrade)"
-                            : (acct?.label ?? row.accountId);
-                          const sharePct = Math.round((row.requestShare ?? 0) * 100);
-                          const reqRate = formatRequestRate(row.requests, accountUsageWindow);
-                          const tokRate = formatTokenRate(row.inputTokens + row.outputTokens, accountUsageWindow);
-                          return (
-                            <div key={row.accountId ?? "__null"} className="provider-usage-row">
-                              <div className="provider-usage-row-head">
-                                <span className="text-sm">{label}</span>
-                                <span className="text-muted text-sm">{row.requests} reqs</span>
-                              </div>
-                              <div className="provider-usage-row-stats text-muted text-sm">
-                                <span>{formatTokens(row.inputTokens)} in · {formatTokens(row.outputTokens)} out</span>
-                                {reqRate ? <span className="provider-usage-rate" title="Average request rate over the selected window">{reqRate}</span> : null}
-                                {tokRate ? <span className="provider-usage-rate" title="Average token throughput over the selected window">{tokRate}</span> : null}
-                                {row.costTotal > 0 ? <span>${row.costTotal.toFixed(2)}</span> : null}
-                                {row.requests > 0 ? <span>{sharePct}%</span> : null}
-                              </div>
-                              {row.requests > 0 ? (
-                                <div className="provider-usage-bar" title={`${sharePct}% of provider requests`}>
-                                  <div className="provider-usage-bar-fill" style={{ "--fill": `${Math.max(sharePct, 2)}%` } as CSSProperties} />
-                                </div>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
-                </div>
-              ) : null}
-
-              {loginError ? <p className="text-danger text-sm">{loginError}</p> : null}
-            </div>
-          </div>
-
-          {/* API key sub-modal: one focused entry surface instead of naked inputs. */}
-          {showApiKeyModal ? (
-            <div className="modal-overlay" onClick={(e) => { e.stopPropagation(); setShowApiKeyModal(false); }} title="Close API key dialog">
-              <div className="modal api-key-modal" onClick={(e) => e.stopPropagation()} title={`Connect ${managedProvider.label} with an API key`}>
-                <div className="modal-header">
-                  <h2>Connect {managedProvider.label} with an API key</h2>
-                  <button
-                    className="btn-icon"
-                    title="Close API key dialog"
-                    type="button"
-                    onClick={() => setShowApiKeyModal(false)}
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-                <div className="modal-body stack">
-                  <p className="text-sm text-muted">
-                    The key is saved as a connected account in Basebuild&apos;s local credential store and never leaves this machine.
-                  </p>
-                  {managedProvider.apiKeyUrl ? (
-                    <button
-                      className="chat-link-btn"
-                      type="button"
-                      title={`Open ${managedProvider.label} key page`}
-                      onClick={() => void openApiKeyUrl(managedProvider.apiKeyUrl!)}
-                    >
-                      Get API key
-                    </button>
-                  ) : null}
-                  <label className="stack-sm api-key-field">
-                    <span className="text-sm">API key</span>
-                    <input
-                      className="input"
-                      type="password"
-                      placeholder="API key"
-                      autoFocus
-                      value={apiKey}
-                      onChange={(event) => setApiKey(event.target.value)}
-                      title={`API key for ${managedProvider.label}`}
-                    />
-                  </label>
-                  <label className="stack-sm api-key-field">
-                    <span className="text-sm">Endpoint URL{needsEndpointUrl ? " (required)" : " (optional)"}</span>
-                    <input
-                      className="input"
-                      type="url"
-                      placeholder={managedProvider.defaultBaseUrl ?? "https://api.example.com/v1"}
-                      value={baseUrl}
-                      onChange={(event) => setBaseUrl(event.target.value)}
-                      title="API base URL used for requests"
-                    />
-                    {needsEndpointUrl ? (
-                      <span className="text-sm text-muted">
-                        This provider&apos;s bespoke API needs an explicit endpoint URL before native chat can route requests.
-                      </span>
-                    ) : null}
-                  </label>
-                  {loginError ? <p className="text-danger text-sm">{loginError}</p> : null}
-                  <div className="row gap-sm row-end">
-                    <button
-                      className="btn"
-                      type="button"
-                      title="Cancel and close the API key dialog"
-                      onClick={() => setShowApiKeyModal(false)}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      className="btn btn-primary"
-                      type="button"
-                      title="Save API key and connect"
-                      disabled={!apiKey.trim() || (needsEndpointUrl && !baseUrl.trim()) || savingCred}
-                      onClick={() => void handleSaveCredential()}
-                    >
-                      {savingCred ? "Saving..." : "Save API key"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : null}
-        </div>
-        </ModalPortal>
+        <ProviderManageModal
+          managedProvider={managedProvider}
+          catalog={catalog}
+          needsEndpointUrl={needsEndpointUrl}
+          manageTab={manageTab}
+          accountRows={accountRows}
+          accountRowsLoading={accountRowsLoading}
+          testingAccountId={testingAccountId}
+          savingCred={savingCred}
+          providerLoginState={providerLoginState}
+          providerLoginInput={providerLoginInput}
+          accountUsageWindow={accountUsageWindow}
+          accountUsageLoading={accountUsageLoading}
+          accountUsage={accountUsage}
+          usageTotals={usageTotals}
+          loginError={loginError}
+          showApiKeyModal={showApiKeyModal}
+          apiKey={apiKey}
+          baseUrl={baseUrl}
+          closeLoginModal={closeLoginModal}
+          setManageTab={setManageTab}
+          openApiKeyModal={openApiKeyModal}
+          handleAccountTest={handleAccountTest}
+          setConfirmLogoutProvider={setConfirmLogoutProvider}
+          handleProviderLogin={handleProviderLogin}
+          cancelProviderLogin={cancelProviderLogin}
+          setProviderLoginInput={setProviderLoginInput}
+          submitProviderLoginInput={submitProviderLoginInput}
+          openApiKeyUrl={openApiKeyUrl}
+          refreshFromOmp={refreshFromOmp}
+          setManagedProviderId={setManagedProviderId}
+          setAccountUsageWindow={setAccountUsageWindow}
+          setShowApiKeyModal={setShowApiKeyModal}
+          setApiKey={setApiKey}
+          setBaseUrl={setBaseUrl}
+          handleSaveCredential={handleSaveCredential}
+        />
       ) : null}
 
       {/* Log-out confirmation: per-account when an account id is passed,
@@ -4281,261 +3099,37 @@ export function ChatPanel({
               </ModalPortal>
             ) : null}
             {(showProviderPicker || showModelPicker) ? (
-              <ModalPortal>
-              <div
-                className="modal-overlay provider-catalog-overlay"
-                role="dialog"
-                aria-label="Provider and model catalog"
-                onClick={() => {
-                  addLog("debug", "Provider catalog modal closed", "overlay");
-                  setShowProviderPicker(false);
-                  setShowModelPicker(false);
-                }}
-              >
-                <div className="modal provider-catalog-modal" onClick={(event) => event.stopPropagation()}>
-                  <div className="modal-header">
-                    <div className="provider-catalog-title">
-                      <h2>Provider &amp; model</h2>
-                      <span>
-                        {catalogStatus === "loading" || catalogStatus === "refreshing"
-                          ? `${catalog ? "Refreshing" : "Loading"} provider catalog…`
-                          : catalogStatus === "error"
-                            ? "Catalog unavailable"
-                            : catalogStatus === "stale"
-                              ? `Refresh failed · showing ${catalog?.models.length ?? 0} cached models`
-                              : `${connectedProviders.length} connected · ${catalog?.providers.length ?? 0} providers · ${catalog?.models.length ?? 0} models`}
-                      </span>
-                    </div>
-                    <button
-                      className="btn-icon"
-                      type="button"
-                      title="Close provider and model catalog"
-                      onClick={() => {
-                        addLog("debug", "Provider catalog modal closed", "button");
-                        setShowProviderPicker(false);
-                        setShowModelPicker(false);
-                      }}
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                  {catalog ? (
-                  <div className="provider-catalog-body">
-                    <section className="provider-catalog-providers" aria-label="Providers">
-                      <div className="provider-catalog-section-heading">
-                        <span>Providers</span>
-                        <span className="text-muted">Select one to browse its models</span>
-                      </div>
-                      <div className="provider-search-wrap">
-                        <Search size={12} className="provider-search-icon" />
-                        <input
-                          className="input provider-search-input"
-                          type="search"
-                          placeholder="Search providers and models…"
-                          value={providerFilter}
-                          onChange={(event) => setProviderFilter(event.target.value)}
-                          title="Search providers and models"
-                        />
-                      </div>
-                      <div className="provider-card-grid">
-                        {visibleCatalogProviders.map((provider) => {
-                          const isLocal = provider.id === LOCAL_PROVIDER_ID;
-                          const healthBad = provider.accountCount > 0 && provider.aggregateHealth !== "healthy";
-                          const needsBaseUrl = provider.status === "transport_unavailable";
-                          // Auth badge: account count first, then auth method.
-                          const authBadge = isLocal
-                            ? null
-                            : provider.accountCount > 0
-                              ? `${provider.accountCount} ${provider.accountCount === 1 ? "account" : "accounts"}`
-                              : provider.authMethod === "oauth"
-                                ? provider.apiKeyUrl ? "OAuth / API key" : "OAuth"
-                                : "API key";
-                          return (
-                          <div
-                            key={provider.id}
-                            className={`provider-card is-${provider.configured ? "connected" : "available"}${provider.id === providerId ? " is-active" : ""}${isLocal ? " is-local" : ""}`}
-                            title={`${provider.label}: ${provider.configured ? "connected" : "not connected"}; ${provider.modelCount} models`}
-                          >
-                            <button
-                              className="provider-card-select"
-                              type="button"
-                              title={`${provider.label}: ${provider.configured ? "connected" : "not connected"}; ${provider.modelCount} models. Click to browse models.`}
-                              onClick={() => {
-                                addLog("debug", "Provider selected", `provider=${provider.id}; connected=${provider.configured}`);
-                                setProviderId(provider.id);
-                                setProviderRecency(recordProviderUse(provider.id));
-                                const providerModels = catalog.models.filter((model) => model.providerId === provider.id);
-                                const currentIsValid = providerModels.some((model) => model.id === modelId);
-                                if (!currentIsValid && providerModels[0]) setModelId(providerModels[0].id);
-                                setSetupRequired(null);
-                                setModelFilter("");
-                              }}
-                            >
-                              <span className="provider-card-name">
-                                {isLocal ? <Plug size={11} className="provider-card-icon" /> : provider.configured ? <Check size={11} className="provider-card-icon is-ok" /> : <Link size={11} className="provider-card-icon" />}
-                                {provider.label}
-                              </span>
-                              <span className="provider-card-middle">
-                                {authBadge ? <span className="provider-card-auth" title={providerAuthOptionsLabel(provider) || authBadge}>{authBadge}</span> : null}
-                                <span className="provider-card-meta">
-                                  {provider.modelCount} models
-                                  {provider.connectedVia ? ` · ${CONNECTED_VIA_LABELS[provider.connectedVia]}` : ""}
-                                </span>
-                                {needsBaseUrl ? (
-                                  <span className="provider-card-flag is-warn" title="This provider uses a bespoke API that requires a custom base URL for native chat. Set a base URL to enable the native agent loop.">
-                                    <AlertTriangle size={10} /> Needs base URL
-                                  </span>
-                                ) : null}
-                                {healthBad ? (
-                                  <span
-                                    className={`provider-card-flag is-${provider.aggregateHealth === "broken" ? "danger" : "warn"}`}
-                                    title={`Account health: ${provider.aggregateHealth}. Open Manage for per-account details.`}
-                                  >
-                                    <AlertTriangle size={10} /> {provider.aggregateHealth === "broken" ? "Needs attention" : "Degraded"}
-                                  </span>
-                                ) : null}
-                                {provider.error ? (
-                                  <span className="provider-card-error-text text-danger" title={provider.error}>
-                                    {provider.error}
-                                  </span>
-                                ) : null}
-                              </span>
-                            </button>
-                            <span className="provider-card-actions">
-                              {isLocal ? (
-                                <span className="provider-card-local-tag" title="No provider connected — select a provider to chat.">Local</span>
-                              ) : (
-                                <button
-                                  className="btn btn-sm provider-card-action-btn"
-                                  type="button"
-                                  title={`Manage ${provider.label} accounts and API keys`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setShowProviderPicker(false);
-                                    setShowModelPicker(false);
-                                    setLoginError(null);
-                                    setManagedProviderId(provider.id);
-                                    setShowLogin(true);
-                                  }}
-                                >
-                                  <Settings2 size={11} /> Manage
-                                </button>
-                              )}
-                              {provider.error ? (
-                                <button
-                                  className="btn btn-sm provider-card-retry-btn"
-                                  type="button"
-                                  title={`Retry fetching models from ${provider.label}`}
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    try {
-                                      await nativeProviderCatalogRefresh({ providerId: provider.id, force: true });
-                                      await refreshCatalog();
-                                    } catch (err) {
-                                      addLog("error", "Failed to refresh provider", err instanceof Error ? err.message : String(err));
-                                    }
-                                  }}
-                                >
-                                  Retry
-                                </button>
-                              ) : null}
-                            </span>
-                          </div>
-                          );
-                        })}
-                        {visibleCatalogProviders.length === 0 ? (
-                          <p className="text-muted text-sm">No providers or models match your search.</p>
-                        ) : null}
-                      </div>
-                    </section>
-                    <section className="provider-catalog-models" aria-label="Models">
-                      <div className="provider-catalog-section-heading">
-                        <span>{selectedProvider?.label ?? providerId} models</span>
-                        <span className={`provider-status is-${selectedProvider?.configured ? "connected" : "available"}`}>
-                          <span className="provider-status-dot" />
-                          {selectedProvider?.configured ? "Connected" : "Not connected"}
-                        </span>
-                      </div>
-                      <input
-                        className="input provider-model-search"
-                        value={modelFilter}
-                        placeholder="Search this provider's models"
-                        title="Filter models for the selected provider by id or label"
-                        onChange={(event) => setModelFilter(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Escape") {
-                            setShowProviderPicker(false);
-                            setShowModelPicker(false);
-                          }
-                        }}
-                      />
-                      <div className="provider-model-list">
-                        {filteredModels.map((model) => { const detection = modelDetection(model); return (
-                          <button
-                            key={`${model.providerId}:${model.id}`}
-                            className={`provider-model-row${model.id === modelId && model.providerId === providerId ? " is-active" : ""}`}
-                            type="button"
-                            title={`${selectedProvider?.label ?? model.providerId} / ${model.id}. ${detection.tooltip}`}
-                            onClick={() => {
-                              addLog("debug", "Model selected", `provider=${model.providerId}; model=${model.id}`);
-                              setProviderId(model.providerId);
-                              setModelId(model.id);
-                              setModelRecency(recordModelUse(model.providerId, model.id));
-                              setShowProviderPicker(false);
-                              setShowModelPicker(false);
-                              setSetupRequired(null);
-                              setModelNotice(null);
-                              persistSelection(model.providerId, model.id, effortLevel);
-                            }}
-                          >
-                            <span className="provider-model-main">
-                              <span>{model.label}</span>
-                              <span className="provider-model-id">{model.id}</span>
-                            </span>
-                            <span className="provider-model-badges">
-                              {modelRecency[`${model.providerId}/${model.id}`] ? (
-                                <span className="provider-model-recency" title="Last used">
-                                  used {formatRelativeTime(modelRecency[`${model.providerId}/${model.id}`]!)}
-                                </span>
-                              ) : null}
-                              {detection.live ? (
-                                <span className="provider-capability is-positive" title={detection.tooltip}>
-                                  <Check size={11} aria-hidden="true" /> Detected
-                                </span>
-                              ) : null}
-                              {model.supportsTools ? <span className="provider-capability is-positive">Tools</span> : null}
-                              {model.supportsReasoning ? <span className="provider-capability">Reasoning</span> : null}
-                              <span className="provider-capability">{model.supportedEfforts.length ? model.supportedEfforts.join("/") : "Standard"}</span>
-                            </span>
-                          </button>
-                        ); })}
-                        {filteredModels.length === 0 ? <p className="text-muted text-sm provider-model-empty">No matching models.</p> : null}
-                      </div>
-                    </section>
-                  </div>
-                  ) : catalogStatus === "error" ? (
-                    <div className="modal-loading" role="alert">
-                      <AlertCircle size={20} />
-                      <span>Provider catalog could not load.</span>
-                      <span className="text-muted text-sm">{catalogError ?? "Unknown catalog error"}</span>
-                      <button
-                        className="btn btn-sm btn-primary"
-                        type="button"
-                        title="Retry loading the provider catalog"
-                        onClick={() => void refreshCatalog()}
-                      >
-                        <RefreshCw size={12} /> Retry
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="modal-loading" role="status" aria-live="polite">
-                      <Loader2 size={20} className="spin" />
-                      <span>Loading provider catalog…</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-              </ModalPortal>
+              <ProviderCatalogModal
+                catalog={catalog}
+                catalogStatus={catalogStatus}
+                catalogError={catalogError}
+                connectedProviders={connectedProviders}
+                providerFilter={providerFilter}
+                setProviderFilter={setProviderFilter}
+                visibleCatalogProviders={visibleCatalogProviders}
+                providerId={providerId}
+                setProviderId={setProviderId}
+                setProviderRecency={setProviderRecency}
+                modelId={modelId}
+                setModelId={setModelId}
+                setModelRecency={setModelRecency}
+                modelFilter={modelFilter}
+                setModelFilter={setModelFilter}
+                selectedProvider={selectedProvider}
+                filteredModels={filteredModels}
+                modelRecency={modelRecency}
+                effortLevel={effortLevel}
+                persistSelection={persistSelection}
+                setSetupRequired={setSetupRequired}
+                setModelNotice={setModelNotice}
+                setShowProviderPicker={setShowProviderPicker}
+                setShowModelPicker={setShowModelPicker}
+                setLoginError={setLoginError}
+                setManagedProviderId={setManagedProviderId}
+                setShowLogin={setShowLogin}
+                refreshCatalog={refreshCatalog}
+                addLog={addLog}
+              />
             ) : null}
             {commandNotice ? (
               <div className="chat-command-notice">
