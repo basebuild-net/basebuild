@@ -10,6 +10,11 @@ change. This document links to it and adds agent-specific rules.
   locally, applied before React paints via `index.html` bootstrap. Theme storage
   is untrusted — `parseTheme()` exact-allowlists to `dark | light` before
   applying. Token contract is extend-only for future themes.
+- **Pre-React boot layer** (`#bb-boot`): a theme-matched full-screen frame in
+  `index.html` painted before the bundle evaluates and removed by `App` on
+  mount, so cold start never flashes a blank window. Its colors are hardcoded
+  to match `--bb-bg`/`--bb-text` per theme because `globals.css` is not yet
+  applied at that point; once hidden it is `pointer-events: none`.
 - **Restrained border radius via tokens.** `--bb-radius-sm` (6px) for
   controls/inputs/badges, `--bb-radius-md` (10px) for cards/popovers/modals,
   `--bb-radius-lg` (14px) for composer/major floating surfaces,
@@ -120,6 +125,12 @@ dependencies are NOT adopted.
   buttons). `.panel-header-title`, `.panel-header-actions`,
   `.panel-header-status` (streaming/idle/error indicators). Pinned at the
   top of the panel, never scrolls out of view.
+- `.panel-header-tab` — the workspace tabs inside a panel header. Tabs are
+  elastic (`flex: 1 1 0`, `min-width: 130px`, `max-width: 240px`) and the strip
+  scrolls horizontally on overflow; each tab is `min-height: 38px` with a 13px
+  label and a 2px active underline in `--bb-cta`. `.panel-header-tab-close` is
+  the per-tab close affordance. (The legacy `.workspace-tab*` block was removed —
+  it was dead CSS.)
 - `.drop-zone-overlay` — 4-edge drop zone overlay for drag-to-split
   (`.drop-zone-top/right/bottom/left`). 2px accent line.
 - `.activity-sidebar` — left sidebar panel list; `.activity-sidebar-row`
