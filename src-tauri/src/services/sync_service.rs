@@ -93,6 +93,14 @@ static AUTOSYNC_STATUS: Mutex<AutoSyncStatus> = parking_lot::const_mutex(AutoSyn
 /// device telemetry keyed by `computerId`. Collects `omp stats --json` and
 /// `omp usage --json`, then sends them as a `sync_raw_usage` JSON-RPC call.
 pub fn sync_raw_usage_native() -> Result<String, String> {
+    // OMP raw-usage collection is optional enrichment: `omp stats/usage`
+    // attribute OMP-driven usage. When OMP is not installed there is nothing
+    // to collect, so skip gracefully instead of erroring — the sync loop must
+    // never record a failure tied to a missing optional dependency. Native
+    // per-message usage is carried by `sync_messages_native`.
+    if !OmpService::status().installed {
+        return Ok("skipped: OMP not installed (native message sync carries usage)".to_string());
+    }
     let mode = resolve_auth_mode()?;
 
     // Collect OMP stats and usage
