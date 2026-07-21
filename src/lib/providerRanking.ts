@@ -10,9 +10,9 @@ export const LOCAL_PROVIDER_ID = "basebuild-local";
  */
 export const POPULAR_PROVIDER_IDS = [
   "openai-codex",
-  "openai",
   "anthropic",
   "google",
+  "openai",
   "xai",
   "deepseek",
   "groq",
