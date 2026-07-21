@@ -580,21 +580,31 @@ export function AppShell({ updates }: AppShellProps) {
     if (workspacePersistTimerRef.current) window.clearTimeout(workspacePersistTimerRef.current);
     workspacePersistTimerRef.current = window.setTimeout(() => {
       workspacePersistTimerRef.current = null;
-      void saveWorkspaceRestoreState({
-        projectPath: saveProjectPath,
-        lastSessionId: saveSessionId,
-        lastTabId: saveTabId,
-        sideSection: saveRestoreSnapshot?.sideSection ?? "plans",
-        sidebarCollapsed: saveSidebarCollapsed,
-        sideCollapsed: saveRestoreSnapshot?.sideCollapsed ?? false,
-        sideWidth: saveRestoreSnapshot?.sideWidth ?? 260,
-        tabGridStates: saveTabGridStates,
-        panelGrid: savePanelGrid,
-        updatedAt: saveRestoreSnapshot?.updatedAt ?? 0,
-      }).catch((caught) => {
-        const message = caught instanceof Error ? caught.message : String(caught);
-        addLog("warn", "Failed to persist workspace state", message);
-      });
+      // Defer the actual write to idle time so serializing/persisting never
+      // competes with interaction paint. The 250ms debounce already coalesces
+      // bursts; requestIdleCallback yields the final write to a quiet frame.
+      const persist = () => {
+        void saveWorkspaceRestoreState({
+          projectPath: saveProjectPath,
+          lastSessionId: saveSessionId,
+          lastTabId: saveTabId,
+          sideSection: saveRestoreSnapshot?.sideSection ?? "plans",
+          sidebarCollapsed: saveSidebarCollapsed,
+          sideCollapsed: saveRestoreSnapshot?.sideCollapsed ?? false,
+          sideWidth: saveRestoreSnapshot?.sideWidth ?? 260,
+          tabGridStates: saveTabGridStates,
+          panelGrid: savePanelGrid,
+          updatedAt: saveRestoreSnapshot?.updatedAt ?? 0,
+        }).catch((caught) => {
+          const message = caught instanceof Error ? caught.message : String(caught);
+          addLog("warn", "Failed to persist workspace state", message);
+        });
+      };
+      if (typeof window.requestIdleCallback === "function") {
+        window.requestIdleCallback(persist, { timeout: 1000 });
+      } else {
+        persist();
+      }
     }, 250);
     return () => {
       if (workspacePersistTimerRef.current) window.clearTimeout(workspacePersistTimerRef.current);
