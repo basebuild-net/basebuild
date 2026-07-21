@@ -134,8 +134,9 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
               <TerminalSquare size={32} className="text-muted" />
               <h3>Local-first desktop control plane for AI coding agents</h3>
               <p className="text-muted text-sm">
-                Basebuild wraps OMP and terminal tools in a unified desktop shell.
-                Let's set up your defaults — this takes 10 seconds and everything stays local.
+                Basebuild runs AI coding agents through its own native agent loop,
+                with an integrated terminal, source control, and a planning pipeline.
+                Let's set up your defaults; this takes 10 seconds and everything stays local.
               </p>
               <div className="row">
                 <button className="btn btn-primary" type="button" title="Start setup" onClick={() => setStep("adapter")}>
@@ -151,7 +152,7 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
           {step === "adapter" && defaults ? (
             <>
               <h3>Choose your chat adapter</h3>
-              <p className="text-muted text-sm">OMP is the default. Future adapters (Basebuild CLI, others) will appear here.</p>
+              <p className="text-muted text-sm">The Basebuild native agent loop is the default. Optional adapters like OMP appear here when installed.</p>
               <RuntimeDefaultsFields
                 defaults={defaults}
                 chatProfiles={chatProfiles}

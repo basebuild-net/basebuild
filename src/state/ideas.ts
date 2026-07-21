@@ -19,7 +19,22 @@ import {
 } from "../lib/ideas";
 import { usePlanningEvents } from "./planningEvents";
 
-export function useIdeaState(sessionId: string | null, projectPath?: string | null) {
+export type IdeaStateValue = {
+  ideas: Idea[];
+  categories: IdeaCategory[];
+  refresh: () => Promise<void>;
+  createIdea: (title: string, description: string, categoryId?: string) => Promise<Idea | null>;
+  updateIdea: (id: string, title: string, description: string, categoryId: string | null) => Promise<Idea>;
+  updateIdeaStatus: (id: string, status: IdeaStatus) => Promise<void>;
+  rejectIdea: (id: string) => Promise<void>;
+  removeIdea: (id: string) => Promise<void>;
+  createCategory: (name: string, description: string) => Promise<IdeaCategory | null>;
+  removeCategory: (id: string) => Promise<void>;
+  promoteIdeas: (ideaIds: string[]) => Promise<void>;
+  ensureDefaultCategories: () => Promise<void>;
+};
+
+export function useIdeaState(sessionId: string | null, projectPath?: string | null): IdeaStateValue {
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [categories, setCategories] = useState<IdeaCategory[]>([]);
 

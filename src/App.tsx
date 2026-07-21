@@ -25,6 +25,12 @@ export default function App() {
     // Use a microtask to ensure one paint cycle has occurred.
     const timer = setTimeout(() => {
       root.classList.remove("bb-suppress-transitions");
+      // Tear down the pre-React boot layer now that the shell has mounted.
+      const boot = document.getElementById("bb-boot");
+      if (boot) {
+        boot.classList.add("bb-boot-hide");
+        window.setTimeout(() => boot.remove(), 220);
+      }
     }, 0);
     return () => clearTimeout(timer);
   }, []);

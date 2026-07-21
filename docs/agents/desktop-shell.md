@@ -240,6 +240,13 @@ and transitions through these states:
 The splash does not replace the in-app update controls. The taskbar
 update button and Settings → Updates tab remain functional after startup.
 
+A pre-React **boot layer** (`#bb-boot` in `index.html`) paints immediately —
+before the JS bundle evaluates — using theme-matched colors from the same
+pre-paint bootstrap that sets the theme attribute and UI scale. `App` tears it
+down on mount (fade, then `remove()`), so cold start shows a branded frame
+instead of a blank window while the module graph loads. Once hidden it is inert
+(`pointer-events: none`) and never gates interaction.
+
 Recent-project metadata is cache-first in the webview: a validated local cache
 can orient returning users on the first interactive render, then SQLite replaces
 it with authoritative results. Session lists hydrate active-project-first and
@@ -286,6 +293,13 @@ a drag handle between the center workspace and the right panel, clamped to
 180–520px. Restoring never auto-spawns terminals or agents; stale
 process-backed tabs show a disconnected state until the user explicitly
 reconnects.
+
+Persistence is **debounced (~250ms) and deferred to `requestIdleCallback`**
+(1s timeout fallback) in `AppShell`, so serializing and writing workspace state
+never competes with interaction paint during rapid tab switching. The persisted
+shape is unchanged; the debounce timer closure captures the project path so a
+deferred write always lands on the correct project even after a switch.
+
 ## Plan pipeline
 
 Plans move through: `draft → openspec → ready → running → finished`.

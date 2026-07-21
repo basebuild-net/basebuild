@@ -1268,64 +1268,6 @@ details.stack-sm:not([open]) > *:not(summary) { display: none; }
 .tool-tab:hover { color: var(--bb-text); background: var(--bb-surface-high); }
 .tool-tab.is-active { color: var(--bb-text); background: var(--bb-cta); }
 
-/* ─── Workspace tabs ─── */
-.workspace-tabs {
-  display: flex;
-  align-items: center;
-  border-bottom: 1px solid var(--bb-border);
-  min-height: 32px;
-  padding: 0 4px;
-  gap: 1px;
-}
-.workspace-tab {
-  display: flex;
-  align-items: center;
-  color: var(--bb-muted);
-  border-bottom: 2px solid transparent;
-  transition: background 0.06s, color 0.06s;
-  position: relative;
-}
-.workspace-tab-label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  font-size: 11px;
-  color: inherit;
-  background: transparent;
-  border: 0;
-}
-.workspace-tab:hover { background: var(--bb-surface); color: var(--bb-text); }
-.workspace-tab.is-active { color: var(--bb-text); border-bottom-color: var(--bb-cta); }
-.workspace-tab-close { opacity: 0; padding: 0; transition: opacity 0.06s; }
-.workspace-tab:hover .workspace-tab-close { opacity: 0.7; }
-.workspace-tab-close:hover { opacity: 1; }
-.workspace-tab-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; position: relative; }
-.workspace-tab-add-menu {
-  position: absolute; top: calc(100% + 4px); right: 0; z-index: 200;
-  min-width: 150px;
-  background: var(--bb-surface-high); border: 1px solid var(--bb-border-strong);
-  padding: 4px;
-  display: flex; flex-direction: column; gap: 2px;
-}
-.workspace-tab-add-menu button {
-  display: flex; align-items: center; gap: 6px;
-  padding: 5px 8px;
-  font-size: 11px; color: var(--bb-text);
-  background: transparent; border: none;
-  text-align: left; cursor: pointer;
-}
-.workspace-tab-add-menu button:hover { background: var(--bb-surface); }
-.add-menu-hint {
-  padding: 4px 8px;
-  font-size: 9px; color: var(--bb-muted);
-  border-top: 1px solid var(--bb-border);
-}
-
-/* ─── Autonomous toolbar ─── */
-.workspace-tabs-container { display: flex; align-items: center; border-bottom: 1px solid var(--bb-border); }
-.workspace-tabs { flex: 1; }
-
 /* ─── Chat panel ─── */
 .chat-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--bb-bg); position: relative; }
 .chat-messages { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 8px 16px; display: flex; flex-direction: column; gap: 6px; }
@@ -3990,7 +3932,7 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .panel-grid-splitter:hover, .panel-grid-splitter.is-active { background: var(--bb-cta); }
 
 /* Panel header */
-.panel-header { display: flex; align-items: center; gap: 4px; padding: 0 4px 0 0; border-bottom: 1px solid var(--bb-border); background: var(--bb-surface); flex-shrink: 0; min-height: 30px; user-select: none; cursor: grab; position: relative; }
+.panel-header { display: flex; align-items: center; gap: 4px; padding: 0 4px 0 0; border-bottom: 1px solid var(--bb-border); background: var(--bb-surface); flex-shrink: 0; min-height: 38px; user-select: none; cursor: grab; position: relative; }
 .panel-header.is-active { background: var(--bb-surface-high); border-bottom-color: var(--bb-border-strong); }
 .panel-header:active { cursor: grabbing; }
 .panel-header-actions { display: flex; align-items: center; gap: 1px; flex-shrink: 0; opacity: 0.6; transition: opacity 0.08s; }
@@ -4001,18 +3943,18 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .panel-header-menu button:hover { background: var(--bb-surface); }
 
 /* Tab strip — always visible, draggable. Tabs are the drag handle. */
-.panel-header-tabs { display: flex; align-items: stretch; gap: 0; flex: 1; min-width: 0; overflow: hidden; height: 100%; }
-.panel-header-tab { display: flex; align-items: center; gap: 4px; padding: 0 6px; font-size: 10px; color: var(--bb-muted); cursor: grab; white-space: nowrap; border-right: 1px solid var(--bb-border); transition: background 0.06s; }
+.panel-header-tabs { display: flex; align-items: stretch; gap: 0; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; height: 100%; }
+.panel-header-tab { display: flex; align-items: center; gap: 6px; padding: 0 12px; font-size: 13px; flex: 1 1 0; min-width: 130px; max-width: 240px; color: var(--bb-muted); cursor: grab; white-space: nowrap; border-right: 1px solid var(--bb-border); transition: background 0.06s; }
 .panel-header-tab:active { cursor: grabbing; }
 .panel-header-tab:hover { background: var(--bb-surface); color: var(--bb-text); }
-.panel-header-tab.is-active { color: var(--bb-text); background: var(--bb-bg); border-bottom: 2px solid var(--bb-text); }
+.panel-header-tab.is-active { color: var(--bb-text); background: var(--bb-bg); border-bottom: 2px solid var(--bb-cta); }
 .panel-header-tab-icon { flex-shrink: 0; }
 .panel-header-tab.is-background-agent .panel-header-tab-title { color: var(--bb-info); font-weight: 600; }
 .panel-header-tab.is-background-agent .panel-header-tab-icon { color: var(--bb-info); animation: bg-agent-tab-pulse 2s ease-in-out infinite; }
 @keyframes bg-agent-tab-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
-.panel-header-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
-.panel-header-tab-title-input { font-size: 10px; font-weight: 600; height: 16px; padding: 0 2px; min-width: 60px; max-width: 120px; }
-.panel-header-tab-close { display: flex; align-items: center; justify-content: center; width: 12px; height: 12px; background: none; border: 0; cursor: pointer; color: var(--bb-muted); opacity: 0; transition: opacity 0.08s; }
+.panel-header-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; max-width: 200px; }
+.panel-header-tab-title-input { font-size: 12px; font-weight: 600; height: 20px; padding: 0 2px; min-width: 60px; max-width: 200px; }
+.panel-header-tab-close { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; background: none; border: 0; cursor: pointer; color: var(--bb-muted); opacity: 0; transition: opacity 0.08s; }
 .panel-header-tab:hover .panel-header-tab-close { opacity: 0.5; }
 .panel-header-tab-close:hover { opacity: 1 !important; color: var(--bb-danger, #c53030); }
 .panel-header-add-tab { flex-shrink: 0; opacity: 0.4; transition: opacity 0.08s; align-self: center; }

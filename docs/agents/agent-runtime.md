@@ -282,11 +282,16 @@ resetsAt, severity) with explicit freshness markers.
 - Live in-memory display is ungated. Local persistence of telemetry metrics is
   gated on `allowUsageAnalyticsCollection`.
 - Updates are published over the `omp-telemetry://update` event channel. The
-  polling loop starts on app launch and emits a `detached` state when OMP is not
-  installed or no session is running.
+  polling loop is **opt-in / on-demand**: it is NOT started at app launch
+  (starting it there spawned `omp stats/usage` probe processes on every run,
+  even with no OMP installed). It starts idempotently when the OMP HUD mounts
+  (`useOmpTelemetry` → `omp_telemetry_start`) and emits a `detached` state when
+  OMP is not installed or no session is running.
 - OMP's stdio RPC mode (`omp --mode rpc`) is a separate, non-terminal protocol;
   a raw TUI terminal and RPC mode are mutually exclusive on one process. The
-  "Oh My Pi" tab runs OMP as a raw PTY terminal; telemetry reads from the
+  "Oh My Pi" tab runs OMP as a raw PTY terminal (its **New panel** option is
+  gated on `ompStatus().installed`, so it is offered only when OMP is present);
+  telemetry reads from the
   ledgers. RPC-backed native rendering is an optional future path.
 
 ## Account usage sync
@@ -294,7 +299,10 @@ resetsAt, severity) with explicit freshness markers.
 Signed-in users can opt in to periodic account usage sync, which pushes compiled
 OMP usage to basebuild.net via the MCP `sync_raw_usage` tool using the stored
 native `bb_app_` token. The app is a producer; the website computes projected
-usage.
+usage. When OMP is not installed, the OMP raw-usage collection is skipped
+gracefully (`sync_raw_usage_native` guards on `OmpService::status().installed`),
+so a machine without OMP records no sync error; native per-message usage
+(`sync_messages_native`) carries attribution.
 
 - **Off by default.** Requires sign-in + explicit enable + upload permission.
 - **Cadence**: hourly interval (default 60 min) plus opportunistic triggers —

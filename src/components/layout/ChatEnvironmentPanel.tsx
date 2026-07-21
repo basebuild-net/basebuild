@@ -33,6 +33,8 @@ type ChatEnvironmentPanelProps = {
   onOpenChanges: () => void;
   onOpenPlans: () => void;
   onCreatePanel: (type: "chat" | "terminal" | "omp" | "schematic") => void;
+  /** Whether the OMP CLI is installed; gates the optional "Oh My Pi" panel option. */
+  ompInstalled?: boolean;
   /** When true, auto-opens the Plans & Ideas modal (set by the chat-side inspector button). */
   openPlansFoldSignal?: number;
 };
@@ -62,10 +64,14 @@ export function ChatEnvironmentPanel({
   onOpenChanges,
   onOpenPlans,
   onCreatePanel,
+  ompInstalled,
   openPlansFoldSignal,
 }: ChatEnvironmentPanelProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const { addLog } = useLogs();
+  // OMP is an optional enhancement: only offer the "Oh My Pi" panel when the
+  // OMP CLI is actually installed. Native chat/terminal are always available.
+  const panelOptions = NEW_PANEL_OPTIONS.filter((o) => o.type !== "omp" || ompInstalled);
 
   // Auto-open the Plans modal when the chat-side inspector button fires.
   const lastSignalRef = useState<{ value: number }>({ value: 0 })[0];
@@ -106,7 +112,7 @@ export function ChatEnvironmentPanel({
             </button>
             {menuOpen ? (
               <div className="chat-env-add-menu" onMouseLeave={() => setMenuOpen(false)}>
-                {NEW_PANEL_OPTIONS.map(({ type, icon: Icon, label }) => (
+                {panelOptions.map(({ type, icon: Icon, label }) => (
                   <button
                     key={type}
                     type="button"
