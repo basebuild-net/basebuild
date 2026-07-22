@@ -3353,75 +3353,79 @@ export function ChatPanel({
           </div>
           <div className="chat-composer-controls">
             {/* Model/effort/permission all live in the composer footer */}
-            <button
-              className={`chat-column-model-chip is-catalog-${catalogStatus}`}
-              type="button"
-              title={
-                catalogStatus === "loading" || catalogStatus === "refreshing"
-                  ? `Model: ${modelName || modelId}. Provider catalog is ${catalogStatus}.`
-                  : catalogStatus === "error" || catalogStatus === "stale"
-                    ? `Model: ${modelName || modelId}. Catalog ${catalogStatus === "stale" ? "refresh failed; showing cached models" : "failed to load"}: ${catalogError ?? "Unknown error"}. Click to retry or change model.`
-                    : `Model: ${modelName || modelId}. Click to change provider or model.`
-              }
-              onClick={() => {
-                addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
-                setShowModelPicker(true);
-                setShowProviderPicker(false);
-              }}
-            >
-              {catalogStatus === "loading" || catalogStatus === "refreshing" ? <Loader2 size={10} className="spin" aria-hidden="true" /> : null}
-              <span>{(modelName || modelId || "Model").length > 14 ? (modelName || modelId).slice(0, 13) + "…" : (modelName || modelId || "Model")}</span>
-              <ChevronDown size={9} />
-            </button>
-            {(catalog?.effortLevels ?? []).filter((e) => selectedModel?.supportedEfforts.includes(e.id) ?? false).length > 1 ? (
-              <select
-                className="chat-header-select"
-                title={`Effort level: ${effortLevel}`}
-                aria-label="Effort level"
-                value={effortLevel}
-                onChange={(event) => {
-                  setEffortLevel(event.target.value);
-                  persistSelection(providerId, modelId, event.target.value);
+            <div className="chat-composer-controls-left">
+              <button
+                className={`chat-column-model-chip is-catalog-${catalogStatus}`}
+                type="button"
+                title={
+                  catalogStatus === "loading" || catalogStatus === "refreshing"
+                    ? `Model: ${modelName || modelId}. Provider catalog is ${catalogStatus}.`
+                    : catalogStatus === "error" || catalogStatus === "stale"
+                      ? `Model: ${modelName || modelId}. Catalog ${catalogStatus === "stale" ? "refresh failed; showing cached models" : "failed to load"}: ${catalogError ?? "Unknown error"}. Click to retry or change model.`
+                      : `Model: ${modelName || modelId}. Click to change provider or model.`
+                }
+                onClick={() => {
+                  addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
+                  setShowModelPicker(true);
+                  setShowProviderPicker(false);
                 }}
               >
-                {(catalog?.effortLevels ?? [])
-                  .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
-                  .map((effort) => (
-                    <option key={effort.id} value={effort.id}>{effort.label}</option>
-                  ))}
+                {catalogStatus === "loading" || catalogStatus === "refreshing" ? <Loader2 size={10} className="spin" aria-hidden="true" /> : null}
+                <span>{(modelName || modelId || "Model").length > 14 ? (modelName || modelId).slice(0, 13) + "…" : (modelName || modelId || "Model")}</span>
+                <ChevronDown size={9} />
+              </button>
+              {(catalog?.effortLevels ?? []).filter((e) => selectedModel?.supportedEfforts.includes(e.id) ?? false).length > 1 ? (
+                <select
+                  className="chat-header-select"
+                  title={`Effort level: ${effortLevel}`}
+                  aria-label="Effort level"
+                  value={effortLevel}
+                  onChange={(event) => {
+                    setEffortLevel(event.target.value);
+                    persistSelection(providerId, modelId, event.target.value);
+                  }}
+                >
+                  {(catalog?.effortLevels ?? [])
+                    .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
+                    .map((effort) => (
+                      <option key={effort.id} value={effort.id}>{effort.label}</option>
+                    ))}
+                </select>
+              ) : null}
+              <select
+                className="chat-header-select chat-header-permission"
+                title={`Permission mode: ${approvalMode === "safe" ? "Always Ask" : approvalMode === "auto" ? "Run Everything" : "Balanced"}`}
+                aria-label="Permission mode"
+                value={approvalMode}
+                onChange={(event) => void handleSetApprovalMode(event.target.value as "safe" | "balanced" | "auto")}
+              >
+                <option value="balanced">Balanced</option>
+                <option value="safe">Always Ask</option>
+                <option value="auto">Run Everything</option>
               </select>
-            ) : null}
-            <select
-              className="chat-header-select chat-header-permission"
-              title={`Permission mode: ${approvalMode === "safe" ? "Always Ask" : approvalMode === "auto" ? "Run Everything" : "Balanced"}`}
-              aria-label="Permission mode"
-              value={approvalMode}
-              onChange={(event) => void handleSetApprovalMode(event.target.value as "safe" | "balanced" | "auto")}
-            >
-              <option value="balanced">Balanced</option>
-              <option value="safe">Always Ask</option>
-              <option value="auto">Run Everything</option>
-            </select>
-            {nativeMode && loading ? (
-              <button
-                className="btn chat-send-btn chat-stop-btn"
-                type="button"
-                title="Stop the agent and unlock the composer"
-                onClick={() => void handleStopNative()}
-              >
-                <Square size={13} />
-              </button>
-            ) : (
-              <button
-                className="btn btn-primary chat-send-btn"
-                type="button"
-                title="Send message"
-                disabled={sendDisabled}
-                onClick={() => void handleSend()}
-              >
-                <Send size={14} />
-              </button>
-            )}
+            </div>
+            <div className="chat-composer-controls-right">
+              {nativeMode && loading ? (
+                <button
+                  className="btn chat-send-btn chat-stop-btn"
+                  type="button"
+                  title="Stop the agent and unlock the composer"
+                  onClick={() => void handleStopNative()}
+                >
+                  <Square size={13} />
+                </button>
+              ) : (
+                <button
+                  className="btn btn-primary chat-send-btn"
+                  type="button"
+                  title="Send message"
+                  disabled={sendDisabled}
+                  onClick={() => void handleSend()}
+                >
+                  <Send size={14} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
         ) : (

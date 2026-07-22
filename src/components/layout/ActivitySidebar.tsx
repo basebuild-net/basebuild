@@ -4,7 +4,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  Columns,
   Copy,
   EyeOff,
   FileText,
@@ -17,7 +16,6 @@ import {
   Pin,
   Plus,
   RotateCcw,
-  Rows,
   Settings2,
   TerminalSquare,
   Trash2,
@@ -278,34 +276,16 @@ function ProjectMenuButton({
 function SurfaceActionButtons({
   surfaceId,
   visible,
-  onSplit,
   onRemoveFromLayout,
   onClose,
 }: {
   surfaceId: string;
   visible: boolean;
-  onSplit: (surfaceId: string, direction: SplitDirection) => void;
   onRemoveFromLayout: (surfaceId: string) => void;
   onClose: (surfaceId: string) => void;
 }) {
   return (
     <span className="surface-row-actions" aria-hidden={false}>
-      <button
-        className="surface-row-action-btn"
-        type="button"
-        title="Open beside (split horizontally)"
-        onClick={(e) => { e.stopPropagation(); onSplit(surfaceId, "horizontal"); }}
-      >
-        <Columns size={11} />
-      </button>
-      <button
-        className="surface-row-action-btn"
-        type="button"
-        title="Open below (split vertically)"
-        onClick={(e) => { e.stopPropagation(); onSplit(surfaceId, "vertical"); }}
-      >
-        <Rows size={11} />
-      </button>
       {visible ? (
         <button
           className="surface-row-action-btn"
@@ -677,13 +657,12 @@ export function ActivitySidebar({
                             onClick={() => onFocusSurface(surface.id)}
                             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onFocusSurface(surface.id); } }}
                           >
-                            <span className="surface-row-connector" aria-hidden="true" />
+                            <span className="surface-row-connector" aria-hidden="true">{depth > 0 ? "╰─" : ""}</span>
                             <Icon size={11} className="surface-row-icon" />
                             <span className="surface-row-title">{title}</span>
                             <SurfaceActionButtons
                               surfaceId={surface.id}
                               visible={true}
-                              onSplit={onSplitFocusedSurface}
                               onRemoveFromLayout={onRemoveSurfaceFromLayout}
                               onClose={onCloseSurface}
                             />
@@ -710,7 +689,6 @@ export function ActivitySidebar({
                             <SurfaceActionButtons
                               surfaceId={surface.id}
                               visible={false}
-                              onSplit={onSplitFocusedSurface}
                               onRemoveFromLayout={onRemoveSurfaceFromLayout}
                               onClose={onCloseSurface}
                             />
