@@ -5,18 +5,50 @@ import { expect, test, type Page } from "@playwright/test";
 const PROJECT_ALPHA = "C:\\basebuild-e2e\\alpha";
 const PROJECT_BRAVO = "C:\\basebuild-e2e\\bravo";
 
-/** Seed a v2 WorkspaceState into the mock restore store for a project. */
-async function seedWorkspaceState(
+/** Create a native chat session in the mock backend and return its id. */
+async function createNativeChat(
+  page: Page,
+  projectPath: string,
+  title: string,
+): Promise<string> {
+  return page.evaluate(async (args) => {
+    const global = globalThis as {
+      __basebuildInvoke?: <T>(cmd: string, a?: Record<string, unknown>) => Promise<T>;
+    };
+    const invoke = global.__basebuildInvoke;
+    if (!invoke) throw new Error("invoke hook missing");
+    const session = await invoke<{ id: string }>("native_chat_start", {
+      request: { projectPath: args.projectPath, title: args.title },
+    });
+    return session.id;
+  }, { projectPath, title });
+}
+
+/** A minimal chat panel shape (single-tab) for seeding PanelGridState. */
+type SeedChatPanel = {
+  id: string;
+  type: "chat";
+  title: string;
+  chatSessionId: string | null;
+  terminalId: null;
+  filePath: null;
+};
+
+/** A chat panel referencing a native chat session. Surface id = panel id. */
+function chatPanel(id: string, title: string, chatSessionId: string | null): SeedChatPanel {
+  return { id, type: "chat", title, chatSessionId, terminalId: null, filePath: null };
+}
+
+/** Seed a PanelGridState blob into the mock restore store for a project. */
+async function seedGrid(
   page: Page,
   projectPath: string,
   state: Record<string, unknown>,
 ): Promise<void> {
   await page.evaluate(async (args) => {
     const global = globalThis as {
-      __BASEBUILD_E2E_STATE__?: {
-        workspaceRestoreByProject: Map<string, unknown>;
-      };
-      __basebuildInvoke?: <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
+      __BASEBUILD_E2E_STATE__?: { workspaceRestoreByProject: Map<string, unknown> };
+      __basebuildInvoke?: <T>(cmd: string, a?: Record<string, unknown>) => Promise<T>;
     };
     const s = global.__BASEBUILD_E2E_STATE__;
     const invoke = global.__basebuildInvoke;
@@ -29,51 +61,60 @@ async function seedWorkspaceState(
   }, { projectPath, state });
 }
 
-/** Build a v2 WorkspaceState with N chat surfaces and a 2x2 visible subset. */
-function buildSixChatState(): Record<string, unknown> {
-  const surfaces: Record<string, unknown> = {};
-  const surfaceIds: string[] = [];
+/** Create 6 native chat sessions for a project and seed a PanelGridState
+ *  with a 2x2 visible split (4 panels) plus 2 hidden (unlinked) panels.
+ *  Panels reference the sessions so the sidebar shows real chat titles
+ *  instead of the "New Chat" default. The first panel is active. */
+async function seedSixChatProject(page: Page, projectPath: string): Promise<void> {
+  const sessionIds: string[] = [];
   for (let i = 1; i <= 6; i++) {
-    const id = `surf-chat-${i}`;
-    surfaceIds.push(id);
-    surfaces[id] = {
-      id,
-      kind: "chat",
-      resourceId: `chat-${i}`,
-      title: `Chat ${i}`,
-      titleLocked: false,
-      projectId: PROJECT_ALPHA,
-      createdAt: 1000 + i,
-      lastFocusedAt: 1000 + i,
-    };
+    sessionIds.push(await createNativeChat(page, projectPath, `Chat ${i}`));
   }
-  // 2x2 visible subset: split(h, split(v, leaf1, leaf2), split(v, leaf3, leaf4))
-  const tree = {
-    id: "split-root",
-    direction: "horizontal",
-    ratio: 0.5,
-    first: {
-      id: "split-left",
-      direction: "vertical",
-      ratio: 0.5,
-      first: { id: "leaf-1", surfaceId: surfaceIds[0] },
-      second: { id: "leaf-2", surfaceId: surfaceIds[1] },
-    },
-    second: {
-      id: "split-right",
-      direction: "vertical",
-      ratio: 0.5,
-      first: { id: "leaf-3", surfaceId: surfaceIds[2] },
-      second: { id: "leaf-4", surfaceId: surfaceIds[3] },
-    },
+  const panels = sessionIds.map((sid, i) => chatPanel(`surf-chat-${i + 1}`, `Chat ${i + 1}`, sid));
+  // 2x2 visible subset: row [ column [p1, p2], column [p3, p4] ]
+  const root = {
+    kind: "split",
+    direction: "row",
+    sizes: [0.5, 0.5],
+    children: [
+      {
+        kind: "split",
+        direction: "column",
+        sizes: [0.5, 0.5],
+        children: [
+          { kind: "leaf", panel: panels[0] },
+          { kind: "leaf", panel: panels[1] },
+        ],
+      },
+      {
+        kind: "split",
+        direction: "column",
+        sizes: [0.5, 0.5],
+        children: [
+          { kind: "leaf", panel: panels[2] },
+          { kind: "leaf", panel: panels[3] },
+        ],
+      },
+    ],
   };
-  return {
-    version: 2,
-    activeSurfaces: surfaces,
-    visibleTree: tree,
-    focusedSurfaceId: surfaceIds[0],
-    history: [],
-  };
+  await seedGrid(page, projectPath, {
+    root,
+    activePanelId: panels[0].id,
+    closedPanels: [],
+    hiddenPanels: [panels[4], panels[5]],
+  });
+}
+
+/** Seed a project with a single visible chat panel backed by a real session. */
+async function seedSingleChatProject(page: Page, projectPath: string, title: string): Promise<void> {
+  const sid = await createNativeChat(page, projectPath, title);
+  const panel = chatPanel(`surf-${title.replace(/\s+/g, "-").toLowerCase()}`, title, sid);
+  await seedGrid(page, projectPath, {
+    root: { kind: "leaf", panel },
+    activePanelId: panel.id,
+    closedPanels: [],
+    hiddenPanels: [],
+  });
 }
 
 /** Open the app with the MVP fixture and wait for the shell. */
@@ -87,19 +128,43 @@ async function openApp(page: Page): Promise<void> {
   await page.locator(".app-shell").waitFor({ state: "attached", timeout: 10_000 });
 }
 
+/** Activate the alpha project in the sidebar. */
+async function openAlpha(page: Page): Promise<void> {
+  const alphaRow = page.locator(".activity-sidebar-project-row", { hasText: "alpha" }).first();
+  await alphaRow.click();
+  await page.waitForTimeout(500);
+}
+
+/** Perform a pointer-based drag (for panel headers that use pointer events). */
+async function pointerDrag(
+  page: Page,
+  sourceSelector: string,
+  targetSelector: string,
+): Promise<void> {
+  const sourceBox = await page.locator(sourceSelector).first().boundingBox();
+  const targetBox = await page.locator(targetSelector).first().boundingBox();
+  if (!sourceBox || !targetBox) {
+    throw new Error(`Missing drag bounds for ${sourceSelector} -> ${targetSelector}`);
+  }
+  await page.mouse.move(sourceBox.x + sourceBox.width / 3, sourceBox.y + sourceBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    targetBox.x + targetBox.width / 2,
+    targetBox.y + targetBox.height / 2,
+    { steps: 12 },
+  );
+  await page.mouse.up();
+}
+
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 test.describe("Sidebar surface lifecycle (Phase 3)", () => {
   test("six active chats with a 2x2 visible subset", async ({ page }) => {
     await openApp(page);
-    await seedWorkspaceState(page, PROJECT_ALPHA, buildSixChatState());
+    await seedSixChatProject(page, PROJECT_ALPHA);
+    await openAlpha(page);
 
-    // Switch to alpha project (it's the first fixture project).
-    const alphaRow = page.locator(".activity-sidebar-project-row", { hasText: "alpha" }).first();
-    await alphaRow.click();
-    await page.waitForTimeout(500);
-
-    // The sidebar should list surfaces from workspaceState, not tabs.
+    // The sidebar should list surfaces from the panel grid, not tabs.
     const surfaceRows = page.locator(".surface-row");
     await expect(surfaceRows.first()).toBeVisible({ timeout: 5_000 });
 
@@ -126,11 +191,8 @@ test.describe("Sidebar surface lifecycle (Phase 3)", () => {
 
   test("focus versus replacement", async ({ page }) => {
     await openApp(page);
-    await seedWorkspaceState(page, PROJECT_ALPHA, buildSixChatState());
-
-    const alphaRow = page.locator(".activity-sidebar-project-row", { hasText: "alpha" }).first();
-    await alphaRow.click();
-    await page.waitForTimeout(500);
+    await seedSixChatProject(page, PROJECT_ALPHA);
+    await openAlpha(page);
 
     // Clicking a visible row focuses it (is-focused class).
     const visibleRows = page.locator(".surface-row.is-visible");
@@ -145,7 +207,7 @@ test.describe("Sidebar surface lifecycle (Phase 3)", () => {
     await expect(visibleRows.nth(2)).toHaveClass(/is-focused/);
     await expect(visibleRows.nth(0)).not.toHaveClass(/is-focused/);
 
-    // Click a hidden row → replaces focused surface.
+    // Click a hidden row → replaces focused surface (show-only).
     const hiddenRows = page.locator(".surface-row.is-hidden");
     await expect(hiddenRows.first()).toBeVisible();
     const hiddenTitle = await hiddenRows.nth(0).locator(".surface-row-title").textContent();
@@ -162,22 +224,22 @@ test.describe("Sidebar surface lifecycle (Phase 3)", () => {
 
   test("remove-from-layout hides a visible surface", async ({ page }) => {
     await openApp(page);
-    await seedWorkspaceState(page, PROJECT_ALPHA, buildSixChatState());
-
-    const alphaRow = page.locator(".activity-sidebar-project-row", { hasText: "alpha" }).first();
-    await alphaRow.click();
-    await page.waitForTimeout(500);
+    await seedSixChatProject(page, PROJECT_ALPHA);
+    await openAlpha(page);
 
     const visibleRows = page.locator(".surface-row.is-visible");
     await expect(visibleRows.first()).toBeVisible({ timeout: 5_000 });
     expect(await visibleRows.count()).toBe(4);
 
-    // Hover the first visible row and click the "Remove from layout" button.
-    const firstRow = visibleRows.nth(0);
-    await firstRow.hover();
-    const removeBtn = firstRow.locator('button[title*="Remove from layout"]');
-    await expect(removeBtn).toBeVisible();
-    await removeBtn.click();
+    // Drag the first visible panel's header to the unlink dropzone to remove
+    // it from the layout (the current UI uses drag-to-unlink, not a button).
+    const firstSurfaceId = await visibleRows.first().getAttribute("data-surface-id");
+    expect(firstSurfaceId).toBeTruthy();
+    await pointerDrag(
+      page,
+      `.panel-grid-leaf[data-surface-id="${firstSurfaceId}"] .panel-header`,
+      ".surface-unlink-dropzone",
+    );
     await page.waitForTimeout(300);
 
     // Now only 3 visible rows remain.
@@ -191,11 +253,8 @@ test.describe("Sidebar surface lifecycle (Phase 3)", () => {
 
   test("close/history/reopen lifecycle", async ({ page }) => {
     await openApp(page);
-    await seedWorkspaceState(page, PROJECT_ALPHA, buildSixChatState());
-
-    const alphaRow = page.locator(".activity-sidebar-project-row", { hasText: "alpha" }).first();
-    await alphaRow.click();
-    await page.waitForTimeout(500);
+    await seedSixChatProject(page, PROJECT_ALPHA);
+    await openAlpha(page);
 
     const visibleRows = page.locator(".surface-row.is-visible");
     await expect(visibleRows.first()).toBeVisible({ timeout: 5_000 });
@@ -238,53 +297,30 @@ test.describe("Sidebar surface lifecycle (Phase 3)", () => {
 
   test("project-switch isolation", async ({ page }) => {
     await openApp(page);
-    await seedWorkspaceState(page, PROJECT_ALPHA, buildSixChatState());
-
-    // Seed bravo with a single chat.
-    const bravoState = {
-      version: 2,
-      activeSurfaces: {
-        "surf-bravo-1": {
-          id: "surf-bravo-1",
-          kind: "chat",
-          resourceId: "chat-bravo-1",
-          title: "Bravo Chat 1",
-          titleLocked: false,
-          projectId: PROJECT_BRAVO,
-          createdAt: 2000,
-          lastFocusedAt: 2000,
-        },
-      },
-      visibleTree: { id: "leaf-bravo-1", surfaceId: "surf-bravo-1" },
-      focusedSurfaceId: "surf-bravo-1",
-      history: [],
-    };
-    await seedWorkspaceState(page, PROJECT_BRAVO, bravoState);
+    await seedSixChatProject(page, PROJECT_ALPHA);
+    await seedSingleChatProject(page, PROJECT_BRAVO, "Bravo Chat 1");
 
     // Switch to alpha — should show 6 surfaces.
-    const alphaRow = page.locator(".activity-sidebar-project-row", { hasText: "alpha" }).first();
-    await alphaRow.click();
-    await page.waitForTimeout(500);
+    await openAlpha(page);
     const alphaSurfaces = page.locator(".surface-row");
     await expect(alphaSurfaces.first()).toBeVisible({ timeout: 5_000 });
     expect(await alphaSurfaces.count()).toBeGreaterThanOrEqual(6);
 
-    // Switch to bravo — should show 1 surface, not alpha's 6.
+    // Switch to bravo — should show 1 active surface, not alpha's 6.
+    // (Other-project rows from alpha/charlie appear too, so exclude them.)
     const bravoRow = page.locator(".activity-sidebar-project-row", { hasText: "bravo" }).first();
     await bravoRow.click();
     await page.waitForTimeout(500);
-    const bravoSurfaces = page.locator(".surface-row");
-    await expect(bravoSurfaces.first()).toBeVisible({ timeout: 5_000 });
-    const bravoCount = await bravoSurfaces.count();
+    const bravoActiveSurfaces = page.locator(".surface-row:not(.is-other-project)");
+    await expect(bravoActiveSurfaces.first()).toBeVisible({ timeout: 5_000 });
+    const bravoCount = await bravoActiveSurfaces.count();
     expect(bravoCount).toBeLessThan(6);
     expect(bravoCount).toBeGreaterThanOrEqual(1);
 
-    // Switch back to alpha — re-seed the v2 state (the legacy persist path
-    // overwrites with PanelGridState during the transitional period; Phase 4
-    // unifies persistence to v2). After re-seeding, surfaces are restored.
-    await seedWorkspaceState(page, PROJECT_ALPHA, buildSixChatState());
-    await alphaRow.click();
-    await page.waitForTimeout(500);
+    // Switch back to alpha — re-seed (the persist path overwrites during the
+    // transitional period). After re-seeding, surfaces are restored.
+    await seedSixChatProject(page, PROJECT_ALPHA);
+    await openAlpha(page);
     const alphaSurfacesAgain = page.locator(".surface-row");
     await expect(alphaSurfacesAgain.first()).toBeVisible({ timeout: 5_000 });
     expect(await alphaSurfacesAgain.count()).toBeGreaterThanOrEqual(6);
@@ -292,11 +328,8 @@ test.describe("Sidebar surface lifecycle (Phase 3)", () => {
 
   test("surface rows have tooltips on interactive elements", async ({ page }) => {
     await openApp(page);
-    await seedWorkspaceState(page, PROJECT_ALPHA, buildSixChatState());
-
-    const alphaRow = page.locator(".activity-sidebar-project-row", { hasText: "alpha" }).first();
-    await alphaRow.click();
-    await page.waitForTimeout(500);
+    await seedSixChatProject(page, PROJECT_ALPHA);
+    await openAlpha(page);
 
     const surfaceRows = page.locator(".surface-row");
     await expect(surfaceRows.first()).toBeVisible({ timeout: 5_000 });

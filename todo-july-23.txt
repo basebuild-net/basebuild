@@ -3,12 +3,13 @@ TODO — July 23
 Switching between groupings and chat is unstable.
 
 Known issues:
-- Sidebar surface lifecycle tests (sidebar-surfaces.spec.ts) fail after
-  round 2-3 sidebar restructuring — the flat "Linked group" / "Unlinked"
-  / "Stashed" sections replaced the old depth-based hierarchy, but the
-  seeded WorkspaceState tests still expect the old layout.
+- Sidebar surface lifecycle tests (sidebar-surfaces.spec.ts) — FIXED.
+  Rewrote the suite to seed a legacy PanelGridState (the authoritative
+  path after the restructuring) backed by real native chat sessions so
+  visible panels keep their titles. Updated "remove-from-layout" to use
+  pointer-drag to the unlink dropzone (the button no longer exists) and
+  "project-switch isolation" to exclude other-project rows from the
+  active-project count. All 6 tests pass (verified 3 consecutive runs).
 - The stashed-group system needs real-user verification: drag-to-unlink
   from sidebar, click-to-switch between unlinked and linked chats, and
   restoring a stashed group by clicking its sidebar row.
-- The sidebar-surfaces.spec.ts test suite (5 tests) needs updating to
-  match the new flat sidebar structure with stashed group support.
