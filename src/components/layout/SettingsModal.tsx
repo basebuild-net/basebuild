@@ -283,9 +283,14 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
   }
 
   async function saveConsent(c: AnalyticsConsent) {
+    const explicitConsent = {
+      ...c,
+      consentVersion: "usage-sharing-v1",
+      consentedAt: Math.floor(Date.now() / 1000),
+    };
     try {
-      await setAnalyticsConsent(c);
-      setConsent(c);
+      await setAnalyticsConsent(explicitConsent);
+      setConsent(explicitConsent);
       await refreshAnalytics();
     } catch {
       // ignore
@@ -935,8 +940,8 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
               <div className="stack">
                 <h3>Privacy & Analytics</h3>
                 <p className="text-muted text-sm">
-                  Basebuild is local-first. Analytics are disabled by default and never store prompt text,
-                  chat content, source code, terminal output, secrets, or raw file paths.
+                  Basebuild is local-first. Local feature analytics are off by default. No privacy setting
+                  permits prompt text, chat content, source code, terminal output, secrets, or raw file paths.
                 </p>
 
                 {consent ? (
@@ -957,15 +962,14 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                     <label className="row gap-sm mt-4">
                       <input
                         type="checkbox"
-                        title="Enable remote upload of anonymous analytics — separate from local collection"
+                        title="Share anonymous aggregate model and usage counters with basebuild.net"
                         checked={consent.uploadEnabled}
-                        disabled={!consent.collectionEnabled}
                         onChange={(e) => void saveConsent({ ...consent, uploadEnabled: e.target.checked })}
                       />
-                      <span className="text-sm">Enable anonymous upload</span>
+                      <span className="text-sm">Share anonymous aggregate usage</span>
                     </label>
                     <p className="text-muted text-sm mt-n4">
-                      Upload stays off unless you enable it. Only reviewed, fixed-field endpoints receive supported analytics.
+                      Independent of local feature analytics. Includes provider, model, tokens, cost, and timing only.
                     </p>
 
                     <div className="mt-8">
@@ -1000,7 +1004,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
                           type="checkbox"
                           title="Separately opt in to fixed-field execution recommendation feedback"
                           checked={advisorFeedbackConsent?.enabled ?? false}
-                          disabled={!consent.collectionEnabled || !advisorFeedbackConsent}
+                          disabled={!advisorFeedbackConsent}
                           onChange={(event) => void saveAdvisorFeedbackConsent(event.target.checked)}
                         />
                         <span className="text-sm">Collect recommendation choices</span>

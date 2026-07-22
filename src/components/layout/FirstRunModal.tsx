@@ -25,6 +25,7 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
   const [consent, setConsent] = useState<AnalyticsConsent | null>(null);
   const [launchAtSignin, setLaunchAtSignin] = useState(true);
   const [startupStatus, setStartupStatus] = useState<StartupRegistrationStatus | null>(null);
+  const [consentError, setConsentError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -33,11 +34,13 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
         const [p, d, c, s] = await Promise.all([listRuntimeProfiles(), getRuntimeDefaults(), getAnalyticsConsent(), startupGetStatus().catch(() => null)]);
         setProfiles(p);
         setDefaults(d);
-        // Usage sharing is OPT-IN: default OFF. Use the stored consent (which
-        // the backend seeds disabled) rather than pre-checking the box, so
-        // nothing is shared unless the user explicitly turns it on here or in
-        // Settings → Privacy.
-        setConsent(c);
+        // A fresh install presents aggregate usage sharing preselected, but
+        // this is only local checkbox state. No permission is persisted and
+        // no upload gate opens until the user presses Finish. A prior explicit
+        // choice (including off) is preserved when setup is re-entered.
+        setConsent(c.consentedAt === null
+          ? { ...c, uploadEnabled: true }
+          : c);
         setStartupStatus(s);
       } catch {
         // ignore
@@ -61,11 +64,18 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
   }
 
   async function saveConsentAndFinish(c: AnalyticsConsent) {
+    const finalizedConsent = {
+      ...c,
+      consentVersion: "usage-sharing-v1",
+      consentedAt: Math.floor(Date.now() / 1000),
+    };
     try {
-      await setAnalyticsConsent(c);
-      setConsent(c);
-    } catch {
-      // ignore
+      await setAnalyticsConsent(finalizedConsent);
+      setConsent(finalizedConsent);
+      setConsentError(null);
+    } catch (error) {
+      setConsentError(error instanceof Error ? error.message : String(error));
+      return;
     }
     // Apply the launch-at-sign-in preference only when the user finishes
     // setup. Skip/Escape does NOT call this function, so no OS registration
@@ -222,23 +232,23 @@ export function FirstRunModal({ open, onComplete, onSkip }: FirstRunModalProps) 
             <>
               <h3>Help improve Basebuild</h3>
               <p className="text-muted text-sm">
-                Share anonymous usage stats with basebuild.net so we can build the features people actually use?
-                Aggregates only — model, provider, tokens, cost, timing. Never your name, prompts, source code, or secrets.
-                Off by default; turn it on or off anytime in Settings → Privacy, and control what shows publicly on your basebuild.net account.
+                Anonymous aggregate usage sharing is preselected. We send model, provider, token counts,
+                cost, and timing — never your name, prompts, source code, paths, or secrets.
+                Nothing is saved or uploaded until you finish setup. Change this anytime in Settings → Privacy.
               </p>
               <label className="row gap-sm">
                 <input
                   type="checkbox"
-                  title="Share anonymous usage stats with basebuild.net (optional, off by default)"
-                  checked={consent.collectionEnabled && consent.uploadEnabled}
+                  title="Share anonymous aggregate usage with basebuild.net after setup completes"
+                  checked={consent.uploadEnabled}
                   onChange={(e) => setConsent({
                     ...consent,
-                    collectionEnabled: e.target.checked,
                     uploadEnabled: e.target.checked,
                   })}
                 />
-                <span className="text-sm">Share anonymous usage stats (optional)</span>
+                <span className="text-sm">Share anonymous aggregate usage</span>
               </label>
+              {consentError ? <p className="text-danger text-sm">{consentError}</p> : null}
               <div className="row">
                 <button className="btn" type="button" title="Go back" onClick={() => setStep("startup")}>Back</button>
                 <button className="btn btn-primary" type="button" title="Finish setup" onClick={() => void saveConsentAndFinish(consent)}>

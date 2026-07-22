@@ -8,21 +8,20 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
 use crate::events::{AUTH_CHANGED, USAGE_SYNC_STATUS};
-use crate::models::usage_envelope::{
-    build_envelope, sanitize_row, SourceKind, UsageBatch, ENVELOPE_VERSION,
-};
+use crate::models::usage_envelope::{build_envelope, SourceKind, UsageBatch, ENVELOPE_VERSION};
 use crate::models::usage_sync::{
     AutoSyncStatus, LiveUsage, LiveUsageRow, PlanSummaries, PlanSummary, PlanTimeline,
     PlanTimelineWindow, ProjectedUsage, SyncResult, UsageSnapshot, UsageSnapshotRow,
 };
 use crate::services::analytics_service::AnalyticsService;
-use crate::services::auth_service::AuthService;
+use crate::services::auth_service::{AuthService, GuestSyncAuth};
 use crate::services::execution_advisor_service::ExecutionAdvisorService;
 use crate::services::omp_service::OmpService;
 use crate::services::settings_service::SettingsService;
 use crate::services::storage_service::StorageService;
 
 const MCP_URL: &str = "https://basebuild.net/api/mcp";
+const GUEST_BOOTSTRAP_URL: &str = "https://basebuild.net/api/auth/guest/bootstrap";
 /// Minimum gap between sync pushes in seconds, even if a trigger fires.
 const MIN_INTER_SYNC_GAP_SECS: i64 = 60;
 /// Default interval (minutes) when the setting is missing or zero.
@@ -41,32 +40,79 @@ const MANAGED_TRIGGER_EVAL_SECS: u64 = 300;
 const MANAGED_TRIGGER_ABS_DELTA: i64 = 25;
 const MANAGED_TRIGGER_REL_PCT: f64 = 0.20;
 
-/// Resolved transport auth for a sync push. `Token` keeps account
-/// attribution; `Anonymous` sends login-free with the device `computerId`
-/// in the tool arguments (backend whitelists sync_* tools for this mode).
+/// Every usage write carries a bearer token. Account tokens preserve private
+/// attribution; guest tokens represent only a random local installation UUID.
 enum AuthMode {
-    Token(String),
-    Anonymous(String),
+    AccountToken(String),
+    GuestToken(String),
 }
 
-/// Resolve how this push should authenticate. A stored basebuild.net token
-/// wins (account attribution); otherwise we fall back to anonymous device
-/// telemetry keyed by the persisted `computerId`. Returns `Err` only if the
-/// computerId cannot be generated/persisted — consent is checked by gates_pass.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GuestBootstrapResponse {
+    access_token: String,
+    expires_at: String,
+    scopes: Vec<String>,
+}
+
+fn bootstrap_guest_sync_auth() -> Result<GuestSyncAuth, String> {
+    for attempt in 0..2 {
+        let installation_id = uuid::Uuid::new_v4().to_string();
+        let response = reqwest::blocking::Client::new()
+            .post(GUEST_BOOTSTRAP_URL)
+            .header("Content-Type", "application/json")
+            .json(&json!({ "installationId": installation_id }))
+            .send()
+            .map_err(|error| format!("Failed to bootstrap guest usage sync: {error}"))?;
+        let status = response.status();
+        let text = response.text().unwrap_or_default();
+        if status == reqwest::StatusCode::CONFLICT && attempt == 0 {
+            continue;
+        }
+        if !status.is_success() {
+            return Err(format!("Guest usage bootstrap failed ({status}): {text}"));
+        }
+        let parsed: GuestBootstrapResponse = serde_json::from_str(&text)
+            .map_err(|error| format!("Failed to parse guest usage bootstrap: {error}"))?;
+        if !parsed.access_token.starts_with("bb_guest_")
+            || parsed.scopes.as_slice() != ["usage:write"]
+        {
+            return Err("Guest usage bootstrap returned an invalid credential".to_string());
+        }
+        let auth = GuestSyncAuth {
+            installation_id,
+            access_token: parsed.access_token,
+            expires_at: parsed.expires_at,
+            scopes: parsed.scopes,
+        };
+        AuthService::save_guest_sync_auth(&auth)?;
+        return Ok(auth);
+    }
+    Err("Guest usage bootstrap could not register an installation".to_string())
+}
+
 fn resolve_auth_mode() -> Result<AuthMode, String> {
     if let Ok(Some(token)) = AuthService::get_access_token() {
         if !token.is_empty() {
-            return Ok(AuthMode::Token(token));
+            return Ok(AuthMode::AccountToken(token));
         }
     }
-    let computer_id = SettingsService::get_computer_id()?;
-    Ok(AuthMode::Anonymous(computer_id))
+    if let Some(auth) = AuthService::load_guest_sync_auth()? {
+        if auth.access_token.starts_with("bb_guest_") && auth.scopes.as_slice() == ["usage:write"] {
+            return Ok(AuthMode::GuestToken(auth.access_token));
+        }
+        AuthService::clear_guest_sync_auth()?;
+    }
+    Ok(AuthMode::GuestToken(
+        bootstrap_guest_sync_auth()?.access_token,
+    ))
 }
 
-/// True when the resolved mode is authenticated (used to gate the
-/// server freshness check, which is a read tool and not anonymously callable).
-fn has_token() -> bool {
-    matches!(resolve_auth_mode(), Ok(AuthMode::Token(_)))
+fn has_account_token() -> bool {
+    AuthService::get_access_token()
+        .ok()
+        .flatten()
+        .is_some_and(|token| !token.is_empty())
 }
 
 /// Tracks whether the autosync loop is currently running.
@@ -202,25 +248,37 @@ pub fn collect_native_batch() -> Result<UsageBatch, String> {
 
     let rows: Vec<Value> = metrics
         .iter()
-        .map(|m| {
-            sanitize_row(&json!({
-                "id": m.id,
-                "ts": m.created_at,
-                "source": "native",
-                "provider": m.provider_id,
-                "model": m.model_id,
-                "effort": m.effort_level,
-                "subscriptionTier": m.subscription_tier,
-                "subscriptionSource": m.subscription_source,
-                "planName": m.plan_name,
-                "inputTokens": m.input_tokens,
-                "outputTokens": m.output_tokens,
-                "cacheReadTokens": m.cache_read_tokens,
-                "costTotal": m.cost_total.unwrap_or(0.0),
-                "durationMs": m.duration_ms,
-                "ttftMs": m.ttft_ms,
-                "outcome": m.outcome,
-            }))
+        .map(|metric| {
+            let duration_ms = metric.duration_ms.unwrap_or(0).clamp(0, i32::MAX as i64);
+            let ttft_ms = metric.ttft_ms.unwrap_or(0).clamp(0, i32::MAX as i64);
+            let cost_total = metric
+                .cost_total
+                .filter(|cost| cost.is_finite() && *cost >= 0.0)
+                .unwrap_or(0.0)
+                .min(1_000_000.0);
+            json!({
+                "kind": "model_usage",
+                "provider": metric.provider_id,
+                "model": metric.model_id,
+                "effort": match metric.effort_level.as_str() {
+                    "none" | "low" | "medium" | "high" | "xhigh" => Some(metric.effort_level.as_str()),
+                    _ => None,
+                },
+                "subscriptionTier": metric.subscription_tier.as_deref().filter(|tier| matches!(*tier, "plus" | "pro" | "max" | "free" | "api" | "team" | "enterprise")),
+                "subscriptionSource": metric.subscription_source.as_deref().filter(|source| matches!(*source, "declared" | "provider-api" | "api-key" | "inferred" | "unknown")),
+                "planName": metric.plan_name.as_deref().filter(|name| name.chars().count() <= 256),
+                "requests": 1,
+                "inputTokens": metric.input_tokens.clamp(0, i32::MAX as i64),
+                "outputTokens": metric.output_tokens.clamp(0, i32::MAX as i64),
+                "cacheReadTokens": metric.cache_read_tokens.clamp(0, i32::MAX as i64),
+                "cacheWriteTokens": metric.cache_write_tokens.clamp(0, i32::MAX as i64),
+                "costTotal": cost_total,
+                "durationMs": duration_ms,
+                "durationCount": i64::from(metric.duration_ms.is_some()),
+                "ttftMs": ttft_ms,
+                "ttftCount": i64::from(metric.ttft_ms.is_some()),
+                "errors": i64::from(metric.outcome != "success"),
+            })
         })
         .collect();
 
@@ -229,71 +287,91 @@ pub fn collect_native_batch() -> Result<UsageBatch, String> {
 
     Ok(UsageBatch {
         source: SourceKind::Native,
-        dedup_key: format!("native-{window_end}"),
+        idempotency_key: format!("native:{window_start}:{window_end}:v1"),
         window_start,
         window_end,
         rows,
     })
 }
 
-/// Sync a versioned envelope carrying native chat metrics to basebuild.net
-/// via the `sync_usage_envelope` MCP tool. Falls back to `sync_messages`
-/// if the server doesn't recognize the envelope tool. OMP continues to use
-/// the existing `sync_raw_usage` path independently.
+/// Sync every available envelope source through the closed aggregate contract.
+/// OMP remains on `sync_raw_usage`; its source registry entry intentionally
+/// contributes no envelope batch.
 pub fn sync_envelope_native() -> Result<String, String> {
     let mode = resolve_auth_mode()?;
+    let collections = crate::services::usage_source_service::collect_all_sources();
+    for collection in &collections {
+        eprintln!(
+            "[SYNC] source {}: {}",
+            collection.source.as_str(),
+            collection.diagnostic
+        );
+    }
+    let batches: Vec<UsageBatch> = collections
+        .into_iter()
+        .filter_map(|collection| collection.batch)
+        .collect();
+    if batches.is_empty() {
+        return Ok("no new envelope usage data".to_string());
+    }
 
-    let batch = match collect_native_batch() {
-        Ok(b) if !b.rows.is_empty() => b,
-        Ok(_) => return Ok("no new native usage data".to_string()),
-        Err(e) => {
-            eprintln!("[SYNC] native batch collection failed: {e}");
-            return Err(e);
-        }
-    };
-
-    // Build and validate the envelope before transport.
-    let envelope = build_envelope(vec![batch], now_seconds())
-        .map_err(|e| format!("envelope validation failed: {e}"))?;
-
-    // Send the envelope to the server.
+    let envelope = build_envelope(batches, now_seconds())
+        .map_err(|error| format!("envelope validation failed: {error}"))?;
     let rpc_body = json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
         "params": {
             "name": "sync_usage_envelope",
-            "arguments": serde_json::to_value(&envelope).unwrap_or(Value::Null),
+            "arguments": serde_json::to_value(&envelope)
+                .map_err(|error| format!("Failed to serialize usage envelope: {error}"))?,
         }
     });
 
-    match post_mcp(&mode, &rpc_body) {
-        Ok(result) => {
-            // Advance the native cursor only after the server accepted the batch.
-            for batch in &envelope.batches {
-                if batch.source == SourceKind::Native {
-                    if let Ok(mut settings) = SettingsService::get_usage_sync_settings() {
-                        settings.last_message_sync_at = Some(batch.window_end);
-                        let _ = SettingsService::set_usage_sync_settings(&settings);
-                    }
-                }
+    let result_text = post_mcp(&mode, &rpc_body)?;
+    let acknowledgment: Value = serde_json::from_str(&result_text)
+        .map_err(|error| format!("Invalid usage-envelope acknowledgment: {error}"))?;
+    if acknowledgment.get("ok").and_then(Value::as_bool) != Some(true) {
+        return Err("Usage envelope was not durably accepted".to_string());
+    }
+    let receipts = acknowledgment
+        .get("receipts")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Usage-envelope acknowledgment omitted receipts".to_string())?;
+    let sources = crate::services::usage_source_service::registered_sources();
+    let mut accepted = 0usize;
+    let mut rejected = 0usize;
+    for batch in &envelope.batches {
+        let receipt = receipts.iter().find(|receipt| {
+            receipt.get("source").and_then(Value::as_str) == Some(batch.source.as_str())
+                && receipt.get("idempotencyKey").and_then(Value::as_str)
+                    == Some(batch.idempotency_key.as_str())
+        });
+        let status = receipt
+            .and_then(|receipt| receipt.get("status"))
+            .and_then(Value::as_str);
+        if matches!(status, Some("accepted" | "already_accepted")) {
+            if let Some(source) = sources.iter().find(|source| source.kind() == batch.source) {
+                source.advance_checkpoint(batch).map_err(|error| {
+                    format!(
+                        "{} usage was accepted but its local cursor could not advance: {error}",
+                        batch.source.as_str()
+                    )
+                })?;
             }
-            Ok(format!("envelope v{ENVELOPE_VERSION}: {result}"))
-        }
-        Err(e) => {
-            // If the server doesn't recognize the envelope tool, fall back to
-            // the existing sync_messages path. This preserves compatibility.
-            if e.contains("Unknown tool")
-                || e.contains("not found")
-                || e.contains("sync_usage_envelope")
-            {
-                eprintln!("[SYNC] server doesn't support sync_usage_envelope — falling back to sync_messages");
-                sync_messages_native()
-            } else {
-                Err(e)
-            }
+            accepted += 1;
+        } else {
+            rejected += 1;
         }
     }
+    if rejected > 0 {
+        return Err(format!(
+            "Usage envelope partially accepted: {accepted} accepted, {rejected} rejected"
+        ));
+    }
+    Ok(format!(
+        "envelope v{ENVELOPE_VERSION}: {accepted} source batch(es) accepted"
+    ))
 }
 
 fn message_row_json(m: &crate::models::native_chat::NativeRequestMetric) -> Value {
@@ -408,62 +486,59 @@ fn build_message_summaries(
         .collect()
 }
 fn post_mcp(mode: &AuthMode, rpc_body: &Value) -> Result<String, String> {
-    let client = reqwest::blocking::Client::new();
-    let req = client
-        .post(MCP_URL)
-        .header("Content-Type", "application/json");
-    // Anonymous mode: inject computerId into the tool arguments and skip
-    // the Authorization header. The backend whitelists sync_* tools for
-    // anonymous submission; any other tool returns an auth error.
-    let (req, _computer_id) = match mode {
-        AuthMode::Token(token) => (req.header("Authorization", format!("Bearer {token}")), None),
-        AuthMode::Anonymous(computer_id) => {
-            // Mutate params.arguments.computerId so the server can attribute
-            // the blob to the shadow user. We only do this for sync_* tools;
-            // the caller is responsible for not routing read tools here.
-            let mut body = rpc_body.clone();
-            if let Some(args) = body.get_mut("params").and_then(|p| p.get_mut("arguments")) {
-                if let Some(obj) = args.as_object_mut() {
-                    obj.insert("computerId".to_string(), Value::String(computer_id.clone()));
-                }
-            }
-            (req.json(&body), Some(computer_id.clone()))
-        }
+    let token = match mode {
+        AuthMode::AccountToken(token) | AuthMode::GuestToken(token) => token,
     };
-    let resp = req
+    let response = reqwest::blocking::Client::new()
+        .post(MCP_URL)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .json(rpc_body)
         .send()
-        .map_err(|e| format!("Failed to connect to basebuild.net: {e}"))?;
-    let status = resp.status();
-    let text = resp.text().unwrap_or_default();
+        .map_err(|error| format!("Failed to connect to basebuild.net: {error}"))?;
+    let status = response.status();
+    let text = response.text().unwrap_or_default();
     if status == reqwest::StatusCode::UNAUTHORIZED {
-        // Only clear auth when we actually sent a token — an anonymous 401
-        // is a server config issue, not a credential problem.
-        if matches!(mode, AuthMode::Token(_)) {
-            let _ = AuthService::clear_auth();
+        match mode {
+            AuthMode::AccountToken(_) => {
+                let _ = AuthService::clear_auth();
+                return Err("Account token expired or was revoked. Please sign in again.".into());
+            }
+            AuthMode::GuestToken(_) => {
+                let _ = AuthService::clear_guest_sync_auth();
+                return Err(
+                    "Guest sync credential expired or was revoked; retry to register a new credential."
+                        .into(),
+                );
+            }
         }
-        return Err("Token expired or revoked. Please sign in again.".into());
     }
     if !status.is_success() {
         return Err(format!("MCP sync failed ({status}): {text}"));
     }
-    let parsed: Value =
-        serde_json::from_str(&text).map_err(|e| format!("Failed to parse MCP response: {e}"))?;
+    let parsed: Value = serde_json::from_str(&text)
+        .map_err(|error| format!("Failed to parse MCP response: {error}"))?;
     if let Some(error) = parsed.get("error") {
         let message = error
             .get("message")
-            .and_then(|v| v.as_str())
+            .and_then(Value::as_str)
             .unwrap_or("Unknown MCP error");
         return Err(format!("MCP error: {message}"));
     }
-    Ok(parsed
+    let result = parsed
         .get("result")
-        .and_then(|v| v.get("content"))
-        .and_then(|v| v.as_array())
-        .and_then(|arr| arr.first())
+        .ok_or_else(|| "MCP response omitted result".to_string())?;
+    let result_text = result
+        .get("content")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
         .and_then(|item| item.get("text"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("Synced successfully.")
-        .to_string())
+        .and_then(Value::as_str)
+        .ok_or_else(|| "MCP response omitted result content".to_string())?;
+    if result.get("isError").and_then(Value::as_bool) == Some(true) {
+        return Err(format!("MCP tool rejected usage: {result_text}"));
+    }
+    Ok(result_text.to_string())
 }
 
 // ─── Projected-usage reads (native token, /api/mcp) ───────────────────────
@@ -872,32 +947,30 @@ fn sync_execution_advisor_feedback_native() -> Result<usize, String> {
 
 // ─── Auto-sync driver ──────────────────────────────────────────────────────
 
-/// Check whether the gates currently allow a sync push: upload consent
-/// granted AND auto-sync enabled. A basebuild.net token is NOT required —
-/// when none is stored the push is anonymous (login-free) keyed by the
-/// persisted `computerId`. Does not perform network I/O.
+/// Check the persisted completion-gated consent and auto-sync switches.
+/// This function is side-effect free: it never bootstraps credentials or
+/// performs network I/O.
 pub fn gates_pass() -> bool {
-    let rules = match SettingsService::get_permission_rules() {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("[SYNC] gates: permission rules error: {e}");
+    let consent = match AnalyticsService::get_consent() {
+        Ok(consent) => consent,
+        Err(error) => {
+            eprintln!("[SYNC] gates: consent read failed: {error}");
             return false;
         }
     };
-    if !rules.allow_usage_analytics_upload {
-        eprintln!("[SYNC] gates: allow_usage_analytics_upload=false");
+    if consent.consented_at.is_none() || !consent.upload_enabled {
+        eprintln!("[SYNC] gates: aggregate usage upload has not been completed");
         return false;
     }
-    let status = AUTOSYNC_STATUS.lock().clone();
-    if !status.enabled {
-        eprintln!("[SYNC] gates: auto_sync_usage=false (status.enabled=false)");
-        return false;
-    }
-    // A working auth mode must be resolvable — i.e. either a token or a
-    // computerId can be obtained. If computerId generation fails (sqlite
-    // unavailable) we fail closed rather than sending unattributable data.
-    if resolve_auth_mode().is_err() {
-        eprintln!("[SYNC] gates: no token and computerId unavailable");
+    let settings = match SettingsService::get_usage_sync_settings() {
+        Ok(settings) => settings,
+        Err(error) => {
+            eprintln!("[SYNC] gates: usage sync settings read failed: {error}");
+            return false;
+        }
+    };
+    if !settings.auto_sync_usage {
+        eprintln!("[SYNC] gates: auto_sync_usage=false");
         return false;
     }
     true
@@ -980,17 +1053,11 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
             }
         }
     }
-    // Freshness: when authenticated, ask the server (a read tool — not
-    // anonymously callable). When anonymous, decide locally: always push
-    // on skip_freshness (startup/managed trigger), otherwise push only if
-    // a managed trigger fired (the loop evaluates those before calling
-    // trigger_sync with skip_freshness=true, so the default hourly tick
-    // for anonymous devices still pushes — the server dedups by computerId).
+    // Only account principals can use the read-side freshness tool. Guest
+    // principals push the bounded envelope directly; server receipts dedupe it.
     let should_push = if skip_freshness {
-        let can_auth = resolve_auth_mode().is_ok();
-        eprintln!("[SYNC] skip_freshness=true, can_auth={can_auth}");
-        can_auth
-    } else if has_token() {
+        true
+    } else if has_account_token() {
         match AuthService::get_access_token() {
             Ok(Some(token)) => {
                 eprintln!("[SYNC] checking server freshness…");
@@ -1011,10 +1078,7 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
             }
         }
     } else {
-        // Anonymous hourly tick: push. Server-side dedup by computerId
-        // keeps redundant pushes cheap; the local debounce already bounds
-        // the rate.
-        eprintln!("[SYNC] anonymous push — no server freshness check");
+        eprintln!("[SYNC] guest envelope push — no read-side freshness permission");
         true
     };
 

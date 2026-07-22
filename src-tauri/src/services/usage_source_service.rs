@@ -209,7 +209,7 @@ mod tests {
         let source = OmpSource;
         let batch = UsageBatch {
             source: SourceKind::Omp,
-            dedup_key: "test".to_string(),
+            idempotency_key: "test-key".to_string(),
             window_start: 0,
             window_end: 100,
             rows: vec![],

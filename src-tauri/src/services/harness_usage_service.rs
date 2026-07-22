@@ -21,9 +21,8 @@ use std::time::SystemTime;
 use rusqlite::params;
 use serde_json::{json, Value};
 
-use crate::models::usage_envelope::{sanitize_row, SourceKind, UsageBatch};
+use crate::models::usage_envelope::{SourceKind, UsageBatch};
 use crate::services::storage_service::StorageService;
-use crate::services::usage_source_service::UsageSource;
 
 /// Maximum lines parsed per collect call — bounds startup cost on large
 /// histories. New files beyond this limit are picked up on the next collect
@@ -284,14 +283,13 @@ impl crate::services::usage_source_service::UsageSource for HarnessSource {
         if entries.is_empty() {
             return Ok(None);
         }
-        let rows = aggregate_entries(self.kind(), &entries);
+        let (rows, window_end) = aggregate_entries(self.kind(), &entries);
         if rows.is_empty() {
             return Ok(None);
         }
-        let window_end = now_seconds();
         Ok(Some(UsageBatch {
             source: self.kind(),
-            dedup_key: format!("{}-{window_end}", self.reader.name()),
+            idempotency_key: format!("harness:{}:{since}:{window_end}:v1", self.kind().as_str()),
             window_start: since,
             window_end,
             rows,
@@ -310,9 +308,8 @@ impl crate::services::usage_source_service::UsageSource for HarnessSource {
     }
 }
 
-/// Aggregate parsed entries into per-(provider, model, hour) rows. Only
-/// allowlisted fields survive `sanitize_row`.
-fn aggregate_entries(source: SourceKind, entries: &[Value]) -> Vec<Value> {
+/// Aggregate parsed entries into schema-safe per-(provider, model, hour) rows.
+fn aggregate_entries(source: SourceKind, entries: &[Value]) -> (Vec<Value>, i64) {
     use std::collections::HashMap;
 
     #[derive(Default)]
@@ -354,21 +351,29 @@ fn aggregate_entries(source: SourceKind, entries: &[Value]) -> Vec<Value> {
         acc.ts_max = acc.ts_max.max(ts);
     }
 
-    map.into_values()
+    let window_end = map.values().map(|acc| acc.ts_max).max().unwrap_or(0);
+    let rows = map
+        .into_values()
         .map(|a| {
-            sanitize_row(&json!({
-                "source": source.as_str(),
+            json!({
+                "kind": "model_usage",
                 "provider": a.provider,
                 "model": a.model,
-                "ts": a.ts_max,
-                "requests": a.requests,
-                "inputTokens": a.input,
-                "outputTokens": a.output,
-                "cacheReadTokens": a.cache_read,
-                "costTotal": a.cost,
-            }))
+                "requests": a.requests.clamp(1, 1_000_000),
+                "inputTokens": a.input.clamp(0, i32::MAX as i64),
+                "outputTokens": a.output.clamp(0, i32::MAX as i64),
+                "cacheReadTokens": a.cache_read.clamp(0, i32::MAX as i64),
+                "cacheWriteTokens": 0,
+                "costTotal": if a.cost.is_finite() { a.cost.clamp(0.0, 1_000_000.0) } else { 0.0 },
+                "durationMs": 0,
+                "durationCount": 0,
+                "ttftMs": 0,
+                "ttftCount": 0,
+                "errors": 0,
+            })
         })
-        .collect()
+        .collect();
+    (rows, window_end)
 }
 
 /// Claude Code: assistant entries with `message.model` + `message.usage`.
@@ -524,13 +529,6 @@ fn file_is_fresh(path: &Path, since_epoch: i64) -> bool {
     mtime >= since_epoch
 }
 
-fn now_seconds() -> i64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or_default()
-}
-
 /// Parse an ISO-8601 timestamp to epoch seconds. Lenient — returns None on
 /// any parse failure.
 fn parse_iso_to_epoch(s: &str) -> Option<i64> {
@@ -576,6 +574,7 @@ fn epoch_from_ymd_hms(y: i64, mo: i64, d: i64, h: i64, mi: i64, se: i64) -> i64 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::usage_source_service::UsageSource;
 
     #[test]
     fn claude_code_extract_happy_path() {
@@ -619,10 +618,11 @@ mod tests {
             },
             "timestamp": "2026-07-18T12:34:56Z"
         });
-        let rows = aggregate_entries(SourceKind::ClaudeCode, &[entry]);
+        let (rows, window_end) = aggregate_entries(SourceKind::ClaudeCode, &[entry]);
         assert_eq!(rows.len(), 1);
+        assert!(window_end > 0);
         let row = &rows[0];
-        // Content fields must be stripped by sanitize_row.
+        // Only closed aggregate fields are emitted.
         assert!(row.get("content").is_none());
         assert!(row.get("prompt").is_none());
         assert!(row.get("message").is_none());
