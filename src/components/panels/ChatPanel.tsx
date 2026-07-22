@@ -3352,7 +3352,27 @@ export function ChatPanel({
             />
           </div>
           <div className="chat-composer-controls">
-            {/* Compact permission/effort disclosure in composer footer */}
+            {/* Model/effort/permission all live in the composer footer */}
+            <button
+              className={`chat-column-model-chip is-catalog-${catalogStatus}`}
+              type="button"
+              title={
+                catalogStatus === "loading" || catalogStatus === "refreshing"
+                  ? `Model: ${modelName || modelId}. Provider catalog is ${catalogStatus}.`
+                  : catalogStatus === "error" || catalogStatus === "stale"
+                    ? `Model: ${modelName || modelId}. Catalog ${catalogStatus === "stale" ? "refresh failed; showing cached models" : "failed to load"}: ${catalogError ?? "Unknown error"}. Click to retry or change model.`
+                    : `Model: ${modelName || modelId}. Click to change provider or model.`
+              }
+              onClick={() => {
+                addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
+                setShowModelPicker(true);
+                setShowProviderPicker(false);
+              }}
+            >
+              {catalogStatus === "loading" || catalogStatus === "refreshing" ? <Loader2 size={10} className="spin" aria-hidden="true" /> : null}
+              <span>{(modelName || modelId || "Model").length > 14 ? (modelName || modelId).slice(0, 13) + "…" : (modelName || modelId || "Model")}</span>
+              <ChevronDown size={9} />
+            </button>
             {(catalog?.effortLevels ?? []).filter((e) => selectedModel?.supportedEfforts.includes(e.id) ?? false).length > 1 ? (
               <select
                 className="chat-header-select"

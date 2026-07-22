@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type AppTheme = "dark" | "light";
+export type AppTheme = "dark" | "dark-green" | "light";
 
-export const THEME_IDS = ["dark", "light"] as const;
+export const THEME_IDS = ["dark", "dark-green", "light"] as const;
 const STORAGE_KEY = "basebuild.theme";
 const DEFAULT_THEME: AppTheme = "dark";
 
 /**
  * Parse an untrusted stored value into a valid AppTheme.
- * Only exact "dark" or "light" strings are accepted; everything
- * else (missing, malformed, unsupported) falls back to dark.
+ * Only exact "dark", "dark-green", or "light" strings are accepted;
+ * everything else (missing, malformed, unsupported) falls back to dark.
  * The value is never interpolated into HTML, selectors, URLs, or commands.
  */
 export function parseTheme(value: string | null): AppTheme {
-  if (value === "dark" || value === "light") return value;
+  if (value === "dark" || value === "dark-green" || value === "light") return value;
   return DEFAULT_THEME;
 }
 

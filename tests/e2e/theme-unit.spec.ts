@@ -34,8 +34,8 @@ test.describe("parseTheme", () => {
     expect(parseTheme("javascript:void(0)")).toBe("dark");
   });
 
-  test("THEME_IDS contains exactly dark and light", () => {
-    expect(THEME_IDS).toEqual(["dark", "light"]);
+  test("THEME_IDS contains exactly dark, dark-green, and light", () => {
+    expect(THEME_IDS).toEqual(["dark", "dark-green", "light"]);
   });
 });
 

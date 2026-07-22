@@ -6,14 +6,12 @@ import {
   Command,
   GitBranch,
   GitPullRequest,
-  Loader2,
   MoreHorizontal,
   Pencil,
   Plus,
   Sparkles,
   X,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import type { AgentMode } from "../../lib/sessions";
 import type { GitBranch as GitBranchInfo } from "../../lib/git";
 
@@ -196,59 +194,6 @@ export function ChatHeader(props: ChatHeaderProps) {
       onDrop={props.onDrop}
     >
       <div className="chat-column-header-left">
-        <button
-          className={`chat-column-model-chip is-catalog-${props.modelCatalogStatus}`}
-          type="button"
-          title={
-            props.modelCatalogStatus === "loading" || props.modelCatalogStatus === "refreshing"
-              ? `Model: ${props.modelChip || props.modelId}. Provider catalog is ${props.modelCatalogStatus}.`
-              : props.modelCatalogStatus === "error" || props.modelCatalogStatus === "stale"
-                ? `Model: ${props.modelChip || props.modelId}. Catalog ${props.modelCatalogStatus === "stale" ? "refresh failed; showing cached models" : "failed to load"}: ${props.modelCatalogError ?? "Unknown error"}. Click to retry or change model.`
-                : `Model: ${props.modelChip || props.modelId}. Click to change provider or model.`
-          }
-          onClick={props.onPickModel}
-        >
-          {props.modelCatalogStatus === "loading" || props.modelCatalogStatus === "refreshing" ? <Loader2 size={10} className="spin" aria-hidden="true" /> : null}
-          <span>{truncate(props.modelChip || props.modelId || "Model", 14)}</span>
-          <ChevronDown size={9} />
-          <span className="sr-only" aria-live="polite">
-            {props.modelCatalogStatus === "loading" || props.modelCatalogStatus === "refreshing"
-              ? "Provider catalog loading"
-              : props.modelCatalogStatus === "stale"
-                ? "Provider catalog refresh failed; cached models available"
-                : props.modelCatalogStatus === "error"
-                  ? "Provider catalog failed to load"
-                  : ""}
-          </span>
-        </button>
-        {props.effortOptions.length > 1 ? (
-          <select
-            className="chat-header-select"
-            title={`Effort level: ${props.effortChip}`}
-            aria-label="Effort level"
-            value={props.effortChip}
-            onChange={(event) => props.onChangeEffort(event.target.value)}
-          >
-            {props.effortOptions.map((effort) => (
-              <option key={effort.id} value={effort.id}>{effort.label}</option>
-            ))}
-          </select>
-        ) : (
-          <span className="chat-header-static" title={`Effort: ${props.effortChip || "Standard"}`}>
-            {props.effortOptions[0]?.label ?? "Standard"}
-          </span>
-        )}
-        <select
-          className="chat-header-select chat-header-permission"
-          title={`Permission mode: ${permissionLabel(props.permissionMode)}`}
-          aria-label="Permission mode"
-          value={props.permissionMode}
-          onChange={(event) => props.onChangePermission(event.target.value as "safe" | "balanced" | "auto")}
-        >
-          <option value="balanced">Balanced</option>
-          <option value="safe">Always Ask</option>
-          <option value="auto">Run Everything</option>
-        </select>
         <span className={`chat-header-run-state is-${props.runState}`} title={`Agent state: ${props.runState}`}>
           {props.runState}
         </span>
@@ -549,11 +494,6 @@ function ContextIndicator({ used, limit }: { used: number; limit: number | null 
   );
 }
 
-function permissionLabel(mode: "safe" | "balanced" | "auto") {
-  if (mode === "safe") return "Always Ask";
-  if (mode === "auto") return "Run Everything";
-  return "Balanced";
-}
 
 function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;

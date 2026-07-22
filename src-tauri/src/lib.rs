@@ -187,6 +187,10 @@ impl Default for CloseToTrayState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Install the rustls crypto provider before any reqwest/rmcp HTTP client
+    // is built. reqwest 0.13 ships with rustls-no-provider, so a provider
+    // must be installed explicitly or Client::build() panics.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     // Install panic hook: file-first, deadlock-free.
     // Writes a crash report to disk before any lock/emit, then best-effort
     // emits to the frontend via try_lock (never blocks on APP_HANDLE).

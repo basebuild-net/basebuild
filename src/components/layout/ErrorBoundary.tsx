@@ -1,6 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { restartApp } from "../../lib/app";
 import { stabilityRecordRendererCrash } from "../../lib/stability";
 
 type ErrorBoundaryProps = {
@@ -99,9 +98,6 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     window.location.reload();
   };
 
-  private restart = () => {
-    void restartApp().catch(() => {});
-  };
 
   render() {
     const { error, stack, source } = this.state;
@@ -117,16 +113,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <h3>Basebuild hit a problem</h3>
             <p className="text-muted text-sm">
               {source ?? "The renderer"} failed. Basebuild kept this recovery screen visible instead of leaving a
-              black window, and saved a crash report you can review later under Debug. Reload first; if that does not
-              recover, restart Basebuild.
+              black window, and saved a crash report you can review later under Debug. Reload to recover.
             </p>
             <pre className="pre mono" title="Crash details">{details}</pre>
             <div className="row">
-              <button className="btn btn-primary" type="button" title="Reload the app UI without restarting the process" onClick={this.reload}>
+              <button className="btn btn-primary" type="button" title="Reload the app" onClick={this.reload}>
                 Reload app
-              </button>
-              <button className="btn" type="button" title="Fully restart Basebuild — use if reloading does not recover" onClick={this.restart}>
-                Restart Basebuild
               </button>
               <button className="btn" type="button" title="Copy crash details to the clipboard" onClick={() => void this.copyDetails()}>
                 Copy error details

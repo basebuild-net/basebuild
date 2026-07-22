@@ -13,14 +13,14 @@
     <script>
       // Pre-React theme bootstrap: read localStorage, validate against an
       // exact allowlist, and set the root theme attribute + color-scheme
-      // before the shell paints. Only "dark" and "light" are accepted;
-      // missing, malformed, or unsupported values fall back to "dark".
+      // before the shell paints. Only "dark", "dark-green", and "light" are
+      // accepted; missing, malformed, or unsupported values fall back to "dark".
       // The value is never interpolated into HTML, selectors, or URLs.
       (function () {
         var theme = "dark";
         try {
           var stored = localStorage.getItem("basebuild.theme");
-          if (stored === "dark" || stored === "light") theme = stored;
+          if (stored === "dark" || stored === "dark-green" || stored === "light") theme = stored;
         } catch (e) {
           // Storage access may throw (private mode, security policy).
           // Fall back to dark without crashing startup.
@@ -49,10 +49,11 @@
          hardcoded to match --bb-bg / --bb-text per theme because globals.css
          is not applied until the module bundle loads. */
       #bb-boot { position: fixed; inset: 0; z-index: 10000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font-family: "Space Grotesk", system-ui, sans-serif; }
-      html[data-bb-theme="dark"] #bb-boot { background: #18181b; color: #f4f4f5; }
+      html[data-bb-theme="dark"] #bb-boot { background: #0a0a0b; color: #e8e8ec; }
+      html[data-bb-theme="dark-green"] #bb-boot { background: #101211; color: #eef2ef; }
       html[data-bb-theme="light"] #bb-boot { background: #f4f4f5; color: #18181b; }
       #bb-boot-mark { font-size: 20px; font-weight: 700; letter-spacing: 0.14em; }
-      #bb-boot-dot { width: 8px; height: 8px; background: #f97316; animation: bb-boot-pulse 1.2s ease-in-out infinite; }
+      #bb-boot-dot { width: 8px; height: 8px; background: #5b9a66; animation: bb-boot-pulse 1.2s ease-in-out infinite; }
       @keyframes bb-boot-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.7); } }
       #bb-boot.bb-boot-hide { opacity: 0; transition: opacity 0.2s ease-out; pointer-events: none; }
       @media (prefers-reduced-motion: reduce) { #bb-boot-dot { animation: none; } }
