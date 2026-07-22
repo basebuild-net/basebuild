@@ -134,7 +134,10 @@ pub fn fetch_popularity() -> ProviderPopularity {
         Err(e) => return fail(format!("Failed to fetch popularity: {e}")),
     };
     if !resp.status().is_success() {
-        return fail(format!("Popularity endpoint returned HTTP {}", resp.status()));
+        return fail(format!(
+            "Popularity endpoint returned HTTP {}",
+            resp.status()
+        ));
     }
     let payload: serde_json::Value = match resp.json() {
         Ok(value) => value,

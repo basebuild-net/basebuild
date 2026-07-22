@@ -204,6 +204,13 @@ dependencies are NOT adopted.
     (`≈3.2 reqs/h`, `≈1 req every 6h`, `≈12.4k tok/h`) beside raw totals so
     usage reads as behavior, not bare numbers.
   - `.row-end` right-aligns a `.row` (modal action rows).
+- **Usage Sync settings** use `.usage-sharing-summary` /
+  `.usage-sharing-block` for the exact aggregate allowlist and exclusion copy,
+  `.usage-attribution` for account versus private-installation attribution,
+  and `.usage-source-section` / `.usage-source-row` /
+  `.usage-source-state` for compact independent source status. A failed or
+  pending source exposes the native `Retry sync` action; source diagnostics
+  must be fixed privacy-safe classifications and never raw parser text or paths.
 
 Use popovers only for short single-step menus (roughly 6-8 rows). Searchable
 catalogs, forms, previews, and multi-column configuration belong in a named

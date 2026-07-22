@@ -11,7 +11,8 @@ use crate::events::{AUTH_CHANGED, USAGE_SYNC_STATUS};
 use crate::models::usage_envelope::{build_envelope, SourceKind, UsageBatch, ENVELOPE_VERSION};
 use crate::models::usage_sync::{
     AutoSyncStatus, LiveUsage, LiveUsageRow, PlanSummaries, PlanSummary, PlanTimeline,
-    PlanTimelineWindow, ProjectedUsage, SyncResult, UsageSnapshot, UsageSnapshotRow,
+    PlanTimelineWindow, ProjectedUsage, SourceSyncStatus, SyncAttribution, SyncOffReason,
+    SyncOverallOutcome, SyncResult, UsageSnapshot, UsageSnapshotRow,
 };
 use crate::services::analytics_service::AnalyticsService;
 use crate::services::auth_service::{AuthService, GuestSyncAuth};
@@ -128,16 +129,18 @@ static BACKOFF_SECS: std::sync::atomic::AtomicU64 =
 static AUTOSYNC_STATUS: Mutex<AutoSyncStatus> = parking_lot::const_mutex(AutoSyncStatus {
     enabled: false,
     gates_pass: false,
+    off_reason: Some(SyncOffReason::ConsentRequired),
+    attribution: SyncAttribution::PrivateInstallation,
     interval_minutes: DEFAULT_INTERVAL_MINUTES,
     last_sync_at: None,
     last_error: None,
     sync_mode: String::new(),
+    overall_outcome: None,
+    sources: Vec::new(),
 });
 
-/// Sync raw OMP usage to basebuild.net. Uses a stored basebuild.net token
-/// when available (account attribution), otherwise falls back to anonymous
-/// device telemetry keyed by `computerId`. Collects `omp stats --json` and
-/// `omp usage --json`, then sends them as a `sync_raw_usage` JSON-RPC call.
+/// Sync raw OMP usage for signed-in accounts. Private-installation principals
+/// are write-only for the closed envelope and never upload raw OMP blobs.
 pub fn sync_raw_usage_native() -> Result<String, String> {
     // OMP raw-usage collection is optional enrichment: `omp stats/usage`
     // attribute OMP-driven usage. When OMP is not installed there is nothing
@@ -148,6 +151,9 @@ pub fn sync_raw_usage_native() -> Result<String, String> {
         return Ok("skipped: OMP not installed (native message sync carries usage)".to_string());
     }
     let mode = resolve_auth_mode()?;
+    if matches!(&mode, AuthMode::GuestToken(_)) {
+        return Ok("skipped: raw OMP upload is available to signed-in accounts only".to_string());
+    }
 
     // Collect OMP stats and usage
     let stats = OmpService::run_json(&["stats", "--json"])
@@ -294,18 +300,23 @@ pub fn collect_native_batch() -> Result<UsageBatch, String> {
     })
 }
 
-/// Sync every available envelope source through the closed aggregate contract.
-/// OMP remains on `sync_raw_usage`; its source registry entry intentionally
-/// contributes no envelope batch.
+/// Sync every available closed-envelope source. Private installations include
+/// OMP aggregates here; signed-in accounts use the richer raw OMP path and
+/// exclude OMP from the envelope to prevent duplicate attribution.
 pub fn sync_envelope_native() -> Result<String, String> {
     let mode = resolve_auth_mode()?;
-    let collections = crate::services::usage_source_service::collect_all_sources();
+    let include_omp = matches!(&mode, AuthMode::GuestToken(_));
+    let collections = crate::services::usage_source_service::collect_all_sources(include_omp);
     for collection in &collections {
-        eprintln!(
-            "[SYNC] source {}: {}",
-            collection.source.as_str(),
-            collection.diagnostic
-        );
+        let state = if collection.batch.is_some() {
+            "pending batch"
+        } else {
+            "no batch"
+        };
+        eprintln!("[SYNC] source {}: {state}", collection.source.as_str());
+        if collection.diagnostic.contains(" error:") {
+            record_source_error(collection.source, "Could not read local aggregate usage");
+        }
     }
     let batches: Vec<UsageBatch> = collections
         .into_iter()
@@ -328,10 +339,21 @@ pub fn sync_envelope_native() -> Result<String, String> {
         }
     });
 
-    let result_text = post_mcp(&mode, &rpc_body)?;
+    let result_text = match post_mcp(&mode, &rpc_body) {
+        Ok(result) => result,
+        Err(error) => {
+            for batch in &envelope.batches {
+                record_source_error(batch.source, "Upload failed; retry is pending");
+            }
+            return Err(error);
+        }
+    };
     let acknowledgment: Value = serde_json::from_str(&result_text)
         .map_err(|error| format!("Invalid usage-envelope acknowledgment: {error}"))?;
     if acknowledgment.get("ok").and_then(Value::as_bool) != Some(true) {
+        for batch in &envelope.batches {
+            record_source_error(batch.source, "Server did not accept this aggregate batch");
+        }
         return Err("Usage envelope was not durably accepted".to_string());
     }
     let receipts = acknowledgment
@@ -347,20 +369,29 @@ pub fn sync_envelope_native() -> Result<String, String> {
                 && receipt.get("idempotencyKey").and_then(Value::as_str)
                     == Some(batch.idempotency_key.as_str())
         });
-        let status = receipt
+        let receipt_status = receipt
             .and_then(|receipt| receipt.get("status"))
             .and_then(Value::as_str);
-        if matches!(status, Some("accepted" | "already_accepted")) {
+        if matches!(receipt_status, Some("accepted" | "already_accepted")) {
             if let Some(source) = sources.iter().find(|source| source.kind() == batch.source) {
                 source.advance_checkpoint(batch).map_err(|error| {
+                    record_source_error(
+                        batch.source,
+                        "Accepted usage could not advance its local cursor",
+                    );
                     format!(
                         "{} usage was accepted but its local cursor could not advance: {error}",
                         batch.source.as_str()
                     )
                 })?;
             }
+            let processed_at = receipt
+                .and_then(|receipt| receipt.get("processedAt"))
+                .and_then(Value::as_i64);
+            record_source_success(batch.source, now_seconds(), processed_at);
             accepted += 1;
         } else {
+            record_source_error(batch.source, "Server rejected this aggregate batch");
             rejected += 1;
         }
     }
@@ -976,16 +1007,87 @@ pub fn gates_pass() -> bool {
     true
 }
 
-/// Read the current auto-sync status (cached, no network I/O).
-pub fn autosync_status() -> AutoSyncStatus {
-    // Refresh gates_pass + interval from settings so the UI reflects truth.
+fn current_source_statuses(previous: &[SourceSyncStatus]) -> Vec<SourceSyncStatus> {
+    crate::services::usage_source_service::registered_sources()
+        .into_iter()
+        .map(|source| {
+            let available = source.available();
+            let old = previous
+                .iter()
+                .find(|status| status.source == source.kind().as_str());
+            SourceSyncStatus {
+                source: source.kind().as_str().to_string(),
+                available,
+                availability_reason: (!available).then(|| match source.kind() {
+                    SourceKind::Omp => "Oh My Pi is not installed".to_string(),
+                    SourceKind::Native => "Native usage ledger is unavailable".to_string(),
+                    _ => "No local aggregate history was detected".to_string(),
+                }),
+                pending_retry: old.is_some_and(|status| status.pending_retry),
+                last_success_at: old.and_then(|status| status.last_success_at),
+                last_processed_at: old.and_then(|status| status.last_processed_at),
+                last_error: old.and_then(|status| status.last_error.clone()),
+            }
+        })
+        .collect()
+}
+
+fn record_source_success(source: SourceKind, accepted_at: i64, processed_at: Option<i64>) {
     let mut status = AUTOSYNC_STATUS.lock().clone();
-    status.gates_pass = gates_pass();
+    status.sources = current_source_statuses(&status.sources);
+    if let Some(entry) = status
+        .sources
+        .iter_mut()
+        .find(|entry| entry.source == source.as_str())
+    {
+        entry.pending_retry = false;
+        entry.last_success_at = Some(accepted_at);
+        entry.last_processed_at = processed_at.or(entry.last_processed_at);
+        entry.last_error = None;
+    }
+    *AUTOSYNC_STATUS.lock() = status;
+}
+
+fn record_source_error(source: SourceKind, message: &str) {
+    let mut status = AUTOSYNC_STATUS.lock().clone();
+    status.sources = current_source_statuses(&status.sources);
+    if let Some(entry) = status
+        .sources
+        .iter_mut()
+        .find(|entry| entry.source == source.as_str())
+    {
+        entry.pending_retry = true;
+        entry.last_error = Some(message.to_string());
+    }
+    *AUTOSYNC_STATUS.lock() = status;
+}
+
+/// Read the current auto-sync status without performing network I/O.
+pub fn autosync_status() -> AutoSyncStatus {
     let settings = SettingsService::get_usage_sync_settings().unwrap_or_default();
+    let consent = AnalyticsService::get_consent().unwrap_or_default();
+    let mut status = AUTOSYNC_STATUS.lock().clone();
     status.enabled = settings.auto_sync_usage;
     status.interval_minutes = settings.auto_sync_interval_minutes.max(1);
     status.sync_mode = settings.usage_sync_mode.clone();
-    // Write back so the cached status stays fresh for other callers.
+    status.attribution = if has_account_token() {
+        SyncAttribution::Account
+    } else {
+        SyncAttribution::PrivateInstallation
+    };
+    status.sources = current_source_statuses(&status.sources);
+    status.off_reason = if consent.consented_at.is_none() {
+        Some(SyncOffReason::ConsentRequired)
+    } else if !consent.upload_enabled {
+        Some(SyncOffReason::UsageSharingDisabled)
+    } else if !settings.auto_sync_usage {
+        Some(SyncOffReason::AutoSyncDisabled)
+    } else if status.sources.iter().all(|source| !source.available) {
+        Some(SyncOffReason::NoSourcesAvailable)
+    } else {
+        None
+    };
+    status.gates_pass = status.off_reason.is_none();
     *AUTOSYNC_STATUS.lock() = status.clone();
     status
 }
@@ -1002,9 +1104,7 @@ pub fn set_autosync_enabled(enabled: bool) -> Result<(), String> {
     let mut settings = SettingsService::get_usage_sync_settings().unwrap_or_default();
     settings.auto_sync_usage = enabled;
     SettingsService::set_usage_sync_settings(&settings)?;
-    let mut status = AUTOSYNC_STATUS.lock().clone();
-    status.enabled = enabled;
-    status.gates_pass = gates_pass();
+    let _ = autosync_status();
     Ok(())
 }
 
@@ -1024,6 +1124,26 @@ pub fn set_usage_sync_mode(mode: &str) -> Result<(), String> {
 /// freshness (unless `skip_freshness` is true), then calls
 /// `sync_raw_usage_native`. Records last_sync_at / last_error and emits a
 /// status event. Non-blocking on failure.
+fn coordinated_usage_outcome(
+    omp: &Result<String, String>,
+    envelope: &Result<String, String>,
+) -> SyncOverallOutcome {
+    let omp_work = omp
+        .as_ref()
+        .is_ok_and(|message| !message.starts_with("skipped:"));
+    let envelope_work = envelope
+        .as_ref()
+        .is_ok_and(|message| !message.starts_with("no new"));
+    let successes = usize::from(omp_work) + usize::from(envelope_work);
+    let failures = usize::from(omp.is_err()) + usize::from(envelope.is_err());
+    match (successes, failures) {
+        (0, 0) => SyncOverallOutcome::NothingToSync,
+        (_, 0) => SyncOverallOutcome::Success,
+        (0, _) => SyncOverallOutcome::Failed,
+        _ => SyncOverallOutcome::Partial,
+    }
+}
+
 pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
     eprintln!("[SYNC] trigger_sync reason={reason} skip_freshness={skip_freshness}");
     if !gates_pass() {
@@ -1127,65 +1247,91 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
                 Err(error) => format!("ERR: {error}"),
             }
         );
+        match &result {
+            Ok(message) if !message.starts_with("skipped:") => {
+                record_source_success(SourceKind::Omp, now, None);
+            }
+            Err(_) => record_source_error(SourceKind::Omp, "OMP upload failed; retry is pending"),
+            _ => {}
+        }
+
+        let outcome = coordinated_usage_outcome(&result, &messages_result);
         let mut status = AUTOSYNC_STATUS.lock().clone();
-        match result {
-            Ok(msg) => {
-                status.last_sync_at = Some(now);
-                status.last_error = None;
-                // Reset backoff on success.
-                BACKOFF_SECS.store(INITIAL_BACKOFF_SECS, Ordering::SeqCst);
-                // Record the managed-trigger baseline after a successful
-                // push so future evaluations compare against this point.
-                if let Ok(mut s) = SettingsService::get_usage_sync_settings() {
-                    s.last_usage_sync_at = Some(now);
-                    s.last_provider_fingerprint = current_provider_fingerprint();
-                    s.last_known_request_total = current_request_total();
-                    let _ = SettingsService::set_usage_sync_settings(&s);
-                }
-                let extra = match &messages_result {
-                    Ok(m) => format!(" | messages: {m}"),
-                    Err(e) => format!(" | messages sync failed: {e}"),
-                };
-                let env_extra = match &env_result {
-                    Ok(_) => " | env: ok".to_string(),
-                    Err(e) => format!(" | env sync failed: {e}"),
-                };
-                let feedback_extra = match &feedback_result {
-                    Ok(count) => format!(" | advisor feedback: {count}"),
-                    Err(error) => format!(" | advisor feedback sync failed: {error}"),
-                };
-                eprintln!(
-                    "[SYNC] ✅ all syncs complete: {reason_owned}: {msg}{extra}{env_extra}{feedback_extra}"
-                );
-                let _ = app2.emit(
-                    USAGE_SYNC_STATUS,
-                    &SyncResult {
-                        ok: true,
-                        message: format!("{reason_owned}: {msg}{extra}{env_extra}{feedback_extra}"),
-                        completed_at: now,
-                    },
-                );
+        status.overall_outcome = Some(outcome);
+        let usage_error = match (&result, &messages_result) {
+            (Err(omp), Err(envelope)) => Some(format!("OMP: {omp}; aggregates: {envelope}")),
+            (Err(omp), _) => Some(format!("OMP: {omp}")),
+            (_, Err(envelope)) => Some(format!("Aggregates: {envelope}")),
+            _ => None,
+        };
+        let completed_any = matches!(
+            outcome,
+            SyncOverallOutcome::Success
+                | SyncOverallOutcome::Partial
+                | SyncOverallOutcome::NothingToSync
+        );
+        if completed_any {
+            status.last_sync_at = Some(now);
+            if let Ok(mut settings) = SettingsService::get_usage_sync_settings() {
+                settings.last_usage_sync_at = Some(now);
+                settings.last_provider_fingerprint = current_provider_fingerprint();
+                settings.last_known_request_total = current_request_total();
+                let _ = SettingsService::set_usage_sync_settings(&settings);
             }
-            Err(e) => {
-                status.last_error = Some(e.clone());
-                // Increase backoff on transient failure (doubled, capped).
-                let current = BACKOFF_SECS.load(Ordering::SeqCst);
-                let next = (current * 2).min(MAX_BACKOFF_SECS);
-                BACKOFF_SECS.store(next, Ordering::SeqCst);
-                eprintln!("[SYNC] ❌ raw usage sync failed: {e} (backoff: {next}s)");
-                let _ = app2.emit(
-                    USAGE_SYNC_STATUS,
-                    &SyncResult {
-                        ok: false,
-                        message: format!("{reason_owned}: {e}"),
-                        completed_at: now,
-                    },
-                );
-                // If the error was auth-related, emit auth-changed so the UI prompts re-sign-in.
-                if e.contains("Token expired") || e.contains("Not signed in") {
-                    let _ = app2.emit(AUTH_CHANGED, ());
+        }
+        if matches!(
+            outcome,
+            SyncOverallOutcome::Success | SyncOverallOutcome::NothingToSync
+        ) {
+            status.last_error = None;
+            BACKOFF_SECS.store(INITIAL_BACKOFF_SECS, Ordering::SeqCst);
+        } else {
+            status.last_error = Some(match outcome {
+                SyncOverallOutcome::Partial => {
+                    "Some usage sources failed; retry is pending".to_string()
                 }
+                _ => "Usage sync failed; retry is pending".to_string(),
+            });
+            let current = BACKOFF_SECS.load(Ordering::SeqCst);
+            BACKOFF_SECS.store((current * 2).min(MAX_BACKOFF_SECS), Ordering::SeqCst);
+        }
+
+        let environment_note = if env_result.is_ok() {
+            "environment metadata handled"
+        } else {
+            "environment metadata not uploaded"
+        };
+        let feedback_note = if feedback_result.is_ok() {
+            "advisor feedback handled"
+        } else {
+            "advisor feedback not uploaded"
+        };
+        let message = format!(
+            "{reason_owned}: usage {}; {environment_note}; {feedback_note}",
+            match outcome {
+                SyncOverallOutcome::Success => "synced",
+                SyncOverallOutcome::Partial => "partially synced; retry pending",
+                SyncOverallOutcome::Failed => "failed; retry pending",
+                SyncOverallOutcome::NothingToSync => "already current",
             }
+        );
+        let ok = matches!(
+            outcome,
+            SyncOverallOutcome::Success | SyncOverallOutcome::NothingToSync
+        );
+        let _ = app2.emit(
+            USAGE_SYNC_STATUS,
+            &SyncResult {
+                ok,
+                message,
+                completed_at: now,
+            },
+        );
+        if usage_error
+            .as_deref()
+            .is_some_and(|error| error.contains("Token expired") || error.contains("Not signed in"))
+        {
+            let _ = app2.emit(AUTH_CHANGED, ());
         }
         *AUTOSYNC_STATUS.lock() = status;
         // Release the single-flight guard.
@@ -1369,4 +1515,48 @@ fn now_seconds() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ok(message: &str) -> Result<String, String> {
+        Ok(message.to_string())
+    }
+
+    fn error() -> Result<String, String> {
+        Err("transport failed".to_string())
+    }
+
+    #[test]
+    fn coordinated_outcome_does_not_let_skipped_omp_hide_envelope_failure() {
+        assert_eq!(
+            coordinated_usage_outcome(&ok("skipped: OMP not installed"), &error()),
+            SyncOverallOutcome::Failed
+        );
+    }
+
+    #[test]
+    fn coordinated_outcome_reports_partial_when_one_source_succeeds() {
+        assert_eq!(
+            coordinated_usage_outcome(&ok("OMP synced"), &error()),
+            SyncOverallOutcome::Partial
+        );
+        assert_eq!(
+            coordinated_usage_outcome(&error(), &ok("envelope v1: 1 source accepted")),
+            SyncOverallOutcome::Partial
+        );
+    }
+
+    #[test]
+    fn coordinated_outcome_reports_nothing_to_sync_only_without_failures() {
+        assert_eq!(
+            coordinated_usage_outcome(
+                &ok("skipped: OMP not installed"),
+                &ok("no new envelope usage data"),
+            ),
+            SyncOverallOutcome::NothingToSync
+        );
+    }
 }

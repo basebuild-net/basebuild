@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { LogOut, RefreshCw, User } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock3, LogOut, RefreshCw, RotateCcw, ShieldCheck, User } from "lucide-react";
 import { authStartDeviceFlow, authPollDeviceFlow } from "../../../lib/auth";
 import type { AccountState } from "../../../state/account";
 import { useUsageSync } from "../../../state/usageSync";
@@ -8,7 +8,14 @@ import {
   usageListProviderPlans,
   usageDeclareProviderPlans,
 } from "../../../lib/usageSync";
-import type { DetectedProviderPlan, ProviderPlanOption } from "../../../lib/usageSync";
+import type {
+  AutoSyncStatus,
+  DetectedProviderPlan,
+  ProviderPlanOption,
+  SourceSyncStatus,
+  SyncOverallOutcome,
+  UsageSyncSource,
+} from "../../../lib/usageSync";
 
 export function AccountPanel({ account }: { account: AccountState }) {
   const [polling, setPolling] = useState(false);
@@ -121,12 +128,66 @@ export function AccountPanel({ account }: { account: AccountState }) {
   );
 }
 
+const SOURCE_LABELS: Record<UsageSyncSource, string> = {
+  native: "Basebuild",
+  omp: "OMP",
+  "claude-code": "Claude Code",
+  codex: "Codex",
+  opencode: "OpenCode",
+};
+
+const OUTCOME_LABELS: Record<SyncOverallOutcome, string> = {
+  success: "Synced",
+  partial: "Partial",
+  failed: "Failed",
+  nothing_to_sync: "Up to date",
+};
+
+export function usageSyncOffReasonText(status: AutoSyncStatus): string | null {
+  if (status.gatesPass) return null;
+  switch (status.offReason) {
+    case "usage_sharing_disabled":
+      return "Usage sharing is off. Enable Usage sharing in Settings > Privacy to sync.";
+    case "auto_sync_disabled":
+      return "Auto-sync is off. Turn it on to schedule usage sync.";
+    case "consent_required":
+      return "Usage consent is incomplete. Finish Privacy setup before syncing.";
+    case "no_sources_available":
+      return "No supported local usage sources are currently available.";
+    case "retry_backoff":
+      return "A previous attempt failed. A retry is waiting for its backoff window.";
+    default:
+      return "Usage sync is off. Review Usage sharing in Settings > Privacy.";
+  }
+}
+
+function sourceState(source: SourceSyncStatus): { label: string; className: string } {
+  if (!source.available) return { label: "Unavailable", className: "is-muted" };
+  if (source.pendingRetry) return { label: "Retry pending", className: "is-warning" };
+  if (source.lastError) return { label: "Needs attention", className: "is-error" };
+  if (source.lastSuccessAt) return { label: "Synced", className: "is-ok" };
+  return { label: "Ready", className: "is-muted" };
+}
+
+function formatSyncTime(timestamp?: number): string {
+  return timestamp ? new Date(timestamp * 1000).toLocaleString() : "Never";
+}
+
 export function UsageSyncPanel() {
-  const { status, projected, loading, error, lastSyncResult, fetchProjected, triggerSync, setEnabled, setMode } =
-    useUsageSync();
+  const {
+    status,
+    projected,
+    loading,
+    error,
+    lastSyncResult,
+    fetchProjected,
+    triggerSync,
+    retrySync,
+    setEnabled,
+  } = useUsageSync();
   const [toggling, setToggling] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [savingMode, setSavingMode] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
   async function toggleAutoSync(enabled: boolean) {
     setToggling(true);
@@ -141,35 +202,73 @@ export function UsageSyncPanel() {
     setSyncing(true);
     try {
       await triggerSync("manual");
-      await fetchProjected();
+      if (status?.attribution === "account") await fetchProjected();
     } finally {
       setSyncing(false);
     }
   }
 
-  async function changeMode(mode: "rows" | "summary") {
-    setSavingMode(true);
+  async function retryNow() {
+    setRetrying(true);
     try {
-      await setMode(mode);
+      await retrySync();
     } finally {
-      setSavingMode(false);
+      setRetrying(false);
     }
   }
 
   const liveRows = projected?.live.rows ?? [];
   const snapshotRows = projected?.snapshot.rows ?? [];
+  const offReason = status ? usageSyncOffReasonText(status) : null;
+  const hasRetryableSource = status?.sources.some(
+    (source) => source.pendingRetry || source.lastError,
+  ) ?? false;
+  const outcomeLabel = status?.overallOutcome
+    ? OUTCOME_LABELS[status.overallOutcome]
+    : "Not synced";
 
   return (
     <div className="stack">
       <h3>Usage Sync</h3>
-      <p className="text-muted text-sm">
-        Sync your usage to basebuild.net so your dashboard shows what provider, model, and
-        subscription each message used. The app sends only aggregated usage stats (model,
-        provider, subscription tier, tokens, cost, timing) — never prompts, source code, or secrets.
-      </p>
-      {status && !status.gatesPass ? (
-        <p className="text-danger text-sm" title="Usage upload is currently off">
-          Syncing is paused — turn on &quot;Enable anonymous upload&quot; in Settings → Privacy to allow usage upload. Until then, Auto-sync and Sync now do nothing.
+
+      <div className="usage-sharing-summary">
+        <div className="usage-sharing-block">
+          <h4>What uploads</h4>
+          <p className="text-muted text-sm">
+            Aggregate counters in bounded windows: source, provider, model, effort, subscription tier
+            and source, optional plan name, request, token, error, cost, duration, time-to-first-token,
+            and plan-utilization totals with reset timing.
+          </p>
+        </div>
+        <div className="usage-sharing-block">
+          <h4>What never uploads</h4>
+          <p className="text-muted text-sm">
+            Prompts, responses, reasoning, tool arguments, source code, terminal output, file or
+            repository paths, URLs, account labels, credentials, authentication tokens, secrets, or
+            hardware identifiers.
+          </p>
+        </div>
+      </div>
+
+      {status ? (
+        <div className="usage-attribution" title="Usage attribution for future accepted uploads">
+          {status.attribution === "account" ? <User size={14} /> : <ShieldCheck size={14} />}
+          <div>
+            <strong className="text-sm">
+              {status.attribution === "account" ? "Account attribution" : "Private installation attribution"}
+            </strong>
+            <p className="text-muted text-sm">
+              {status.attribution === "account"
+                ? "Accepted usage is attributed to your signed-in basebuild.net account."
+                : "Accepted usage is attributed only to this private installation. It is not a hardware ID and is not merged into an account later."}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {offReason ? (
+        <p className="usage-sync-off text-sm" title="Why usage sync is currently off">
+          <AlertCircle size={14} /> {offReason}
         </p>
       ) : null}
 
@@ -179,7 +278,7 @@ export function UsageSyncPanel() {
             type="checkbox"
             checked={status?.enabled ?? false}
             disabled={toggling}
-            onChange={(e) => void toggleAutoSync(e.target.checked)}
+            onChange={(event) => void toggleAutoSync(event.target.checked)}
             title="Enable hourly auto-sync to basebuild.net"
           />
           <span className="text-sm">Auto-sync every {status?.intervalMinutes ?? 60} min</span>
@@ -187,65 +286,108 @@ export function UsageSyncPanel() {
         <button
           className="btn btn-sm"
           type="button"
-          title="Sync usage now"
-          disabled={syncing}
+          title="Sync aggregate usage now"
+          disabled={syncing || retrying || !status?.gatesPass}
           onClick={() => void syncNow()}
         >
-          <RefreshCw size={12} /> Sync now
+          <RefreshCw size={12} /> {syncing ? "Syncing..." : "Sync now"}
         </button>
+        {hasRetryableSource ? (
+          <button
+            className="btn btn-sm"
+            type="button"
+            title="Retry pending usage sources now"
+            disabled={syncing || retrying || !status?.gatesPass}
+            onClick={() => void retryNow()}
+          >
+            <RotateCcw size={12} /> {retrying ? "Retrying..." : "Retry sync"}
+          </button>
+        ) : null}
         {status?.lastSyncAt ? (
           <span className="text-muted text-sm">
-            Last sync: {new Date((status.lastSyncAt ?? 0) * 1000).toLocaleString()}
+            Last sync: {formatSyncTime(status.lastSyncAt)}
           </span>
         ) : null}
       </div>
 
-      <div className="row gap-sm flex-wrap">
-        <label className="text-sm" htmlFor="usage-sync-mode">Detail level</label>
-        <select
-          id="usage-sync-mode"
-          className="input input-sm"
-          value={status?.syncMode === "summary" ? "summary" : "rows"}
-          disabled={savingMode}
-          onChange={(e) => void changeMode(e.target.value === "summary" ? "summary" : "rows")}
-          title="How much usage detail the app sends to basebuild.net"
-        >
-          <option value="rows">Full message rows — server rolls up (recommended)</option>
-          <option value="summary">Client summaries — lighter, less detail</option>
-        </select>
-      </div>
+      {status ? (
+        <section className="usage-source-section" aria-labelledby="usage-source-heading">
+          <div className="row-between">
+            <h4 id="usage-source-heading">Source status</h4>
+            <span
+              className={`usage-sync-outcome is-${status.overallOutcome ?? "idle"}`}
+              title="Result of the most recent coordinated sync"
+            >
+              {outcomeLabel}
+            </span>
+          </div>
+          {status.sources.length > 0 ? (
+            <div className="usage-source-list">
+              {status.sources.map((source) => {
+                const state = sourceState(source);
+                return (
+                  <div className="usage-source-row" key={source.source}>
+                    <div className="usage-source-name">
+                      {state.className === "is-ok" ? <CheckCircle2 size={14} /> : null}
+                      {state.className === "is-warning" ? <Clock3 size={14} /> : null}
+                      {state.className === "is-error" ? <AlertCircle size={14} /> : null}
+                      {state.className === "is-muted" ? <ShieldCheck size={14} /> : null}
+                      <strong className="text-sm">{SOURCE_LABELS[source.source]}</strong>
+                    </div>
+                    <span className={`usage-source-state ${state.className}`}>{state.label}</span>
+                    <div className="usage-source-detail text-muted text-sm">
+                      <span>Last success: {formatSyncTime(source.lastSuccessAt)}</span>
+                      {source.lastProcessedAt ? (
+                        <span>Processed: {formatSyncTime(source.lastProcessedAt)}</span>
+                      ) : null}
+                      {source.availabilityReason ? <span>{source.availabilityReason}</span> : null}
+                      {source.lastError ? (
+                        <span className="text-danger" title={source.lastError}>
+                          {source.lastError}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-muted text-sm">Source status will appear after the coordinator starts.</p>
+          )}
+        </section>
+      ) : null}
 
       {status?.lastError ? (
         <p className="text-danger text-sm" title={status.lastError}>
-          Last error: {status.lastError}
+          Last coordinator error: {status.lastError}
         </p>
       ) : null}
       {lastSyncResult ? (
         <p className={`text-sm ${lastSyncResult.ok ? "text-muted" : "text-danger"}`} title={lastSyncResult.message}>
-          {lastSyncResult.ok ? "✓ " : "✗ "}
+          {lastSyncResult.ok ? "Success: " : "Failed: "}
           {lastSyncResult.message}
         </p>
       ) : null}
       {error ? <p className="text-danger text-sm">{error}</p> : null}
-      {loading ? <p className="text-muted text-sm">Loading…</p> : null}
+      {loading ? <p className="text-muted text-sm">Loading...</p> : null}
 
       {liveRows.length > 0 ? (
         <div className="card">
           <h4>Live Utilization</h4>
-          {liveRows.map((r) => {
-            const pct = Math.round(r.usedFraction * 100);
+          {liveRows.map((row) => {
+            const pct = Math.round(row.usedFraction * 100);
             return (
               <div
-                key={`${r.provider}-${r.window}`}
-                className={`usage-window-row ${r.isStale ? "is-stale" : ""}`}
-                title={`${r.provider} ${r.window}: ${pct}% used${r.resetsAt ? ` · resets ${r.resetsAt}` : ""}${r.isStale ? " · stale" : ""}`}
+                key={`${row.provider}-${row.window}`}
+                className={`usage-window-row ${row.isStale ? "is-stale" : ""}`}
+                title={`${row.provider} ${row.window}: ${pct}% used${row.resetsAt ? `, resets ${row.resetsAt}` : ""}${row.isStale ? ", stale" : ""}`}
               >
-                <span className="text-sm">{r.provider} · {r.window}</span>
+                <span className="text-sm">{row.provider} · {row.window}</span>
                 <div className="usage-window-bar">
                   <div className="usage-window-fill" style={{ width: `${pct}%` }} />
                 </div>
                 <span className="text-sm">{pct}%</span>
-                {r.isStale ? <span className="text-muted text-sm">stale</span> : null}
+                {row.isStale ? <span className="text-muted text-sm">stale</span> : null}
               </div>
             );
           })}
@@ -266,13 +408,13 @@ export function UsageSyncPanel() {
               </tr>
             </thead>
             <tbody>
-              {snapshotRows.map((r) => (
-                <tr key={`${r.provider}-${r.model}`}>
-                  <td>{r.provider}</td>
-                  <td>{r.model}</td>
-                  <td>{Math.round(r.requestsPerDay)}</td>
-                  <td>{r.hoursPerDay.toFixed(1)}</td>
-                  <td>{r.costPerDay != null ? `$${r.costPerDay.toFixed(2)}` : "—"}</td>
+              {snapshotRows.map((row) => (
+                <tr key={`${row.provider}-${row.model}`}>
+                  <td>{row.provider}</td>
+                  <td>{row.model}</td>
+                  <td>{Math.round(row.requestsPerDay)}</td>
+                  <td>{row.hoursPerDay.toFixed(1)}</td>
+                  <td>{row.costPerDay != null ? `$${row.costPerDay.toFixed(2)}` : "-"}</td>
                 </tr>
               ))}
             </tbody>
@@ -280,7 +422,9 @@ export function UsageSyncPanel() {
         </div>
       ) : null}
 
-      <ProviderPlansPanel gatesPass={status?.gatesPass ?? false} />
+      {status?.attribution === "account" ? (
+        <ProviderPlansPanel gatesPass={status.gatesPass} />
+      ) : null}
     </div>
   );
 }
@@ -368,9 +512,9 @@ function ProviderPlansPanel({ gatesPass }: { gatesPass: boolean }) {
     <div className="card">
       <h4>Provider Plans</h4>
       <p className="text-muted text-sm">
-        Detected natively from your provider credentials. Providers we can&apos;t detect (their API
-        doesn&apos;t expose the plan) show a picker — declaring your exact plan gives basebuild.net a
-        100%-confidence attribution instead of a guess.
+        Detected natively from your provider credentials. Providers whose API does not expose a plan
+        show a picker. Declaring your exact plan gives basebuild.net a 100%-confidence attribution
+        instead of a guess.
       </p>
       {!gatesPass ? (
         <p className="text-muted text-sm">

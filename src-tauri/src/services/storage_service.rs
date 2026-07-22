@@ -527,6 +527,14 @@ impl StorageService {
                     last_ts INTEGER NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS usage_source_cursors (
+                    source TEXT PRIMARY KEY NOT NULL,
+                    state_json TEXT NOT NULL DEFAULT '{}',
+                    pending_state_json TEXT,
+                    pending_batch_json TEXT,
+                    updated_at INTEGER NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS plans (
                     id TEXT PRIMARY KEY NOT NULL,
                     session_id TEXT NOT NULL,

@@ -19,6 +19,15 @@ pub fn usage_sync_trigger(app: AppHandle, reason: Option<String>) -> Result<(), 
     Ok(())
 }
 
+/// Retry pending usage windows immediately. This bypasses the normal freshness
+/// debounce but preserves consent/upload gates and the coordinator's
+/// single-flight guard.
+#[tauri::command]
+pub fn usage_sync_retry(app: AppHandle) -> Result<(), String> {
+    sync_service::trigger_sync(app, "manual-retry", true);
+    Ok(())
+}
+
 /// Enable or disable auto-sync. Persisted to settings.
 #[tauri::command]
 pub fn usage_sync_set_enabled(enabled: bool) -> Result<(), String> {

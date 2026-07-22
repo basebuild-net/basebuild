@@ -79,10 +79,8 @@ impl ProviderAccountService {
             }
             let auth_method = classify_auth(base_url.as_deref());
             let identity_key = match auth_method {
-                AUTH_OAUTH => {
-                    crate::services::provider_client::codex_account_identity(&api_key)
-                        .unwrap_or_else(|| format!("legacy:{provider_id}"))
-                }
+                AUTH_OAUTH => crate::services::provider_client::codex_account_identity(&api_key)
+                    .unwrap_or_else(|| format!("legacy:{provider_id}")),
                 _ => api_key_identity(&api_key),
             };
             let now = now_seconds();
@@ -171,7 +169,8 @@ impl ProviderAccountService {
                 })
             })
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     /// Public account list for one provider: stored rows plus the OMP virtual
@@ -183,9 +182,7 @@ impl ProviderAccountService {
             .map(to_public)
             .collect();
         if let Some(omp) =
-            crate::services::native_chat_service::NativeChatService::omp_credential_for(
-                provider_id,
-            )
+            crate::services::native_chat_service::NativeChatService::omp_credential_for(provider_id)
         {
             if !Self::is_provider_blocked(provider_id)? {
                 accounts.push(super::omp_virtual_account(
@@ -421,7 +418,11 @@ mod tests {
         ProviderAccountService::ensure_migrated();
         let rows = ProviderAccountService::list_records(Some("openai"))
             .expect("list after first migration");
-        assert_eq!(rows.len(), 1, "first migration should produce one account row");
+        assert_eq!(
+            rows.len(),
+            1,
+            "first migration should produce one account row"
+        );
         assert_eq!(rows[0].api_key, "sk-test-1234");
 
         // Reset the in-process guard and run again. The UNIQUE(provider_id,
@@ -470,8 +471,8 @@ mod tests {
         assert_eq!(first.id, second.id, "dedup must reuse the same row id");
         assert_eq!(second.label, "Claude (renamed)");
 
-        let rows = ProviderAccountService::list_records(Some("anthropic"))
-            .expect("list after dedup");
+        let rows =
+            ProviderAccountService::list_records(Some("anthropic")).expect("list after dedup");
         assert_eq!(rows.len(), 1, "only one row for the identity");
     }
 }

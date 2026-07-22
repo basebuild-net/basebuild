@@ -87,7 +87,11 @@ impl ProviderAccountService {
                 AccountOutcome::Success => (HEALTH_HEALTHY, None, None),
                 AccountOutcome::RateLimited(retry_after) => (
                     HEALTH_RATE_LIMITED,
-                    Some(now + retry_after.unwrap_or(DEFAULT_RATE_LIMIT_COOLDOWN_SECS).max(1)),
+                    Some(
+                        now + retry_after
+                            .unwrap_or(DEFAULT_RATE_LIMIT_COOLDOWN_SECS)
+                            .max(1),
+                    ),
                     None,
                 ),
                 AccountOutcome::AuthExpired(message) => {
@@ -224,10 +228,14 @@ impl ProviderAccountService {
                     )
                 },
             );
-            let omp = crate::services::native_chat_service::NativeChatService::omp_credential_for(provider_id);
+            let omp = crate::services::native_chat_service::NativeChatService::omp_credential_for(
+                provider_id,
+            );
             return Ok(super::omp_virtual_account(
                 provider_id,
-                omp.as_ref().map(|c| c.label.as_str()).unwrap_or("unavailable"),
+                omp.as_ref()
+                    .map(|c| c.label.as_str())
+                    .unwrap_or("unavailable"),
                 omp.as_ref().map(|c| c.updated_at).unwrap_or_default(),
             ));
         }
@@ -243,9 +251,7 @@ impl ProviderAccountService {
         };
         match result {
             Ok(()) => Self::record_outcome(account_id, AccountOutcome::Success),
-            Err(message) => {
-                Self::record_outcome(account_id, classify_provider_error(&message))
-            }
+            Err(message) => Self::record_outcome(account_id, classify_provider_error(&message)),
         }
         let refreshed = Self::get_record(account_id)?
             .ok_or_else(|| format!("Unknown account '{account_id}'."))?;
@@ -266,9 +272,7 @@ impl ProviderAccountService {
                 )
                 .optional()
                 .map_err(|e| e.to_string())?
-                .ok_or_else(|| {
-                    "This provider has no testable HTTP endpoint.".to_string()
-                })?
+                .ok_or_else(|| "This provider has no testable HTTP endpoint.".to_string())?
             }
         };
         let url = format!("{}/models", base_url.trim_end_matches('/'));
@@ -280,7 +284,9 @@ impl ProviderAccountService {
             .get(&url)
             .bearer_auth(&record.api_key)
             .send()
-            .map_err(|error| format!("Provider '{}' request failed: {error}", record.provider_id))?;
+            .map_err(|error| {
+                format!("Provider '{}' request failed: {error}", record.provider_id)
+            })?;
         let status = response.status().as_u16();
         match status {
             200..=299 => Ok(()),
@@ -344,9 +350,18 @@ mod tests {
         ));
 
         // Metric classes track the same mapping.
-        assert_eq!(provider_error_class("Rate limited (429) by 'p'."), "rate_limited");
-        assert_eq!(provider_error_class("Authentication failed (401) for 'p'."), "auth");
-        assert_eq!(provider_error_class("Provider 'p' request failed (500)."), "provider_error");
+        assert_eq!(
+            provider_error_class("Rate limited (429) by 'p'."),
+            "rate_limited"
+        );
+        assert_eq!(
+            provider_error_class("Authentication failed (401) for 'p'."),
+            "auth"
+        );
+        assert_eq!(
+            provider_error_class("Provider 'p' request failed (500)."),
+            "provider_error"
+        );
     }
 
     /// The persisted health state machine: healthy → rate_limited (with a
@@ -373,7 +388,10 @@ mod tests {
         assert_eq!(row.health, HEALTH_RATE_LIMITED);
         let until = row.cooldown_until.expect("cooldown set");
         let now = now_seconds();
-        assert!((until - now - 120).abs() <= 2, "cooldown ≈ now + retry_after");
+        assert!(
+            (until - now - 120).abs() <= 2,
+            "cooldown ≈ now + retry_after"
+        );
 
         // 429 without Retry-After → default cooldown.
         ProviderAccountService::record_outcome(&id, AccountOutcome::RateLimited(None));
@@ -410,26 +428,45 @@ mod tests {
         let (_dir, _guard) = isolated_home();
         let provider = "test-aggregate-provider";
         let (a, _) = ProviderAccountService::upsert_account(
-            provider, "a", "api", "sk-agg-a", None, "sk256:agg:a",
+            provider,
+            "a",
+            "api",
+            "sk-agg-a",
+            None,
+            "sk256:agg:a",
         )
         .expect("seed a");
         let (b, _) = ProviderAccountService::upsert_account(
-            provider, "b", "api", "sk-agg-b", None, "sk256:agg:b",
+            provider,
+            "b",
+            "api",
+            "sk-agg-b",
+            None,
+            "sk256:agg:b",
         )
         .expect("seed b");
 
-        assert_eq!(ProviderAccountService::aggregate_health(provider).unwrap(), "healthy");
+        assert_eq!(
+            ProviderAccountService::aggregate_health(provider).unwrap(),
+            "healthy"
+        );
 
         ProviderAccountService::record_outcome(
             &a.id,
             AccountOutcome::TransportError("boom".to_string()),
         );
-        assert_eq!(ProviderAccountService::aggregate_health(provider).unwrap(), "degraded");
+        assert_eq!(
+            ProviderAccountService::aggregate_health(provider).unwrap(),
+            "degraded"
+        );
 
         ProviderAccountService::record_outcome(
             &b.id,
             AccountOutcome::AuthExpired("Authentication failed (401) for 'p'.".to_string()),
         );
-        assert_eq!(ProviderAccountService::aggregate_health(provider).unwrap(), "broken");
+        assert_eq!(
+            ProviderAccountService::aggregate_health(provider).unwrap(),
+            "broken"
+        );
     }
 }

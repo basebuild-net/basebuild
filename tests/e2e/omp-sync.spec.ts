@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openFixtureProject } from "./helpers";
+import { attachScreenshot, openFixtureProject } from "./helpers";
 
 test.describe("OMP <-> Basebuild IDE sync", () => {
   test.skip("shows detection-gated Oh My Pi tab and live telemetry HUD", async ({ page }) => {
@@ -50,18 +50,33 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
     // Wait for the lazy-loaded settings modal.
     await expect(page.locator(".settings-modal")).toBeVisible({ timeout: 15_000 });
     await page.getByRole("button", { name: "Account", exact: true }).click();
-    // The Usage Sync panel renders with the auto-sync toggle, which defaults
-    // to ON after sign-in.
+    // The sync panel maps privacy, attribution, source, and off-reason status.
     await expect(page.getByRole("heading", { name: "Usage Sync" })).toBeVisible();
-    const toggle = page.locator('input[type="checkbox"][title="Enable hourly auto-sync to basebuild.net"]');
-    await expect(toggle).toBeVisible();
-    await expect(toggle).toBeChecked();
+    await expect(page.getByRole("heading", { name: "What uploads" })).toBeVisible();
+    await expect(page.getByText(/Aggregate counters in bounded windows/)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "What never uploads" })).toBeVisible();
+    await expect(page.getByText(/Prompts, responses, reasoning, tool arguments/)).toBeVisible();
+    await expect(page.getByText("Account attribution")).toBeVisible();
 
-    // Toggling off persists; toggling back on flips the checkbox.
-    await toggle.uncheck();
-    await expect(toggle).not.toBeChecked();
-    await toggle.check();
+    const sourceRows = page.locator(".usage-source-row");
+    await expect(sourceRows).toHaveCount(5);
+    await expect(sourceRows.filter({ hasText: "Claude Code" })).toContainText("Retry pending");
+    await expect(sourceRows.filter({ hasText: "OMP" })).toContainText("Unavailable");
+    await expect(page.getByTitle("Retry pending usage sources now")).toBeVisible();
+    await attachScreenshot(page, "usage-sync-source-status.png");
+
+    // Toggling off maps the explicit backend reason; toggling on clears it.
+    const toggle = page.locator('input[type="checkbox"][title="Enable hourly auto-sync to basebuild.net"]');
     await expect(toggle).toBeChecked();
+    await toggle.uncheck();
+    await expect(page.getByText(/Auto-sync is off. Turn it on/)).toBeVisible();
+    await toggle.check();
+    await expect(page.getByText(/Auto-sync is off. Turn it on/)).toBeHidden();
+
+    // Retry invokes the dedicated native command and refreshes source state.
+    await page.getByTitle("Retry pending usage sources now").click();
+    await expect(sourceRows.filter({ hasText: "Claude Code" })).toContainText("Synced");
+    await expect(page.getByTitle("Retry pending usage sources now")).toBeHidden();
 
     // Projected usage renders (live utilization + per-model table).
     await expect(page.getByRole("heading", { name: "Live Utilization" })).toBeVisible();
@@ -69,9 +84,26 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
     await expect(page.getByRole("heading", { name: /Per-Model Usage/ })).toBeVisible();
     await expect(page.locator(".usage-table")).toContainText("claude-sonnet-4");
 
-    // "Sync now" triggers without error.
-    await page.getByTitle("Sync usage now").click();
+    // "Sync now" still triggers without error.
+    await page.getByTitle("Sync aggregate usage now").click();
 
     expect(pageErrors).toEqual([]);
+  });
+
+  test("signed-out settings identify private-installation attribution", async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem("basebuild:first-run-complete", "true");
+    });
+    await page.goto("/");
+    await page.getByTitle("Open Settings").click();
+    await expect(page.locator(".settings-modal")).toBeVisible({ timeout: 10_000 });
+    await page.getByRole("button", { name: "Account", exact: true }).click();
+
+    await expect(page.getByText("Private installation attribution")).toBeVisible();
+    await expect(page.getByText(/It is not a hardware ID and is not merged into an account later/)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Live Utilization" })).toBeHidden();
+    await expect(page.getByRole("heading", { name: "Provider Plans" })).toBeHidden();
+    await page.getByTitle("Sync aggregate usage now").click();
+    await expect(page.getByText("Account sign-in required for projected usage")).toBeHidden();
   });
 });
