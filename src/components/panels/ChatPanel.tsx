@@ -18,7 +18,7 @@ import {
   sourceLabel,
   tabComplete,
 } from "../../lib/chatCommands";
-import { ChatHeader, BranchDropdown } from "./ChatHeader";
+import { ChatHeader } from "./ChatHeader";
 import { PrRecommendationCard } from "./PrRecommendationCard";
 import { QuestionCard } from "./QuestionCard";
 import { InteractionWorkbench } from "./InteractionWorkbench";
@@ -37,7 +37,6 @@ import {
   ChevronUp,
   Copy,
   Edit2,
-  GitBranch as GitBranchIcon,
   FolderTree,
   Globe,
   HelpCircle,
@@ -121,7 +120,6 @@ import type { AgentMode } from "../../lib/sessions";
 import { readModelRecency, readProviderRecency, recordModelUse, recordProviderUse } from "../../lib/modelRecency";
 import { compareProviders } from "../../lib/providerRanking";
 import { useLogs } from "../../state/log";
-import { useDropdownPosition } from "../../state/useDropdownPosition";
 
 import {
   SEND_TIMEOUT_MS,
@@ -174,8 +172,6 @@ type ChatPanelProps = {
   onCloseChat?: () => void;
   /** Close and permanently delete the session. */
   onCloseAndDeleteChat?: () => void;
-  /** Duplicate this chat panel beside the current one. */
-  onDuplicateChat?: () => void;
   /** Start a fresh empty chat for the current project (keeps the previous chat). */
   onNewChat?: () => void;
   /** Show a toast notification (success/warning/error/info). */
@@ -201,7 +197,6 @@ export function ChatPanel({
   onRenameChat,
   onCloseChat,
   onCloseAndDeleteChat,
-  onDuplicateChat,
   onNewChat,
   onShowToast,
   onOpenHistory,
@@ -382,10 +377,6 @@ export function ChatPanel({
   branchRef.current = branch;
   const [branches, setBranches] = useState<GitBranch[]>([]);
   const [worktreePath, setWorktreePath] = useState<string | null>(null);
-  const [metaBranchOpen, setMetaBranchOpen] = useState(false);
-  const metaBranchPos = useDropdownPosition(200);
-  const [metaNewBranch, setMetaNewBranch] = useState("");
-  const [metaCreatingBranch, setMetaCreatingBranch] = useState(false);
   const [sessionTitle, setSessionTitle] = useState<{ sessionId: string; title: string } | null>(null);
   const [assignedPlanId, setAssignedPlanId] = useState<string | null>(null);
   const [planBadge, setPlanBadge] = useState<{ referenceId: string; title: string; status: string } | null>(null);
@@ -2716,14 +2707,12 @@ export function ChatPanel({
         uncommittedCount={uncommittedCount}
         onRenameAction={() => setRenameSignal((n) => n + 1)}
         onAssignPlan={handleOpenAssignPlan}
-        onDuplicateChat={() => onDuplicateChat?.()}
         onCloseChat={() => onCloseChat?.()}
         onCloseAndDelete={() => onCloseAndDeleteChat?.()}
         prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
         onCreatePullRequest={handleCreatePullRequest}
         projectPath={projectPath}
         sessionId={nativeSessionId}
-        hideBranch
         onCopySessionId={() => {
           if (nativeSessionId) {
             void navigator.clipboard.writeText(nativeSessionId);
@@ -3352,58 +3341,6 @@ export function ChatPanel({
             />
           </div>
           <div className="chat-composer-controls">
-            {/* Model/effort/permission all live in the composer footer */}
-            <div className="chat-composer-controls-left">
-              <button
-                className={`chat-column-model-chip is-catalog-${catalogStatus}`}
-                type="button"
-                title={
-                  catalogStatus === "loading" || catalogStatus === "refreshing"
-                    ? `Model: ${modelName || modelId}. Provider catalog is ${catalogStatus}.`
-                    : catalogStatus === "error" || catalogStatus === "stale"
-                      ? `Model: ${modelName || modelId}. Catalog ${catalogStatus === "stale" ? "refresh failed; showing cached models" : "failed to load"}: ${catalogError ?? "Unknown error"}. Click to retry or change model.`
-                      : `Model: ${modelName || modelId}. Click to change provider or model.`
-                }
-                onClick={() => {
-                  addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
-                  setShowModelPicker(true);
-                  setShowProviderPicker(false);
-                }}
-              >
-                {catalogStatus === "loading" || catalogStatus === "refreshing" ? <Loader2 size={10} className="spin" aria-hidden="true" /> : null}
-                <span>{(modelName || modelId || "Model").length > 14 ? (modelName || modelId).slice(0, 13) + "…" : (modelName || modelId || "Model")}</span>
-                <ChevronDown size={9} />
-              </button>
-              {(catalog?.effortLevels ?? []).filter((e) => selectedModel?.supportedEfforts.includes(e.id) ?? false).length > 1 ? (
-                <select
-                  className="chat-header-select"
-                  title={`Effort level: ${effortLevel}`}
-                  aria-label="Effort level"
-                  value={effortLevel}
-                  onChange={(event) => {
-                    setEffortLevel(event.target.value);
-                    persistSelection(providerId, modelId, event.target.value);
-                  }}
-                >
-                  {(catalog?.effortLevels ?? [])
-                    .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
-                    .map((effort) => (
-                      <option key={effort.id} value={effort.id}>{effort.label}</option>
-                    ))}
-                </select>
-              ) : null}
-              <select
-                className="chat-header-select chat-header-permission"
-                title={`Permission mode: ${approvalMode === "safe" ? "Always Ask" : approvalMode === "auto" ? "Run Everything" : "Balanced"}`}
-                aria-label="Permission mode"
-                value={approvalMode}
-                onChange={(event) => void handleSetApprovalMode(event.target.value as "safe" | "balanced" | "auto")}
-              >
-                <option value="balanced">Balanced</option>
-                <option value="safe">Always Ask</option>
-                <option value="auto">Run Everything</option>
-              </select>
-            </div>
             <div className="chat-composer-controls-right">
               {nativeMode && loading ? (
                 <button
@@ -3477,53 +3414,6 @@ export function ChatPanel({
             ) : null}
           </div>
         )}
-        <div className="chat-composer-meta">
-          <div className="chat-composer-meta-left">
-            {projectPath ? (
-              <span title={`Project: ${projectPath}`}>{projectPath.split(/[\\/]/).pop() ?? projectPath}</span>
-            ) : null}
-            {worktreePath ? (
-              <span className="chat-worktree-badge" title={`Worktree: ${worktreePath}`}>
-                <span className="chat-worktree-dot" />
-                {worktreePath.split("/").pop()}
-              </span>
-            ) : branch ? (
-              <span className="chat-worktree-badge chat-worktree-primary" title="Primary workspace: using the open project checkout">
-                <span className="chat-worktree-dot" />
-                primary
-              </span>
-            ) : null}
-          </div>
-          <div className="chat-composer-meta-right">
-            {branch ? (
-              <button
-                ref={metaBranchPos.triggerRef}
-                className="chat-composer-branch-btn"
-                type="button"
-                title={`Branch: ${branch}. Click to switch or create.`}
-                onClick={() => { metaBranchPos.recompute(); setMetaBranchOpen((v) => !v); }}
-              >
-                <GitBranchIcon size={10} />
-                <span>{branch}</span>
-                <ChevronDown size={9} />
-              </button>
-            ) : null}
-            {metaBranchOpen ? (
-              <BranchDropdown
-                branches={branches}
-                current={branch ?? ""}
-                onPick={(name) => { setMetaBranchOpen(false); void handleSwitchBranch(name); }}
-                onCreate={() => { setMetaCreatingBranch(true); setMetaNewBranch(""); }}
-                creating={metaCreatingBranch}
-                newBranchName={metaNewBranch}
-                setNewBranchName={setMetaNewBranch}
-                onCreateBranch={() => { void handleCreateBranch(metaNewBranch.trim()); setMetaCreatingBranch(false); setMetaNewBranch(""); setMetaBranchOpen(false); }}
-                onCancelCreate={() => setMetaCreatingBranch(false)}
-                placement={metaBranchPos.placement}
-              />
-            ) : null}
-          </div>
-        </div>
         {debugMode ? (
           <div className="chat-debug-panel" title="Raw event stream from the model and agent loop">
             <button

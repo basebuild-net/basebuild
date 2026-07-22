@@ -24,12 +24,13 @@ import {
 
 // ── Capacity tokens ─────────────────────────────────────────────────────────
 
-/** Minimum width for Chat and OMP Chat surfaces (px). */
-export const MIN_WIDTH_CHAT = 440;
+/** Minimum width for Chat and OMP Chat surfaces (px). Kept very small so
+ *  users can create arbitrary grid densities (3:2, 4:4, 1:1000, etc.). */
+export const MIN_WIDTH_CHAT = 24;
 /** Minimum width for Terminal surfaces (px). */
-export const MIN_WIDTH_TERMINAL = 320;
-/** Practical minimum height for any surface (px) — header + composer + content. */
-export const MIN_HEIGHT_SURFACE = 200;
+export const MIN_WIDTH_TERMINAL = 24;
+/** Practical minimum height for any surface (px). */
+export const MIN_HEIGHT_SURFACE = 24;
 
 /** Type-specific minimum width in pixels for a surface kind. */
 export function surfaceMinWidth(kind: SurfaceKind): number {
@@ -88,49 +89,20 @@ export type CapacityResult = {
   /** Human-readable reason when ok is false. */
   reason?: string;
 };
-
 /** Check whether splitting the focused leaf in the given direction would keep
  *  both children above their type-specific minimums. The new surface's kind
- *  must be known (the caller determines it from the creation transaction). */
+ *  must be known (the caller determines it from the creation transaction).
+ *
+ *  Arbitrary grids are allowed — the check always passes so users can create
+ *  any density (3:2, 4:4, 1:1000, etc.). The splitter ratio clamping still
+ *  prevents panels from reaching zero. */
 export function canSplit(
-  state: WorkspaceState,
-  direction: SplitDirection,
-  newSurfaceKind: SurfaceKind,
-  containerWidth: number,
-  containerHeight: number,
+  _state: WorkspaceState,
+  _direction: SplitDirection,
+  _newSurfaceKind: SurfaceKind,
+  _containerWidth: number,
+  _containerHeight: number,
 ): CapacityResult {
-  // Empty tree: any single surface fits.
-  if (!state.visibleTree) return { ok: true };
-
-  const focusedId = state.focusedSurfaceId;
-  if (!focusedId) return { ok: true };
-
-  const focusedRecord = state.activeSurfaces[focusedId];
-  if (!focusedRecord) return { ok: false, reason: "Focused surface not found in active registry." };
-
-  const leafSizes = computeLeafSizes(state.visibleTree, containerWidth, containerHeight);
-  const focusedSize = leafSizes.get(focusedId);
-  if (!focusedSize) return { ok: false, reason: "Focused surface not in visible tree." };
-
-  const existingMin = direction === "horizontal"
-    ? surfaceMinWidth(focusedRecord.kind)
-    : surfaceMinHeight(focusedRecord.kind);
-  const newMin = direction === "horizontal"
-    ? surfaceMinWidth(newSurfaceKind)
-    : surfaceMinHeight(newSurfaceKind);
-
-  const available = direction === "horizontal" ? focusedSize.width : focusedSize.height;
-  const halfAvailable = available / 2;
-
-  if (halfAvailable < existingMin || halfAvailable < newMin) {
-    const required = Math.max(existingMin, newMin) * 2;
-    const axis = direction === "horizontal" ? "width" : "height";
-    return {
-      ok: false,
-      reason: `Not enough ${axis} to split: need ${required}px, have ${Math.round(available)}px. Use Replace focused instead.`,
-    };
-  }
-
   return { ok: true };
 }
 
@@ -165,38 +137,16 @@ export function allLeavesFit(
 /** Deterministically hide least-recently-focused nonfocused leaves until all
  *  remaining visible leaves fit within their type-specific minimums. Hidden
  *  surfaces remain active (in `activeSurfaces`) but are removed from the
- *  visible tree. The focused leaf is never hidden. */
+ *  visible tree. The focused leaf is never hidden.
+ *
+ *  Arbitrary grids are allowed — this function never hides surfaces. Users
+ *  can create any density and panels simply shrink to fit. */
 export function applyCapacityHiding(
   state: WorkspaceState,
-  containerWidth: number,
-  containerHeight: number,
+  _containerWidth: number,
+  _containerHeight: number,
 ): CapacityHidingResult {
-  let current = state;
-  const hidden: string[] = [];
-
-  while (current.visibleTree) {
-    if (allLeavesFit(current, containerWidth, containerHeight)) break;
-
-    const leaves = flattenLeaves(current.visibleTree);
-    if (leaves.length <= 1) break; // never hide the last leaf
-
-    const focusedId = current.focusedSurfaceId;
-    // Candidates: nonfocused visible leaves, sorted by lastFocusedAt ascending
-    // (least recently focused first).
-    const candidates = leaves
-      .filter((l) => l.surfaceId !== focusedId)
-      .map((l) => ({ leaf: l, record: current.activeSurfaces[l.surfaceId] }))
-      .filter((x) => x.record)
-      .sort((a, b) => a.record.lastFocusedAt - b.record.lastFocusedAt);
-
-    if (candidates.length === 0) break; // only the focused leaf remains
-
-    const toHide = candidates[0].leaf.surfaceId;
-    hidden.push(toHide);
-    current = removeSurfaceFromLayout(current, toHide);
-  }
-
-  return { state: current, hidden };
+  return { state, hidden: [] };
 }
 
 // ── Splitter ratio clamping ─────────────────────────────────────────────────

@@ -1,0 +1,14 @@
+TODO — July 23
+
+Switching between groupings and chat is unstable.
+
+Known issues:
+- Sidebar surface lifecycle tests (sidebar-surfaces.spec.ts) fail after
+  round 2-3 sidebar restructuring — the flat "Linked group" / "Unlinked"
+  / "Stashed" sections replaced the old depth-based hierarchy, but the
+  seeded WorkspaceState tests still expect the old layout.
+- The stashed-group system needs real-user verification: drag-to-unlink
+  from sidebar, click-to-switch between unlinked and linked chats, and
+  restoring a stashed group by clicking its sidebar row.
+- The sidebar-surfaces.spec.ts test suite (5 tests) needs updating to
+  match the new flat sidebar structure with stashed group support.

@@ -119,6 +119,12 @@ current layout.
 - **Remove from layout** hides a surface without closing it; it remains
   active in the registry and visible in the sidebar without the visible
   marker.
+- **Drag a surface header** onto another visible surface to move it into that
+  linked layout; the target edge chooses left/right/top/bottom placement.
+  Dropping on the sidebar unlink target removes it from the layout without
+  closing it.
+- **Drag an unlinked sidebar row** onto a visible row to link it into the
+  current layout. Dragging a visible row onto the unlinked section hides it.
 - **Close** moves the surface to retained History. The backing session or
   PTY is never deleted by closing.
 - **Reopen** from History returns the surface as active hidden, preserving
@@ -333,16 +339,17 @@ terminal.
 
 ## Activity sidebar
 
-The left sidebar shows all active surfaces under each project. Under each
-project, a compact **Current layout** group lists visible surfaces in
-depth-first split-tree order with a position marker; active hidden surfaces
-render as sibling rows without the visible marker. Each row is a real
-`<button>` with a type icon, title, and one state icon/word (streaming,
-idle, error, creating, disconnected). Clicking a visible row focuses its
-leaf; clicking a hidden row replaces the focused leaf. The sidebar also
-has a `New` button (opens the shared typed creation menu) and a History
-button with a count badge showing the number of closed surfaces retained
-in history. Close controls reveal on `:focus-within`, not just `:hover`.
+The left sidebar shows all active surfaces under each project. Visible
+surfaces are flattened under one **Linked group** label in depth-first
+split-tree order; active hidden surfaces are flattened under a separate
+**Unlinked** label. Neither label implies a parent/child hierarchy. Each row
+is a real `<button>` with a type icon, title, and one state icon/word
+(streaming, idle, error, creating, disconnected). Clicking a visible row
+focuses its leaf; clicking an unlinked row replaces the focused leaf. Rows are
+draggable between the linked layout and unlinked section. The sidebar also
+has a `New` button (opens the shared typed creation menu) and a History button
+with a count badge showing the number of closed surfaces retained in history.
+Close controls reveal on `:focus-within`, not just `:hover`.
 
 ### Surface history
 

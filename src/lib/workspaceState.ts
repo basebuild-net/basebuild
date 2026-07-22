@@ -77,6 +77,10 @@ export type WorkspaceState = {
   visibleTree: TreeNode | null;
   /** The currently focused visible surface, or null when the tree is empty. */
   focusedSurfaceId: string | null;
+  /** A linked group that was swapped out when the user clicked an unlinked
+   *  chat. Clicking any surface in this tree restores it as the visible tree.
+   *  Null when no group is stashed. */
+  stashedTree?: TreeNode | null;
   /** Retained closed surfaces, newest-first. */
   history: ClosedSurfaceRecord[];
 };
@@ -114,8 +118,8 @@ export type NormalizeWorkspaceResult = {
 // ── Constants ───────────────────────────────────────────────────────────────
 
 const VALID_SURFACE_KINDS: readonly SurfaceKind[] = ["chat", "omp-chat", "terminal"];
-export const MIN_RATIO = 0.1;
-export const MAX_RATIO = 0.9;
+export const MIN_RATIO = 0.01;
+export const MAX_RATIO = 0.99;
 const RATIO_EPSILON = 0.001;
 const WORKSPACE_STATE_VERSION = 2 as const;
 

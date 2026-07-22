@@ -292,16 +292,20 @@ leaf owns exactly one surface — a Basebuild Chat, Oh My Pi Chat, or Terminal.
   History. There is no tab bar inside any leaf.
 - **Active registry.** Every active surface — visible or hidden — is retained
   in a project-scoped active registry and listed under its project in the
-  sidebar. The sidebar shows visible surfaces in depth-first tree order with a
-  compact position marker, and active hidden surfaces as sibling rows without
-  the visible marker. One state icon/word per surface replaces redundant
-  project colors, agent dots, and timestamps.
+  sidebar. Visible surfaces are flat rows under **Linked group**, in
+  depth-first tree order; active hidden surfaces are flat rows under
+  **Unlinked**. These labels describe placement, not a parent/child hierarchy.
+  One state icon/word per surface replaces redundant project colors, agent
+  dots, and timestamps.
 - **Selection and placement.** Selecting a visible sidebar row focuses its
-  existing leaf. Selecting a hidden active surface replaces the focused leaf;
-  the displaced surface stays active hidden. `Open beside` and `Open below`
-  explicitly split the focused leaf. `Remove from layout` hides without
-  closing. `Close` moves the surface to retained History. Reopening returns it
-  active hidden, preserving the current layout.
+  existing leaf. Selecting an unlinked surface replaces the focused leaf; the
+  displaced surface stays active unlinked. Dragging a surface title bar onto
+  another visible surface moves it to the chosen edge; dropping it on the
+  sidebar unlink target removes it from the layout without closing. Sidebar
+  rows can be dragged between the linked layout and unlinked section. `Open
+  beside` and `Open below` explicitly split the focused leaf. `Close` moves
+  the surface to retained History. Reopening returns it active unlinked,
+  preserving the current layout.
 - **Capacity.** Chat and Oh My Pi Chat leaves require 440px minimum width;
   Terminal leaves require 320px. A split computes both children's minimums
   before mutation; splitter ratios clamp against pixel minimums. On window

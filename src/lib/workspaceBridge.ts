@@ -13,7 +13,7 @@
  * not workspace surfaces and are dropped from the visible tree.
  */
 
-import { activeTab, flattenPanels, type Panel, type PanelGridState, type SplitNode as LegacySplitNode } from "./panelGrid";
+import { activeTab, flattenPanels, hiddenPanelsOf, type Panel, type PanelGridState, type SplitNode as LegacySplitNode } from "./panelGrid";
 import {
   type LeafNode,
   type SplitDirection,
@@ -157,6 +157,22 @@ export function panelGridToWorkspaceState(
     ? convertLegacyNode(legacy.root, activeSurfaces, projectId, now, legacy.activePanelId)
     : { tree: null as TreeNode | null, focusedSurfaceId: null as string | null };
 
+  // Active hidden panels remain addressable from the sidebar but do not gain
+  // leaves in the visible tree.
+  for (const panel of hiddenPanelsOf(legacy)) {
+    const surface = panelToSurface(panel, projectId, now);
+    if (surface && !activeSurfaces[surface.id]) activeSurfaces[surface.id] = surface;
+  }
+
+  // Stashed tree: a linked group that was swapped out. Its panels are active
+  // surfaces (so they show in the sidebar) and the tree is passed separately
+  // so the sidebar can render them as a restorable "Linked group".
+  let stashedTree: TreeNode | null = null;
+  if (legacy.stashedRoot) {
+    const stashedResult = convertLegacyNode(legacy.stashedRoot, activeSurfaces, projectId, now, legacy.stashedActivePanelId ?? null);
+    stashedTree = stashedResult.tree;
+  }
+
   // Convert closed panels to history.
   const history = legacy.closedPanels.flatMap((panel) => {
     const surface = panelToSurface(panel, projectId, now);
@@ -169,23 +185,25 @@ export function panelGridToWorkspaceState(
     activeSurfaces,
     visibleTree: tree,
     focusedSurfaceId,
+    stashedTree,
     history,
   };
 }
 
-/** Find the legacy panel id for a surface id by searching the visible tree
- *  and closed panels. Used by AppShell to map workspace callbacks back to
- *  panel operations. */
+/** Find the legacy panel id for a surface id across visible, hidden, stashed,
+ *  and closed panels. */
 export function surfaceIdToPanelId(
   legacy: PanelGridState,
   surfaceId: string,
 ): string | null {
-  const allPanels = flattenPanels(legacy.root);
+  const allPanels = [
+    ...flattenPanels(legacy.root),
+    ...hiddenPanelsOf(legacy),
+    ...(legacy.stashedRoot ? flattenPanels(legacy.stashedRoot) : []),
+    ...legacy.closedPanels,
+  ];
   for (const panel of allPanels) {
     if (panelSurfaceId(panel) === surfaceId) return panel.id;
-  }
-  for (const closed of legacy.closedPanels) {
-    if (panelSurfaceId(closed) === surfaceId) return closed.id;
   }
   return null;
 }

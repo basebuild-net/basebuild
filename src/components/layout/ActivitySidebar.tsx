@@ -5,14 +5,14 @@ import {
   ChevronRight,
   Clock,
   Copy,
-  EyeOff,
+  Link2,
   FileText,
   GitBranch,
   FolderPlus,
   FlaskConical,
-  LayoutTemplate,
   MessageSquare,
   MoreVertical,
+  Unlink,
   Pin,
   Plus,
   RotateCcw,
@@ -23,12 +23,12 @@ import {
   Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useDropdownPosition } from "../../state/useDropdownPosition";
 import { AccountButton } from "./AccountButton";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { StatusBar } from "./StatusBar";
 import { UpdateButton } from "./UpdateButton";
 import { RepoIcon } from "./RepoIcon";
+import { ActionMenu, type ActionMenuItem } from "../ActionMenu";
 import { getRepoIdentity, type RepoIdentity } from "../../lib/repoIdentity";
 import { humanizeChatTitle } from "../../lib/titles";
 import { getWorkspaceRestoreState } from "../../lib/workspace";
@@ -37,11 +37,9 @@ import {
   migrateFromLegacyBlob,
   visibleSurfaceIds,
   type ClosedSurfaceRecord,
-  type LeafNode,
   type SplitDirection,
   type SurfaceKind,
   type SurfaceRecord,
-  type TreeNode,
   type WorkspaceState,
 } from "../../lib/workspaceState";
 import { formatRelativeTime } from "../../lib/timing";
@@ -117,18 +115,6 @@ function buildDisplayTitles(surfaces: SurfaceRecord[]): Map<string, string> {
   return display;
 }
 
-// ── Tree depth helper ───────────────────────────────────────────────────────
-
-/** Flatten visible leaves with their tree depth for neutral connector
- *  treatment. DFS order matches `flattenLeaves`. */
-function flattenLeavesWithDepth(tree: TreeNode | null): { leaf: LeafNode; depth: number }[] {
-  function walk(node: TreeNode | null, depth: number): { leaf: LeafNode; depth: number }[] {
-    if (!node) return [];
-    if (!("direction" in node)) return [{ leaf: node, depth }];
-    return [...walk(node.first, depth + 1), ...walk(node.second, depth + 1)];
-  }
-  return walk(tree, 0);
-}
 
 // ── Props ───────────────────────────────────────────────────────────────────
 
@@ -141,6 +127,7 @@ export type ActivitySidebarProps = {
   onFocusSurface: (surfaceId: string) => void;
   onReplaceFocusedSurface: (surfaceId: string) => void;
   onSplitFocusedSurface: (surfaceId: string, direction: SplitDirection) => void;
+  onGroupSurface: (surfaceId: string, targetSurfaceId: string, side: "left" | "right" | "top" | "bottom") => void;
   onRemoveSurfaceFromLayout: (surfaceId: string) => void;
   onCloseSurface: (surfaceId: string) => void;
   onReopenSurface: (surfaceId: string) => void;
@@ -160,6 +147,8 @@ export type ActivitySidebarProps = {
   onOpenChanges?: (path: string) => void;
   pickerInFlight: boolean;
   onCreateChat: () => void;
+  /** Add a new linked chat to the active group (split focused surface). */
+  onAddLinkedChat: () => void;
   onOpenHistory: () => void;
   onOpenSettings: () => void;
   onOpenLogPanel: () => void;
@@ -195,79 +184,76 @@ function ProjectMenuButton({
   isPinned?: boolean;
   onTogglePin?: (path: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const menuPos = useDropdownPosition(160);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (menuPos.triggerRef.current?.contains(target)) return;
-      const menu = document.querySelector(".project-menu-dropdown");
-      if (menu && !menu.contains(target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open, menuPos.triggerRef]);
-
-  if (!onOpenInExplorer && !onRemoveProject && !onCopyPath && !onNewChat && !onOpenFiles && !onOpenChanges && !onClearChats && !onTogglePin) return null;
+  const items: ActionMenuItem[] = [];
+  if (onNewChat) items.push({
+    key: "new-chat",
+    label: "Add chat window",
+    title: "Add a chat window to this project",
+    icon: <Plus size={11} />,
+    onSelect: () => onNewChat(projectPath),
+  });
+  if (onOpenFiles) items.push({
+    key: "files",
+    label: "Files",
+    title: "Browse files in this project",
+    icon: <FileText size={11} />,
+    onSelect: () => onOpenFiles(projectPath),
+  });
+  if (onOpenChanges) items.push({
+    key: "changes",
+    label: "Changes",
+    title: "View git changes in this project",
+    icon: <GitBranch size={11} />,
+    onSelect: () => onOpenChanges(projectPath),
+  });
+  if (onCopyPath) items.push({
+    key: "copy-path",
+    label: "Copy project path",
+    title: "Copy the project folder path",
+    icon: <Copy size={11} />,
+    onSelect: () => onCopyPath(projectPath),
+  });
+  if (onOpenInExplorer) items.push({
+    key: "explorer",
+    label: "Open in Explorer",
+    title: "Open this project folder in the file explorer",
+    icon: <FolderPlus size={11} />,
+    onSelect: () => onOpenInExplorer(projectPath),
+  });
+  if (onTogglePin) items.push({
+    key: "pin",
+    label: isPinned ? "Unpin" : "Pin",
+    title: isPinned ? "Unpin project from top of list" : "Pin project to top of list",
+    icon: <Pin size={11} />,
+    onSelect: () => onTogglePin(projectPath),
+  });
+  if (onClearChats) items.push({
+    key: "clear-chats",
+    label: "Clear chats",
+    title: "Clear all chats for this project",
+    icon: <TerminalSquare size={11} />,
+    danger: true,
+    onSelect: () => onClearChats(projectPath),
+  });
+  if (onRemoveProject) items.push({
+    key: "remove",
+    label: "Remove project",
+    title: `Remove ${projectName} from the sidebar (does not delete files)`,
+    icon: <Trash2 size={11} />,
+    danger: true,
+    onSelect: () => onRemoveProject(projectPath),
+  });
+  if (items.length === 0) return null;
 
   return (
-    <div className="project-menu-wrap">
-      <button
-        ref={menuPos.triggerRef}
-        className="project-menu-btn"
-        type="button"
-        title={`Manage ${projectName}`}
-        onClick={(e) => { e.stopPropagation(); menuPos.recompute(); setOpen((v) => !v); }}
-      >
-        <MoreVertical size={12} />
-      </button>
-      {open ? (
-        <div className={`project-menu-dropdown ${menuPos.placement === "top" ? "is-above" : ""}`} role="menu" aria-label={`Actions for ${projectName}`}>
-          {onNewChat ? (
-            <button className="project-menu-item" type="button" title="Start a new chat in this project" onClick={(e) => { e.stopPropagation(); setOpen(false); onNewChat(projectPath); }}>
-              <Plus size={11} /> New Chat
-            </button>
-          ) : null}
-          {onOpenFiles ? (
-            <button className="project-menu-item" type="button" title="Browse files in this project" onClick={(e) => { e.stopPropagation(); setOpen(false); onOpenFiles(projectPath); }}>
-              <FileText size={11} /> Files
-            </button>
-          ) : null}
-          {onOpenChanges ? (
-            <button className="project-menu-item" type="button" title="View git changes in this project" onClick={(e) => { e.stopPropagation(); setOpen(false); onOpenChanges(projectPath); }}>
-              <GitBranch size={11} /> Changes
-            </button>
-          ) : null}
-          {onCopyPath ? (
-            <button className="project-menu-item" type="button" title="Copy the project folder path to the clipboard" onClick={(e) => { e.stopPropagation(); setOpen(false); onCopyPath(projectPath); }}>
-              <Copy size={11} /> Copy project path
-            </button>
-          ) : null}
-          {onOpenInExplorer ? (
-            <button className="project-menu-item" type="button" title="Open this project folder in the file explorer" onClick={(e) => { e.stopPropagation(); setOpen(false); onOpenInExplorer(projectPath); }}>
-              <FolderPlus size={11} /> Open in Explorer
-            </button>
-          ) : null}
-          {onTogglePin ? (
-            <button className="project-menu-item" type="button" title={isPinned ? "Unpin project from top of list" : "Pin project to top of list"} onClick={(e) => { e.stopPropagation(); setOpen(false); onTogglePin(projectPath); }}>
-              <Pin size={11} /> {isPinned ? "Unpin" : "Pin"}
-            </button>
-          ) : null}
-          {onClearChats ? (
-            <button className="project-menu-item is-danger" type="button" title="Clear all chats for this project" onClick={(e) => { e.stopPropagation(); setOpen(false); onClearChats(projectPath); }}>
-              <TerminalSquare size={11} /> Clear Chats
-            </button>
-          ) : null}
-          {onRemoveProject ? (
-            <button className="project-menu-item is-danger" type="button" title={`Remove ${projectName} from the sidebar (does not delete files)`} onClick={(e) => { e.stopPropagation(); setOpen(false); onRemoveProject(projectPath); }}>
-              <Trash2 size={11} /> Remove Project
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+    <span className="project-menu-wrap">
+      <ActionMenu
+        items={items}
+        triggerTitle={`Manage ${projectName}`}
+        triggerClassName="project-menu-btn"
+        icon={<MoreVertical size={12} />}
+      />
+    </span>
   );
 }
 
@@ -275,27 +261,13 @@ function ProjectMenuButton({
 
 function SurfaceActionButtons({
   surfaceId,
-  visible,
-  onRemoveFromLayout,
   onClose,
 }: {
   surfaceId: string;
-  visible: boolean;
-  onRemoveFromLayout: (surfaceId: string) => void;
   onClose: (surfaceId: string) => void;
 }) {
   return (
     <span className="surface-row-actions" aria-hidden={false}>
-      {visible ? (
-        <button
-          className="surface-row-action-btn"
-          type="button"
-          title="Remove from layout (hide without closing)"
-          onClick={(e) => { e.stopPropagation(); onRemoveFromLayout(surfaceId); }}
-        >
-          <EyeOff size={11} />
-        </button>
-      ) : null}
       <button
         className="surface-row-action-btn is-danger"
         type="button"
@@ -357,6 +329,7 @@ export function ActivitySidebar({
   workspaceState,
   onFocusSurface,
   onReplaceFocusedSurface,
+  onGroupSurface,
   onSplitFocusedSurface,
   onRemoveSurfaceFromLayout,
   onCloseSurface,
@@ -376,6 +349,7 @@ export function ActivitySidebar({
   onOpenChanges,
   pickerInFlight,
   onCreateChat,
+  onAddLinkedChat,
   onOpenLogPanel,
   onClearChats,
   onOpenHistory,
@@ -471,12 +445,24 @@ export function ActivitySidebar({
   // ── Derive visible + hidden surfaces for the active project ───────────────
 
   const visibleLeaves = useMemo(
-    () => flattenLeavesWithDepth(workspaceState.visibleTree),
+    () => flattenLeaves(workspaceState.visibleTree),
     [workspaceState.visibleTree],
   );
   const visibleIds = useMemo(
     () => visibleSurfaceIds(workspaceState.visibleTree),
     [workspaceState.visibleTree],
+  );
+
+  // Stashed tree: a linked group that was swapped out when the user clicked
+  // an unlinked chat. Its surfaces show in the sidebar as a "Linked group"
+  // and clicking any of them restores the whole group.
+  const stashedLeaves = useMemo(
+    () => workspaceState.stashedTree ? flattenLeaves(workspaceState.stashedTree) : [],
+    [workspaceState.stashedTree],
+  );
+  const stashedIds = useMemo(
+    () => new Set(stashedLeaves.map((l) => l.surfaceId)),
+    [stashedLeaves],
   );
 
   const activeSurfaceList = useMemo(
@@ -492,10 +478,9 @@ export function ActivitySidebar({
 
   const hiddenSurfaces = useMemo(() => {
     return activeSurfaceList
-      .filter((s) => !visibleIds.has(s.id))
+      .filter((s) => !visibleIds.has(s.id) && !stashedIds.has(s.id))
       .sort((a, b) => b.lastFocusedAt - a.lastFocusedAt);
-  }, [activeSurfaceList, visibleIds]);
-
+  }, [activeSurfaceList, visibleIds, stashedIds]);
   const focusedSurfaceId = workspaceState.focusedSurfaceId;
 
   // Confirm dialog for permanent history deletion.
@@ -517,7 +502,7 @@ export function ActivitySidebar({
     return (
       <aside className="project-chat-sidebar is-collapsed" aria-label="Activity sidebar (collapsed)">
         <div className="sidebar-top-actions">
-          <button className="btn-icon" type="button" title="New chat" onClick={onCreateChat} disabled={!activeProjectPath}>
+          <button className="btn-icon" type="button" title="Add chat window" onClick={onCreateChat} disabled={!activeProjectPath}>
             <Plus size={14} />
           </button>
           <button className="btn-icon" type="button" title="History" onClick={onOpenHistory}>
@@ -566,8 +551,8 @@ export function ActivitySidebar({
   return (
     <aside className="project-chat-sidebar" aria-label="Activity sidebar">
       <div className="sidebar-top-actions">
-        <button className="btn btn-ghost btn-sm" type="button" title="New chat" onClick={onCreateChat} disabled={!activeProjectPath}>
-          <Plus size={12} /> New chat
+        <button className="btn btn-ghost btn-sm" type="button" title="Add chat window" onClick={onCreateChat} disabled={!activeProjectPath}>
+          <Plus size={12} /> Add chat window
         </button>
         <button className="btn-icon" type="button" title={pickerInFlight ? "Opening folder picker…" : "Add project folder"} onClick={onOpenFolder} disabled={pickerInFlight}>
           <FolderPlus size={14} />
@@ -595,7 +580,7 @@ export function ActivitySidebar({
               if (aPinned && !bPinned) return -1;
               if (!aPinned && bPinned) return 1;
               return a.name.localeCompare(b.name);
-            }).map((project) => {
+            }).map((project, projectIndex) => {
               const isActive = project.path === activeProjectPath;
               const identity = repoIdentities.get(project.path);
               const name = identity?.name ?? project.name;
@@ -604,8 +589,11 @@ export function ActivitySidebar({
               const otherSurfaces = !isActive
                 ? otherProjectSurfaces.get(project.path) ?? []
                 : [];
+              const groupColorClass = isActive && visibleLeaves.length > 1
+                ? ` surface-group-color-${projectIndex % 6}`
+                : "";
               return (
-                <div key={project.path} className={`activity-sidebar-project-row${isActive ? " is-active" : ""}${pinnedPaths.has(project.path) ? " is-pinned" : ""}`}>
+                <div key={project.path} className={`activity-sidebar-project-row${isActive ? " is-active" : ""}${pinnedPaths.has(project.path) ? " is-pinned" : ""}${groupColorClass}`}>
                   <div
                     className="activity-sidebar-project-main"
                     title={project.path}
@@ -639,8 +627,22 @@ export function ActivitySidebar({
                   {/* Active project: render surfaces from workspaceState */}
                   {isActive ? (
                     <>
-                      {/* Visible surfaces in DFS tree order with neutral connector treatment */}
-                      {visibleLeaves.map(({ leaf, depth }) => {
+                      {visibleLeaves.length > 1 ? (
+                        <div className="surface-group-label" title={`${visibleLeaves.length} chats linked in one layout`}>
+                          <Link2 size={10} />
+                          <span>Linked group</span>
+                          <span className="surface-group-count">{visibleLeaves.length}</span>
+                          <button
+                            className="surface-group-add-btn"
+                            type="button"
+                            title="Add a linked chat to this group"
+                            onClick={(e) => { e.stopPropagation(); onAddLinkedChat(); }}
+                          >
+                            <Plus size={10} />
+                          </button>
+                        </div>
+                      ) : null}
+                      {visibleLeaves.map((leaf) => {
                         const surface = workspaceState.activeSurfaces[leaf.surfaceId];
                         if (!surface) return null;
                         const Icon = surfaceKindIcon[surface.kind];
@@ -650,27 +652,111 @@ export function ActivitySidebar({
                           <div
                             key={leaf.id}
                             className={`surface-row is-visible${isFocused ? " is-focused" : ""}`}
-                            style={{ "--surface-depth": depth } as React.CSSProperties}
                             role="button"
                             tabIndex={0}
-                            title={`${title} — ${surfaceKindLabel[surface.kind]} (visible${isFocused ? ", focused" : ""})`}
+                            draggable
+                            data-surface-id={surface.id}
+                            data-surface-visibility="visible"
+                            title={`${title} — ${surfaceKindLabel[surface.kind]} (${visibleLeaves.length > 1 ? "linked" : "single"}${isFocused ? ", focused" : ""})`}
                             onClick={() => onFocusSurface(surface.id)}
-                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onFocusSurface(surface.id); } }}
+                            onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onFocusSurface(surface.id); } }}
+                            onDragStart={(event) => {
+                              event.dataTransfer.effectAllowed = "move";
+                              event.dataTransfer.setData("application/x-basebuild-surface", surface.id);
+                              event.dataTransfer.setData("text/plain", surface.id);
+                              document.body.dataset.surfaceDragging = "true";
+                            }}
+                            onDragEnd={() => { delete document.body.dataset.surfaceDragging; }}
+                            onDragOver={(event) => {
+                              if (event.dataTransfer.types.includes("text/plain")) event.preventDefault();
+                            }}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              const sourceId = event.dataTransfer.getData("text/plain")
+                                || event.dataTransfer.getData("application/x-basebuild-surface");
+                              if (sourceId && sourceId !== surface.id) onGroupSurface(sourceId, surface.id, "right");
+                            }}
                           >
-                            <span className="surface-row-connector" aria-hidden="true">{depth > 0 ? "╰─" : ""}</span>
+                            <span className="surface-row-connector" title={visibleLeaves.length > 1 ? "Linked in the current layout" : "Single chat"} aria-hidden="true">
+                              {visibleLeaves.length > 1 ? <Link2 size={10} /> : null}
+                            </span>
                             <Icon size={11} className="surface-row-icon" />
                             <span className="surface-row-title">{title}</span>
                             <SurfaceActionButtons
                               surfaceId={surface.id}
-                              visible={true}
-                              onRemoveFromLayout={onRemoveSurfaceFromLayout}
                               onClose={onCloseSurface}
                             />
                           </div>
                         );
                       })}
 
-                      {/* Hidden active surfaces as sibling rows (no visible marker) */}
+                      {visibleLeaves.length > 0 ? (
+                        <div
+                          className="surface-unlink-dropzone"
+                          data-surface-unlink-dropzone
+                          title="Drop a linked chat here to make it a separate active chat"
+                          onDragOver={(event) => {
+                            if (event.dataTransfer.types.includes("text/plain")) event.preventDefault();
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            const sourceId = event.dataTransfer.getData("text/plain")
+                              || event.dataTransfer.getData("application/x-basebuild-surface");
+                            if (sourceId) onRemoveSurfaceFromLayout(sourceId);
+                          }}
+                        >
+                          <Unlink size={10} />
+                          <span>Drop here to unlink</span>
+                        </div>
+                      ) : null}
+
+                      {stashedLeaves.length > 0 ? (
+                        <>
+                          <div className="surface-group-label is-stashed" title={`${stashedLeaves.length} chats linked in a stashed group — click any to restore the whole group`}>
+                            <Link2 size={10} />
+                            <span>Linked group</span>
+                            <span className="surface-group-count">{stashedLeaves.length}</span>
+                          </div>
+                          {stashedLeaves.map((leaf) => {
+                            const surface = workspaceState.activeSurfaces[leaf.surfaceId];
+                            if (!surface) return null;
+                            const Icon = surfaceKindIcon[surface.kind];
+                            const title = displayTitles.get(surface.id) ?? surfaceDisplayTitle(surface);
+                            return (
+                              <div
+                                key={leaf.id}
+                                className="surface-row is-stashed"
+                                role="button"
+                                tabIndex={0}
+                                data-surface-id={surface.id}
+                                data-surface-visibility="stashed"
+                                title={`${title} — ${surfaceKindLabel[surface.kind]} (stashed linked group; click to restore the whole group)`}
+                                onClick={() => onFocusSurface(surface.id)}
+                                onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onFocusSurface(surface.id); } }}
+                              >
+                                <span className="surface-row-connector" title="Stashed linked group" aria-hidden="true">
+                                  <Link2 size={10} />
+                                </span>
+                                <Icon size={11} className="surface-row-icon" />
+                                <span className="surface-row-title">{title}</span>
+                                <SurfaceActionButtons
+                                  surfaceId={surface.id}
+                                  onClose={onCloseSurface}
+                                />
+                              </div>
+                            );
+                          })}
+                        </>
+                      ) : null}
+
+                      {hiddenSurfaces.length > 0 ? (
+                        <div className="surface-group-label is-unlinked" title="Active chats not linked into the current layout">
+                          <Unlink size={10} />
+                          <span>Unlinked</span>
+                          <span className="surface-group-count">{hiddenSurfaces.length}</span>
+                        </div>
+                      ) : null}
                       {hiddenSurfaces.map((surface) => {
                         const Icon = surfaceKindIcon[surface.kind];
                         const title = displayTitles.get(surface.id) ?? surfaceDisplayTitle(surface);
@@ -680,16 +766,37 @@ export function ActivitySidebar({
                             className="surface-row is-hidden"
                             role="button"
                             tabIndex={0}
-                            title={`${title} — ${surfaceKindLabel[surface.kind]} (hidden, click to replace focused surface)`}
+                            draggable
+                            data-surface-id={surface.id}
+                            data-surface-visibility="hidden"
+                            title={`${title} — ${surfaceKindLabel[surface.kind]} (unlinked; click to show only this chat, or drag onto a linked chat to group)`}
                             onClick={() => onReplaceFocusedSurface(surface.id)}
-                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onReplaceFocusedSurface(surface.id); } }}
+                            onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onReplaceFocusedSurface(surface.id); } }}
+                            onDragStart={(event) => {
+                              event.dataTransfer.effectAllowed = "move";
+                              event.dataTransfer.setData("application/x-basebuild-surface", surface.id);
+                              event.dataTransfer.setData("text/plain", surface.id);
+                              document.body.dataset.surfaceDragging = "true";
+                            }}
+                            onDragEnd={() => { delete document.body.dataset.surfaceDragging; }}
+                            onDragOver={(event) => {
+                              if (event.dataTransfer.types.includes("text/plain")) event.preventDefault();
+                            }}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              const sourceId = event.dataTransfer.getData("text/plain")
+                                || event.dataTransfer.getData("application/x-basebuild-surface");
+                              if (sourceId && sourceId !== surface.id) onGroupSurface(sourceId, surface.id, "right");
+                            }}
                           >
+                            <span className="surface-row-connector" title="Unlinked active chat" aria-hidden="true">
+                              <Unlink size={10} />
+                            </span>
                             <Icon size={11} className="surface-row-icon" />
                             <span className="surface-row-title">{title}</span>
                             <SurfaceActionButtons
                               surfaceId={surface.id}
-                              visible={false}
-                              onRemoveFromLayout={onRemoveSurfaceFromLayout}
                               onClose={onCloseSurface}
                             />
                           </div>

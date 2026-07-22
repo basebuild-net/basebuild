@@ -129,19 +129,21 @@ stack (radius tokens, no Radix, no CSS modules).
   state.
 - `.panel-grid-splitter` — drag-resize handle between split siblings
   (4px, col/row cursor). `.is-vertical` / `.is-horizontal` variants.
-- `.panel-header` — per-surface header (title, type icon, status,
-  split/close buttons). `.panel-header-title`, `.panel-header-actions`,
-  `.panel-header-status` (streaming/idle/error indicators). Pinned at the
-  top of the surface, never scrolls out of view. Each leaf owns exactly
-  one surface — there are no tab strips inside panel headers.
-- `.drop-zone-overlay` — 4-edge drop zone overlay for drag-to-split
-  (`.drop-zone-top/right/bottom/left`). 2px accent line.
+- `.panel-header` — per-surface draggable title bar (title, type icon,
+  split/close buttons). `.panel-header-actions` contains direct split and close
+  actions; destructive retention details stay in History rather than an
+  overflow menu. Pinned at the top of the surface, never scrolls out of view.
+  Each leaf owns exactly one surface — there are no tab strips inside panel
+  headers.
+- `.drop-zone-overlay` — 4-edge drop zone overlay for pointer drag-to-move or
+  split (`.drop-zone-top/right/bottom/left`). 2px accent line.
 - `.activity-sidebar` — left sidebar surface list under each project.
-  `.activity-sidebar-row` per surface with type icon, title, and one state
-  icon/word. Visible surfaces render in depth-first split-tree order with a
-  compact position marker; active hidden surfaces render as sibling rows
-  without the visible marker. `.activity-sidebar-history-badge` for the
-  closed-surface count.
+  `.surface-row` is draggable and presents the type icon, title, and one state
+  icon/word. Visible surfaces are flat rows under `.surface-group-label`
+  (`Linked group`) in depth-first split-tree order; active hidden surfaces are
+  flat rows under `.surface-group-label.is-unlinked` (`Unlinked`). The
+  `.surface-unlink-dropzone` accepts title-bar drags without closing the
+  surface. `.activity-sidebar-history-badge` shows the closed-surface count.
 - `.history-drawer` — overlay drawer listing closed surfaces
   (`.history-drawer-item` with Re-open / Delete permanently actions).
 - `.bg-agents-item-open` — full content target for a chat-bound background run;
