@@ -1312,7 +1312,7 @@ export function AppShell({ updates }: AppShellProps) {
       if (kind === "omp") {
         // Spawn OMP as a raw terminal in the project's working directory.
         const term = await createTerminal("omp", activeProjectPath ?? undefined);
-        await session.createTab("omp", `Oh My Pi`, term.id);
+        await session.createTab("omp", `Oh My Pi Chat`, term.id);
         return;
       }
       await handleCreateTerminalTab();
@@ -1406,7 +1406,7 @@ export function AppShell({ updates }: AppShellProps) {
 
       if (type === "terminal" || type === "omp") {
         const shell = type === "omp" ? "omp" : DEFAULT_SHELL();
-        const baseTitle = type === "omp" ? "Oh My Pi" : "Terminal";
+        const baseTitle = type === "omp" ? "Oh My Pi Chat" : "Terminal";
         const pending = reserve(type, baseTitle);
         if (!commitInsert(pending, panelGridState.activePanelId, "right")) {
           addLog("debug", `${baseTitle} panel insert failed`, panelId);
@@ -1417,13 +1417,13 @@ export function AppShell({ updates }: AppShellProps) {
         void (async () => {
           try {
             const term = await createTerminal(shell, activeProjectPath ?? undefined);
-            await session.createTab(type, type === "omp" ? "Oh My Pi" : `Terminal ${term.id}`, term.id);
+            await session.createTab(type, type === "omp" ? "Oh My Pi Chat" : `Terminal ${term.id}`, term.id);
             // Bind the terminal id and clear `creating`.
             setPanelGridState((prev) => ({
               ...prev,
               root: updatePanelInTree(prev.root, panelId, {
                 terminalId: term.id,
-                title: type === "omp" ? "Oh My Pi" : `Terminal ${term.id}`,
+                title: type === "omp" ? "Oh My Pi Chat" : `Terminal ${term.id}`,
                 creating: false,
               }),
             }));

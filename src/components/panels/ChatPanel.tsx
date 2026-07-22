@@ -2658,6 +2658,79 @@ export function ChatPanel({
         </div>
         </ModalPortal>
       ) : null}
+      {/* Pinned chat header — 28-32px, never scrolls out of view */}
+      <ChatHeader
+        modelChip={modelName}
+        modelId={modelId}
+        modelCatalogStatus={catalogStatus}
+        modelCatalogError={catalogError}
+        effortChip={effortLevel}
+        effortOptions={(catalog?.effortLevels ?? [])
+          .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
+          .map((effort) => ({ id: effort.id, label: effort.label }))}
+        onPickModel={() => {
+          addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
+          setShowModelPicker(true);
+          setShowProviderPicker(false);
+        }}
+        onChangeEffort={(effort) => {
+          addLog("debug", "Chat effort selected", `sessionId=${nativeSessionId ?? "none"}; effort=${effort}`);
+          setEffortLevel(effort);
+          persistSelection(providerId, modelId, effort);
+        }}
+        permissionMode={approvalMode}
+        onChangePermission={(mode) => void handleSetApprovalMode(mode)}
+        runState={streaming ? "running" : loading ? "queued" : "idle"}
+        contextUsed={contextUsedTokens}
+        contextLimit={selectedModel?.contextWindow ?? null}
+        onOpenCommands={() => {
+          addLog("debug", "Command palette opened via header", `sessionId=${activeSessionId ?? "none"}`);
+          setShowCommandPalette(true);
+          setInput("/");
+          window.requestAnimationFrame(() => chatInputRef.current?.focus());
+        }}
+        debugMode={debugMode}
+        onToggleDebug={() => {
+          const next = !debugMode;
+          addLog("debug", "Chat debug mode toggled", `enabled=${next}`);
+          setDebugMode(next);
+          localStorage.setItem("basebuild.debug-mode", String(next));
+        }}
+        canCopyConversation={nativeMessages.length > 0}
+        onCopyConversation={() => {
+          addLog("debug", "Copy conversation selected", `sessionId=${nativeSessionId ?? "none"}`);
+          void handleCopyConversation();
+        }}
+        agentMode={agentMode}
+        onToggleAgentMode={() => setAgentMode((m) => (m === "build" ? "plan" : "build"))}
+        planBadge={planBadge}
+        onOpenPlan={() => { /* focus the plan in the side panel */ }}
+        branch={branch}
+        worktreePath={worktreePath}
+        branches={branches}
+        onSwitchBranch={handleSwitchBranch}
+        onCreateBranch={handleCreateBranch}
+        onToggleHistory={() => onOpenHistory?.()}
+        onStashAndSwitch={handleSwitchBranch}
+        onDiscardAndSwitch={handleSwitchBranch}
+        uncommittedCount={uncommittedCount}
+        onRenameAction={() => setRenameSignal((n) => n + 1)}
+        onAssignPlan={handleOpenAssignPlan}
+        onDuplicateChat={() => onDuplicateChat?.()}
+        onCloseChat={() => onCloseChat?.()}
+        onCloseAndDelete={() => onCloseAndDeleteChat?.()}
+        prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
+        onCreatePullRequest={handleCreatePullRequest}
+        projectPath={projectPath}
+        sessionId={nativeSessionId}
+        hideBranch
+        onCopySessionId={() => {
+          if (nativeSessionId) {
+            void navigator.clipboard.writeText(nativeSessionId);
+            onShowToast?.("Chat ID copied", nativeSessionId, "info");
+          }
+        }}
+      />
       {/* Messages area */}
       <ChatTranscript
         scrollRef={scrollRef}
@@ -3279,78 +3352,36 @@ export function ChatPanel({
             />
           </div>
           <div className="chat-composer-controls">
-            <ChatHeader
-              modelChip={modelName}
-              modelId={modelId}
-              modelCatalogStatus={catalogStatus}
-              modelCatalogError={catalogError}
-              effortChip={effortLevel}
-              effortOptions={(catalog?.effortLevels ?? [])
-                .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
-                .map((effort) => ({ id: effort.id, label: effort.label }))}
-              onPickModel={() => {
-                addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
-                setShowModelPicker(true);
-                setShowProviderPicker(false);
-              }}
-              onChangeEffort={(effort) => {
-                addLog("debug", "Chat effort selected", `sessionId=${nativeSessionId ?? "none"}; effort=${effort}`);
-                setEffortLevel(effort);
-                persistSelection(providerId, modelId, effort);
-              }}
-              permissionMode={approvalMode}
-              onChangePermission={(mode) => void handleSetApprovalMode(mode)}
-              runState={streaming ? "running" : loading ? "queued" : "idle"}
-              contextUsed={contextUsedTokens}
-              contextLimit={selectedModel?.contextWindow ?? null}
-              onOpenCommands={() => {
-                addLog("debug", "Command palette opened via header", `sessionId=${activeSessionId ?? "none"}`);
-                setShowCommandPalette(true);
-                setInput("/");
-                window.requestAnimationFrame(() => chatInputRef.current?.focus());
-              }}
-              debugMode={debugMode}
-              onToggleDebug={() => {
-                const next = !debugMode;
-                addLog("debug", "Chat debug mode toggled", `enabled=${next}`);
-                setDebugMode(next);
-                localStorage.setItem("basebuild.debug-mode", String(next));
-              }}
-              canCopyConversation={nativeMessages.length > 0}
-              onCopyConversation={() => {
-                addLog("debug", "Copy conversation selected", `sessionId=${nativeSessionId ?? "none"}`);
-                void handleCopyConversation();
-              }}
-              agentMode={agentMode}
-              onToggleAgentMode={() => setAgentMode((m) => (m === "build" ? "plan" : "build"))}
-              planBadge={planBadge}
-              onOpenPlan={() => { /* focus the plan in the side panel */ }}
-              branch={branch}
-              worktreePath={worktreePath}
-              branches={branches}
-              onSwitchBranch={handleSwitchBranch}
-              onCreateBranch={handleCreateBranch}
-              onToggleHistory={() => onOpenHistory?.()}
-              onStashAndSwitch={handleSwitchBranch}
-              onDiscardAndSwitch={handleSwitchBranch}
-              uncommittedCount={uncommittedCount}
-              onRenameAction={() => setRenameSignal((n) => n + 1)}
-              onAssignPlan={handleOpenAssignPlan}
-              onDuplicateChat={() => onDuplicateChat?.()}
-              onCloseChat={() => onCloseChat?.()}
-              onCloseAndDelete={() => onCloseAndDeleteChat?.()}
-              prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
-              onCreatePullRequest={handleCreatePullRequest}
-              projectPath={projectPath}
-              sessionId={nativeSessionId}
-              hideBranch
-              onCopySessionId={() => {
-                if (nativeSessionId) {
-                  void navigator.clipboard.writeText(nativeSessionId);
-                  onShowToast?.("Chat ID copied", nativeSessionId, "info");
-                }
-              }}
-            />
+            {/* Compact permission/effort disclosure in composer footer */}
+            {(catalog?.effortLevels ?? []).filter((e) => selectedModel?.supportedEfforts.includes(e.id) ?? false).length > 1 ? (
+              <select
+                className="chat-header-select"
+                title={`Effort level: ${effortLevel}`}
+                aria-label="Effort level"
+                value={effortLevel}
+                onChange={(event) => {
+                  setEffortLevel(event.target.value);
+                  persistSelection(providerId, modelId, event.target.value);
+                }}
+              >
+                {(catalog?.effortLevels ?? [])
+                  .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
+                  .map((effort) => (
+                    <option key={effort.id} value={effort.id}>{effort.label}</option>
+                  ))}
+              </select>
+            ) : null}
+            <select
+              className="chat-header-select chat-header-permission"
+              title={`Permission mode: ${approvalMode === "safe" ? "Always Ask" : approvalMode === "auto" ? "Run Everything" : "Balanced"}`}
+              aria-label="Permission mode"
+              value={approvalMode}
+              onChange={(event) => void handleSetApprovalMode(event.target.value as "safe" | "balanced" | "auto")}
+            >
+              <option value="balanced">Balanced</option>
+              <option value="safe">Always Ask</option>
+              <option value="auto">Run Everything</option>
+            </select>
             {nativeMode && loading ? (
               <button
                 className="btn chat-send-btn chat-stop-btn"

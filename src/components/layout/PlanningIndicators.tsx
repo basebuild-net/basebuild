@@ -45,8 +45,8 @@ type StageMeta = {
 const STAGE_META: Record<StageKey, StageMeta> = {
   schematic: { label: "Schematic", icon: FolderTree, color: "var(--bb-cta)" },
   ideas: { label: "Ideas", icon: Lightbulb, color: "var(--bb-text)" },
-  plans: { label: "Plans", icon: ListChecks, color: "var(--bb-warning, #f59e0b)" },
-  running: { label: "Running", icon: Play, color: "var(--bb-status-running, #f97316)" },
+  plans: { label: "Plans", icon: ListChecks, color: "var(--bb-warning)" },
+  running: { label: "Running", icon: Play, color: "var(--bb-status-running)" },
   finished: { label: "Done", icon: Check, color: "var(--bb-positive, #4ade80)" },
 };
 

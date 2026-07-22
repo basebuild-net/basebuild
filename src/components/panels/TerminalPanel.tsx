@@ -62,18 +62,18 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
         fontFamily: "JetBrains Mono, Consolas, monospace",
         fontSize: 12,
         theme: {
-          background: "#000000",
-          foreground: "#ffffff",
-          cursor: "#ff5606",
-          selectionBackground: "rgba(255, 86, 6, 0.3)",
-          black: "#000000",
-          red: "#f87171",
-          green: "#4ade80",
-          yellow: "#facc15",
-          blue: "#818cf8",
-          magenta: "#c084fc",
-          cyan: "#06b6d4",
-          white: "#ffffff",
+          background: "#101211",
+          foreground: "#eef2ef",
+          cursor: "#6ea97a",
+          selectionBackground: "rgba(110, 169, 122, 0.3)",
+          black: "#0c0e0d",
+          red: "#cf7373",
+          green: "#6ea97a",
+          yellow: "#d0a04a",
+          blue: "#b8c0ba",
+          magenta: "#98a19a",
+          cyan: "#b8c0ba",
+          white: "#eef2ef",
         },
       });
       const fitAddon = new FitAddon();
@@ -189,20 +189,39 @@ export function TerminalPanel({ terminalId, cwd, onOutput, onReconnect }: Termin
   }, [terminalId]);
 
   useEffect(() => {
+    let rafId: number | null = null;
+    let observer: ResizeObserver | null = null;
+
     const handleResize = () => {
-      if (!fitAddonRef.current || !terminalRef.current) return;
-      try {
-        fitAddonRef.current.fit();
-      } catch {
-        /* ignore */
-      }
-      const dims = fitAddonRef.current.proposeDimensions();
-      if (dims && terminalId != null) {
-        void resizeTerminal(terminalId, dims.rows, dims.cols).catch(() => {});
-      }
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        if (!fitAddonRef.current || !terminalRef.current) return;
+        try {
+          fitAddonRef.current.fit();
+        } catch {
+          /* transient layout error */
+        }
+        const dims = fitAddonRef.current.proposeDimensions();
+        if (dims && terminalId != null) {
+          void resizeTerminal(terminalId, dims.rows, dims.cols).catch(() => {});
+        }
+      });
     };
+
+    // ResizeObserver catches split, sidebar, scale, and container changes
+    // that window-only resize misses.
+    if (containerRef.current) {
+      observer = new ResizeObserver(handleResize);
+      observer.observe(containerRef.current);
+    }
     window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      observer?.disconnect();
+      window.removeEventListener("resize", handleResize);
+    };
   }, [terminalId]);
 
   if (terminalId == null && !cwd) {

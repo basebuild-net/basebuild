@@ -15,12 +15,12 @@ ownership levels:
 4. **Project modals** — Schematic, Planning, Changes, Files, and Settings.
 
 A control belongs to one level only. A stage button opens its exact destination;
-it never creates a surrogate chat or defaults to a sibling tab.
+it never creates a surrogate chat or defaults to a sibling surface.
 
-The left sidebar (220px → 36px collapsed) shows projects and sessions. The center
-workspace contains the command strip, chat context, workspace tabs, transcript,
-and composer. Project-owned surfaces open as modals; there is no persistent right
-side panel.
+The left sidebar (220px → 36px collapsed) shows projects and their active
+surfaces. The center workspace contains the command strip, pinned chat
+header, split-tree surfaces, transcript, and composer. Project-owned
+surfaces open as modals; there is no persistent right side panel.
 
 The **Planning** modal has six tabs: Plans, Ideas, Categories, Flow, Runs, and
 Changes. The **Plans** tab exposes an **Import** action
@@ -67,7 +67,7 @@ tab shows the OpenSpec change catalog and explicit archive action (see
 Background agents and Runs share backend truth from pipeline, run, owner-chat,
 pending-interaction, and pending-approval snapshots. `active`, `queued`,
 `needs input`, `awaiting review`, `interrupted`, `failed`, and `complete` are
-separate states. Closing a panel does not stop its retained chat. Clicking the
+separate states. Closing a surface does not stop its retained chat. Clicking the
 run body reopens that owner chat; Stop/Cancel remains a separate action. Ready
 plans with an awaiting-review or continuation run do not inflate Running counts.
 Available next actions are state-specific (`Resume`, `Review`, `Retry`,
@@ -81,118 +81,183 @@ Windows platform), the indicator shows "Update unavailable" in a warning state
 instead of a red error — the user cannot fix this by retrying, and full
 diagnostics are available in Settings → Updates.
 
-## Tab kinds
+## Surface model
 
-A chat tab is no longer a single panel — it holds a **panel grid** (per
-`chat-grid-layout`) rendered as a split tree. The split tree supports
-horizontal (left/right) and vertical (top/bottom) splits to any depth,
-producing `1×N` (single row, N panels) and `M×N` (M rows, N columns)
-layouts. Each leaf is a fully independent panel with its own header,
-composer rail (for chat panels), and content; panels can be split from
-the header ("Split right/down"), reordered by header drag, resized via
-splitters between siblings, and closed (animated collapse to history).
-The split-tree layout (membership, order, split ratios) persists per
-project across restarts via the workspace restore state's `panelGrid`
-field. Closing a panel moves it to a `closedPanels` history list
-(retaining its session); reopening restores it to the grid.
+The workspace is a split tree of independent surfaces, not tab groups. Each
+leaf owns exactly one surface — a Basebuild Chat, Oh My Pi Chat, or
+Terminal. There are no tab arrays inside leaves.
 
-### Panel-grid state reliability
+```text
+activeSurfaces: Record<surfaceId, SurfaceRecord>
+visibleTree: SplitNode | LeafNode(surfaceId) | null
+history: ClosedSurfaceRecord[]
+focusedSurfaceId: surfaceId | null
+```
 
-Panel-grid state is self-healing, project-scoped, and transactional:
+**Active registry** (`activeSurfaces`) holds every active surface — visible
+or hidden — keyed by `surfaceId`. Each `SurfaceRecord` owns kind (Chat, Oh
+My Pi Chat, or Terminal), backing resource id, title, and lifecycle/status.
+A surface's identity and draft do not depend on where it is displayed.
 
-- **Normalization on restore.** `parsePanelGridWithDiagnostics` recursively
-  validates the split tree, panel shapes, and sizes. A stale `activePanelId`
-  (pointing at a panel that no longer exists in the live tree) is repaired
-  deterministically to a surviving live panel (or `null` when the tree is
-  empty). Duplicate panel ids across the live tree and history are quarantined
-  (the duplicate is dropped from history) with a diagnostic log; backing
-  sessions/tabs are never deleted by normalization.
-- **Checked insertion.** All panel creation flows through a single
-  `insertPanel` helper that resolves the anchor, verifies exactly-once
-  placement, and returns success or an actionable failure reason — never a
-  silent no-op. Panel ids are collision-resistant (`crypto.randomUUID` via
-  `newPanelId`).
+**Visible tree** (`visibleTree`) is a split tree whose leaves contain only
+`surfaceId`. Split nodes own direction, ratio, and focus. The tree
+supports horizontal (left/right) and vertical (top/bottom) splits to any
+depth. One surface is `focusedSurfaceId` at a time; the focused leaf
+receives an active outline.
+
+**History** (`history`) is a third retained collection of closed surfaces.
+Reopening from History returns a surface as active hidden, preserving the
+current layout.
+
+### Selection, placement, and lifecycle
+
+- **Selecting a visible row** focuses its existing leaf in the split tree.
+- **Selecting a hidden active surface** replaces the focused leaf; the
+  displaced surface remains active hidden.
+- **Open beside / Open below** explicitly splits the focused leaf when
+  capacity permits.
+- **Remove from layout** hides a surface without closing it; it remains
+  active in the registry and visible in the sidebar without the visible
+  marker.
+- **Close** moves the surface to retained History. The backing session or
+  PTY is never deleted by closing.
+- **Reopen** from History returns the surface as active hidden, preserving
+  the current layout.
+
+### Capacity policy
+
+Initial minimums are 440px width for Chat and Oh My Pi Chat leaves, and
+320px width for Terminal leaves, plus practical minimum heights derived
+from header/composer/state geometry. A split computes both children's
+minimum requirements before mutation; splitter ratios clamp against pixel
+minimums. On window shrink, deterministically hide
+least-recently-focused nonfocused leaves until all visible leaves fit;
+they remain active hidden. New placement that cannot fit is rejected with
+`Replace focused` as the primary alternative.
+
+### Oh My Pi Chat surface
+
+Oh My Pi Chat is an install-gated optional surface that wraps one OMP PTY.
+It is additive — never required for native Chat or planning.
+
+- Labeled `Oh My Pi Chat` with secondary `OMP terminal session` ownership
+  copy.
+- One PTY per surface. States: creating, running, disconnected, exited,
+  error, restart.
+- xterm shell colors derive from computed CSS tokens, not hardcoded
+  values. Fitting uses a requestAnimationFrame-batched `ResizeObserver`
+  on the container, not window resize.
+- Bounded scrollback; the unbounded React-line rendering path is removed.
+
+### Surface state reliability
+
+Surface state is self-healing, project-scoped, and transactional:
+
+- **Normalization on restore.** The restore parser recursively validates the
+  split tree, surface shapes, and sizes. A stale `focusedSurfaceId`
+  (pointing at a surface that no longer exists in the live tree) is
+  repaired deterministically to a surviving live surface (or `null` when
+  the tree is empty). Duplicate surface ids across the live tree and
+  history are quarantined (the duplicate is dropped from history) with a
+  diagnostic log; backing sessions/PTYs are never deleted by
+  normalization.
+- **Checked insertion.** All surface creation flows through a single
+  insertion helper that resolves the anchor, verifies exactly-once
+  placement, and returns success or an actionable failure reason — never
+  a silent no-op. Surface ids are collision-resistant (`crypto.randomUUID`).
 - **Transactional resource-backed creation.** Chat/Terminal/OMP creation
-  reserves a visible `creating` panel first, then acquires the backing tab or
-  PTY, then binds the returned id atomically. On failure the reservation is
-  rolled back (`removePanelFromGrid`) and the error is surfaced via the log
-  panel; no orphan PTY or hidden tab remains. Rapid repeated clicks are
-  serialized per type via an in-flight guard so one click produces exactly one
-  panel and one backing resource.
+  reserves a visible `creating` surface first, then acquires the backing
+  session or PTY, then binds the returned id atomically. On failure the
+  reservation is rolled back and the error is surfaced via the log panel;
+  no orphan PTY or hidden session remains. Rapid repeated clicks are
+  serialized per type via an in-flight guard so one click produces exactly
+  one surface and one backing resource.
+- **Versioned migration.** Workspace persistence is versioned. For each
+  legacy leaf with tab groups, the active tab migrates into the
+  corresponding leaf and every other valid tab inserts into
+  `activeSurfaces` as hidden. Visible ids are deduplicated
+  deterministically; invalid entries are quarantined with one summary
+  diagnostic. Backing sessions and PTYs are never deleted during
+  normalization. The migrated form is persisted after successful restore.
 - **Project-switch isolation.** A project-keyed loading boundary
-  (`projectRestoreLoading` + a restore generation token) disables panel
+  (`projectRestoreLoading` + a restore generation token) disables surface
   mutation until the selected project's restore resolves and guards late
   restore responses from a previous project. Debounced saves capture the
-  project path and state in the timer closure so a save writes to the correct
-  project even after the user has switched. Project selection/detection emits
-  a single diagnostic event.
-- **Orphan recovery.** `detectOrphanedTabs` flags backing session tabs that
-  have no reachable panel in the live grid or history. Detection is
-  non-destructive: it logs a single summary entry (count + kind breakdown),
-  not one entry per tab, and dedupes by tab id so repeated state changes
-  don't flood the log. Tabs whose kind matches a `creating` panel are
-  excluded — the binding is in flight. Permanent cleanup is explicit and
-  confirm-gated (HistoryDrawer's delete dialog); no session or tab is ever
-  deleted automatically.
-- **Debug logging.** Every panel creation, session start, project switch,
-  restore, and prompt delivery emits a `addLog("debug", ...)` entry at the
-  entry point and at every skip/abort branch. The `debug` level is visible
-  in the LogPanel filter but excluded from the status bar error/warning
-  counts. Chat session creation has a 15s timeout — on expiry the panel
-  shows an error bar with a Retry button instead of hanging in
-  "initializing" forever.
+  project path and state in the timer closure so a save writes to the
+  correct project even after the user has switched. Project
+  selection/detection emits a single diagnostic event.
+- **Orphan recovery.** Detection flags backing sessions that have no
+  reachable surface in the live tree or history. Detection is
+  non-destructive: it logs a single summary entry (count + kind
+  breakdown), not one entry per session, and dedupes by id so repeated
+  state changes don't flood the log. Sessions whose kind matches a
+  `creating` surface are excluded — the binding is in flight. Permanent
+  cleanup is explicit and confirm-gated (HistoryDrawer's delete dialog);
+  no session or PTY is ever deleted automatically.
+- **Debug logging.** Every surface creation, session start, project
+  switch, restore, and prompt delivery emits a `addLog("debug", ...)`
+  entry at the entry point and at every skip/abort branch. The `debug`
+  level is visible in the LogPanel filter but excluded from the status bar
+  error/warning counts. Chat session creation has a 15s timeout — on
+  expiry the surface shows an error bar with a Retry button instead of
+  hanging in "initializing" forever.
 
-### Per-chat header
+### Pinned chat header
 
-Each chat column renders a compact header (`chat-header-context`): the
-chat title (inline-rename on double-click), provider/model chip, effort
-chip, agent-mode pill (`plan`/`build`), plan badge (when a plan is
-assigned), branch + worktree indicator, history toggle, and a more-actions
-menu (Rename, Assign plan, Duplicate chat, Close chat, Close + delete
-session, Create pull request). The header is pinned at the top of the
-column and never scrolls out of view. Every control has a `title=` tooltip.
+Each chat surface renders a pinned 28–32px header: the chat title
+(inline-rename on double-click), provider/model chip, effort dropdown,
+agent-mode pill (`plan`/`build`), plan badge (when a plan is assigned),
+context usage circle, run state, and a more-actions menu (Rename, Assign
+plan, Duplicate chat, Close chat, Close + delete session, Create pull
+request). The header is pinned at the top of the chat surface and never
+scrolls out of view. Configuration is not duplicated in the composer.
+Every control has a `title=` tooltip.
 
 ### Plan → chat → worktree → PR
 
-A `ready` plan can be assigned to a chat column (one active per chat;
+A `ready` plan can be assigned to a chat surface (one active per chat;
 re-assign confirms + restarts). On run start, the system provisions a
 worktree (`bb/<ref>-<slug>` from the fetched default branch), seeds the
 chat from the plan + schematic, binds one model, and streams the run in
-that column. Concurrent runs are bounded by per-provider concurrency
+that surface. Concurrent runs are bounded by per-provider concurrency
 caps (`run-concurrency-limits`); excess runs queue with a visible reason.
-## Panel creation
+## Surface creation
 
-The Activity sidebar's "New chat" button creates a chat panel in the grid.
-A "New terminal" button creates a terminal panel. Both split right from the
-active panel (or fill the grid if empty). Panels can also be split from the
-PanelHeader's "Split right" / "Split down" buttons. Clicking a file in the
-Files panel opens a file panel in the grid.
+One shared typed menu offers Basebuild Chat, Oh My Pi Chat (when OMP is
+installed), and Terminal. All plus/New actions — sidebar, header, and
+command strip — invoke the same component and transaction. Default
+creation replaces/fills the focused leaf when no capacity is available;
+explicit `Open beside` / `Open below` placement is offered when capacity
+permits. Reservation, backing-resource acquisition, binding, failure
+rollback, logging, and in-flight deduplication remain centralized.
 
-## Chat panel workflow routing
+## Chat surface workflow routing
 
 When a workflow (like Generate from context) requests a chat:
 
-1. If the active panel is already a chat panel, use it.
-2. Else if the grid has any chat panel, focus the most recent one.
-3. Else create a new chat panel (split right, or fill if grid is empty).
+1. If the focused surface is already a chat surface, use it.
+2. Else if the visible tree has any chat surface, focus the most recent
+   one.
+3. Else create a new chat surface (replace focused, or fill if tree is
+   empty).
 
-The draft prompt is delivered through a one-shot `draftPrompt` prop consumed
-exactly once by ChatPanel. Do not overload `terminalId` or `filePath` for
-this purpose.
+The draft prompt is delivered through a one-shot `draftPrompt` prop
+consumed exactly once by ChatPanel. Do not overload `terminalId` or
+`filePath` for this purpose.
 
 ## Shell state
 
 Driven by `data-sidebar="collapsed|expanded"` and
 `data-rail="collapsed|expanded"` attributes on `.app-shell`. CSS handles grid
-width changes and hides panel labels in collapsed mode.
+width changes and hides surface labels in collapsed mode.
 
 ## Session state
 
-`useSessionState` hook manages sessions, tabs, and active selection. Sessions
-are project-scoped. Tabs are session-scoped. The last active session is
-persisted per project. On restore, stale terminal tabs (whose PTY processes
-are not alive after restart) are not auto-focused; the workspace prefers
-non-terminal tabs or shows a neutral "No tab open" empty state.
+`useSessionState` hook manages sessions and active selection. Sessions
+are project-scoped. The last active session is persisted per project. On
+restore, stale terminal surfaces (whose PTY processes are not alive
+after restart) are not auto-focused; the workspace prefers non-terminal
+surfaces or shows a neutral empty state.
 
 ### Launch does not mint sessions
 
@@ -261,43 +326,47 @@ command thread.
 
 Basebuild does not create or focus a terminal process on launch, project
 selection, or session restore. The workspace shows a neutral empty state
-until the user explicitly creates a terminal or chat panel. Terminal
-panels restored from previous sessions that have no live PTY show a
+until the user explicitly creates a terminal or chat surface. Terminal
+surfaces restored from previous sessions that have no live PTY show a
 "Terminal not connected" empty state instead of an implied-running
 terminal.
 
 ## Activity sidebar
 
-The left sidebar shows the list of open panels in the grid (the "activity
-list"). Each row shows the panel type icon, title, and a status indicator
-(streaming, idle, error). Clicking a row focuses the corresponding panel
-in the grid. The sidebar also has a "New chat" button, a "New terminal"
-button, and a History button with a count badge showing the number of
-closed panels retained in history.
+The left sidebar shows all active surfaces under each project. Under each
+project, a compact **Current layout** group lists visible surfaces in
+depth-first split-tree order with a position marker; active hidden surfaces
+render as sibling rows without the visible marker. Each row is a real
+`<button>` with a type icon, title, and one state icon/word (streaming,
+idle, error, creating, disconnected). Clicking a visible row focuses its
+leaf; clicking a hidden row replaces the focused leaf. The sidebar also
+has a `New` button (opens the shared typed creation menu) and a History
+button with a count badge showing the number of closed surfaces retained
+in history. Close controls reveal on `:focus-within`, not just `:hover`.
 
-### Panel history
+### Surface history
 
-Closing a panel moves it to a `closedPanels` history list. The history
-drawer (opened from the History button) lists closed panels with their
-title, type, and close time. Each item has a "Re-open" action (restores the
-panel to the grid) and a "Delete permanently" action (confirm-gated;
-deletes the session for chat panels). The history list is per-project.
+Closing a surface moves it to a per-project `history` collection. The
+history drawer (opened from the History button) lists closed surfaces with
+their title, type, and close time. Each item has a "Re-open" action
+(returns the surface as active hidden, preserving the current layout) and
+a "Delete permanently" action (confirm-gated; deletes the session for
+chat surfaces). The history list is per-project.
 
 ## Workspace restore
 
-Per-project workspace state (last session, panel grid layout, closed panels,
-sidebar collapse, side panel width) is persisted locally and restored on
-project open. The panel grid state (`PanelGridState`) includes the split
-tree, active panel id, and closed panels. Side panel width is resizable via
-a drag handle between the center workspace and the right panel, clamped to
-180–520px. Restoring never auto-spawns terminals or agents; stale
-process-backed tabs show a disconnected state until the user explicitly
-reconnects.
+Per-project workspace state (last session, active surface registry,
+visible split tree, focused surface id, history, sidebar collapse) is
+persisted locally and restored on project open. The workspace state
+includes the split tree (whose leaves reference surface ids), the active
+surface registry, and the history collection. Restoring never auto-spawns
+terminals or agents; stale process-backed surfaces show a disconnected
+state until the user explicitly reconnects.
 
 Persistence is **debounced (~250ms) and deferred to `requestIdleCallback`**
-(1s timeout fallback) in `AppShell`, so serializing and writing workspace state
-never competes with interaction paint during rapid tab switching. The persisted
-shape is unchanged; the debounce timer closure captures the project path so a
+(1s timeout fallback) in `AppShell`, so serializing and writing workspace
+state never competes with interaction paint during rapid surface
+switching. The debounce timer closure captures the project path so a
 deferred write always lands on the correct project even after a switch.
 
 ## Plan pipeline
@@ -312,10 +381,10 @@ promoted into the plan pipeline (tagged `chat:<id>`) or rejected. See
 The PlanPanel includes a run queue section at the bottom. Ready plans can be
 enqueued, and the queue dispatches runs up to the configured concurrency
 (`N × provider/model`). The dispatcher is backend-owned (`plan_runner_service.rs`)
-and survives panel unmounts. Each native run provisions a fresh chat session
+and survives surface unmounts. Each native run provisions a fresh chat session
 titled `<ref> — <plan title>`, primed with the plan's opening context.
 Completion is detected by `tasks.md` checkbox polling or explicit user action.
-The OMP runner path opens a terminal tab seeded with the plan's reference id.
+The OMP runner path opens a terminal surface seeded with the plan's reference id.
 
 ## Final touches
 
@@ -351,7 +420,7 @@ The `CommandStrip` sits in the session header, showing per-stage counts
 (schematic, ideas, plans, running, finished) with status colors and an
 activity pulse on active runs. Schematic opens the dedicated Project Schematic
 modal; Ideas and Plans open the Planning modal on their exact tabs; Running and
-Finished open Flow. Stage clicks never default to a sibling tab.
+Finished open Flow. Stage clicks never default to a sibling surface.
 The strip collapses to a compact badge; collapse state persists in workspace
 restore.
 
@@ -380,7 +449,7 @@ action and project/session identifiers.
 ## Destination picker
 
 The `DestinationPicker` is a managed dialog for choosing where a prompt goes.
-It lists open chat panels and a "New conversation" option. The schematic
+It lists open chat surfaces and a "New conversation" option. The schematic
 wizard uses it to route its generated prompt. The chosen destination receives
 the prompt via `deliverPrompt()` — a module-level store outside React state
 that guarantees exactly-once delivery by `actionId`.
@@ -411,4 +480,4 @@ review, completion, cancellation, restart, and chat deletion all transition
 through `PlanLifecycleService`. Startup and list/dispatch boundaries reconcile
 contradictory persisted rows idempotently without deleting terminal history.
 Deleting a run-owned chat is blocked until the user explicitly cancels, keeps,
-or reassigns the run; ordinary panel close remains presentation-only.
+or reassigns the run; ordinary surface close remains presentation-only.
