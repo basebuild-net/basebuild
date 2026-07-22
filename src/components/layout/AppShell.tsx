@@ -37,6 +37,21 @@ import { getLastFocusedProject, revealInExplorer, setLastFocusedProject, testRun
 import { assignPlanToChat, cancelPlanRun, completePlanRun, listPlanRuns, listPlanRunsByPlan, onPlanRunEvent } from "../../lib/planRuns";
 import { generateSessionTitle, readSkill } from "../../lib/skills";
 import { getWorkspaceRestoreState, saveWorkspaceRestoreState, type WorkspaceRestoreState } from "../../lib/workspace";
+import {
+  closeSurface as closeSurfacePure,
+  deleteSurfaceFromHistory as deleteSurfaceFromHistoryPure,
+  emptyWorkspaceState,
+  focusSurface as focusSurfacePure,
+  migrateFromLegacyBlob,
+  reopenSurface as reopenSurfacePure,
+  removeSurfaceFromLayout as removeSurfaceFromLayoutPure,
+  replaceFocusedSurface as replaceFocusedSurfacePure,
+  splitFocusedSurface as splitFocusedSurfacePure,
+  type SplitDirection,
+  type SurfaceRecord,
+  type WorkspaceState,
+} from "../../lib/workspaceState";
+import { panelGridToWorkspaceState, surfaceIdToPanelId } from "../../lib/workspaceBridge";
 import { FirstRunModal } from "./FirstRunModal";
 import { useFirstRun } from "../../state/first-run";
 import { getLastGrounding } from "../../state/grounding";
@@ -50,10 +65,13 @@ import { listen } from "@tauri-apps/api/event";
 import { PanelStatusProvider } from "../panels/PanelStatusContext";
 const HistoryDrawer = lazy(() => import("../panels/HistoryDrawer").then((m) => ({ default: m.HistoryDrawer })));
 import {
+  activeTab as activeTabOfPanel,
   closePanel,
   deletePanelFromHistory,
   detectOrphanedTabs,
   emptyGrid,
+  equalizeSplit,
+  findParentSplit,
   flattenPanels,
   insertPanel,
   newPanelId,
@@ -63,6 +81,7 @@ import {
   reopenPanel,
   reopenPanelChecked,
   repairActivePanelId,
+  resizeSplitChild,
   serializePanelGrid,
   singlePanelGrid,
   splitPanelAt,
@@ -71,6 +90,7 @@ import {
   type Panel,
   type PanelGridState,
   type PanelType,
+  type SplitBranch,
 } from "../../lib/panelGrid";
 import { parseTabGridStates, serializeTabGridStates } from "../../lib/workspace";
 import { ompStatus } from "../../lib/omp";
@@ -181,6 +201,7 @@ export function AppShell({ updates }: AppShellProps) {
   useEscapeKey(debugPanelOpen, () => setDebugPanelOpen(false));
   const [focusedChatId, setFocusedChatId] = useState<string | null>(null);
   const [panelGridState, setPanelGridState] = useState<PanelGridState>(emptyGrid());
+  const [workspaceState, setWorkspaceState] = useState<WorkspaceState>(emptyWorkspaceState(""));
   const [backgroundChatSessionIds, setBackgroundChatSessionIds] = useState<Set<string>>(new Set());
   // Chats owned by active *pipeline* stages (e.g. OpenSpec generation). Plan
   // runs feed `backgroundChatSessionIds` via plan-run events; pipeline runs
@@ -543,6 +564,29 @@ export function AppShell({ updates }: AppShellProps) {
       }
     }
   }, [workspaceRestore, addLog]);
+  // Hydrate the versioned workspace state (active registry + visible tree +
+  // history) from the same restore blob. Legacy PanelGridState blobs are
+  // migrated in-memory by migrateFromLegacyBlob; v2 blobs parse directly.
+  // This coexists with panelGridState during the transitional period — the
+  // sidebar reads from workspaceState while the grid renderer still reads
+  // from panelGridState (Phase 4 unifies the grid).
+  useEffect(() => {
+    if (!activeProjectPath) {
+      setWorkspaceState(emptyWorkspaceState(""));
+      return;
+    }
+    if (!workspaceRestore?.panelGrid) {
+      setWorkspaceState(emptyWorkspaceState(activeProjectPath));
+      return;
+    }
+    const result = migrateFromLegacyBlob(workspaceRestore.panelGrid, activeProjectPath);
+    setWorkspaceState(result.state);
+    if (result.repaired) {
+      for (const d of result.diagnostics) {
+        addLog("debug", "Workspace state repaired", `${d.kind}: ${d.message}`);
+      }
+    }
+  }, [workspaceRestore, activeProjectPath, addLog]);
   // Detect orphaned backing tabs after restore or when tabs change —
   // non-destructive: log a single summary, never per-tab. Re-logging on
   // project switch is expected (different project, different tabs).
@@ -1613,50 +1657,115 @@ export function AppShell({ updates }: AppShellProps) {
     [session, activeProjectPath, schematic.content, handleCreatePlanFromIdea, handleOpenPlanningInspector, handleOpenSchematic, handleTerminalOutput, handleStartSchematicWizard],
   );
 
-  /** Handle panel grid state changes. */
-  const handlePanelGridChange = useCallback(
-    (newState: PanelGridState) => {
-      setPanelGridState(repairActivePanelId(newState));
-    },
-    [],
+
+  // ── Workspace bridge: convert panelGridState → WorkspaceState for the
+  //    refactored single-surface PanelGrid. Surface ids are stable (panel
+  //    id = surface id for single-tab panels, tab id for multi-tab). ──
+  const gridWorkspaceState = useMemo(
+    () => panelGridToWorkspaceState(panelGridState, activeProjectPath ?? ""),
+    [panelGridState, activeProjectPath],
+  );
+  // The sidebar reads from the v2 WorkspaceState when it has active surfaces
+  // (seeded by tests or migrated from a v2 restore blob), and falls back to
+  // the bridge-derived state from panelGridState during the transitional period.
+  const sidebarWorkspaceState = useMemo(
+    () => Object.keys(workspaceState.activeSurfaces).length > 0 ? workspaceState : gridWorkspaceState,
+    [workspaceState, gridWorkspaceState],
   );
 
-  /** Persist a tab rename from the panel header tab strip to the DB.
-   *  The panel grid state is already updated by PanelGrid; this syncs the
-   *  title to session_tabs and (for chat tabs) the native chat session so
-   *  it survives project switches and restarts. */
-  const handleRenameTab = useCallback(
-    (panelId: string, title: string) => {
-      const allPanels = flattenPanels(panelGridState.root);
-      const panel = allPanels.find((p) => p.id === panelId);
-      if (!panel) return;
-      // Find the matching session tab — same lookup logic as renderPanel.
-      const tab = session.tabs.find(
-        (t) =>
-          (panel.chatSessionId && t.chatSessionId === panel.chatSessionId) ||
-          t.title === panel.title ||
-          t.id === panelId,
-      );
-      if (tab) {
-        void session.setTabTitle(tab.id, title);
-      }
-      // For chat tabs, also rename the native chat session so the
-      // ChatPanel title-sync effect doesn't overwrite it on remount.
-      const chatSessionId = panel.chatSessionId ?? tab?.chatSessionId ?? null;
-      if (chatSessionId) {
-        void renameNativeChatSession(chatSessionId, title);
-      }
+  const renderSurface = useCallback(
+    (surface: SurfaceRecord, isActive: boolean) => {
+      const panel = flattenPanels(panelGridState.root).find((p) => activeTabOfPanel(p).id === surface.id);
+      if (!panel) return null;
+      return renderPanel(panel, isActive);
     },
-    [panelGridState.root, session.tabs, session.setTabTitle],
+    [panelGridState.root, renderPanel],
   );
 
-  /** Handle closing a panel → moves to history. */
-  const handlePanelClose = useCallback(
-    (panelId: string) => {
+  const handleGridFocusSurface = useCallback(
+    (surfaceId: string) => {
+      const panelId = surfaceIdToPanelId(panelGridState, surfaceId);
+      if (!panelId) {
+        addLog("debug", "Focus surface skipped", `surfaceId=${surfaceId} not found`);
+        return;
+      }
+      setPanelGridState((prev) => (prev.activePanelId === panelId ? prev : { ...prev, activePanelId: panelId }));
+    },
+    [panelGridState, addLog],
+  );
+
+  const handleGridCloseSurface = useCallback(
+    (surfaceId: string) => {
+      const panelId = surfaceIdToPanelId(panelGridState, surfaceId);
+      if (!panelId) {
+        addLog("debug", "Close surface skipped", `surfaceId=${surfaceId} not found`);
+        return;
+      }
       setPanelGridState((prev) => closePanel(prev, panelId));
     },
-    [],
+    [panelGridState, addLog],
   );
+
+  const handleGridSplitFocused = useCallback(
+    (direction: SplitDirection) => {
+      const side: DropSide = direction === "horizontal" ? "right" : "bottom";
+      const anchorId = panelGridState.activePanelId;
+      addLog("debug", "Split focused surface", `direction=${direction} anchor=${anchorId ?? "none"}`);
+      const newPanel = handleCreatePanel(anchorId, side);
+      if (!commitInsert(newPanel, anchorId, side)) {
+        addLog("debug", "Split focused surface failed", "commitInsert returned false");
+      }
+    },
+    [panelGridState.activePanelId, handleCreatePanel, commitInsert, addLog],
+  );
+
+  const handleDuplicateSurface = useCallback(
+    (surfaceId: string) => {
+      const panelId = surfaceIdToPanelId(panelGridState, surfaceId);
+      if (!panelId) {
+        addLog("debug", "Duplicate surface skipped", `surfaceId=${surfaceId} not found`);
+        return;
+      }
+      addLog("debug", "Duplicate surface", `surfaceId=${surfaceId} panelId=${panelId}`);
+      const newPanel = handleCreatePanel(panelId, "right");
+      commitInsert(newPanel, panelId, "right");
+    },
+    [panelGridState, handleCreatePanel, commitInsert, addLog],
+  );
+
+  const handleResizeSplit = useCallback(
+    (firstChildSurfaceId: string, deltaPx: number) => {
+      const panelId = surfaceIdToPanelId(panelGridState, firstChildSurfaceId);
+      if (!panelId || !panelGridState.root) return;
+      const parentSplit = findParentSplit(panelGridState.root, panelId);
+      if (!parentSplit) return;
+      const childIndex = parentSplit.children.findIndex(
+        (child) => child.kind === "leaf" && child.panel.id === panelId,
+      );
+      if (childIndex === -1) return;
+      const totalSize = parentSplit.direction === "row"
+        ? (typeof window !== "undefined" ? window.innerWidth - 80 : 1200)
+        : (typeof window !== "undefined" ? window.innerHeight - 120 : 700);
+      if (totalSize <= 0) return;
+      const deltaFraction = deltaPx / totalSize;
+      const newRoot = resizeSplitChild(panelGridState.root, parentSplit, childIndex, deltaFraction);
+      setPanelGridState((prev) => ({ ...prev, root: newRoot }));
+    },
+    [panelGridState],
+  );
+
+  const handleEqualizeSplit = useCallback(
+    (firstChildSurfaceId: string) => {
+      const panelId = surfaceIdToPanelId(panelGridState, firstChildSurfaceId);
+      if (!panelId || !panelGridState.root) return;
+      const parentSplit = findParentSplit(panelGridState.root, panelId);
+      if (!parentSplit) return;
+      const newRoot = equalizeSplit(panelGridState.root, parentSplit);
+      setPanelGridState((prev) => ({ ...prev, root: newRoot }));
+    },
+    [panelGridState],
+  );
+
 
   /** Handle reopening a panel from history. */
   const handlePanelReopen = useCallback(
@@ -1679,6 +1788,44 @@ export function AppShell({ updates }: AppShellProps) {
     },
     [panelGridState.closedPanels, session],
   );
+  // ── Workspace surface lifecycle actions (sidebar) ──────────────────────
+  // These operate against surface identity via the pure workspaceState
+  // functions. The sidebar is the primary consumer during Phase 3; the grid
+  // renderer still uses panelGridState until Phase 4 unifies it.
+  const handleFocusSurface = useCallback((surfaceId: string) => {
+    addLog("debug", "Surface focus", surfaceId);
+    setWorkspaceState((prev) => focusSurfacePure(prev, surfaceId));
+  }, [addLog]);
+
+  const handleReplaceFocusedSurface = useCallback((surfaceId: string) => {
+    addLog("debug", "Surface replace focused", surfaceId);
+    setWorkspaceState((prev) => replaceFocusedSurfacePure(prev, surfaceId));
+  }, [addLog]);
+
+  const handleSplitFocusedSurface = useCallback((surfaceId: string, direction: SplitDirection) => {
+    addLog("debug", "Surface split focused", `${surfaceId} ${direction}`);
+    setWorkspaceState((prev) => splitFocusedSurfacePure(prev, surfaceId, direction));
+  }, [addLog]);
+
+  const handleRemoveSurfaceFromLayout = useCallback((surfaceId: string) => {
+    addLog("debug", "Surface remove from layout", surfaceId);
+    setWorkspaceState((prev) => removeSurfaceFromLayoutPure(prev, surfaceId));
+  }, [addLog]);
+
+  const handleCloseSurface = useCallback((surfaceId: string) => {
+    addLog("debug", "Surface close to history", surfaceId);
+    setWorkspaceState((prev) => closeSurfacePure(prev, surfaceId));
+  }, [addLog]);
+
+  const handleReopenSurface = useCallback((surfaceId: string) => {
+    addLog("debug", "Surface reopen from history", surfaceId);
+    setWorkspaceState((prev) => reopenSurfacePure(prev, surfaceId));
+  }, [addLog]);
+
+  const handleDeleteSurfaceFromHistory = useCallback((surfaceId: string) => {
+    addLog("debug", "Surface delete from history", surfaceId);
+    setWorkspaceState((prev) => deleteSurfaceFromHistoryPure(prev, surfaceId));
+  }, [addLog]);
 
   /** Open a chat session as a visible panel in the grid: focus it when it is
    *  already surfaced, otherwise insert a new chat panel bound to the
@@ -1874,17 +2021,21 @@ export function AppShell({ updates }: AppShellProps) {
           />
           <WindowControls />
         </div>
-      </div>
+</div>
       <main
         className="app-shell app-shell-chat-first"
         data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}
       >
         <ActivitySidebar
           activeProjectPath={activeProjectPath}
-          root={panelGridState.root}
-          activePanelId={panelGridState.activePanelId}
-          closedPanelCount={panelGridState.closedPanels.length}
-          backgroundChatIds={allBackgroundChatIds}
+          onFocusSurface={handleFocusSurface}
+          workspaceState={sidebarWorkspaceState}
+          onReplaceFocusedSurface={handleReplaceFocusedSurface}
+          onSplitFocusedSurface={handleSplitFocusedSurface}
+          onRemoveSurfaceFromLayout={handleRemoveSurfaceFromLayout}
+          onCloseSurface={handleCloseSurface}
+          onReopenSurface={handleReopenSurface}
+          onDeleteSurfaceFromHistory={handleDeleteSurfaceFromHistory}
           projects={sidebar.projects}
           account={account}
           updates={updates}
@@ -1898,7 +2049,6 @@ export function AppShell({ updates }: AppShellProps) {
           onOpenFiles={() => setFileModalOpen(true)}
           onOpenChanges={() => setChangesModalOpen(true)}
           pickerInFlight={sidebar.pickerInFlight}
-          onFocusPanel={(panelId) => setPanelGridState((prev) => ({ ...prev, activePanelId: panelId }))}
           onCreateChat={() => handleCreateTypedPanel("chat")}
           onOpenLogPanel={() => setLogPanelOpen(true)}
           onClearChats={handleClearChats}
@@ -2026,14 +2176,16 @@ export function AppShell({ updates }: AppShellProps) {
             {activeProjectPath && !projectRestoreError && !projectRestoreLoading ? (
               <>
                 <PanelGrid
-                  state={panelGridState}
-                  onStateChange={handlePanelGridChange}
-                  onRenameTab={handleRenameTab}
-                  renderPanel={renderPanel}
-                  onCreatePanel={handleCreatePanel}
+                  state={gridWorkspaceState}
+                  renderSurface={renderSurface}
+                  onFocusSurface={handleGridFocusSurface}
+                  onCloseSurface={handleGridCloseSurface}
+                  onSplitFocused={handleGridSplitFocused}
+                  onDuplicate={handleDuplicateSurface}
+                  onResize={handleResizeSplit}
+                  onEqualize={handleEqualizeSplit}
                   viewportWidth={typeof window !== "undefined" ? window.innerWidth - 80 : 1200}
                   viewportHeight={typeof window !== "undefined" ? window.innerHeight - 120 : 700}
-                  onDropExternalChat={handleOpenChatSession}
                   backgroundChatSessionIds={allBackgroundChatIds}
                 />
                 {historyDrawerOpen ? (

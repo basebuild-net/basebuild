@@ -162,7 +162,7 @@ journey:
 | Rust `connect_` storage tests | Fresh databases initialize and persist `user_version`; current databases bypass the full initializer; WAL/busy timeout remain configured. |
 | Rust `latest_metric_is_scoped_to_the_requested_session` | Context usage reads the newest metric for the active session without leaking another session's totals. |
 | `chat-composer.spec.ts` / `chat-context-strip.spec.ts` | Header owns model/effort/permission/run/context, footer has no duplicates, controls retain tooltips. |
-| `streaming-indicators.spec.ts` / `chat-ux-polish.spec.ts` | Whole-composer orange focus treatment and latest-message resume behavior. |
+| `streaming-indicators.spec.ts` / `chat-ux-polish.spec.ts` | Whole-composer green focus treatment and latest-message resume behavior. |
 | `mvp-restart-smoke.spec.ts` | Project/session restore remains single-activation and responsive after cache-first project discovery. |
 
 At the 960×640 minimum viewport, capture the chat panel and verify: 28px

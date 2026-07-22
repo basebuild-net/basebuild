@@ -30,11 +30,11 @@ test.describe("Left sidebar structure (DESIGN.md §Layout)", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    let rows = page.locator(".activity-sidebar-row");
+    let rows = page.locator(".surface-row, .activity-sidebar-row");
     if (await rows.count() === 0) {
       await page.getByTitle("New chat").first().click();
       await page.waitForTimeout(500);
-      rows = page.locator(".activity-sidebar-row");
+      rows = page.locator(".surface-row, .activity-sidebar-row");
     }
     const titles = await rows.evaluateAll((els) => els.map((el) => el.getAttribute("title")));
     expect(titles.length).toBeGreaterThan(0);

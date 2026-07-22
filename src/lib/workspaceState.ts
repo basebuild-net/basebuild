@@ -871,7 +871,6 @@ export function deleteSurfaceFromHistory(state: WorkspaceState, surfaceId: strin
   if (!state.history.some((h) => h.id === surfaceId)) return state;
   return { ...state, history: state.history.filter((h) => h.id !== surfaceId) };
 }
-
 // ── Tree mutation helpers ───────────────────────────────────────────────────
 
 /** Immutably replace the surfaceId of the leaf referencing `oldSurfaceId`.
@@ -920,4 +919,77 @@ function removeFromTree(tree: TreeNode | null, surfaceId: string): TreeNode | nu
   if (!second) return first;
   if (first === tree.first && second === tree.second) return tree;
   return { ...tree, first, second };
+}
+/** Immutably adjust the ratio of the split whose first child's subtree
+ *  contains `firstChildSurfaceId`. `deltaPx` is a signed pixel delta
+ *  relative to `viewportSize`; positive grows the first child. The ratio
+ *  is clamped to [MIN_RATIO, MAX_RATIO]. Returns the same ref when the
+ *  surface is not found or the delta is zero. */
+export function resizeSplitByPixels(
+  state: WorkspaceState,
+  firstChildSurfaceId: string,
+  deltaPx: number,
+  viewportSize: number,
+): WorkspaceState {
+  if (!state.visibleTree || viewportSize <= 0 || deltaPx === 0) return state;
+  const updated = resizeSplitNode(state.visibleTree, firstChildSurfaceId, deltaPx, viewportSize);
+  if (!updated || updated === state.visibleTree) return state;
+  return { ...state, visibleTree: updated };
+}
+
+/** Immutably set the ratio of the split whose first child's subtree
+ *  contains `firstChildSurfaceId` to 0.5 (equal). Returns the same ref
+ *  when the surface is not found. */
+export function equalizeSplit(state: WorkspaceState, firstChildSurfaceId: string): WorkspaceState {
+  if (!state.visibleTree) return state;
+  const updated = equalizeSplitNode(state.visibleTree, firstChildSurfaceId);
+  if (!updated || updated === state.visibleTree) return state;
+  return { ...state, visibleTree: updated };
+}
+
+/** True when `surfaceId` appears anywhere in the subtree. */
+function subtreeContains(node: TreeNode, surfaceId: string): boolean {
+  return flattenLeaves(node).some((l) => l.surfaceId === surfaceId);
+}
+
+/** Find the split whose first child contains `firstChildSurfaceId` and adjust
+ *  its ratio by a pixel delta. Returns null when not found; the same ref when
+ *  the clamped ratio is unchanged. */
+function resizeSplitNode(
+  tree: TreeNode,
+  firstChildSurfaceId: string,
+  deltaPx: number,
+  viewportSize: number,
+): TreeNode | null {
+  if (isLeaf(tree)) return null;
+  if (subtreeContains(tree.first, firstChildSurfaceId)) {
+    const deltaRatio = deltaPx / viewportSize;
+    const ratio = clampRatio(tree.ratio + deltaRatio);
+    if (Math.abs(ratio - tree.ratio) < 0.001) return tree;
+    return { ...tree, ratio };
+  }
+  const first = resizeSplitNode(tree.first, firstChildSurfaceId, deltaPx, viewportSize);
+  if (first && first !== tree.first) return { ...tree, first };
+  const second = resizeSplitNode(tree.second, firstChildSurfaceId, deltaPx, viewportSize);
+  if (second && second !== tree.second) return { ...tree, second };
+  return null;
+}
+
+/** Find the split whose first child contains `firstChildSurfaceId` and reset
+ *  its ratio to 0.5. Returns null when not found; the same ref when already
+ *  0.5. */
+function equalizeSplitNode(
+  tree: TreeNode,
+  firstChildSurfaceId: string,
+): TreeNode | null {
+  if (isLeaf(tree)) return null;
+  if (subtreeContains(tree.first, firstChildSurfaceId)) {
+    if (Math.abs(tree.ratio - 0.5) < 0.001) return tree;
+    return { ...tree, ratio: 0.5 };
+  }
+  const first = equalizeSplitNode(tree.first, firstChildSurfaceId);
+  if (first && first !== tree.first) return { ...tree, first };
+  const second = equalizeSplitNode(tree.second, firstChildSurfaceId);
+  if (second && second !== tree.second) return { ...tree, second };
+  return null;
 }

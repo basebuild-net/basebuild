@@ -69,7 +69,7 @@ const PROJECT_COLOR_PRESETS = [
   { key: "blue", label: "Blue" },
   { key: "green", label: "Green" },
   { key: "purple", label: "Purple" },
-  { key: "orange", label: "Orange" },
+  { key: "orange", label: "Sage" },
   { key: "red", label: "Red" },
 ] as const;
 

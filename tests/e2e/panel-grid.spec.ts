@@ -32,8 +32,8 @@ test.describe("panel grid", () => {
     await expect(page.locator(".panel-grid")).toBeVisible();
     await expect(page.locator(".panel-grid-leaf").first()).toBeVisible();
     await expect(page.locator(".panel-header").first()).toBeVisible();
-    await expect(page.locator(".panel-header-tab-title").first()).toBeVisible();
-    await expect(page.locator(".activity-sidebar-row").first()).toBeVisible();
+    await expect(page.locator(".panel-header-surface-title").first()).toBeVisible();
+    await expect(page.locator(".surface-row, .activity-sidebar-row").first()).toBeVisible();
 
     expect(pageErrors).toEqual([]);
   });
@@ -47,11 +47,11 @@ test.describe("panel grid", () => {
 
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(1);
 
-    await clickByTitle(page, "Split right");
+    await clickByTitle(page, "Split right (add surface beside)");
 
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(2);
     await expect(page.locator(".panel-grid-splitter").first()).toBeVisible();
-    await expect(page.locator(".activity-sidebar-row")).toHaveCount(2);
+    await expect(page.locator(".surface-row, .activity-sidebar-row")).toHaveCount(2);
 
     expect(pageErrors).toEqual([]);
   });
@@ -64,7 +64,7 @@ test.describe("panel grid", () => {
     await ensureChatPanel(page);
 
     // Split to get two panels.
-    await clickByTitle(page, "Split right");
+    await clickByTitle(page, "Split right (add surface beside)");
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(2);
 
     // Open the "More actions" menu on the second panel header, then click close.
@@ -76,10 +76,10 @@ test.describe("panel grid", () => {
     await page.waitForTimeout(500);
 
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(1);
-    await expect(page.locator(".activity-sidebar-history-badge")).toContainText("1");
+    await expect(page.locator(".surface-history-badge, .activity-sidebar-history-badge").first()).toContainText("1");
 
     // Open history drawer.
-    await clickByTitle(page, "History (0 closed panels)");
+  await clickByTitle(page, "History drawer (1 closed surface)");
     // If that didn't match, try a broader title.
     const historyBtn = page.locator("button[title*='History']");
     if (await historyBtn.count() > 0) {
@@ -103,7 +103,7 @@ test.describe("panel grid", () => {
     await ensureChatPanel(page);
 
     // Split + close to populate history.
-    await clickByTitle(page, "Split right");
+    await clickByTitle(page, "Split right (add surface beside)");
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(2);
 
     const panelHeaders = page.locator(".panel-header");
@@ -114,9 +114,11 @@ test.describe("panel grid", () => {
     await page.waitForTimeout(500);
 
     // Open history and re-open.
+    await clickByTitle(page, "History drawer (1 closed surface)");
+    // Fallback: try broader title match.
     await page.evaluate(() => {
       const btn = document.querySelector<HTMLButtonElement>("button[title*='History']");
-      btn?.click();
+      if (btn) btn.click();
     });
     await expect(page.locator(".modal-overlay[aria-label='History']")).toBeVisible();
 
@@ -127,7 +129,7 @@ test.describe("panel grid", () => {
     await page.waitForTimeout(500);
 
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(2);
-    await expect(page.locator(".activity-sidebar-history-badge")).toHaveCount(0);
+    await expect(page.locator(".surface-history-badge, .activity-sidebar-history-badge")).toHaveCount(0);
 
     expect(pageErrors).toEqual([]);
   });
@@ -139,11 +141,11 @@ test.describe("panel grid", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    await clickByTitle(page, "Split right");
+    await clickByTitle(page, "Split right (add surface beside)");
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(2);
 
     // Click the second row in the activity sidebar.
-    await page.locator(".activity-sidebar-row").nth(1).click();
+    await page.locator(".surface-row, .activity-sidebar-row").nth(1).click();
 
     const secondLeaf = page.locator(".panel-grid-leaf").nth(1);
     await expect(secondLeaf).toHaveClass(/is-active/);

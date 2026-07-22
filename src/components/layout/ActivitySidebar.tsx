@@ -1,57 +1,57 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Bot,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Copy,
   Clock,
+  Columns,
+  Copy,
+  EyeOff,
   FileText,
   GitBranch,
   FolderPlus,
   FlaskConical,
   LayoutTemplate,
-  Loader2,
   MessageSquare,
   MoreVertical,
-  Palette,
   Pin,
   Plus,
+  RotateCcw,
+  Rows,
   Settings2,
   TerminalSquare,
   Trash2,
+  X,
   Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { flattenPanels, parsePanelGrid } from "../../lib/panelGrid";
 import { useDropdownPosition } from "../../state/useDropdownPosition";
-import { usePanelStatus, type PanelStatus } from "../panels/PanelStatusContext";
 import { AccountButton } from "./AccountButton";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { StatusBar } from "./StatusBar";
 import { UpdateButton } from "./UpdateButton";
 import { RepoIcon } from "./RepoIcon";
-import { getRepoIdentity, type RepoHost, type RepoIdentity } from "../../lib/repoIdentity";
+import { getRepoIdentity, type RepoIdentity } from "../../lib/repoIdentity";
 import { humanizeChatTitle } from "../../lib/titles";
-import { getProjectAgentStatus, type AgentStatus } from "../../lib/agentStatus";
-import { nativeChatList, type NativeChatSession } from "../../lib/native-chat";
 import { getWorkspaceRestoreState } from "../../lib/workspace";
+import {
+  flattenLeaves,
+  migrateFromLegacyBlob,
+  visibleSurfaceIds,
+  type ClosedSurfaceRecord,
+  type LeafNode,
+  type SplitDirection,
+  type SurfaceKind,
+  type SurfaceRecord,
+  type TreeNode,
+  type WorkspaceState,
+} from "../../lib/workspaceState";
 import { formatRelativeTime } from "../../lib/timing";
 import type { AccountState } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
-import type { Panel, PanelType, SplitNode } from "../../lib/panelGrid";
 import type { RecentProject } from "../../lib/projects";
 
-
-const PROJECT_COLOR_PRESETS = [
-  { key: "none", label: "None" },
-  { key: "blue", label: "Blue" },
-  { key: "green", label: "Green" },
-  { key: "purple", label: "Purple" },
-  { key: "orange", label: "Orange" },
-  { key: "red", label: "Red" },
-] as const;
-
 const PINNED_PROJECTS_KEY = "basebuild.pinned-projects.v1";
-const PROJECT_COLORS_KEY = "basebuild.project-colors.v1";
 
 function readPinnedProjects(): Set<string> {
   if (typeof localStorage === "undefined") return new Set();
@@ -73,81 +73,81 @@ function writePinnedProjects(pinned: Set<string>) {
   }
 }
 
-function readProjectColors(): Map<string, string> {
-  if (typeof localStorage === "undefined") return new Map();
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(PROJECT_COLORS_KEY) ?? "{}");
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return new Map();
-    const map = new Map<string, string>();
-    for (const [key, value] of Object.entries(parsed)) {
-      if (PROJECT_COLOR_PRESETS.some((p) => p.key === value)) {
-        map.set(key, value as string);
-      }
-    }
-    return map;
-  } catch {
-    return new Map();
-  }
-}
+// ── Surface kind presentation ───────────────────────────────────────────────
 
-function writeProjectColors(colors: Map<string, string>) {
-  if (typeof localStorage === "undefined") return;
-  try {
-    const record: Record<string, string> = {};
-    for (const [path, color] of colors) {
-      record[path] = color;
-    }
-    localStorage.setItem(PROJECT_COLORS_KEY, JSON.stringify(record));
-  } catch {
-    // ignore
-  }
-}
-const typeIcons: Record<PanelType, LucideIcon> = {
+const surfaceKindIcon: Record<SurfaceKind, LucideIcon> = {
   chat: MessageSquare,
+  "omp-chat": Zap,
   terminal: TerminalSquare,
-  file: FileText,
-  schematic: LayoutTemplate,
-  omp: Zap,
 };
 
-const statusDotClass: Record<PanelStatus, string> = {
-  idle: "panel-status-idle",
-  streaming: "panel-status-streaming",
-  thinking: "panel-status-thinking",
-  running: "panel-status-running",
-  asking: "panel-status-asking",
-  error: "panel-status-error",
-  succeeded: "panel-status-succeeded",
+const surfaceKindLabel: Record<SurfaceKind, string> = {
+  chat: "Chat",
+  "omp-chat": "Oh My Pi Chat",
+  terminal: "Terminal",
 };
 
-const activeStatusWords: Record<PanelStatus, boolean> = {
-  idle: false,
-  streaming: true,
-  thinking: true,
-  running: true,
-  asking: true,
-  error: false,
-  succeeded: false,
-};
+/** A neutral, non-decorative display title for a surface. Honors manual title
+ *  lock by using `title` as-is; falls back to a kind-labeled placeholder. */
+function surfaceDisplayTitle(surface: SurfaceRecord): string {
+  if (surface.title) return humanizeChatTitle(surface.title);
+  return `Untitled ${surfaceKindLabel[surface.kind]}`;
+}
 
-const statusWordLabel: Record<PanelStatus, string> = {
-  idle: "idle",
-  streaming: "streaming",
-  thinking: "thinking",
-  running: "running",
-  asking: "asking",
-  error: "failed",
-  succeeded: "finished",
-};
+/** Disambiguate identical display titles across a set of surfaces by
+ *  appending a 1-based index. Placeholder surfaces are differentiated by
+ *  their kind label rather than decorative colors. */
+function buildDisplayTitles(surfaces: SurfaceRecord[]): Map<string, string> {
+  const display = new Map<string, string>();
+  const counts = new Map<string, number>();
+  for (const s of surfaces) {
+    const base = surfaceDisplayTitle(s);
+    counts.set(base, (counts.get(base) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  for (const s of surfaces) {
+    const base = surfaceDisplayTitle(s);
+    const count = counts.get(base) ?? 1;
+    if (count > 1) {
+      const idx = (seen.get(base) ?? 0) + 1;
+      seen.set(base, idx);
+      display.set(s.id, `${base} (${idx})`);
+    } else {
+      display.set(s.id, base);
+    }
+  }
+  return display;
+}
+
+// ── Tree depth helper ───────────────────────────────────────────────────────
+
+/** Flatten visible leaves with their tree depth for neutral connector
+ *  treatment. DFS order matches `flattenLeaves`. */
+function flattenLeavesWithDepth(tree: TreeNode | null): { leaf: LeafNode; depth: number }[] {
+  function walk(node: TreeNode | null, depth: number): { leaf: LeafNode; depth: number }[] {
+    if (!node) return [];
+    if (!("direction" in node)) return [{ leaf: node, depth }];
+    return [...walk(node.first, depth + 1), ...walk(node.second, depth + 1)];
+  }
+  return walk(tree, 0);
+}
+
+// ── Props ───────────────────────────────────────────────────────────────────
 
 export type ActivitySidebarProps = {
   activeProjectPath: string | null;
-  root: SplitNode | null;
-  activePanelId: string | null;
-  closedPanelCount: number;
-  /** Chat session ids owned by an active background agent — their rows get
-   *  the bot icon + accent styling matching the chat tab. */
-  backgroundChatIds?: Set<string>;
+  /** The active project's workspace state (active registry + visible tree +
+   *  history). The sidebar renders surfaces from this, not from legacy tabs. */
+  workspaceState: WorkspaceState;
+  // Surface lifecycle actions — all operate against surface identity.
+  onFocusSurface: (surfaceId: string) => void;
+  onReplaceFocusedSurface: (surfaceId: string) => void;
+  onSplitFocusedSurface: (surfaceId: string, direction: SplitDirection) => void;
+  onRemoveSurfaceFromLayout: (surfaceId: string) => void;
+  onCloseSurface: (surfaceId: string) => void;
+  onReopenSurface: (surfaceId: string) => void;
+  onDeleteSurfaceFromHistory: (surfaceId: string) => void;
+  // Project-level props
   projects: RecentProject[];
   account: AccountState;
   updates: UpdaterState;
@@ -161,7 +161,6 @@ export type ActivitySidebarProps = {
   onOpenFiles?: (path: string) => void;
   onOpenChanges?: (path: string) => void;
   pickerInFlight: boolean;
-  onFocusPanel: (panelId: string) => void;
   onCreateChat: () => void;
   onOpenHistory: () => void;
   onOpenSettings: () => void;
@@ -170,7 +169,22 @@ export type ActivitySidebarProps = {
   collapsed: boolean;
   onToggleCollapse: () => void;
 };
-function ProjectMenuButton({ projectPath, projectName, onOpenInExplorer, onRemoveProject, onCopyPath, onNewChat, onOpenFiles, onOpenChanges, onClearChats, isPinned, onTogglePin, projectColor, onSetColor }: {
+
+// ── Project menu (stripped of decorative color labels) ──────────────────────
+
+function ProjectMenuButton({
+  projectPath,
+  projectName,
+  onOpenInExplorer,
+  onRemoveProject,
+  onCopyPath,
+  onNewChat,
+  onOpenFiles,
+  onOpenChanges,
+  onClearChats,
+  isPinned,
+  onTogglePin,
+}: {
   projectPath: string;
   projectName: string;
   onOpenInExplorer?: (path: string) => void;
@@ -182,12 +196,9 @@ function ProjectMenuButton({ projectPath, projectName, onOpenInExplorer, onRemov
   onClearChats?: (path: string) => void;
   isPinned?: boolean;
   onTogglePin?: (path: string) => void;
-  projectColor?: string;
-  onSetColor?: (path: string, color: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const menuPos = useDropdownPosition(160);
-  const closeRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -198,11 +209,10 @@ function ProjectMenuButton({ projectPath, projectName, onOpenInExplorer, onRemov
       if (menu && !menu.contains(target)) setOpen(false);
     };
     document.addEventListener("mousedown", onDoc);
-    closeRef.current = () => document.removeEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open, menuPos.triggerRef]);
 
-  if (!onOpenInExplorer && !onRemoveProject && !onCopyPath && !onNewChat && !onOpenFiles && !onOpenChanges && !onClearChats && !onTogglePin && !onSetColor) return null;
+  if (!onOpenInExplorer && !onRemoveProject && !onCopyPath && !onNewChat && !onOpenFiles && !onOpenChanges && !onClearChats && !onTogglePin) return null;
 
   return (
     <div className="project-menu-wrap">
@@ -247,24 +257,6 @@ function ProjectMenuButton({ projectPath, projectName, onOpenInExplorer, onRemov
               <Pin size={11} /> {isPinned ? "Unpin" : "Pin"}
             </button>
           ) : null}
-          {onSetColor ? (
-            <div className="project-menu-item project-menu-color-row" title="Set project color label">
-              <Palette size={11} /> Color
-              <div className="project-menu-color-swatches">
-                {PROJECT_COLOR_PRESETS.map((preset) => (
-                  <button
-                    key={preset.key}
-                    className={`project-menu-color-swatch${projectColor === preset.key || (!projectColor && preset.key === "none") ? " is-active" : ""}`}
-                    type="button"
-                    title={preset.label}
-                    onClick={(e) => { e.stopPropagation(); setOpen(false); onSetColor(projectPath, preset.key); }}
-                  >
-                    <span className={`project-color-dot${preset.key === "none" ? "" : ` is-${preset.key}`}`} />
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
           {onClearChats ? (
             <button className="project-menu-item is-danger" type="button" title="Clear all chats for this project" onClick={(e) => { e.stopPropagation(); setOpen(false); onClearChats(projectPath); }}>
               <TerminalSquare size={11} /> Clear Chats
@@ -281,12 +273,115 @@ function ProjectMenuButton({ projectPath, projectName, onOpenInExplorer, onRemov
   );
 }
 
+// ── Surface row actions (inline, revealed on hover/focus-within) ────────────
+
+function SurfaceActionButtons({
+  surfaceId,
+  visible,
+  onSplit,
+  onRemoveFromLayout,
+  onClose,
+}: {
+  surfaceId: string;
+  visible: boolean;
+  onSplit: (surfaceId: string, direction: SplitDirection) => void;
+  onRemoveFromLayout: (surfaceId: string) => void;
+  onClose: (surfaceId: string) => void;
+}) {
+  return (
+    <span className="surface-row-actions" aria-hidden={false}>
+      <button
+        className="surface-row-action-btn"
+        type="button"
+        title="Open beside (split horizontally)"
+        onClick={(e) => { e.stopPropagation(); onSplit(surfaceId, "horizontal"); }}
+      >
+        <Columns size={11} />
+      </button>
+      <button
+        className="surface-row-action-btn"
+        type="button"
+        title="Open below (split vertically)"
+        onClick={(e) => { e.stopPropagation(); onSplit(surfaceId, "vertical"); }}
+      >
+        <Rows size={11} />
+      </button>
+      {visible ? (
+        <button
+          className="surface-row-action-btn"
+          type="button"
+          title="Remove from layout (hide without closing)"
+          onClick={(e) => { e.stopPropagation(); onRemoveFromLayout(surfaceId); }}
+        >
+          <EyeOff size={11} />
+        </button>
+      ) : null}
+      <button
+        className="surface-row-action-btn is-danger"
+        type="button"
+        title="Close to History"
+        onClick={(e) => { e.stopPropagation(); onClose(surfaceId); }}
+      >
+        <X size={11} />
+      </button>
+    </span>
+  );
+}
+
+// ── History row ─────────────────────────────────────────────────────────────
+
+function HistoryRow({
+  record,
+  onReopen,
+  onDelete,
+}: {
+  record: ClosedSurfaceRecord;
+  onReopen: (surfaceId: string) => void;
+  onDelete: (surfaceId: string) => void;
+}) {
+  const Icon = surfaceKindIcon[record.kind];
+  const title = surfaceDisplayTitle(record);
+  return (
+    <div
+      className="surface-row is-history"
+      title={`${title} — closed ${formatRelativeTime(record.closedAt)}`}
+    >
+      <Icon size={11} className="surface-row-icon" />
+      <span className="surface-row-title">{title}</span>
+      <span className="surface-row-actions">
+        <button
+          className="surface-row-action-btn"
+          type="button"
+          title="Reopen as active hidden (preserves current layout)"
+          onClick={(e) => { e.stopPropagation(); onReopen(record.id); }}
+        >
+          <RotateCcw size={11} />
+        </button>
+        <button
+          className="surface-row-action-btn is-danger"
+          type="button"
+          title="Permanently delete from history"
+          onClick={(e) => { e.stopPropagation(); onDelete(record.id); }}
+        >
+          <Trash2 size={11} />
+        </button>
+      </span>
+    </div>
+  );
+}
+
+// ── Main component ──────────────────────────────────────────────────────────
+
 export function ActivitySidebar({
   activeProjectPath,
-  root,
-  activePanelId,
-  closedPanelCount,
-  backgroundChatIds,
+  workspaceState,
+  onFocusSurface,
+  onReplaceFocusedSurface,
+  onSplitFocusedSurface,
+  onRemoveSurfaceFromLayout,
+  onCloseSurface,
+  onReopenSurface,
+  onDeleteSurfaceFromHistory,
   projects,
   account,
   updates,
@@ -300,7 +395,6 @@ export function ActivitySidebar({
   onOpenFiles,
   onOpenChanges,
   pickerInFlight,
-  onFocusPanel,
   onCreateChat,
   onOpenLogPanel,
   onClearChats,
@@ -310,12 +404,12 @@ export function ActivitySidebar({
   onToggleCollapse,
 }: ActivitySidebarProps) {
   const [repoIdentities, setRepoIdentities] = useState<Map<string, RepoIdentity>>(new Map());
-  const [otherProjectChats, setOtherProjectChats] = useState<Map<string, NativeChatSession[]>>(new Map());
   const [pinnedPaths, setPinnedPaths] = useState<Set<string>>(readPinnedProjects);
-  const [projectColors, setProjectColors] = useState<Map<string, string>>(readProjectColors);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [, setClock] = useState(0);
 
   useEffect(() => { writePinnedProjects(pinnedPaths); }, [pinnedPaths]);
-  useEffect(() => { writeProjectColors(projectColors); }, [projectColors]);
 
   const togglePin = useCallback((path: string) => {
     setPinnedPaths((prev) => {
@@ -325,16 +419,6 @@ export function ActivitySidebar({
       return next;
     });
   }, []);
-
-  const setProjectColor = useCallback((path: string, color: string) => {
-    setProjectColors((prev) => {
-      const next = new Map(prev);
-      if (color === "none") next.delete(path);
-      else next.set(path, color);
-      return next;
-    });
-  }, []);
-  const [, setClock] = useState(0);
 
   // Fetch repo identity (host, name, branch) for all projects.
   useEffect(() => {
@@ -359,61 +443,95 @@ export function ActivitySidebar({
     return () => { cancelled = true; };
   }, [projects]);
 
-  // Fetch chats OPEN in each non-active project's saved workspace grid —
-  // never the full session history. Mirrors what the active project shows
-  // (its open panels), just unloaded. Polls every 5s so run state stays
-  // live while chats in other projects continue running in the background.
+  // Fetch active surfaces for each non-active project from its saved workspace
+  // blob (v2 or legacy). Polls every 5s so run state stays live.
+  const [otherProjectSurfaces, setOtherProjectSurfaces] = useState<Map<string, SurfaceRecord[]>>(new Map());
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
-    async function fetchOtherChats() {
+    async function fetchOtherSurfaces() {
       const otherProjects = projects.filter((p) => p.path !== activeProjectPath);
       if (otherProjects.length === 0) {
-        setOtherProjectChats(new Map());
+        setOtherProjectSurfaces(new Map());
         return;
       }
       const entries = await Promise.all(
-        otherProjects.map(async (p) => {
+        otherProjects.map(async (p): Promise<[string, SurfaceRecord[]]> => {
           try {
-            const [restore, sessions] = await Promise.all([
-              getWorkspaceRestoreState(p.path),
-              nativeChatList(p.path),
-            ]);
-            const grid = parsePanelGrid(restore.panelGrid);
-            const openChatIds = new Set(
-              flattenPanels(grid.root)
-                .filter((panel) => panel.type === "chat" && panel.chatSessionId)
-                .map((panel) => panel.chatSessionId as string),
-            );
-            return [p.path, sessions.filter((s) => openChatIds.has(s.id))] as [string, NativeChatSession[]];
+            const restore = await getWorkspaceRestoreState(p.path);
+            const result = migrateFromLegacyBlob(restore.panelGrid ?? null, p.path);
+            const surfaces = Object.values(result.state.activeSurfaces);
+            return [p.path, surfaces];
           } catch {
-            return [p.path, []] as [string, NativeChatSession[]];
+            return [p.path, []];
           }
         }),
       );
       if (cancelled) return;
-      const map = new Map<string, NativeChatSession[]>();
-      for (const [path, sessions] of entries) {
-        map.set(path, sessions);
+      const map = new Map<string, SurfaceRecord[]>();
+      for (const [path, surfaces] of entries) {
+        map.set(path, surfaces);
       }
-      setOtherProjectChats(map);
+      setOtherProjectSurfaces(map);
     }
-    void fetchOtherChats();
-    timer = window.setInterval(() => void fetchOtherChats(), 5000);
+    void fetchOtherSurfaces();
+    timer = window.setInterval(() => void fetchOtherSurfaces(), 5000);
     return () => {
       cancelled = true;
       if (timer) window.clearInterval(timer);
     };
   }, [projects, activeProjectPath]);
 
-  // Tick a clock every 15s so relative times refresh.
+  // Tick a clock every 15s so relative times in history refresh.
   useEffect(() => {
     const id = window.setInterval(() => setClock((c) => c + 1), 15000);
     return () => window.clearInterval(id);
   }, []);
 
-  const { statuses } = usePanelStatus();
-  const panels = useMemo(() => flattenPanels(root), [root]);
+  // ── Derive visible + hidden surfaces for the active project ───────────────
+
+  const visibleLeaves = useMemo(
+    () => flattenLeavesWithDepth(workspaceState.visibleTree),
+    [workspaceState.visibleTree],
+  );
+  const visibleIds = useMemo(
+    () => visibleSurfaceIds(workspaceState.visibleTree),
+    [workspaceState.visibleTree],
+  );
+
+  const activeSurfaceList = useMemo(
+    () => Object.values(workspaceState.activeSurfaces),
+    [workspaceState.activeSurfaces],
+  );
+
+  // Disambiguate titles across all active surfaces + history.
+  const displayTitles = useMemo(() => {
+    const historySurfaces = workspaceState.history.map((h) => h as SurfaceRecord);
+    return buildDisplayTitles([...activeSurfaceList, ...historySurfaces]);
+  }, [activeSurfaceList, workspaceState.history]);
+
+  const hiddenSurfaces = useMemo(() => {
+    return activeSurfaceList
+      .filter((s) => !visibleIds.has(s.id))
+      .sort((a, b) => b.lastFocusedAt - a.lastFocusedAt);
+  }, [activeSurfaceList, visibleIds]);
+
+  const focusedSurfaceId = workspaceState.focusedSurfaceId;
+
+  // Confirm dialog for permanent history deletion.
+  const deleteTarget = useMemo(
+    () => workspaceState.history.find((h) => h.id === deleteConfirmId) ?? null,
+    [workspaceState.history, deleteConfirmId],
+  );
+
+  const handleConfirmDelete = useCallback(() => {
+    if (deleteConfirmId) {
+      onDeleteSurfaceFromHistory(deleteConfirmId);
+      setDeleteConfirmId(null);
+    }
+  }, [deleteConfirmId, onDeleteSurfaceFromHistory]);
+
+  // ── Collapsed sidebar ─────────────────────────────────────────────────────
 
   if (collapsed) {
     return (
@@ -458,44 +576,12 @@ export function ActivitySidebar({
     );
   }
 
+  // ── Expanded sidebar ──────────────────────────────────────────────────────
+
   const activeIdentity = activeProjectPath ? repoIdentities.get(activeProjectPath) : undefined;
   const activeName = activeIdentity?.name ?? projects.find((p) => p.path === activeProjectPath)?.name ?? activeProjectPath?.split(/[\\/]/).pop() ?? "Project";
   const activeBranch = activeIdentity?.branch ?? null;
   const activeHost = activeIdentity?.host ?? "folder";
-  const activeAgentStatus = getProjectAgentStatus(panels.map((p) => statuses[p.id]?.status ?? "idle"));
-  function renderPanelMeta(panelId: string, backgroundAgent: boolean) {
-    const entry = statuses[panelId];
-    const status = entry?.status ?? "idle";
-    const since = entry?.since;
-    if (activeStatusWords[status]) {
-      return (
-        <span className="activity-sidebar-row-meta" title={`Status: ${statusWordLabel[status]}`}>
-          {statusWordLabel[status]}
-          <Loader2 size={9} className="is-spinning" />
-        </span>
-      );
-    }
-    // Terminal outcomes read as words, not timestamps: "finished" (green) or
-    // "Background agent failed" (red) for agent-owned chats.
-    if (status === "error" || status === "succeeded") {
-      const label = status === "error"
-        ? (backgroundAgent ? "Background agent failed" : "failed")
-        : "finished";
-      return (
-        <span className={`activity-sidebar-row-meta is-${status}`} title={`Status: ${label}`}>
-          {label}
-        </span>
-      );
-    }
-    if (since) {
-      return (
-        <span className="activity-sidebar-row-meta" title={new Date(since).toLocaleString()}>
-          {formatRelativeTime(since)}
-        </span>
-      );
-    }
-    return null;
-  }
 
   return (
     <aside className="project-chat-sidebar" aria-label="Activity sidebar">
@@ -518,7 +604,6 @@ export function ActivitySidebar({
 
       <div className="activity-sidebar">
         <div className="activity-sidebar-list">
-          {/* All projects in alphabetical order - active project stays in place */}
           {projects.length === 0 ? (
             <div className="sidebar-empty text-muted text-sm">
               No projects yet. <button className="chat-link-btn" type="button" title="Add a project folder" onClick={onOpenFolder}>Add a folder</button>.
@@ -536,11 +621,8 @@ export function ActivitySidebar({
               const name = identity?.name ?? project.name;
               const branch = identity?.branch ?? null;
               const host = identity?.host ?? "folder";
-              const agentStatus = isActive
-                ? activeAgentStatus
-                : "idle";
-              const chats = !isActive
-                ? otherProjectChats.get(project.path) ?? []
+              const otherSurfaces = !isActive
+                ? otherProjectSurfaces.get(project.path) ?? []
                 : [];
               return (
                 <div key={project.path} className={`activity-sidebar-project-row${isActive ? " is-active" : ""}${pinnedPaths.has(project.path) ? " is-pinned" : ""}`}>
@@ -551,10 +633,9 @@ export function ActivitySidebar({
                   >
                     <RepoIcon host={host} size={isActive ? 14 : 11} />
                     <span className={isActive ? "activity-sidebar-project-name" : "activity-sidebar-row-title"}>{name}</span>
-                    {projectColors.get(project.path) ? (
-                      <span className={`project-color-dot is-${projectColors.get(project.path)}`} aria-hidden="true" />
+                    {pinnedPaths.has(project.path) ? (
+                      <Pin size={9} className="activity-sidebar-pin-indicator" aria-label="Pinned" />
                     ) : null}
-                    <span className={`agent-status-dot agent-status-${agentStatus}`} title={`Agent: ${agentStatus}`} aria-label={`Agent status: ${agentStatus}`} />
                     <ProjectMenuButton
                       projectPath={project.path}
                       projectName={name}
@@ -567,8 +648,6 @@ export function ActivitySidebar({
                       onClearChats={onClearChats}
                       isPinned={pinnedPaths.has(project.path)}
                       onTogglePin={togglePin}
-                      projectColor={projectColors.get(project.path)}
-                      onSetColor={setProjectColor}
                     />
                   </div>
                   {branch ? (
@@ -576,54 +655,93 @@ export function ActivitySidebar({
                       {branch}
                     </span>
                   ) : null}
-                  {/* Active project: show open panels (chats) underneath */}
-                  {isActive && panels.length > 0 ? (
-                    panels.map((panel) => {
-                      const isBgPanel = !!panel.chatSessionId && !!backgroundChatIds?.has(panel.chatSessionId);
-                      const Icon = isBgPanel ? Bot : (typeIcons[panel.type] ?? FileText);
-                      const rowTitle = humanizeChatTitle(panel.title);
-                      return (
-                        <div
-                          key={panel.id}
-                          className={`activity-sidebar-row${panel.id === activePanelId ? " is-active" : ""}${isBgPanel ? " is-background-agent" : ""}`}
-                          title={isBgPanel
-                            ? `${rowTitle} — a background agent is working in this chat`
-                            : rowTitle}
-                          onClick={() => onFocusPanel(panel.id)}
-                        >
-                          <Icon size={11} className="activity-sidebar-row-icon" />
-                          <span className="activity-sidebar-row-title">{rowTitle}</span>
-                          {renderPanelMeta(panel.id, isBgPanel)}
-                          <span className={`activity-sidebar-row-status panel-status-indicator ${statusDotClass[statuses[panel.id]?.status ?? "idle"]}`} />
-                        </div>
-                      );
-                    })
-                    
-                  ) : null}
-                  {/* Active project with no panels: show empty state */}
-                  {isActive && panels.length === 0 ? (
-                    <div className="sidebar-empty text-muted text-sm">
-                      No panels open. <button className="chat-link-btn" type="button" title="Start a new chat" onClick={onCreateChat}>Start a chat</button>.
-                    </div>
-                  ) : null}
-                  {/* Inactive project: show its open chats from saved workspace */}
-                  {!isActive && chats.length > 0 ? (
-                    <div className="activity-sidebar-project-chats" aria-label={`${name} chats`}>
-                      {chats.map((session) => {
-                        const fullTs = new Date(session.updatedAt * 1000).toLocaleString();
+
+                  {/* Active project: render surfaces from workspaceState */}
+                  {isActive ? (
+                    <>
+                      {/* Visible surfaces in DFS tree order with neutral connector treatment */}
+                      {visibleLeaves.map(({ leaf, depth }) => {
+                        const surface = workspaceState.activeSurfaces[leaf.surfaceId];
+                        if (!surface) return null;
+                        const Icon = surfaceKindIcon[surface.kind];
+                        const isFocused = surface.id === focusedSurfaceId;
+                        const title = displayTitles.get(surface.id) ?? surfaceDisplayTitle(surface);
                         return (
                           <div
-                            key={session.id}
-                            className="activity-sidebar-project-chat"
-                            title={`${session.title} - ${fullTs}`}
+                            key={leaf.id}
+                            className={`surface-row is-visible${isFocused ? " is-focused" : ""}`}
+                            style={{ "--surface-depth": depth } as React.CSSProperties}
+                            role="button"
+                            tabIndex={0}
+                            title={`${title} — ${surfaceKindLabel[surface.kind]} (visible${isFocused ? ", focused" : ""})`}
+                            onClick={() => onFocusSurface(surface.id)}
+                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onFocusSurface(surface.id); } }}
+                          >
+                            <span className="surface-row-connector" aria-hidden="true" />
+                            <Icon size={11} className="surface-row-icon" />
+                            <span className="surface-row-title">{title}</span>
+                            <SurfaceActionButtons
+                              surfaceId={surface.id}
+                              visible={true}
+                              onSplit={onSplitFocusedSurface}
+                              onRemoveFromLayout={onRemoveSurfaceFromLayout}
+                              onClose={onCloseSurface}
+                            />
+                          </div>
+                        );
+                      })}
+
+                      {/* Hidden active surfaces as sibling rows (no visible marker) */}
+                      {hiddenSurfaces.map((surface) => {
+                        const Icon = surfaceKindIcon[surface.kind];
+                        const title = displayTitles.get(surface.id) ?? surfaceDisplayTitle(surface);
+                        return (
+                          <div
+                            key={surface.id}
+                            className="surface-row is-hidden"
+                            role="button"
+                            tabIndex={0}
+                            title={`${title} — ${surfaceKindLabel[surface.kind]} (hidden, click to replace focused surface)`}
+                            onClick={() => onReplaceFocusedSurface(surface.id)}
+                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onReplaceFocusedSurface(surface.id); } }}
+                          >
+                            <Icon size={11} className="surface-row-icon" />
+                            <span className="surface-row-title">{title}</span>
+                            <SurfaceActionButtons
+                              surfaceId={surface.id}
+                              visible={false}
+                              onSplit={onSplitFocusedSurface}
+                              onRemoveFromLayout={onRemoveSurfaceFromLayout}
+                              onClose={onCloseSurface}
+                            />
+                          </div>
+                        );
+                      })}
+
+                      {/* Empty state */}
+                      {visibleLeaves.length === 0 && hiddenSurfaces.length === 0 ? (
+                        <div className="sidebar-empty text-muted text-sm">
+                          No active surfaces. <button className="chat-link-btn" type="button" title="Start a new chat" onClick={onCreateChat}>Start a chat</button>.
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
+
+                  {/* Inactive project: show its active surfaces from saved workspace */}
+                  {!isActive && otherSurfaces.length > 0 ? (
+                    <div className="activity-sidebar-project-chats" aria-label={`${name} surfaces`}>
+                      {otherSurfaces.map((surface) => {
+                        const Icon = surfaceKindIcon[surface.kind];
+                        const title = surfaceDisplayTitle(surface);
+                        return (
+                          <div
+                            key={surface.id}
+                            className="surface-row is-other-project"
+                            title={`${title} — ${surfaceKindLabel[surface.kind]}`}
                             onClick={() => onSelectProject(project.path)}
                           >
-                            <MessageSquare size={10} className="activity-sidebar-row-icon" />
-                            <span className="activity-sidebar-project-chat-title">{humanizeChatTitle(session.title)}</span>
-                            {session.runState === "running" ? (
-                              <span className="activity-sidebar-project-chat-running" title="Chat is running" />
-                            ) : null}
-                            <span className="activity-sidebar-project-chat-time">{formatRelativeTime(session.updatedAt)}</span>
+                            <Icon size={10} className="surface-row-icon" />
+                            <span className="surface-row-title">{title}</span>
                           </div>
                         );
                       })}
@@ -634,16 +752,47 @@ export function ActivitySidebar({
             })
           )}
         </div>
+
+        {/* History section — separate collapsed/drawer destination */}
+        {workspaceState.history.length > 0 ? (
+          <div className="surface-history-section">
+            <button
+              className="surface-history-header"
+              type="button"
+              title={historyExpanded ? "Collapse history" : `Expand history (${workspaceState.history.length} closed surface${workspaceState.history.length === 1 ? "" : "s"})`}
+              aria-expanded={historyExpanded}
+              onClick={() => setHistoryExpanded((v) => !v)}
+            >
+              <ChevronDown size={11} className={historyExpanded ? "surface-history-chevron" : "surface-history-chevron is-collapsed"} />
+              <Clock size={11} />
+              <span>History</span>
+              <span className="surface-history-badge">{workspaceState.history.length}</span>
+            </button>
+            {historyExpanded ? (
+              <div className="surface-history-list">
+                {workspaceState.history.map((record) => (
+                  <HistoryRow
+                    key={record.id}
+                    record={record}
+                    onReopen={onReopenSurface}
+                    onDelete={setDeleteConfirmId}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <button
           className="activity-sidebar-history-btn"
           type="button"
-          title={`History (${closedPanelCount} closed panels)`}
+          title={`History drawer (${workspaceState.history.length} closed surface${workspaceState.history.length === 1 ? "" : "s"})`}
           onClick={onOpenHistory}
         >
           <Clock size={11} />
           <span>History</span>
-          {closedPanelCount > 0 ? (
-            <span className="activity-sidebar-history-badge">{closedPanelCount}</span>
+          {workspaceState.history.length > 0 ? (
+            <span className="activity-sidebar-history-badge">{workspaceState.history.length}</span>
           ) : null}
         </button>
       </div>
@@ -653,6 +802,19 @@ export function ActivitySidebar({
         <UpdateButton updates={updates} onOpenSettings={onOpenSettings} />
       </div>
       <StatusBar onClick={onOpenLogPanel} />
+
+      <ConfirmDialog
+        open={deleteConfirmId !== null}
+        title="Delete from history"
+        message={deleteTarget
+          ? `Permanently delete "${surfaceDisplayTitle(deleteTarget)}" from history? The backing session or PTY is not deleted by this action.`
+          : "Permanently delete this surface from history?"}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        destructive={true}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteConfirmId(null)}
+      />
     </aside>
   );
 }

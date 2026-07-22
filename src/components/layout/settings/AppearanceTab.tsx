@@ -15,7 +15,7 @@ export function AppearanceTab() {
   const [scale, setScale] = useState<UiScale>(() => getUiScale());
   useEffect(() => subscribeUiScale(setScale), []);
   const themes: { id: AppTheme; label: string; icon: typeof Sun; title: string }[] = [
-    { id: "dark", label: "Dark", icon: Moon, title: "Graphite canvas with orange accent — the default Basebuild theme." },
+    { id: "dark", label: "Dark", icon: Moon, title: "Graphite canvas with green accent — the default Basebuild theme." },
     { id: "light", label: "Light", icon: Sun, title: "Soft neutral canvas with deeper accent for contrast." },
   ];
   const minScale = UI_SCALE_STEPS[0];
