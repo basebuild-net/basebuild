@@ -9,8 +9,6 @@ import {
   GitPullRequest,
   MoreHorizontal,
   Pencil,
-  Loader2,
-  ShieldCheck,
   Plus,
   Sparkles,
   X,
@@ -31,16 +29,6 @@ type PlanBadge = {
 } | null;
 
 type ChatHeaderProps = {
-  modelChip: string;
-  modelId: string;
-  modelCatalogStatus: "loading" | "refreshing" | "ready" | "stale" | "error";
-  modelCatalogError?: string | null;
-  effortChip: string;
-  effortOptions: Array<{ id: string; label: string }>;
-  onPickModel: () => void;
-  onChangeEffort: (effort: string) => void;
-  permissionMode: "safe" | "balanced" | "auto";
-  onChangePermission: (mode: "safe" | "balanced" | "auto") => void;
   runState: "idle" | "queued" | "running";
   contextUsed: number;
   contextLimit: number | null;
@@ -201,12 +189,6 @@ export function ChatHeader(props: ChatHeaderProps) {
     ? "Build mode — edits allowed (approval gateway). Click to switch to plan mode."
     : "Plan mode — read-only posture. Click to switch to build mode.";
 
-  const effortLabel = props.effortOptions.find((option) => option.id === props.effortChip)?.label ?? props.effortChip;
-  const permissionLabel = props.permissionMode === "safe"
-    ? "Always Ask"
-    : props.permissionMode === "auto"
-      ? "Run Everything"
-      : "Balanced";
   const workspaceLabel = props.worktreePath
     ? props.worktreePath.split(/[\\/]/).pop() ?? "Worktree"
     : props.projectPath.split(/[\\/]/).pop() ?? "Workspace";
@@ -236,45 +218,6 @@ export function ChatHeader(props: ChatHeaderProps) {
       onDrop={props.onDrop}
     >
       <div className="chat-column-header-left">
-        <button
-          className={`chat-column-model-chip is-catalog-${props.modelCatalogStatus}`}
-          type="button"
-          title={
-            props.modelCatalogStatus === "error" || props.modelCatalogStatus === "stale"
-              ? `Model: ${props.modelChip}. ${props.modelCatalogError ?? "Catalog unavailable"}. Click to retry or change.`
-              : `Model: ${props.modelChip}. Click to change provider or model.`
-          }
-          onClick={props.onPickModel}
-        >
-          {props.modelCatalogStatus === "loading" || props.modelCatalogStatus === "refreshing"
-            ? <Loader2 size={10} className="spin" aria-hidden="true" />
-            : null}
-          <span>{truncate(props.modelChip || props.modelId || "Model", 18)}</span>
-          <ChevronDown size={9} />
-        </button>
-        {props.effortOptions.length > 1 ? (
-          <ActionMenu
-            triggerTitle={`Effort level: ${effortLabel}`}
-            triggerClassName="chat-header-menu-trigger"
-            icon={<><span>{effortLabel}</span><ChevronDown size={9} /></>}
-            items={props.effortOptions.map((option) => ({
-              key: option.id,
-              label: option.label,
-              title: `Use ${option.label} effort`,
-              onSelect: () => props.onChangeEffort(option.id),
-            }))}
-          />
-        ) : null}
-        <ActionMenu
-          triggerTitle={`Permission mode: ${permissionLabel}`}
-          triggerClassName="chat-header-menu-trigger chat-header-permission-trigger"
-          icon={<><ShieldCheck size={10} /><span>{permissionLabel}</span><ChevronDown size={9} /></>}
-          items={[
-            { key: "balanced", label: "Balanced", title: "Ask before sensitive actions", onSelect: () => props.onChangePermission("balanced") },
-            { key: "safe", label: "Always Ask", title: "Ask before every tool action", onSelect: () => props.onChangePermission("safe") },
-            { key: "auto", label: "Run Everything", title: "Allow tool actions without prompting", onSelect: () => props.onChangePermission("auto") },
-          ]}
-        />
         <span className={`chat-header-run-state is-${props.runState}`} title={`Agent state: ${props.runState}`}>
           {props.runState}
         </span>

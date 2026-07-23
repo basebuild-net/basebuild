@@ -19,6 +19,7 @@ import {
   tabComplete,
 } from "../../lib/chatCommands";
 import { ChatHeader } from "./ChatHeader";
+import { ChatComposerControls } from "./ChatComposerControls";
 import { PrRecommendationCard } from "./PrRecommendationCard";
 import { QuestionCard } from "./QuestionCard";
 import { InteractionWorkbench } from "./InteractionWorkbench";
@@ -2657,26 +2658,6 @@ export function ChatPanel({
       ) : null}
       {/* Pinned chat header — 28-32px, never scrolls out of view */}
       <ChatHeader
-        modelChip={modelName}
-        modelId={modelId}
-        modelCatalogStatus={catalogStatus}
-        modelCatalogError={catalogError}
-        effortChip={effortLevel}
-        effortOptions={(catalog?.effortLevels ?? [])
-          .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
-          .map((effort) => ({ id: effort.id, label: effort.label }))}
-        onPickModel={() => {
-          addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
-          setShowModelPicker(true);
-          setShowProviderPicker(false);
-        }}
-        onChangeEffort={(effort) => {
-          addLog("debug", "Chat effort selected", `sessionId=${nativeSessionId ?? "none"}; effort=${effort}`);
-          setEffortLevel(effort);
-          persistSelection(providerId, modelId, effort);
-        }}
-        permissionMode={approvalMode}
-        onChangePermission={(mode) => void handleSetApprovalMode(mode)}
         runState={streaming ? "running" : loading ? "queued" : "idle"}
         contextUsed={contextUsedTokens}
         contextLimit={selectedModel?.contextWindow ?? null}
@@ -3347,6 +3328,32 @@ export function ChatPanel({
             />
           </div>
           <div className="chat-composer-controls">
+            {nativeMode ? (
+              <div className="chat-composer-controls-left">
+                <ChatComposerControls
+                  modelChip={modelName}
+                  modelId={modelId}
+                  modelCatalogStatus={catalogStatus}
+                  modelCatalogError={catalogError}
+                  onPickModel={() => {
+                    addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
+                    setShowModelPicker(true);
+                    setShowProviderPicker(false);
+                  }}
+                  effortChip={effortLevel}
+                  effortOptions={(catalog?.effortLevels ?? [])
+                    .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
+                    .map((effort) => ({ id: effort.id, label: effort.label }))}
+                  onChangeEffort={(effort) => {
+                    addLog("debug", "Chat effort selected", `sessionId=${nativeSessionId ?? "none"}; effort=${effort}`);
+                    setEffortLevel(effort);
+                    persistSelection(providerId, modelId, effort);
+                  }}
+                  permissionMode={approvalMode}
+                  onChangePermission={(mode) => void handleSetApprovalMode(mode)}
+                />
+              </div>
+            ) : null}
             <div className="chat-composer-controls-right">
               {nativeMode && loading ? (
                 <button

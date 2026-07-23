@@ -1480,6 +1480,14 @@ details.stack-sm:not([open]) > *:not(summary) { display: none; }
 .chat-composer-controls-left { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; overflow: hidden; }
 .chat-composer-controls-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .chat-composer-divider { flex: 1; }
+/* Model / effort / permission controls under the composer input. Reuses the
+   header chip styles; collapses the secondary controls behind a toggle and
+   truncates the model chip so it never overflows a narrow panel. */
+.chat-composer-tools { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
+.chat-composer-tools .chat-column-model-chip { min-width: 0; }
+.chat-composer-tools-toggle { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; flex-shrink: 0; background: none; border: 0; color: var(--bb-muted); cursor: pointer; border-radius: var(--bb-radius-sm); transition: color var(--bb-duration-fast) var(--bb-ease), background var(--bb-duration-fast) var(--bb-ease); }
+.chat-composer-tools-toggle:hover { color: var(--bb-text); background: var(--bb-surface-high); }
+.chat-composer-tools-toggle[aria-pressed="true"] { color: var(--bb-cta); }
 /* Branch/worktree row below composer box */
 .chat-composer-meta { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 0; font-size: 10px; color: var(--bb-muted); }
 .chat-bg-agent-gate { display: flex; align-items: center; gap: 6px; padding: 6px 10px; margin-bottom: 4px; border: 1px solid var(--bb-warning-border); border-radius: var(--bb-radius-sm); background: var(--bb-diff-mod-bg); color: var(--bb-warning); font-size: 11px; cursor: pointer; text-align: left; width: 100%; }
