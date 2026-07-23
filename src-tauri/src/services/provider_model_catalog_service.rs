@@ -1515,7 +1515,9 @@ mod tests {
         // tool-capable even though the catalog wire kind is marked otherwise.
         assert!(models.iter().all(|m| m.supports_tools));
         // Uses the authoritative openai-codex catalog, not the OpenAI API set.
-        assert!(models.iter().all(|m| m.api_kind == "openai-codex-responses"));
+        assert!(models
+            .iter()
+            .all(|m| m.api_kind == "openai-codex-responses"));
     }
 
     #[test]

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "outcome": "partial",
+  "receipts": [
+    {"source":"native","idempotencyKey":"native:1784592000:1784678400:v1","status":"accepted","receiptId":"receipt-native-01","processedAt":null,"code":null,"message":null},
+    {"source":"omp","idempotencyKey":"omp:1784592000:1784678400:v1","status":"already_accepted","receiptId":"receipt-omp-01","processedAt":1784678410,"code":null,"message":null},
+    {"source":"claude-code","idempotencyKey":"claude-code:1784592000:1784678400:v1","status":"accepted","receiptId":"receipt-claude-code-01","processedAt":null,"code":null,"message":null},
+    {"source":"codex","idempotencyKey":"codex:1784592000:1784678400:v1","status":"rejected","receiptId":null,"processedAt":null,"code":"invalid_row","message":"Batch row failed the closed usage schema."},
+    {"source":"opencode","idempotencyKey":"opencode:1784592000:1784678400:v1","status":"accepted","receiptId":"receipt-opencode-01","processedAt":null,"code":null,"message":null}
+  ]
+}

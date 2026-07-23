@@ -7,9 +7,8 @@ use crate::{
         NativeGenerateIdeasRequest, NativeGenerateIdeasResult, NativeProviderCatalog,
         NativeProviderCatalogRefreshRequest, NativeProviderCredentialInput,
         NativeProviderLoginState, NativeRequestMetric, NativeRequestMetricsSummary,
-        ProviderAccount, ProviderAccountUsage,
-        NativeToolApprovalRequest, NativeToolApprovalResult, NativeToolEvent,
-        ResolvedChatModelDefault,
+        NativeToolApprovalRequest, NativeToolApprovalResult, NativeToolEvent, ProviderAccount,
+        ProviderAccountUsage, ResolvedChatModelDefault,
     },
     models::permission::{PermissionDecision, SessionRule},
     services::native_chat_service::NativeChatService,
@@ -100,9 +99,7 @@ pub fn native_provider_account_set_label(account_id: String, label: String) -> R
 #[tauri::command]
 pub async fn native_provider_account_test(account_id: String) -> Result<ProviderAccount, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::services::provider_account_service::ProviderAccountService::test_account(
-            &account_id,
-        )
+        crate::services::provider_account_service::ProviderAccountService::test_account(&account_id)
     })
     .await
     .map_err(|error| format!("Account test task panicked: {error}"))?

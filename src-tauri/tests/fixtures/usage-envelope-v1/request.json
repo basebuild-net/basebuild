@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "generatedAt": 1784678400,
+  "batches": [
+    {
+      "source": "native",
+      "idempotencyKey": "native:1784592000:1784678400:v1",
+      "windowStart": 1784592000,
+      "windowEnd": 1784678400,
+      "rows": [{"kind":"model_usage","provider":"openai","model":"gpt-5.6","effort":"high","subscriptionTier":"plus","subscriptionSource":"provider-api","planName":"ChatGPT Plus","requests":18,"inputTokens":18400,"outputTokens":6200,"cacheReadTokens":7400,"cacheWriteTokens":0,"costTotal":0,"durationMs":244000,"durationCount":18,"ttftMs":17200,"ttftCount":18,"errors":1}]
+    },
+    {
+      "source": "omp",
+      "idempotencyKey": "omp:1784592000:1784678400:v1",
+      "windowStart": 1784592000,
+      "windowEnd": 1784678400,
+      "rows": [
+        {"kind":"model_usage","provider":"anthropic","model":"claude-opus-4.1","effort":"xhigh","subscriptionTier":"max","subscriptionSource":"provider-api","planName":"Claude Max 5x","requests":9,"inputTokens":9200,"outputTokens":5100,"cacheReadTokens":3100,"cacheWriteTokens":800,"costTotal":0,"durationMs":198000,"durationCount":9,"ttftMs":12100,"ttftCount":9,"errors":0},
+        {"kind":"plan_utilization","provider":"anthropic","planType":"Claude Max 5x","windowLabel":"five-hour","usedFraction":0.42,"remainingFraction":0.58,"resetsAt":1784685600}
+      ]
+    },
+    {
+      "source": "claude-code",
+      "idempotencyKey": "claude-code:1784592000:1784678400:v1",
+      "windowStart": 1784592000,
+      "windowEnd": 1784678400,
+      "rows": [{"kind":"model_usage","provider":"anthropic","model":"claude-sonnet-4.5","effort":null,"subscriptionTier":"pro","subscriptionSource":"inferred","planName":null,"requests":12,"inputTokens":14600,"outputTokens":4300,"cacheReadTokens":2900,"cacheWriteTokens":0,"costTotal":0,"durationMs":0,"durationCount":0,"ttftMs":0,"ttftCount":0,"errors":0}]
+    },
+    {
+      "source": "codex",
+      "idempotencyKey": "codex:1784592000:1784678400:v1",
+      "windowStart": 1784592000,
+      "windowEnd": 1784678400,
+      "rows": [{"kind":"model_usage","provider":"openai","model":"gpt-5.6-codex","effort":"high","subscriptionTier":"plus","subscriptionSource":"inferred","planName":null,"requests":7,"inputTokens":11300,"outputTokens":3700,"cacheReadTokens":4400,"cacheWriteTokens":0,"costTotal":0,"durationMs":0,"durationCount":0,"ttftMs":0,"ttftCount":0,"errors":0}]
+    },
+    {
+      "source": "opencode",
+      "idempotencyKey": "opencode:1784592000:1784678400:v1",
+      "windowStart": 1784592000,
+      "windowEnd": 1784678400,
+      "rows": [{"kind":"model_usage","provider":"google","model":"gemini-2.5-pro","effort":null,"subscriptionTier":"api","subscriptionSource":"api-key","planName":null,"requests":5,"inputTokens":8100,"outputTokens":2500,"cacheReadTokens":0,"cacheWriteTokens":0,"costTotal":0.83,"durationMs":0,"durationCount":0,"ttftMs":0,"ttftCount":0,"errors":0}]
+    }
+  ]
+}

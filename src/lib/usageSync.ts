@@ -66,14 +66,41 @@ export type ProjectedUsage = {
   assembledAt: number;
 };
 
+export type SyncAttribution = "account" | "private_installation";
+
+export type SyncOffReason =
+  | "usage_sharing_disabled"
+  | "auto_sync_disabled"
+  | "consent_required"
+  | "no_sources_available"
+  | "retry_backoff";
+
+export type SyncOverallOutcome = "success" | "partial" | "failed" | "nothing_to_sync";
+
+export type UsageSyncSource = "native" | "omp" | "claude-code" | "codex" | "opencode";
+
+export type SourceSyncStatus = {
+  source: UsageSyncSource;
+  available: boolean;
+  availabilityReason?: string;
+  pendingRetry: boolean;
+  lastSuccessAt?: number;
+  lastProcessedAt?: number;
+  lastError?: string;
+};
+
 export type AutoSyncStatus = {
   enabled: boolean;
   gatesPass: boolean;
+  offReason?: SyncOffReason;
+  attribution: SyncAttribution;
   intervalMinutes: number;
   lastSyncAt?: number;
   lastError?: string;
   /** Usage sync detail mode: "rows" (server rolls up) or "summary". */
   syncMode?: string;
+  overallOutcome?: SyncOverallOutcome;
+  sources: SourceSyncStatus[];
 };
 
 export type SyncResult = {
@@ -84,6 +111,10 @@ export type SyncResult = {
 
 export async function usageSyncTrigger(reason?: string): Promise<void> {
   await invoke("usage_sync_trigger", { reason: reason ?? null });
+}
+
+export async function usageSyncRetry(): Promise<void> {
+  await invoke("usage_sync_retry");
 }
 
 export async function usageSyncSetEnabled(enabled: boolean): Promise<void> {

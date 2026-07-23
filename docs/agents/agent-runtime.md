@@ -294,15 +294,42 @@ resetsAt, severity) with explicit freshness markers.
   telemetry reads from the
   ledgers. RPC-backed native rendering is an optional future path.
 
-## Account usage sync
+## Usage sync
 
-Signed-in users can opt in to periodic account usage sync, which pushes compiled
-OMP usage to basebuild.net via the MCP `sync_raw_usage` tool using the stored
-native `bb_app_` token. The app is a producer; the website computes projected
-usage. When OMP is not installed, the OMP raw-usage collection is skipped
+Usage sync has two paths depending on auth mode:
+
+**Signed-in accounts** use `sync_raw_usage` (richer OMP raw payload) via the
+stored native `bb_app_` token. The app is a producer; the website computes
+projected usage. When OMP is not installed, OMP raw-usage collection is skipped
 gracefully (`sync_raw_usage_native` guards on `OmpService::status().installed`),
 so a machine without OMP records no sync error; native per-message usage
 (`sync_messages_native`) carries attribution.
+
+**Guest/private installations** use the closed aggregate envelope
+(`sync_usage_envelope`) via a write-only `bb_guest_` token bootstrapped from
+`/api/auth/guest/bootstrap`. The envelope contains only allowlisted aggregate
+fields (provider, model, requests, tokens, runtime, cost) — never prompts,
+responses, source code, paths, or secrets. OMP counters are delta-diffed
+against a persisted baseline and included in the envelope; the raw OMP path
+is skipped for guest tokens to avoid duplicate uploads.
+
+### OMP delta collection
+
+OMP cumulative counters are diffed against a persisted baseline in
+`usage_source_cursors`. Pending batches are stored before transport and
+replayed unchanged on retry until the server acknowledges, preventing
+duplicate/loss across restarts. Reset detection: if current < previous,
+current is treated as absolute. First collection uses `window_end - 31 days`
+(within the server's 31-day window limit); subsequent collections use
+`window_end - 1 second`.
+
+### Sync status
+
+`AutoSyncStatus` reports per-source diagnostics: `off_reason`, `attribution`
+(account/guest/private), `overall_outcome` (Success/Partial/Failed/NothingToSync),
+and a `sources` map with per-source success/error state.
+`coordinated_usage_outcome()` classifies sync results, distinguishing
+"skipped" (OMP not installed) from actual work.
 
 - **Off by default.** Requires sign-in + explicit enable + upload permission.
 - **Cadence**: hourly interval (default 60 min) plus opportunistic triggers —
@@ -996,4 +1023,5 @@ The versioned usage envelope (`usage_envelope.rs`) wraps native chat metrics
 in an allowlisted, validated payload. The validator rejects prompts,
 responses, reasoning, source code, terminal output, tool args/results,
 secrets, credentials, environment values, and raw paths before transport.
-OMP continues to use the existing `sync_raw_usage` path independently.
+Signed-in accounts use `sync_raw_usage`; guest/private installations use the
+closed envelope only. The two paths never mix.

@@ -32,8 +32,8 @@ test.describe("panel grid", () => {
     await expect(page.locator(".panel-grid")).toBeVisible();
     await expect(page.locator(".panel-grid-leaf").first()).toBeVisible();
     await expect(page.locator(".panel-header").first()).toBeVisible();
-    await expect(page.locator(".panel-header-tab-title").first()).toBeVisible();
-    await expect(page.locator(".activity-sidebar-row").first()).toBeVisible();
+    await expect(page.locator(".panel-header-surface-title").first()).toBeVisible();
+    await expect(page.locator(".surface-row, .activity-sidebar-row").first()).toBeVisible();
 
     expect(pageErrors).toEqual([]);
   });
@@ -47,11 +47,11 @@ test.describe("panel grid", () => {
 
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(1);
 
-    await clickByTitle(page, "Split right");
+    await clickByTitle(page, "Split vertically (left and right)");
 
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(2);
     await expect(page.locator(".panel-grid-splitter").first()).toBeVisible();
-    await expect(page.locator(".activity-sidebar-row")).toHaveCount(2);
+    await expect(page.locator(".surface-row, .activity-sidebar-row")).toHaveCount(2);
 
     expect(pageErrors).toEqual([]);
   });
@@ -64,38 +64,32 @@ test.describe("panel grid", () => {
     await ensureChatPanel(page);
 
     // Split to get two panels.
-    await clickByTitle(page, "Split right");
+    await clickByTitle(page, "Split vertically (left and right)");
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(2);
 
-    // Open the "More actions" menu on the second panel header, then click close.
-    const panelHeaders = page.locator(".panel-header");
-    const secondHeader = panelHeaders.nth(1);
-    await secondHeader.locator("button[title='More actions']").click();
-    await expect(page.locator(".panel-header-menu")).toBeVisible({ timeout: 2_000 });
-    await page.locator(".panel-header-menu button[title='Close and move to history']").click();
+    // Close the second panel via its direct X button (round 2 removed the
+    // overflow "More actions" menu in favor of a direct close button).
+    const closeBtn = page.locator(".panel-header").nth(1).getByTitle("Close and move to History");
+    await closeBtn.click();
     await page.waitForTimeout(500);
 
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(1);
-    await expect(page.locator(".activity-sidebar-history-badge")).toContainText("1");
+    await expect(page.locator(".surface-history-badge, .activity-sidebar-history-badge").first()).toContainText("1");
 
-    // Open history drawer.
-    await clickByTitle(page, "History (0 closed panels)");
-    // If that didn't match, try a broader title.
-    const historyBtn = page.locator("button[title*='History']");
-    if (await historyBtn.count() > 0) {
-      await page.evaluate(() => {
-        const btn = document.querySelector<HTMLButtonElement>("button[title*='History']");
-        btn?.click();
-      });
-      await page.waitForTimeout(300);
-    }
+    // Open history drawer — use evaluate to find the drawer button (not the
+    // section header) by matching the exact title.
+    await page.evaluate(() => {
+      const btn = document.querySelector<HTMLButtonElement>("button[title^='History drawer']");
+      btn?.click();
+    });
+    await page.waitForTimeout(500);
     await expect(page.locator(".modal-overlay[aria-label='History']")).toBeVisible();
     // Scope to closed-panel items — the modal also lists all chats.
     await expect(page.locator(".history-modal-item-closed")).toHaveCount(1);
 
     expect(pageErrors).toEqual([]);
   });
-  test("reopen from history restores the panel to the grid", async ({ page }) => {
+  test("reopen from history restores the panel as unlinked", async ({ page }) => {
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
@@ -103,31 +97,35 @@ test.describe("panel grid", () => {
     await ensureChatPanel(page);
 
     // Split + close to populate history.
-    await clickByTitle(page, "Split right");
+    await clickByTitle(page, "Split vertically (left and right)");
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(2);
 
-    const panelHeaders = page.locator(".panel-header");
-    const secondHeader = panelHeaders.nth(1);
-    await secondHeader.locator("button[title='More actions']").click();
-    await expect(page.locator(".panel-header-menu")).toBeVisible({ timeout: 2_000 });
-    await page.locator(".panel-header-menu button[title='Close and move to history']").click();
+    // Close the second panel via direct X button.
+    await page.locator(".panel-header").nth(1).getByTitle("Close and move to History").click();
     await page.waitForTimeout(500);
 
-    // Open history and re-open.
+    // Open history drawer.
     await page.evaluate(() => {
-      const btn = document.querySelector<HTMLButtonElement>("button[title*='History']");
+      const btn = document.querySelector<HTMLButtonElement>("button[title^='History drawer']");
       btn?.click();
     });
+    await page.waitForTimeout(500);
     await expect(page.locator(".modal-overlay[aria-label='History']")).toBeVisible();
 
+    // Click the Re-open button on the first closed panel item.
     await page.evaluate(() => {
       const btn = document.querySelector<HTMLButtonElement>(".history-modal-closed-actions button");
       btn?.click();
     });
     await page.waitForTimeout(500);
 
-    await expect(page.locator(".panel-grid-leaf")).toHaveCount(2);
-    await expect(page.locator(".activity-sidebar-history-badge")).toHaveCount(0);
+    // The reopened panel goes to hiddenPanels (unlinked), not the visible
+    // tree. The grid still has 1 visible panel, but the sidebar shows the
+    // reopened panel as an unlinked row.
+    await expect(page.locator(".panel-grid-leaf")).toHaveCount(1);
+    await expect(page.locator(".surface-row.is-hidden")).toHaveCount(1);
+    // History badge should be gone (the panel is active again, just unlinked).
+    await expect(page.locator(".surface-history-badge, .activity-sidebar-history-badge")).toHaveCount(0);
 
     expect(pageErrors).toEqual([]);
   });
@@ -139,11 +137,16 @@ test.describe("panel grid", () => {
     await openFixtureProject(page);
     await ensureChatPanel(page);
 
-    await clickByTitle(page, "Split right");
+    await clickByTitle(page, "Split vertically (left and right)");
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(2);
 
-    // Click the second row in the activity sidebar.
-    await page.locator(".activity-sidebar-row").nth(1).click();
+    // Click the second row in the activity sidebar (use evaluate to bypass
+    // draggable attribute interference).
+    await page.evaluate(() => {
+      const rows = document.querySelectorAll<HTMLElement>(".surface-row, .activity-sidebar-row");
+      rows[1]?.click();
+    });
+    await page.waitForTimeout(300);
 
     const secondLeaf = page.locator(".panel-grid-leaf").nth(1);
     await expect(secondLeaf).toHaveClass(/is-active/);

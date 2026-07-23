@@ -217,6 +217,7 @@ type E2eState = {
   auth: { accessToken: string; expiresAt: string; scopes: string[]; user: { id: string; username: string; email: string; image: string | null; isAdmin: boolean; isEditor: boolean } | null } | null;
   updateInstallCount: number;
   autoSyncEnabled?: boolean;
+  usageSyncRetried?: boolean;
   startupDesired?: boolean;
   startupPlatformSupported?: boolean;
   gitChangeStaged: boolean;
@@ -2354,6 +2355,9 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
       } as T;
     case "usage_sync_trigger":
       return undefined as T;
+    case "usage_sync_retry":
+      s.usageSyncRetried = true;
+      return undefined as T;
     case "usage_sync_set_enabled":
       s.autoSyncEnabled = args.enabled as boolean;
       return undefined as T;
@@ -2367,14 +2371,60 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
     case "remove_approval_rule":
       return undefined as T;
     case "usage_sync_status":
-      return {
-        enabled: s.autoSyncEnabled ?? true,
-        gatesPass: !!s.auth,
-        intervalMinutes: 60,
-        lastSyncAt: s.auth ? Math.floor(Date.now() / 1000) - 120 : null,
-        lastError: null,
-      } as T;
+      {
+        const enabled = s.autoSyncEnabled ?? true;
+        const now = Math.floor(Date.now() / 1000);
+        const retried = s.usageSyncRetried ?? false;
+        return {
+          enabled,
+          gatesPass: enabled,
+          offReason: enabled ? undefined : "auto_sync_disabled",
+          attribution: s.auth ? "account" : "private_installation",
+          intervalMinutes: 60,
+          lastSyncAt: now - 120,
+          lastError: null,
+          syncMode: "summary",
+          overallOutcome: retried ? "success" : "partial",
+          sources: [
+            {
+              source: "native",
+              available: true,
+              pendingRetry: false,
+              lastSuccessAt: now - 120,
+              lastProcessedAt: now - 90,
+            },
+            {
+              source: "omp",
+              available: false,
+              availabilityReason: "OMP is not installed",
+              pendingRetry: false,
+            },
+            {
+              source: "claude-code",
+              available: true,
+              pendingRetry: !retried,
+              lastSuccessAt: retried ? now : now - 3_600,
+              lastProcessedAt: retried ? now : now - 3_590,
+              lastError: retried ? undefined : "Upload was not acknowledged. Retry is pending.",
+            },
+            {
+              source: "codex",
+              available: true,
+              pendingRetry: false,
+              lastSuccessAt: now - 300,
+              lastProcessedAt: now - 280,
+            },
+            {
+              source: "opencode",
+              available: false,
+              availabilityReason: "OpenCode usage is not available",
+              pendingRetry: false,
+            },
+          ],
+        } as T;
+      }
     case "usage_sync_projected_usage":
+      if (!s.auth) throw new Error("Account sign-in required for projected usage");
       return {
         live: {
           rows: [

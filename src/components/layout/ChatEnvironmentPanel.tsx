@@ -49,7 +49,7 @@ const FOLDS: { id: FoldId; icon: LucideIcon; label: string }[] = [
 const NEW_PANEL_OPTIONS: { type: "chat" | "terminal" | "omp" | "schematic"; icon: LucideIcon; label: string }[] = [
   { type: "chat", icon: MessageSquare, label: "Chat" },
   { type: "terminal", icon: TerminalSquare, label: "Terminal" },
-  { type: "omp", icon: Zap, label: "Oh My Pi" },
+  { type: "omp", icon: Zap, label: "Oh My Pi Chat" },
 ];
 
 export function ChatEnvironmentPanel({
@@ -106,21 +106,53 @@ export function ChatEnvironmentPanel({
               className="chat-env-tab chat-env-tab-add"
               type="button"
               title="New panel"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
               onClick={() => setMenuOpen((v) => !v)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && menuOpen) { setMenuOpen(false); }
+              }}
             >
               <Plus size={12} />
             </button>
             {menuOpen ? (
-              <div className="chat-env-add-menu" onMouseLeave={() => setMenuOpen(false)}>
-                {panelOptions.map(({ type, icon: Icon, label }) => (
+              <div
+                className="chat-env-add-menu"
+                role="menu"
+                aria-label="New panel"
+                onMouseLeave={() => setMenuOpen(false)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") { setMenuOpen(false); }
+                }}
+              >
+                {panelOptions.map(({ type, icon: Icon, label }, index) => (
                   <button
                     key={type}
                     type="button"
+                    role="menuitem"
                     title={`New ${label} panel`}
+                    autoFocus={index === 0}
                     onClick={() => {
                       addLog("debug", "New panel selected", `type=${type}; project=${projectPath}`);
                       setMenuOpen(false);
                       onCreatePanel(type);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        const next = e.currentTarget.nextElementSibling as HTMLElement | null;
+                        (next ?? e.currentTarget.parentElement?.firstElementChild as HTMLElement)?.focus();
+                      } else if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        const prev = e.currentTarget.previousElementSibling as HTMLElement | null;
+                        (prev ?? e.currentTarget.parentElement?.lastElementChild as HTMLElement)?.focus();
+                      } else if (e.key === "Home") {
+                        e.preventDefault();
+                        (e.currentTarget.parentElement?.firstElementChild as HTMLElement)?.focus();
+                      } else if (e.key === "End") {
+                        e.preventDefault();
+                        (e.currentTarget.parentElement?.lastElementChild as HTMLElement)?.focus();
+                      }
                     }}
                   >
                     <Icon size={11} />

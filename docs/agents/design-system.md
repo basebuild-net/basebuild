@@ -5,10 +5,11 @@ change. This document links to it and adds agent-specific rules.
 
 ## Core principles
 
-- **Theme system** (`data-bb-theme="dark|light"`): graphite-grey Dark (default)
-  `--bb-bg` / white text / orange CTA accent, or soft-neutral Light. Persisted
-  locally, applied before React paints via `index.html` bootstrap. Theme storage
-  is untrusted — `parseTheme()` exact-allowlists to `dark | light` before
+- **Theme system** (`data-bb-theme="dark|light"`): graphite-green Dark
+  (default) `--bb-bg` / high-contrast text / green CTA accent, or
+  soft-neutral Light with the same semantic ownership. Persisted locally,
+  applied before React paints via `index.html` bootstrap. Theme storage is
+  untrusted — `parseTheme()` exact-allowlists to `dark | light` before
   applying. Token contract is extend-only for future themes.
 - **Pre-React boot layer** (`#bb-boot`): a theme-matched full-screen frame in
   `index.html` painted before the bundle evaluates and removed by `App` on
@@ -25,8 +26,8 @@ change. This document links to it and adds agent-specific rules.
 - **Borders: 1px, full perimeter, or none.** Never a single-side thick border
   (2-3px rail) on any rounded surface. Semantic state tints the whole 1px
   border via `color-mix`, shifts the background, or adds an icon and word.
-  The only partial accents allowed are the 2px active underline on flat tabs
-  and option-list items, and the 2px active bar on flush square list rows.
+  The only partial accents allowed are the 2px active underline on
+  option-list items and the 2px active bar on flush square list rows.
   See DESIGN.md "Borders and accents".
 - **Fonts:** Space Grotesk (UI), JetBrains Mono (numbers, paths, code, terminal).
 - **Disciplined spacing.** 4px-based scale (`--bb-space-xs` through
@@ -37,16 +38,18 @@ change. This document links to it and adds agent-specific rules.
 - **CSS variables only.** All colors, sizes, and scales are tokenized in
   `globals.css` `:root` and theme blocks. No hardcoded color values in
   component files.
-- **Panel-grid and chat-header patterns use Basebuild-owned split-tree and
-  context-header primitives.** If external code is vendored in the future, add
-  it as an explicit module with license notice; do not leave ad-hoc source
-  references in component comments.
+- **Workspace, menu, and header patterns use Basebuild-owned shared
+  primitives.** The split-tree layout, typed creation menu, surface-state
+  primitives, and pinned chat header are Basebuild-owned contracts — no
+  external UI library or vendored layout code. If external code is vendored
+  in the future, add it as an explicit module with license notice; do not
+  leave ad-hoc source references in component comments.
 
 ## Product hierarchy and ownership
 
 The shell has four ownership levels. A control belongs to one level only; a stage
 button opens its exact destination and never creates a surrogate chat or defaults
-to a sibling tab.
+to a sibling surface.
 
 1. **Global navigation** — project/chat history and account controls.
 2. **Project command strip** — Schematic, Ideas, Plans, Running, Done, Changes.
@@ -70,7 +73,12 @@ may obscure the chat: focused configuration is the current task.
 
 - `src/styles/globals.css` is the only stylesheet. No CSS modules, no styled
   components, no inline styles.
-- Keep CSS under 400 lines is the goal — audit before adding.
+- The stylesheet is large and will not be rewritten wholesale. Manage it
+  incrementally: reuse existing classes before adding new ones; consolidate
+  only rules in surfaces touched by the current change; record technical debt
+  (dead selectors, redundant overrides, pre-token hardcoded colors) for
+  later cleanup rather than expanding scope. Do not combine a feature change
+  with a global restyle.
 - Before adding a new class, find an existing one. If you must add one, document
   it in this file (`docs/agents/design-system.md`). Do NOT add CSS class names
   or layout mechanics to `DESIGN.md` — it is visual/non-technical only.
@@ -106,13 +114,13 @@ the same shape: `.chat-idea-title-toggle` expands assessment/evidence,
 `.chat-idea-date` shows capture time, and Pass/Defer/Delete live in a More
 menu beside the visible Make plan action.
 
-## Panel grid + header classes (parallel-plan-workspaces)
+## Workspace split-tree, surface, and header classes
 
-Ported from the [dream IDE](https://github.com/dreamide/dream) (MIT) — the
-split-tree layout logic and visual structure are ported into basebuild's
-`globals.css`-only stack (radius tokens, no Radix, no CSS modules, no
-UI-primitive library). Only the math/structure is ported; dream's
-dependencies are NOT adopted.
+Basebuild-owned split-tree layout, typed creation menu, surface-state, and
+pinned chat header primitives. No external UI library, no vendored layout
+code, no comparator source or trade dress. The split-tree math and visual
+structure are Basebuild contracts implemented in the `globals.css`-only
+stack (radius tokens, no Radix, no CSS modules).
 
 - `.panel-grid` — the split-tree container; renders recursively as nested
   horizontal/vertical splits. `.panel-grid-split` is a flex split node
@@ -121,30 +129,32 @@ dependencies are NOT adopted.
   state.
 - `.panel-grid-splitter` — drag-resize handle between split siblings
   (4px, col/row cursor). `.is-vertical` / `.is-horizontal` variants.
-- `.panel-header` — per-panel header (title, type icon, status, split/close
-  buttons). `.panel-header-title`, `.panel-header-actions`,
-  `.panel-header-status` (streaming/idle/error indicators). Pinned at the
-  top of the panel, never scrolls out of view.
-- `.panel-header-tab` — the workspace tabs inside a panel header. Tabs are
-  elastic (`flex: 1 1 0`, `min-width: 130px`, `max-width: 240px`) and the strip
-  scrolls horizontally on overflow; each tab is `min-height: 38px` with a 13px
-  label and a 2px active underline in `--bb-cta`. `.panel-header-tab-close` is
-  the per-tab close affordance. (The legacy `.workspace-tab*` block was removed —
-  it was dead CSS.)
-- `.drop-zone-overlay` — 4-edge drop zone overlay for drag-to-split
-  (`.drop-zone-top/right/bottom/left`). 2px accent line.
-- `.activity-sidebar` — left sidebar panel list; `.activity-sidebar-row`
-  per panel with type icon, title, status. `.activity-sidebar-history-badge`
-  for the closed-panel count.
-- `.history-drawer` — overlay drawer listing closed panels
+- `.panel-header` — per-surface draggable title bar (title, type icon,
+  split/close buttons). `.panel-header-actions` contains direct split and close
+  actions; destructive retention details stay in History rather than an
+  overflow menu. Pinned at the top of the surface, never scrolls out of view.
+  Each leaf owns exactly one surface — there are no tab strips inside panel
+  headers.
+- `.drop-zone-overlay` — 4-edge drop zone overlay for pointer drag-to-move or
+  split (`.drop-zone-top/right/bottom/left`). 2px accent line.
+- `.activity-sidebar` — left sidebar surface list under each project.
+  `.surface-row` is draggable and presents the type icon, title, and one state
+  icon/word. Visible surfaces are flat rows under `.surface-group-label`
+  (`Linked group`) in depth-first split-tree order; active hidden surfaces are
+  flat rows under `.surface-group-label.is-unlinked` (`Unlinked`). The
+  `.surface-unlink-dropzone` accepts title-bar drags without closing the
+  surface. `.activity-sidebar-history-badge` shows the closed-surface count.
+- `.history-drawer` — overlay drawer listing closed surfaces
   (`.history-drawer-item` with Re-open / Delete permanently actions).
 - `.bg-agents-item-open` — full content target for a chat-bound background run;
   clicking it opens the owning chat transcript, while cancellation remains a
   separate sibling button.
-- `.chat-column-header` — sticky per-chat configuration rail: title, clickable
-  model chip, effort dropdown, textual permission dropdown, run state, circular
-  context usage, agent mode, plan badge, compact branch, commands, history, and
-  more-actions.
+- `.chat-column-header` — pinned per-chat header (28–32px): title, clickable
+  model chip, effort dropdown, textual permission dropdown, run state,
+  circular context usage, agent mode (plan/build), plan badge, compact
+  branch, and secondary actions. Pinned at the top of the chat surface,
+  never scrolls out of view. Configuration is not duplicated in the
+  composer.
 - `.chat-header-select`, `.chat-header-run-state`, `.chat-header-context` —
   compact header configuration/state primitives. The context circle exposes the
   exact latest-request token ratio in its tooltip.
@@ -153,6 +163,32 @@ dependencies are NOT adopted.
   (stash/discard/cancel).
 - `.chat-more-menu` — more-actions menu; `.chat-more-menu-item.is-danger`
   for destructive entries (delete session).
+- **Shared typed creation menu** — one accessible menu component for all
+  plus/New actions: Basebuild Chat, Oh My Pi Chat (when OMP is installed),
+  and Terminal. Uses semantic `menu`/`menuitem` roles, `aria-expanded`,
+  focus entry/return, and arrow/Home/End/Escape keyboard navigation. All
+  creation paths invoke the same transaction: reserve, acquire backing
+  resource, bind, rollback on failure. Default placement replaces/fills
+  when no capacity is available; explicit beside/below is offered when
+  capacity permits.
+- **Surface-state primitives** — `.surface-state-creating`,
+  `.surface-state-running`, `.surface-state-disconnected`,
+  `.surface-state-exited`, `.surface-state-error`,
+  `.surface-state-restart` for OMP/Terminal lifecycle. Surface rows in the
+  sidebar use real `<button>` elements with `title=` and one state
+  icon/word. Close controls reveal on `:focus-within`, not just `:hover`.
+- **Accessible splitters** — `.panel-grid-splitter` elements are focusable
+  separators with `role="separator"`, `aria-valuenow`/`aria-valuemin`/
+  `aria-valuemax`, and keyboard resize (arrow keys adjust the ratio).
+- **xterm base-CSS exception** — xterm.js ships its own base stylesheet
+  (`@xterm/xterm/css/xterm.css`) which is loaded alongside `globals.css`.
+  This is the only permitted external stylesheet exception. xterm's
+  theme colors (foreground, background, cursor, ANSI palette) are set
+  programmatically from computed CSS token values at runtime — no
+  hardcoded color values in component code. The xterm base-CSS provides
+  only structural layout (cell dimensions, viewport, selection styling);
+  all color theming flows through the xterm `ITheme` interface from
+  `getComputedStyle()` token reads.
 - `.pr-recommendation-card` — finished-run PR recommendation (branch,
   ahead/behind, changed-file count, confirm-gated Create PR action).
 - `.settings-table` — concurrency settings grid (provider, global max,
@@ -204,6 +240,13 @@ dependencies are NOT adopted.
     (`≈3.2 reqs/h`, `≈1 req every 6h`, `≈12.4k tok/h`) beside raw totals so
     usage reads as behavior, not bare numbers.
   - `.row-end` right-aligns a `.row` (modal action rows).
+- **Usage Sync settings** use `.usage-sharing-summary` /
+  `.usage-sharing-block` for the exact aggregate allowlist and exclusion copy,
+  `.usage-attribution` for account versus private-installation attribution,
+  and `.usage-source-section` / `.usage-source-row` /
+  `.usage-source-state` for compact independent source status. A failed or
+  pending source exposes the native `Retry sync` action; source diagnostics
+  must be fixed privacy-safe classifications and never raw parser text or paths.
 
 Use popovers only for short single-step menus (roughly 6-8 rows). Searchable
 catalogs, forms, previews, and multi-column configuration belong in a named
@@ -342,9 +385,10 @@ carries meaning alone.
   `.question-card-error`, `.chat-error-bar`, `.chat-more-menu-item.is-danger`,
   `.text-danger`, `.badge-error`, `.plan-queue-run-status-failed`,
   `.schematic-health-badge.is-missing`, `.source-file-status.is-deleted`.
-- **Orange (`--bb-cta`)** — active selection, current focus, pending/running, CTA.
-  Examples: `.provider-model-row.is-active`, `.provider-card.is-active`,
-  `.settings-tab.is-active`, `.tool-card-running`, `.tool-card-status-running`,
+- **Green CTA (`--bb-cta`)** — active selection, current focus,
+  pending/running, CTA. Examples: `.provider-model-row.is-active`,
+  `.provider-card.is-active`, `.settings-tab.is-active`,
+  `.tool-card-running`, `.tool-card-status-running`,
   `.question-card-pending`, `.chat-message-user`, `.chat-row.is-active`,
   `.command-strip-count-active`.
 
@@ -380,7 +424,7 @@ Rendering contract:
   a fake tools-capable run.
 
 Planning state color follows backend run state, not plan-label inference:
-orange is only live/queued/needs-input work; awaiting-review and interrupted use
+green CTA is only live/queued/needs-input work; awaiting-review and interrupted use
 warning treatment; failed is negative; complete is positive; archived is muted.
 The full `.bg-agents-item-open` row reopens the retained owner chat. Resume,
 Review, Retry, Archive, and Cancel are explicit sibling actions with `title=`

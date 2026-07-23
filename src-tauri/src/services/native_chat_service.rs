@@ -280,10 +280,8 @@ impl NativeChatService {
         // Identity dedupes re-logins to the same upstream account: OAuth uses
         // the ChatGPT account id claim, API keys hash the key bytes.
         let (identity_key, account_label) = if auth_method == AUTH_OAUTH {
-            let identity = crate::services::provider_client::codex_account_identity(
-                &input.api_key,
-            )
-            .unwrap_or_else(|| format!("legacy:{}", input.provider_id));
+            let identity = crate::services::provider_client::codex_account_identity(&input.api_key)
+                .unwrap_or_else(|| format!("legacy:{}", input.provider_id));
             (identity, input.label.clone())
         } else {
             (
@@ -1033,8 +1031,8 @@ impl NativeChatService {
         // Non-local provider with no usable account → typed setup prompt.
         // Distinguishes "never connected" from "every account is unhealthy".
         if !is_local && candidates.is_empty() {
-            let has_accounts = !pacct::ProviderAccountService::list_records(Some(&provider_id))?
-                .is_empty();
+            let has_accounts =
+                !pacct::ProviderAccountService::list_records(Some(&provider_id))?.is_empty();
             let message = if has_accounts {
                 pacct::ProviderAccountService::exhaustion_message(&provider_id, &provider_label)
             } else {
@@ -2674,7 +2672,9 @@ fn map_metric(row: &rusqlite::Row<'_>) -> rusqlite::Result<NativeRequestMetric> 
 /// iteration segment holding only the terminal error text. Returns the error
 /// message for health classification. Anything mid-stream returns None —
 /// those surface the error instead of silently retrying.
-fn pre_stream_failure(run_result: &crate::services::agent_loop_service::RunResult) -> Option<String> {
+fn pre_stream_failure(
+    run_result: &crate::services::agent_loop_service::RunResult,
+) -> Option<String> {
     if run_result.completed || run_result.cancelled || run_result.hit_cap {
         return None;
     }
@@ -2685,10 +2685,7 @@ fn pre_stream_failure(run_result: &crate::services::agent_loop_service::RunResul
     if segment.iteration != 1 || segment.reasoning.is_some() {
         return None;
     }
-    segment
-        .content
-        .strip_prefix("Error: ")
-        .map(str::to_string)
+    segment.content.strip_prefix("Error: ").map(str::to_string)
 }
 
 fn gen_id(prefix: &str) -> String {
@@ -3119,7 +3116,9 @@ mod tests {
     #[test]
     fn omp_credentials_missing_db_returns_empty() {
         let dir = tempfile::TempDir::new().unwrap();
-        assert!(NativeChatService::omp_credentials_from(&dir.path().join("agent.db"), false).is_empty());
+        assert!(
+            NativeChatService::omp_credentials_from(&dir.path().join("agent.db"), false).is_empty()
+        );
     }
 
     #[test]

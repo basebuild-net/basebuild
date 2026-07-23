@@ -1,43 +1,62 @@
 ---
 version: beta
 name: Basebuild Mono Desktop
-description: Desktop adaptation of the basebuild design system. Two tokenized themes (graphite-grey Dark default, soft-neutral Light), white/near-black type, vibrant semantic status colors for plan/tool/status types, restrained radius scale (6/10/14px + full), and a layered surface aesthetic adapted to a calm desktop tool. All colors are CSS variables, applied via data-bb-theme before React paints. Collapsible columns, icon-only collapse modes, tooltips on every interactive element.
+description: Desktop adaptation of the basebuild design system. Two tokenized themes (graphite-green Dark default, soft-neutral Light), high-contrast type on graphite surfaces, restrained green CTA accent with amber/red semantic status, restrained radius scale (6/10/14px + full), and a layered surface aesthetic adapted to a calm desktop tool. All colors are CSS variables, applied via data-bb-theme before React paints. Single-surface workspace with split-tree layout, collapsible columns, icon-only collapse modes, tooltips on every interactive element.
 colors:
   dark:
-    background: "#18181b"
-    chrome: "#131316"
-    surface: "#1c1c21"
-    surface-high: "#26262c"
-    surface-highest: "#2e2e36"
-    on-surface: "#f4f4f5"
-    on-surface-muted: "rgba(244,244,245,0.55)"
-    outline: "#27272a"
-    outline-strong: "#3f3f46"
-    cta: "#ff5606"
-    on-cta: "#ffffff"
-    cta-hover: "#ff7a3d"
-    positive: "#4ade80"
-    negative: "#f87171"
-    warning: "#facc15"
-    info: "#818cf8"
+    background: "#101211"
+    chrome: "#0c0e0d"
+    surface: "#171a18"
+    hover: "#1e221f"
+    selected: "#272c28"
+    surface-high: "#1e221f"
+    surface-highest: "#272c28"
+    on-surface: "#eef2ef"
+    secondary: "#c8cec9"
+    on-surface-muted: "rgba(238,242,239,0.55)"
+    muted: "#98a19a"
+    faint: "#7c857e"
+    outline: "#303632"
+    outline-strong: "#3a413c"
+    cta: "#6ea97a"
+    on-cta: "#0b140d"
+    cta-hover: "#7cba88"
+    positive: "#6ea97a"
+    negative: "#cf7373"
+    danger: "#cf7373"
+    warning: "#d0a04a"
+    info: "#b8c0ba"
+    update: "#3b82f6"
   light:
-    background: "#f4f4f5"
-    chrome: "#ececef"
+    background: "#f5f6f3"
+    chrome: "#ebeee8"
     surface: "#ffffff"
-    surface-high: "#f4f4f5"
-    surface-highest: "#e4e4e7"
-    on-surface: "#18181b"
-    on-surface-muted: "rgba(24,24,27,0.55)"
-    outline: "#d4d4d8"
-    outline-strong: "#a1a1aa"
-    cta: "#ff5606"
+    hover: "#f0f2ee"
+    selected: "#e4e8e2"
+    surface-high: "#f0f2ee"
+    surface-highest: "#e4e8e2"
+    on-surface: "#1a1d1b"
+    secondary: "#4a524d"
+    on-surface-muted: "rgba(26,29,27,0.55)"
+    muted: "#6b746e"
+    faint: "#8a938c"
+    outline: "#d4d8d3"
+    outline-strong: "#a8b0aa"
+    cta: "#4d8a5a"
     on-cta: "#ffffff"
-    cta-hover: "#ff7a3d"
-    positive: "#16a34a"
-    negative: "#dc2626"
-    warning: "#ca8a04"
-    info: "#4f46e5"
+    cta-hover: "#427a52"
+    positive: "#4d8a5a"
+    negative: "#b85858"
+    danger: "#b85858"
+    warning: "#a87826"
+    info: "#6b7570"
+    update: "#2563eb"
 typography:
+  chat-reading:
+    fontFamily: "Space Grotesk"
+    fontSize: 14px
+    fontWeight: 400
+    lineHeight: 1.55
   body-md:
     fontFamily: "Space Grotesk"
     fontSize: 13px
@@ -65,7 +84,7 @@ typography:
     lineHeight: 1.2
   micro-caps:
     fontFamily: "Space Grotesk"
-    fontSize: 10px
+    fontSize: 11px
     fontWeight: 600
     lineHeight: 1
     letterSpacing: 0.06em
@@ -101,6 +120,8 @@ spacing:
   md: 12px
   lg: 16px
   xl: 24px
+  target-absolute: 24px
+  target-repeated: 28px
 components:
   sidebar:
     backgroundColor: "transparent"
@@ -126,7 +147,7 @@ components:
     rounded: "{rounded.sm}"
   tool-button-active:
     textColor: "{colors.on-surface}"
-    backgroundColor: "{colors.surface-container-high}"
+    backgroundColor: "{colors.surface-high}"
   tool-button-active-bar:
     backgroundColor: "{colors.cta}"
     width: "2px"
@@ -146,7 +167,7 @@ components:
     padding: "5px"
     textColor: "{colors.on-surface-muted}"
   input-field:
-    backgroundColor: "{colors.surface-container}"
+    backgroundColor: "{colors.surface}"
     textColor: "{colors.on-surface}"
     border: "1px solid {colors.outline}"
     padding: "5px 8px"
@@ -154,7 +175,7 @@ components:
   input-field-focus:
     borderColor: "{colors.cta}"
   badge:
-    backgroundColor: "{colors.surface-container-high}"
+    backgroundColor: "{colors.surface-high}"
     textColor: "{colors.on-surface}"
     padding: "2px 6px"
     rounded: "{rounded.sm}"
@@ -167,7 +188,7 @@ components:
     rounded: "{rounded.sm}"
   option-list-item-active:
     textColor: "{colors.on-surface}"
-    backgroundColor: "{colors.surface-container-high}"
+    backgroundColor: "{colors.surface-high}"
     borderBottom: "2px solid {colors.cta}"
   card:
     border: "1px solid {colors.outline}"
@@ -177,23 +198,24 @@ components:
     height: "36px"
     borderBottom: "1px solid {colors.outline}"
   context-menu:
-    backgroundColor: "{colors.surface-container-high}"
+    backgroundColor: "{colors.surface-high}"
     border: "1px solid {colors.outline-strong}"
 ---
 
 ## Overview
 
 Basebuild Mono Desktop adapts the basebuild web design system for a
-desktop tool. The personality is **layered neutral surfaces, clear type,
-vibrant semantic colors for status/tool types, and restrained geometry** —
-adapted for a calm, focused workspace. Two tokenized themes (graphite-grey
+desktop tool. The personality is **layered graphite surfaces, clear type,
+a restrained green CTA accent, and semantic amber/red status** — adapted
+for a calm, focused workspace. Two tokenized themes (graphite-green
 **Dark** default, soft-neutral **Light**) are applied via `data-bb-theme`
 before React paints; all colors are CSS variables in `globals.css`.
 
-The CTA accent is Basebuild orange (`#ff5606`), providing a warm focus point
-while plan statuses, tool call types, and context meters use vibrant semantic
-colors (green, blue, purple, amber, red) to make state visible at a glance.
-Color never acts alone — every state has a word and icon alongside it.
+The CTA accent is Basebuild green (`#6ea97a`), providing a calm focus
+point. Plan statuses, tool call types, and context meters use restrained
+semantic colors (green, amber, red, neutral) to make state visible at a
+glance. Color never acts alone — every state has a word and icon
+alongside it.
 
 This is a desktop tool, not a marketing site. The UI is **disciplined but
 spacious**: a 4px-based spacing scale with more whitespace than the old dense
@@ -202,41 +224,43 @@ hierarchy. Tooltips on every interactive element so clarity never costs density.
 
 ## Layout
 
-A **single global left column** and a **chat-focused center**. There is no
+A **single global left column** and a **surface-focused center**. There is no
 right side panel — everything that used to live there (source, plans, ideas,
 files) now lives either in the left column or as a compact floating block over
 the chat. The app shell is a two-region grid: the left column (fixed width,
-collapsible to icon-only) and the center chat surface (fills the rest).
+collapsible to icon-only) and the center workspace (fills the rest).
 
-- **Left sidebar (240px → 44px collapsed):** The global control surface for the
+- **Left sidebar (220px → 36px collapsed):** The global control surface for the
   whole app, not per-chat. From top to bottom:
-  1. **Top action row** — `New chat`, `Search`, and the column collapse toggle.
-     These are the primary actions; no other top bar.
-  2. **Projects + chats list** — the body of the column. Each project is a
-     section with its chats listed underneath. **Only the 5 most recent chats
-     per project are shown**, each with a relative timestamp (`5s`, `1min`,
-     `2h`, `1mo`) and a pin toggle. A `Show more` row under each project expands
-     the older chats for that project. Pinned chats sit in their own section at
-     the top of the list (across all projects) and do not count against the 5.
+  1. **Top action row** — `New` (opens the shared typed creation menu),
+     `Search`, and the column collapse toggle. These are the primary actions;
+     no other top bar.
+  2. **Projects + surfaces list** — the body of the column. Each project is a
+     section with a compact **Current layout** group listing its visible
+     surfaces in depth-first split-tree order, followed by active hidden
+     surfaces as sibling rows without the visible marker. One state icon/word
+     per surface replaces redundant colors and dots. History is a separate
+     collapsed drawer destination at the bottom of each project section.
   3. **Bottom account row** — username / avatar and settings. The global update
-  indicator sits here too; when an update is detected it becomes a compact
-  one-click install button beside the avatar. This is the only non-CTA
-  button and is reserved for app updates.
+     indicator sits here too; when an update is detected it becomes a compact
+     one-click install button beside the avatar. This is the only non-CTA
+     button and is reserved for app updates.
 
   Collapsing the column to icon-only hides the list and labels; tooltips carry
   the full text.
 
-- **Center chat surface:** The whole center is the active chat. No tool tabs or
-  right panel. A compact sticky configuration header sits above the independently
-  scrolling transcript, and the composer stays pinned to the bottom. Two things
-  float over the chat on the top-right; everything else is the conversation.
+- **Center workspace:** A split tree of independent surfaces. Each leaf owns
+  exactly one surface — a Basebuild Chat, Oh My Pi Chat, or Terminal. There
+  are no tab arrays inside leaves. The split tree supports horizontal and
+  vertical splits to any depth. One surface is focused at a time; the focused
+  leaf receives an active outline.
 
 ### Floating environment info (top-right of chat)
 
 A compact, ~100px-tall block pinned to the top-right of the chat surface. It
   surfaces the project environment at a glance and is the new home for the
-  panels that used to live in the right sidebar, each as a foldable tab inside
-  the block:
+  panels that used to live in the right sidebar, each as a foldable section
+  inside the block:
 
 - **Changes / branch / source** — current git branch, ahead/behind, and the
   staged/unstaged/untracked counts. Inline actions: commit, push, pull. The
@@ -253,53 +277,103 @@ A compact, ~100px-tall block pinned to the top-right of the chat surface. It
   search at the top). The giant always-visible file list is gone.
 
 The block is collapsible; when folded it shows just the branch name and a
-  health dot. It floats above the transcript and never pushes chat content.
+health dot. It floats above the transcript and never pushes chat content.
 
-### Workspace tabs and project surfaces
+### Workspace surfaces
 
-Terminal sessions and the file viewer open as **workspace tabs over the
-center**. The Project Schematic is project-owned and opens in its dedicated
-modal from the top-level Schematic stage; it is not represented as a new chat.
-Workspace tabs are per-session and use `terminal`, `file`, and `chat` kinds.
-There is no always-visible tab bar; the active tab is indicated in the session
-header and switching is via the left column or keyboard. The default tab is the
-chat.
+The center workspace is a split tree of independent surfaces, not tabs. Each
+leaf owns exactly one surface — a Basebuild Chat, Oh My Pi Chat, or Terminal.
 
-### Chat composer
+- **Split tree.** Horizontal (left/right) and vertical (top/bottom) splits to
+  any depth. A split node owns direction, ratio, and focus; a leaf node
+  references one surface id. The tree persists per project across restarts.
+- **One surface per leaf.** A leaf displays one Chat, Oh My Pi Chat, or
+  Terminal. Splitting creates a new leaf; closing moves the surface to
+  History. There is no tab bar inside any leaf.
+- **Active registry.** Every active surface — visible or hidden — is retained
+  in a project-scoped active registry and listed under its project in the
+  sidebar. Surfaces are grouped by their linked group and ordered by recency,
+  where recency is the last time the user sent a message to a chat: that chat's
+  group or solo rises to the top, with a group's members kept contiguous in
+  split-tree order. Focusing or clicking a chat never reorders the list, and
+  neither do assistant replies or background updates — only a user send does.
+  Each row shows the time of the last user message. A row carries a coloured
+  square when its
+  surface belongs to a linked group; each group gets a distinct, stable colour
+  so sibling groups never read as one. Solo chats have no square. One state
+  word per surface conveys its status. Every project's surfaces — with status,
+  timestamp, and grouping — are shown, not only the active project's, so the
+  full picture is visible without switching projects.
+- **Selection and placement.** Selecting a visible sidebar row focuses its
+  existing leaf. Selecting a surface in an inactive linked group restores that
+  whole group and focuses the chosen surface; selecting a solo unlinked surface
+  shows only it. Either way the previously visible layout is parked intact — a
+  group stays a group, a solo stays a solo — so switching chats never silently
+  breaks a group apart. Dragging a surface title bar onto
+  another visible surface moves it to the chosen edge; dropping it on the
+  sidebar unlink target removes it from the layout without closing. Sidebar
+  rows can be dragged between the linked layout and unlinked section. `Open
+  beside` and `Open below` explicitly split the focused leaf. `Close` moves
+  the surface to retained History. Reopening returns it active unlinked,
+  preserving the current layout.
+- **Capacity.** Chat and Oh My Pi Chat leaves require 440px minimum width;
+  Terminal leaves require 320px. A split computes both children's minimums
+  before mutation; splitter ratios clamp against pixel minimums. On window
+  shrink, least-recently-focused nonfocused leaves are hidden
+  deterministically until all visible leaves fit; they remain active hidden.
+  New placement that cannot fit is rejected with `Replace focused` as the
+  primary alternative.
+- **Creation.** One shared typed menu offers Basebuild Chat, Oh My Pi Chat
+  (when OMP is installed), and Terminal. All plus/New actions invoke the same
+  component and transaction. Default creation replaces/fills when no capacity
+  is available; explicit beside/below placement is offered when capacity
+  permits.
 
-The composer is intentionally minimal: a compact two-line input that grows for
-long drafts, plus send/stop. Configuration belongs in one sticky header instead
-of being repeated above and below the input.
+### Chat header and composer
 
-- **Compact, growing input.** The text field starts at two lines and grows as
-  you type, remaining readable for long prompts before it scrolls internally.
-  The message list yields space to the input, never the other way around.
-- **One configuration header.** Model, effort, textual permission mode, run
-  state, context usage, and branch live in the sticky chat header. Model opens
-  the provider/model workspace; effort and permission use compact dropdowns.
-- **Measured context circle.** A small circular indicator shows the latest
-  completed session request against the selected model's context window. Its
-  tooltip carries the exact token ratio and percentage. A new chat shows zero,
-  never ambiguous “unknown usage” text.
-- **Minimal chrome.** The footer contains only the growing input and send/stop.
-  Commands have one header icon. Copy/debug/history and other rare actions live
-  in the header menu or slash-command flows.
-- **Focused surface.** Focusing the textarea outlines the complete composer
-  area in the CTA accent so keyboard focus is unambiguous.
-- **Pinned, never clipped.** The composer stays at the bottom of the chat panel
-  at any window size; the conversation scrolls, the composer does not.
+Stable chat configuration lives in a pinned header; the composer is minimal.
+
+- **Pinned header (28–32px).** Title, model, plan/build mode, context usage,
+  run state, and secondary actions. The header is pinned at the top of the
+  chat surface and never scrolls out of view. Every control has a `title=`
+  tooltip.
+- **Composer.** A textarea, send/stop, and one compact permission/effort
+  disclosure. The textarea starts at two lines and auto-grows, remaining
+  readable for long prompts before it scrolls internally. The message list
+  yields space to the input, never the other way around. Focusing the textarea
+  outlines the complete composer area in the CTA accent so keyboard focus is
+  unambiguous.
+- **Pinned, never clipped.** The composer stays at the bottom of the chat
+  surface at any window size; the conversation scrolls, the composer does not.
+- **Interaction workbench.** Pending questions take over the composer area
+  exactly as before; the pinned header remains visible throughout.
+- **Empty state.** A transcript-owned empty state first directs model
+  configuration, then offers a few project-grounded starter prompts.
 - **Follow latest by default.** New turns and streamed output remain visible
   while the reader is at the bottom. Scrolling upward preserves the reading
   position until the reader returns to the bottom or uses the latest control.
 - Every interactive control has a tooltip. Offline (local-coordinator) replies
-  carry an amber “Offline” tag so local output is never mistaken for a provider
-  answer.
+  carry an amber "Offline" tag so local output is never mistaken for a
+  provider answer.
+
+### Oh My Pi Chat surface
+
+Oh My Pi Chat is an install-gated optional workspace surface that wraps one
+OMP PTY. It is additive — never required for native Chat or planning.
+
+- Labeled `Oh My Pi Chat` with secondary `OMP terminal session` ownership copy.
+- One PTY per surface. States: creating, running, disconnected, exited, error,
+  restart.
+- xterm shell colors derive from computed CSS tokens, not hardcoded values.
+  Fitting uses a requestAnimationFrame-batched `ResizeObserver` on the
+  container, not window resize.
+- Bounded scrollback; the unbounded React-line rendering path is removed.
 
 ## Collapsible Columns
 
-The left sidebar collapses to icon-only width (44px) via the toggle in its top
+The left sidebar collapses to icon-only width (36px) via the toggle in its top
 action row. The transition is a smooth width animation. In collapsed mode:
-- The projects/chats list and all text labels are hidden.
+- The projects/surfaces list and all text labels are hidden.
 - Top action icons and the account row remain visible.
 - Tooltips become essential — hovering shows the full label.
 
@@ -309,17 +383,17 @@ The collapsed state is stored in React state (not persisted yet).
 
 The shell has four ownership levels. A control belongs to one level only:
 
-1. **Global navigation** — project/chat history and account controls (left
+1. **Global navigation** — project/surface history and account controls (left
    sidebar).
 2. **Project command strip** — Schematic, Ideas, Plans, Running, Done. Each
    stage button opens its exact destination; it never creates a surrogate
-   chat or defaults to a sibling tab.
+   chat or defaults to a sibling surface.
 3. **Active chat** — transcript/activity timeline and composer.
 4. **Project modals** — Schematic, Planning, Changes, Files, Settings.
 
 The top bar is an orientation/action strip, not a telemetry dump. It contains
 named project utilities, project/branch/workspace context, and planning stages.
-The per-chat sticky header owns provider/model/effort/permission/context; raw
+The pinned chat header owns provider/model/effort/permission/context; raw
 session ids, global request totals, inactive-plan placeholders, and duplicate
 model/project badges do not render.
 
@@ -339,18 +413,18 @@ Borders are minimal and honest: 1px, full perimeter, or none at all.
   background contrast against the parent; use borders to separate
   interactive or nested surfaces from their container.
 - **Sanctioned partial accents are flat only.** The 2px active underline on
-  tabs and option-list items, and the 2px active bar on flush square list
-  rows (sidebar rows, menu rows, pickers), remain allowed because those
-  elements have no rounded corner on the accent edge.
+  option-list items and the 2px active bar on flush square list rows (sidebar
+  rows, menu rows, pickers) remain allowed because those elements have no
+  rounded corner on the accent edge.
 
 ### Selection controls
 
 Fixed, roomy settings choices use a **square option list**: a bordered row of
 buttons where the active option has a CTA underline, `aria-pressed`, and a
 tooltip. Exception: the dense chat header uses square native dropdowns for
-effort and permission mode so all configuration fits on one 28px rail without
-duplicating controls in the composer. These dropdowns retain radius tokens,
-visible text, keyboard support, and `title=` tooltips.
+effort and permission mode so all configuration fits on one 28–32px pinned
+header without duplicating controls in the composer. These dropdowns retain
+radius tokens, visible text, keyboard support, and `title=` tooltips.
 
 - **Option list** — 2-6 fixed options in forms and settings. All visible, one
   active. Radius tokens, 1px outline border around the group.
@@ -365,7 +439,7 @@ visible text, keyboard support, and `title=` tooltips.
 ### Modal versus popover
 
 Use a popover only for a short, single-step choice that can be understood in
-roughly 6-8 rows (chat actions, branch switch, New panel). Use a modal for
+roughly 6-8 rows (chat actions, branch switch, New surface). Use a modal for
 search/browse configuration, multi-column content, previews, forms, or catalogs
 (provider/model, Schematic, Planning, Changes, Files, Settings). Modal layouts
 may obscure the chat: focused configuration is the current task.
@@ -374,14 +448,16 @@ may obscure the chat: focused configuration is the current task.
 
 Color never acts alone — every state has text/icon redundancy:
 
-- **Connected/success** — green (`#4ade80`). Connected providers, staged files,
-  ahead count, completed runs.
-- **Unavailable/inactive** — grey (muted). Available providers, inactive stages.
-- **Warning** — amber (`#facc15`). Modified files, behind count, setup-required
-  providers, stale schematic.
-- **Error** — red (`#f87171`). Destructive actions, failed runs, deleted files.
-- **Active selection** — foreground CTA (`#f4f4f5`). Selected provider card,
-  active project, current tab.
+- **Connected/success** — green (CTA `#6ea97a`). Connected providers, staged
+  files, ahead count, completed runs.
+- **Unavailable/inactive** — grey (muted `#98a19a`). Available providers,
+  inactive stages.
+- **Warning** — amber (`#d0a04a`). Modified files, behind count,
+  setup-required providers, stale schematic.
+- **Error** — red (`#cf7373`). Destructive actions, failed runs, deleted files.
+- **Active selection** — CTA green (`#6ea97a`). Selected provider card, active
+  project, focused surface.
+- **Context meter** — healthy green, warn amber, critical red.
 
 ### Loading and errors
 
@@ -391,8 +467,9 @@ fallbacks for user-opened surfaces are never blank. Errors include a retry and
 are debug-logged with action and project/session identifiers.
 
 ## Tooltips
+
 Every interactive element has a tooltip via the `title` attribute. This is
-non-negotiable - density requires that users can discover what an icon does
+non-negotiable — density requires that users can discover what an icon does
 without clicking. For icon-only (collapsed) states, the tooltip is the primary
 label.
 
@@ -402,59 +479,105 @@ Two tokenized themes applied via `data-bb-theme` before React paints:
 
 ### Dark (default, `data-bb-theme="dark"`)
 
-Graphite-grey canvas with layered surfaces and orange CTA accent:
+Graphite canvas with layered surfaces and green CTA accent:
 
-- **Background (`#18181b`):** Graphite canvas. Sidebar, rail, workspace all share it.
-- **Chrome (`#131316`):** Shell-level surfaces (taskbar, sidebar, tool-rail, status-bar) for depth.
-- **Surface ramp:** `#1c1c21` → `#26262c` (high) → `#2e2e36` (highest).
-- **On-surface (`#f4f4f5`):** Primary text.
-- **Muted (`rgba(244,244,245,0.55)`):** Secondary text, labels, inactive icons.
-- **Outline (`#27272a`) / outline-strong (`#3f3f46`):** 1px hairlines for borders.
-- **CTA (`#ff5606` → `#ff7a3d` hover):** Orange accent. Active tool bar, primary
-  buttons, active project icon, commit dots.
-- **Positive (`#4ade80`):** Success, staged files, ahead count.
-- **Negative (`#f87171`):** Destructive actions, deleted files, errors.
-- **Warning (`#facc15`):** Modified files, behind count.
-- **Info (`#818cf8`):** Untracked files, renamed files.
-- **Context meter:** healthy `#4ade80`, warn `#f59e0b`, critical `#f87171`.
-- **Update (`#2563eb`):** App update availability and one-click install CTA only.
+- **Background (`#101211`):** Graphite canvas. Sidebar, rail, workspace all
+  share it.
+- **Chrome (`#0c0e0d`):** Shell-level surfaces (taskbar, sidebar, tool-rail,
+  status-bar) for depth.
+- **Surface (`#171a18`):** Primary surface for cards, inputs, popovers.
+- **Hover (`#1e221f`):** Hover and surface-high. Interactive hover lift.
+- **Selected (`#272c28`):** Selected and surface-highest. Active item
+  background.
+- **On-surface (`#eef2ef`):** Primary text.
+- **Secondary (`#c8cec9`):** Secondary text and labels.
+- **Muted (`#98a19a`):** Inactive icons, placeholder text.
+- **Faint (`#7c857e`):** De-emphasized metadata.
+- **Outline (`#303632`) / outline-strong (`#3a413c`):** 1px hairlines for
+  borders.
+- **CTA (`#6ea97a` → `#7cba88` hover/focus):** Green accent. Active surface
+  indicator, primary buttons, focus rings, active project icon.
+- **On-CTA (`#0b140d`):** Text on CTA-colored surfaces.
+- **Positive (`#6ea97a`):** Success, staged files, ahead count, connected
+  providers.
+- **Negative/Danger (`#cf7373`):** Destructive actions, deleted files, errors.
+- **Warning (`#d0a04a`):** Modified files, behind count, stale schematic.
+- **Info (`#b8c0ba`):** Neutral informational accent.
+- **Context meter:** healthy `#6ea97a`, warn `#d0a04a`, critical `#cf7373`.
+- **Update (`#3b82f6`):** App update availability and one-click install CTA
+  only.
 
 ### Light (`data-bb-theme="light"`)
 
 Soft-neutral canvas with white surfaces and deeper semantic colors:
 
-- **Background (`#f4f4f5`):** Soft neutral canvas.
-- **Chrome (`#ececef`):** Shell-level surfaces for subtle depth.
-- **Surface ramp:** `#ffffff` → `#f4f4f5` (high) → `#e4e4e7` (highest).
-- **On-surface (`#18181b`):** Primary text.
-- **Muted (`rgba(24,24,27,0.55)`):** Secondary text, labels, inactive icons.
-- **Outline (`#d4d4d8`) / outline-strong (`#a1a1aa`):** 1px hairlines for borders.
-- **CTA (`#ff5606` → `#ff7a3d` hover):** Same orange accent.
-- **Positive (`#16a34a`), Negative (`#dc2626`), Warning (`#ca8a04`), Info (`#4f46e5`):** Deeper
-  semantic colors for light-background contrast.
+- **Background (`#f5f6f3`):** Soft neutral canvas.
+- **Chrome (`#ebeee8`):** Shell-level surfaces for subtle depth.
+- **Surface (`#ffffff`):** Primary surface.
+- **Hover (`#f0f2ee`):** Hover and surface-high.
+- **Selected (`#e4e8e2`):** Selected and surface-highest.
+- **On-surface (`#1a1d1b`):** Primary text.
+- **Secondary (`#4a524d`):** Secondary text and labels.
+- **Muted (`#6b746e`):** Inactive icons, placeholder text.
+- **Faint (`#8a938c`):** De-emphasized metadata.
+- **Outline (`#d4d8d3`) / outline-strong (`#a8b0aa`):** 1px hairlines.
+- **CTA (`#4d8a5a` → `#427a52` hover):** Deeper green accent for light
+  contrast.
+- **On-CTA (`#ffffff`):** White text on CTA.
+- **Positive (`#4d8a5a`), Negative (`#b85858`), Warning (`#a87826`), Info
+  (`#6b7570`):** Deeper semantic colors for light-background contrast.
+- **Update (`#2563eb`):** App update CTA.
+
+### Dither texture
+
+One static CSS pseudo-element supplies a subtle Basebuild brand texture:
+
+- ~4px grid, tokenized neutral/green opacity.
+- Limited to fixed shell chrome and selected branded empty regions.
+- `pointer-events: none`; no animation, filter, or blur.
+- Never applied to scrolling or reading surfaces (transcripts, terminals,
+  composers, file viewers).
 
 ## Typography
 
 - **Space Grotesk** for all UI text.
-- **JetBrains Mono** for paths, hashes, numbers, terminal content, file statuses.
-- Uppercase + letter-spacing on section labels and micro-caps for the engineered feel.
+- **JetBrains Mono** for paths, hashes, numbers, terminal content, file
+  statuses.
+- Uppercase + letter-spacing on section labels and micro-caps for the
+  engineered feel.
+
+Baselines:
+
+- **11px micro** — captions, mono-micro, status tags.
+- **12px control** — buttons, labels, inputs, secondary text.
+- **13px shell** — sidebar, headers, session titles, body text.
+- **14px / 1.55 chat-reading** — transcript message text.
+
+Hit-target baselines:
+
+- **24px absolute minimum** — icon buttons, compact controls.
+- **28–30px repeated standard** — sidebar rows, menu items, header controls.
 
 ## Shapes
 
-**Restrained radius via tokens.** No hardcoded radius values — use CSS variable tokens:
+**Restrained radius via tokens.** No hardcoded radius values — use CSS
+variable tokens:
 
 - **`--bb-radius-sm` (6px):** Controls, inputs, badges, option list items.
-- **`--bb-radius-md` (10px):** Cards, popovers, modals, context menus, notifications.
+- **`--bb-radius-md` (10px):** Cards, popovers, modals, context menus,
+  notifications.
 - **`--bb-radius-lg` (14px):** Composer, major floating surfaces.
-- **`--bb-radius-full` (9999px):** Circular elements — dots, pills, icon buttons, context meter.
+- **`--bb-radius-full` (9999px):** Circular elements — dots, pills, icon
+  buttons, context meter.
 
-The `check-ui-invariants` script enforces that all `border-radius` declarations use either `0` or a `var(--bb-radius-*)` token.
+The `check-ui-invariants` script enforces that all `border-radius`
+declarations use either `0` or a `var(--bb-radius-*)` token.
 
 ## Hover Effects
 
 Every interactive element has a hover state:
-- **Buttons:** Background lifts to `--bb-surface`, border to `--bb-border-strong`.
-- **Active items:** Background lifts to `--bb-surface-high`, plus CTA indicator bar.
+- **Buttons:** Background lifts to hover, border to outline-strong.
+- **Active items:** Background lifts to selected, plus CTA indicator bar.
 - **Transitions:** 0.08s for snappy, responsive feel.
 
 ## Spacing
@@ -467,8 +590,24 @@ Every interactive element has a hover state:
 - **lg (16px):** Section padding, large gaps.
 - **xl (24px):** Major section separation.
 - Top bar height: 36px. Sidebar/rail header: 36px.
-- Font sizes: 13px body, 12px secondary, 11px micro/mono.
-- Icon sizes: 14px in lists, 18px in rail, 20px in headers (`--bb-icon-sm/md/lg`).
+- Font sizes: 14px chat-reading, 13px shell, 12px control, 11px micro.
+- Icon sizes: 14px in lists, 18px in rail, 20px in headers
+  (`--bb-icon-sm/md/lg`).
+
+## Accessibility
+
+Accessibility is structural, not cosmetic:
+
+- **Menus** use semantic `menu`/`menuitem` roles, `aria-expanded`, focus
+  entry/return, and arrow/Home/End/Escape keyboard navigation.
+- **Splitters** are focusable separators with `role="separator"`,
+  `aria-valuenow`/`aria-valuemin`/`aria-valuemax`, and keyboard resize
+  (arrow keys adjust the split ratio).
+- **Surface rows and actions** are real `<button>` elements, not clickable
+  divs.
+- **Close controls** reveal on `:focus-within`, not just `:hover`.
+- **State** is always communicated with visible text or icon alongside color.
+- **Tooltips** (`title=`) are required on every interactive element.
 
 ## Planning cockpit surfaces
 
@@ -477,7 +616,7 @@ New surfaces added by the `planning-cockpit` change:
 - **Command strip** — session header row with 5 stage icons + counts. Status
   colors: active = CTA pulse, empty = muted, ok = positive green.
   Collapses to a badge; radius tokens on all elements.
-- **Destination picker** — managed modal dialog listing open chat panels +
+- **Destination picker** — managed modal dialog listing open chat surfaces +
   "New conversation". Uses the standard `.modal-overlay` / `.modal` pattern.
 - **Changes panel** — OpenSpec change catalog with artifact chips (P/D/T/S),
   progress bars, phase-grouped task checklists. Radius tokens on all cards,
@@ -497,7 +636,8 @@ New surfaces added by the `planning-cockpit` change:
 After every UI change, visually verify by:
 1. Running `npm run tauri dev` and launching the app.
 2. Taking a screenshot of the running window.
-3. Checking: alignment, spacing, hover states, collapsed/expanded modes, tooltips.
+3. Checking: alignment, spacing, hover states, collapsed/expanded modes,
+   tooltips.
 4. Testing the actual interaction (click, hover, collapse, etc.).
 
 Never yield a UI change without visual verification.

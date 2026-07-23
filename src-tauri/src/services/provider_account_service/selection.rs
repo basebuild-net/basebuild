@@ -130,8 +130,7 @@ impl ProviderAccountService {
                             // Assign: spread new sessions round-robin.
                             if healthy.len() > 1 {
                                 let mut cursors = RR_CURSORS.lock();
-                                let cursor =
-                                    cursors.entry(provider_id.to_string()).or_insert(0);
+                                let cursor = cursors.entry(provider_id.to_string()).or_insert(0);
                                 let start = *cursor % healthy.len();
                                 *cursor = cursor.wrapping_add(1);
                                 healthy.rotate_left(start);
@@ -149,9 +148,7 @@ impl ProviderAccountService {
         let mut ordered = healthy;
         // OMP virtual account: explicit fallback after healthy native accounts.
         if let Some(omp) =
-            crate::services::native_chat_service::NativeChatService::omp_credential_for(
-                provider_id,
-            )
+            crate::services::native_chat_service::NativeChatService::omp_credential_for(provider_id)
         {
             if !Self::is_provider_blocked(provider_id)? {
                 let virtual_id = omp_account_id(provider_id);
@@ -256,8 +253,7 @@ mod tests {
     }
 
     fn first_candidate(provider_id: &str, session: Option<&str>) -> String {
-        ProviderAccountService::candidates(provider_id, session)
-            .expect("candidates")[0]
+        ProviderAccountService::candidates(provider_id, session).expect("candidates")[0]
             .id
             .clone()
     }
@@ -271,8 +267,7 @@ mod tests {
         let (_dir, _guard) = isolated_home();
         let provider = "test-rr-provider";
         let ids = seed_accounts(provider, 3);
-        ProviderAccountService::set_strategy(Some(provider), "round_robin")
-            .expect("set strategy");
+        ProviderAccountService::set_strategy(Some(provider), "round_robin").expect("set strategy");
 
         let first_a = first_candidate(provider, None);
         let first_b = first_candidate(provider, None);
@@ -284,7 +279,10 @@ mod tests {
         let all = ProviderAccountService::candidates(provider, None).expect("candidates");
         assert_eq!(all.len(), 3);
         for id in &ids {
-            assert!(all.iter().any(|r| &r.id == id), "candidate set must be stable");
+            assert!(
+                all.iter().any(|r| &r.id == id),
+                "candidate set must be stable"
+            );
         }
     }
 
@@ -325,14 +323,16 @@ mod tests {
         let (_dir, _guard) = isolated_home();
         let provider = "test-fill-provider";
         let ids = seed_accounts(provider, 3);
-        ProviderAccountService::set_strategy(Some(provider), "fill_first")
-            .expect("set strategy");
+        ProviderAccountService::set_strategy(Some(provider), "fill_first").expect("set strategy");
 
         for _ in 0..3 {
-            let ordered = ProviderAccountService::candidates(provider, None)
-                .expect("candidates");
+            let ordered = ProviderAccountService::candidates(provider, None).expect("candidates");
             let got: Vec<&String> = ordered.iter().map(|r| &r.id).collect();
-            assert_eq!(got, ids.iter().collect::<Vec<_>>(), "fill_first must not rotate");
+            assert_eq!(
+                got,
+                ids.iter().collect::<Vec<_>>(),
+                "fill_first must not rotate"
+            );
         }
     }
 
@@ -344,8 +344,7 @@ mod tests {
         let (_dir, _guard) = isolated_home();
         let provider = "test-health-provider";
         let ids = seed_accounts(provider, 4);
-        ProviderAccountService::set_strategy(Some(provider), "fill_first")
-            .expect("set strategy");
+        ProviderAccountService::set_strategy(Some(provider), "fill_first").expect("set strategy");
 
         // ids[0]: rate limited with a future cooldown → excluded.
         ProviderAccountService::record_outcome(&ids[0], AccountOutcome::RateLimited(Some(3600)));

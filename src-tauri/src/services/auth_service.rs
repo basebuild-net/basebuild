@@ -34,6 +34,16 @@ pub struct StoredAuth {
     pub user: Option<NativeProfile>,
 }
 
+/// Write-only guest credential used solely for anonymous aggregate usage sync.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GuestSyncAuth {
+    pub installation_id: String,
+    pub access_token: String,
+    pub expires_at: String,
+    pub scopes: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeProfile {
@@ -94,6 +104,11 @@ impl AuthService {
         Ok(dir.join("auth.json"))
     }
 
+    fn guest_sync_token_path() -> Result<PathBuf, String> {
+        let dir = StoragePathService::global_basebuild_dir()?;
+        Ok(dir.join("guest-sync.json"))
+    }
+
     /// Load stored auth from disk, if present.
     pub fn load_stored_auth() -> Result<Option<StoredAuth>, String> {
         let path = Self::token_path()?;
@@ -124,6 +139,37 @@ impl AuthService {
         let path = Self::token_path()?;
         if path.exists() {
             fs::remove_file(&path).map_err(|e| format!("Failed to delete auth file: {e}"))?;
+        }
+        Ok(())
+    }
+
+    pub fn load_guest_sync_auth() -> Result<Option<GuestSyncAuth>, String> {
+        let path = Self::guest_sync_token_path()?;
+        if !path.exists() {
+            return Ok(None);
+        }
+        let data = fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read guest sync auth: {e}"))?;
+        let auth = serde_json::from_str(&data)
+            .map_err(|e| format!("Failed to parse guest sync auth: {e}"))?;
+        Ok(Some(auth))
+    }
+
+    pub fn save_guest_sync_auth(auth: &GuestSyncAuth) -> Result<(), String> {
+        let path = Self::guest_sync_token_path()?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create guest sync auth directory: {e}"))?;
+        }
+        let data = serde_json::to_string_pretty(auth)
+            .map_err(|e| format!("Failed to serialize guest sync auth: {e}"))?;
+        fs::write(&path, data).map_err(|e| format!("Failed to write guest sync auth: {e}"))
+    }
+
+    pub fn clear_guest_sync_auth() -> Result<(), String> {
+        let path = Self::guest_sync_token_path()?;
+        if path.exists() {
+            fs::remove_file(&path).map_err(|e| format!("Failed to delete guest sync auth: {e}"))?;
         }
         Ok(())
     }

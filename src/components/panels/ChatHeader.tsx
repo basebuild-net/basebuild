@@ -1,22 +1,21 @@
-import { useEffect, useRef, useState } from "react";
-import { useDropdownPosition } from "../../state/useDropdownPosition";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import {
   Bug,
   ChevronDown,
   Command,
+  FolderGit2,
   GitBranch,
   GitPullRequest,
-  Loader2,
   MoreHorizontal,
   Pencil,
   Plus,
   Sparkles,
   X,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import type { AgentMode } from "../../lib/sessions";
 import type { GitBranch as GitBranchInfo } from "../../lib/git";
-
+import { ActionMenu, type ActionMenuItem } from "../ActionMenu";
 /** Per-chat column header (`chat-header-context`).
  *
  * Renders above the conversation, never scrolls out of view. Every
@@ -30,16 +29,6 @@ type PlanBadge = {
 } | null;
 
 type ChatHeaderProps = {
-  modelChip: string;
-  modelId: string;
-  modelCatalogStatus: "loading" | "refreshing" | "ready" | "stale" | "error";
-  modelCatalogError?: string | null;
-  effortChip: string;
-  effortOptions: Array<{ id: string; label: string }>;
-  onPickModel: () => void;
-  onChangeEffort: (effort: string) => void;
-  permissionMode: "safe" | "balanced" | "auto";
-  onChangePermission: (mode: "safe" | "balanced" | "auto") => void;
   runState: "idle" | "queued" | "running";
   contextUsed: number;
   contextLimit: number | null;
@@ -64,7 +53,6 @@ type ChatHeaderProps = {
   onToggleHistory: () => void;
   onRenameAction: () => void;
   onAssignPlan: () => void;
-  onDuplicateChat: () => void;
   onCloseChat: () => void;
   onCloseAndDelete: () => void;
   /** Shown when a worktree run has finished; null otherwise. */
@@ -74,8 +62,6 @@ type ChatHeaderProps = {
   projectPath: string;
   /** Chat session / run identifier. */
   sessionId?: string | null;
-  /** When true, branch/worktree are not rendered (rendered separately in composer meta row). */
-  hideBranch?: boolean;
   /** Copy the chat session ID to clipboard. */
   onCopySessionId?: () => void;
   onDragStart?: (e: React.MouseEvent) => void;
@@ -155,14 +141,15 @@ export function ChatTitleBar(props: {
 }
 
 export function ChatHeader(props: ChatHeaderProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const [branchOpen, setBranchOpen] = useState(false);
   const [newBranchName, setNewBranchName] = useState("");
   const [creatingBranch, setCreatingBranch] = useState(false);
   const [switchTarget, setSwitchTarget] = useState<string | null>(null);
-  const menuPos = useDropdownPosition(300);
-  const branchPos = useDropdownPosition(200);
-
+  const [branchMenuPosition, setBranchMenuPosition] = useState<{ left: number; top: number; above: boolean }>({
+    left: 8,
+    top: 8,
+    above: false,
+  });
   function handleSwitch(name: string) {
     setBranchOpen(false);
     if (name === props.branch) return;
@@ -182,10 +169,45 @@ export function ChatHeader(props: ChatHeaderProps) {
     props.onCreateBranch(name);
   }
 
+  function toggleBranchMenu(event: React.MouseEvent<HTMLButtonElement>) {
+    if (branchOpen) {
+      setBranchOpen(false);
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const above = window.innerHeight - rect.bottom < 280 && rect.top > window.innerHeight - rect.bottom;
+    setBranchMenuPosition({
+      left: Math.max(8, Math.min(rect.right - 240, window.innerWidth - 248)),
+      top: above ? rect.top - 4 : rect.bottom + 4,
+      above,
+    });
+    setBranchOpen(true);
+  }
+
   const modeLabel = props.agentMode === "build" ? "Build mode" : "Plan mode";
   const modeTitle = props.agentMode === "build"
     ? "Build mode — edits allowed (approval gateway). Click to switch to plan mode."
     : "Plan mode — read-only posture. Click to switch to build mode.";
+
+  const workspaceLabel = props.worktreePath
+    ? props.worktreePath.split(/[\\/]/).pop() ?? "Worktree"
+    : props.projectPath.split(/[\\/]/).pop() ?? "Workspace";
+  const actionItems: ActionMenuItem[] = [
+    { key: "rename", label: "Rename", title: "Rename this chat", icon: <Pencil size={11} />, onSelect: props.onRenameAction },
+    { key: "assign", label: "Assign plan", title: "Assign a ready plan to this chat", icon: <Sparkles size={11} />, onSelect: props.onAssignPlan },
+    { key: "copy", label: "Copy conversation", title: "Copy the conversation as markdown", icon: <CopyIcon />, disabled: !props.canCopyConversation, onSelect: props.onCopyConversation },
+    ...(props.onCopySessionId ? [{ key: "copy-id", label: "Copy chat ID", title: "Copy the chat session identifier", icon: <CopyIcon />, onSelect: props.onCopySessionId }] : []),
+    { key: "debug", label: props.debugMode ? "Hide debug events" : "Show debug events", title: props.debugMode ? "Turn debug event rendering off" : "Show raw event data in tool cards", icon: <Bug size={11} />, onSelect: props.onToggleDebug },
+    ...(props.prRecommendation ? [{
+      key: "pull-request",
+      label: "Create pull request",
+      title: `Open a PR for ${props.prRecommendation.branch}`,
+      icon: <GitPullRequest size={11} />,
+      onSelect: props.onCreatePullRequest,
+    }] : []),
+    { key: "close", label: "Close chat", title: "Close this chat window (session retained)", icon: <X size={11} />, onSelect: props.onCloseChat },
+    { key: "delete", label: "Close and delete session", title: "Permanently delete this chat history", icon: <TrashIcon />, danger: true, onSelect: props.onCloseAndDelete },
+  ];
 
   return (
     <div
@@ -196,59 +218,6 @@ export function ChatHeader(props: ChatHeaderProps) {
       onDrop={props.onDrop}
     >
       <div className="chat-column-header-left">
-        <button
-          className={`chat-column-model-chip is-catalog-${props.modelCatalogStatus}`}
-          type="button"
-          title={
-            props.modelCatalogStatus === "loading" || props.modelCatalogStatus === "refreshing"
-              ? `Model: ${props.modelChip || props.modelId}. Provider catalog is ${props.modelCatalogStatus}.`
-              : props.modelCatalogStatus === "error" || props.modelCatalogStatus === "stale"
-                ? `Model: ${props.modelChip || props.modelId}. Catalog ${props.modelCatalogStatus === "stale" ? "refresh failed; showing cached models" : "failed to load"}: ${props.modelCatalogError ?? "Unknown error"}. Click to retry or change model.`
-                : `Model: ${props.modelChip || props.modelId}. Click to change provider or model.`
-          }
-          onClick={props.onPickModel}
-        >
-          {props.modelCatalogStatus === "loading" || props.modelCatalogStatus === "refreshing" ? <Loader2 size={10} className="spin" aria-hidden="true" /> : null}
-          <span>{truncate(props.modelChip || props.modelId || "Model", 14)}</span>
-          <ChevronDown size={9} />
-          <span className="sr-only" aria-live="polite">
-            {props.modelCatalogStatus === "loading" || props.modelCatalogStatus === "refreshing"
-              ? "Provider catalog loading"
-              : props.modelCatalogStatus === "stale"
-                ? "Provider catalog refresh failed; cached models available"
-                : props.modelCatalogStatus === "error"
-                  ? "Provider catalog failed to load"
-                  : ""}
-          </span>
-        </button>
-        {props.effortOptions.length > 1 ? (
-          <select
-            className="chat-header-select"
-            title={`Effort level: ${props.effortChip}`}
-            aria-label="Effort level"
-            value={props.effortChip}
-            onChange={(event) => props.onChangeEffort(event.target.value)}
-          >
-            {props.effortOptions.map((effort) => (
-              <option key={effort.id} value={effort.id}>{effort.label}</option>
-            ))}
-          </select>
-        ) : (
-          <span className="chat-header-static" title={`Effort: ${props.effortChip || "Standard"}`}>
-            {props.effortOptions[0]?.label ?? "Standard"}
-          </span>
-        )}
-        <select
-          className="chat-header-select chat-header-permission"
-          title={`Permission mode: ${permissionLabel(props.permissionMode)}`}
-          aria-label="Permission mode"
-          value={props.permissionMode}
-          onChange={(event) => props.onChangePermission(event.target.value as "safe" | "balanced" | "auto")}
-        >
-          <option value="balanced">Balanced</option>
-          <option value="safe">Always Ask</option>
-          <option value="auto">Run Everything</option>
-        </select>
         <span className={`chat-header-run-state is-${props.runState}`} title={`Agent state: ${props.runState}`}>
           {props.runState}
         </span>
@@ -276,19 +245,18 @@ export function ChatHeader(props: ChatHeaderProps) {
         ) : null}
       </div>
       <div className="chat-column-header-right">
-        {props.branch && !props.hideBranch ? (
+        <span className="chat-header-workspace" title={props.worktreePath ? `Worktree: ${props.worktreePath}` : `Workspace: ${props.projectPath}`}>
+          <FolderGit2 size={10} />
+          <span>{workspaceLabel}</span>
+        </span>
+        {props.branch ? (
           <div className="chat-column-branch-group">
-            {props.worktreePath ? (
-              <span className="chat-column-worktree" title={`Worktree: ${props.worktreePath}`}>
-                [worktree]
-              </span>
-            ) : null}
             <button
-              ref={branchPos.triggerRef}
               className="chat-column-branch"
               type="button"
               title={`Branch: ${props.branch}. Click to switch or create.`}
-              onClick={() => { branchPos.recompute(); setBranchOpen((v) => !v); }}
+              aria-expanded={branchOpen}
+              onClick={toggleBranchMenu}
             >
               <GitBranch size={11} />
               <span className="chat-column-branch-name">{props.branch}</span>
@@ -305,7 +273,8 @@ export function ChatHeader(props: ChatHeaderProps) {
                 setNewBranchName={setNewBranchName}
                 onCreateBranch={handleCreateBranch}
                 onCancelCreate={() => setCreatingBranch(false)}
-                placement={branchPos.placement}
+                onDismiss={() => setBranchOpen(false)}
+                position={branchMenuPosition}
               />
             ) : null}
           </div>
@@ -326,32 +295,12 @@ export function ChatHeader(props: ChatHeaderProps) {
         >
           <HistoryIcon />
         </button>
-        <button
-          ref={menuPos.triggerRef}
-          className="btn-icon btn-icon-sm"
-          type="button"
-          title="More actions"
-          onClick={() => { menuPos.recompute(); setMenuOpen((v) => !v); }}
-        >
-          <MoreHorizontal size={13} />
-        </button>
-        {menuOpen ? (
-          <MoreActionsMenu
-            placement={menuPos.placement}
-            onRename={() => { setMenuOpen(false); props.onRenameAction(); }}
-            onAssignPlan={() => { setMenuOpen(false); props.onAssignPlan(); }}
-            onDuplicate={() => { setMenuOpen(false); props.onDuplicateChat(); }}
-            onClose={() => { setMenuOpen(false); props.onCloseChat(); }}
-            onCloseAndDelete={() => { setMenuOpen(false); props.onCloseAndDelete(); }}
-            prRecommendation={props.prRecommendation}
-            onCreatePullRequest={() => { setMenuOpen(false); props.onCreatePullRequest(); }}
-            debugMode={props.debugMode}
-            onToggleDebug={() => { setMenuOpen(false); props.onToggleDebug(); }}
-            canCopyConversation={props.canCopyConversation}
-            onCopyConversation={() => { setMenuOpen(false); props.onCopyConversation(); }}
-            onCopySessionId={props.onCopySessionId ? () => { setMenuOpen(false); props.onCopySessionId?.(); } : undefined}
-          />
-        ) : null}
+        <ActionMenu
+          items={actionItems}
+          triggerTitle="More chat actions"
+          triggerClassName="btn-icon btn-icon-sm"
+          icon={<MoreHorizontal size={13} />}
+        />
       </div>
       {switchTarget ? (
         <SwitchConfirm
@@ -376,102 +325,69 @@ export function BranchDropdown(props: {
   setNewBranchName: (v: string) => void;
   onCreateBranch: () => void;
   onCancelCreate: () => void;
-  placement?: "bottom" | "top";
+  onDismiss: () => void;
+  position: { left: number; top: number; above: boolean };
 }) {
-  return (
-    <div className={`chat-branch-dropdown ${props.placement === "top" ? "is-above" : ""}`} role="dialog" aria-label="Switch branch">
-      <div className="chat-branch-dropdown-list">
-        {props.branches.map((b) => (
-          <button
-            key={b.name}
-            className={`chat-branch-dropdown-item${b.name === props.current ? " is-active" : ""}`}
-            type="button"
-            title={`${b.name}${b.name === props.current ? " (current)" : ""}`}
-            onClick={() => props.onPick(b.name)}
-          >
-            <GitBranch size={11} />
-            <span>{b.name}</span>
-            {b.name === props.current ? <span className="chat-branch-current">✓</span> : null}
-          </button>
-        ))}
-      </div>
-      {props.creating ? (
-        <div className="chat-branch-create">
-          <input
-            className="input chat-branch-create-input"
-            placeholder="branch-name"
-            title="New branch name"
-            value={props.newBranchName}
-            onChange={(e) => props.setNewBranchName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") { e.preventDefault(); props.onCreateBranch(); }
-              if (e.key === "Escape") { e.preventDefault(); props.onCancelCreate(); }
-            }}
-            autoFocus
-          />
-          <button className="btn btn-sm btn-primary" type="button" title="Create branch" onClick={props.onCreateBranch}>
-            <Plus size={11} /> Create
-          </button>
-          <button className="btn-icon btn-icon-sm" type="button" title="Cancel" onClick={props.onCancelCreate}>
-            <X size={11} />
-          </button>
+  const style = {
+    "--bb-dropdown-left": `${props.position.left}px`,
+    "--bb-dropdown-top": `${props.position.top}px`,
+  } as CSSProperties;
+  return createPortal(
+    <div className="chat-branch-dropdown-overlay" role="presentation" onMouseDown={props.onDismiss}>
+      <div
+        className={`chat-branch-dropdown${props.position.above ? " is-above" : ""}`}
+        role="dialog"
+        aria-label="Switch branch"
+        style={style}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="chat-branch-dropdown-list">
+          {props.branches.map((branch) => (
+            <button
+              key={branch.name}
+              className={`chat-branch-dropdown-item${branch.name === props.current ? " is-active" : ""}`}
+              type="button"
+              title={`${branch.name}${branch.name === props.current ? " (current)" : ""}`}
+              onClick={() => props.onPick(branch.name)}
+            >
+              <GitBranch size={11} />
+              <span>{branch.name}</span>
+              {branch.name === props.current ? <span className="chat-branch-current">✓</span> : null}
+            </button>
+          ))}
         </div>
-      ) : (
-        <button className="chat-branch-dropdown-create" type="button" title="Create a new branch" onClick={props.onCreate}>
-          <Plus size={11} /> Create branch…
-        </button>
-      )}
-    </div>
+        {props.creating ? (
+          <div className="chat-branch-create">
+            <input
+              className="input chat-branch-create-input"
+              placeholder="branch-name"
+              title="New branch name"
+              value={props.newBranchName}
+              onChange={(event) => props.setNewBranchName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") { event.preventDefault(); props.onCreateBranch(); }
+                if (event.key === "Escape") { event.preventDefault(); props.onCancelCreate(); }
+              }}
+              autoFocus
+            />
+            <button className="btn btn-sm btn-primary" type="button" title="Create branch" onClick={props.onCreateBranch}>
+              <Plus size={11} /> Create
+            </button>
+            <button className="btn-icon btn-icon-sm" type="button" title="Cancel" onClick={props.onCancelCreate}>
+              <X size={11} />
+            </button>
+          </div>
+        ) : (
+          <button className="chat-branch-dropdown-create" type="button" title="Create a new branch" onClick={props.onCreate}>
+            <Plus size={11} /> Create branch…
+          </button>
+        )}
+      </div>
+    </div>,
+    document.body,
   );
 }
 
-function MoreActionsMenu(props: {
-  placement?: "bottom" | "top";
-  onRename: () => void;
-  onAssignPlan: () => void;
-  onDuplicate: () => void;
-  onClose: () => void;
-  onCloseAndDelete: () => void;
-  prRecommendation: { branch: string; ahead: number; behind: number; changedFiles: number } | null;
-  onCreatePullRequest: () => void;
-  debugMode: boolean;
-  onToggleDebug: () => void;
-  canCopyConversation: boolean;
-  onCopyConversation: () => void;
-  onCopySessionId?: () => void;
-}) {
-  return (
-    <div className={`chat-more-menu ${props.placement === "top" ? "is-above" : ""}`} role="dialog" aria-label="Chat actions">
-      <MenuItem icon={Pencil} label="Rename" title="Rename this chat" onClick={props.onRename} />
-      <MenuItem icon={Sparkles} label="Assign plan" title="Assign a ready plan to this chat" onClick={props.onAssignPlan} />
-      <MenuItem icon={CopyIcon} label="Copy conversation" title="Copy the entire conversation as markdown" onClick={props.onCopyConversation} disabled={!props.canCopyConversation} />
-      {props.onCopySessionId ? (
-        <MenuItem icon={CopyIcon} label="Copy chat ID" title="Copy the chat session identifier to clipboard" onClick={props.onCopySessionId} />
-      ) : null}
-      <MenuItem icon={Bug} label={props.debugMode ? "Hide debug events" : "Show debug events"} title={props.debugMode ? "Turn debug event rendering off" : "Show raw event data in tool cards"} onClick={props.onToggleDebug} />
-      {props.prRecommendation ? (
-        <MenuItem icon={GitPullRequest} label="Create pull request" title={`Open a PR for ${props.prRecommendation.branch} (${props.prRecommendation.changedFiles} files, +${props.prRecommendation.ahead}/-${props.prRecommendation.behind})`} onClick={props.onCreatePullRequest} />
-      ) : null}
-      <MenuItem icon={X} label="Close chat" title="Close this chat column (session retained)" onClick={props.onClose} />
-      <MenuItem icon={TrashIcon} label="Close chat and delete session" title="Permanently delete this chat's history" onClick={props.onCloseAndDelete} danger />
-    </div>
-  );
-}
-
-function MenuItem({ icon: Icon, label, title, onClick, danger, disabled }: { icon: React.ComponentType<{ size?: number }>; label: string; title: string; onClick: () => void; danger?: boolean; disabled?: boolean }) {
-  return (
-    <button
-      className={`chat-more-menu-item${danger ? " is-danger" : ""}`}
-      type="button"
-      title={title}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      <Icon size={11} />
-      <span>{label}</span>
-    </button>
-  );
-}
 
 function SwitchConfirm(props: {
   target: string;
@@ -549,11 +465,6 @@ function ContextIndicator({ used, limit }: { used: number; limit: number | null 
   );
 }
 
-function permissionLabel(mode: "safe" | "balanced" | "auto") {
-  if (mode === "safe") return "Always Ask";
-  if (mode === "auto") return "Run Everything";
-  return "Balanced";
-}
 
 function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;

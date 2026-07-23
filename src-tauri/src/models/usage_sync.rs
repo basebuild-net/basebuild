@@ -134,25 +134,94 @@ pub struct ProjectedUsage {
     pub assembled_at: i64,
 }
 
+/// Principal that receives future accepted usage. A private installation is
+/// random and write-only; it is never a hardware or operating-system identity.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncAttribution {
+    Account,
+    #[default]
+    PrivateInstallation,
+}
+
+/// Why syncing is currently off. `None` means every required gate passes.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncOffReason {
+    UsageSharingDisabled,
+    AutoSyncDisabled,
+    ConsentRequired,
+    NoSourcesAvailable,
+    RetryBackoff,
+}
+
+/// Complete result from the most recent coordinated multi-source attempt.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncOverallOutcome {
+    Success,
+    Partial,
+    Failed,
+    NothingToSync,
+}
+
+/// Privacy-safe status for one supported local aggregate source.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceSyncStatus {
+    /// Allowlisted source name: native, omp, claude-code, codex, or opencode.
+    pub source: String,
+    /// Whether the local source can currently be read.
+    pub available: bool,
+    /// Safe explanation when the source is unavailable. Never contains paths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub availability_reason: Option<String>,
+    /// The source has an unacknowledged logical window that will be retried.
+    #[serde(default)]
+    pub pending_retry: bool,
+    /// Epoch seconds of the last accepted acknowledgement for this source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_success_at: Option<i64>,
+    /// Epoch seconds when server processing last completed, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_processed_at: Option<i64>,
+    /// Actionable, privacy-safe source error. Never contains raw paths/content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+}
+
 /// Auto-sync status returned to the UI.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AutoSyncStatus {
-    /// Whether the user has enabled auto-sync (requires sign-in + upload permission to actually run).
+    /// Whether periodic auto-sync is enabled.
     pub enabled: bool,
-    /// Whether the gates currently allow syncing (signed in + enabled + upload permission).
+    /// Whether consent, upload, and scheduling gates currently allow syncing.
     pub gates_pass: bool,
+    /// Explicit reason syncing is off when a gate does not pass.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub off_reason: Option<SyncOffReason>,
+    /// Whether future accepted usage is attributed to an account or only to
+    /// this random, private installation.
+    #[serde(default)]
+    pub attribution: SyncAttribution,
     /// Configured interval in minutes.
     pub interval_minutes: i64,
-    /// Epoch seconds of the last successful sync, when any.
+    /// Epoch seconds of the last successful coordinated sync, when any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_sync_at: Option<i64>,
-    /// Last error message, when any.
+    /// Last coordinator error message, when any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
     /// Current usage sync detail mode ("rows" | "summary").
     #[serde(default)]
     pub sync_mode: String,
+    /// Complete result of the most recent coordinated attempt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overall_outcome: Option<SyncOverallOutcome>,
+    /// Independent status for every registered local source.
+    #[serde(default)]
+    pub sources: Vec<SourceSyncStatus>,
 }
 
 /// Result of a manual or triggered sync push.
@@ -163,4 +232,59 @@ pub struct SyncResult {
     pub message: String,
     /// Epoch seconds when the sync completed.
     pub completed_at: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn legacy_auto_sync_status_defaults_to_private_installation() {
+        let status: AutoSyncStatus = serde_json::from_value(json!({
+            "enabled": false,
+            "gatesPass": false,
+            "intervalMinutes": 60,
+            "lastSyncAt": null,
+            "lastError": null
+        }))
+        .expect("legacy status should deserialize");
+
+        assert_eq!(status.attribution, SyncAttribution::PrivateInstallation);
+        assert_eq!(status.off_reason, None);
+        assert_eq!(status.overall_outcome, None);
+        assert!(status.sources.is_empty());
+    }
+
+    #[test]
+    fn source_status_serializes_stable_status_mapping() {
+        let status = AutoSyncStatus {
+            enabled: true,
+            gates_pass: true,
+            off_reason: None,
+            attribution: SyncAttribution::Account,
+            interval_minutes: 60,
+            last_sync_at: Some(100),
+            last_error: None,
+            sync_mode: "summary".to_string(),
+            overall_outcome: Some(SyncOverallOutcome::Partial),
+            sources: vec![SourceSyncStatus {
+                source: "claude-code".to_string(),
+                available: true,
+                availability_reason: None,
+                pending_retry: true,
+                last_success_at: Some(90),
+                last_processed_at: Some(95),
+                last_error: Some("Upload was not acknowledged; retry scheduled.".to_string()),
+            }],
+        };
+
+        let value = serde_json::to_value(status).expect("status should serialize");
+        assert_eq!(value["attribution"], "account");
+        assert_eq!(value["overallOutcome"], "partial");
+        assert_eq!(value["sources"][0]["source"], "claude-code");
+        assert_eq!(value["sources"][0]["pendingRetry"], true);
+        assert!(value.get("installationId").is_none());
+        assert!(value.get("accountId").is_none());
+    }
 }

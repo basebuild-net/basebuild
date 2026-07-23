@@ -25,12 +25,12 @@ type TreeNode = {
 };
 
 const GIT_COLORS: Record<FileChangeType, string> = {
-  added: "#22c55e",
-  modified: "#f59e0b",
-  deleted: "#ef4444",
-  untracked: "#3b82f6",
-  renamed: "#a78bfa",
-  unmerged: "#ef4444",
+  added: "var(--bb-positive)",
+  modified: "var(--bb-warning)",
+  deleted: "var(--bb-danger)",
+  untracked: "var(--bb-info)",
+  renamed: "var(--bb-text-secondary)",
+  unmerged: "var(--bb-danger)",
   other: "var(--bb-muted)",
 };
 

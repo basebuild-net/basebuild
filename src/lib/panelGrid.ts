@@ -27,6 +27,14 @@ export type Panel = {
   chatSessionId: string | null;
   terminalId: number | null;
   filePath: string | null;
+  /** Creation timestamp (ms epoch). Set once when the panel is created and
+   *  never changed — used for stable sidebar ordering and "(N)" title
+   *  disambiguation. Falls back to Date.now() when absent in legacy data. */
+  createdAt: number;
+  /** Last time this panel was focused/activated (ms epoch). Drives
+   *  recently-used ordering in the sidebar. Absent on legacy data — callers
+   *  fall back to `createdAt`. */
+  lastUsedAt?: number;
   /** Tabs hosted in this panel. If absent or length ≤ 1, the panel renders
    *  as a single panel (no tab strip). When ≥ 2, the header shows a tab
    *  strip and `activeTabId` selects the visible tab. */
@@ -48,9 +56,9 @@ export type PanelTab = {
   chatSessionId: string | null;
   terminalId: number | null;
   filePath: string | null;
+  /** Creation timestamp (ms epoch). Set once when the tab is created. */
+  createdAt: number;
 };
-
-/** Split direction: row = side-by-side, column = stacked vertically. */
 export type SplitDirection = "row" | "column";
 
 /** A node in the split tree: either a leaf (one panel) or a split. */
@@ -60,11 +68,17 @@ export type SplitNode =
 /** A split (non-leaf) node. Used as a return type where only splits are valid. */
 export type SplitBranch = Extract<SplitNode, { kind: "split" }>;
 
-/** The whole grid state: the active split tree + closed panels (history). */
+/** The whole grid state: visible split tree, active hidden panels, and history. */
 export type PanelGridState = {
   root: SplitNode | null;
   activePanelId: string | null;
   closedPanels: Panel[];
+  /** Panels removed from the visible layout without closing their resources. */
+  hiddenPanels?: Panel[];
+  /** Inactive linked groups (each a ≥2-panel split tree) swapped out when the
+   *  user activated a different chat. Clicking any panel in a group restores
+   *  that whole group as the visible tree; every other group is preserved. */
+  stashedGroups?: SplitNode[];
 };
 
 /** Minimum fractional size for a split child (prevents collapse). */
@@ -78,6 +92,7 @@ function panelToTab(panel: Panel): PanelTab {
     chatSessionId: panel.chatSessionId,
     terminalId: panel.terminalId,
     filePath: panel.filePath,
+    createdAt: panel.createdAt,
   };
 }
 
@@ -118,6 +133,7 @@ export function tearOffTab(
     chatSessionId: tornTab.chatSessionId,
     terminalId: tornTab.terminalId,
     filePath: tornTab.filePath,
+    createdAt: tornTab.createdAt,
   };
 
   // Update the original panel: remove the torn tab.
@@ -141,9 +157,19 @@ export function tearOffTab(
 
 // ── Grid constructors ──────────────────────────────────────────────────────
 
+/** Active hidden panels. Older persisted states omit this field. */
+export function hiddenPanelsOf(state: PanelGridState): Panel[] {
+  return state.hiddenPanels ?? [];
+}
+
+/** Inactive linked groups. Older persisted states omit this field. */
+export function stashedGroupsOf(state: PanelGridState): SplitNode[] {
+  return state.stashedGroups ?? [];
+}
+
 /** An empty grid: no panels, no active panel, empty history. */
 export function emptyGrid(): PanelGridState {
-  return { root: null, activePanelId: null, closedPanels: [] };
+  return { root: null, activePanelId: null, closedPanels: [], hiddenPanels: [] };
 }
 
 /** A grid seeded from a single panel (the 1×1 default). */
@@ -152,6 +178,7 @@ export function singlePanelGrid(panel: Panel): PanelGridState {
     root: { kind: "leaf", panel },
     activePanelId: panel.id,
     closedPanels: [],
+    hiddenPanels: [],
   };
 }
 
@@ -346,9 +373,11 @@ export function movePanel(
   targetPanelId: string,
   side: DropSide,
 ): SplitNode | null {
+  if (draggedId === targetPanelId || !findPanel(root, targetPanelId)) return root;
   const panel = findPanel(root, draggedId);
   if (!panel) return root;
   const afterRemove = removePanel(root, draggedId);
+  if (!findPanel(afterRemove, targetPanelId)) return root;
   return splitPanelAt(afterRemove, targetPanelId, panel, side);
 }
 
@@ -416,30 +445,202 @@ export function equalizeSplit(root: SplitNode, splitNode: SplitNode): SplitNode 
  *  Returns the new grid state. Does NOT delete the session. */
 export function closePanel(state: PanelGridState, panelId: string): PanelGridState {
   const panel = findPanel(state.root, panelId);
-  if (!panel) return state;
+  if (!panel) return closeHiddenPanel(state, panelId);
   const newRoot = removePanel(state.root, panelId);
-  // Don't add to history if it's already there.
   const isDuplicate = state.closedPanels.some((p) => p.id === panelId);
   const newClosed = isDuplicate
     ? state.closedPanels
     : [{ ...panel }, ...state.closedPanels];
-  // Pick a new active panel: first remaining, or null.
   const remaining = flattenPanels(newRoot);
   const newActive = remaining.length > 0 ? remaining[0].id : null;
-  return { root: newRoot, activePanelId: newActive, closedPanels: newClosed };
+  return { ...state, root: newRoot, activePanelId: newActive, closedPanels: newClosed };
 }
 
-/** Remove a panel from the live tree without adding it to history. Used to
- *  roll back a pending reservation when resource acquisition fails. Repairs
- *  `activePanelId` to the first remaining live panel. */
+/** Remove a panel from the live tree without retaining it. Used only to roll
+ * back a failed resource reservation. */
 export function removePanelFromGrid(state: PanelGridState, panelId: string): PanelGridState {
   if (!findPanel(state.root, panelId)) return state;
   const newRoot = removePanel(state.root, panelId);
   const remaining = flattenPanels(newRoot);
   return {
+    ...state,
     root: newRoot,
     activePanelId: remaining.length > 0 ? remaining[0].id : null,
-    closedPanels: state.closedPanels,
+  };
+}
+
+/** Hide a visible panel while retaining its backing resource as active. */
+export function hidePanel(state: PanelGridState, panelId: string): PanelGridState {
+  const panel = findPanel(state.root, panelId);
+  if (!panel) return state;
+  const newRoot = removePanel(state.root, panelId);
+  const remaining = flattenPanels(newRoot);
+  return {
+    ...state,
+    root: newRoot,
+    activePanelId: remaining[0]?.id ?? null,
+    hiddenPanels: [panel, ...hiddenPanelsOf(state).filter((item) => item.id !== panel.id)],
+  };
+}
+
+/** Replace the focused visible panel with an active hidden panel. The
+ * displaced panel stays active hidden. */
+export function replaceFocusedWithHidden(state: PanelGridState, panelId: string): PanelGridState {
+  const hidden = hiddenPanelsOf(state);
+  const incoming = hidden.find((panel) => panel.id === panelId);
+  if (!incoming) return state;
+  const focusedId = state.activePanelId ?? flattenPanels(state.root)[0]?.id ?? null;
+  if (!focusedId) {
+    return {
+      ...state,
+      root: { kind: "leaf", panel: incoming },
+      activePanelId: incoming.id,
+      hiddenPanels: hidden.filter((panel) => panel.id !== panelId),
+    };
+  }
+  const displaced = findPanel(state.root, focusedId);
+  if (!displaced) return state;
+  const root = replacePanelLeaf(state.root, focusedId, incoming);
+  return {
+    ...state,
+    root,
+    activePanelId: incoming.id,
+    hiddenPanels: [
+      displaced,
+      ...hidden.filter((panel) => panel.id !== panelId && panel.id !== displaced.id),
+    ],
+  };
+}
+
+/** Park the currently visible root when switching away: a multi-panel tree
+ *  becomes an inactive linked group; a single panel becomes a hidden solo.
+ *  Returns the updated group list and hidden-panel list. */
+function parkCurrentRoot(
+  state: PanelGridState,
+): { stashedGroups: SplitNode[]; hiddenPanels: Panel[] } {
+  const groups = stashedGroupsOf(state);
+  const hidden = hiddenPanelsOf(state);
+  if (!state.root) return { stashedGroups: groups, hiddenPanels: hidden };
+  const panels = flattenPanels(state.root);
+  if (panels.length > 1) {
+    return { stashedGroups: [state.root, ...groups], hiddenPanels: hidden };
+  }
+  const solo = panels[0];
+  return {
+    stashedGroups: groups,
+    hiddenPanels: [solo, ...hidden.filter((p) => p.id !== solo.id)],
+  };
+}
+
+/** Activate a panel from anywhere — the visible tree, an inactive linked
+ *  group, or the hidden-solo registry. If it is already visible, just focus
+ *  it. If it belongs to an inactive group, restore that whole group and focus
+ *  the clicked panel. If it is a hidden solo, show only it. The previously
+ *  visible tree is parked intact (a group stays a group, a solo stays a solo),
+ *  so no group is ever silently broken apart. Returns the same ref when
+ *  nothing changes. */
+export function activatePanel(state: PanelGridState, panelId: string): PanelGridState {
+  if (findPanel(state.root, panelId)) {
+    return state.activePanelId === panelId ? state : { ...state, activePanelId: panelId };
+  }
+  const groups = stashedGroupsOf(state);
+  const targetGroup = groups.find((g) => flattenPanels(g).some((p) => p.id === panelId));
+  if (targetGroup) {
+    const parked = parkCurrentRoot(state);
+    return {
+      ...state,
+      root: targetGroup,
+      activePanelId: panelId,
+      stashedGroups: parked.stashedGroups.filter((g) => g !== targetGroup),
+      hiddenPanels: parked.hiddenPanels,
+    };
+  }
+  const solo = hiddenPanelsOf(state).find((p) => p.id === panelId);
+  if (solo) {
+    const parked = parkCurrentRoot(state);
+    return {
+      ...state,
+      root: { kind: "leaf", panel: solo },
+      activePanelId: panelId,
+      stashedGroups: parked.stashedGroups,
+      hiddenPanels: parked.hiddenPanels.filter((p) => p.id !== solo.id),
+    };
+  }
+  return state;
+}
+
+/** Link an active hidden panel to a specific visible panel. */
+export function linkHiddenPanel(
+  state: PanelGridState,
+  panelId: string,
+  targetPanelId: string,
+  side: Exclude<DropSide, "center">,
+): PanelGridState {
+  const hidden = hiddenPanelsOf(state);
+  const panel = hidden.find((item) => item.id === panelId);
+  if (!panel || !state.root || !findPanel(state.root, targetPanelId)) return state;
+  return {
+    ...state,
+    root: splitPanelAt(state.root, targetPanelId, panel, side),
+    activePanelId: panel.id,
+    hiddenPanels: hidden.filter((item) => item.id !== panelId),
+  };
+}
+
+/** Split an active hidden panel beside or below the focused panel. */
+export function splitHiddenPanel(
+  state: PanelGridState,
+  panelId: string,
+  direction: "horizontal" | "vertical",
+): PanelGridState {
+  const hidden = hiddenPanelsOf(state);
+  const panel = hidden.find((item) => item.id === panelId);
+  if (!panel) return state;
+  const anchorId = state.activePanelId ?? flattenPanels(state.root)[0]?.id ?? null;
+  if (!anchorId || !state.root) return replaceFocusedWithHidden(state, panelId);
+  const side: DropSide = direction === "horizontal" ? "right" : "bottom";
+  const root = splitPanelAt(state.root, anchorId, panel, side);
+  return {
+    ...state,
+    root,
+    activePanelId: panel.id,
+    hiddenPanels: hidden.filter((item) => item.id !== panelId),
+  };
+}
+
+/** Move an active hidden panel to history. */
+export function closeHiddenPanel(state: PanelGridState, panelId: string): PanelGridState {
+  const hidden = hiddenPanelsOf(state);
+  const panel = hidden.find((item) => item.id === panelId);
+  if (!panel) return state;
+  return {
+    ...state,
+    hiddenPanels: hidden.filter((item) => item.id !== panelId),
+    closedPanels: state.closedPanels.some((item) => item.id === panelId)
+      ? state.closedPanels
+      : [panel, ...state.closedPanels],
+  };
+}
+
+/** Reopen a history panel as active hidden without disturbing the layout. */
+export function reopenPanelHidden(state: PanelGridState, panelId: string): PanelGridState {
+  const panel = state.closedPanels.find((item) => item.id === panelId);
+  if (!panel) return state;
+  return {
+    ...state,
+    hiddenPanels: [panel, ...hiddenPanelsOf(state).filter((item) => item.id !== panelId)],
+    closedPanels: state.closedPanels.filter((item) => item.id !== panelId),
+  };
+}
+
+function replacePanelLeaf(root: SplitNode | null, panelId: string, replacement: Panel): SplitNode | null {
+  if (!root) return null;
+  if (root.kind === "leaf") {
+    return root.panel.id === panelId ? { kind: "leaf", panel: replacement } : root;
+  }
+  return {
+    ...root,
+    children: root.children.map((child) => replacePanelLeaf(child, panelId, replacement) ?? child),
   };
 }
 
@@ -557,7 +758,9 @@ function validatePanel(raw: unknown): Panel | null {
     chatSessionId: typeof p.chatSessionId === "string" ? p.chatSessionId : null,
     terminalId: typeof p.terminalId === "number" ? p.terminalId : null,
     filePath: typeof p.filePath === "string" ? p.filePath : null,
+    createdAt: typeof p.createdAt === "number" ? p.createdAt : Date.now(),
   };
+  if (typeof p.lastUsedAt === "number") panel.lastUsedAt = p.lastUsedAt;
   if (Array.isArray(p.tabs) && p.tabs.length > 1) {
     const tabs = p.tabs.map(validateTab).filter((t): t is PanelTab => t !== null);
     if (tabs.length > 1) {
@@ -582,6 +785,7 @@ function validateTab(raw: unknown): PanelTab | null {
     chatSessionId: typeof t.chatSessionId === "string" ? t.chatSessionId : null,
     terminalId: typeof t.terminalId === "number" ? t.terminalId : null,
     filePath: typeof t.filePath === "string" ? t.filePath : null,
+    createdAt: typeof t.createdAt === "number" ? t.createdAt : Date.now(),
   };
 }
 
@@ -662,6 +866,46 @@ export function normalizePanelGridState(input: unknown): NormalizeResult {
   const seenIds = new Set<string>();
   const root = validateNode(raw.root, seenIds, diagnostics);
 
+  // Validate active hidden panels before history. Hidden ids must be unique
+  // across the visible tree, hidden registry, and closed history.
+  const hiddenPanels: Panel[] = [];
+  if (Array.isArray(raw.hiddenPanels)) {
+    for (const entry of raw.hiddenPanels) {
+      const panel = validatePanel(entry);
+      if (!panel) {
+        diagnostics.push({ kind: "quarantined", message: "An active hidden panel was unusable and dropped." });
+        continue;
+      }
+      if (seenIds.has(panel.id)) {
+        diagnostics.push({ kind: "duplicate-id", message: `Hidden panel ${panel.id} duplicates another active panel and was quarantined.`, panelId: panel.id });
+        continue;
+      }
+      seenIds.add(panel.id);
+      hiddenPanels.push(panel);
+    }
+  }
+
+  // Validate inactive linked groups. Accept the new `stashedGroups` array and
+  // migrate a legacy single `stashedRoot`. Ids must be unique across every
+  // panel already seen; a group that collapses to one panel is demoted to a
+  // hidden solo, and empty groups are dropped.
+  const stashedGroups: SplitNode[] = [];
+  const rawStashedGroups: unknown[] = Array.isArray(raw.stashedGroups)
+    ? raw.stashedGroups
+    : raw.stashedRoot != null
+      ? [raw.stashedRoot]
+      : [];
+  for (const rawGroup of rawStashedGroups) {
+    const tree = validateNode(rawGroup, seenIds, diagnostics);
+    if (!tree) continue;
+    const groupPanels = flattenPanels(tree);
+    if (groupPanels.length >= 2) {
+      stashedGroups.push(tree);
+    } else if (groupPanels.length === 1) {
+      hiddenPanels.push(groupPanels[0]);
+    }
+  }
+
   // Validate closedPanels (history). Drop unusable entries and duplicates
   // against live ids or within history — but never delete backing sessions.
   const closedPanels: Panel[] = [];
@@ -703,7 +947,8 @@ export function normalizePanelGridState(input: unknown): NormalizeResult {
     diagnostics.push({ kind: "stale-active", message: `activePanelId ${rawActive} referenced no panel in an empty tree; cleared.`, panelId: rawActive });
   }
 
-  const state: PanelGridState = { root, activePanelId, closedPanels };
+  const state: PanelGridState = { root, activePanelId, closedPanels, hiddenPanels };
+  if (stashedGroups.length > 0) state.stashedGroups = stashedGroups;
   return { state, diagnostics, repaired: diagnostics.length > 0 };
 }
 
@@ -762,26 +1007,35 @@ function resolveAnchor(root: SplitNode | null, requestedId: string | null | unde
  *  panel focused or a actionable failure reason. A stale `activePanelId` /
  *  anchor cannot turn this into a silent no-op. */
 export function insertPanel(state: PanelGridState, panel: Panel, placement: PanelPlacement): InsertPanelResult {
-  // Reject a panel id that already exists in the live tree or history.
-  if (findPanel(state.root, panel.id) || state.closedPanels.some((p) => p.id === panel.id)) {
+  // Reject a panel id that already exists in the visible tree, active hidden
+  // registry, or history.
+  if (
+    findPanel(state.root, panel.id)
+    || hiddenPanelsOf(state).some((item) => item.id === panel.id)
+    || state.closedPanels.some((item) => item.id === panel.id)
+  ) {
     return { ok: false, reason: `Panel id ${panel.id} already exists.` };
   }
   if (!state.root) {
-    return { ok: true, state: singlePanelGrid(panel) };
+    return {
+      ok: true,
+      state: {
+        ...state,
+        root: { kind: "leaf", panel },
+        activePanelId: panel.id,
+      },
+    };
   }
   const anchorId = resolveAnchor(state.root, placement.anchorId);
   if (!anchorId) {
     return { ok: false, reason: "No live anchor panel is available to split beside." };
   }
   const newRoot = splitPanelAt(state.root, anchorId, panel, placement.side);
-  // Verify the new panel exists exactly once. `splitPanelAt` returns the
-  // original tree when the target is missing, so this catches a stale anchor
-  // that slipped past resolution.
-  const occurrences = flattenPanels(newRoot).filter((p) => p.id === panel.id).length;
+  const occurrences = flattenPanels(newRoot).filter((item) => item.id === panel.id).length;
   if (occurrences !== 1) {
     return { ok: false, reason: `Insertion did not place panel ${panel.id} exactly once (found ${occurrences}).` };
   }
-  return { ok: true, state: { root: newRoot, activePanelId: panel.id, closedPanels: state.closedPanels } };
+  return { ok: true, state: { ...state, root: newRoot, activePanelId: panel.id } };
 }
 
 /** A backing session tab that has no reachable visible or history panel after
@@ -811,17 +1065,16 @@ export function detectOrphanedTabs(state: PanelGridState, tabs: ReadonlyArray<{
   terminalId?: number | null;
   panelId?: string | null;
 }>): OrphanedTab[] {
-  const livePanels = flattenPanels(state.root);
-  const liveIds = new Set(livePanels.map((p) => p.id));
-  const liveChat = new Set(livePanels.map((p) => p.chatSessionId).filter((id): id is string => !!id));
-  const liveTerm = new Set(livePanels.map((p) => p.terminalId).filter((id): id is number => id != null));
+  const hiddenPanels = hiddenPanelsOf(state);
+  const activePanels = [...flattenPanels(state.root), ...hiddenPanels];
+  const liveIds = new Set(activePanels.map((p) => p.id));
+  const liveChat = new Set(activePanels.map((p) => p.chatSessionId).filter((id): id is string => !!id));
+  const liveTerm = new Set(activePanels.map((p) => p.terminalId).filter((id): id is number => id != null));
   const closedIds = new Set(state.closedPanels.map((p) => p.id));
   const closedChat = new Set(state.closedPanels.map((p) => p.chatSessionId).filter((id): id is string => !!id));
   const closedTerm = new Set(state.closedPanels.map((p) => p.terminalId).filter((id): id is number => id != null));
-  // A `creating` panel is in the process of binding a backing tab — its
-  // chatSessionId/terminalId is still null. Don't flag tabs that match a
-  // creating panel's kind (the binding will complete or roll back).
-  const creatingKinds = new Set(livePanels.filter((p) => p.creating).map((p) => p.type));
+  // A `creating` panel is in the process of binding a backing tab.
+  const creatingKinds = new Set(activePanels.filter((p) => p.creating).map((p) => p.type));
   const orphans: OrphanedTab[] = [];
   for (const tab of tabs) {
     const chat = tab.chatSessionId ?? null;
@@ -988,6 +1241,7 @@ export function activeTab(panel: Panel): PanelTab {
     chatSessionId: panel.chatSessionId,
     terminalId: panel.terminalId,
     filePath: panel.filePath,
+    createdAt: panel.createdAt,
   };
 }
 

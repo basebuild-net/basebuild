@@ -69,12 +69,11 @@ use commands::{
         native_chat_update_session_model, native_delete_provider_credential, native_generate_ideas,
         native_provider_account_logout, native_provider_account_set_label,
         native_provider_account_strategy, native_provider_account_strategy_set,
-        native_provider_account_test, native_provider_account_usage,
-        native_provider_accounts_list, native_provider_catalog,
-        native_provider_catalog_refresh, native_provider_login_cancel,
+        native_provider_account_test, native_provider_account_usage, native_provider_accounts_list,
+        native_provider_catalog, native_provider_catalog_refresh, native_provider_login_cancel,
         native_provider_login_poll, native_provider_login_start, native_provider_login_submit,
-        native_provider_refresh_omp_credentials, native_provider_popularity, native_request_metrics,
-        native_request_metrics_summary, native_request_tool_approval,
+        native_provider_popularity, native_provider_refresh_omp_credentials,
+        native_request_metrics, native_request_metrics_summary, native_request_tool_approval,
         native_save_provider_credential, native_session_latest_metric,
     },
     notifications::{
@@ -159,8 +158,8 @@ use commands::{
     },
     sync::{
         sync_raw_usage_native, usage_declare_provider_plans, usage_detect_provider_plans,
-        usage_list_provider_plans, usage_sync_projected_usage, usage_sync_set_enabled,
-        usage_sync_set_mode, usage_sync_status, usage_sync_trigger,
+        usage_list_provider_plans, usage_sync_projected_usage, usage_sync_retry,
+        usage_sync_set_enabled, usage_sync_set_mode, usage_sync_status, usage_sync_trigger,
     },
     terminal::{
         close_terminal, create_terminal, list_terminals, resize_terminal, terminal_replay,
@@ -188,6 +187,10 @@ impl Default for CloseToTrayState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Install the rustls crypto provider before any reqwest/rmcp HTTP client
+    // is built. reqwest 0.13 ships with rustls-no-provider, so a provider
+    // must be installed explicitly or Client::build() panics.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     // Install panic hook: file-first, deadlock-free.
     // Writes a crash report to disk before any lock/emit, then best-effort
     // emits to the frontend via try_lock (never blocks on APP_HANDLE).
@@ -640,6 +643,7 @@ pub fn run() {
             auth_get_token,
             sync_raw_usage_native,
             usage_sync_trigger,
+            usage_sync_retry,
             usage_sync_set_enabled,
             usage_sync_set_mode,
             usage_sync_projected_usage,

@@ -16,17 +16,16 @@ pub const ENVELOPE_VERSION: u32 = 1;
 
 /// Identifies which source produced a usage batch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum SourceKind {
-    /// Oh My Pi (OMP) CLI stats and usage.
+    #[serde(rename = "omp")]
     Omp,
-    /// Basebuild native chat request metrics.
+    #[serde(rename = "native")]
     Native,
-    /// Claude Code local session usage (aggregates only, no content).
+    #[serde(rename = "claude-code")]
     ClaudeCode,
-    /// Codex CLI local session usage (aggregates only, no content).
+    #[serde(rename = "codex")]
     Codex,
-    /// OpenCode local session usage (aggregates only, no content).
+    #[serde(rename = "opencode")]
     OpenCode,
 }
 
@@ -48,9 +47,8 @@ impl SourceKind {
 pub struct UsageBatch {
     /// Which source produced this batch.
     pub source: SourceKind,
-    /// Stable deduplication key (source-scoped). The server uses this to
-    /// reject duplicate retries without double-counting.
-    pub dedup_key: String,
+    /// Stable source-scoped key used for idempotent server receipts.
+    pub idempotency_key: String,
     /// Epoch-seconds window start (inclusive).
     pub window_start: i64,
     /// Epoch-seconds window end (exclusive).
@@ -67,7 +65,7 @@ pub struct UsageEnvelope {
     /// Schema version. The server must accept this version (extend-only).
     pub version: u32,
     /// Epoch seconds when the envelope was assembled locally.
-    pub assembled_at: i64,
+    pub generated_at: i64,
     /// One or more source-scoped batches.
     pub batches: Vec<UsageBatch>,
 }
@@ -124,55 +122,97 @@ const FORBIDDEN_FIELDS: &[&str] = &[
 /// a key not in this set, the validator rejects it. This is stricter than
 /// the forbidden list: only known-safe metadata fields pass.
 const ALLOWED_FIELDS: &[&str] = &[
-    // Identity
-    "id",
-    "ts",
-    "source",
-    // Provider / model metadata
+    "kind",
     "provider",
-    "providerId",
     "model",
-    "modelId",
     "effort",
-    "effortLevel",
-    // Subscription metadata
     "subscriptionTier",
     "subscriptionSource",
     "planName",
-    // Usage counts
+    "requests",
     "inputTokens",
     "outputTokens",
     "cacheReadTokens",
     "cacheWriteTokens",
-    "totalTokens",
-    "requests",
-    "requestsPerDay",
-    "hoursPerDay",
-    // Cost (numeric, no currency secrets)
     "costTotal",
-    "costPerDay",
-    // Timing
     "durationMs",
-    "avgDurationMs",
+    "durationCount",
     "ttftMs",
-    "avgTtftMs",
-    // Outcome (enum-like, not free-form)
-    "outcome",
-    "errorRate",
-    // OMP-specific safe fields
-    "window",
+    "ttftCount",
+    "errors",
+    "planType",
+    "windowLabel",
     "usedFraction",
     "remainingFraction",
     "resetsAt",
-    "severity",
-    "fetchedAgoMin",
-    "isStale",
-    // Window metadata
-    "windowStart",
-    "windowEnd",
-    "mode",
-    "summaries",
 ];
+
+const MODEL_USAGE_FIELDS: &[&str] = &[
+    "kind",
+    "provider",
+    "model",
+    "effort",
+    "subscriptionTier",
+    "subscriptionSource",
+    "planName",
+    "requests",
+    "inputTokens",
+    "outputTokens",
+    "cacheReadTokens",
+    "cacheWriteTokens",
+    "costTotal",
+    "durationMs",
+    "durationCount",
+    "ttftMs",
+    "ttftCount",
+    "errors",
+];
+const PLAN_UTILIZATION_FIELDS: &[&str] = &[
+    "kind",
+    "provider",
+    "planType",
+    "windowLabel",
+    "usedFraction",
+    "remainingFraction",
+    "resetsAt",
+];
+
+fn bounded_identifier(value: Option<&Value>) -> bool {
+    let Some(value) = value.and_then(Value::as_str) else {
+        return false;
+    };
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    value.len() <= 128
+        && first.is_ascii_alphanumeric()
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || "._:/+-".contains(ch))
+}
+
+fn bounded_counter(obj: &Map<String, Value>, key: &str, maximum: i64) -> bool {
+    obj.get(key)
+        .and_then(Value::as_i64)
+        .is_some_and(|value| (0..=maximum).contains(&value))
+}
+
+fn optional_enum(obj: &Map<String, Value>, key: &str, allowed: &[&str]) -> bool {
+    match obj.get(key) {
+        None | Some(Value::Null) => true,
+        Some(value) => value
+            .as_str()
+            .is_some_and(|candidate| allowed.contains(&candidate)),
+    }
+}
+
+fn optional_label(obj: &Map<String, Value>, key: &str) -> bool {
+    match obj.get(key) {
+        None | Some(Value::Null) => true,
+        Some(value) => value.as_str().is_some_and(|label| {
+            !label.is_empty() && label.chars().count() <= 128 && !label.contains(['\r', '\n'])
+        }),
+    }
+}
 
 /// Validate a single usage row against the allowlist. Returns `Ok(())` if
 /// the row contains only permitted fields, or an error describing the
@@ -193,26 +233,111 @@ pub fn validate_row(row: &Value) -> Result<(), String> {
         }
     }
 
-    // Allowlist check: every key must be in the allowed set.
     for key in obj.keys() {
         if !ALLOWED_FIELDS.contains(&key.as_str()) {
             return Err(format!("non-allowlisted field in usage row: {key}"));
         }
     }
 
+    match obj.get("kind").and_then(Value::as_str) {
+        Some("model_usage") => {
+            if obj
+                .keys()
+                .any(|key| !MODEL_USAGE_FIELDS.contains(&key.as_str()))
+            {
+                return Err("model_usage row contains fields for another row kind".to_string());
+            }
+            let maximum = i32::MAX as i64;
+            if !bounded_identifier(obj.get("provider"))
+                || !bounded_identifier(obj.get("model"))
+                || !bounded_counter(obj, "requests", 1_000_000)
+                || obj.get("requests").and_then(Value::as_i64) == Some(0)
+                || !bounded_counter(obj, "inputTokens", maximum)
+                || !bounded_counter(obj, "outputTokens", maximum)
+                || !bounded_counter(obj, "cacheReadTokens", maximum)
+                || !bounded_counter(obj, "cacheWriteTokens", maximum)
+                || !bounded_counter(obj, "durationMs", maximum)
+                || !bounded_counter(obj, "durationCount", maximum)
+                || !bounded_counter(obj, "ttftMs", maximum)
+                || !bounded_counter(obj, "ttftCount", maximum)
+                || !bounded_counter(obj, "errors", maximum)
+                || !obj
+                    .get("costTotal")
+                    .and_then(Value::as_f64)
+                    .is_some_and(|cost| cost.is_finite() && (0.0..=1_000_000.0).contains(&cost))
+                || !optional_enum(obj, "effort", &["none", "low", "medium", "high", "xhigh"])
+                || !optional_enum(
+                    obj,
+                    "subscriptionTier",
+                    &["plus", "pro", "max", "free", "api", "team", "enterprise"],
+                )
+                || !optional_enum(
+                    obj,
+                    "subscriptionSource",
+                    &["declared", "provider-api", "api-key", "inferred", "unknown"],
+                )
+                || !optional_label(obj, "planName")
+            {
+                return Err("invalid model_usage row".to_string());
+            }
+            let requests = obj["requests"].as_i64().unwrap_or_default();
+            for key in ["durationCount", "ttftCount", "errors"] {
+                if obj[key].as_i64().unwrap_or_default() > requests {
+                    return Err(format!("{key} must not exceed requests"));
+                }
+            }
+        }
+        Some("plan_utilization") => {
+            if obj
+                .keys()
+                .any(|key| !PLAN_UTILIZATION_FIELDS.contains(&key.as_str()))
+                || !bounded_identifier(obj.get("provider"))
+                || !optional_label(obj, "planType")
+                || !optional_label(obj, "windowLabel")
+                || !matches!(
+                    obj.get("resetsAt"),
+                    None | Some(Value::Null) | Some(Value::Number(_))
+                )
+                || obj
+                    .get("resetsAt")
+                    .and_then(Value::as_i64)
+                    .is_some_and(|timestamp| timestamp < 0)
+            {
+                return Err("invalid plan_utilization row".to_string());
+            }
+            for key in ["usedFraction", "remainingFraction"] {
+                if !obj
+                    .get(key)
+                    .and_then(Value::as_f64)
+                    .is_some_and(|fraction| fraction.is_finite() && (0.0..=1.0).contains(&fraction))
+                {
+                    return Err(format!("invalid {key}"));
+                }
+            }
+        }
+        _ => return Err("usage row kind must be model_usage or plan_utilization".to_string()),
+    }
     Ok(())
 }
 
 /// Validate an entire batch. Checks every row and the batch metadata.
 pub fn validate_batch(batch: &UsageBatch) -> Result<(), String> {
-    if batch.dedup_key.is_empty() {
-        return Err("batch dedup_key must not be empty".to_string());
+    let key_is_safe = (8..=128).contains(&batch.idempotency_key.len())
+        && batch
+            .idempotency_key
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || "._:-".contains(ch));
+    if !key_is_safe {
+        return Err("batch idempotency_key is invalid".to_string());
     }
-    if batch.window_end < batch.window_start {
-        return Err("batch window_end must not precede window_start".to_string());
+    if batch.window_start < 0 || batch.window_end < batch.window_start {
+        return Err("batch window is invalid".to_string());
     }
-    for (i, row) in batch.rows.iter().enumerate() {
-        validate_row(row).map_err(|e| format!("batch row {i}: {e}"))?;
+    if batch.rows.is_empty() || batch.rows.len() > 500 {
+        return Err("batch must contain between 1 and 500 rows".to_string());
+    }
+    for (index, row) in batch.rows.iter().enumerate() {
+        validate_row(row).map_err(|error| format!("batch row {index}: {error}"))?;
     }
     Ok(())
 }
@@ -225,11 +350,23 @@ pub fn validate_envelope(envelope: &UsageEnvelope) -> Result<(), String> {
             envelope.version
         ));
     }
-    if envelope.batches.is_empty() {
-        return Err("envelope must contain at least one batch".to_string());
+    if envelope.generated_at < 0 {
+        return Err("envelope generated_at must be non-negative".to_string());
     }
-    for (i, batch) in envelope.batches.iter().enumerate() {
-        validate_batch(batch).map_err(|e| format!("envelope batch {i}: {e}"))?;
+    if envelope.batches.is_empty() || envelope.batches.len() > 5 {
+        return Err("envelope must contain between 1 and 5 batches".to_string());
+    }
+    if envelope
+        .batches
+        .iter()
+        .map(|batch| batch.rows.len())
+        .sum::<usize>()
+        > 1000
+    {
+        return Err("envelope exceeds the 1000-row limit".to_string());
+    }
+    for (index, batch) in envelope.batches.iter().enumerate() {
+        validate_batch(batch).map_err(|error| format!("envelope batch {index}: {error}"))?;
     }
     Ok(())
 }
@@ -239,11 +376,11 @@ pub fn validate_envelope(envelope: &UsageEnvelope) -> Result<(), String> {
 /// transport.
 pub fn build_envelope(
     batches: Vec<UsageBatch>,
-    assembled_at: i64,
+    generated_at: i64,
 ) -> Result<UsageEnvelope, String> {
     let envelope = UsageEnvelope {
         version: ENVELOPE_VERSION,
-        assembled_at,
+        generated_at,
         batches,
     };
     validate_envelope(&envelope)?;
@@ -276,22 +413,28 @@ mod tests {
 
     fn safe_row() -> Value {
         json!({
-            "id": "msg-001",
-            "ts": 1700000000,
+            "kind": "model_usage",
             "provider": "anthropic",
             "model": "claude-sonnet-4",
+            "effort": "high",
+            "requests": 1,
             "inputTokens": 1200,
             "outputTokens": 800,
+            "cacheReadTokens": 100,
+            "cacheWriteTokens": 0,
             "costTotal": 0.012,
             "durationMs": 2500,
-            "outcome": "success"
+            "durationCount": 1,
+            "ttftMs": 400,
+            "ttftCount": 1,
+            "errors": 0
         })
     }
 
     fn batch(rows: Vec<Value>) -> UsageBatch {
         UsageBatch {
             source: SourceKind::Native,
-            dedup_key: "native-1700000000".to_string(),
+            idempotency_key: "native:1700000000:v1".to_string(),
             window_start: 1700000000,
             window_end: 1700003600,
             rows,
@@ -346,16 +489,16 @@ mod tests {
     }
 
     #[test]
-    fn source_field_allowed() {
+    fn source_field_is_batch_only() {
         let mut row = safe_row();
         row["source"] = json!("native");
-        assert!(validate_row(&row).is_ok());
+        assert!(validate_row(&row).is_err());
     }
 
     #[test]
     fn batch_validation_checks_metadata() {
         let mut b = batch(vec![safe_row()]);
-        b.dedup_key = "".to_string();
+        b.idempotency_key = "".to_string();
         assert!(validate_batch(&b).is_err());
     }
 
@@ -370,7 +513,7 @@ mod tests {
     fn envelope_validation_rejects_wrong_version() {
         let env = UsageEnvelope {
             version: 99,
-            assembled_at: 0,
+            generated_at: 0,
             batches: vec![batch(vec![safe_row()])],
         };
         assert!(validate_envelope(&env).is_err());
@@ -380,7 +523,7 @@ mod tests {
     fn envelope_validation_rejects_empty_batches() {
         let env = UsageEnvelope {
             version: ENVELOPE_VERSION,
-            assembled_at: 0,
+            generated_at: 0,
             batches: vec![],
         };
         assert!(validate_envelope(&env).is_err());
@@ -400,7 +543,7 @@ mod tests {
         let sanitized = sanitize_row(&row);
         assert!(sanitized.get("prompt").is_none());
         assert!(sanitized.get("apiKey").is_none());
-        assert!(sanitized.get("id").is_some());
+        assert!(sanitized.get("kind").is_some());
     }
 
     #[test]
@@ -439,5 +582,15 @@ mod tests {
         let mut row = safe_row();
         row["credential"] = json!("Bearer token-value");
         assert!(validate_row(&row).is_err());
+    }
+    #[test]
+    fn shared_wire_fixture_round_trips_exactly() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/usage-envelope-v1/request.json"
+        ))
+        .unwrap();
+        let envelope: UsageEnvelope = serde_json::from_value(fixture.clone()).unwrap();
+        validate_envelope(&envelope).unwrap();
+        assert_eq!(serde_json::to_value(envelope).unwrap(), fixture);
     }
 }

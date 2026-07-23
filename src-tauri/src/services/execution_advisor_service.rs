@@ -163,13 +163,6 @@ impl ExecutionAdvisorService {
         if !Self::feedback_consent()?.enabled {
             return Err("Recommendation feedback is disabled".to_string());
         }
-        let analytics = crate::services::analytics_service::AnalyticsService::get_consent()?;
-        if !analytics.collection_enabled {
-            return Err(
-                "Local analytics collection must be enabled before recommendation feedback can be queued"
-                    .to_string(),
-            );
-        }
         validate_route_id("recommendedProviderId", &input.recommended_provider_id)?;
         validate_route_id("recommendedModelId", &input.recommended_model_id)?;
         validate_route_id("selectedProviderId", &input.selected_provider_id)?;

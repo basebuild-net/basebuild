@@ -186,7 +186,6 @@ impl ProviderLoginService {
         Ok(state.clone())
     }
 
-
     /// Authenticated round-trip test for a Codex account: exchanges the
     /// stored refresh token for a fresh access token. Proves the grant is
     /// still valid without touching the chat path.
@@ -389,8 +388,10 @@ fn codex_account_label(access_token: &str) -> String {
     let email = claims
         .as_ref()
         .and_then(|c| {
-            c.get("email")
-                .or_else(|| c.get("https://api.openai.com/profile").and_then(|p| p.get("email")))
+            c.get("email").or_else(|| {
+                c.get("https://api.openai.com/profile")
+                    .and_then(|p| p.get("email"))
+            })
         })
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
@@ -791,9 +792,7 @@ fn device_auth_disabled_message(detail: Option<String>) -> String {
          Security, enable \"Device code authorization\", then click Sign in \
          again. Alternatively, install Oh My Pi so Basebuild can sign in \
          through your browser without changing that setting.",
-        detail
-            .map(|text| format!(" ({text})"))
-            .unwrap_or_default()
+        detail.map(|text| format!(" ({text})")).unwrap_or_default()
     )
 }
 
@@ -824,19 +823,16 @@ fn run_openai_device_login(
     };
     if !response.status().is_success() {
         let status = response.status().as_u16();
-        let detail = response
-            .json::<Value>()
-            .ok()
-            .and_then(|body| {
-                ["error_description", "error", "message"]
-                    .iter()
-                    .find_map(|key| {
-                        body.get(key)
-                            .and_then(Value::as_str)
-                            .filter(|text| !text.is_empty())
-                            .map(String::from)
-                    })
-            });
+        let detail = response.json::<Value>().ok().and_then(|body| {
+            ["error_description", "error", "message"]
+                .iter()
+                .find_map(|key| {
+                    body.get(key)
+                        .and_then(Value::as_str)
+                        .filter(|text| !text.is_empty())
+                        .map(String::from)
+                })
+        });
         if status == 403 {
             return DeviceLoginOutcome::DeviceAuthDisabled { detail };
         }
@@ -844,9 +840,7 @@ fn run_openai_device_login(
             &state,
             format!(
                 "OpenAI device authorization failed with status {status}{}.",
-                detail
-                    .map(|text| format!(": {text}"))
-                    .unwrap_or_default()
+                detail.map(|text| format!(": {text}")).unwrap_or_default()
             ),
         );
         return DeviceLoginOutcome::Finished;

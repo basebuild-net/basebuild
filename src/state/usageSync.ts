@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   listenUsageSyncStatus,
+  usageSyncRetry,
   usageSyncProjectedUsage,
   usageSyncSetEnabled,
   usageSyncSetMode,
@@ -22,6 +23,7 @@ export type UsageSyncState = {
   refresh: () => Promise<void>;
   fetchProjected: () => Promise<void>;
   triggerSync: (reason?: string) => Promise<void>;
+  retrySync: () => Promise<void>;
   setEnabled: (enabled: boolean) => Promise<void>;
   setMode: (mode: "rows" | "summary") => Promise<void>;
 };
@@ -60,8 +62,22 @@ export function useUsageSync(): UsageSyncState {
     }
   }, [addLog]);
 
+  const retrySync = useCallback(async () => {
+    setError(null);
+    addLog("debug", "Usage sync retry requested", "Retrying pending aggregate source windows");
+    try {
+      await usageSyncRetry();
+      await refresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      addLog("error", "Usage sync retry failed", msg);
+    }
+  }, [refresh, addLog]);
+
   const triggerSync = useCallback(async (reason?: string) => {
     setError(null);
+    addLog("debug", "Usage sync requested", reason ?? "manual");
     try {
       await usageSyncTrigger(reason);
     } catch (e) {
@@ -74,6 +90,7 @@ export function useUsageSync(): UsageSyncState {
   const setEnabled = useCallback(
     async (enabled: boolean) => {
       setError(null);
+      addLog("debug", "Usage auto-sync changed", enabled ? "enabled" : "disabled");
       try {
         await usageSyncSetEnabled(enabled);
         await refresh();
@@ -129,6 +146,7 @@ export function useUsageSync(): UsageSyncState {
     refresh,
     fetchProjected,
     triggerSync,
+    retrySync,
     setEnabled,
     setMode,
   };

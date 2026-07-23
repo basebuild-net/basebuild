@@ -18,7 +18,8 @@ import {
   sourceLabel,
   tabComplete,
 } from "../../lib/chatCommands";
-import { ChatHeader, BranchDropdown } from "./ChatHeader";
+import { ChatHeader } from "./ChatHeader";
+import { ChatComposerControls } from "./ChatComposerControls";
 import { PrRecommendationCard } from "./PrRecommendationCard";
 import { QuestionCard } from "./QuestionCard";
 import { InteractionWorkbench } from "./InteractionWorkbench";
@@ -37,7 +38,6 @@ import {
   ChevronUp,
   Copy,
   Edit2,
-  GitBranch as GitBranchIcon,
   FolderTree,
   Globe,
   HelpCircle,
@@ -121,7 +121,6 @@ import type { AgentMode } from "../../lib/sessions";
 import { readModelRecency, readProviderRecency, recordModelUse, recordProviderUse } from "../../lib/modelRecency";
 import { compareProviders } from "../../lib/providerRanking";
 import { useLogs } from "../../state/log";
-import { useDropdownPosition } from "../../state/useDropdownPosition";
 
 import {
   SEND_TIMEOUT_MS,
@@ -174,14 +173,15 @@ type ChatPanelProps = {
   onCloseChat?: () => void;
   /** Close and permanently delete the session. */
   onCloseAndDeleteChat?: () => void;
-  /** Duplicate this chat panel beside the current one. */
-  onDuplicateChat?: () => void;
   /** Start a fresh empty chat for the current project (keeps the previous chat). */
   onNewChat?: () => void;
   /** Show a toast notification (success/warning/error/info). */
   onShowToast?: (title: string, detail?: string, kind?: "success" | "warning" | "error" | "info") => void;
   /** Open the history drawer (closed panels). */
   onOpenHistory?: () => void;
+  /** Called when the USER sends a message from this chat. Drives the sidebar's
+   *  recency ordering — the only signal that reorders it. */
+  onUserMessageSent?: () => void;
   /** True when an active background agent (plan run or pipeline stage) owns
    *  this chat — gates the composer until the user explicitly enables it. */
   backgroundAgent?: boolean;
@@ -201,10 +201,10 @@ export function ChatPanel({
   onRenameChat,
   onCloseChat,
   onCloseAndDeleteChat,
-  onDuplicateChat,
   onNewChat,
   onShowToast,
   onOpenHistory,
+  onUserMessageSent,
   backgroundAgent,
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
@@ -382,10 +382,6 @@ export function ChatPanel({
   branchRef.current = branch;
   const [branches, setBranches] = useState<GitBranch[]>([]);
   const [worktreePath, setWorktreePath] = useState<string | null>(null);
-  const [metaBranchOpen, setMetaBranchOpen] = useState(false);
-  const metaBranchPos = useDropdownPosition(200);
-  const [metaNewBranch, setMetaNewBranch] = useState("");
-  const [metaCreatingBranch, setMetaCreatingBranch] = useState(false);
   const [sessionTitle, setSessionTitle] = useState<{ sessionId: string; title: string } | null>(null);
   const [assignedPlanId, setAssignedPlanId] = useState<string | null>(null);
   const [planBadge, setPlanBadge] = useState<{ referenceId: string; title: string; status: string } | null>(null);
@@ -1144,6 +1140,7 @@ export function ChatPanel({
           return;
         }
         setInput("");
+        onUserMessageSent?.();
         if (chatInputRef.current) chatInputRef.current.style.setProperty("--chat-input-height", "auto");
         setError(null);
         setSetupRequired(null);
@@ -1265,6 +1262,7 @@ export function ChatPanel({
       }
       if (agentId === null) return;
       setInput("");
+      onUserMessageSent?.();
       setLoading(true);
       setStuck(false);
       assistantBufferRef.current = "";
@@ -1289,7 +1287,7 @@ export function ChatPanel({
         setLoading(false);
       }
     },
-    [nativeMode, nativeSessionId, selectedProvider, loading, providerId, modelId, effortLevel, agentId, addLog, setModelRecency],
+    [nativeMode, nativeSessionId, selectedProvider, loading, providerId, modelId, effortLevel, agentId, addLog, setModelRecency, onUserMessageSent],
   );
 
   // Prompt delivery consumption — replaces the old draft-prompt props.
@@ -2658,6 +2656,57 @@ export function ChatPanel({
         </div>
         </ModalPortal>
       ) : null}
+      {/* Pinned chat header — 28-32px, never scrolls out of view */}
+      <ChatHeader
+        runState={streaming ? "running" : loading ? "queued" : "idle"}
+        contextUsed={contextUsedTokens}
+        contextLimit={selectedModel?.contextWindow ?? null}
+        onOpenCommands={() => {
+          addLog("debug", "Command palette opened via header", `sessionId=${activeSessionId ?? "none"}`);
+          setShowCommandPalette(true);
+          setInput("/");
+          window.requestAnimationFrame(() => chatInputRef.current?.focus());
+        }}
+        debugMode={debugMode}
+        onToggleDebug={() => {
+          const next = !debugMode;
+          addLog("debug", "Chat debug mode toggled", `enabled=${next}`);
+          setDebugMode(next);
+          localStorage.setItem("basebuild.debug-mode", String(next));
+        }}
+        canCopyConversation={nativeMessages.length > 0}
+        onCopyConversation={() => {
+          addLog("debug", "Copy conversation selected", `sessionId=${nativeSessionId ?? "none"}`);
+          void handleCopyConversation();
+        }}
+        agentMode={agentMode}
+        onToggleAgentMode={() => setAgentMode((m) => (m === "build" ? "plan" : "build"))}
+        planBadge={planBadge}
+        onOpenPlan={() => { /* focus the plan in the side panel */ }}
+        branch={branch}
+        worktreePath={worktreePath}
+        branches={branches}
+        onSwitchBranch={handleSwitchBranch}
+        onCreateBranch={handleCreateBranch}
+        onToggleHistory={() => onOpenHistory?.()}
+        onStashAndSwitch={handleSwitchBranch}
+        onDiscardAndSwitch={handleSwitchBranch}
+        uncommittedCount={uncommittedCount}
+        onRenameAction={() => setRenameSignal((n) => n + 1)}
+        onAssignPlan={handleOpenAssignPlan}
+        onCloseChat={() => onCloseChat?.()}
+        onCloseAndDelete={() => onCloseAndDeleteChat?.()}
+        prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
+        onCreatePullRequest={handleCreatePullRequest}
+        projectPath={projectPath}
+        sessionId={nativeSessionId}
+        onCopySessionId={() => {
+          if (nativeSessionId) {
+            void navigator.clipboard.writeText(nativeSessionId);
+            onShowToast?.("Chat ID copied", nativeSessionId, "info");
+          }
+        }}
+      />
       {/* Messages area */}
       <ChatTranscript
         scrollRef={scrollRef}
@@ -3279,98 +3328,54 @@ export function ChatPanel({
             />
           </div>
           <div className="chat-composer-controls">
-            <ChatHeader
-              modelChip={modelName}
-              modelId={modelId}
-              modelCatalogStatus={catalogStatus}
-              modelCatalogError={catalogError}
-              effortChip={effortLevel}
-              effortOptions={(catalog?.effortLevels ?? [])
-                .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
-                .map((effort) => ({ id: effort.id, label: effort.label }))}
-              onPickModel={() => {
-                addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
-                setShowModelPicker(true);
-                setShowProviderPicker(false);
-              }}
-              onChangeEffort={(effort) => {
-                addLog("debug", "Chat effort selected", `sessionId=${nativeSessionId ?? "none"}; effort=${effort}`);
-                setEffortLevel(effort);
-                persistSelection(providerId, modelId, effort);
-              }}
-              permissionMode={approvalMode}
-              onChangePermission={(mode) => void handleSetApprovalMode(mode)}
-              runState={streaming ? "running" : loading ? "queued" : "idle"}
-              contextUsed={contextUsedTokens}
-              contextLimit={selectedModel?.contextWindow ?? null}
-              onOpenCommands={() => {
-                addLog("debug", "Command palette opened via header", `sessionId=${activeSessionId ?? "none"}`);
-                setShowCommandPalette(true);
-                setInput("/");
-                window.requestAnimationFrame(() => chatInputRef.current?.focus());
-              }}
-              debugMode={debugMode}
-              onToggleDebug={() => {
-                const next = !debugMode;
-                addLog("debug", "Chat debug mode toggled", `enabled=${next}`);
-                setDebugMode(next);
-                localStorage.setItem("basebuild.debug-mode", String(next));
-              }}
-              canCopyConversation={nativeMessages.length > 0}
-              onCopyConversation={() => {
-                addLog("debug", "Copy conversation selected", `sessionId=${nativeSessionId ?? "none"}`);
-                void handleCopyConversation();
-              }}
-              agentMode={agentMode}
-              onToggleAgentMode={() => setAgentMode((m) => (m === "build" ? "plan" : "build"))}
-              planBadge={planBadge}
-              onOpenPlan={() => { /* focus the plan in the side panel */ }}
-              branch={branch}
-              worktreePath={worktreePath}
-              branches={branches}
-              onSwitchBranch={handleSwitchBranch}
-              onCreateBranch={handleCreateBranch}
-              onToggleHistory={() => onOpenHistory?.()}
-              onStashAndSwitch={handleSwitchBranch}
-              onDiscardAndSwitch={handleSwitchBranch}
-              uncommittedCount={uncommittedCount}
-              onRenameAction={() => setRenameSignal((n) => n + 1)}
-              onAssignPlan={handleOpenAssignPlan}
-              onDuplicateChat={() => onDuplicateChat?.()}
-              onCloseChat={() => onCloseChat?.()}
-              onCloseAndDelete={() => onCloseAndDeleteChat?.()}
-              prRecommendation={prRec ? { branch: prRec.branch, ahead: prRec.ahead, behind: prRec.behind, changedFiles: prRec.changedFiles } : null}
-              onCreatePullRequest={handleCreatePullRequest}
-              projectPath={projectPath}
-              sessionId={nativeSessionId}
-              hideBranch
-              onCopySessionId={() => {
-                if (nativeSessionId) {
-                  void navigator.clipboard.writeText(nativeSessionId);
-                  onShowToast?.("Chat ID copied", nativeSessionId, "info");
-                }
-              }}
-            />
-            {nativeMode && loading ? (
-              <button
-                className="btn chat-send-btn chat-stop-btn"
-                type="button"
-                title="Stop the agent and unlock the composer"
-                onClick={() => void handleStopNative()}
-              >
-                <Square size={13} />
-              </button>
-            ) : (
-              <button
-                className="btn btn-primary chat-send-btn"
-                type="button"
-                title="Send message"
-                disabled={sendDisabled}
-                onClick={() => void handleSend()}
-              >
-                <Send size={14} />
-              </button>
-            )}
+            {nativeMode ? (
+              <div className="chat-composer-controls-left">
+                <ChatComposerControls
+                  modelChip={modelName}
+                  modelId={modelId}
+                  modelCatalogStatus={catalogStatus}
+                  modelCatalogError={catalogError}
+                  onPickModel={() => {
+                    addLog("debug", "Provider catalog modal opened", `sessionId=${activeSessionId ?? "none"}; focus=models`);
+                    setShowModelPicker(true);
+                    setShowProviderPicker(false);
+                  }}
+                  effortChip={effortLevel}
+                  effortOptions={(catalog?.effortLevels ?? [])
+                    .filter((effort) => selectedModel?.supportedEfforts.includes(effort.id) ?? false)
+                    .map((effort) => ({ id: effort.id, label: effort.label }))}
+                  onChangeEffort={(effort) => {
+                    addLog("debug", "Chat effort selected", `sessionId=${nativeSessionId ?? "none"}; effort=${effort}`);
+                    setEffortLevel(effort);
+                    persistSelection(providerId, modelId, effort);
+                  }}
+                  permissionMode={approvalMode}
+                  onChangePermission={(mode) => void handleSetApprovalMode(mode)}
+                />
+              </div>
+            ) : null}
+            <div className="chat-composer-controls-right">
+              {nativeMode && loading ? (
+                <button
+                  className="btn chat-send-btn chat-stop-btn"
+                  type="button"
+                  title="Stop the agent and unlock the composer"
+                  onClick={() => void handleStopNative()}
+                >
+                  <Square size={13} />
+                </button>
+              ) : (
+                <button
+                  className="btn btn-primary chat-send-btn"
+                  type="button"
+                  title="Send message"
+                  disabled={sendDisabled}
+                  onClick={() => void handleSend()}
+                >
+                  <Send size={14} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
         ) : (
@@ -3422,53 +3427,6 @@ export function ChatPanel({
             ) : null}
           </div>
         )}
-        <div className="chat-composer-meta">
-          <div className="chat-composer-meta-left">
-            {projectPath ? (
-              <span title={`Project: ${projectPath}`}>{projectPath.split(/[\\/]/).pop() ?? projectPath}</span>
-            ) : null}
-            {worktreePath ? (
-              <span className="chat-worktree-badge" title={`Worktree: ${worktreePath}`}>
-                <span className="chat-worktree-dot" />
-                {worktreePath.split("/").pop()}
-              </span>
-            ) : branch ? (
-              <span className="chat-worktree-badge chat-worktree-primary" title="Primary workspace: using the open project checkout">
-                <span className="chat-worktree-dot" />
-                primary
-              </span>
-            ) : null}
-          </div>
-          <div className="chat-composer-meta-right">
-            {branch ? (
-              <button
-                ref={metaBranchPos.triggerRef}
-                className="chat-composer-branch-btn"
-                type="button"
-                title={`Branch: ${branch}. Click to switch or create.`}
-                onClick={() => { metaBranchPos.recompute(); setMetaBranchOpen((v) => !v); }}
-              >
-                <GitBranchIcon size={10} />
-                <span>{branch}</span>
-                <ChevronDown size={9} />
-              </button>
-            ) : null}
-            {metaBranchOpen ? (
-              <BranchDropdown
-                branches={branches}
-                current={branch ?? ""}
-                onPick={(name) => { setMetaBranchOpen(false); void handleSwitchBranch(name); }}
-                onCreate={() => { setMetaCreatingBranch(true); setMetaNewBranch(""); }}
-                creating={metaCreatingBranch}
-                newBranchName={metaNewBranch}
-                setNewBranchName={setMetaNewBranch}
-                onCreateBranch={() => { void handleCreateBranch(metaNewBranch.trim()); setMetaCreatingBranch(false); setMetaNewBranch(""); setMetaBranchOpen(false); }}
-                onCancelCreate={() => setMetaCreatingBranch(false)}
-                placement={metaBranchPos.placement}
-              />
-            ) : null}
-          </div>
-        </div>
         {debugMode ? (
           <div className="chat-debug-panel" title="Raw event stream from the model and agent loop">
             <button

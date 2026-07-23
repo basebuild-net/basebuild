@@ -59,11 +59,12 @@ impl AnalyticsService {
             .unwrap_or(false)
     }
 
-    /// Returns true only if the user has opted in to both collection and upload.
+    /// Returns true only if anonymous aggregate upload was explicitly enabled.
+    /// Local feature-event collection is an independent permission.
     #[allow(dead_code)]
     pub fn upload_enabled() -> bool {
         Self::get_consent()
-            .map(|c| c.collection_enabled && c.upload_enabled)
+            .map(|c| c.upload_enabled)
             .unwrap_or(false)
     }
 
