@@ -502,8 +502,18 @@ fn run_loop_inner(
         let live_progress = Arc::new(Mutex::new((String::new(), String::new())));
 
         // Build the request.
+        // Resolve the wire-format model id (e.g. "qwen/qwen3.6-27b") from the
+        // cache; fall back to the catalog model_id when no override is stored.
+        // Routing lookups above use the catalog id (the cache key), but the
+        // wire request must send the provider-native model name.
+        let wire_model_id =
+            crate::services::native_chat_service::NativeChatService::resolve_model_api_id(
+                provider_id,
+                model_id,
+            )
+            .unwrap_or_else(|| model_id.to_string());
         let req = ProviderRequest {
-            model_id: model_id.to_string(),
+            model_id: wire_model_id,
             effort_level: effort_level.to_string(),
             system: Some(system.to_string()),
             messages: messages.clone(),
