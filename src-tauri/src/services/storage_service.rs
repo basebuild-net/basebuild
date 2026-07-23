@@ -13,7 +13,7 @@ pub struct StorageService;
 // Increment whenever `initialize` gains a schema-changing migration. Existing
 // databases run the idempotent initializer once per version; current databases
 // skip its ~50 table/column probes entirely on normal launches.
-const CURRENT_SCHEMA_VERSION: i64 = 7;
+const CURRENT_SCHEMA_VERSION: i64 = 8;
 
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
@@ -1889,6 +1889,30 @@ mod tests {
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
         assert_eq!(schema_version, CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn connect_creates_local_llm_tables_on_pre_bump_database() {
+        // A DB seeded at version 7 (before local-LLM support) must gain the
+        // local server + model-override tables on connect — the regression
+        // that left detection silently broken on existing installs.
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let db_path = StorageService::state_db_path().unwrap();
+        let seeded = Connection::open(&db_path).unwrap();
+        seeded.pragma_update(None, "user_version", 7).unwrap();
+        drop(seeded);
+
+        let conn = StorageService::connect().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'
+                 AND name IN ('native_local_servers', 'native_local_model_overrides')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2, "pre-bump databases must receive the local-LLM tables");
     }
 
     #[test]
