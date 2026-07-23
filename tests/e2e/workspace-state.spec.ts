@@ -13,6 +13,8 @@ import {
   migrateFromPanelGrid,
   MIN_RATIO,
   MAX_RATIO,
+  newSurfaceId,
+  normalizeWorkspaceState,
   parseWorkspaceState,
   reopenSurface,
   removeSurfaceFromLayout,
