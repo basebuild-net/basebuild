@@ -229,6 +229,8 @@ export function ChatPanel({
   useEffect(() => {
     setBgInputUnlocked(false);
     setBgOutcome(null);
+    historyIndexRef.current = -1;
+    savedDraftRef.current = "";
   }, [nativeSessionId]);
   const [nativeMessages, setNativeMessages] = useState<NativeChatMessage[]>([]);
   const [toolEvents, setToolEvents] = useState<NativeToolEvent[]>([]);
@@ -249,6 +251,19 @@ export function ChatPanel({
   const [effortLevel, setEffortLevel] = useState("medium");
   const [modelNotice, setModelNotice] = useState<string | null>(null);
   const [input, setInput] = useState("");
+  // ─── Input history (terminal-style ArrowUp/ArrowDown navigation) ───
+  // History is derived from sent user messages (most-recent-first). The
+  // index is a ref so it doesn't trigger re-renders. -1 = not browsing.
+  // A saved draft ref preserves the in-progress text when the user starts
+  // browsing history, so ArrowDown past the end restores it.
+  const historyIndexRef = useRef(-1);
+  const savedDraftRef = useRef("");
+  const userHistory = useMemo(() => {
+    return nativeMessages
+      .filter((m) => m.role === "user" && m.content.trim().length > 0)
+      .map((m) => m.content)
+      .reverse(); // most-recent-first
+  }, [nativeMessages]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stuck, setStuck] = useState(false);
@@ -3319,6 +3334,9 @@ export function ChatPanel({
                 const el = e.target;
                 el.style.setProperty("--chat-input-height", "auto");
                 el.style.setProperty("--chat-input-height", `${Math.min(el.scrollHeight, 360)}px`);
+                // Typing manually exits history browsing.
+                historyIndexRef.current = -1;
+                savedDraftRef.current = "";
               }}
               onKeyDown={(e) => {
                 if (showCommandPalette && nativeMode) {
@@ -3354,8 +3372,87 @@ export function ChatPanel({
                     return;
                   }
                 }
+                // ─── Terminal-style input history (ArrowUp/ArrowDown) ───
+                // ArrowUp recalls older messages when the input is empty or
+                // already browsing history. If the user has typed text and
+                // isn't browsing, ArrowUp does nothing (lets cursor move up
+                // in multi-line text). ArrowDown moves forward through
+                // history; past the newest entry restores the saved draft.
+                if (!showCommandPalette && nativeMode && userHistory.length > 0) {
+                  if (e.key === "ArrowUp" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                    const ta = e.currentTarget;
+                    const atFirstLine = ta.selectionStart === 0 && ta.selectionEnd === 0;
+                    const browsing = historyIndexRef.current >= 0;
+                    const inputEmpty = input.length === 0;
+                    if ((atFirstLine || browsing) && (inputEmpty || browsing)) {
+                      e.preventDefault();
+                      if (!browsing) {
+                        savedDraftRef.current = input;
+                        historyIndexRef.current = 0;
+                      } else if (historyIndexRef.current < userHistory.length - 1) {
+                        historyIndexRef.current += 1;
+                      }
+                      const entry = userHistory[historyIndexRef.current];
+                      if (entry !== undefined) {
+                        setInput(entry);
+                        requestAnimationFrame(() => {
+                          if (chatInputRef.current) {
+                            chatInputRef.current.selectionStart = chatInputRef.current.value.length;
+                            chatInputRef.current.selectionEnd = chatInputRef.current.value.length;
+                            const el = chatInputRef.current;
+                            el.style.setProperty("--chat-input-height", "auto");
+                            el.style.setProperty("--chat-input-height", `${Math.min(el.scrollHeight, 360)}px`);
+                          }
+                        });
+                      }
+                      return;
+                    }
+                  }
+                  if (e.key === "ArrowDown" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                    const ta = e.currentTarget;
+                    const valueLen = ta.value.length;
+                    const atLastLine = ta.selectionStart === valueLen && ta.selectionEnd === valueLen;
+                    const browsing = historyIndexRef.current >= 0;
+                    if (browsing && atLastLine) {
+                      e.preventDefault();
+                      if (historyIndexRef.current > 0) {
+                        historyIndexRef.current -= 1;
+                        const entry = userHistory[historyIndexRef.current];
+                        if (entry !== undefined) {
+                          setInput(entry);
+                          requestAnimationFrame(() => {
+                            if (chatInputRef.current) {
+                              chatInputRef.current.selectionStart = chatInputRef.current.value.length;
+                              chatInputRef.current.selectionEnd = chatInputRef.current.value.length;
+                              const el = chatInputRef.current;
+                              el.style.setProperty("--chat-input-height", "auto");
+                              el.style.setProperty("--chat-input-height", `${Math.min(el.scrollHeight, 360)}px`);
+                            }
+                          });
+                        }
+                      } else {
+                        // Past the newest entry — restore saved draft.
+                        historyIndexRef.current = -1;
+                        setInput(savedDraftRef.current);
+                        savedDraftRef.current = "";
+                        requestAnimationFrame(() => {
+                          if (chatInputRef.current) {
+                            chatInputRef.current.selectionStart = chatInputRef.current.value.length;
+                            chatInputRef.current.selectionEnd = chatInputRef.current.value.length;
+                            const el = chatInputRef.current;
+                            el.style.setProperty("--chat-input-height", "auto");
+                            el.style.setProperty("--chat-input-height", `${Math.min(el.scrollHeight, 360)}px`);
+                          }
+                        });
+                      }
+                      return;
+                    }
+                  }
+                }
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
+                  historyIndexRef.current = -1;
+                  savedDraftRef.current = "";
                   void handleSend();
                 }
               }}
