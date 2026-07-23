@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { expect, test } from "@playwright/test";
 import {
   closeSurface,
   createSurface,
@@ -11,8 +11,8 @@ import {
   mapLegacyKind,
   migrateFromLegacyBlob,
   migrateFromPanelGrid,
-  newSurfaceId,
-  normalizeWorkspaceState,
+  MIN_RATIO,
+  MAX_RATIO,
   parseWorkspaceState,
   reopenSurface,
   removeSurfaceFromLayout,
@@ -79,8 +79,8 @@ function stateWith(
 
 // ── 2.1 Type & constructor sanity ───────────────────────────────────────────
 
-describe("workspace state types & constructors", () => {
-  it("emptyWorkspaceState produces a valid v2 state", () => {
+test.describe("workspace state types & constructors", () => {
+  test("emptyWorkspaceState produces a valid v2 state", () => {
     const s = emptyWorkspaceState(PROJECT);
     expect(s.version).toBe(2);
     expect(s.activeSurfaces).toEqual({});
@@ -89,14 +89,14 @@ describe("workspace state types & constructors", () => {
     expect(s.history).toEqual([]);
   });
 
-  it("newSurfaceId is unique across calls", () => {
+  test("newSurfaceId is unique across calls", () => {
     const a = newSurfaceId();
     const b = newSurfaceId();
     expect(a).not.toBe(b);
     expect(a.startsWith("surface-")).toBe(true);
   });
 
-  it("mapLegacyKind maps chat/omp/terminal and rejects others", () => {
+  test("mapLegacyKind maps chat/omp/terminal and rejects others", () => {
     expect(mapLegacyKind("chat")).toBe("chat");
     expect(mapLegacyKind("omp")).toBe("omp-chat");
     expect(mapLegacyKind("terminal")).toBe("terminal");
@@ -107,8 +107,8 @@ describe("workspace state types & constructors", () => {
 
 // ── 2.2 Normalization ──────────────────────────────────────────────────────
 
-describe("workspace state normalization", () => {
-  it("valid v2 state passes through unchanged", () => {
+test.describe("workspace state normalization", () => {
+  test("valid v2 state passes through unchanged", () => {
     const s = stateWith([makeSurface("a")], makeLeaf("a"), "a");
     const result = normalizeWorkspaceState(s, PROJECT);
     expect(result.repaired).toBe(false);
@@ -116,7 +116,7 @@ describe("workspace state normalization", () => {
     expect(result.state.focusedSurfaceId).toBe("a");
   });
 
-  it("unknown surface kind is dropped with a diagnostic", () => {
+  test("unknown surface kind is dropped with a diagnostic", () => {
     const raw = {
       version: 2,
       activeSurfaces: { x: { id: "x", kind: "file", resourceId: "r", title: null, titleLocked: false, projectId: PROJECT, createdAt: 0, lastFocusedAt: 0 } },
@@ -129,7 +129,7 @@ describe("workspace state normalization", () => {
     expect(result.diagnostics.some((d) => d.kind === "unknown-surface-kind")).toBe(true);
   });
 
-  it("duplicate visible surface ids quarantine the second occurrence", () => {
+  test("duplicate visible surface ids quarantine the second occurrence", () => {
     const a = makeSurface("a");
     const b = makeSurface("b");
     const tree: TreeNode = {
@@ -146,7 +146,7 @@ describe("workspace state normalization", () => {
     expect(result.diagnostics.some((d) => d.kind === "duplicate-surface-id")).toBe(true);
   });
 
-  it("dangling leaf (surfaceId not in activeSurfaces) is dropped", () => {
+  test("dangling leaf (surfaceId not in activeSurfaces) is dropped", () => {
     const a = makeSurface("a");
     const tree: TreeNode = {
       id: "split-1",
@@ -162,7 +162,7 @@ describe("workspace state normalization", () => {
     expect(result.diagnostics.some((d) => d.kind === "dangling-leaf")).toBe(true);
   });
 
-  it("invalid split direction is dropped", () => {
+  test("invalid split direction is dropped", () => {
     const a = makeSurface("a");
     const b = makeSurface("b");
     const tree = {
@@ -178,24 +178,24 @@ describe("workspace state normalization", () => {
     expect(result.diagnostics.some((d) => d.kind === "invalid-split-direction")).toBe(true);
   });
 
-  it("out-of-range ratio is clamped to [0.1, 0.9]", () => {
+  test("out-of-range ratio is clamped to [MIN_RATIO, MAX_RATIO]", () => {
     const a = makeSurface("a");
     const b = makeSurface("b");
     const tree: TreeNode = {
       id: "split-1",
       direction: "horizontal",
-      ratio: 0.01, // too small
+      ratio: 0.001, // below MIN_RATIO (0.01)
       first: makeLeaf("a"),
       second: makeLeaf("b"),
     };
     const s = stateWith([a, b], tree, "a");
     const result = normalizeWorkspaceState(s, PROJECT);
     const split = result.state.visibleTree as Extract<TreeNode, { direction: string }>;
-    expect(split.ratio).toBeGreaterThanOrEqual(0.1);
+    expect(split.ratio).toBeGreaterThanOrEqual(MIN_RATIO);
     expect(result.diagnostics.some((d) => d.kind === "invalid-ratio")).toBe(true);
   });
 
-  it("stale focus is repaired to the first visible leaf", () => {
+  test("stale focus is repaired to the first visible leaf", () => {
     const a = makeSurface("a");
     const b = makeSurface("b");
     const tree: TreeNode = {
@@ -211,7 +211,7 @@ describe("workspace state normalization", () => {
     expect(result.diagnostics.some((d) => d.kind === "stale-focus")).toBe(true);
   });
 
-  it("null focus with a non-empty tree is repaired", () => {
+  test("null focus with a non-empty tree is repaired", () => {
     const a = makeSurface("a");
     const s = stateWith([a], makeLeaf("a"), null);
     const result = normalizeWorkspaceState(s, PROJECT);
@@ -219,14 +219,14 @@ describe("workspace state normalization", () => {
     expect(result.diagnostics.some((d) => d.kind === "stale-focus")).toBe(true);
   });
 
-  it("empty tree with a stale focus clears the focus", () => {
+  test("empty tree with a stale focus clears the focus", () => {
     const s = stateWith([], null, "ghost");
     const result = normalizeWorkspaceState(s, PROJECT);
     expect(result.state.focusedSurfaceId).toBeNull();
     expect(result.diagnostics.some((d) => d.kind === "stale-focus")).toBe(true);
   });
 
-  it("duplicate history entry is quarantined", () => {
+  test("duplicate history entry is quarantined", () => {
     const a = makeSurface("a");
     const closed: ClosedSurfaceRecord = { ...a, closedAt: 2000 };
     const s = stateWith([], null, null, [closed, closed]);
@@ -235,7 +235,7 @@ describe("workspace state normalization", () => {
     expect(result.diagnostics.some((d) => d.kind === "duplicate-history")).toBe(true);
   });
 
-  it("history entry duplicating an active surface is quarantined", () => {
+  test("history entry duplicating an active surface is quarantined", () => {
     const a = makeSurface("a");
     const closed: ClosedSurfaceRecord = { ...a, closedAt: 2000 };
     const s = stateWith([a], makeLeaf("a"), "a", [closed]);
@@ -244,7 +244,7 @@ describe("workspace state normalization", () => {
     expect(result.diagnostics.some((d) => d.kind === "duplicate-history")).toBe(true);
   });
 
-  it("stale-resource diagnostic is emitted but surface retained", () => {
+  test("stale-resource diagnostic is emitted but surface retained", () => {
     const a = makeSurface("a", "terminal", "pty-99");
     const s = stateWith([a], makeLeaf("a"), "a");
     const validResourceIds = new Set<string>(["pty-1"]); // pty-99 not live
@@ -253,7 +253,7 @@ describe("workspace state normalization", () => {
     expect(result.diagnostics.some((d) => d.kind === "stale-resource")).toBe(true);
   });
 
-  it("normalization never throws on garbage input", () => {
+  test("normalization never throws on garbage input", () => {
     expect(() => normalizeWorkspaceState("garbage", PROJECT)).not.toThrow();
     expect(() => normalizeWorkspaceState(123, PROJECT)).not.toThrow();
     expect(() => normalizeWorkspaceState(null, PROJECT)).not.toThrow();
@@ -263,8 +263,8 @@ describe("workspace state normalization", () => {
 
 // ── 2.3 Legacy migration ────────────────────────────────────────────────────
 
-describe("legacy tab-group migration", () => {
-  it("one tab -> single leaf", () => {
+test.describe("legacy tab-group migration", () => {
+  test("one tab -> single leaf", () => {
     const legacy: PanelGridState = singlePanelGrid(makePanel("a"));
     const result = migrateFromPanelGrid(legacy, PROJECT);
     expect(result.state.version).toBe(2);
@@ -275,7 +275,7 @@ describe("legacy tab-group migration", () => {
     expect(result.state.focusedSurfaceId).toBe("a");
   });
 
-  it("many tabs -> first/active visible, rest hidden active", () => {
+  test("many tabs -> first/active visible, rest hidden active", () => {
     // A multi-tab panel with 3 chat tabs.
     const panel: Panel = {
       ...makePanel("p1"),
@@ -300,7 +300,7 @@ describe("legacy tab-group migration", () => {
     expect(isSurfaceVisible(result.state, "t3")).toBe(false);
   });
 
-  it("nested 2D layouts migrate preserving structure", () => {
+  test("nested 2D layouts migrate preserving structure", () => {
     const g = singlePanelGrid(makePanel("a"));
     const root = splitPanelAt(g.root, "a", makePanel("b"), "right")!;
     const legacy: PanelGridState = { root, activePanelId: "a", closedPanels: [] };
@@ -314,7 +314,7 @@ describe("legacy tab-group migration", () => {
     expect(split.direction).toBe("horizontal");
   });
 
-  it("deeply nested 2x2 layout migrates to binary splits", () => {
+  test("deeply nested 2x2 layout migrates to binary splits", () => {
     // Build a 2x2: row [ a, column [ b, c ] ] plus d on the right column.
     const g = singlePanelGrid(makePanel("a"));
     let root = splitPanelAt(g.root, "a", makePanel("b"), "right")!;
@@ -326,7 +326,7 @@ describe("legacy tab-group migration", () => {
     expect(ids.sort()).toEqual(["a", "b", "c"]);
   });
 
-  it("duplicate ids across leaves are quarantined", () => {
+  test("duplicate ids across leaves are quarantined", () => {
     // Two leaves with the same panel id (corrupt legacy).
     const legacy: PanelGridState = {
       root: {
@@ -348,7 +348,7 @@ describe("legacy tab-group migration", () => {
     expect(result.diagnostics.some((d) => d.kind === "duplicate-surface-id")).toBe(true);
   });
 
-  it("file/schematic panels are dropped non-destructively", () => {
+  test("file/schematic panels are dropped non-destructively", () => {
     const legacy: PanelGridState = singlePanelGrid(makePanel("f", "file"));
     const result = migrateFromPanelGrid(legacy, PROJECT);
     expect(result.state.visibleTree).toBeNull();
@@ -356,7 +356,7 @@ describe("legacy tab-group migration", () => {
     expect(result.diagnostics.some((d) => d.kind === "non-surface-kind")).toBe(true);
   });
 
-  it("closed panels migrate to history", () => {
+  test("closed panels migrate to history", () => {
     const g = singlePanelGrid(makePanel("a"));
     const closed = closePanel(g, "a");
     const result = migrateFromPanelGrid(closed, PROJECT);
@@ -364,20 +364,20 @@ describe("legacy tab-group migration", () => {
     expect(result.state.history[0].closedAt).toBeGreaterThan(0);
   });
 
-  it("omp panel migrates to omp-chat surface kind", () => {
+  test("omp panel migrates to omp-chat surface kind", () => {
     const legacy: PanelGridState = singlePanelGrid(makePanel("o", "omp"));
     const result = migrateFromPanelGrid(legacy, PROJECT);
     expect(result.state.activeSurfaces.o.kind).toBe("omp-chat");
   });
 
-  it("terminal panel migrates with stringified PTY id", () => {
+  test("terminal panel migrates with stringified PTY id", () => {
     const legacy: PanelGridState = singlePanelGrid(makePanel("t", "terminal"));
     const result = migrateFromPanelGrid(legacy, PROJECT);
     expect(result.state.activeSurfaces.t.kind).toBe("terminal");
     expect(result.state.activeSurfaces.t.resourceId).toBe("1");
   });
 
-  it("backing sessions are never deleted — stale terminals retained", () => {
+  test("backing sessions are never deleted — stale terminals retained", () => {
     const legacy: PanelGridState = singlePanelGrid(makePanel("t", "terminal"));
     // No live PTY ids.
     const result = migrateFromPanelGrid(legacy, PROJECT, new Set<string>());
@@ -388,8 +388,8 @@ describe("legacy tab-group migration", () => {
 
 // ── 2.4 Persistence safety ──────────────────────────────────────────────────
 
-describe("persistence safety", () => {
-  it("corrupted JSON returns empty state with a diagnostic (old blob preserved)", () => {
+test.describe("persistence safety", () => {
+  test("corrupted JSON returns empty state with a diagnostic (old blob preserved)", () => {
     const result = migrateFromLegacyBlob("not json at all", PROJECT);
     expect(result.state.visibleTree).toBeNull();
     expect(result.state.activeSurfaces).toEqual({});
@@ -397,34 +397,34 @@ describe("persistence safety", () => {
     // The caller does not save on parse failure — the old blob is preserved.
   });
 
-  it("unrecognized shape returns empty state with a diagnostic", () => {
+  test("unrecognized shape returns empty state with a diagnostic", () => {
     const result = migrateFromLegacyBlob(JSON.stringify({ random: true }), PROJECT);
     expect(result.state.visibleTree).toBeNull();
     expect(result.diagnostics.some((d) => d.kind === "quarantined")).toBe(true);
   });
 
-  it("v2 blob is normalized (not migrated)", () => {
+  test("v2 blob is normalized (not migrated)", () => {
     const s = stateWith([makeSurface("a")], makeLeaf("a"), "a");
     const result = migrateFromLegacyBlob(serializeWorkspaceState(s), PROJECT);
     expect(result.state.focusedSurfaceId).toBe("a");
     expect(result.repaired).toBe(false);
   });
 
-  it("legacy PanelGridState blob is migrated", () => {
+  test("legacy PanelGridState blob is migrated", () => {
     const legacy = singlePanelGrid(makePanel("a"));
     const result = migrateFromLegacyBlob(JSON.stringify(legacy), PROJECT);
     expect(result.state.version).toBe(2);
     expect(firstLeaf(result.state.visibleTree)?.surfaceId).toBe("a");
   });
 
-  it("null blob returns empty state with no diagnostics", () => {
+  test("null blob returns empty state with no diagnostics", () => {
     const result = migrateFromLegacyBlob(null, PROJECT);
     expect(result.state.visibleTree).toBeNull();
     expect(result.diagnostics).toEqual([]);
     expect(result.repaired).toBe(false);
   });
 
-  it("parseWorkspaceState round-trips a normalized state", () => {
+  test("parseWorkspaceState round-trips a normalized state", () => {
     const s = stateWith([makeSurface("a"), makeSurface("b")], {
       id: "s1",
       direction: "vertical",
@@ -441,8 +441,8 @@ describe("persistence safety", () => {
 
 // ── 2.5 Creating panels / surface lifecycle ─────────────────────────────────
 
-describe("surface lifecycle mutations", () => {
-  it("createSurface adds to activeSurfaces without placing in tree", () => {
+test.describe("surface lifecycle mutations", () => {
+  test("createSurface adds to activeSurfaces without placing in tree", () => {
     const s = emptyWorkspaceState(PROJECT);
     const { state, surfaceId } = createSurface(s, {
       kind: "chat",
@@ -454,7 +454,7 @@ describe("surface lifecycle mutations", () => {
     expect(state.visibleTree).toBeNull(); // not placed
   });
 
-  it("replaceFocusedSurface on empty tree makes the surface the sole leaf", () => {
+  test("replaceFocusedSurface on empty tree makes the surface the sole leaf", () => {
     const s = emptyWorkspaceState(PROJECT);
     const { state: withSurface, surfaceId } = createSurface(s, {
       kind: "chat", resourceId: "c1", title: null, projectId: PROJECT,
@@ -464,7 +464,7 @@ describe("surface lifecycle mutations", () => {
     expect(replaced.focusedSurfaceId).toBe(surfaceId);
   });
 
-  it("splitFocusedSurface creates a binary split", () => {
+  test("splitFocusedSurface creates a binary split", () => {
     const s = emptyWorkspaceState(PROJECT);
     const { state: s1, surfaceId: a } = createSurface(s, { kind: "chat", resourceId: "c1", title: null, projectId: PROJECT });
     const placed = replaceFocusedSurface(s1, a);
@@ -477,7 +477,7 @@ describe("surface lifecycle mutations", () => {
     expect(split.focusedSurfaceId).toBe(b);
   });
 
-  it("removeSurfaceFromLayout hides but keeps active", () => {
+  test("removeSurfaceFromLayout hides but keeps active", () => {
     const a = makeSurface("a");
     const b = makeSurface("b");
     const tree: TreeNode = { id: "s1", direction: "horizontal", ratio: 0.5, first: makeLeaf("a"), second: makeLeaf("b") };
@@ -488,7 +488,7 @@ describe("surface lifecycle mutations", () => {
     expect(flattenLeaves(hidden.visibleTree)).toHaveLength(1);
   });
 
-  it("closeSurface moves to history and repairs focus", () => {
+  test("closeSurface moves to history and repairs focus", () => {
     const a = makeSurface("a");
     const b = makeSurface("b");
     const tree: TreeNode = { id: "s1", direction: "horizontal", ratio: 0.5, first: makeLeaf("a"), second: makeLeaf("b") };
@@ -499,7 +499,7 @@ describe("surface lifecycle mutations", () => {
     expect(closed.focusedSurfaceId).toBe("b");
   });
 
-  it("reopenSurface returns active hidden without mutating the tree", () => {
+  test("reopenSurface returns active hidden without mutating the tree", () => {
     const a = makeSurface("a");
     const b = makeSurface("b");
     const tree: TreeNode = makeLeaf("b");
@@ -513,7 +513,7 @@ describe("surface lifecycle mutations", () => {
     expect(flattenLeaves(reopened.visibleTree)).toHaveLength(1);
   });
 
-  it("deleteSurfaceFromHistory removes the entry", () => {
+  test("deleteSurfaceFromHistory removes the entry", () => {
     const a = makeSurface("a");
     const closedA: ClosedSurfaceRecord = { ...a, closedAt: 2000 };
     const s = stateWith([], null, null, [closedA]);
@@ -521,7 +521,7 @@ describe("surface lifecycle mutations", () => {
     expect(deleted.history).toEqual([]);
   });
 
-  it("closed history collisions: reopening an already-active surface is a no-op", () => {
+  test("closed history collisions: reopening an already-active surface is a no-op", () => {
     const a = makeSurface("a");
     const closedA: ClosedSurfaceRecord = { ...a, closedAt: 2000 };
     const s = stateWith([a], makeLeaf("a"), "a", [closedA]);
@@ -533,8 +533,8 @@ describe("surface lifecycle mutations", () => {
 
 // ── 2.5 repairFocus ─────────────────────────────────────────────────────────
 
-describe("repairFocus", () => {
-  it("valid focus is a no-op", () => {
+test.describe("repairFocus", () => {
+  test("valid focus is a no-op", () => {
     const a = makeSurface("a");
     const s = stateWith([a], makeLeaf("a"), "a");
     const result = repairFocus({ state: s, diagnostics: [], repaired: false });
@@ -542,7 +542,7 @@ describe("repairFocus", () => {
     expect(result.repaired).toBe(false);
   });
 
-  it("stale focus repairs to first leaf", () => {
+  test("stale focus repairs to first leaf", () => {
     const a = makeSurface("a");
     const b = makeSurface("b");
     const tree: TreeNode = { id: "s1", direction: "horizontal", ratio: 0.5, first: makeLeaf("a"), second: makeLeaf("b") };
@@ -555,8 +555,8 @@ describe("repairFocus", () => {
 
 // ── visibleSurfaceIds helper ────────────────────────────────────────────────
 
-describe("visibleSurfaceIds", () => {
-  it("returns the set of visible surface ids", () => {
+test.describe("visibleSurfaceIds", () => {
+  test("returns the set of visible surface ids", () => {
     const tree: TreeNode = {
       id: "s1",
       direction: "vertical",
@@ -567,7 +567,7 @@ describe("visibleSurfaceIds", () => {
     expect(visibleSurfaceIds(tree)).toEqual(new Set(["a", "b", "c"]));
   });
 
-  it("empty tree returns an empty set", () => {
+  test("empty tree returns an empty set", () => {
     expect(visibleSurfaceIds(null).size).toBe(0);
   });
 });

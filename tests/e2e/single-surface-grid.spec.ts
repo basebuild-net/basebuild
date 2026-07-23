@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test } from "@playwright/test";
 import {
   createSurface,
   emptyWorkspaceState,
@@ -61,20 +61,21 @@ function makeChatState(n: number): { state: WorkspaceState; ids: string[] } {
 
 // ── Capacity tokens ──────────────────────────────────────────────────────────
 
-test("surfaceMinWidth: chat and omp-chat share 440px, terminal is 320px", () => {
+test("surfaceMinWidth: chat and omp-chat share the same minimum, terminal has its own", () => {
   expect(surfaceMinWidth("chat")).toBe(MIN_WIDTH_CHAT);
   expect(surfaceMinWidth("omp-chat")).toBe(MIN_WIDTH_CHAT);
   expect(surfaceMinWidth("terminal")).toBe(MIN_WIDTH_TERMINAL);
-  expect(MIN_WIDTH_CHAT).toBe(440);
-  expect(MIN_WIDTH_TERMINAL).toBe(320);
+  expect(MIN_WIDTH_CHAT).toBe(24);
+  expect(MIN_WIDTH_TERMINAL).toBe(24);
 });
 
 test("surfaceMinHeight: all kinds share the same minimum height", () => {
   for (const kind of ["chat", "omp-chat", "terminal"] as SurfaceKind[]) {
     expect(surfaceMinHeight(kind)).toBe(MIN_HEIGHT_SURFACE);
   }
-  expect(MIN_HEIGHT_SURFACE).toBe(200);
+  expect(MIN_HEIGHT_SURFACE).toBe(24);
 });
+
 
 // ── computeLeafSizes: empty / one / two / 2×2 / deep ─────────────────────────
 
@@ -180,35 +181,35 @@ test("canSplit: empty tree allows split", () => {
 
 test("canSplit: rejects horizontal split when width is below 2× chat minimum", () => {
   const { state } = makeChatState(1);
-  // 2× chat minimum = 880px. Give 800px → halfAvailable = 400 < 440
-  const result = canSplit(state, "horizontal", "chat", 800, 800);
+  // 2× chat minimum = 48px. Give 40px → halfAvailable = 20 < 24
+  const result = canSplit(state, "horizontal", "chat", 40, 800);
   expect(result.ok).toBe(false);
   expect(result.reason).toContain("width");
 });
 
 test("canSplit: allows horizontal split when width is exactly 2× chat minimum", () => {
   const { state } = makeChatState(1);
-  // 2× chat minimum = 880px. Give exactly 880px → halfAvailable = 440 = min
-  const result = canSplit(state, "horizontal", "chat", 880, 800);
+  // 2× chat minimum = 48px. Give exactly 48px → halfAvailable = 24 = min
+  const result = canSplit(state, "horizontal", "chat", 48, 800);
   expect(result.ok).toBe(true);
 });
 
 test("canSplit: rejects vertical split when height is below 2× minimum height", () => {
   const { state } = makeChatState(1);
-  // 2× height minimum = 400px. Give 350px → halfAvailable = 175 < 200
-  const result = canSplit(state, "vertical", "chat", 1000, 350);
+  // 2× height minimum = 48px. Give 40px → halfAvailable = 20 < 24
+  const result = canSplit(state, "vertical", "chat", 1000, 40);
   expect(result.ok).toBe(false);
   expect(result.reason).toContain("height");
 });
 
 test("canSplit: mixed chat/terminal — terminal has smaller minimum", () => {
   const { state } = makeChatState(1);
-  // Splitting chat horizontally with a terminal: need max(440, 320)×2 = 880
-  // Give 800 → halfAvailable = 400 ≥ 320 (terminal min) but < 440 (chat min)
-  const result = canSplit(state, "horizontal", "terminal", 800, 800);
+  // Splitting chat horizontally with a terminal: need max(24, 24)×2 = 48
+  // Give 40 → halfAvailable = 20 < 24 (both mins)
+  const result = canSplit(state, "horizontal", "terminal", 40, 800);
   expect(result.ok).toBe(false);
-  // Give 880 → halfAvailable = 440 ≥ both
-  const result2 = canSplit(state, "horizontal", "terminal", 880, 800);
+  // Give 48 → halfAvailable = 24 ≥ both
+  const result2 = canSplit(state, "horizontal", "terminal", 48, 800);
   expect(result2.ok).toBe(true);
 });
 
@@ -216,11 +217,11 @@ test("canSplit: allows split when terminal is the existing surface with less wid
   let state = emptyWorkspaceState(PROJECT);
   const r = addSurface(state, "terminal");
   state = r.state;
-  // Splitting terminal with terminal: need max(320, 320)×2 = 640
-  const result = canSplit(state, "horizontal", "terminal", 640, 800);
+  // Splitting terminal with terminal: need max(24, 24)×2 = 48
+  const result = canSplit(state, "horizontal", "terminal", 48, 800);
   expect(result.ok).toBe(true);
-  // 600 → halfAvailable = 300 < 320
-  const result2 = canSplit(state, "horizontal", "terminal", 600, 800);
+  // 40 → halfAvailable = 20 < 24
+  const result2 = canSplit(state, "horizontal", "terminal", 40, 800);
   expect(result2.ok).toBe(false);
 });
 
@@ -233,8 +234,8 @@ test("allLeavesFit: true for single leaf that meets minimums", () => {
 
 test("allLeavesFit: false when a leaf is below width minimum", () => {
   const { state } = makeChatState(2);
-  // 800px wide, two leaves at 400px each → 400 < 440 (chat min)
-  expect(allLeavesFit(state, 800, 300)).toBe(false);
+  // 40px wide, two leaves at 20px each → 20 < 24 (chat min)
+  expect(allLeavesFit(state, 40, 300)).toBe(false);
 });
 
 test("allLeavesFit: false when a leaf is below height minimum", () => {
@@ -243,13 +244,13 @@ test("allLeavesFit: false when a leaf is below height minimum", () => {
   state = r1.state;
   const r2 = addSurface(state, "chat", "vertical");
   state = r2.state;
-  // 300px tall, two leaves at 150px each → 150 < 200 (height min)
-  expect(allLeavesFit(state, 1000, 300)).toBe(false);
+  // 40px tall, two leaves at 20px each → 20 < 24 (height min)
+  expect(allLeavesFit(state, 1000, 40)).toBe(false);
 });
 
 test("allLeavesFit: true when all leaves meet minimums", () => {
   const { state } = makeChatState(2);
-  // 1000px wide, two leaves at 500px each → 500 ≥ 440
+  // 1000px wide, two leaves at 500px each → 500 ≥ 24
   expect(allLeavesFit(state, 1000, 300)).toBe(true);
 });
 
@@ -282,9 +283,9 @@ test("applyCapacityHiding: hides LRU non-focused leaf when capacity insufficient
   state = focusSurface(state, r1.surfaceId);
   state = focusSurface(state, r3.surfaceId);
 
-  // Small container: 3 chat surfaces need 3×440 = 1320px width minimum
-  // Give 800px → not enough, one must be hidden
-  const result = applyCapacityHiding(state, 800, 300);
+  // Small container: 3 chat surfaces need 3×24 = 72px width minimum
+  // Give 60px → not enough, one must be hidden
+  const result = applyCapacityHiding(state, 60, 300);
   expect(result.hidden.length).toBeGreaterThan(0);
   // The focused surface (r3) should never be hidden
   expect(result.hidden).not.toContain(r3.surfaceId);
@@ -304,8 +305,8 @@ test("applyCapacityHiding: hidden surfaces remain in activeSurfaces", () => {
   const { state, ids } = makeChatState(2);
   // Force the first surface to be LRU by focusing the second
   const state2 = focusSurface(state, ids[1]);
-  // Tiny container → first surface gets hidden
-  const result = applyCapacityHiding(state2, 100, 100);
+  // Tiny container → first surface gets hidden (2×24=48, give 40)
+  const result = applyCapacityHiding(state2, 40, 40);
   expect(result.hidden).toContain(ids[0]);
   expect(result.state.activeSurfaces[ids[0]]).toBeDefined();
 });
@@ -321,15 +322,15 @@ test("applyCapacityHiding: restoration — removing a surface lets others refit"
   const r3 = addSurface(state, "chat", "horizontal");
   state = r3.state;
 
-  // 3 leaves at 1000px → ~333px each, below 440px chat minimum
-  expect(allLeavesFit(state, 1000, 300)).toBe(false);
+  // 3 leaves at 60px → 20px each, below 24px chat minimum
+  expect(allLeavesFit(state, 60, 300)).toBe(false);
 
   // Hide one via capacity hiding
-  const hidden = applyCapacityHiding(state, 1000, 300);
+  const hidden = applyCapacityHiding(state, 60, 300);
   expect(hidden.hidden.length).toBe(1);
 
-  // After hiding, the remaining two should fit (500px each ≥ 440)
-  expect(allLeavesFit(hidden.state, 1000, 300)).toBe(true);
+  // After hiding, the remaining two should fit (30px each ≥ 24)
+  expect(allLeavesFit(hidden.state, 60, 300)).toBe(true);
 });
 
 // ── clampRatioToPixelMinimum: splitter limits ────────────────────────────────
