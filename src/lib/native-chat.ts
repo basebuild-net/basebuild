@@ -247,6 +247,30 @@ export async function nativeProviderCatalogRefresh(input?: {
 }): Promise<NativeProviderCatalog> {
   return invoke<NativeProviderCatalog>("native_provider_catalog_refresh", { request: input ?? null });
 }
+
+/** A detected (or previously detected) local LLM server. */
+export type NativeLocalServer = {
+  providerId: string;
+  /** Server kind: "lmstudio" | "ollama" | "llamacpp" | "koboldcpp". */
+  kind: string;
+  baseUrl: string;
+  reachable: boolean;
+};
+
+/** Probe loopback for local LLM servers, reconcile their keyless accounts, and
+ * return the known-server set. Invalidates the catalog cache. */
+export async function nativeLocalLlmScan(): Promise<NativeLocalServer[]> {
+  return invoke<NativeLocalServer[]>("native_local_llm_scan");
+}
+
+/** Override tool-calling capability for a discovered local model. */
+export async function nativeLocalModelOverrideSet(
+  providerId: string,
+  modelId: string,
+  supportsTools: boolean,
+): Promise<void> {
+  return invoke("native_local_model_override_set", { providerId, modelId, supportsTools });
+}
 export type CatalogSyncResult = {
   synced: number;
   skipped: number;

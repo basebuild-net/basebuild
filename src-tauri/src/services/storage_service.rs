@@ -506,6 +506,22 @@ impl StorageService {
                 CREATE INDEX IF NOT EXISTS idx_native_request_metrics_created ON native_request_metrics(created_at);
                 CREATE INDEX IF NOT EXISTS idx_native_request_metrics_provider ON native_request_metrics(provider_id, model_id, effort_level);
 
+                CREATE TABLE IF NOT EXISTS native_local_servers (
+                    provider_id TEXT PRIMARY KEY NOT NULL,
+                    kind TEXT NOT NULL,
+                    base_url TEXT NOT NULL,
+                    reachable INTEGER NOT NULL DEFAULT 0,
+                    last_seen_at INTEGER,
+                    created_at INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS native_local_model_overrides (
+                    provider_id TEXT NOT NULL,
+                    model_id TEXT NOT NULL,
+                    supports_tools INTEGER NOT NULL DEFAULT 0,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (provider_id, model_id)
+                );
                 CREATE TABLE IF NOT EXISTS workspace_restore_state (
                     project_path TEXT PRIMARY KEY NOT NULL,
                     last_session_id TEXT,

@@ -1,7 +1,10 @@
 use std::{
     collections::HashMap,
     env,
-    sync::{LazyLock, RwLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        LazyLock, RwLock,
+    },
     time::Duration,
 };
 
@@ -27,10 +30,15 @@ type DbResult<T> = Result<T, String>;
 
 const LOCAL_PROVIDER_ID: &str = "basebuild-local";
 const LOCAL_MODEL_ID: &str = "basebuild-local-coordinator";
+/// The single catch-all provider aggregating every detected local LLM model.
+const LOCAL_MODELS_PROVIDER_ID: &str = "local-models";
 const DEFAULT_EFFORT: &str = "medium";
 const CACHE_MAX_AGE_SECONDS: i64 = 24 * 60 * 60;
 static CATALOG_CACHE: LazyLock<RwLock<Option<NativeProviderCatalog>>> =
     LazyLock::new(|| RwLock::new(None));
+/// Set once the first local-server scan has run this process, so the chat
+/// bootstrap probes loopback at most once instead of on every open.
+static LOCAL_SCAN_DONE: AtomicBool = AtomicBool::new(false);
 
 /// Provider-level metadata overlaid on the model catalog. The catalog carries
 /// the model list and wire-protocol kind; Basebuild adds the auth/UI metadata.
@@ -55,6 +63,9 @@ struct ProviderSpec {
     api_key_url: Option<String>,
     detail: String,
     default_base_url: Option<String>,
+    /// Detected local-server kind (`lmstudio`/`ollama`/…) when this spec is a
+    /// local LLM provider; None for catalog/synthetic providers.
+    local_kind: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -137,6 +148,24 @@ impl ProviderModelCatalogService {
             }
         }
 
+        // Local models: tool capability follows the per-model server kind
+        // (parsed from the `<kind>:<name>` id) and any user override, not the
+        // generic transport table (which marks every openai-completions model
+        // tool-capable).
+        for model in models
+            .iter_mut()
+            .filter(|m| m.provider_id == LOCAL_MODELS_PROVIDER_ID)
+        {
+            let kind = model.id.split(':').next().unwrap_or_default();
+            let default_tools = crate::services::local_llm_service::kind_supports_tools(kind);
+            model.supports_tools =
+                crate::services::local_llm_service::LocalLlmService::tool_override(
+                    LOCAL_MODELS_PROVIDER_ID,
+                    &model.id,
+                )
+                .unwrap_or(default_tools);
+        }
+
         // Account aggregation for catalog surfaces: stored accounts grouped by
         // provider plus the OMP virtual account where OMP is logged in and the
         // provider isn't blocked.
@@ -178,7 +207,9 @@ impl ProviderModelCatalogService {
                 NativeProvider {
                     id: spec.id.clone(),
                     label: spec.label.clone(),
-                    status: if !configured {
+                    status: if spec.local_kind.is_some() && !configured {
+                        "disconnected".to_string()
+                    } else if !configured {
                         "setup_required".to_string()
                     } else if transport_unavailable {
                         "transport_unavailable".to_string()
@@ -268,13 +299,22 @@ impl ProviderModelCatalogService {
     }
 
     pub fn refresh(provider_id: Option<String>, force: bool) -> DbResult<NativeProviderCatalog> {
+        // A full refresh re-probes local servers first so freshly-started (or
+        // stopped) LM Studio/Ollama servers fold in before specs are built.
+        if provider_id.is_none() {
+            let _ = Self::scan_local_servers();
+        }
         let credentials = NativeChatService::list_credentials().unwrap_or_default();
         let targets: Vec<ProviderSpec> = match provider_id.as_deref() {
             Some(id) => provider_specs()
                 .into_iter()
                 .filter(|p| p.id == id)
                 .collect(),
-            None => provider_specs(),
+            // Local specs are already discovered by the scan prelude above.
+            None => provider_specs()
+                .into_iter()
+                .filter(|p| p.local_kind.is_none())
+                .collect(),
         };
 
         // The canonical basebuild.net catalog fetch is shared by every
@@ -300,6 +340,74 @@ impl ProviderModelCatalogService {
         }
     }
 
+    /// Probe loopback for local LLM servers, reconcile their keyless accounts,
+    /// invalidate the catalog cache, and return the known-server set. Used by
+    /// the full refresh and the explicit rescan command.
+    pub fn scan_local_servers(
+    ) -> DbResult<Vec<crate::services::local_llm_service::DetectedLocalServer>> {
+        let servers = crate::services::local_llm_service::LocalLlmService::scan()?;
+        NativeChatService::sync_local_accounts(&servers)?;
+        // Aggregate every reachable server's models under the single
+        // `local-models` provider. Each model keeps its own base URL (so chat
+        // routes to the right port) and a kind-prefixed id (so two servers
+        // can expose the same model name without colliding).
+        let mut aggregated: Vec<NativeModel> = Vec::new();
+        let mut errors: Vec<String> = Vec::new();
+        for server in servers.iter().filter(|s| s.reachable) {
+            let spec = ProviderSpec {
+                id: LOCAL_MODELS_PROVIDER_ID.to_string(),
+                label: local_server_label(&server.kind),
+                credential_owner: "basebuild".to_string(),
+                local_only: false,
+                auth_method: "local".to_string(),
+                api_key_url: None,
+                detail: String::new(),
+                default_base_url: Some(server.base_url.clone()),
+                local_kind: Some(server.kind.clone()),
+            };
+            match Self::discover_local_models(&spec, &server.kind) {
+                Ok(models) => {
+                    let server_label = local_server_label(&server.kind);
+                    for mut model in models {
+                        // Raw name goes on the wire; the catalog id is namespaced.
+                        let raw = model.id.clone();
+                        model.model_api_id = Some(raw.clone());
+                        model.id = format!("{}:{}", server.kind, raw);
+                        model.label = format!("{server_label} · {raw}");
+                        model.base_url = server.base_url.clone();
+                        aggregated.push(model);
+                    }
+                }
+                Err(error) => errors.push(error),
+            }
+        }
+        aggregated.sort_by(|a, b| a.label.cmp(&b.label));
+        let error = if aggregated.is_empty() && !errors.is_empty() {
+            Some(errors.join("; "))
+        } else {
+            None
+        };
+        let _ = Self::replace_provider_cache(
+            LOCAL_MODELS_PROVIDER_ID,
+            aggregated,
+            "local_discovered",
+            error,
+        );
+        LOCAL_SCAN_DONE.store(true, Ordering::SeqCst);
+        Self::invalidate();
+        Ok(servers)
+    }
+
+    /// Run the local-server scan exactly once per process (on the first chat
+    /// bootstrap). A cold machine with no local server probes only once, not on
+    /// every catalog open.
+    pub fn ensure_local_servers() {
+        if LOCAL_SCAN_DONE.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let _ = Self::scan_local_servers();
+    }
+
     fn refresh_provider_spec(
         spec: ProviderSpec,
         credentials: &[NativeProviderCredential],
@@ -313,6 +421,13 @@ impl ProviderModelCatalogService {
                 "bundled",
                 None,
             );
+        }
+
+        // The catch-all local provider (re)discovers by rescanning every
+        // loopback endpoint; discovery + account sync live in scan_local_servers.
+        if spec.local_kind.is_some() {
+            let _ = Self::scan_local_servers();
+            return Ok(());
         }
 
         let credential = credentials.iter().find(|c| c.provider_id == spec.id);
@@ -407,6 +522,98 @@ impl ProviderModelCatalogService {
                 }
             }
         }
+    }
+
+    /// Discover models from a detected local server. Ollama uses its native
+    /// `/api/tags`; everything else uses the shared OpenAI-compatible
+    /// `/v1/models` path. Results are tagged `local_discovered`.
+    fn discover_local_models(spec: &ProviderSpec, kind: &str) -> DbResult<Vec<NativeModel>> {
+        let mut models = if kind == crate::services::local_llm_service::KIND_OLLAMA {
+            Self::discover_ollama_models(spec)?
+        } else {
+            let credential = NativeProviderCredential {
+                provider_id: spec.id.clone(),
+                label: spec.label.clone(),
+                api_key: "local".to_string(),
+                base_url: spec.default_base_url.clone(),
+                updated_at: 0,
+            };
+            Self::discover_openai_compatible(spec.clone(), &credential)?
+        };
+        for model in models.iter_mut() {
+            model.source = "local_discovered".to_string();
+            model.detected_by = vec!["local_discovered".to_string()];
+        }
+        Ok(models)
+    }
+
+    /// Discover Ollama models from `/api/tags` (root, no `/v1`). Chat still
+    /// routes to the `/v1` OpenAI-compatible surface via the stored base URL.
+    fn discover_ollama_models(spec: &ProviderSpec) -> DbResult<Vec<NativeModel>> {
+        let base_url = spec
+            .default_base_url
+            .as_deref()
+            .unwrap_or("http://127.0.0.1:11434/v1");
+        let root = base_url.trim_end_matches('/').trim_end_matches("/v1");
+        let url = format!("{root}/api/tags");
+        let response = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("Failed to build Ollama discovery client: {e}"))?
+            .get(url)
+            .send()
+            .map_err(|e| format!("Failed to fetch Ollama models: {e}"))?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "Ollama model discovery failed with HTTP {status}.",
+                status = response.status().as_u16()
+            ));
+        }
+        let payload: Value = response
+            .json()
+            .map_err(|e| format!("Failed to parse Ollama model payload: {e}"))?;
+        let entries = payload
+            .get("models")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "Ollama model payload did not include a models array.".to_string())?;
+        let mut models = Vec::new();
+        for entry in entries {
+            let name = entry
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim();
+            if name.is_empty() {
+                continue;
+            }
+            models.push(model_with_source(
+                NativeModel {
+                    id: name.to_string(),
+                    provider_id: spec.id.clone(),
+                    label: name.to_string(),
+                    supports_effort: false,
+                    supports_streaming: true,
+                    supports_tools: true,
+                    local_only: false,
+                    context_window: None,
+                    max_tokens: None,
+                    supports_reasoning: false,
+                    supported_efforts: Vec::new(),
+                    supports_images: false,
+                    source: "local_discovered".to_string(),
+                    model_api_id: None,
+                    api_kind: String::new(),
+                    base_url: String::new(),
+                    cost_input: None,
+                    cost_output: None,
+                    detected_by: Vec::new(),
+                },
+                "local_discovered",
+            ));
+        }
+        models.sort_by(|a, b| a.label.cmp(&b.label));
+        models.dedup_by(|a, b| a.id == b.id && a.provider_id == b.provider_id);
+        Ok(models)
     }
 
     fn discover_openai_compatible(
@@ -1137,6 +1344,7 @@ fn provider_specs() -> Vec<ProviderSpec> {
         api_key_url: None,
         detail: "No provider connected — select a provider to chat.".to_string(),
         default_base_url: None,
+        local_kind: None,
     });
 
     // All providers from the bundled model catalog, overlaid with Basebuild
@@ -1176,6 +1384,7 @@ fn provider_specs() -> Vec<ProviderSpec> {
             default_base_url: overlay
                 .and_then(|o| o.default_base_url.map(String::from))
                 .or_else(|| first_base_url.map(String::from)),
+            local_kind: None,
         });
     }
 
@@ -1189,9 +1398,47 @@ fn provider_specs() -> Vec<ProviderSpec> {
         api_key_url: None,
         detail: "Any OpenAI-compatible endpoint. Enter your API key and base URL.".to_string(),
         default_base_url: None,
+        local_kind: None,
+    });
+
+    // Single catch-all "Local Models" provider — always present, even when no
+    // local server is running. Detection aggregates every discovered local
+    // model (LM Studio, Ollama, llama.cpp, KoboldCpp) under this one provider.
+    let any_reachable = crate::services::local_llm_service::LocalLlmService::reachable_servers()
+        .is_empty()
+        .eq(&false);
+    specs.push(ProviderSpec {
+        id: LOCAL_MODELS_PROVIDER_ID.to_string(),
+        label: "Local Models".to_string(),
+        credential_owner: "basebuild".to_string(),
+        local_only: false,
+        auth_method: "local".to_string(),
+        api_key_url: None,
+        detail: if any_reachable {
+            "Local LLM servers detected — models below run on your machine.".to_string()
+        } else {
+            "No local servers detected. Start LM Studio, Ollama, llama.cpp, or KoboldCpp and rescan.".to_string()
+        },
+        default_base_url: None,
+        local_kind: Some("aggregate".to_string()),
     });
 
     specs
+}
+
+/// Human label for a detected local server kind.
+fn local_server_label(kind: &str) -> String {
+    use crate::services::local_llm_service::{
+        KIND_KOBOLDCPP, KIND_LLAMACPP, KIND_LMSTUDIO, KIND_OLLAMA,
+    };
+    match kind {
+        KIND_LMSTUDIO => "LM Studio",
+        KIND_OLLAMA => "Ollama",
+        KIND_LLAMACPP => "llama.cpp",
+        KIND_KOBOLDCPP => "KoboldCpp",
+        _ => "Local LLM",
+    }
+    .to_string()
 }
 
 /// Returns true for api kinds that use a bespoke wire protocol handled by OMP

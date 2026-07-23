@@ -212,6 +212,12 @@ export function ChatPanel({
   const [catalogStatus, setCatalogStatus] = useState<"loading" | "refreshing" | "ready" | "stale" | "error">("loading");
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [contextUsedTokens, setContextUsedTokens] = useState(0);
+  // Latest completed-turn generation stats, shown only for local providers.
+  const [genStats, setGenStats] = useState<{
+    tokensPerSecond: number | null;
+    ttftMs: number | null;
+    durationMs: number | null;
+  } | null>(null);
   const [nativeSessionId, setNativeSessionId] = useState<string | null>(chatSessionId ?? null);
   // Composer gate for background-agent chats: input stays locked until the
   // user explicitly opts in, since sending into the agent's session can
@@ -2574,6 +2580,29 @@ export function ChatPanel({
   const sendDisabled = bgGateActive || loading || !input.trim() || (nativeMode ? !nativeSessionId : agentId === null);
 
   const modelName = selectedModel?.label ?? modelId;
+  // Local providers surface real per-request generation stats after each turn.
+  const isLocalProvider = providerId.startsWith("local-");
+  useEffect(() => {
+    if (!isLocalProvider || !nativeSessionId || streaming) {
+      return;
+    }
+    let cancelled = false;
+    void nativeSessionLatestMetric(nativeSessionId)
+      .then((metric) => {
+        if (cancelled) return;
+        setGenStats(
+          metric
+            ? { tokensPerSecond: metric.tokensPerSecond, ttftMs: metric.ttftMs, durationMs: metric.durationMs }
+            : null,
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setGenStats(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isLocalProvider, nativeSessionId, streaming, nativeMessages.length]);
   // Pending ask_user questions own the composer until resolved or explicitly
   // minimized. A minimized question becomes a compact preview; restoring it
   // returns to the same page and draft answers.
@@ -3352,6 +3381,14 @@ export function ChatPanel({
                   permissionMode={approvalMode}
                   onChangePermission={(mode) => void handleSetApprovalMode(mode)}
                 />
+                {isLocalProvider && genStats ? (
+                  <span className="chat-gen-stats" title="Local generation stats from the last completed turn">
+                    <span className="chat-gen-stats-label">Local</span>
+                    {genStats.tokensPerSecond != null ? <span>{genStats.tokensPerSecond.toFixed(1)} tok/s</span> : null}
+                    {genStats.ttftMs != null ? <span>{genStats.ttftMs} ms TTFT</span> : null}
+                    {genStats.durationMs != null ? <span>{(genStats.durationMs / 1000).toFixed(1)}s</span> : null}
+                  </span>
+                ) : null}
               </div>
             ) : null}
             <div className="chat-composer-controls-right">

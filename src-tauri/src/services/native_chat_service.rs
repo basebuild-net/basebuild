@@ -145,6 +145,10 @@ impl NativeChatService {
     /// avoids reading OMP credentials and cached models once for the catalog
     /// and again for the effective project default.
     pub fn bootstrap(project_path: &str) -> DbResult<NativeChatBootstrap> {
+        // Probe loopback for local LLM servers once per process so a running
+        // LM Studio/Ollama surfaces on first chat open without an explicit
+        // refresh.
+        crate::services::provider_model_catalog_service::ProviderModelCatalogService::ensure_local_servers();
         let catalog = Self::provider_catalog();
         let resolved = Self::resolve_model_default_from_catalog(project_path, &catalog)?;
         Ok(NativeChatBootstrap { catalog, resolved })
@@ -406,6 +410,40 @@ impl NativeChatService {
             }
         }
         Ok(creds)
+    }
+
+    /// Reconcile the single `local-models` account with the latest scan. When at
+    /// least one local server is reachable, a keyless account (`api_key =
+    /// "local"`, no base URL — chat routes per-model) exists so the send path's
+    /// account lookup succeeds; when every server is gone the account is
+    /// removed. Cached models stay intact — the catalog shows them regardless.
+    /// Also cleans up legacy per-server `local-*` accounts from earlier builds.
+    pub fn sync_local_accounts(
+        servers: &[crate::services::local_llm_service::DetectedLocalServer],
+    ) -> DbResult<()> {
+        use crate::services::provider_account_service::{ProviderAccountService, AUTH_API};
+        ProviderAccountService::ensure_migrated();
+        let any_reachable = servers.iter().any(|s| s.reachable);
+        if any_reachable {
+            ProviderAccountService::upsert_account(
+                "local-models",
+                "Local Models",
+                AUTH_API,
+                "local",
+                None,
+                "local",
+            )?;
+        }
+        // Remove the account when nothing is reachable, plus any legacy
+        // per-server local accounts (`local-lmstudio`, …) from older builds.
+        for record in ProviderAccountService::list_records(None)? {
+            let is_local = record.provider_id.starts_with("local-");
+            let keep = record.provider_id == "local-models" && any_reachable;
+            if is_local && !keep {
+                ProviderAccountService::remove_account(&record.id)?;
+            }
+        }
+        Ok(())
     }
 
     /// Return provider ids with request-usable credentials. OMP OAuth rows are

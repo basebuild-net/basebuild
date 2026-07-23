@@ -15,6 +15,7 @@ pub mod harness_usage_service;
 pub mod idea_round_service;
 pub mod integration_service;
 pub mod interaction_service;
+pub mod local_llm_service;
 pub mod mcp_oauth_service;
 pub mod mcp_service;
 pub mod native_chat_service;
