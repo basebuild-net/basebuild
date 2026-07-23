@@ -49,18 +49,23 @@ test.describe("compareProviders — local LLM tiers", () => {
     ]);
   });
 
-  test("connected remote provider ranks above Local Models", () => {
+  test("Local Models ranks above connected remote providers (directly under None)", () => {
+    const sentinel = provider({ id: LOCAL_PROVIDER_ID, label: "None", configured: true, localOnly: true });
     const anthropic = provider({ id: "anthropic", label: "Anthropic", configured: true });
     const local = provider({ id: "local-models", label: "Local Models", configured: true });
 
-    expect(order([local, anthropic])).toEqual(["anthropic", "local-models"]);
+    expect(order([anthropic, local, sentinel])).toEqual([
+      LOCAL_PROVIDER_ID,
+      "local-models",
+      "anthropic",
+    ]);
   });
 
-  test("connected Local Models ranks above disconnected Local Models (tier tiebreak)", () => {
-    const connected = provider({ id: "local-models", label: "Local Models", configured: true });
-    const disconnected = provider({ id: "local-other", label: "Local Other", configured: false });
+  test("Local Models shows even when disconnected, above unconnected remotes", () => {
+    const local = provider({ id: "local-models", label: "Local Models", configured: false });
+    const openai = provider({ id: "openai", label: "OpenAI API", configured: false });
 
-    expect(order([disconnected, connected])).toEqual(["local-models", "local-other"]);
+    expect(order([openai, local])).toEqual(["local-models", "openai"]);
   });
 
   test("the None sentinel is always first", () => {

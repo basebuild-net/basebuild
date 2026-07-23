@@ -54,27 +54,27 @@ export function compareProviders(
 ): number {
   const { recency = {}, popularity = {} } = inputs;
 
-  // Coarse tier: sentinel < connected-remote < local-connected <
-  // local-disconnected < unconnected-remote.
+  // Coarse tier: sentinel < local < connected-remote < unconnected-remote.
+  // Local models sit directly under the "None" sentinel so they're easy to
+  // find (issue #48; user request), above every remote provider.
   const tier = (p: NativeProvider): number => {
     if (p.id === LOCAL_PROVIDER_ID) return 0;
-    const isLocal = p.id.startsWith("local-");
-    if (p.configured) return isLocal ? 2 : 1;
-    return isLocal ? 3 : 4;
+    if (p.id.startsWith("local-")) return 1;
+    return p.configured ? 2 : 3;
   };
   const tierA = tier(a);
   const tierB = tier(b);
   if (tierA !== tierB) return tierA - tierB;
 
-  if (tierA === 1) {
+  // Local models: stable alphabetical.
+  if (tierA === 1) return a.label.localeCompare(b.label);
+
+  if (tierA === 2) {
     // Connected remote: most-recently-used first.
     const byRecency = (recency[b.id] ?? 0) - (recency[a.id] ?? 0);
     if (byRecency !== 0) return byRecency;
     return a.label.localeCompare(b.label);
   }
-
-  // Detected local servers: stable alphabetical within their tiers.
-  if (tierA === 2 || tierA === 3) return a.label.localeCompare(b.label);
 
   // Unconnected remote: global popularity first, then curated, then alphabetical.
   const byPopularity = (popularity[b.id] ?? 0) - (popularity[a.id] ?? 0);

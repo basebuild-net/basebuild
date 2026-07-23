@@ -375,6 +375,10 @@ impl ProviderModelCatalogService {
                         model.id = format!("{}:{}", server.kind, raw);
                         model.label = format!("{server_label} · {raw}");
                         model.base_url = server.base_url.clone();
+                        // Non-empty api_kind so resolve_model_routing returns the
+                        // per-model base URL and chat routes to OpenAiCompatibleClient
+                        // (never the OMP RPC bridge).
+                        model.api_kind = "openai-completions".to_string();
                         aggregated.push(model);
                     }
                 }
@@ -528,22 +532,118 @@ impl ProviderModelCatalogService {
     /// `/api/tags`; everything else uses the shared OpenAI-compatible
     /// `/v1/models` path. Results are tagged `local_discovered`.
     fn discover_local_models(spec: &ProviderSpec, kind: &str) -> DbResult<Vec<NativeModel>> {
-        let mut models = if kind == crate::services::local_llm_service::KIND_OLLAMA {
+        use crate::services::local_llm_service::{KIND_LMSTUDIO, KIND_OLLAMA};
+        let mut models = if kind == KIND_OLLAMA {
             Self::discover_ollama_models(spec)?
+        } else if kind == KIND_LMSTUDIO {
+            // LM Studio's native REST API reports load state + capabilities;
+            // fall back to plain /v1/models on older builds.
+            match Self::discover_lmstudio_models(spec) {
+                Ok(models) if !models.is_empty() => models,
+                _ => {
+                    let credential = Self::local_credential(spec);
+                    Self::discover_openai_compatible(spec.clone(), &credential)?
+                }
+            }
         } else {
-            let credential = NativeProviderCredential {
-                provider_id: spec.id.clone(),
-                label: spec.label.clone(),
-                api_key: "local".to_string(),
-                base_url: spec.default_base_url.clone(),
-                updated_at: 0,
-            };
+            let credential = Self::local_credential(spec);
             Self::discover_openai_compatible(spec.clone(), &credential)?
         };
         for model in models.iter_mut() {
             model.source = "local_discovered".to_string();
             model.detected_by = vec!["local_discovered".to_string()];
         }
+        Ok(models)
+    }
+
+    fn local_credential(spec: &ProviderSpec) -> NativeProviderCredential {
+        NativeProviderCredential {
+            provider_id: spec.id.clone(),
+            label: spec.label.clone(),
+            api_key: "local".to_string(),
+            base_url: spec.default_base_url.clone(),
+            updated_at: 0,
+        }
+    }
+
+    /// Discover LM Studio models via its native `/api/v0/models`, which reports
+    /// `state` (loaded vs not-loaded), `type` (skip embeddings), tool
+    /// `capabilities`, and context length. `base_url` here is `…/v1`; the REST
+    /// API lives at the root, so trim `/v1`.
+    fn discover_lmstudio_models(spec: &ProviderSpec) -> DbResult<Vec<NativeModel>> {
+        let base_url = spec
+            .default_base_url
+            .as_deref()
+            .unwrap_or("http://127.0.0.1:1234/v1");
+        let root = base_url.trim_end_matches('/').trim_end_matches("/v1");
+        let url = format!("{root}/api/v0/models");
+        let response = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("Failed to build LM Studio discovery client: {e}"))?
+            .get(url)
+            .send()
+            .map_err(|e| format!("Failed to fetch LM Studio models: {e}"))?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "LM Studio model discovery failed with HTTP {status}.",
+                status = response.status().as_u16()
+            ));
+        }
+        let payload: Value = response
+            .json()
+            .map_err(|e| format!("Failed to parse LM Studio model payload: {e}"))?;
+        let entries = payload
+            .get("data")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "LM Studio model payload did not include a data array.".to_string())?;
+        let mut models = Vec::new();
+        for entry in entries {
+            let id = entry.get("id").and_then(Value::as_str).unwrap_or_default().trim();
+            if id.is_empty() {
+                continue;
+            }
+            // Embeddings models can't chat — list only generative ones.
+            if entry.get("type").and_then(Value::as_str) == Some("embeddings") {
+                continue;
+            }
+            let running = entry.get("state").and_then(Value::as_str) == Some("loaded");
+            let supports_tools = entry
+                .get("capabilities")
+                .and_then(Value::as_array)
+                .is_some_and(|caps| caps.iter().any(|c| c.as_str() == Some("tool_use")));
+            let context_window = entry
+                .get("max_context_length")
+                .and_then(Value::as_i64)
+                .or_else(|| entry.get("loaded_context_length").and_then(Value::as_i64));
+            models.push(model_with_source(
+                NativeModel {
+                    id: id.to_string(),
+                    provider_id: spec.id.clone(),
+                    label: id.to_string(),
+                    supports_effort: false,
+                    supports_streaming: true,
+                    supports_tools,
+                    local_only: false,
+                    context_window,
+                    max_tokens: None,
+                    supports_reasoning: false,
+                    supported_efforts: Vec::new(),
+                    supports_images: false,
+                    source: "local_discovered".to_string(),
+                    model_api_id: None,
+                    api_kind: String::new(),
+                    base_url: String::new(),
+                    cost_input: None,
+                    cost_output: None,
+                    detected_by: Vec::new(),
+                    running,
+                },
+                "local_discovered",
+            ));
+        }
+        models.sort_by(|a, b| a.label.cmp(&b.label));
+        models.dedup_by(|a, b| a.id == b.id && a.provider_id == b.provider_id);
         Ok(models)
     }
 
@@ -576,6 +676,23 @@ impl ProviderModelCatalogService {
             .get("models")
             .and_then(Value::as_array)
             .ok_or_else(|| "Ollama model payload did not include a models array.".to_string())?;
+        // /api/ps lists models currently loaded in memory (running).
+        let running_set: std::collections::HashSet<String> =
+            reqwest::blocking::Client::builder()
+                .timeout(Duration::from_secs(4))
+                .build()
+                .ok()
+                .and_then(|c| c.get(format!("{root}/api/ps")).send().ok())
+                .and_then(|r| r.json::<Value>().ok())
+                .and_then(|v| {
+                    v.get("models").and_then(Value::as_array).map(|arr| {
+                        arr.iter()
+                            .filter_map(|m| m.get("name").and_then(Value::as_str))
+                            .map(str::to_string)
+                            .collect()
+                    })
+                })
+                .unwrap_or_default();
         let mut models = Vec::new();
         for entry in entries {
             let name = entry
@@ -607,6 +724,7 @@ impl ProviderModelCatalogService {
                     cost_input: None,
                     cost_output: None,
                     detected_by: Vec::new(),
+                    running: running_set.contains(name),
                 },
                 "local_discovered",
             ));
@@ -714,6 +832,7 @@ impl ProviderModelCatalogService {
                     cost_input: None,
                     cost_output: None,
                     detected_by: Vec::new(),
+                    running: false,
                 },
                 "provider_discovered",
             ));
@@ -824,6 +943,7 @@ impl ProviderModelCatalogService {
                     cost_input,
                     cost_output,
                     detected_by: Vec::new(),
+                    running: false,
                 },
                 "omp_cli",
             ));
@@ -969,6 +1089,7 @@ impl ProviderModelCatalogService {
                         cost_input: None,
                         cost_output: None,
                         detected_by: Vec::new(),
+                        running: false,
                     },
                     "hosted_fallback",
                 ))
@@ -982,7 +1103,7 @@ impl ProviderModelCatalogService {
             .prepare(
                 "SELECT provider_id, model_id, label, context_window, max_tokens, supports_reasoning,
                         supported_efforts, supports_images, source, synced_at, error, model_api_id,
-                        api_kind, base_url, cost_input, cost_output, bundled_version, detected_by
+                        api_kind, base_url, cost_input, cost_output, bundled_version, detected_by, running
                  FROM native_provider_model_cache
                  ORDER BY provider_id, label",
             )
@@ -1025,6 +1146,7 @@ impl ProviderModelCatalogService {
                         cost_input: row.get::<_, Option<f64>>(14)?,
                         cost_output: row.get::<_, Option<f64>>(15)?,
                         detected_by,
+                        running: row.get::<_, i64>(18)? != 0,
                     },
                     synced_at: row.get(9)?,
                     error: row.get(10)?,
@@ -1071,8 +1193,8 @@ impl ProviderModelCatalogService {
                 "INSERT INTO native_provider_model_cache
                  (provider_id, model_id, label, context_window, max_tokens, supports_reasoning,
                   supported_efforts, supports_images, source, synced_at, error, model_api_id,
-                  api_kind, base_url, cost_input, cost_output, bundled_version, detected_by)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                  api_kind, base_url, cost_input, cost_output, bundled_version, detected_by, running)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
                 params![
                     provider_id,
                     model.id,
@@ -1092,6 +1214,7 @@ impl ProviderModelCatalogService {
                     model.cost_output,
                     bundled_version,
                     detected_by_json,
+                    model.running as i32,
                 ],
             )
             .map_err(|e| format!("Failed to save model cache row: {e}"))?;
@@ -1486,6 +1609,7 @@ fn bundled_models(provider_id: &str) -> Vec<NativeModel> {
                 cost_input: None,
                 cost_output: None,
                 detected_by: Vec::new(),
+                running: false,
             },
             "bundled",
         )],
@@ -1546,6 +1670,7 @@ fn bundled_from_catalog(provider_id: &str, cm: &model_catalog::CatalogModel) -> 
             cost_input,
             cost_output,
             detected_by: Vec::new(),
+            running: false,
         },
         "bundled",
     )
@@ -1789,6 +1914,7 @@ mod tests {
             cost_input: None,
             cost_output: None,
             detected_by: Vec::new(),
+            running: false,
         };
         let merged = merge_model_sources(vec![
             (
@@ -1980,6 +2106,7 @@ mod tests {
             cost_input: None,
             cost_output: None,
             detected_by: Vec::new(),
+            running: false,
         }];
         let all_bespoke = models.iter().all(|m| is_bespoke_api_kind(&m.api_kind));
         let has_base_url = models.iter().any(|m| !m.base_url.is_empty());
@@ -2017,6 +2144,7 @@ mod tests {
             cost_input: None,
             cost_output: None,
             detected_by: Vec::new(),
+            running: false,
         }];
         let all_bespoke = models.iter().all(|m| is_bespoke_api_kind(&m.api_kind));
         let has_base_url = models.iter().any(|m| !m.base_url.is_empty());

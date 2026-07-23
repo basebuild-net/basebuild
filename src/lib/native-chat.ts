@@ -133,6 +133,9 @@ export type NativeModel = {
    *  (`omp models`), "hosted_fallback". A live source (provider_discovered /
    *  omp_cli) means the model was confirmed available, not just catalogued. */
   detectedBy?: string[];
+  /** Local models only: the source server currently has this model loaded in
+   *  memory (running), as of the last detection scan. False for remote models. */
+  running?: boolean;
 };
 
 export type NativeEffortLevel = {

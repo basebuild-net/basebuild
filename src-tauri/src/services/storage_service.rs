@@ -13,7 +13,7 @@ pub struct StorageService;
 // Increment whenever `initialize` gains a schema-changing migration. Existing
 // databases run the idempotent initializer once per version; current databases
 // skip its ~50 table/column probes entirely on normal launches.
-const CURRENT_SCHEMA_VERSION: i64 = 8;
+const CURRENT_SCHEMA_VERSION: i64 = 9;
 
 impl StorageService {
     pub fn state_db_path() -> Result<PathBuf, String> {
@@ -1024,6 +1024,19 @@ impl StorageService {
         if !has_detected_by {
             let _ = connection.execute(
                 "ALTER TABLE native_provider_model_cache ADD COLUMN detected_by TEXT NOT NULL DEFAULT '[]'",
+                [],
+            );
+        }
+
+        // Migration (local-llm-support): add running to
+        // native_provider_model_cache — whether a local server currently has
+        // the model loaded in memory (vs merely installed) as of last scan.
+        let has_running = connection
+            .prepare("SELECT running FROM native_provider_model_cache LIMIT 0")
+            .is_ok();
+        if !has_running {
+            let _ = connection.execute(
+                "ALTER TABLE native_provider_model_cache ADD COLUMN running INTEGER NOT NULL DEFAULT 0",
                 [],
             );
         }

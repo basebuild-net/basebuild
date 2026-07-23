@@ -323,6 +323,11 @@ export function ProviderCatalogModal({
                                   used {formatRelativeTime(modelRecency[`${model.providerId}/${model.id}`]!)}
                                 </span>
                               ) : null}
+                              {model.running ? (
+                                <span className="provider-capability is-running" title="Loaded in memory on the local server right now">
+                                  <span className="provider-status-dot" /> Running
+                                </span>
+                              ) : null}
                               {detection.live ? (
                                 <span className="provider-capability is-positive" title={detection.tooltip}>
                                   <Check size={11} aria-hidden="true" /> Detected

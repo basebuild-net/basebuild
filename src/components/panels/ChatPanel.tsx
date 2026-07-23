@@ -1516,6 +1516,9 @@ export function ChatPanel({
   // Ref to handleGenerateIdeas so /idea generate can call it without a TDZ
   // issue (handleGenerateIdeas is defined after handleSend).
   const generateIdeasRef = useRef<((opts?: { categoryIds?: string[]; ideaCount?: number; direction?: string | null }) => Promise<void>) | null>(null);
+  // Ref to handleClearChat so /new can clear the current chat without a TDZ
+  // issue (handleClearChat is defined after handleSend).
+  const clearChatRef = useRef<() => Promise<void>>(async () => {});
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
@@ -1592,12 +1595,9 @@ export function ChatPanel({
           }
         },
         new: () => {
-          if (onNewChat) {
-            onNewChat();
-            setCommandNotice("Starting a new chat…");
-          } else {
-            setCommandNotice("New chat is not available in this context.");
-          }
+          // /new clears the CURRENT chat in place (not a new tab/session).
+          void clearChatRef.current();
+          setCommandRecency(recordCommandUse("new"));
         },
         stop: () => {
           if (loading || streaming) {
@@ -1896,6 +1896,7 @@ export function ChatPanel({
       addLog("error", "Failed to clear chat messages", msg);
     }
   }, [nativeSessionId, addLog]);
+  clearChatRef.current = handleClearChat;
 
   const refreshCatalog = useCallback(async (force = false, targetProviderId?: string) => {
     setCatalogStatus(catalog ? "refreshing" : "loading");
@@ -2582,6 +2583,13 @@ export function ChatPanel({
   const modelName = selectedModel?.label ?? modelId;
   // Local providers surface real per-request generation stats after each turn.
   const isLocalProvider = providerId.startsWith("local-");
+  // Routing badge next to the model: Basebuild's native transport vs the OMP
+  // RPC bridge (OMP-imported credentials). Local + API-key providers are native.
+  const routeVia: "native" | "omp" | null = !selectedProvider?.configured
+    ? null
+    : selectedProvider.connectedVia === "omp"
+      ? "omp"
+      : "native";
   useEffect(() => {
     if (!isLocalProvider || !nativeSessionId || streaming) {
       return;
@@ -3381,6 +3389,18 @@ export function ChatPanel({
                   permissionMode={approvalMode}
                   onChangePermission={(mode) => void handleSetApprovalMode(mode)}
                 />
+                {routeVia ? (
+                  <span
+                    className={`chat-route-badge is-${routeVia}`}
+                    title={
+                      routeVia === "omp"
+                        ? "This chat routes through the Oh My Pi (OMP) RPC bridge — some Basebuild tools may be unavailable."
+                        : "This chat uses Basebuild's native transport (first-party) — full tool support."
+                    }
+                  >
+                    {routeVia === "omp" ? "OMP" : "Native"}
+                  </span>
+                ) : null}
                 {isLocalProvider && genStats ? (
                   <span className="chat-gen-stats" title="Local generation stats from the last completed turn">
                     <span className="chat-gen-stats-label">Local</span>
