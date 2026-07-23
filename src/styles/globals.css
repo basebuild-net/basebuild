@@ -4301,6 +4301,10 @@ body[data-surface-dragging="true"] .panel-header { cursor: grabbing; }
 .surface-row.is-stashed:hover { color: var(--bb-text); opacity: 1; }
 .surface-add-linked-btn { display: flex; align-items: center; gap: 4px; padding: 3px 8px 3px 22px; background: none; border: 0; color: var(--bb-muted); font-size: 10px; cursor: pointer; border-radius: var(--bb-radius-sm); transition: color var(--bb-duration-fast) var(--bb-ease), background var(--bb-duration-fast) var(--bb-ease); }
 .surface-add-linked-btn:hover { color: var(--bb-cta); background: color-mix(in srgb, var(--bb-cta) 8%, transparent); }
+/* Surface unit — one linked group or one solo chat. The active (on-screen)
+   group gets a green border + tint so its members read as one selected group. */
+.surface-unit { display: flex; flex-direction: column; }
+.surface-unit.is-active-group { border: 1px solid var(--bb-cta); border-radius: var(--bb-radius-sm); background: color-mix(in srgb, var(--bb-cta) 8%, transparent); padding: 2px; margin: 2px 0; }
 /* Project-row add-chat button — always visible on active project */
 .project-add-chat-btn { display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; background: none; border: 0; color: var(--bb-muted); cursor: pointer; padding: 0; border-radius: var(--bb-radius-sm); flex-shrink: 0; transition: color var(--bb-duration-fast) var(--bb-ease), background var(--bb-duration-fast) var(--bb-ease); }
 .project-add-chat-btn:hover { color: var(--bb-cta); background: color-mix(in srgb, var(--bb-cta) 10%, transparent); }

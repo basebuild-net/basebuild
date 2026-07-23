@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronLeft,
@@ -142,10 +142,10 @@ function surfaceStatusText(
   isFocused: boolean,
 ): string {
   if (visibility === "stashed") return "stashed";
+  if (isFocused) return "active";
   if (isGrouped) return "linked";
   const ageSec = Math.floor((Date.now() - surface.createdAt) / 1000);
   if (ageSec < 30) return "new";
-  if (isFocused) return "active";
   return "standby";
 }
 
@@ -723,50 +723,56 @@ export function ActivitySidebar({
 
                   {/* Surfaces — grouped and recency-ordered; identical view for
                       the active project and every inactive project. */}
-                  {units.map((unit) => (
-                    <Fragment key={`unit-${unit.surfaces[0].id}`}>
-                      {unit.surfaces.map((surface) => {
-                        const isFocused = unit.isVisible && surface.id === projectFocusedId;
-                        const isGrouped = unit.kind === "group";
-                        const visibility: SurfaceVisibility = unit.isVisible ? "visible" : isGrouped ? "stashed" : "hidden";
-                        const groupColor = unit.colorIndex >= 0 ? groupColorFromPath(project.path, unit.colorIndex) : null;
-                        const title = projectTitles.get(surface.id) ?? surfaceDisplayTitle(surface);
-                        const statusText = surfaceStatusText(surface, visibility, isGrouped, isFocused);
-                        const time = formatRelativeTime(surface.lastFocusedAt);
-                        return (
-                          <SurfaceRow
-                            key={surface.id}
-                            surface={surface}
-                            title={title}
-                            time={time}
-                            statusText={statusText}
-                            visibility={visibility}
-                            isFocused={isFocused}
-                            isGrouped={isGrouped}
-                            groupColor={groupColor}
-                            onActivate={isActive
-                              ? () => (unit.isVisible ? onFocusSurface(surface.id) : onReplaceFocusedSurface(surface.id))
-                              : () => onSelectProject(project.path)}
-                            draggable={isActive}
-                            onDropOnto={isActive ? (sourceId) => onGroupSurface(sourceId, surface.id, "right") : undefined}
-                            onClose={isActive ? onCloseSurface : undefined}
-                            otherProject={!isActive}
-                          />
-                        );
-                      })}
-                      {isActive && unit.isVisible ? (
-                        <button
-                          className="surface-add-linked-btn"
-                          type="button"
-                          title="Add a new chat linked to this group"
-                          onClick={(e) => { e.stopPropagation(); onAddLinkedChat(); }}
-                        >
-                          <Plus size={10} />
-                          <span>Add linked chat</span>
-                        </button>
-                      ) : null}
-                    </Fragment>
-                  ))}
+                  {units.map((unit) => {
+                    const isActiveGroup = isActive && unit.isVisible && unit.kind === "group";
+                    return (
+                      <div
+                        key={`unit-${unit.surfaces[0].id}`}
+                        className={`surface-unit${isActiveGroup ? " is-active-group" : ""}`}
+                      >
+                        {unit.surfaces.map((surface) => {
+                          const isFocused = isActive && unit.isVisible && surface.id === projectFocusedId;
+                          const isGrouped = unit.kind === "group";
+                          const visibility: SurfaceVisibility = unit.isVisible ? "visible" : isGrouped ? "stashed" : "hidden";
+                          const groupColor = unit.colorIndex >= 0 ? groupColorFromPath(project.path, unit.colorIndex) : null;
+                          const title = projectTitles.get(surface.id) ?? surfaceDisplayTitle(surface);
+                          const statusText = surfaceStatusText(surface, visibility, isGrouped, isFocused);
+                          const time = formatRelativeTime(surface.lastFocusedAt);
+                          return (
+                            <SurfaceRow
+                              key={surface.id}
+                              surface={surface}
+                              title={title}
+                              time={time}
+                              statusText={statusText}
+                              visibility={visibility}
+                              isFocused={isFocused}
+                              isGrouped={isGrouped}
+                              groupColor={groupColor}
+                              onActivate={isActive
+                                ? () => (unit.isVisible ? onFocusSurface(surface.id) : onReplaceFocusedSurface(surface.id))
+                                : () => onSelectProject(project.path)}
+                              draggable={isActive}
+                              onDropOnto={isActive ? (sourceId) => onGroupSurface(sourceId, surface.id, "right") : undefined}
+                              onClose={isActive ? onCloseSurface : undefined}
+                              otherProject={!isActive}
+                            />
+                          );
+                        })}
+                        {isActive && unit.isVisible ? (
+                          <button
+                            className="surface-add-linked-btn"
+                            type="button"
+                            title="Add a new chat linked to this group"
+                            onClick={(e) => { e.stopPropagation(); onAddLinkedChat(); }}
+                          >
+                            <Plus size={10} />
+                            <span>Add linked chat</span>
+                          </button>
+                        ) : null}
+                      </div>
+                    );
+                  })}
 
                   {/* Unlink dropzone — active project only, when a layout exists. */}
                   {isActive && units.some((u) => u.isVisible) ? (
