@@ -62,6 +62,8 @@ export type PanelGridProps = {
   newSurfaceKind?: SurfaceKind;
   /** Explicit empty-state action. */
   onAddChat?: () => void;
+  /** Disambiguated display titles (surface id → title with optional "(N)"). */
+  displayTitles?: Map<string, string>;
 };
 
 export function PanelGrid(props: PanelGridProps) {
@@ -80,6 +82,7 @@ export function PanelGrid(props: PanelGridProps) {
     backgroundChatSessionIds,
     newSurfaceKind = "chat",
     onAddChat,
+    displayTitles,
   } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -353,6 +356,7 @@ export function PanelGrid(props: PanelGridProps) {
         >
           <PanelHeader
             surface={surface}
+            displayTitle={displayTitles?.get(surface.id)}
             isActive={isActive}
             onFocus={() => handleFocus(node.surfaceId)}
             onClose={() => handleClose(node.surfaceId)}

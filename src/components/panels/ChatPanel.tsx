@@ -178,6 +178,9 @@ type ChatPanelProps = {
   onShowToast?: (title: string, detail?: string, kind?: "success" | "warning" | "error" | "info") => void;
   /** Open the history drawer (closed panels). */
   onOpenHistory?: () => void;
+  /** Called when the USER sends a message from this chat. Drives the sidebar's
+   *  recency ordering — the only signal that reorders it. */
+  onUserMessageSent?: () => void;
   /** True when an active background agent (plan run or pipeline stage) owns
    *  this chat — gates the composer until the user explicitly enables it. */
   backgroundAgent?: boolean;
@@ -200,6 +203,7 @@ export function ChatPanel({
   onNewChat,
   onShowToast,
   onOpenHistory,
+  onUserMessageSent,
   backgroundAgent,
 }: ChatPanelProps) {
   const [profileId, setProfileId] = useState(NATIVE_PROFILE_ID);
@@ -1135,6 +1139,7 @@ export function ChatPanel({
           return;
         }
         setInput("");
+        onUserMessageSent?.();
         if (chatInputRef.current) chatInputRef.current.style.setProperty("--chat-input-height", "auto");
         setError(null);
         setSetupRequired(null);
@@ -1256,6 +1261,7 @@ export function ChatPanel({
       }
       if (agentId === null) return;
       setInput("");
+      onUserMessageSent?.();
       setLoading(true);
       setStuck(false);
       assistantBufferRef.current = "";
@@ -1280,7 +1286,7 @@ export function ChatPanel({
         setLoading(false);
       }
     },
-    [nativeMode, nativeSessionId, selectedProvider, loading, providerId, modelId, effortLevel, agentId, addLog, setModelRecency],
+    [nativeMode, nativeSessionId, selectedProvider, loading, providerId, modelId, effortLevel, agentId, addLog, setModelRecency, onUserMessageSent],
   );
 
   // Prompt delivery consumption — replaces the old draft-prompt props.

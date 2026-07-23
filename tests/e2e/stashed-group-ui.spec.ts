@@ -243,7 +243,7 @@ test.describe("Chat grouping — stashed group lifecycle", () => {
 
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(1);
     await expect(page.locator(".surface-row.is-hidden")).toHaveCount(1);
-    await expect(page.locator(".surface-group-label", { hasText: "Linked group" })).toHaveCount(0);
+    await expect(page.locator(".surface-row.is-visible")).toHaveCount(1);
 
     const visibleIds = await getVisibleSurfaceIds(page);
     expect(visibleIds).toContain(groupIds[0]);
@@ -269,7 +269,7 @@ test.describe("Chat grouping — stashed group lifecycle", () => {
 
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(2);
     await expect(page.locator(".surface-row.is-hidden")).toHaveCount(0);
-    await expect(page.locator(".surface-group-label", { hasText: "Linked group" })).toContainText("2");
+    await expect(page.locator(".surface-row.is-visible")).toHaveCount(2);
 
     expect(pageErrors).toEqual([]);
   });
@@ -290,12 +290,11 @@ test.describe("Chat grouping — stashed group lifecycle", () => {
     await page.waitForTimeout(300);
 
     // Should see a stashed group label and stashed rows
-    await expect(page.locator(".surface-group-label.is-stashed")).toBeVisible();
     await expect(page.locator(".surface-row.is-stashed")).toHaveCount(2);
 
     // The stashed rows should have tooltips mentioning "stashed"
     const stashedRow = page.locator(".surface-row.is-stashed").first();
-    await expect(stashedRow).toHaveAttribute("title", /stashed linked group/);
+    await expect(stashedRow).toHaveAttribute("title", /stashed/i);
 
     expect(pageErrors).toEqual([]);
   });

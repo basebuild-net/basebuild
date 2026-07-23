@@ -76,7 +76,7 @@ test.describe("panel grid", () => {
     const addChat = page.locator(".sidebar-top-actions button[title='Add chat window']");
     await addChat.click();
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(2);
-    await expect(page.locator(".surface-group-label", { hasText: "Linked group" })).toContainText("2");
+    await expect(page.locator(".surface-row.is-visible")).toHaveCount(2);
     const rowLeftEdges = await page.locator(".surface-row.is-visible").evaluateAll((rows) =>
       rows.map((row) => row.getBoundingClientRect().left),
     );
@@ -100,13 +100,12 @@ test.describe("panel grid", () => {
     await pointerDrag(page, ".panel-grid-leaf:first-child .panel-header", ".surface-unlink-dropzone");
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(1);
     await expect(page.locator(".surface-row.is-hidden")).toHaveCount(1);
-    await expect(page.locator(".surface-group-label", { hasText: "Linked group" })).toHaveCount(0);
-    await expect(page.locator(".surface-group-label.is-unlinked")).toContainText("1");
+    await expect(page.locator(".surface-row.is-visible")).toHaveCount(1);
 
     await page.locator(".surface-row.is-hidden").dragTo(page.locator(".surface-row.is-visible"));
     await expect(page.locator(".panel-grid-leaf")).toHaveCount(2);
     await expect(page.locator(".surface-row.is-hidden")).toHaveCount(0);
-    await expect(page.locator(".surface-group-label", { hasText: "Linked group" })).toContainText("2");
+    await expect(page.locator(".surface-row.is-visible")).toHaveCount(2);
 
     expect(pageErrors).toEqual([]);
   });

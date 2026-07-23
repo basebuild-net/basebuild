@@ -77,10 +77,10 @@ export type WorkspaceState = {
   visibleTree: TreeNode | null;
   /** The currently focused visible surface, or null when the tree is empty. */
   focusedSurfaceId: string | null;
-  /** A linked group that was swapped out when the user clicked an unlinked
-   *  chat. Clicking any surface in this tree restores it as the visible tree.
-   *  Null when no group is stashed. */
-  stashedTree?: TreeNode | null;
+  /** Inactive linked groups swapped out when the user activated a different
+   *  chat. Clicking any surface in a group restores that whole group as the
+   *  visible tree; every other group is preserved. Empty when none are stashed. */
+  stashedGroups?: TreeNode[];
   /** Retained closed surfaces, newest-first. */
   history: ClosedSurfaceRecord[];
 };
@@ -477,6 +477,7 @@ function normalizeLegacyTab(raw: unknown): PanelTab | null {
     chatSessionId: typeof t.chatSessionId === "string" ? t.chatSessionId : null,
     terminalId: typeof t.terminalId === "number" ? t.terminalId : null,
     filePath: typeof t.filePath === "string" ? t.filePath : null,
+    createdAt: typeof t.createdAt === "number" ? t.createdAt : Date.now(),
   };
 }
 
@@ -498,6 +499,7 @@ function legacyPanelTabs(panel: Panel, diagnostics: WorkspaceDiagnostic[]): { su
       chatSessionId: panel.chatSessionId,
       terminalId: panel.terminalId,
       filePath: panel.filePath,
+      createdAt: panel.createdAt,
     }];
     activeTabId = panel.id;
   }

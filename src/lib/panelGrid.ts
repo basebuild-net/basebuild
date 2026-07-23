@@ -27,6 +27,14 @@ export type Panel = {
   chatSessionId: string | null;
   terminalId: number | null;
   filePath: string | null;
+  /** Creation timestamp (ms epoch). Set once when the panel is created and
+   *  never changed — used for stable sidebar ordering and "(N)" title
+   *  disambiguation. Falls back to Date.now() when absent in legacy data. */
+  createdAt: number;
+  /** Last time this panel was focused/activated (ms epoch). Drives
+   *  recently-used ordering in the sidebar. Absent on legacy data — callers
+   *  fall back to `createdAt`. */
+  lastUsedAt?: number;
   /** Tabs hosted in this panel. If absent or length ≤ 1, the panel renders
    *  as a single panel (no tab strip). When ≥ 2, the header shows a tab
    *  strip and `activeTabId` selects the visible tab. */
@@ -48,9 +56,9 @@ export type PanelTab = {
   chatSessionId: string | null;
   terminalId: number | null;
   filePath: string | null;
+  /** Creation timestamp (ms epoch). Set once when the tab is created. */
+  createdAt: number;
 };
-
-/** Split direction: row = side-by-side, column = stacked vertically. */
 export type SplitDirection = "row" | "column";
 
 /** A node in the split tree: either a leaf (one panel) or a split. */
@@ -67,11 +75,10 @@ export type PanelGridState = {
   closedPanels: Panel[];
   /** Panels removed from the visible layout without closing their resources. */
   hiddenPanels?: Panel[];
-  /** A linked group's tree that was swapped out when the user clicked an
-   *  unlinked chat. Restored when the user clicks any panel in this tree. */
-  stashedRoot?: SplitNode | null;
-  /** The activePanelId to restore when the stashed root is restored. */
-  stashedActivePanelId?: string | null;
+  /** Inactive linked groups (each a ≥2-panel split tree) swapped out when the
+   *  user activated a different chat. Clicking any panel in a group restores
+   *  that whole group as the visible tree; every other group is preserved. */
+  stashedGroups?: SplitNode[];
 };
 
 /** Minimum fractional size for a split child (prevents collapse). */
@@ -85,6 +92,7 @@ function panelToTab(panel: Panel): PanelTab {
     chatSessionId: panel.chatSessionId,
     terminalId: panel.terminalId,
     filePath: panel.filePath,
+    createdAt: panel.createdAt,
   };
 }
 
@@ -125,6 +133,7 @@ export function tearOffTab(
     chatSessionId: tornTab.chatSessionId,
     terminalId: tornTab.terminalId,
     filePath: tornTab.filePath,
+    createdAt: tornTab.createdAt,
   };
 
   // Update the original panel: remove the torn tab.
@@ -151,6 +160,11 @@ export function tearOffTab(
 /** Active hidden panels. Older persisted states omit this field. */
 export function hiddenPanelsOf(state: PanelGridState): Panel[] {
   return state.hiddenPanels ?? [];
+}
+
+/** Inactive linked groups. Older persisted states omit this field. */
+export function stashedGroupsOf(state: PanelGridState): SplitNode[] {
+  return state.stashedGroups ?? [];
 }
 
 /** An empty grid: no panels, no active panel, empty history. */
@@ -498,57 +512,61 @@ export function replaceFocusedWithHidden(state: PanelGridState, panelId: string)
   };
 }
 
-/** Show only the given hidden panel — the current visible tree is stashed
- *  intact (preserving its split structure) and the clicked panel becomes the
- *  sole visible root. Clicking any panel in the stashed tree restores the
- *  whole group. If the current tree is a single panel (not a group), it goes
- *  to hiddenPanels so it can be switched back to. */
-export function showOnlyHiddenPanel(state: PanelGridState, panelId: string): PanelGridState {
+/** Park the currently visible root when switching away: a multi-panel tree
+ *  becomes an inactive linked group; a single panel becomes a hidden solo.
+ *  Returns the updated group list and hidden-panel list. */
+function parkCurrentRoot(
+  state: PanelGridState,
+): { stashedGroups: SplitNode[]; hiddenPanels: Panel[] } {
+  const groups = stashedGroupsOf(state);
   const hidden = hiddenPanelsOf(state);
-  const incoming = hidden.find((panel) => panel.id === panelId);
-  if (!incoming) return state;
-  const visiblePanels = flattenPanels(state.root);
-  const shouldStash = visiblePanels.length > 1 && state.root;
-  // When stashing, the visible panels are preserved in stashedRoot — do NOT
-  // also add them to hiddenPanels (that would duplicate them). When NOT
-  // stashing (single visible panel), move it to hiddenPanels so it doesn't
-  // vanish — the user can click it in the sidebar to switch back.
-  const remainingHidden = hidden.filter((p) => p.id !== panelId);
-  const newHidden = shouldStash
-    ? remainingHidden
-    : [...visiblePanels.filter((p) => p.id !== panelId), ...remainingHidden];
+  if (!state.root) return { stashedGroups: groups, hiddenPanels: hidden };
+  const panels = flattenPanels(state.root);
+  if (panels.length > 1) {
+    return { stashedGroups: [state.root, ...groups], hiddenPanels: hidden };
+  }
+  const solo = panels[0];
   return {
-    ...state,
-    root: { kind: "leaf", panel: incoming },
-    activePanelId: incoming.id,
-    hiddenPanels: newHidden,
-    stashedRoot: shouldStash ? state.root : (state.stashedRoot ?? null),
-    stashedActivePanelId: shouldStash ? state.activePanelId : (state.stashedActivePanelId ?? null),
+    stashedGroups: groups,
+    hiddenPanels: [solo, ...hidden.filter((p) => p.id !== solo.id)],
   };
 }
 
-/** Restore a stashed linked group as the visible tree. The current single
- *  visible panel goes back to hiddenPanels. Returns the same state if no
- *  stash exists or the panelId is not in the stashed tree. */
-export function restoreStashedGroup(state: PanelGridState, panelId: string): PanelGridState {
-  if (!state.stashedRoot) return state;
-  // Check that the clicked panel is in the stashed tree.
-  const stashedPanels = flattenPanels(state.stashedRoot);
-  if (!stashedPanels.some((p) => p.id === panelId)) return state;
-  // The current visible panel goes back to hiddenPanels.
-  const currentVisible = flattenPanels(state.root);
-  const hidden = hiddenPanelsOf(state);
-  return {
-    ...state,
-    root: state.stashedRoot,
-    activePanelId: panelId,
-    hiddenPanels: [
-      ...currentVisible.filter((p) => !stashedPanels.some((sp) => sp.id === p.id)),
-      ...hidden,
-    ],
-    stashedRoot: null,
-    stashedActivePanelId: null,
-  };
+/** Activate a panel from anywhere — the visible tree, an inactive linked
+ *  group, or the hidden-solo registry. If it is already visible, just focus
+ *  it. If it belongs to an inactive group, restore that whole group and focus
+ *  the clicked panel. If it is a hidden solo, show only it. The previously
+ *  visible tree is parked intact (a group stays a group, a solo stays a solo),
+ *  so no group is ever silently broken apart. Returns the same ref when
+ *  nothing changes. */
+export function activatePanel(state: PanelGridState, panelId: string): PanelGridState {
+  if (findPanel(state.root, panelId)) {
+    return state.activePanelId === panelId ? state : { ...state, activePanelId: panelId };
+  }
+  const groups = stashedGroupsOf(state);
+  const targetGroup = groups.find((g) => flattenPanels(g).some((p) => p.id === panelId));
+  if (targetGroup) {
+    const parked = parkCurrentRoot(state);
+    return {
+      ...state,
+      root: targetGroup,
+      activePanelId: panelId,
+      stashedGroups: parked.stashedGroups.filter((g) => g !== targetGroup),
+      hiddenPanels: parked.hiddenPanels,
+    };
+  }
+  const solo = hiddenPanelsOf(state).find((p) => p.id === panelId);
+  if (solo) {
+    const parked = parkCurrentRoot(state);
+    return {
+      ...state,
+      root: { kind: "leaf", panel: solo },
+      activePanelId: panelId,
+      stashedGroups: parked.stashedGroups,
+      hiddenPanels: parked.hiddenPanels.filter((p) => p.id !== solo.id),
+    };
+  }
+  return state;
 }
 
 /** Link an active hidden panel to a specific visible panel. */
@@ -740,7 +758,9 @@ function validatePanel(raw: unknown): Panel | null {
     chatSessionId: typeof p.chatSessionId === "string" ? p.chatSessionId : null,
     terminalId: typeof p.terminalId === "number" ? p.terminalId : null,
     filePath: typeof p.filePath === "string" ? p.filePath : null,
+    createdAt: typeof p.createdAt === "number" ? p.createdAt : Date.now(),
   };
+  if (typeof p.lastUsedAt === "number") panel.lastUsedAt = p.lastUsedAt;
   if (Array.isArray(p.tabs) && p.tabs.length > 1) {
     const tabs = p.tabs.map(validateTab).filter((t): t is PanelTab => t !== null);
     if (tabs.length > 1) {
@@ -765,6 +785,7 @@ function validateTab(raw: unknown): PanelTab | null {
     chatSessionId: typeof t.chatSessionId === "string" ? t.chatSessionId : null,
     terminalId: typeof t.terminalId === "number" ? t.terminalId : null,
     filePath: typeof t.filePath === "string" ? t.filePath : null,
+    createdAt: typeof t.createdAt === "number" ? t.createdAt : Date.now(),
   };
 }
 
@@ -864,6 +885,27 @@ export function normalizePanelGridState(input: unknown): NormalizeResult {
     }
   }
 
+  // Validate inactive linked groups. Accept the new `stashedGroups` array and
+  // migrate a legacy single `stashedRoot`. Ids must be unique across every
+  // panel already seen; a group that collapses to one panel is demoted to a
+  // hidden solo, and empty groups are dropped.
+  const stashedGroups: SplitNode[] = [];
+  const rawStashedGroups: unknown[] = Array.isArray(raw.stashedGroups)
+    ? raw.stashedGroups
+    : raw.stashedRoot != null
+      ? [raw.stashedRoot]
+      : [];
+  for (const rawGroup of rawStashedGroups) {
+    const tree = validateNode(rawGroup, seenIds, diagnostics);
+    if (!tree) continue;
+    const groupPanels = flattenPanels(tree);
+    if (groupPanels.length >= 2) {
+      stashedGroups.push(tree);
+    } else if (groupPanels.length === 1) {
+      hiddenPanels.push(groupPanels[0]);
+    }
+  }
+
   // Validate closedPanels (history). Drop unusable entries and duplicates
   // against live ids or within history — but never delete backing sessions.
   const closedPanels: Panel[] = [];
@@ -906,6 +948,7 @@ export function normalizePanelGridState(input: unknown): NormalizeResult {
   }
 
   const state: PanelGridState = { root, activePanelId, closedPanels, hiddenPanels };
+  if (stashedGroups.length > 0) state.stashedGroups = stashedGroups;
   return { state, diagnostics, repaired: diagnostics.length > 0 };
 }
 
@@ -1198,6 +1241,7 @@ export function activeTab(panel: Panel): PanelTab {
     chatSessionId: panel.chatSessionId,
     terminalId: panel.terminalId,
     filePath: panel.filePath,
+    createdAt: panel.createdAt,
   };
 }
 

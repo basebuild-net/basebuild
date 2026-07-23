@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
   Copy,
-  Link2,
   FileText,
   GitBranch,
   FolderPlus,
@@ -33,15 +32,15 @@ import { getRepoIdentity, type RepoIdentity } from "../../lib/repoIdentity";
 import { humanizeChatTitle } from "../../lib/titles";
 import { getWorkspaceRestoreState } from "../../lib/workspace";
 import {
-  flattenLeaves,
-  migrateFromLegacyBlob,
-  visibleSurfaceIds,
   type ClosedSurfaceRecord,
   type SplitDirection,
   type SurfaceKind,
   type SurfaceRecord,
   type WorkspaceState,
 } from "../../lib/workspaceState";
+import { parsePanelGrid } from "../../lib/panelGrid";
+import { panelGridToWorkspaceState } from "../../lib/workspaceBridge";
+import { buildSidebarUnits } from "../../lib/sidebarLayout";
 import { formatRelativeTime } from "../../lib/timing";
 import type { AccountState } from "../../state/account";
 import type { UpdaterState } from "../../state/updater";
@@ -91,17 +90,23 @@ function surfaceDisplayTitle(surface: SurfaceRecord): string {
 }
 
 /** Disambiguate identical display titles across a set of surfaces by
- *  appending a 1-based index. Placeholder surfaces are differentiated by
- *  their kind label rather than decorative colors. */
-function buildDisplayTitles(surfaces: SurfaceRecord[]): Map<string, string> {
+ *  appending a 1-based index. Both the sidebar and panel header use this
+ *  so titles stay in sync. */
+export function buildDisplayTitles(surfaces: SurfaceRecord[]): Map<string, string> {
+  // Sort by createdAt then id so the "(N)" index is stable — it does not
+  // swap when panels move between visible/hidden/stashed, which would
+  // make clicking "New Chat (2)" actually focus "New Chat (1)".
+  const sorted = [...surfaces].sort((a, b) =>
+    a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
   const display = new Map<string, string>();
   const counts = new Map<string, number>();
-  for (const s of surfaces) {
+  for (const s of sorted) {
     const base = surfaceDisplayTitle(s);
     counts.set(base, (counts.get(base) ?? 0) + 1);
   }
   const seen = new Map<string, number>();
-  for (const s of surfaces) {
+  for (const s of sorted) {
     const base = surfaceDisplayTitle(s);
     const count = counts.get(base) ?? 1;
     if (count > 1) {
@@ -115,6 +120,36 @@ function buildDisplayTitles(surfaces: SurfaceRecord[]): Map<string, string> {
   return display;
 }
 
+/** Derive a stable colour for a project's linked group. Groups within one
+ *  project are spread apart on the hue wheel by `groupIndex` (golden-angle
+ *  step) so sibling groups read as clearly different colours. */
+function groupColorFromPath(path: string, groupIndex = 0): string {
+  let hash = 0;
+  for (let i = 0; i < path.length; i++) {
+    hash = ((hash << 5) - hash + path.charCodeAt(i)) | 0;
+  }
+  const hue = (Math.abs(hash) + groupIndex * 137) % 360;
+  return `hsl(${hue}, 55%, 55%)`;
+}
+
+type SurfaceVisibility = "visible" | "stashed" | "hidden";
+
+/** A short status subtitle for a surface, shown below the title. */
+function surfaceStatusText(
+  surface: SurfaceRecord,
+  visibility: SurfaceVisibility,
+  isGrouped: boolean,
+  isFocused: boolean,
+): string {
+  if (visibility === "stashed") return "stashed";
+  if (isGrouped) return "linked";
+  const ageSec = Math.floor((Date.now() - surface.createdAt) / 1000);
+  if (ageSec < 30) return "new";
+  if (isFocused) return "active";
+  return "standby";
+}
+
+
 
 // ── Props ───────────────────────────────────────────────────────────────────
 
@@ -123,6 +158,9 @@ export type ActivitySidebarProps = {
   /** The active project's workspace state (active registry + visible tree +
    *  history). The sidebar renders surfaces from this, not from legacy tabs. */
   workspaceState: WorkspaceState;
+  /** Disambiguated display titles (surface id → title with optional "(N)").
+   *  Computed by the parent so sidebar and panel headers stay in sync. */
+  displayTitles?: Map<string, string>;
   // Surface lifecycle actions — all operate against surface identity.
   onFocusSurface: (surfaceId: string) => void;
   onReplaceFocusedSurface: (surfaceId: string) => void;
@@ -280,6 +318,77 @@ function SurfaceActionButtons({
   );
 }
 
+// ── Surface row (shared by the active project and inactive project rows) ─────
+
+function SurfaceRow({
+  surface,
+  title,
+  time,
+  statusText,
+  visibility,
+  isFocused,
+  isGrouped,
+  groupColor,
+  onActivate,
+  draggable = false,
+  onDropOnto,
+  onClose,
+  otherProject = false,
+}: {
+  surface: SurfaceRecord;
+  title: string;
+  time: string;
+  statusText: string;
+  visibility: SurfaceVisibility;
+  isFocused: boolean;
+  isGrouped: boolean;
+  groupColor: string | null;
+  onActivate: () => void;
+  draggable?: boolean;
+  onDropOnto?: (sourceId: string) => void;
+  onClose?: (surfaceId: string) => void;
+  otherProject?: boolean;
+}) {
+  return (
+    <div
+      className={`surface-row is-${visibility}${isFocused ? " is-focused" : ""}${otherProject ? " is-other-project" : ""}`}
+      role="button"
+      tabIndex={0}
+      draggable={draggable}
+      data-surface-id={surface.id}
+      data-surface-visibility={visibility}
+      style={groupColor ? ({ "--group-color": groupColor } as React.CSSProperties) : undefined}
+      title={`${title} — ${statusText}${isFocused ? ", focused" : ""} · ${time}`}
+      onClick={onActivate}
+      onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onActivate(); } }}
+      onDragStart={draggable ? (event) => {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("application/x-basebuild-surface", surface.id);
+        event.dataTransfer.setData("text/plain", surface.id);
+        document.body.dataset.surfaceDragging = "true";
+      } : undefined}
+      onDragEnd={draggable ? () => { delete document.body.dataset.surfaceDragging; } : undefined}
+      onDragOver={onDropOnto ? (event) => { if (event.dataTransfer.types.includes("text/plain")) event.preventDefault(); } : undefined}
+      onDrop={onDropOnto ? (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const sourceId = event.dataTransfer.getData("text/plain") || event.dataTransfer.getData("application/x-basebuild-surface");
+        if (sourceId && sourceId !== surface.id) onDropOnto(sourceId);
+      } : undefined}
+    >
+      {isGrouped ? <span className="surface-row-group-mark" aria-hidden="true" /> : null}
+      <div className="surface-row-body">
+        <div className="surface-row-main">
+          <span className="surface-row-title">{title}</span>
+          <span className="surface-row-time">{time}</span>
+        </div>
+        <span className="surface-row-subtitle">{statusText}</span>
+      </div>
+      {onClose ? <SurfaceActionButtons surfaceId={surface.id} onClose={onClose} /> : null}
+    </div>
+  );
+}
+
 // ── History row ─────────────────────────────────────────────────────────────
 
 function HistoryRow({
@@ -327,6 +436,7 @@ function HistoryRow({
 export function ActivitySidebar({
   activeProjectPath,
   workspaceState,
+  displayTitles: displayTitlesProp,
   onFocusSurface,
   onReplaceFocusedSurface,
   onGroupSurface,
@@ -397,39 +507,39 @@ export function ActivitySidebar({
     return () => { cancelled = true; };
   }, [projects]);
 
-  // Fetch active surfaces for each non-active project from its saved workspace
-  // blob (v2 or legacy). Polls every 5s so run state stays live.
-  const [otherProjectSurfaces, setOtherProjectSurfaces] = useState<Map<string, SurfaceRecord[]>>(new Map());
+  // Snapshot each non-active project's full workspace (from its saved blob) so
+  // the sidebar renders the SAME grouped, timestamped, status-labelled view for
+  // every project — no need to focus a project to see its chats. Polls every 5s
+  // and merges results so a transient read failure never blanks a project.
+  const [otherProjectWorkspaces, setOtherProjectWorkspaces] = useState<Map<string, WorkspaceState>>(new Map());
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
-    async function fetchOtherSurfaces() {
+    async function fetchOtherWorkspaces() {
       const otherProjects = projects.filter((p) => p.path !== activeProjectPath);
-      if (otherProjects.length === 0) {
-        setOtherProjectSurfaces(new Map());
-        return;
-      }
       const entries = await Promise.all(
-        otherProjects.map(async (p): Promise<[string, SurfaceRecord[]]> => {
+        otherProjects.map(async (p): Promise<[string, WorkspaceState | null]> => {
           try {
             const restore = await getWorkspaceRestoreState(p.path);
-            const result = migrateFromLegacyBlob(restore.panelGrid ?? null, p.path);
-            const surfaces = Object.values(result.state.activeSurfaces);
-            return [p.path, surfaces];
+            const parsed = parsePanelGrid(restore.panelGrid ?? null);
+            return [p.path, panelGridToWorkspaceState(parsed, p.path)];
           } catch {
-            return [p.path, []];
+            return [p.path, null];
           }
         }),
       );
       if (cancelled) return;
-      const map = new Map<string, SurfaceRecord[]>();
-      for (const [path, surfaces] of entries) {
-        map.set(path, surfaces);
-      }
-      setOtherProjectSurfaces(map);
+      setOtherProjectWorkspaces((prev) => {
+        const next = new Map<string, WorkspaceState>();
+        for (const [path, ws] of entries) {
+          const resolved = ws ?? prev.get(path);
+          if (resolved) next.set(path, resolved);
+        }
+        return next;
+      });
     }
-    void fetchOtherSurfaces();
-    timer = window.setInterval(() => void fetchOtherSurfaces(), 5000);
+    void fetchOtherWorkspaces();
+    timer = window.setInterval(() => void fetchOtherWorkspaces(), 5000);
     return () => {
       cancelled = true;
       if (timer) window.clearInterval(timer);
@@ -442,46 +552,20 @@ export function ActivitySidebar({
     return () => window.clearInterval(id);
   }, []);
 
-  // ── Derive visible + hidden surfaces for the active project ───────────────
-
-  const visibleLeaves = useMemo(
-    () => flattenLeaves(workspaceState.visibleTree),
-    [workspaceState.visibleTree],
-  );
-  const visibleIds = useMemo(
-    () => visibleSurfaceIds(workspaceState.visibleTree),
-    [workspaceState.visibleTree],
-  );
-
-  // Stashed tree: a linked group that was swapped out when the user clicked
-  // an unlinked chat. Its surfaces show in the sidebar as a "Linked group"
-  // and clicking any of them restores the whole group.
-  const stashedLeaves = useMemo(
-    () => workspaceState.stashedTree ? flattenLeaves(workspaceState.stashedTree) : [],
-    [workspaceState.stashedTree],
-  );
-  const stashedIds = useMemo(
-    () => new Set(stashedLeaves.map((l) => l.surfaceId)),
-    [stashedLeaves],
-  );
+  // ── Derive per-project surface data ──────────────────────────────────────
+  // The active project reads live workspace state; inactive projects read their
+  // saved snapshot. Both feed buildSidebarUnits so the view is identical.
 
   const activeSurfaceList = useMemo(
     () => Object.values(workspaceState.activeSurfaces),
     [workspaceState.activeSurfaces],
   );
 
-  // Disambiguate titles across all active surfaces + history.
   const displayTitles = useMemo(() => {
+    if (displayTitlesProp) return displayTitlesProp;
     const historySurfaces = workspaceState.history.map((h) => h as SurfaceRecord);
     return buildDisplayTitles([...activeSurfaceList, ...historySurfaces]);
-  }, [activeSurfaceList, workspaceState.history]);
-
-  const hiddenSurfaces = useMemo(() => {
-    return activeSurfaceList
-      .filter((s) => !visibleIds.has(s.id) && !stashedIds.has(s.id))
-      .sort((a, b) => b.lastFocusedAt - a.lastFocusedAt);
-  }, [activeSurfaceList, visibleIds, stashedIds]);
-  const focusedSurfaceId = workspaceState.focusedSurfaceId;
+  }, [displayTitlesProp, activeSurfaceList, workspaceState.history]);
 
   // Confirm dialog for permanent history deletion.
   const deleteTarget = useMemo(
@@ -495,8 +579,6 @@ export function ActivitySidebar({
       setDeleteConfirmId(null);
     }
   }, [deleteConfirmId, onDeleteSurfaceFromHistory]);
-
-  // ── Collapsed sidebar ─────────────────────────────────────────────────────
 
   if (collapsed) {
     return (
@@ -586,14 +668,19 @@ export function ActivitySidebar({
               const name = identity?.name ?? project.name;
               const branch = identity?.branch ?? null;
               const host = identity?.host ?? "folder";
-              const otherSurfaces = !isActive
-                ? otherProjectSurfaces.get(project.path) ?? []
-                : [];
-              const groupColorClass = isActive && visibleLeaves.length > 1
-                ? ` surface-group-color-${projectIndex % 6}`
-                : "";
+              const projectWorkspace = isActive
+                ? workspaceState
+                : otherProjectWorkspaces.get(project.path) ?? null;
+              const units = projectWorkspace ? buildSidebarUnits(projectWorkspace) : [];
+              const projectFocusedId = projectWorkspace?.focusedSurfaceId ?? null;
+              const projectTitles = isActive
+                ? displayTitles
+                : buildDisplayTitles(projectWorkspace ? Object.values(projectWorkspace.activeSurfaces) : []);
               return (
-                <div key={project.path} className={`activity-sidebar-project-row${isActive ? " is-active" : ""}${pinnedPaths.has(project.path) ? " is-pinned" : ""}${groupColorClass}`}>
+                <div
+                  key={project.path}
+                  className={`activity-sidebar-project-row${isActive ? " is-active" : ""}${pinnedPaths.has(project.path) ? " is-pinned" : ""}`}
+                >
                   <div
                     className="activity-sidebar-project-main"
                     title={project.path}
@@ -603,6 +690,16 @@ export function ActivitySidebar({
                     <span className={isActive ? "activity-sidebar-project-name" : "activity-sidebar-row-title"}>{name}</span>
                     {pinnedPaths.has(project.path) ? (
                       <Pin size={9} className="activity-sidebar-pin-indicator" aria-label="Pinned" />
+                    ) : null}
+                    {isActive ? (
+                      <button
+                        className="project-add-chat-btn"
+                        type="button"
+                        title="Add a new unlinked chat"
+                        onClick={(e) => { e.stopPropagation(); onNewChat?.(project.path); }}
+                      >
+                        <Plus size={11} />
+                      </button>
                     ) : null}
                     <ProjectMenuButton
                       projectPath={project.path}
@@ -624,212 +721,76 @@ export function ActivitySidebar({
                     </span>
                   ) : null}
 
-                  {/* Active project: render surfaces from workspaceState */}
-                  {isActive ? (
-                    <>
-                      {visibleLeaves.length > 1 ? (
-                        <div className="surface-group-label" title={`${visibleLeaves.length} chats linked in one layout`}>
-                          <Link2 size={10} />
-                          <span>Linked group</span>
-                          <span className="surface-group-count">{visibleLeaves.length}</span>
-                          <button
-                            className="surface-group-add-btn"
-                            type="button"
-                            title="Add a linked chat to this group"
-                            onClick={(e) => { e.stopPropagation(); onAddLinkedChat(); }}
-                          >
-                            <Plus size={10} />
-                          </button>
-                        </div>
-                      ) : null}
-                      {visibleLeaves.map((leaf) => {
-                        const surface = workspaceState.activeSurfaces[leaf.surfaceId];
-                        if (!surface) return null;
-                        const Icon = surfaceKindIcon[surface.kind];
-                        const isFocused = surface.id === focusedSurfaceId;
-                        const title = displayTitles.get(surface.id) ?? surfaceDisplayTitle(surface);
+                  {/* Surfaces — grouped and recency-ordered; identical view for
+                      the active project and every inactive project. */}
+                  {units.map((unit) => (
+                    <Fragment key={`unit-${unit.surfaces[0].id}`}>
+                      {unit.surfaces.map((surface) => {
+                        const isFocused = unit.isVisible && surface.id === projectFocusedId;
+                        const isGrouped = unit.kind === "group";
+                        const visibility: SurfaceVisibility = unit.isVisible ? "visible" : isGrouped ? "stashed" : "hidden";
+                        const groupColor = unit.colorIndex >= 0 ? groupColorFromPath(project.path, unit.colorIndex) : null;
+                        const title = projectTitles.get(surface.id) ?? surfaceDisplayTitle(surface);
+                        const statusText = surfaceStatusText(surface, visibility, isGrouped, isFocused);
+                        const time = formatRelativeTime(surface.lastFocusedAt);
                         return (
-                          <div
-                            key={leaf.id}
-                            className={`surface-row is-visible${isFocused ? " is-focused" : ""}`}
-                            role="button"
-                            tabIndex={0}
-                            draggable
-                            data-surface-id={surface.id}
-                            data-surface-visibility="visible"
-                            title={`${title} — ${surfaceKindLabel[surface.kind]} (${visibleLeaves.length > 1 ? "linked" : "single"}${isFocused ? ", focused" : ""})`}
-                            onClick={() => onFocusSurface(surface.id)}
-                            onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onFocusSurface(surface.id); } }}
-                            onDragStart={(event) => {
-                              event.dataTransfer.effectAllowed = "move";
-                              event.dataTransfer.setData("application/x-basebuild-surface", surface.id);
-                              event.dataTransfer.setData("text/plain", surface.id);
-                              document.body.dataset.surfaceDragging = "true";
-                            }}
-                            onDragEnd={() => { delete document.body.dataset.surfaceDragging; }}
-                            onDragOver={(event) => {
-                              if (event.dataTransfer.types.includes("text/plain")) event.preventDefault();
-                            }}
-                            onDrop={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              const sourceId = event.dataTransfer.getData("text/plain")
-                                || event.dataTransfer.getData("application/x-basebuild-surface");
-                              if (sourceId && sourceId !== surface.id) onGroupSurface(sourceId, surface.id, "right");
-                            }}
-                          >
-                            <span className="surface-row-connector" title={visibleLeaves.length > 1 ? "Linked in the current layout" : "Single chat"} aria-hidden="true">
-                              {visibleLeaves.length > 1 ? <Link2 size={10} /> : null}
-                            </span>
-                            <Icon size={11} className="surface-row-icon" />
-                            <span className="surface-row-title">{title}</span>
-                            <SurfaceActionButtons
-                              surfaceId={surface.id}
-                              onClose={onCloseSurface}
-                            />
-                          </div>
-                        );
-                      })}
-
-                      {visibleLeaves.length > 0 ? (
-                        <div
-                          className="surface-unlink-dropzone"
-                          data-surface-unlink-dropzone
-                          title="Drop a linked chat here to make it a separate active chat"
-                          onDragOver={(event) => {
-                            if (event.dataTransfer.types.includes("text/plain")) event.preventDefault();
-                          }}
-                          onDrop={(event) => {
-                            event.preventDefault();
-                            const sourceId = event.dataTransfer.getData("text/plain")
-                              || event.dataTransfer.getData("application/x-basebuild-surface");
-                            if (sourceId) onRemoveSurfaceFromLayout(sourceId);
-                          }}
-                        >
-                          <Unlink size={10} />
-                          <span>Drop here to unlink</span>
-                        </div>
-                      ) : null}
-
-                      {stashedLeaves.length > 0 ? (
-                        <>
-                          <div className="surface-group-label is-stashed" title={`${stashedLeaves.length} chats linked in a stashed group — click any to restore the whole group`}>
-                            <Link2 size={10} />
-                            <span>Linked group</span>
-                            <span className="surface-group-count">{stashedLeaves.length}</span>
-                          </div>
-                          {stashedLeaves.map((leaf) => {
-                            const surface = workspaceState.activeSurfaces[leaf.surfaceId];
-                            if (!surface) return null;
-                            const Icon = surfaceKindIcon[surface.kind];
-                            const title = displayTitles.get(surface.id) ?? surfaceDisplayTitle(surface);
-                            return (
-                              <div
-                                key={leaf.id}
-                                className="surface-row is-stashed"
-                                role="button"
-                                tabIndex={0}
-                                data-surface-id={surface.id}
-                                data-surface-visibility="stashed"
-                                title={`${title} — ${surfaceKindLabel[surface.kind]} (stashed linked group; click to restore the whole group)`}
-                                onClick={() => onFocusSurface(surface.id)}
-                                onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onFocusSurface(surface.id); } }}
-                              >
-                                <span className="surface-row-connector" title="Stashed linked group" aria-hidden="true">
-                                  <Link2 size={10} />
-                                </span>
-                                <Icon size={11} className="surface-row-icon" />
-                                <span className="surface-row-title">{title}</span>
-                                <SurfaceActionButtons
-                                  surfaceId={surface.id}
-                                  onClose={onCloseSurface}
-                                />
-                              </div>
-                            );
-                          })}
-                        </>
-                      ) : null}
-
-                      {hiddenSurfaces.length > 0 ? (
-                        <div className="surface-group-label is-unlinked" title="Active chats not linked into the current layout">
-                          <Unlink size={10} />
-                          <span>Unlinked</span>
-                          <span className="surface-group-count">{hiddenSurfaces.length}</span>
-                        </div>
-                      ) : null}
-                      {hiddenSurfaces.map((surface) => {
-                        const Icon = surfaceKindIcon[surface.kind];
-                        const title = displayTitles.get(surface.id) ?? surfaceDisplayTitle(surface);
-                        return (
-                          <div
+                          <SurfaceRow
                             key={surface.id}
-                            className="surface-row is-hidden"
-                            role="button"
-                            tabIndex={0}
-                            draggable
-                            data-surface-id={surface.id}
-                            data-surface-visibility="hidden"
-                            title={`${title} — ${surfaceKindLabel[surface.kind]} (unlinked; click to show only this chat, or drag onto a linked chat to group)`}
-                            onClick={() => onReplaceFocusedSurface(surface.id)}
-                            onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onReplaceFocusedSurface(surface.id); } }}
-                            onDragStart={(event) => {
-                              event.dataTransfer.effectAllowed = "move";
-                              event.dataTransfer.setData("application/x-basebuild-surface", surface.id);
-                              event.dataTransfer.setData("text/plain", surface.id);
-                              document.body.dataset.surfaceDragging = "true";
-                            }}
-                            onDragEnd={() => { delete document.body.dataset.surfaceDragging; }}
-                            onDragOver={(event) => {
-                              if (event.dataTransfer.types.includes("text/plain")) event.preventDefault();
-                            }}
-                            onDrop={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              const sourceId = event.dataTransfer.getData("text/plain")
-                                || event.dataTransfer.getData("application/x-basebuild-surface");
-                              if (sourceId && sourceId !== surface.id) onGroupSurface(sourceId, surface.id, "right");
-                            }}
-                          >
-                            <span className="surface-row-connector" title="Unlinked active chat" aria-hidden="true">
-                              <Unlink size={10} />
-                            </span>
-                            <Icon size={11} className="surface-row-icon" />
-                            <span className="surface-row-title">{title}</span>
-                            <SurfaceActionButtons
-                              surfaceId={surface.id}
-                              onClose={onCloseSurface}
-                            />
-                          </div>
+                            surface={surface}
+                            title={title}
+                            time={time}
+                            statusText={statusText}
+                            visibility={visibility}
+                            isFocused={isFocused}
+                            isGrouped={isGrouped}
+                            groupColor={groupColor}
+                            onActivate={isActive
+                              ? () => (unit.isVisible ? onFocusSurface(surface.id) : onReplaceFocusedSurface(surface.id))
+                              : () => onSelectProject(project.path)}
+                            draggable={isActive}
+                            onDropOnto={isActive ? (sourceId) => onGroupSurface(sourceId, surface.id, "right") : undefined}
+                            onClose={isActive ? onCloseSurface : undefined}
+                            otherProject={!isActive}
+                          />
                         );
                       })}
-
-                      {/* Empty state */}
-                      {visibleLeaves.length === 0 && hiddenSurfaces.length === 0 ? (
-                        <div className="sidebar-empty text-muted text-sm">
-                          No active surfaces. <button className="chat-link-btn" type="button" title="Start a new chat" onClick={onCreateChat}>Start a chat</button>.
-                        </div>
+                      {isActive && unit.isVisible ? (
+                        <button
+                          className="surface-add-linked-btn"
+                          type="button"
+                          title="Add a new chat linked to this group"
+                          onClick={(e) => { e.stopPropagation(); onAddLinkedChat(); }}
+                        >
+                          <Plus size={10} />
+                          <span>Add linked chat</span>
+                        </button>
                       ) : null}
-                    </>
+                    </Fragment>
+                  ))}
+
+                  {/* Unlink dropzone — active project only, when a layout exists. */}
+                  {isActive && units.some((u) => u.isVisible) ? (
+                    <div
+                      className="surface-unlink-dropzone"
+                      data-surface-unlink-dropzone
+                      title="Drop a linked chat here to make it a separate active chat"
+                      onDragOver={(event) => { if (event.dataTransfer.types.includes("text/plain")) event.preventDefault(); }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        const sourceId = event.dataTransfer.getData("text/plain")
+                          || event.dataTransfer.getData("application/x-basebuild-surface");
+                        if (sourceId) onRemoveSurfaceFromLayout(sourceId);
+                      }}
+                    >
+                      <Unlink size={10} />
+                      <span>Drop here to unlink</span>
+                    </div>
                   ) : null}
 
-                  {/* Inactive project: show its active surfaces from saved workspace */}
-                  {!isActive && otherSurfaces.length > 0 ? (
-                    <div className="activity-sidebar-project-chats" aria-label={`${name} surfaces`}>
-                      {otherSurfaces.map((surface) => {
-                        const Icon = surfaceKindIcon[surface.kind];
-                        const title = surfaceDisplayTitle(surface);
-                        return (
-                          <div
-                            key={surface.id}
-                            className="surface-row is-other-project"
-                            title={`${title} — ${surfaceKindLabel[surface.kind]}`}
-                            onClick={() => onSelectProject(project.path)}
-                          >
-                            <Icon size={10} className="surface-row-icon" />
-                            <span className="surface-row-title">{title}</span>
-                          </div>
-                        );
-                      })}
+                  {/* Empty state — active project only. */}
+                  {isActive && units.length === 0 ? (
+                    <div className="sidebar-empty text-muted text-sm">
+                      No active surfaces. <button className="chat-link-btn" type="button" title="Start a new chat" onClick={onCreateChat}>Start a chat</button>.
                     </div>
                   ) : null}
                 </div>

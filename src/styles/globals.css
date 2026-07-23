@@ -4271,22 +4271,25 @@ body[data-surface-dragging="true"] .panel-header { cursor: grabbing; }
 .activity-sidebar-project-chat-time { flex-shrink: 0; font-size: 9px; color: var(--bb-muted); font-family: var(--bb-mono); }
 .activity-sidebar-project-chat-running { width: 6px; height: 6px; flex-shrink: 0; border-radius: var(--bb-radius-full); background: var(--bb-cta); animation: bb-pulse 1.2s ease-in-out infinite; }
 /* ─── Surface rows (workspace state model) ─── */
-.surface-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; font-size: 11px; color: var(--bb-muted); cursor: pointer; border: 1px solid transparent; border-radius: var(--bb-radius-sm); }
+.surface-row { display: flex; align-items: stretch; gap: 6px; padding: 4px 6px; font-size: 11px; color: var(--bb-muted); cursor: pointer; border: 1px solid transparent; border-radius: 0; position: relative; }
 .surface-row[draggable="true"] { cursor: grab; }
 .surface-row[draggable="true"]:active { cursor: grabbing; }
 .surface-row:hover { background: var(--bb-surface); color: var(--bb-text); }
 .surface-row:focus-visible { outline: 1px solid var(--bb-cta); outline-offset: 1px; }
 .surface-row.is-visible { color: var(--bb-text); }
-.surface-row.is-visible.is-focused { background: var(--bb-surface-high); border-color: var(--bb-cta); color: var(--bb-text); }
+.surface-row.is-visible.is-focused { background: color-mix(in srgb, var(--bb-cta) 12%, var(--bb-surface-high)); border-color: var(--bb-cta); color: var(--bb-text); box-shadow: inset 2px 0 0 var(--bb-cta); }
 .surface-row.is-hidden { color: var(--bb-muted); }
 .surface-row.is-hidden:hover { color: var(--bb-text); }
 .surface-row.is-history { color: var(--bb-muted); }
 .surface-row.is-other-project { color: var(--bb-muted); }
-.surface-row-icon { flex-shrink: 0; color: var(--bb-muted); }
-.surface-row.is-visible .surface-row-icon { color: var(--bb-text); }
-.surface-row.is-visible.is-focused .surface-row-icon { color: var(--bb-cta); }
 .surface-row-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.surface-row-connector { display: inline-flex; align-items: center; justify-content: center; width: 12px; flex-shrink: 0; color: var(--bb-text-faint); line-height: 1; user-select: none; }
+.surface-row-icon { flex-shrink: 0; color: var(--bb-muted); }
+.surface-row-body { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.surface-row-main { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.surface-row-time { flex-shrink: 0; font-size: 9px; color: var(--bb-text-faint); font-family: var(--bb-mono); line-height: 1; }
+.surface-row.is-focused .surface-row-time { color: var(--bb-cta); }
+.surface-row-subtitle { font-size: 9px; color: var(--bb-text-faint); line-height: 1.2; text-transform: lowercase; }
+.surface-row.is-focused .surface-row-subtitle { color: color-mix(in srgb, var(--bb-cta) 70%, var(--bb-text-faint)); }
 .surface-row-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; opacity: 0; transition: opacity 0.1s; flex-shrink: 0; }
 .surface-row:hover .surface-row-actions, .surface-row:focus-within .surface-row-actions { opacity: 1; }
 .surface-row-action-btn { display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; background: none; border: 0; color: var(--bb-muted); cursor: pointer; padding: 0; border-radius: var(--bb-radius-sm); }
@@ -4294,31 +4297,31 @@ body[data-surface-dragging="true"] .panel-header { cursor: grabbing; }
 .surface-row-action-btn.is-danger:hover { color: var(--bb-danger); background: color-mix(in srgb, var(--bb-danger) 12%, transparent); }
 .surface-row-action-btn:focus-visible { outline: 1px solid var(--bb-cta); outline-offset: 1px; }
 .activity-sidebar-pin-indicator { color: var(--bb-cta); flex-shrink: 0; }
-.surface-group-label { display: flex; align-items: center; gap: 5px; padding: 5px 6px 2px; color: var(--bb-muted); font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
-.surface-group-label.is-unlinked { margin-top: 3px; border-top: 1px solid var(--bb-border); padding-top: 6px; }
-.surface-group-label.is-stashed { margin-top: 3px; border-top: 1px solid var(--bb-border); padding-top: 6px; opacity: 0.7; }
 .surface-row.is-stashed { color: var(--bb-muted); opacity: 0.8; }
 .surface-row.is-stashed:hover { color: var(--bb-text); opacity: 1; }
-.surface-row.is-stashed .surface-row-connector { color: var(--bb-text-faint); }
-.surface-group-count { margin-left: auto; min-width: 16px; padding: 0 4px; background: var(--bb-surface-high); color: var(--bb-text); text-align: center; border-radius: var(--bb-radius-full); }
-.surface-group-add-btn { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; background: none; border: 0; color: var(--bb-muted); cursor: pointer; padding: 0; border-radius: var(--bb-radius-sm); margin-left: 2px; }
-.surface-group-add-btn:hover { color: var(--bb-cta); background: color-mix(in srgb, var(--bb-cta) 10%, transparent); }
-/* Group color coordination — 6 distinct colors cycling across projects */
-.surface-group-color-0 .surface-group-label { color: #e06c75; }
-.surface-group-color-0 .surface-row.is-visible { border-left: 2px solid #e06c75; }
-.surface-group-color-1 .surface-group-label { color: #61afef; }
-.surface-group-color-1 .surface-row.is-visible { border-left: 2px solid #61afef; }
-.surface-group-color-2 .surface-group-label { color: #98c379; }
-.surface-group-color-2 .surface-row.is-visible { border-left: 2px solid #98c379; }
-.surface-group-color-3 .surface-group-label { color: #c678dd; }
-.surface-group-color-3 .surface-row.is-visible { border-left: 2px solid #c678dd; }
-.surface-group-color-4 .surface-group-label { color: #e5c07b; }
-.surface-group-color-4 .surface-row.is-visible { border-left: 2px solid #e5c07b; }
-.surface-group-color-5 .surface-group-label { color: #56b6c2; }
-.surface-group-color-5 .surface-row.is-visible { border-left: 2px solid #56b6c2; }
-.surface-unlink-dropzone { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 24px; margin: 2px 4px 4px; border: 1px dashed var(--bb-border-strong); border-radius: var(--bb-radius-sm); color: var(--bb-muted); font-size: 9px; transition: border-color var(--bb-duration-fast) var(--bb-ease), background var(--bb-duration-fast) var(--bb-ease), color var(--bb-duration-fast) var(--bb-ease); }
-body[data-surface-dragging="true"] .surface-unlink-dropzone,
-.surface-unlink-dropzone:hover { border-color: var(--bb-cta); background: color-mix(in srgb, var(--bb-cta) 10%, transparent); color: var(--bb-cta); }
+.surface-add-linked-btn { display: flex; align-items: center; gap: 4px; padding: 3px 8px 3px 22px; background: none; border: 0; color: var(--bb-muted); font-size: 10px; cursor: pointer; border-radius: var(--bb-radius-sm); transition: color var(--bb-duration-fast) var(--bb-ease), background var(--bb-duration-fast) var(--bb-ease); }
+.surface-add-linked-btn:hover { color: var(--bb-cta); background: color-mix(in srgb, var(--bb-cta) 8%, transparent); }
+/* Project-row add-chat button — always visible on active project */
+.project-add-chat-btn { display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; background: none; border: 0; color: var(--bb-muted); cursor: pointer; padding: 0; border-radius: var(--bb-radius-sm); flex-shrink: 0; transition: color var(--bb-duration-fast) var(--bb-ease), background var(--bb-duration-fast) var(--bb-ease); }
+.project-add-chat-btn:hover { color: var(--bb-cta); background: color-mix(in srgb, var(--bb-cta) 10%, transparent); }
+.project-add-chat-btn:disabled { opacity: 0.3; cursor: default; }
+/* Group color — a small colored square at the front of rows that belong to a
+   linked group (2+ chats). Single/unlinked chats get no square. The color
+   is set via the --group-color CSS custom property on the project row. */
+.surface-row-group-mark {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  background: var(--group-color, var(--bb-text-faint));
+  border-radius: 0;
+  align-self: center;
+}
+/* Unlink dropzone — invisible by default but hit-testable (opacity:0 keeps
+   it in the layout for elementFromPoint during pointer drags). Visible
+   only while a surface drag is in progress. */
+.surface-unlink-dropzone { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 24px; margin: 2px 4px 4px; border: 1px dashed transparent; border-radius: var(--bb-radius-sm); color: transparent; font-size: 9px; opacity: 0; transition: opacity var(--bb-duration-fast) var(--bb-ease), border-color var(--bb-duration-fast) var(--bb-ease), background var(--bb-duration-fast) var(--bb-ease), color var(--bb-duration-fast) var(--bb-ease); }
+body[data-surface-dragging="true"] .surface-unlink-dropzone { opacity: 1; border-color: var(--bb-border-strong); color: var(--bb-muted); }
+body[data-surface-dragging="true"] .surface-unlink-dropzone:hover { border-color: var(--bb-cta); background: color-mix(in srgb, var(--bb-cta) 10%, transparent); color: var(--bb-cta); }
 /* ─── History section (inline) ─── */
 .surface-history-section { border-top: 1px solid var(--bb-border); display: flex; flex-direction: column; }
 .surface-history-header { display: flex; align-items: center; gap: 4px; padding: 6px 8px; font-size: 11px; color: var(--bb-muted); background: none; border: 0; cursor: pointer; width: 100%; text-align: left; }

@@ -173,7 +173,7 @@ test.describe("Sidebar surface lifecycle (Phase 3)", () => {
     expect(count).toBeGreaterThanOrEqual(6);
 
     // Visible rows appear in DFS tree order: Chat 1, Chat 2, Chat 3, Chat 4.
-    const visibleRows = page.locator(".surface-row.is-visible");
+    const visibleRows = page.locator(".activity-sidebar-project-row.is-active .surface-row.is-visible");
     await expect(visibleRows).toHaveCount(4);
     const visibleTitles = await visibleRows.locator(".surface-row-title").allTextContents();
     expect(visibleTitles[0]).toContain("Chat 1");
@@ -182,7 +182,7 @@ test.describe("Sidebar surface lifecycle (Phase 3)", () => {
     expect(visibleTitles[3]).toContain("Chat 4");
 
     // Hidden rows have no visible marker.
-    const hiddenRows = page.locator(".surface-row.is-hidden");
+    const hiddenRows = page.locator(".activity-sidebar-project-row.is-active .surface-row.is-hidden");
     await expect(hiddenRows).toHaveCount(2);
     const hiddenTitles = await hiddenRows.locator(".surface-row-title").allTextContents();
     expect(hiddenTitles.some((t) => t.includes("Chat 5"))).toBe(true);
@@ -227,7 +227,7 @@ test.describe("Sidebar surface lifecycle (Phase 3)", () => {
     await seedSixChatProject(page, PROJECT_ALPHA);
     await openAlpha(page);
 
-    const visibleRows = page.locator(".surface-row.is-visible");
+    const visibleRows = page.locator(".activity-sidebar-project-row.is-active .surface-row.is-visible");
     await expect(visibleRows.first()).toBeVisible({ timeout: 5_000 });
     expect(await visibleRows.count()).toBe(4);
 
@@ -243,11 +243,11 @@ test.describe("Sidebar surface lifecycle (Phase 3)", () => {
     await page.waitForTimeout(300);
 
     // Now only 3 visible rows remain.
-    const visibleAfter = page.locator(".surface-row.is-visible");
+    const visibleAfter = page.locator(".activity-sidebar-project-row.is-active .surface-row.is-visible");
     expect(await visibleAfter.count()).toBe(3);
 
     // The removed surface should appear as hidden.
-    const hiddenAfter = page.locator(".surface-row.is-hidden");
+    const hiddenAfter = page.locator(".activity-sidebar-project-row.is-active .surface-row.is-hidden");
     expect(await hiddenAfter.count()).toBe(3);
   });
 

@@ -52,6 +52,7 @@ import {
   type WorkspaceState,
 } from "../../lib/workspaceState";
 import { panelGridToWorkspaceState, surfaceIdToPanelId } from "../../lib/workspaceBridge";
+import { buildDisplayTitles } from "./ActivitySidebar";
 import { FirstRunModal } from "./FirstRunModal";
 import { useFirstRun } from "../../state/first-run";
 import { getLastGrounding } from "../../state/grounding";
@@ -65,6 +66,7 @@ import { listen } from "@tauri-apps/api/event";
 import { PanelStatusProvider } from "../panels/PanelStatusContext";
 const HistoryDrawer = lazy(() => import("../panels/HistoryDrawer").then((m) => ({ default: m.HistoryDrawer })));
 import {
+  activatePanel,
   activeTab as activeTabOfPanel,
   closePanel,
   deletePanelFromHistory,
@@ -85,9 +87,6 @@ import {
   reopenPanel,
   reopenPanelChecked,
   reopenPanelHidden,
-  replaceFocusedWithHidden,
-  showOnlyHiddenPanel,
-  restoreStashedGroup,
   repairActivePanelId,
   resizeSplitChild,
   serializePanelGrid,
@@ -307,6 +306,7 @@ export function AppShell({ updates }: AppShellProps) {
       chatSessionId: null,
       terminalId: null,
       filePath: null,
+      createdAt: Date.now(),
     };
     setPanelGridState((prev) => prev.root || hiddenPanelsOf(prev).length > 0 ? prev : singlePanelGrid(newPanel));
   }, [activeProjectPath, session.activeSessionId, panelGridState, session.activeSession?.title, projectRestoreLoading]);
@@ -475,6 +475,7 @@ export function AppShell({ updates }: AppShellProps) {
           chatSessionId,
           terminalId: null,
           filePath: null,
+          createdAt: Date.now(),
         };
         const result = insertPanel(prev, newPanel, { side: "right", anchorId: prev.activePanelId });
         if (!result.ok) {
@@ -1042,6 +1043,22 @@ export function AppShell({ updates }: AppShellProps) {
     [panelGridState, projectRestoreLoading, addLog, handleShowToast],
   );
 
+  // Stamp a panel's last-used time when the USER sends a message from it. This
+  // is the ONLY trigger that reorders the sidebar — focusing/clicking a chat
+  // never moves it; assistant replies and background updates never move it.
+  const handleUserMessageSent = useCallback((panelId: string) => {
+    setPanelGridState((prev) => {
+      const stamp = { lastUsedAt: Date.now() };
+      const root = updatePanelInTree(prev.root, panelId, stamp);
+      if (root !== prev.root) return { ...prev, root };
+      const hidden = hiddenPanelsOf(prev);
+      if (hidden.some((p) => p.id === panelId)) {
+        return { ...prev, hiddenPanels: hidden.map((p) => (p.id === panelId ? { ...p, ...stamp } : p)) };
+      }
+      return prev;
+    });
+  }, []);
+
   const handleTerminalOutput = useCallback((data: string) => {
     setTerminalOutputBuffer((prev) => (prev + data).slice(-2500));
   }, []);
@@ -1381,11 +1398,11 @@ export function AppShell({ updates }: AppShellProps) {
     (anchorId: string | null, _side: DropSide): Panel => {
       const id = newPanelId();
       if (!session.activeSessionId) {
-        return { id, type: "chat", title: "Chat", chatSessionId: null, terminalId: null, filePath: null };
+        return { id, type: "chat", title: "Chat", chatSessionId: null, terminalId: null, filePath: null, createdAt: Date.now() };
       }
       const chatCount = session.tabs.filter((t) => t.kind === "chat").length + 1;
       void session.createTab("chat", `Chat ${chatCount}`);
-      return { id, type: "chat", title: `Chat ${chatCount}`, chatSessionId: null, terminalId: null, filePath: null };
+      return { id, type: "chat", title: `Chat ${chatCount}`, chatSessionId: null, terminalId: null, filePath: null, createdAt: Date.now() };
     },
     [session],
   );
@@ -1422,6 +1439,7 @@ export function AppShell({ updates }: AppShellProps) {
         chatSessionId: null,
         terminalId: null,
         filePath: null,
+        createdAt: Date.now(),
         creating: true,
       });
 
@@ -1510,7 +1528,7 @@ export function AppShell({ updates }: AppShellProps) {
         return;
       }
       // schematic — no backing resource, insert directly.
-      const panel: Panel = { id: panelId, type: "schematic", title: "Schematic", chatSessionId: null, terminalId: null, filePath: null };
+      const panel: Panel = { id: panelId, type: "schematic", title: "Schematic", chatSessionId: null, terminalId: null, filePath: null, createdAt: Date.now() };
       commitInsert(panel, panelGridState.activePanelId, "right");
       addLog("debug", "Schematic panel created", panelId);
       releaseGuard();
@@ -1522,11 +1540,12 @@ export function AppShell({ updates }: AppShellProps) {
     (panel: Panel, _isActive: boolean) => {
       if (panel.type === "chat") {
         // Find the tab for this panel — primary lookup is chatSessionId
-        // (stable across restarts); fall back to title/id for legacy panels.
+        // (stable across restarts); fall back to panel id for legacy panels.
+        // NEVER match by title — multiple panels can share "New Chat" and
+        // title-based lookup would bind every panel to the first matching tab.
         const tab = session.tabs.find(
           (t) => t.kind === "chat" && (
             (panel.chatSessionId && t.chatSessionId === panel.chatSessionId) ||
-            t.title === panel.title ||
             t.id === panel.id
           ),
         );
@@ -1598,6 +1617,7 @@ export function AppShell({ updates }: AppShellProps) {
             }}
             onShowToast={handleShowToast}
             onNewChat={() => handleCreateTypedPanel("chat")}
+            onUserMessageSent={() => handleUserMessageSent(panel.id)}
             onOpenHistory={() => setHistoryDrawerOpen(true)}
           />
         );
@@ -1694,7 +1714,7 @@ export function AppShell({ updates }: AppShellProps) {
       }
       return null;
     },
-    [session, activeProjectPath, schematic.content, handleCreatePlanFromIdea, handleOpenPlanningInspector, handleOpenSchematic, handleTerminalOutput, handleStartSchematicWizard],
+    [session, activeProjectPath, schematic.content, handleCreatePlanFromIdea, handleOpenPlanningInspector, handleOpenSchematic, handleTerminalOutput, handleStartSchematicWizard, handleUserMessageSent],
   );
 
 
@@ -1715,6 +1735,14 @@ export function AppShell({ updates }: AppShellProps) {
     () => hasPanelGridState ? gridWorkspaceState : workspaceState,
     [hasPanelGridState, workspaceState, gridWorkspaceState],
   );
+
+  // Disambiguate titles across all active surfaces + history so both the
+  // sidebar and panel headers show the same "(N)" suffix when titles clash.
+  const sidebarDisplayTitles = useMemo(() => {
+    const surfaces = Object.values(sidebarWorkspaceState.activeSurfaces);
+    const historySurfaces = sidebarWorkspaceState.history.map((h) => h as SurfaceRecord);
+    return buildDisplayTitles([...surfaces, ...historySurfaces]);
+  }, [sidebarWorkspaceState]);
 
   const renderSurface = useCallback(
     (surface: SurfaceRecord, isActive: boolean) => {
@@ -1846,29 +1874,17 @@ export function AppShell({ updates }: AppShellProps) {
     addLog("debug", "Surface focus", surfaceId);
     const panelId = surfaceIdToPanelId(panelGridState, surfaceId);
     if (panelId) {
-      // If the panel is in the stashed tree, restore the stashed group.
-      if (panelGridState.stashedRoot && flattenPanels(panelGridState.stashedRoot).some((p) => p.id === panelId)) {
-        setPanelGridState((prev) => restoreStashedGroup(prev, panelId));
-      } else {
-        setPanelGridState((prev) => ({ ...prev, activePanelId: panelId }));
-      }
+      setPanelGridState((prev) => activatePanel(prev, panelId));
     } else {
       setWorkspaceState((prev) => focusSurfacePure(prev, surfaceId));
     }
   }, [panelGridState, addLog]);
 
   const handleReplaceFocusedSurface = useCallback((surfaceId: string) => {
-    addLog("debug", "Surface show only", surfaceId);
+    addLog("debug", "Surface activate", surfaceId);
     const panelId = surfaceIdToPanelId(panelGridState, surfaceId);
     if (panelId) {
-      // If the panel is in the stashed tree, restore the stashed group.
-      if (panelGridState.stashedRoot && flattenPanels(panelGridState.stashedRoot).some((p) => p.id === panelId)) {
-        setPanelGridState((prev) => restoreStashedGroup(prev, panelId));
-      } else if (hiddenPanelsOf(panelGridState).some((panel) => panel.id === panelId)) {
-        // Clicking an unlinked chat: stash the current linked group (if any)
-        // and show ONLY this chat as the sole visible panel.
-        setPanelGridState((prev) => showOnlyHiddenPanel(prev, panelId));
-      }
+      setPanelGridState((prev) => activatePanel(prev, panelId));
     } else {
       setWorkspaceState((prev) => replaceFocusedSurfacePure(prev, surfaceId));
     }
@@ -1968,6 +1984,7 @@ export function AppShell({ updates }: AppShellProps) {
           chatSessionId,
           terminalId: null,
           filePath: null,
+          createdAt: Date.now(),
         };
         const result = insertPanel(prev, newPanel, { side: "right", anchorId: prev.activePanelId });
         if (!result.ok) {
@@ -2095,6 +2112,7 @@ export function AppShell({ updates }: AppShellProps) {
         chatSessionId: null,
         terminalId: null,
         filePath,
+        createdAt: Date.now(),
       };
       commitInsert(newPanel, panelGridState.activePanelId, "right");
     },
@@ -2127,6 +2145,7 @@ export function AppShell({ updates }: AppShellProps) {
           activeProjectPath={activeProjectPath}
           onFocusSurface={handleFocusSurface}
           workspaceState={sidebarWorkspaceState}
+          displayTitles={sidebarDisplayTitles}
           onReplaceFocusedSurface={handleReplaceFocusedSurface}
           onSplitFocusedSurface={handleSplitFocusedSurface}
           onGroupSurface={handleMoveSurface}
@@ -2288,6 +2307,7 @@ export function AppShell({ updates }: AppShellProps) {
                   viewportHeight={typeof window !== "undefined" ? window.innerHeight - 120 : 700}
                   backgroundChatSessionIds={allBackgroundChatIds}
                   onAddChat={() => handleCreateTypedPanel("chat")}
+                  displayTitles={sidebarDisplayTitles}
                 />
                 {historyDrawerOpen ? (
                   <Suspense fallback={<ModalLoading />}>

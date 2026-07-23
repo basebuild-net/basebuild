@@ -33,6 +33,8 @@ export type PanelHeaderProps = {
   splitDisabled?: boolean;
   /** Tooltip explaining why split is disabled. */
   splitDisabledReason?: string;
+  /** Override the surface title with a disambiguated display title. */
+  displayTitle?: string;
 };
 
 export function PanelHeader(props: PanelHeaderProps) {
@@ -47,10 +49,11 @@ export function PanelHeader(props: PanelHeaderProps) {
     minimizable,
     splitDisabled,
     splitDisabledReason,
+    displayTitle: displayTitleOverride,
   } = props;
 
   const Icon = surfaceIcons[surface.kind] ?? MessageSquare;
-  const displayTitle = humanizeChatTitle(surface.title ?? "Untitled");
+  const displayTitle = displayTitleOverride ?? humanizeChatTitle(surface.title ?? "Untitled");
   const splitHorizontalTitle = splitDisabled
     ? splitDisabledReason ?? "Split disabled — not enough space"
     : "Split horizontally (top and bottom)";

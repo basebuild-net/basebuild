@@ -45,6 +45,7 @@ function makePanel(id: string, type: Panel["type"] = "chat"): Panel {
     chatSessionId: type === "chat" ? `chat-${id}` : null,
     terminalId: type === "terminal" ? Number(id.slice(-1)) || 1 : null,
     filePath: type === "file" ? "/foo" : null,
+    createdAt: 0,
   };
 }
 
@@ -279,9 +280,9 @@ describe("legacy tab-group migration", () => {
     const panel: Panel = {
       ...makePanel("p1"),
       tabs: [
-        { id: "t1", type: "chat", title: "T1", chatSessionId: "c1", terminalId: null, filePath: null },
-        { id: "t2", type: "chat", title: "T2", chatSessionId: "c2", terminalId: null, filePath: null },
-        { id: "t3", type: "chat", title: "T3", chatSessionId: "c3", terminalId: null, filePath: null },
+        { id: "t1", type: "chat", title: "T1", chatSessionId: "c1", terminalId: null, filePath: null, createdAt: 0 },
+        { id: "t2", type: "chat", title: "T2", chatSessionId: "c2", terminalId: null, filePath: null, createdAt: 0 },
+        { id: "t3", type: "chat", title: "T3", chatSessionId: "c3", terminalId: null, filePath: null, createdAt: 0 },
       ],
       activeTabId: "t2",
     };

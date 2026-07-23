@@ -339,17 +339,25 @@ terminal.
 
 ## Activity sidebar
 
-The left sidebar shows all active surfaces under each project. Visible
-surfaces are flattened under one **Linked group** label in depth-first
-split-tree order; active hidden surfaces are flattened under a separate
-**Unlinked** label. Neither label implies a parent/child hierarchy. Each row
-is a real `<button>` with a type icon, title, and one state icon/word
-(streaming, idle, error, creating, disconnected). Clicking a visible row
-focuses its leaf; clicking an unlinked row replaces the focused leaf. Rows are
-draggable between the linked layout and unlinked section. The sidebar also
-has a `New` button (opens the shared typed creation menu) and a History button
-with a count badge showing the number of closed surfaces retained in history.
-Close controls reveal on `:focus-within`, not just `:hover`.
+The left sidebar shows all active surfaces under each project, grouped by their
+linked group and ordered by recency — the last time the user sent a message to a
+chat, which lifts that chat's group or solo to the top with the group's members
+kept contiguous in split-tree order. Focusing or clicking a chat never reorders
+the list, and neither do assistant replies or background updates; only a user
+send does. Each row's timestamp is the last user message. A row
+carries a coloured square when its surface belongs to a linked group; each
+group gets a distinct, stable colour so sibling groups never read as one; solo
+chats have no square. Each row shows a title, timestamp, and one state word.
+Every project's surfaces render this same way — with status, timestamp, and
+grouping — so the full picture is visible without focusing a project; inactive
+projects' rows select the project on click. Clicking a visible row focuses its
+leaf. Clicking a surface in an inactive group restores that whole group and
+focuses it; clicking a solo unlinked chat shows only it. The previously visible
+layout is always parked intact, so switching chats never silently breaks a
+group apart. Rows are draggable to regroup or unlink. `Add linked chat` sits
+under the bottom-most chat of the visible group (adding a chat linked to it),
+and a History button shows a count badge of closed surfaces. Close controls
+reveal on `:focus-within`, not just `:hover`.
 
 ### Surface history
 

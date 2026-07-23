@@ -13,7 +13,7 @@
  * not workspace surfaces and are dropped from the visible tree.
  */
 
-import { activeTab, flattenPanels, hiddenPanelsOf, type Panel, type PanelGridState, type SplitNode as LegacySplitNode } from "./panelGrid";
+import { activeTab, flattenPanels, hiddenPanelsOf, stashedGroupsOf, type Panel, type PanelGridState, type SplitNode as LegacySplitNode } from "./panelGrid";
 import {
   type LeafNode,
   type SplitDirection,
@@ -61,8 +61,8 @@ function panelToSurface(panel: Panel, projectId: string, now: number): SurfaceRe
     title: tab.title,
     titleLocked: false,
     projectId,
-    createdAt: now,
-    lastFocusedAt: now,
+    createdAt: tab.createdAt ?? panel.createdAt ?? now,
+    lastFocusedAt: panel.lastUsedAt ?? tab.createdAt ?? panel.createdAt ?? now,
   };
 }
 
@@ -93,7 +93,7 @@ function convertLegacyNode(
             title: tab.title,
             titleLocked: false,
             projectId,
-            createdAt: now,
+            createdAt: tab.createdAt ?? now,
             lastFocusedAt: now,
           };
         }
@@ -164,13 +164,13 @@ export function panelGridToWorkspaceState(
     if (surface && !activeSurfaces[surface.id]) activeSurfaces[surface.id] = surface;
   }
 
-  // Stashed tree: a linked group that was swapped out. Its panels are active
-  // surfaces (so they show in the sidebar) and the tree is passed separately
-  // so the sidebar can render them as a restorable "Linked group".
-  let stashedTree: TreeNode | null = null;
-  if (legacy.stashedRoot) {
-    const stashedResult = convertLegacyNode(legacy.stashedRoot, activeSurfaces, projectId, now, legacy.stashedActivePanelId ?? null);
-    stashedTree = stashedResult.tree;
+  // Inactive linked groups swapped out when another chat was activated. Their
+  // panels are active surfaces (so they show in the sidebar) and each tree is
+  // passed separately so the sidebar can render and restore each group.
+  const stashedGroups: TreeNode[] = [];
+  for (const group of stashedGroupsOf(legacy)) {
+    const converted = convertLegacyNode(group, activeSurfaces, projectId, now, null);
+    if (converted.tree) stashedGroups.push(converted.tree);
   }
 
   // Convert closed panels to history.
@@ -185,7 +185,7 @@ export function panelGridToWorkspaceState(
     activeSurfaces,
     visibleTree: tree,
     focusedSurfaceId,
-    stashedTree,
+    stashedGroups,
     history,
   };
 }
@@ -199,7 +199,7 @@ export function surfaceIdToPanelId(
   const allPanels = [
     ...flattenPanels(legacy.root),
     ...hiddenPanelsOf(legacy),
-    ...(legacy.stashedRoot ? flattenPanels(legacy.stashedRoot) : []),
+    ...stashedGroupsOf(legacy).flatMap((g) => flattenPanels(g)),
     ...legacy.closedPanels,
   ];
   for (const panel of allPanels) {

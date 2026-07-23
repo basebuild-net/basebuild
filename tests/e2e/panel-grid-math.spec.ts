@@ -36,7 +36,7 @@ import {
 } from "../../src/lib/panelGrid";
 
 function makePanel(id: string, type: Panel["type"] = "chat"): Panel {
-  return { id, type, title: `Panel ${id}`, chatSessionId: type === "chat" ? `chat-${id}` : null, terminalId: type === "terminal" ? 1 : null, filePath: type === "file" ? "/foo" : null };
+  return { id, type, title: `Panel ${id}`, chatSessionId: type === "chat" ? `chat-${id}` : null, terminalId: type === "terminal" ? 1 : null, filePath: type === "file" ? "/foo" : null, createdAt: 0 };
 }
 
 function makeLeaf(id: string, type: Panel["type"] = "chat"): SplitNode {

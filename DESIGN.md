@@ -292,14 +292,24 @@ leaf owns exactly one surface — a Basebuild Chat, Oh My Pi Chat, or Terminal.
   History. There is no tab bar inside any leaf.
 - **Active registry.** Every active surface — visible or hidden — is retained
   in a project-scoped active registry and listed under its project in the
-  sidebar. Visible surfaces are flat rows under **Linked group**, in
-  depth-first tree order; active hidden surfaces are flat rows under
-  **Unlinked**. These labels describe placement, not a parent/child hierarchy.
-  One state icon/word per surface replaces redundant project colors, agent
-  dots, and timestamps.
+  sidebar. Surfaces are grouped by their linked group and ordered by recency,
+  where recency is the last time the user sent a message to a chat: that chat's
+  group or solo rises to the top, with a group's members kept contiguous in
+  split-tree order. Focusing or clicking a chat never reorders the list, and
+  neither do assistant replies or background updates — only a user send does.
+  Each row shows the time of the last user message. A row carries a coloured
+  square when its
+  surface belongs to a linked group; each group gets a distinct, stable colour
+  so sibling groups never read as one. Solo chats have no square. One state
+  word per surface conveys its status. Every project's surfaces — with status,
+  timestamp, and grouping — are shown, not only the active project's, so the
+  full picture is visible without switching projects.
 - **Selection and placement.** Selecting a visible sidebar row focuses its
-  existing leaf. Selecting an unlinked surface replaces the focused leaf; the
-  displaced surface stays active unlinked. Dragging a surface title bar onto
+  existing leaf. Selecting a surface in an inactive linked group restores that
+  whole group and focuses the chosen surface; selecting a solo unlinked surface
+  shows only it. Either way the previously visible layout is parked intact — a
+  group stays a group, a solo stays a solo — so switching chats never silently
+  breaks a group apart. Dragging a surface title bar onto
   another visible surface moves it to the chosen edge; dropping it on the
   sidebar unlink target removes it from the layout without closing. Sidebar
   rows can be dragged between the linked layout and unlinked section. `Open
