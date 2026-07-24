@@ -227,6 +227,16 @@ pub fn native_chat_clear_messages(session_id: String) -> Result<usize, String> {
 }
 
 #[tauri::command]
+pub fn native_chat_input_history_add(content: String) -> Result<(), String> {
+    NativeChatService::add_input_history(&content)
+}
+
+#[tauri::command]
+pub fn native_chat_input_history_list() -> Result<Vec<String>, String> {
+    NativeChatService::list_input_history()
+}
+
+#[tauri::command]
 pub async fn native_chat_send(
     app: AppHandle,
     request: NativeChatSendRequest,

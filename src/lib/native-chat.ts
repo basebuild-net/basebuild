@@ -498,6 +498,17 @@ export async function nativeChatClearMessages(sessionId: string): Promise<number
   return invoke<number>("native_chat_clear_messages", { sessionId });
 }
 
+/** Persist a sent user message to the global input history (last 100).
+ *  Deduplicates by content; survives session clears and app restarts. */
+export async function nativeChatInputHistoryAdd(content: string): Promise<void> {
+  return invoke("native_chat_input_history_add", { content });
+}
+
+/** Return the global input history, most-recent-first (last 100 sent). */
+export async function nativeChatInputHistoryList(): Promise<string[]> {
+  return invoke<string[]>("native_chat_input_history_list");
+}
+
 /** List tool events for a session (tool calls, approvals, metrics). */
 export async function nativeChatToolEvents(sessionId: string): Promise<NativeToolEvent[]> {
   return invoke<NativeToolEvent[]>("native_chat_tool_events", { sessionId });

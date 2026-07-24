@@ -73,6 +73,8 @@ import {
   nativeChatBootstrap,
   nativeChatCancel,
   nativeChatClearMessages,
+  nativeChatInputHistoryAdd,
+  nativeChatInputHistoryList,
   nativeChatGet,
   nativeChatMessages,
   nativeChatSend,
@@ -252,18 +254,29 @@ export function ChatPanel({
   const [modelNotice, setModelNotice] = useState<string | null>(null);
   const [input, setInput] = useState("");
   // ─── Input history (terminal-style ArrowUp/ArrowDown navigation) ───
-  // History is derived from sent user messages (most-recent-first). The
-  // index is a ref so it doesn't trigger re-renders. -1 = not browsing.
+  // Global persistent history: last 100 sent messages across ALL sessions,
+  // preserved across session clears and app restarts. Loaded from the
+  // backend SQLite store on mount and refreshed after each send.
+  // The index is a ref so it doesn't trigger re-renders. -1 = not browsing.
   // A saved draft ref preserves the in-progress text when the user starts
   // browsing history, so ArrowDown past the end restores it.
   const historyIndexRef = useRef(-1);
   const savedDraftRef = useRef("");
-  const userHistory = useMemo(() => {
-    return nativeMessages
-      .filter((m) => m.role === "user" && m.content.trim().length > 0)
-      .map((m) => m.content)
-      .reverse(); // most-recent-first
-  }, [nativeMessages]);
+  const [userHistory, setUserHistory] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    nativeChatInputHistoryList()
+      .then((entries) => {
+        if (!cancelled) setUserHistory(entries);
+      })
+      .catch(() => {
+        // Backend may not be ready on first mount; silently ignore.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stuck, setStuck] = useState(false);
@@ -1204,6 +1217,17 @@ export function ChatPanel({
           createdAt: Math.floor(Date.now() / 1000),
         };
         setNativeMessages((prev) => [...prev, tempUser]);
+        // Persist to global input history (fire-and-forget; non-blocking).
+        const trimmed = text.trim();
+        if (trimmed.length > 0) {
+          nativeChatInputHistoryAdd(trimmed).catch(() => {
+            // Non-fatal: history persistence is best-effort.
+          });
+          setUserHistory((prev) => {
+            const next = [trimmed, ...prev.filter((h) => h !== trimmed)].slice(0, 100);
+            return next;
+          });
+        }
         try {
           const result = await nativeChatSend({ sessionId: nativeSessionId, content: text, providerId, modelId, effortLevel });
           if (activeSendRef.current !== gen) return;

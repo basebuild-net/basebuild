@@ -522,6 +522,12 @@ impl StorageService {
                     updated_at INTEGER NOT NULL,
                     PRIMARY KEY (provider_id, model_id)
                 );
+
+                CREATE TABLE IF NOT EXISTS native_chat_input_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    content TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS workspace_restore_state (
                     project_path TEXT PRIMARY KEY NOT NULL,
                     last_session_id TEXT,

@@ -1006,6 +1006,53 @@ impl NativeChatService {
         Ok(deleted)
     }
 
+    /// Persist a sent user message to the global input history (last 100).
+    /// Deduplicates by content so re-sending the same text doesn't fill the
+    /// buffer with repeats. Trims to the most recent 100 entries.
+    pub fn add_input_history(content: &str) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        let now = now_seconds();
+        // Delete any existing entry with the same content, then re-insert
+        // so the re-sent message moves to the newest position.
+        conn.execute(
+            "DELETE FROM native_chat_input_history WHERE content = ?1",
+            params![content],
+        )
+        .map_err(|e| format!("Failed to trim input history: {e}"))?;
+        conn.execute(
+            "INSERT INTO native_chat_input_history (content, created_at) VALUES (?1, ?2)",
+            params![content, now],
+        )
+        .map_err(|e| format!("Failed to save input history: {e}"))?;
+        // Trim to last 100 (keep the newest 100 by id).
+        conn.execute(
+            "DELETE FROM native_chat_input_history
+             WHERE id NOT IN (
+                 SELECT id FROM native_chat_input_history
+                 ORDER BY id DESC LIMIT 100
+             )",
+            [],
+        )
+        .map_err(|e| format!("Failed to trim input history: {e}"))?;
+        Ok(())
+    }
+
+    /// Return the global input history, most-recent-first (last 100 sent).
+    pub fn list_input_history() -> DbResult<Vec<String>> {
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare("SELECT content FROM native_chat_input_history ORDER BY id DESC LIMIT 100")
+            .map_err(|e| format!("Failed to query input history: {e}"))?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("Failed to read input history: {e}"))?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row.map_err(|e| format!("Failed to read input history row: {e}"))?);
+        }
+        Ok(result)
+    }
+
     pub fn send_message(
         app: &AppHandle,
         request: NativeChatSendRequest,
@@ -3913,5 +3960,53 @@ mod tests {
 
         assert!(context.contains("idea [concept]: Avoid duplicate route"));
         assert!(context.contains("plan [ready]: Ship active planner"));
+    }
+
+    #[test]
+    fn input_history_persists_and_lists_most_recent_first() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+
+        // No history initially.
+        assert_eq!(NativeChatService::list_input_history().unwrap(), Vec::<String>::new());
+
+        NativeChatService::add_input_history("first message").unwrap();
+        NativeChatService::add_input_history("second message").unwrap();
+        NativeChatService::add_input_history("third message").unwrap();
+
+        // Most-recent-first.
+        let history = NativeChatService::list_input_history().unwrap();
+        assert_eq!(history, vec!["third message", "second message", "first message"]);
+    }
+
+    #[test]
+    fn input_history_deduplicates_by_content() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+
+        NativeChatService::add_input_history("hello").unwrap();
+        NativeChatService::add_input_history("world").unwrap();
+        NativeChatService::add_input_history("hello").unwrap(); // re-send moves to newest
+
+        let history = NativeChatService::list_input_history().unwrap();
+        // "hello" should appear once, at the top (most recent).
+        assert_eq!(history, vec!["hello", "world"]);
+    }
+
+    #[test]
+    fn input_history_trims_to_100_entries() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+
+        // Insert 105 unique messages.
+        for i in 0..105 {
+            NativeChatService::add_input_history(&format!("msg-{i}")).unwrap();
+        }
+
+        let history = NativeChatService::list_input_history().unwrap();
+        assert_eq!(history.len(), 100);
+        // Most recent is msg-104, oldest kept is msg-5.
+        assert_eq!(history[0], "msg-104");
+        assert_eq!(history[99], "msg-5");
     }
 }
