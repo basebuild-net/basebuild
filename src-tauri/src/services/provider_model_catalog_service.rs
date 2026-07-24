@@ -1678,7 +1678,7 @@ fn bundled_from_catalog(provider_id: &str, cm: &model_catalog::CatalogModel) -> 
 
 /// The native (ChatGPT-subscription) `openai-codex` provider's models. The
 /// catalog's `openai-codex` provider is the authoritative set — the real
-/// Codex-backend model ids (`gpt-5`, `gpt-5-codex`, `gpt-5.1-codex-max`, …)
+/// Codex-backend model ids (`gpt-5.3-codex-spark`, `gpt-5.4`, `gpt-5.6-luna`, …)
 /// with the `openai-codex-responses` wire kind — so we reuse it rather than
 /// re-labelling the OpenAI API catalog (which carries the wrong endpoint and
 /// lists models the subscription backend never serves).
@@ -1871,8 +1871,13 @@ mod tests {
         assert!(models.len() > 1);
         assert!(models.iter().all(|m| m.provider_id == "openai-codex"));
         assert!(models.iter().all(|m| !m.supports_tools));
-        // Real Codex-backend model ids, not the OpenAI API catalog.
-        assert!(models.iter().any(|m| m.id == "gpt-5-codex"));
+        // Real Codex-backend catalog ids (the openai-codex provider's set),
+        // not the OpenAI API catalog. Ids overlap between the two providers,
+        // so the api_kind check below is the real discriminator.
+        assert!(models.iter().any(|m| m.id == "gpt-5.6-luna"));
+        assert!(models
+            .iter()
+            .all(|m| m.api_kind == "openai-codex-responses"));
     }
 
     #[test]
@@ -1882,7 +1887,7 @@ mod tests {
         assert_eq!(models.len(), catalog.len());
         assert!(models.len() > 1);
         assert!(models.iter().all(|m| m.provider_id == "openai-codex"));
-        assert!(models.iter().any(|m| m.id == "gpt-5-codex"));
+        assert!(models.iter().any(|m| m.id == "gpt-5.6-luna"));
         // The native OpenAiCodexClient carries tool schemas, so every model is
         // tool-capable even though the catalog wire kind is marked otherwise.
         assert!(models.iter().all(|m| m.supports_tools));
