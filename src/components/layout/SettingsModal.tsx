@@ -83,13 +83,18 @@ type SettingsModalProps = {
   projectPath: string | null;
   account: AccountState;
   updates: UpdaterState;
+  /** Tab to open on. Applied each time the modal transitions to open. */
+  initialTab?: Tab;
 };
 
-type Tab = "updates" | "providers" | "defaults" | "permissions" | "privacy" | "appearance" | "account" | "configs" | "mcp" | "planning" | "openspec" | "final_touches" | "concurrency" | "notifications" | "skills" | "about";
+type Tab = "updates" | "providers" | "defaults" | "permissions" | "analytics" | "appearance" | "account" | "configs" | "mcp" | "planning" | "openspec" | "final_touches" | "concurrency" | "notifications" | "skills" | "about";
 
-export function SettingsModal({ open, onClose, projectPath, account, updates }: SettingsModalProps) {
+export function SettingsModal({ open, onClose, projectPath, account, updates, initialTab }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("updates");
   useEscapeKey(open, onClose);
+  useEffect(() => {
+    if (open && initialTab) setTab(initialTab);
+  }, [open, initialTab]);
   const [requirements, setRequirements] = useState<RequirementStatus[]>([]);
   const [loading, setLoading] = useState(false);
   // App version — compiled in at build time. Shows "0.0.0" in dev; the real
@@ -403,7 +408,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
     },
     {
       group: "Privacy & Data",
-      tabs: [{ id: "privacy", label: "Privacy", icon: Shield }],
+      tabs: [{ id: "analytics", label: "Analytics", icon: Shield }],
     },
   ];
 
@@ -936,13 +941,16 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
             ) : null}
 
             {/* ─── Privacy ─── */}
-            {tab === "privacy" ? (
+            {tab === "analytics" ? (
               <div className="stack">
-                <h3>Privacy & Analytics</h3>
+                <h3>Analytics &amp; Usage</h3>
                 <p className="text-muted text-sm">
                   Basebuild is local-first. Local feature analytics are off by default. No privacy setting
                   permits prompt text, chat content, source code, terminal output, secrets, or raw file paths.
                 </p>
+
+                <UsageSyncPanel />
+
 
                 {consent ? (
                   <>
@@ -1142,7 +1150,6 @@ export function SettingsModal({ open, onClose, projectPath, account, updates }: 
             {tab === "account" ? (
               <div className="stack">
                 <AccountPanel account={account} />
-                <UsageSyncPanel />
               </div>
             ) : null}
 

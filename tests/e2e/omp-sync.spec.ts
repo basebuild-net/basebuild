@@ -49,7 +49,7 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
     await settingsItem.click({ timeout: 5_000 });
     // Wait for the lazy-loaded settings modal.
     await expect(page.locator(".settings-modal")).toBeVisible({ timeout: 15_000 });
-    await page.getByRole("button", { name: "Account", exact: true }).click();
+    await page.getByRole("button", { name: "Analytics", exact: true }).click();
     // The sync panel maps privacy, attribution, source, and off-reason status.
     await expect(page.getByRole("heading", { name: "Usage Sync" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "What uploads" })).toBeVisible();
@@ -66,7 +66,7 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
     await attachScreenshot(page, "usage-sync-source-status.png");
 
     // Toggling off maps the explicit backend reason; toggling on clears it.
-    const toggle = page.locator('input[type="checkbox"][title="Enable hourly auto-sync to basebuild.net"]');
+    const toggle = page.locator('input[type="checkbox"][title="Sync usage automatically: periodically and shortly after usage changes"]');
     await expect(toggle).toBeChecked();
     await toggle.uncheck();
     await expect(page.getByText(/Auto-sync is off. Turn it on/)).toBeVisible();
@@ -97,7 +97,7 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
     await page.goto("/");
     await page.getByTitle("Open Settings").click();
     await expect(page.locator(".settings-modal")).toBeVisible({ timeout: 10_000 });
-    await page.getByRole("button", { name: "Account", exact: true }).click();
+    await page.getByRole("button", { name: "Analytics", exact: true }).click();
 
     await expect(page.getByText("Private installation attribution")).toBeVisible();
     await expect(page.getByText(/It is not a hardware ID and is not merged into an account later/)).toBeVisible();

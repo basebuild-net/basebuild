@@ -131,7 +131,7 @@ impl UsageSource for OmpSource {
     }
 
     fn available(&self) -> bool {
-        crate::services::omp_service::OmpService::status().installed
+        crate::services::omp_service::OmpService::is_installed_cached()
     }
 
     fn collect(&self) -> Result<Option<UsageBatch>, String> {
@@ -376,13 +376,13 @@ impl UsageSource for NativeSource {
     }
 }
 
-/// The registry of all known usage sources. Order: OMP first (primary),
-/// then native chat, then optional local harnesses (Claude Code, Codex,
-/// OpenCode). A missing harness never blocks the others.
+/// The registry of all known usage sources. Order: native chat first (the
+/// primary first-party source), then OMP, then optional local harnesses
+/// (Claude Code, Codex, OpenCode). A missing harness never blocks the others.
 pub fn registered_sources() -> Vec<Box<dyn UsageSource>> {
     vec![
-        Box::new(OmpSource),
         Box::new(NativeSource),
+        Box::new(OmpSource),
         Box::new(crate::services::harness_usage_service::HarnessSource::claude_code()),
         Box::new(crate::services::harness_usage_service::HarnessSource::codex()),
         Box::new(crate::services::harness_usage_service::HarnessSource::opencode()),

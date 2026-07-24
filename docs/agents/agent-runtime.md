@@ -1009,13 +1009,49 @@ distinguishes autostart launches from explicit foreground launches.
 
 Scheduling stays in Rust (`sync_service.rs`) because hidden webviews can be
 throttled. The scheduler:
-- Runs hourly (configurable) with a first-tick unconditional push on startup.
+- Is native-first: sources sync in order native → OMP → other detected
+  harnesses (`registered_sources`), and the native envelope is the PRIMARY
+  source. OMP raw usage and harnesses are best-effort enrichment: a failure is
+  recorded per-source (Source status row) but never downgrades the overall
+  outcome or raises the coordinator banner (`coordinated_usage_outcome`).
+- Trickles rather than syncing on a rigid hour: a startup push, then a short
+  evaluation cadence (`MANAGED_TRIGGER_EVAL_SECS`, 60s) fires an early sync when
+  usage changes (≥5 new requests or ≥20%), a provider is added, or the device
+  has never synced. A periodic full tick (`autoSyncIntervalMinutes`) is only a
+  backstop. `MIN_INTER_SYNC_GAP_SECS` (60s) debounces the pushes.
+- Runs the network freshness check (`get_my_live_usage.shouldSync`) and the
+  push INSIDE the spawned worker thread, so command-path triggers ("Sync now",
+  retry) return instantly and never block the UI. Managed/usage-change triggers
+  skip freshness (we already know there is new local usage) and push directly.
+- Native metrics are rolled up client-side into aggregated rows before
+  transport (`aggregate_model_usage_rows`), keeping batches under the envelope's
+  500-row cap and sending only aggregate counters.
 - Uses a single-flight coordinator (`SYNC_IN_FLIGHT`) to coalesce concurrent
   triggers into at most one in-flight sync.
 - Applies bounded exponential backoff (30s → 900s max) on transient failures,
   reset to 30s on success.
 - Bounds shutdown sync to 10s so exit cannot hang.
 - Clears auth and stops remote scheduling on 401 while preserving local rows.
+
+#### Consent gate and proactive prompt
+
+The "Share anonymous aggregate usage" toggle (`analytics_consent.upload_enabled`)
+is the consent signal. `gates_pass()` requires only the enabled toggle plus
+`auto_sync_usage`; it never blocks on a separate `consented_at` timestamp, so
+installs upgraded from a build that set the toggle without stamping a timestamp
+keep syncing. `set_consent` backfills `consented_at`/`consent_version` the first
+time a toggle is enabled, purely as an audit record. `resolve_off_reason`
+(pure, unit-tested) distinguishes the states: an enabled toggle passes; a
+disabled toggle with no prior choice reports `ConsentRequired` (the only state
+that drives the proactive `UsageSharingBanner`); an explicit opt-out reports
+`UsageSharingDisabled` and is respected without re-prompting. The banner is a
+one-time dismissible strip (`basebuild:usage-consent-dismissed`) that enables
+sharing in one click or links to Settings → Privacy.
+
+All network-bound usage-sync commands (`usage_sync_projected_usage`,
+`usage_{detect,list,declare}_provider_plans`, `sync_raw_usage_native`) are async
+and run on `spawn_blocking`, so opening the Account settings tab never blocks the
+main thread.
 
 ### Privacy boundaries
 

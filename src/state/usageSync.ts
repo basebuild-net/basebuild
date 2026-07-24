@@ -80,12 +80,21 @@ export function useUsageSync(): UsageSyncState {
     addLog("debug", "Usage sync requested", reason ?? "manual");
     try {
       await usageSyncTrigger(reason);
+      // The backend trigger is fire-and-forget: it spawns a worker thread and
+      // returns immediately. When the push actually runs it emits a
+      // usage-sync://status event (handled by the listener below) which
+      // refreshes the status. But when the trigger is coalesced (single-flight
+      // already in progress) or debounced (last sync < MIN_INTER_SYNC_GAP_SECS,
+      // which the 60s autosync loop makes very likely) the backend returns
+      // early WITHOUT emitting any event, so the UI would stay stale. Refresh
+      // here so "Sync now" always reflects the current backend status.
+      await refresh();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
       addLog("error", "Usage sync trigger failed", msg);
     }
-  }, [addLog]);
+  }, [refresh, addLog]);
 
   const setEnabled = useCallback(
     async (enabled: boolean) => {

@@ -3815,6 +3815,27 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
   color: var(--bb-warning);
 }
 .usage-sync-off > svg { flex: 0 0 auto; }
+/* Proactive usage-sharing notice: accent-tinted strip below the taskbar,
+   shown only when the user has never made a sharing choice. */
+.usage-consent-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--bb-space-2);
+  padding: 6px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--bb-cta) 34%, var(--bb-border));
+  background: color-mix(in srgb, var(--bb-cta) 8%, var(--bb-surface));
+  flex-shrink: 0;
+}
+.usage-consent-banner-icon { flex: 0 0 auto; color: var(--bb-cta); }
+.usage-consent-banner-body { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.usage-consent-banner-actions { display: flex; align-items: center; gap: var(--bb-space-2); flex-shrink: 0; }
+.usage-consent-banner-close {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0;
+  color: var(--bb-muted); background: transparent; border: none;
+  border-radius: var(--bb-radius-sm); cursor: pointer;
+}
+.usage-consent-banner-close:hover { color: var(--bb-text); background: var(--bb-surface-hover); }
 .usage-source-section {
   display: flex;
   flex-direction: column;

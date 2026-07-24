@@ -31,14 +31,14 @@ const DEFAULT_INTERVAL_MINUTES: i64 = 60;
 const MAX_BACKOFF_SECS: u64 = 900;
 /// Initial backoff in seconds.
 const INITIAL_BACKOFF_SECS: u64 = 30;
-/// Managed-trigger evaluation cadence (seconds). The autosync loop wakes
-/// every 5 minutes between full interval ticks to check whether a
-/// never-synced device, a provider-set change, or a significant usage
-/// delta should fire an early sync.
-const MANAGED_TRIGGER_EVAL_SECS: u64 = 300;
-/// Request-count delta that fires a managed-trigger sync: ≥25 absolute
-/// OR ≥20% relative vs the last pushed total.
-const MANAGED_TRIGGER_ABS_DELTA: i64 = 25;
+/// Managed-trigger evaluation cadence (seconds). The sync loop wakes on this
+/// short cadence between periodic backstop ticks so new usage trickles out
+/// promptly (a never-synced device, a provider-set change, or fresh usage).
+/// `MIN_INTER_SYNC_GAP_SECS` still debounces the actual pushes.
+const MANAGED_TRIGGER_EVAL_SECS: u64 = 60;
+/// Request-count delta that fires a trickle sync: >=5 absolute OR >=20%
+/// relative vs the last pushed total. Small so active usage flows out quickly.
+const MANAGED_TRIGGER_ABS_DELTA: i64 = 5;
 const MANAGED_TRIGGER_REL_PCT: f64 = 0.20;
 
 /// Every usage write carries a bearer token. Account tokens preserve private
@@ -147,7 +147,7 @@ pub fn sync_raw_usage_native() -> Result<String, String> {
     // to collect, so skip gracefully instead of erroring — the sync loop must
     // never record a failure tied to a missing optional dependency. Native
     // per-message usage is carried by `sync_messages_native`.
-    if !OmpService::status().installed {
+    if !OmpService::is_installed_cached() {
         return Ok("skipped: OMP not installed (native message sync carries usage)".to_string());
     }
     let mode = resolve_auth_mode()?;
@@ -252,44 +252,10 @@ pub fn collect_native_batch() -> Result<UsageBatch, String> {
     let since = settings.last_message_sync_at.unwrap_or(0);
     let metrics = NativeChatService::metrics_since(since, 5000)?;
 
-    let rows: Vec<Value> = metrics
-        .iter()
-        .map(|metric| {
-            let duration_ms = metric.duration_ms.unwrap_or(0).clamp(0, i32::MAX as i64);
-            let ttft_ms = metric.ttft_ms.unwrap_or(0).clamp(0, i32::MAX as i64);
-            let cost_total = metric
-                .cost_total
-                .filter(|cost| cost.is_finite() && *cost >= 0.0)
-                .unwrap_or(0.0)
-                .min(1_000_000.0);
-            json!({
-                "kind": "model_usage",
-                "provider": metric.provider_id,
-                "model": metric.model_id,
-                "effort": match metric.effort_level.as_str() {
-                    "none" | "low" | "medium" | "high" | "xhigh" => Some(metric.effort_level.as_str()),
-                    _ => None,
-                },
-                "subscriptionTier": metric.subscription_tier.as_deref().filter(|tier| matches!(*tier, "plus" | "pro" | "max" | "free" | "api" | "team" | "enterprise")),
-                "subscriptionSource": metric.subscription_source.as_deref().filter(|source| matches!(*source, "declared" | "provider-api" | "api-key" | "inferred" | "unknown")),
-                "planName": metric.plan_name.as_deref().filter(|name| name.chars().count() <= 256),
-                "requests": 1,
-                "inputTokens": metric.input_tokens.clamp(0, i32::MAX as i64),
-                "outputTokens": metric.output_tokens.clamp(0, i32::MAX as i64),
-                "cacheReadTokens": metric.cache_read_tokens.clamp(0, i32::MAX as i64),
-                "cacheWriteTokens": metric.cache_write_tokens.clamp(0, i32::MAX as i64),
-                "costTotal": cost_total,
-                "durationMs": duration_ms,
-                "durationCount": i64::from(metric.duration_ms.is_some()),
-                "ttftMs": ttft_ms,
-                "ttftCount": i64::from(metric.ttft_ms.is_some()),
-                "errors": i64::from(metric.outcome != "success"),
-            })
-        })
-        .collect();
-
     let window_start = metrics.iter().map(|m| m.created_at).min().unwrap_or(since);
     let window_end = metrics.iter().map(|m| m.created_at).max().unwrap_or(since);
+
+    let rows = aggregate_model_usage_rows(&metrics);
 
     Ok(UsageBatch {
         source: SourceKind::Native,
@@ -298,6 +264,113 @@ pub fn collect_native_batch() -> Result<UsageBatch, String> {
         window_end,
         rows,
     })
+}
+
+/// Roll per-message native metrics up into aggregated `model_usage` rows,
+/// grouped by (provider, model, effort, tier, source, planName). One row per
+/// message previously overflowed the envelope's 500-row cap for active users
+/// (failing the whole batch); rolling up keeps the batch tiny and sends only
+/// aggregate counters. The server sums `requests` and divides
+/// durationMs/ttftMs by their counts, so a rolled-up row is equivalent to the
+/// messages it summarizes. All counters are clamped to the envelope
+/// validator's caps and per-group counts never exceed `requests`.
+fn aggregate_model_usage_rows(
+    metrics: &[crate::models::native_chat::NativeRequestMetric],
+) -> Vec<Value> {
+    use std::collections::BTreeMap;
+    #[derive(Default)]
+    struct Agg {
+        requests: i64,
+        input: i64,
+        output: i64,
+        cache_read: i64,
+        cache_write: i64,
+        cost: f64,
+        duration_ms: i64,
+        duration_n: i64,
+        ttft_ms: i64,
+        ttft_n: i64,
+        errors: i64,
+    }
+    // Key components are the already-validated, enum-filtered attribution
+    // fields; an empty string is the "absent" sentinel (emitted as null).
+    type Key = (String, String, String, String, String, String);
+    let mut groups: BTreeMap<Key, Agg> = BTreeMap::new();
+
+    let clamp = |v: i64| v.clamp(0, i32::MAX as i64);
+    for m in metrics {
+        let effort = match m.effort_level.as_str() {
+            "none" | "low" | "medium" | "high" | "xhigh" => m.effort_level.clone(),
+            _ => String::new(),
+        };
+        let tier = m
+            .subscription_tier
+            .as_deref()
+            .filter(|t| matches!(*t, "plus" | "pro" | "max" | "free" | "api" | "team" | "enterprise"))
+            .unwrap_or_default()
+            .to_string();
+        let source = m
+            .subscription_source
+            .as_deref()
+            .filter(|s| matches!(*s, "declared" | "provider-api" | "api-key" | "inferred" | "unknown"))
+            .unwrap_or_default()
+            .to_string();
+        let plan = m
+            .plan_name
+            .as_deref()
+            .filter(|name| name.chars().count() <= 256)
+            .unwrap_or_default()
+            .to_string();
+        let acc = groups
+            .entry((m.provider_id.clone(), m.model_id.clone(), effort, tier, source, plan))
+            .or_default();
+        acc.requests += 1;
+        acc.input = clamp(acc.input + clamp(m.input_tokens));
+        acc.output = clamp(acc.output + clamp(m.output_tokens));
+        acc.cache_read = clamp(acc.cache_read + clamp(m.cache_read_tokens));
+        acc.cache_write = clamp(acc.cache_write + clamp(m.cache_write_tokens));
+        acc.cost = (acc.cost
+            + m.cost_total.filter(|c| c.is_finite() && *c >= 0.0).unwrap_or(0.0))
+        .min(1_000_000.0);
+        if let Some(d) = m.duration_ms {
+            acc.duration_ms = clamp(acc.duration_ms + clamp(d));
+            acc.duration_n += 1;
+        }
+        if let Some(t) = m.ttft_ms {
+            acc.ttft_ms = clamp(acc.ttft_ms + clamp(t));
+            acc.ttft_n += 1;
+        }
+        if m.outcome != "success" {
+            acc.errors += 1;
+        }
+    }
+
+    let opt = |s: String| if s.is_empty() { Value::Null } else { Value::String(s) };
+    groups
+        .into_iter()
+        .map(|((provider, model, effort, tier, source, plan), a)| {
+            json!({
+                "kind": "model_usage",
+                "provider": provider,
+                "model": model,
+                "effort": opt(effort),
+                "subscriptionTier": opt(tier),
+                "subscriptionSource": opt(source),
+                "planName": opt(plan),
+                "requests": a.requests,
+                "inputTokens": a.input,
+                "outputTokens": a.output,
+                "cacheReadTokens": a.cache_read,
+                "cacheWriteTokens": a.cache_write,
+                "costTotal": a.cost,
+                "durationMs": a.duration_ms,
+                "durationCount": a.duration_n,
+                "ttftMs": a.ttft_ms,
+                "ttftCount": a.ttft_n,
+                "errors": a.errors,
+            })
+        })
+        .collect()
 }
 
 /// Sync every available closed-envelope source. Private installations include
@@ -989,8 +1062,12 @@ pub fn gates_pass() -> bool {
             return false;
         }
     };
-    if consent.consented_at.is_none() || !consent.upload_enabled {
-        eprintln!("[SYNC] gates: aggregate usage upload has not been completed");
+    // The visible "Share anonymous aggregate usage" toggle IS the consent.
+    // Older builds set `upload_enabled` without stamping `consented_at`; do not
+    // block those installs. `consented_at` is backfilled by `set_consent` and
+    // kept only as an audit timestamp, never as a second gate.
+    if !consent.upload_enabled {
+        eprintln!("[SYNC] gates: aggregate usage upload is disabled");
         return false;
     }
     let settings = match SettingsService::get_usage_sync_settings() {
@@ -1062,6 +1139,32 @@ fn record_source_error(source: SourceKind, message: &str) {
     *AUTOSYNC_STATUS.lock() = status;
 }
 
+/// Pure decision for why usage sync is off, given the resolved gate inputs.
+/// Extracted from `autosync_status` so the consent semantics are unit-testable
+/// without a database. An enabled upload toggle IS the consent; a missing
+/// `consented_at` on an otherwise-disabled install distinguishes "never chose"
+/// (prompt) from an explicit opt-out (respect silently).
+fn resolve_off_reason(
+    upload_enabled: bool,
+    has_consent_record: bool,
+    auto_sync_usage: bool,
+    any_source_available: bool,
+) -> Option<SyncOffReason> {
+    if !upload_enabled {
+        if has_consent_record {
+            Some(SyncOffReason::UsageSharingDisabled)
+        } else {
+            Some(SyncOffReason::ConsentRequired)
+        }
+    } else if !auto_sync_usage {
+        Some(SyncOffReason::AutoSyncDisabled)
+    } else if !any_source_available {
+        Some(SyncOffReason::NoSourcesAvailable)
+    } else {
+        None
+    }
+}
+
 /// Read the current auto-sync status without performing network I/O.
 pub fn autosync_status() -> AutoSyncStatus {
     let settings = SettingsService::get_usage_sync_settings().unwrap_or_default();
@@ -1076,17 +1179,13 @@ pub fn autosync_status() -> AutoSyncStatus {
         SyncAttribution::PrivateInstallation
     };
     status.sources = current_source_statuses(&status.sources);
-    status.off_reason = if consent.consented_at.is_none() {
-        Some(SyncOffReason::ConsentRequired)
-    } else if !consent.upload_enabled {
-        Some(SyncOffReason::UsageSharingDisabled)
-    } else if !settings.auto_sync_usage {
-        Some(SyncOffReason::AutoSyncDisabled)
-    } else if status.sources.iter().all(|source| !source.available) {
-        Some(SyncOffReason::NoSourcesAvailable)
-    } else {
-        None
-    };
+    let any_source_available = status.sources.iter().any(|source| source.available);
+    status.off_reason = resolve_off_reason(
+        consent.upload_enabled,
+        consent.consented_at.is_some(),
+        settings.auto_sync_usage,
+        any_source_available,
+    );
     status.gates_pass = status.off_reason.is_none();
     *AUTOSYNC_STATUS.lock() = status.clone();
     status
@@ -1128,19 +1227,23 @@ fn coordinated_usage_outcome(
     omp: &Result<String, String>,
     envelope: &Result<String, String>,
 ) -> SyncOverallOutcome {
+    // The native envelope is the PRIMARY source. OMP raw usage is best-effort
+    // enrichment: its failure is recorded per-source (Source status row) but
+    // never downgrades the overall outcome, so a flaky/absent OMP install does
+    // not raise a coordinator error when native usage synced fine.
     let omp_work = omp
         .as_ref()
         .is_ok_and(|message| !message.starts_with("skipped:"));
-    let envelope_work = envelope
-        .as_ref()
-        .is_ok_and(|message| !message.starts_with("no new"));
-    let successes = usize::from(omp_work) + usize::from(envelope_work);
-    let failures = usize::from(omp.is_err()) + usize::from(envelope.is_err());
-    match (successes, failures) {
-        (0, 0) => SyncOverallOutcome::NothingToSync,
-        (_, 0) => SyncOverallOutcome::Success,
-        (0, _) => SyncOverallOutcome::Failed,
-        _ => SyncOverallOutcome::Partial,
+    match envelope {
+        Err(_) => SyncOverallOutcome::Failed,
+        Ok(message) if message.starts_with("no new") => {
+            if omp_work {
+                SyncOverallOutcome::Success
+            } else {
+                SyncOverallOutcome::NothingToSync
+            }
+        }
+        Ok(_) => SyncOverallOutcome::Success,
     }
 }
 
@@ -1173,57 +1276,51 @@ pub fn trigger_sync(app: AppHandle, reason: &str, skip_freshness: bool) {
             }
         }
     }
-    // Only account principals can use the read-side freshness tool. Guest
-    // principals push the bounded envelope directly; server receipts dedupe it.
-    let should_push = if skip_freshness {
-        true
-    } else if has_account_token() {
-        match AuthService::get_access_token() {
-            Ok(Some(token)) => {
-                eprintln!("[SYNC] checking server freshness…");
-                let usage_is_stale = call_mcp_tool(&token, "get_my_live_usage", json!({}))
-                    .ok()
-                    .and_then(|v| v.get("shouldSync").and_then(|v| v.as_bool()))
-                    .unwrap_or(true);
-                let feedback_is_pending = advisor_feedback_upload_ready();
-                let should_sync = usage_is_stale || feedback_is_pending;
-                eprintln!(
-                    "[SYNC] server shouldSync={usage_is_stale}, advisor feedback pending={feedback_is_pending}"
-                );
-                should_sync
-            }
-            _ => {
-                eprintln!("[SYNC] token disappeared — aborting");
-                false
-            }
-        }
-    } else {
-        eprintln!("[SYNC] guest envelope push — no read-side freshness permission");
-        true
-    };
-
-    if !should_push {
-        eprintln!("[SYNC] should_push=false — aborting");
-        SYNC_IN_FLIGHT.store(false, Ordering::SeqCst);
-        return;
-    }
     let app2 = app.clone();
     let reason_owned = reason.to_string();
     thread::spawn(move || {
-        eprintln!("[SYNC] thread started — calling sync_raw_usage_native…");
-        let result = sync_raw_usage_native();
-        eprintln!(
-            "[SYNC] sync_raw_usage_native: {}",
-            match &result {
-                Ok(m) => format!("ok: {m}"),
-                Err(e) => format!("ERR: {e}"),
+        // The freshness check runs HERE, off the caller thread, so command-path
+        // triggers ("Sync now" / retry) never block the UI on a network call.
+        // Account principals use the read-side freshness tool; guests push the
+        // bounded envelope directly (server receipts dedupe it).
+        let should_push = if skip_freshness {
+            true
+        } else if has_account_token() {
+            match AuthService::get_access_token() {
+                Ok(Some(token)) => {
+                    let usage_is_stale = call_mcp_tool(&token, "get_my_live_usage", json!({}))
+                        .ok()
+                        .and_then(|v| v.get("shouldSync").and_then(|v| v.as_bool()))
+                        .unwrap_or(true);
+                    usage_is_stale || advisor_feedback_upload_ready()
+                }
+                _ => {
+                    eprintln!("[SYNC] token disappeared — aborting");
+                    false
+                }
             }
-        );
-        eprintln!("[SYNC] calling sync_envelope_native…");
+        } else {
+            true
+        };
+        if !should_push {
+            eprintln!("[SYNC] should_push=false — aborting");
+            SYNC_IN_FLIGHT.store(false, Ordering::SeqCst);
+            return;
+        }
+        eprintln!("[SYNC] thread started — calling sync_envelope_native (native first)…");
         let messages_result = sync_envelope_native();
         eprintln!(
             "[SYNC] sync_envelope_native: {}",
             match &messages_result {
+                Ok(m) => format!("ok: {m}"),
+                Err(e) => format!("ERR: {e}"),
+            }
+        );
+        eprintln!("[SYNC] calling sync_raw_usage_native…");
+        let result = sync_raw_usage_native();
+        eprintln!(
+            "[SYNC] sync_raw_usage_native: {}",
+            match &result {
                 Ok(m) => format!("ok: {m}"),
                 Err(e) => format!("ERR: {e}"),
             }
@@ -1446,7 +1543,7 @@ pub fn start_autosync_loop(app: AppHandle) {
             // (anonymous — server dedups by computerId).
             trigger_sync(
                 app.clone(),
-                if first_tick { "startup" } else { "hourly" },
+                if first_tick { "startup" } else { "periodic" },
                 first_tick,
             );
             first_tick = false;
@@ -1494,8 +1591,8 @@ pub fn sync_on_exit() {
     // Blocking sync with a timeout — we can't hang the exit forever.
     let (tx, rx) = std::sync::mpsc::channel();
     thread::spawn(move || {
-        let raw = sync_raw_usage_native();
         let msgs = sync_envelope_native();
+        let raw = sync_raw_usage_native();
         let feedback = sync_execution_advisor_feedback_native();
         eprintln!(
             "[SYNC] sync_on_exit: raw={:?}, msgs={:?}, advisor_feedback={:?}",
@@ -1530,6 +1627,45 @@ mod tests {
     }
 
     #[test]
+    fn upgraded_install_with_toggle_on_but_no_timestamp_passes_gates() {
+        // Reproduces the reported bug: an install upgraded from an older build
+        // has the "Share anonymous aggregate usage" toggle ON but no
+        // `consented_at` stamp. Sync must NOT be blocked as consent-required.
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let conn = StorageService::connect().unwrap();
+        let blob = serde_json::json!({
+            "collectionEnabled": true,
+            "uploadEnabled": true,
+            "consentVersion": serde_json::Value::Null,
+            "consentedAt": serde_json::Value::Null,
+        })
+        .to_string();
+        conn.execute(
+            "INSERT INTO app_defaults (key, value) VALUES ('analytics_consent', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            rusqlite::params![blob],
+        )
+        .unwrap();
+        drop(conn);
+
+        // The blob round-trips with the toggle on and no timestamp.
+        let consent = AnalyticsService::get_consent().unwrap();
+        assert!(consent.upload_enabled);
+        assert!(consent.consented_at.is_none());
+
+        // auto_sync_usage defaults to true, so the enabled toggle is the only
+        // remaining gate — sync is unblocked.
+        assert!(
+            gates_pass(),
+            "an enabled upload toggle must pass gates even without a timestamp"
+        );
+        let reason = autosync_status().off_reason;
+        assert_ne!(reason, Some(SyncOffReason::ConsentRequired));
+        assert_ne!(reason, Some(SyncOffReason::UsageSharingDisabled));
+    }
+
+    #[test]
     fn coordinated_outcome_does_not_let_skipped_omp_hide_envelope_failure() {
         assert_eq!(
             coordinated_usage_outcome(&ok("skipped: OMP not installed"), &error()),
@@ -1538,14 +1674,17 @@ mod tests {
     }
 
     #[test]
-    fn coordinated_outcome_reports_partial_when_one_source_succeeds() {
+    fn coordinated_outcome_treats_omp_as_best_effort_native_primary() {
+        // Native envelope failed → overall Failed regardless of OMP.
         assert_eq!(
             coordinated_usage_outcome(&ok("OMP synced"), &error()),
-            SyncOverallOutcome::Partial
+            SyncOverallOutcome::Failed
         );
+        // Native envelope accepted, OMP raw failed → still Success (OMP is
+        // best-effort enrichment and never downgrades the coordinator).
         assert_eq!(
             coordinated_usage_outcome(&error(), &ok("envelope v1: 1 source accepted")),
-            SyncOverallOutcome::Partial
+            SyncOverallOutcome::Success
         );
     }
 
@@ -1558,5 +1697,99 @@ mod tests {
             ),
             SyncOverallOutcome::NothingToSync
         );
+    }
+
+    #[test]
+    fn off_reason_enabled_upload_passes_without_consent_timestamp() {
+        // An older install with the toggle on but no `consented_at` must sync.
+        assert_eq!(resolve_off_reason(true, false, true, true), None);
+    }
+
+    #[test]
+    fn off_reason_never_chose_requires_consent() {
+        assert_eq!(
+            resolve_off_reason(false, false, true, true),
+            Some(SyncOffReason::ConsentRequired)
+        );
+    }
+
+    #[test]
+    fn off_reason_explicit_optout_is_respected_not_reprompted() {
+        assert_eq!(
+            resolve_off_reason(false, true, true, true),
+            Some(SyncOffReason::UsageSharingDisabled)
+        );
+    }
+
+    #[test]
+    fn off_reason_reports_autosync_and_sources_only_when_shared() {
+        assert_eq!(
+            resolve_off_reason(true, true, false, true),
+            Some(SyncOffReason::AutoSyncDisabled)
+        );
+        assert_eq!(
+            resolve_off_reason(true, true, true, false),
+            Some(SyncOffReason::NoSourcesAvailable)
+        );
+    }
+
+    fn metric(
+        provider: &str,
+        model: &str,
+        tier: Option<&str>,
+        outcome: &str,
+        input: i64,
+        dur: Option<i64>,
+    ) -> crate::models::native_chat::NativeRequestMetric {
+        crate::models::native_chat::NativeRequestMetric {
+            id: "m".into(),
+            session_id: "s".into(),
+            provider_id: provider.into(),
+            model_id: model.into(),
+            effort_level: "high".into(),
+            started_at: 0,
+            completed_at: Some(0),
+            duration_ms: dur,
+            ttft_ms: dur.map(|_| 100),
+            ttlt_ms: None,
+            input_tokens: input,
+            output_tokens: input * 2,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            tokens_per_second: None,
+            cost_total: Some(0.5),
+            outcome: outcome.into(),
+            error_class: None,
+            created_at: 0,
+            subscription_tier: tier.map(Into::into),
+            subscription_source: Some("declared".into()),
+            plan_name: None,
+            account_id: None,
+        }
+    }
+
+    #[test]
+    fn aggregate_rolls_up_by_group_and_stays_envelope_valid() {
+        use crate::models::usage_envelope::validate_row;
+        let metrics = vec![
+            metric("anthropic", "claude", Some("max"), "success", 100, Some(1000)),
+            metric("anthropic", "claude", Some("max"), "error", 200, Some(3000)),
+            metric("anthropic", "claude", Some("pro"), "success", 50, None),
+        ];
+        let rows = aggregate_model_usage_rows(&metrics);
+        // Two tiers → two rows; each must pass the transport validator.
+        assert_eq!(rows.len(), 2);
+        for row in &rows {
+            validate_row(row).expect("aggregated row must be envelope-valid");
+        }
+        let max_row = rows.iter().find(|r| r["subscriptionTier"] == "max").unwrap();
+        assert_eq!(max_row["requests"], 2);
+        assert_eq!(max_row["inputTokens"], 300);
+        assert_eq!(max_row["errors"], 1);
+        assert_eq!(max_row["durationMs"], 4000);
+        assert_eq!(max_row["durationCount"], 2);
+        let pro_row = rows.iter().find(|r| r["subscriptionTier"] == "pro").unwrap();
+        assert_eq!(pro_row["requests"], 1);
+        assert_eq!(pro_row["durationCount"], 0);
     }
 }

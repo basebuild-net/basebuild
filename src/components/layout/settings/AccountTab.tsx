@@ -147,17 +147,17 @@ export function usageSyncOffReasonText(status: AutoSyncStatus): string | null {
   if (status.gatesPass) return null;
   switch (status.offReason) {
     case "usage_sharing_disabled":
-      return "Usage sharing is off. Enable Usage sharing in Settings > Privacy to sync.";
+      return "Usage sharing is off. Turn on Share anonymous aggregate usage below to sync.";
     case "auto_sync_disabled":
       return "Auto-sync is off. Turn it on to schedule usage sync.";
     case "consent_required":
-      return "Usage consent is incomplete. Finish Privacy setup before syncing.";
+      return "Usage sharing isn't on yet. Turn on Share anonymous aggregate usage below to sync.";
     case "no_sources_available":
       return "No supported local usage sources are currently available.";
     case "retry_backoff":
       return "A previous attempt failed. A retry is waiting for its backoff window.";
     default:
-      return "Usage sync is off. Review Usage sharing in Settings > Privacy.";
+      return "Usage sync is off. Review Share anonymous aggregate usage below.";
   }
 }
 
@@ -279,9 +279,9 @@ export function UsageSyncPanel() {
             checked={status?.enabled ?? false}
             disabled={toggling}
             onChange={(event) => void toggleAutoSync(event.target.checked)}
-            title="Enable hourly auto-sync to basebuild.net"
+            title="Sync usage automatically: periodically and shortly after usage changes"
           />
-          <span className="text-sm">Auto-sync every {status?.intervalMinutes ?? 60} min</span>
+          <span className="text-sm">Sync usage automatically (periodically &amp; on changes)</span>
         </label>
         <button
           className="btn btn-sm"
@@ -518,7 +518,7 @@ function ProviderPlansPanel({ gatesPass }: { gatesPass: boolean }) {
       </p>
       {!gatesPass ? (
         <p className="text-muted text-sm">
-          Enable usage upload in Settings → Privacy to sync declared plans.
+          Turn on Share anonymous aggregate usage to sync declared plans.
         </p>
       ) : null}
       {loading ? <p className="text-muted text-sm">Detecting…</p> : null}
