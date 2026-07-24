@@ -27,6 +27,10 @@ use crate::services::tool_runtime_service::{
 
 /// Maximum loop iterations before stopping.
 const MAX_ITERATIONS: usize = 25;
+/// Retries on empty provider responses before giving up. Local models
+/// (LM Studio, Ollama) intermittently return empty streams — a nudge retry
+/// recovers most cases without surfacing a confusing error.
+const MAX_EMPTY_RETRIES: usize = 2;
 /// Conservative default context window when the catalog doesn't report one.
 const DEFAULT_CONTEXT_WINDOW: i64 = 32_000;
 /// Output margin reserved for the model's response.
@@ -447,6 +451,7 @@ fn run_loop_inner(
     let mut segments: Vec<TurnSegment> = Vec::new();
     let mut truncated = false;
     let mut iteration = 0;
+    let mut empty_retries = 0;
 
     loop {
         iteration += 1;
@@ -476,7 +481,7 @@ fn run_loop_inner(
         }
 
         // Context budget guard: trim old turns if over budget.
-        let budget = context_budget(model_id);
+        let budget = context_budget(provider_id, model_id);
         let (trimmed_messages, did_truncate) = trim_to_budget(&messages, system, &tools, budget);
         if did_truncate {
             truncated = true;
@@ -567,6 +572,25 @@ fn run_loop_inner(
         let response = match client.generate(&req, &emit) {
             Ok(r) => r,
             Err(e) => {
+                // Local models (LM Studio, Ollama) intermittently return
+                // empty streams — a transient failure that a nudge retry
+                // recovers. Distinguish the typed EmptyResponse from real
+                // transport/HTTP errors so we only retry the recoverable case.
+                // The error arrives as a String (ProviderError → String), so
+                // match on the formatted message.
+                let is_empty = e.contains("returned an empty response");
+                if is_empty && empty_retries < MAX_EMPTY_RETRIES {
+                    empty_retries += 1;
+                    // Delete the empty draft and nudge the model to respond.
+                    if let Some(message_id) = draft_message_id.as_deref() {
+                        let _ = crate::services::native_chat_service::NativeChatService::delete_message(message_id);
+                    }
+                    messages.push(ChatMsg::text(
+                        "user",
+                        "Please continue — provide a response or use a tool.",
+                    ));
+                    continue;
+                }
                 // Preserve any streamed checkpoint and append the terminal
                 // error instead of replacing the partial response.
                 let progress = live_progress.lock();
@@ -636,8 +660,26 @@ fn run_loop_inner(
         assistant_msg.tool_calls = response.tool_calls.clone();
         messages.push(assistant_msg);
 
-        // If no tool calls, the loop is done.
+        // If no tool calls, the loop is done — unless the model returned
+        // nothing actionable (no content, no reasoning). Local models
+        // sometimes "think" via reasoning_content but produce no final
+        // answer, or return a truly empty turn. Nudge and retry instead of
+        // ending silently with an empty response.
         if response.tool_calls.is_empty() {
+            if response.content.trim().is_empty() && !has_reasoning {
+                // Truly empty Ok response — treat like EmptyResponse.
+                if empty_retries < MAX_EMPTY_RETRIES {
+                    empty_retries += 1;
+                    if let Some(message_id) = draft_message_id.as_deref() {
+                        let _ = crate::services::native_chat_service::NativeChatService::delete_message(message_id);
+                    }
+                    messages.push(ChatMsg::text(
+                        "user",
+                        "Please continue — provide a response or use a tool.",
+                    ));
+                    continue;
+                }
+            }
             return RunResult {
                 content: response.content,
                 reasoning: response.reasoning,
@@ -1443,10 +1485,23 @@ fn tool_def_for<'a>(name: &str, defs: &'a [ToolDef]) -> Option<&'a ToolDef> {
 }
 
 /// Get the context budget for a model (conservative default if unknown).
-fn context_budget(model_id: &str) -> i64 {
-    // In a real implementation, look up the model's context_window from the
-    // catalog. For now, use the conservative default.
-    let _ = model_id;
+fn context_budget(provider_id: &str, model_id: &str) -> i64 {
+    // Look up the model's context_window from the DB cache. Local models
+    // (LM Studio, Ollama) often have larger windows (128K+) than the
+    // conservative 32K default; using the real value prevents unnecessary
+    // trimming that could drop tool-call/tool-result pairs.
+    if let Ok(conn) = crate::services::storage_service::StorageService::connect() {
+        if let Ok(ctx) = conn.query_row::<i64, _, _>(
+            "SELECT context_window FROM native_provider_model_cache
+             WHERE provider_id = ?1 AND model_id = ?2",
+            rusqlite::params![provider_id, model_id],
+            |row| row.get(0),
+        ) {
+            if ctx > 0 {
+                return ctx;
+            }
+        }
+    }
     DEFAULT_CONTEXT_WINDOW
 }
 
@@ -1468,22 +1523,50 @@ fn trim_to_budget(
     if total <= available {
         return (messages.to_vec(), false);
     }
-
-    // Drop oldest turns (skip the first user message and any system context).
-    // Keep the last N messages that fit.
+    // Walk messages in reverse, keeping the last N that fit. But never
+    // keep a `tool` result message without its preceding `assistant`
+    // tool-call message — that produces an invalid OpenAI chat sequence
+    // (tool result with no matching tool_call_id), which local servers
+    // (LM Studio, Ollama) may reject or return empty for.
     let mut trimmed = Vec::new();
     let mut used = system_tokens;
+    let mut skip_until_assistant_with_tools = false;
     for msg in messages.iter().rev() {
         let msg_tokens = estimate_tokens(&msg.content);
+        if skip_until_assistant_with_tools {
+            // We're holding a `tool` result whose matching assistant
+            // tool-call hasn't been found yet. Keep scanning backward;
+            // when we find the assistant message with tool_calls, we
+            // include both. If we run out of budget first, drop both.
+            if msg.role == "assistant" && !msg.tool_calls.is_empty() {
+                skip_until_assistant_with_tools = false;
+            } else {
+                continue;
+            }
+        }
         if used + msg_tokens > available {
+            // Budget exceeded. If this is a tool result, we must also
+            // drop its matching assistant tool-call — set the flag.
+            if msg.role == "tool" {
+                skip_until_assistant_with_tools = true;
+            }
             break;
+        }
+        if msg.role == "tool" {
+            skip_until_assistant_with_tools = true;
         }
         trimmed.insert(0, msg.clone());
         used += msg_tokens;
     }
+    // If we were holding a tool result whose assistant tool-call didn't
+    // fit, remove the orphaned tool result(s) from the front.
+    while skip_until_assistant_with_tools
+        && trimmed.first().is_some_and(|m| m.role == "tool")
+    {
+        trimmed.remove(0);
+    }
     (trimmed, true)
 }
-
 /// Estimate tokens for a string (whitespace-split word count).
 fn estimate_tokens(text: &str) -> i64 {
     let trimmed = text.trim();
@@ -1549,6 +1632,43 @@ mod tests {
         let (trimmed, did_truncate) = trim_to_budget(&messages, system, &[], 32_000);
         assert!(!did_truncate);
         assert_eq!(trimmed.len(), 1);
+    }
+
+    #[test]
+    fn trim_to_budget_never_leaves_orphan_tool_result() {
+        // Conversation: user → assistant(tool_calls) → tool(result) → user
+        // With a tight budget that can only keep the last user message,
+        // the tool result must NOT survive without its assistant tool-call.
+        let mut assistant_with_tools = ChatMsg::text("assistant", "");
+        assistant_with_tools.tool_calls = vec![ToolCallRequest {
+            id: "call_1".to_string(),
+            name: "list_files".to_string(),
+            arguments: r#"{"path":"./"}"#.to_string(),
+        }];
+        let mut tool_result = ChatMsg::text("tool", "src/\npackage.json\nREADME.md");
+        tool_result.tool_call_id = Some("call_1".to_string());
+        tool_result.name = Some("list_files".to_string());
+        let messages = vec![
+            ChatMsg::text("user", &"old message with lots of words ".repeat(200)),
+            assistant_with_tools,
+            tool_result,
+            ChatMsg::text("user", "latest message that should be kept"),
+        ];
+        let system = "system prompt with a few words";
+        // Budget tight enough that the old user message won't fit.
+        let (trimmed, did_truncate) = trim_to_budget(&messages, system, &[], 500);
+        assert!(did_truncate);
+        // No tool result without a preceding assistant tool-call.
+        for (i, msg) in trimmed.iter().enumerate() {
+            if msg.role == "tool" {
+                assert!(
+                    i > 0
+                        && trimmed[i - 1].role == "assistant"
+                        && !trimmed[i - 1].tool_calls.is_empty(),
+                    "tool result at index {i} has no preceding assistant tool-call"
+                );
+            }
+        }
     }
 
     #[test]
