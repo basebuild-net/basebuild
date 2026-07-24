@@ -36,13 +36,16 @@ export type ProviderRankInputs = {
 
 /**
  * Ordering for the provider list, shared by the chat picker and Settings:
- * 1. Local ("None") first.
- * 2. Connected providers next, most-recently-used first.
- * 3. Unconnected providers by global usage popularity (desc) when known,
- *    else the curated popular order, else alphabetical.
+ * 1. Local ("None") sentinel first.
+ * 2. Connected remote providers, most-recently-used first (the user's active
+ *    accounts stay on top).
+ * 3. Detected local LLM servers (`local-*`): reachable before disconnected.
+ * 4. Unconnected remote providers by global usage popularity (desc) when
+ *    known, else the curated popular order, else alphabetical.
  *
- * This is what surfaces OpenAI / Anthropic / Google at the top for a fresh
- * install where nothing is connected yet, instead of an alphabetical wall.
+ * Detected local servers rank ahead of the large unconnected-remote wall so a
+ * running LM Studio / Ollama surfaces immediately (issue #48), but behind
+ * remote accounts the user actively connected.
  */
 export function compareProviders(
   a: NativeProvider,
@@ -51,19 +54,29 @@ export function compareProviders(
 ): number {
   const { recency = {}, popularity = {} } = inputs;
 
-  const localRank = (p: NativeProvider) => (p.id === LOCAL_PROVIDER_ID ? 0 : 1);
-  if (localRank(a) !== localRank(b)) return localRank(a) - localRank(b);
+  // Coarse tier: sentinel < local < connected-remote < unconnected-remote.
+  // Local models sit directly under the "None" sentinel so they're easy to
+  // find (issue #48; user request), above every remote provider.
+  const tier = (p: NativeProvider): number => {
+    if (p.id === LOCAL_PROVIDER_ID) return 0;
+    if (p.id.startsWith("local-")) return 1;
+    return p.configured ? 2 : 3;
+  };
+  const tierA = tier(a);
+  const tierB = tier(b);
+  if (tierA !== tierB) return tierA - tierB;
 
-  const connRank = (p: NativeProvider) => (p.configured ? 0 : 1);
-  if (connRank(a) !== connRank(b)) return connRank(a) - connRank(b);
+  // Local models: stable alphabetical.
+  if (tierA === 1) return a.label.localeCompare(b.label);
 
-  if (a.configured && b.configured) {
+  if (tierA === 2) {
+    // Connected remote: most-recently-used first.
     const byRecency = (recency[b.id] ?? 0) - (recency[a.id] ?? 0);
     if (byRecency !== 0) return byRecency;
     return a.label.localeCompare(b.label);
   }
 
-  // Unconnected: global popularity first, then curated, then alphabetical.
+  // Unconnected remote: global popularity first, then curated, then alphabetical.
   const byPopularity = (popularity[b.id] ?? 0) - (popularity[a.id] ?? 0);
   if (byPopularity !== 0) return byPopularity;
   const byCurated = popularRank(a.id) - popularRank(b.id);

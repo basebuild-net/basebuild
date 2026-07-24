@@ -3,7 +3,7 @@ import { AlertCircle, AlertTriangle, Check, Link, Loader2, Plug, RefreshCw, Sear
 import { ModalPortal } from "../../ModalPortal";
 import { formatRelativeTime } from "../../../lib/timing";
 import { recordModelUse, recordProviderUse } from "../../../lib/modelRecency";
-import { nativeProviderCatalogRefresh } from "../../../lib/native-chat";
+import { nativeLocalLlmScan, nativeProviderCatalogRefresh } from "../../../lib/native-chat";
 import type {
   NativeModel,
   NativeProvider,
@@ -105,6 +105,24 @@ export function ProviderCatalogModal({
                       </span>
                     </div>
                     <button
+                      className="btn btn-sm provider-catalog-rescan-btn"
+                      type="button"
+                      title="Rescan for local LLM servers (LM Studio, Ollama, llama.cpp, KoboldCpp)"
+                      onClick={async () => {
+                        addLog("debug", "Local LLM rescan started");
+                        try {
+                          const servers = await nativeLocalLlmScan();
+                          const reachable = servers.filter((s) => s.reachable).length;
+                          addLog("info", "Local LLM rescan complete", `${reachable} reachable of ${servers.length} known`);
+                          await refreshCatalog();
+                        } catch (err) {
+                          addLog("error", "Local LLM rescan failed", err instanceof Error ? err.message : String(err));
+                        }
+                      }}
+                    >
+                      <RefreshCw size={11} /> Rescan local
+                    </button>
+                    <button
                       className="btn-icon"
                       type="button"
                       title="Close provider and model catalog"
@@ -138,6 +156,8 @@ export function ProviderCatalogModal({
                       <div className="provider-card-grid">
                         {visibleCatalogProviders.map((provider) => {
                           const isLocal = provider.id === LOCAL_PROVIDER_ID;
+                          // Detected local LLM server (LM Studio/Ollama/…), not the "None" sentinel.
+                          const isDetectedLocal = provider.id.startsWith("local-") && !isLocal;
                           const healthBad = provider.accountCount > 0 && provider.aggregateHealth !== "healthy";
                           const needsBaseUrl = provider.status === "transport_unavailable";
                           // Auth badge: account count first, then auth method.
@@ -202,6 +222,13 @@ export function ProviderCatalogModal({
                             <span className="provider-card-actions">
                               {isLocal ? (
                                 <span className="provider-card-local-tag" title="No provider connected — select a provider to chat.">Local</span>
+                              ) : isDetectedLocal ? (
+                                <span
+                                  className={`provider-card-local-tag is-${provider.configured ? "connected" : "offline"}`}
+                                  title={`${provider.detail}${provider.configured ? "" : " · server offline — showing last-known models"}`}
+                                >
+                                  <span className="provider-status-dot" /> Local
+                                </span>
                               ) : (
                                 <button
                                   className="btn btn-sm provider-card-action-btn"
@@ -296,6 +323,11 @@ export function ProviderCatalogModal({
                                   used {formatRelativeTime(modelRecency[`${model.providerId}/${model.id}`]!)}
                                 </span>
                               ) : null}
+                              {model.running ? (
+                                <span className="provider-capability is-running" title="Loaded in memory on the local server right now">
+                                  <span className="provider-status-dot" /> Running
+                                </span>
+                              ) : null}
                               {detection.live ? (
                                 <span className="provider-capability is-positive" title={detection.tooltip}>
                                   <Check size={11} aria-hidden="true" /> Detected
@@ -307,7 +339,15 @@ export function ProviderCatalogModal({
                             </span>
                           </button>
                         ); })}
-                        {filteredModels.length === 0 ? <p className="text-muted text-sm provider-model-empty">No matching models.</p> : null}
+                        {filteredModels.length === 0 ? (
+                          selectedProvider?.id === "local-models" ? (
+                            <p className="text-muted text-sm provider-model-empty">
+                              No local models detected. Start LM Studio, Ollama, llama.cpp, or KoboldCpp, then click "Rescan local".
+                            </p>
+                          ) : (
+                            <p className="text-muted text-sm provider-model-empty">No matching models.</p>
+                          )
+                        ) : null}
                       </div>
                     </section>
                   </div>

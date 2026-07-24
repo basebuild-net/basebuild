@@ -3079,6 +3079,19 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .provider-card-flag.is-warn { color: var(--bb-warning, #d97706); }
 .provider-card-flag.is-danger { color: var(--bb-danger, #dc2626); }
 .provider-card-local-tag { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--bb-muted); padding: 1px 5px; border: 1px solid var(--bb-border); border-radius: var(--bb-radius-sm); }
+.provider-card-local-tag.is-connected, .provider-card-local-tag.is-offline { display: inline-flex; align-items: center; gap: 4px; }
+.provider-card-local-tag.is-connected { color: var(--bb-success, #16a34a); border-color: var(--bb-success, #16a34a); }
+.provider-card-local-tag.is-offline { color: var(--bb-muted); }
+.provider-card-local-tag.is-connected .provider-status-dot { background: var(--bb-success, #16a34a); }
+.provider-card-local-tag.is-offline .provider-status-dot { background: var(--bb-muted); }
+.provider-catalog-rescan-btn { flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; font-size: 10px; }
+.chat-gen-stats { display: flex; gap: 10px; align-items: center; font-size: 10px; color: var(--bb-muted); padding: 2px 8px; }
+.chat-gen-stats .chat-gen-stats-label { font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.chat-route-badge { display: inline-flex; align-items: center; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; border-radius: var(--bb-radius-sm); border: 1px solid var(--bb-border); }
+.chat-route-badge.is-native { color: var(--bb-success, #16a34a); border-color: var(--bb-success, #16a34a); }
+.chat-route-badge.is-omp { color: var(--bb-warning, #d0a04a); border-color: var(--bb-warning, #d0a04a); }
+.provider-capability.is-running { display: inline-flex; align-items: center; gap: 4px; color: var(--bb-success, #16a34a); }
+.provider-capability.is-running .provider-status-dot { background: var(--bb-success, #16a34a); }
 .provider-card-retry-btn { flex-shrink: 0; font-size: 9px; padding: 1px 5px; }
 .provider-model-search { flex-shrink: 0; margin-bottom: 8px; font-size: 11px; }
 .provider-model-list { min-height: 0; display: flex; flex-direction: column; gap: 3px; overflow-y: auto; }

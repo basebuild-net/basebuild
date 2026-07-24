@@ -75,7 +75,7 @@ export const BUILTIN_COMMANDS: ChatCommand[] = [
   },
   {
     name: "new",
-    description: "Start a fresh empty chat for the current project. Keeps the previous chat.",
+    description: "Clear all messages in the current chat (keeps the session and model selection).",
     usage: "/new",
     arguments: [],
     examples: ["/new"],

@@ -73,6 +73,8 @@ import {
   nativeChatBootstrap,
   nativeChatCancel,
   nativeChatClearMessages,
+  nativeChatInputHistoryAdd,
+  nativeChatInputHistoryList,
   nativeChatGet,
   nativeChatMessages,
   nativeChatSend,
@@ -212,6 +214,12 @@ export function ChatPanel({
   const [catalogStatus, setCatalogStatus] = useState<"loading" | "refreshing" | "ready" | "stale" | "error">("loading");
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [contextUsedTokens, setContextUsedTokens] = useState(0);
+  // Latest completed-turn generation stats, shown only for local providers.
+  const [genStats, setGenStats] = useState<{
+    tokensPerSecond: number | null;
+    ttftMs: number | null;
+    durationMs: number | null;
+  } | null>(null);
   const [nativeSessionId, setNativeSessionId] = useState<string | null>(chatSessionId ?? null);
   // Composer gate for background-agent chats: input stays locked until the
   // user explicitly opts in, since sending into the agent's session can
@@ -223,6 +231,8 @@ export function ChatPanel({
   useEffect(() => {
     setBgInputUnlocked(false);
     setBgOutcome(null);
+    historyIndexRef.current = -1;
+    savedDraftRef.current = "";
   }, [nativeSessionId]);
   const [nativeMessages, setNativeMessages] = useState<NativeChatMessage[]>([]);
   const [toolEvents, setToolEvents] = useState<NativeToolEvent[]>([]);
@@ -243,6 +253,30 @@ export function ChatPanel({
   const [effortLevel, setEffortLevel] = useState("medium");
   const [modelNotice, setModelNotice] = useState<string | null>(null);
   const [input, setInput] = useState("");
+  // ─── Input history (terminal-style ArrowUp/ArrowDown navigation) ───
+  // Global persistent history: last 100 sent messages across ALL sessions,
+  // preserved across session clears and app restarts. Loaded from the
+  // backend SQLite store on mount and refreshed after each send.
+  // The index is a ref so it doesn't trigger re-renders. -1 = not browsing.
+  // A saved draft ref preserves the in-progress text when the user starts
+  // browsing history, so ArrowDown past the end restores it.
+  const historyIndexRef = useRef(-1);
+  const savedDraftRef = useRef("");
+  const [userHistory, setUserHistory] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    nativeChatInputHistoryList()
+      .then((entries) => {
+        if (!cancelled) setUserHistory(entries);
+      })
+      .catch(() => {
+        // Backend may not be ready on first mount; silently ignore.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stuck, setStuck] = useState(false);
@@ -1183,6 +1217,17 @@ export function ChatPanel({
           createdAt: Math.floor(Date.now() / 1000),
         };
         setNativeMessages((prev) => [...prev, tempUser]);
+        // Persist to global input history (fire-and-forget; non-blocking).
+        const trimmed = text.trim();
+        if (trimmed.length > 0) {
+          nativeChatInputHistoryAdd(trimmed).catch(() => {
+            // Non-fatal: history persistence is best-effort.
+          });
+          setUserHistory((prev) => {
+            const next = [trimmed, ...prev.filter((h) => h !== trimmed)].slice(0, 100);
+            return next;
+          });
+        }
         try {
           const result = await nativeChatSend({ sessionId: nativeSessionId, content: text, providerId, modelId, effortLevel });
           if (activeSendRef.current !== gen) return;
@@ -1510,6 +1555,9 @@ export function ChatPanel({
   // Ref to handleGenerateIdeas so /idea generate can call it without a TDZ
   // issue (handleGenerateIdeas is defined after handleSend).
   const generateIdeasRef = useRef<((opts?: { categoryIds?: string[]; ideaCount?: number; direction?: string | null }) => Promise<void>) | null>(null);
+  // Ref to handleClearChat so /new can clear the current chat without a TDZ
+  // issue (handleClearChat is defined after handleSend).
+  const clearChatRef = useRef<() => Promise<void>>(async () => {});
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
@@ -1586,12 +1634,9 @@ export function ChatPanel({
           }
         },
         new: () => {
-          if (onNewChat) {
-            onNewChat();
-            setCommandNotice("Starting a new chat…");
-          } else {
-            setCommandNotice("New chat is not available in this context.");
-          }
+          // /new clears the CURRENT chat in place (not a new tab/session).
+          void clearChatRef.current();
+          setCommandRecency(recordCommandUse("new"));
         },
         stop: () => {
           if (loading || streaming) {
@@ -1890,6 +1935,7 @@ export function ChatPanel({
       addLog("error", "Failed to clear chat messages", msg);
     }
   }, [nativeSessionId, addLog]);
+  clearChatRef.current = handleClearChat;
 
   const refreshCatalog = useCallback(async (force = false, targetProviderId?: string) => {
     setCatalogStatus(catalog ? "refreshing" : "loading");
@@ -2574,6 +2620,36 @@ export function ChatPanel({
   const sendDisabled = bgGateActive || loading || !input.trim() || (nativeMode ? !nativeSessionId : agentId === null);
 
   const modelName = selectedModel?.label ?? modelId;
+  // Local providers surface real per-request generation stats after each turn.
+  const isLocalProvider = providerId.startsWith("local-");
+  // Routing badge next to the model: Basebuild's native transport vs the OMP
+  // RPC bridge (OMP-imported credentials). Local + API-key providers are native.
+  const routeVia: "native" | "omp" | null = !selectedProvider?.configured
+    ? null
+    : selectedProvider.connectedVia === "omp"
+      ? "omp"
+      : "native";
+  useEffect(() => {
+    if (!isLocalProvider || !nativeSessionId || streaming) {
+      return;
+    }
+    let cancelled = false;
+    void nativeSessionLatestMetric(nativeSessionId)
+      .then((metric) => {
+        if (cancelled) return;
+        setGenStats(
+          metric
+            ? { tokensPerSecond: metric.tokensPerSecond, ttftMs: metric.ttftMs, durationMs: metric.durationMs }
+            : null,
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setGenStats(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isLocalProvider, nativeSessionId, streaming, nativeMessages.length]);
   // Pending ask_user questions own the composer until resolved or explicitly
   // minimized. A minimized question becomes a compact preview; restoring it
   // returns to the same page and draft answers.
@@ -3282,6 +3358,9 @@ export function ChatPanel({
                 const el = e.target;
                 el.style.setProperty("--chat-input-height", "auto");
                 el.style.setProperty("--chat-input-height", `${Math.min(el.scrollHeight, 360)}px`);
+                // Typing manually exits history browsing.
+                historyIndexRef.current = -1;
+                savedDraftRef.current = "";
               }}
               onKeyDown={(e) => {
                 if (showCommandPalette && nativeMode) {
@@ -3317,8 +3396,87 @@ export function ChatPanel({
                     return;
                   }
                 }
+                // ─── Terminal-style input history (ArrowUp/ArrowDown) ───
+                // ArrowUp recalls older messages when the input is empty or
+                // already browsing history. If the user has typed text and
+                // isn't browsing, ArrowUp does nothing (lets cursor move up
+                // in multi-line text). ArrowDown moves forward through
+                // history; past the newest entry restores the saved draft.
+                if (!showCommandPalette && nativeMode && userHistory.length > 0) {
+                  if (e.key === "ArrowUp" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                    const ta = e.currentTarget;
+                    const atFirstLine = ta.selectionStart === 0 && ta.selectionEnd === 0;
+                    const browsing = historyIndexRef.current >= 0;
+                    const inputEmpty = input.length === 0;
+                    if ((atFirstLine || browsing) && (inputEmpty || browsing)) {
+                      e.preventDefault();
+                      if (!browsing) {
+                        savedDraftRef.current = input;
+                        historyIndexRef.current = 0;
+                      } else if (historyIndexRef.current < userHistory.length - 1) {
+                        historyIndexRef.current += 1;
+                      }
+                      const entry = userHistory[historyIndexRef.current];
+                      if (entry !== undefined) {
+                        setInput(entry);
+                        requestAnimationFrame(() => {
+                          if (chatInputRef.current) {
+                            chatInputRef.current.selectionStart = chatInputRef.current.value.length;
+                            chatInputRef.current.selectionEnd = chatInputRef.current.value.length;
+                            const el = chatInputRef.current;
+                            el.style.setProperty("--chat-input-height", "auto");
+                            el.style.setProperty("--chat-input-height", `${Math.min(el.scrollHeight, 360)}px`);
+                          }
+                        });
+                      }
+                      return;
+                    }
+                  }
+                  if (e.key === "ArrowDown" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                    const ta = e.currentTarget;
+                    const valueLen = ta.value.length;
+                    const atLastLine = ta.selectionStart === valueLen && ta.selectionEnd === valueLen;
+                    const browsing = historyIndexRef.current >= 0;
+                    if (browsing && atLastLine) {
+                      e.preventDefault();
+                      if (historyIndexRef.current > 0) {
+                        historyIndexRef.current -= 1;
+                        const entry = userHistory[historyIndexRef.current];
+                        if (entry !== undefined) {
+                          setInput(entry);
+                          requestAnimationFrame(() => {
+                            if (chatInputRef.current) {
+                              chatInputRef.current.selectionStart = chatInputRef.current.value.length;
+                              chatInputRef.current.selectionEnd = chatInputRef.current.value.length;
+                              const el = chatInputRef.current;
+                              el.style.setProperty("--chat-input-height", "auto");
+                              el.style.setProperty("--chat-input-height", `${Math.min(el.scrollHeight, 360)}px`);
+                            }
+                          });
+                        }
+                      } else {
+                        // Past the newest entry — restore saved draft.
+                        historyIndexRef.current = -1;
+                        setInput(savedDraftRef.current);
+                        savedDraftRef.current = "";
+                        requestAnimationFrame(() => {
+                          if (chatInputRef.current) {
+                            chatInputRef.current.selectionStart = chatInputRef.current.value.length;
+                            chatInputRef.current.selectionEnd = chatInputRef.current.value.length;
+                            const el = chatInputRef.current;
+                            el.style.setProperty("--chat-input-height", "auto");
+                            el.style.setProperty("--chat-input-height", `${Math.min(el.scrollHeight, 360)}px`);
+                          }
+                        });
+                      }
+                      return;
+                    }
+                  }
+                }
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
+                  historyIndexRef.current = -1;
+                  savedDraftRef.current = "";
                   void handleSend();
                 }
               }}
@@ -3352,6 +3510,26 @@ export function ChatPanel({
                   permissionMode={approvalMode}
                   onChangePermission={(mode) => void handleSetApprovalMode(mode)}
                 />
+                {routeVia ? (
+                  <span
+                    className={`chat-route-badge is-${routeVia}`}
+                    title={
+                      routeVia === "omp"
+                        ? "This chat routes through the Oh My Pi (OMP) RPC bridge — some Basebuild tools may be unavailable."
+                        : "This chat uses Basebuild's native transport (first-party) — full tool support."
+                    }
+                  >
+                    {routeVia === "omp" ? "OMP" : "Native"}
+                  </span>
+                ) : null}
+                {isLocalProvider && genStats ? (
+                  <span className="chat-gen-stats" title="Local generation stats from the last completed turn">
+                    <span className="chat-gen-stats-label">Local</span>
+                    {genStats.tokensPerSecond != null ? <span>{genStats.tokensPerSecond.toFixed(1)} tok/s</span> : null}
+                    {genStats.ttftMs != null ? <span>{genStats.ttftMs} ms TTFT</span> : null}
+                    {genStats.durationMs != null ? <span>{(genStats.durationMs / 1000).toFixed(1)}s</span> : null}
+                  </span>
+                ) : null}
               </div>
             ) : null}
             <div className="chat-composer-controls-right">

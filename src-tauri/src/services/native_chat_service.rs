@@ -145,6 +145,10 @@ impl NativeChatService {
     /// avoids reading OMP credentials and cached models once for the catalog
     /// and again for the effective project default.
     pub fn bootstrap(project_path: &str) -> DbResult<NativeChatBootstrap> {
+        // Probe loopback for local LLM servers once per process so a running
+        // LM Studio/Ollama surfaces on first chat open without an explicit
+        // refresh.
+        crate::services::provider_model_catalog_service::ProviderModelCatalogService::ensure_local_servers();
         let catalog = Self::provider_catalog();
         let resolved = Self::resolve_model_default_from_catalog(project_path, &catalog)?;
         Ok(NativeChatBootstrap { catalog, resolved })
@@ -406,6 +410,40 @@ impl NativeChatService {
             }
         }
         Ok(creds)
+    }
+
+    /// Reconcile the single `local-models` account with the latest scan. When at
+    /// least one local server is reachable, a keyless account (`api_key =
+    /// "local"`, no base URL — chat routes per-model) exists so the send path's
+    /// account lookup succeeds; when every server is gone the account is
+    /// removed. Cached models stay intact — the catalog shows them regardless.
+    /// Also cleans up legacy per-server `local-*` accounts from earlier builds.
+    pub fn sync_local_accounts(
+        servers: &[crate::services::local_llm_service::DetectedLocalServer],
+    ) -> DbResult<()> {
+        use crate::services::provider_account_service::{ProviderAccountService, AUTH_API};
+        ProviderAccountService::ensure_migrated();
+        let any_reachable = servers.iter().any(|s| s.reachable);
+        if any_reachable {
+            ProviderAccountService::upsert_account(
+                "local-models",
+                "Local Models",
+                AUTH_API,
+                "local",
+                None,
+                "local",
+            )?;
+        }
+        // Remove the account when nothing is reachable, plus any legacy
+        // per-server local accounts (`local-lmstudio`, …) from older builds.
+        for record in ProviderAccountService::list_records(None)? {
+            let is_local = record.provider_id.starts_with("local-");
+            let keep = record.provider_id == "local-models" && any_reachable;
+            if is_local && !keep {
+                ProviderAccountService::remove_account(&record.id)?;
+            }
+        }
+        Ok(())
     }
 
     /// Return provider ids with request-usable credentials. OMP OAuth rows are
@@ -968,6 +1006,53 @@ impl NativeChatService {
         Ok(deleted)
     }
 
+    /// Persist a sent user message to the global input history (last 100).
+    /// Deduplicates by content so re-sending the same text doesn't fill the
+    /// buffer with repeats. Trims to the most recent 100 entries.
+    pub fn add_input_history(content: &str) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        let now = now_seconds();
+        // Delete any existing entry with the same content, then re-insert
+        // so the re-sent message moves to the newest position.
+        conn.execute(
+            "DELETE FROM native_chat_input_history WHERE content = ?1",
+            params![content],
+        )
+        .map_err(|e| format!("Failed to trim input history: {e}"))?;
+        conn.execute(
+            "INSERT INTO native_chat_input_history (content, created_at) VALUES (?1, ?2)",
+            params![content, now],
+        )
+        .map_err(|e| format!("Failed to save input history: {e}"))?;
+        // Trim to last 100 (keep the newest 100 by id).
+        conn.execute(
+            "DELETE FROM native_chat_input_history
+             WHERE id NOT IN (
+                 SELECT id FROM native_chat_input_history
+                 ORDER BY id DESC LIMIT 100
+             )",
+            [],
+        )
+        .map_err(|e| format!("Failed to trim input history: {e}"))?;
+        Ok(())
+    }
+
+    /// Return the global input history, most-recent-first (last 100 sent).
+    pub fn list_input_history() -> DbResult<Vec<String>> {
+        let conn = StorageService::connect()?;
+        let mut stmt = conn
+            .prepare("SELECT content FROM native_chat_input_history ORDER BY id DESC LIMIT 100")
+            .map_err(|e| format!("Failed to query input history: {e}"))?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("Failed to read input history: {e}"))?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row.map_err(|e| format!("Failed to read input history row: {e}"))?);
+        }
+        Ok(result)
+    }
+
     pub fn send_message(
         app: &AppHandle,
         request: NativeChatSendRequest,
@@ -1120,7 +1205,7 @@ impl NativeChatService {
                     &request.session_id,
                     &session.project_path,
                     &provider_id,
-                    &resolved_model_id,
+                    &model_id,
                     &effort_level,
                     account.map(|c| c.api_key.clone()),
                     account.and_then(|c| c.base_url.clone()),
@@ -1710,7 +1795,7 @@ impl NativeChatService {
             &request.session_id,
             &chat_session.project_path,
             &provider_id,
-            &resolved_model_id,
+            &model_id,
             &effort_level,
             Some(credential.api_key),
             credential.base_url,
@@ -3875,5 +3960,53 @@ mod tests {
 
         assert!(context.contains("idea [concept]: Avoid duplicate route"));
         assert!(context.contains("plan [ready]: Ship active planner"));
+    }
+
+    #[test]
+    fn input_history_persists_and_lists_most_recent_first() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+
+        // No history initially.
+        assert_eq!(NativeChatService::list_input_history().unwrap(), Vec::<String>::new());
+
+        NativeChatService::add_input_history("first message").unwrap();
+        NativeChatService::add_input_history("second message").unwrap();
+        NativeChatService::add_input_history("third message").unwrap();
+
+        // Most-recent-first.
+        let history = NativeChatService::list_input_history().unwrap();
+        assert_eq!(history, vec!["third message", "second message", "first message"]);
+    }
+
+    #[test]
+    fn input_history_deduplicates_by_content() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+
+        NativeChatService::add_input_history("hello").unwrap();
+        NativeChatService::add_input_history("world").unwrap();
+        NativeChatService::add_input_history("hello").unwrap(); // re-send moves to newest
+
+        let history = NativeChatService::list_input_history().unwrap();
+        // "hello" should appear once, at the top (most recent).
+        assert_eq!(history, vec!["hello", "world"]);
+    }
+
+    #[test]
+    fn input_history_trims_to_100_entries() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = lock_db(&dir);
+
+        // Insert 105 unique messages.
+        for i in 0..105 {
+            NativeChatService::add_input_history(&format!("msg-{i}")).unwrap();
+        }
+
+        let history = NativeChatService::list_input_history().unwrap();
+        assert_eq!(history.len(), 100);
+        // Most recent is msg-104, oldest kept is msg-5.
+        assert_eq!(history[0], "msg-104");
+        assert_eq!(history[99], "msg-5");
     }
 }

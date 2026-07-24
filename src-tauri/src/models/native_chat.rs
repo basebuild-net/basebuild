@@ -229,6 +229,11 @@ pub struct NativeModel {
     /// confirmed vs. which are catalog-only. Empty for legacy rows.
     #[serde(default)]
     pub detected_by: Vec<String>,
+    /// For local models: whether the source server currently has this model
+    /// loaded in memory (running), vs merely installed. Always false for
+    /// remote/catalog models. Reflects the last detection scan.
+    #[serde(default)]
+    pub running: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

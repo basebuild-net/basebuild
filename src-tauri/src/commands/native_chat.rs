@@ -62,6 +62,34 @@ pub async fn native_provider_popularity(
         .map_err(|e| format!("Popularity fetch task panicked: {e}"))
 }
 
+#[tauri::command]
+pub async fn native_local_llm_scan(
+) -> Result<Vec<crate::services::local_llm_service::DetectedLocalServer>, String> {
+    tauri::async_runtime::spawn_blocking(
+        crate::services::provider_model_catalog_service::ProviderModelCatalogService::scan_local_servers,
+    )
+    .await
+    .map_err(|e| format!("Local LLM scan task panicked: {e}"))?
+}
+
+#[tauri::command]
+pub fn native_local_model_override_set(
+    provider_id: String,
+    model_id: String,
+    supports_tools: bool,
+) -> Result<(), String> {
+    if provider_id.trim().is_empty() || model_id.trim().is_empty() {
+        return Err("Provider id and model id are required.".to_string());
+    }
+    crate::services::local_llm_service::LocalLlmService::set_tool_override(
+        &provider_id,
+        &model_id,
+        supports_tools,
+    )?;
+    crate::services::provider_model_catalog_service::ProviderModelCatalogService::invalidate();
+    Ok(())
+}
+
 // ─── Provider accounts (multi-account) ───
 
 #[tauri::command]
@@ -196,6 +224,16 @@ pub async fn native_chat_messages(session_id: String) -> Result<Vec<NativeChatMe
 #[tauri::command]
 pub fn native_chat_clear_messages(session_id: String) -> Result<usize, String> {
     NativeChatService::clear_session_messages(&session_id)
+}
+
+#[tauri::command]
+pub fn native_chat_input_history_add(content: String) -> Result<(), String> {
+    NativeChatService::add_input_history(&content)
+}
+
+#[tauri::command]
+pub fn native_chat_input_history_list() -> Result<Vec<String>, String> {
+    NativeChatService::list_input_history()
 }
 
 #[tauri::command]

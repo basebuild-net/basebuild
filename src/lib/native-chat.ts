@@ -133,6 +133,9 @@ export type NativeModel = {
    *  (`omp models`), "hosted_fallback". A live source (provider_discovered /
    *  omp_cli) means the model was confirmed available, not just catalogued. */
   detectedBy?: string[];
+  /** Local models only: the source server currently has this model loaded in
+   *  memory (running), as of the last detection scan. False for remote models. */
+  running?: boolean;
 };
 
 export type NativeEffortLevel = {
@@ -246,6 +249,30 @@ export async function nativeProviderCatalogRefresh(input?: {
   force?: boolean;
 }): Promise<NativeProviderCatalog> {
   return invoke<NativeProviderCatalog>("native_provider_catalog_refresh", { request: input ?? null });
+}
+
+/** A detected (or previously detected) local LLM server. */
+export type NativeLocalServer = {
+  providerId: string;
+  /** Server kind: "lmstudio" | "ollama" | "llamacpp" | "koboldcpp". */
+  kind: string;
+  baseUrl: string;
+  reachable: boolean;
+};
+
+/** Probe loopback for local LLM servers, reconcile their keyless accounts, and
+ * return the known-server set. Invalidates the catalog cache. */
+export async function nativeLocalLlmScan(): Promise<NativeLocalServer[]> {
+  return invoke<NativeLocalServer[]>("native_local_llm_scan");
+}
+
+/** Override tool-calling capability for a discovered local model. */
+export async function nativeLocalModelOverrideSet(
+  providerId: string,
+  modelId: string,
+  supportsTools: boolean,
+): Promise<void> {
+  return invoke("native_local_model_override_set", { providerId, modelId, supportsTools });
 }
 export type CatalogSyncResult = {
   synced: number;
@@ -469,6 +496,17 @@ export async function nativeChatCancel(sessionId: string): Promise<boolean> {
  * Returns the count of deleted messages. */
 export async function nativeChatClearMessages(sessionId: string): Promise<number> {
   return invoke<number>("native_chat_clear_messages", { sessionId });
+}
+
+/** Persist a sent user message to the global input history (last 100).
+ *  Deduplicates by content; survives session clears and app restarts. */
+export async function nativeChatInputHistoryAdd(content: string): Promise<void> {
+  return invoke("native_chat_input_history_add", { content });
+}
+
+/** Return the global input history, most-recent-first (last 100 sent). */
+export async function nativeChatInputHistoryList(): Promise<string[]> {
+  return invoke<string[]>("native_chat_input_history_list");
 }
 
 /** List tool events for a session (tool calls, approvals, metrics). */

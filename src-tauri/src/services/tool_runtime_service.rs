@@ -419,6 +419,40 @@ pub fn registry() -> Vec<ToolDef> {
         },
         ToolDef {
             schema: ToolSchema {
+                name: "list_skills".to_string(),
+                description: "List all available Basebuild skills (bundled and user-installed). Skills are reusable knowledge modules with instructions for specific tasks (e.g. 'basebuild-planning', 'dotnet-coding-standards'). Each entry includes the skill name and a short description. Use read_skill to get the full content of a skill before following its guidance.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {}
+                }),
+            },
+            kind: ToolKind::ReadOnly,
+            execute: list_skills,
+        },
+        ToolDef {
+            schema: ToolSchema {
+                name: "read_skill".to_string(),
+                description: "Read the full SKILL.md content of a named Basebuild skill. Skills contain detailed instructions, conventions, and step-by-step guidance for specific tasks. Always read a skill's content before applying its guidance to the user's project.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "description": "The skill name (e.g. 'basebuild-planning', 'dotnet-coding-standards'). Use list_skills to discover valid names."
+                        }
+                    },
+                    "required": ["name"]
+                }),
+            },
+            kind: ToolKind::ReadOnly,
+            execute: read_skill,
+        },
+        ToolDef {
+            schema: ToolSchema {
                 name: "ask_user".to_string(),
                 description: "Pause and present a focused, resumable questionnaire. Use a concise title and description, group related questions with pageId/pageTitle, mark decision-critical questions required, and use a rating question for a typed bounded score. Legacy flat questions remain supported. The user may minimize without cancelling; only final submission resumes the loop.".to_string(),
                 parameters: json!({
@@ -1270,6 +1304,45 @@ fn ask_user_fallback(_workspace_root: &Path, _args: &Value) -> ToolResult {
         "ask_user must be intercepted by the agent loop. This fallback should never be called."
             .to_string(),
     )
+}
+
+/// List all available Basebuild skills (bundled + user-installed).
+/// Returns one line per skill: "name — description".
+fn list_skills(_workspace_root: &Path, _args: &Value) -> ToolResult {
+    match crate::services::skill_registry_service::SkillRegistryService::list() {
+        Ok(skills) => {
+            if skills.is_empty() {
+                return ToolResult::success(
+                    "No skills are installed. Skills can be added to ~/.basebuild/skills/ or bundled by the app.".to_string(),
+                );
+            }
+            let mut lines: Vec<String> = Vec::with_capacity(skills.len());
+            for skill in &skills {
+                let desc = if skill.description.is_empty() {
+                    "(no description)"
+                } else {
+                    &skill.description
+                };
+                lines.push(format!("{} — {}", skill.name, desc));
+            }
+            ToolResult::success(lines.join("\n"))
+        }
+        Err(e) => ToolResult::failure(format!("Failed to list skills: {e}")),
+    }
+}
+
+/// Read the full SKILL.md content of a named skill.
+fn read_skill(_workspace_root: &Path, args: &Value) -> ToolResult {
+    let name = match args.get("name").and_then(Value::as_str) {
+        Some(n) => n,
+        None => return ToolResult::failure("Missing required parameter: name".to_string()),
+    };
+    match crate::services::skill_registry_service::SkillRegistryService::read_content(name) {
+        Some(content) => ToolResult::success(content),
+        None => ToolResult::failure(format!(
+            "Skill '{name}' not found. Use list_skills to see available skill names."
+        )),
+    }
 }
 trait ChildWaitTimeoutExt {
     /// Returns `Ok(Some(status))` on exit, `Ok(None)` on timeout.
