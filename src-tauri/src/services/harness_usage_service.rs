@@ -283,14 +283,14 @@ impl crate::services::usage_source_service::UsageSource for HarnessSource {
         if entries.is_empty() {
             return Ok(None);
         }
-        let (rows, window_end) = aggregate_entries(self.kind(), &entries);
+        let (rows, window_start, window_end) = aggregate_entries(self.kind(), &entries);
         if rows.is_empty() {
             return Ok(None);
         }
         Ok(Some(UsageBatch {
             source: self.kind(),
-            idempotency_key: format!("harness:{}:{since}:{window_end}:v1", self.kind().as_str()),
-            window_start: since,
+            idempotency_key: format!("harness:{}:{window_start}:{window_end}:v1", self.kind().as_str()),
+            window_start,
             window_end,
             rows,
         }))
@@ -309,7 +309,7 @@ impl crate::services::usage_source_service::UsageSource for HarnessSource {
 }
 
 /// Aggregate parsed entries into schema-safe per-(provider, model, hour) rows.
-fn aggregate_entries(source: SourceKind, entries: &[Value]) -> (Vec<Value>, i64) {
+fn aggregate_entries(source: SourceKind, entries: &[Value]) -> (Vec<Value>, i64, i64) {
     use std::collections::HashMap;
 
     #[derive(Default)]
@@ -321,6 +321,7 @@ fn aggregate_entries(source: SourceKind, entries: &[Value]) -> (Vec<Value>, i64)
         output: i64,
         cache_read: i64,
         cost: f64,
+        ts_min: i64,
         ts_max: i64,
     }
 
@@ -341,6 +342,8 @@ fn aggregate_entries(source: SourceKind, entries: &[Value]) -> (Vec<Value>, i64)
             .or_insert_with(|| Acc {
                 provider: provider.clone(),
                 model: model.clone(),
+                ts_min: ts,
+                ts_max: ts,
                 ..Default::default()
             });
         acc.requests += 1;
@@ -348,9 +351,11 @@ fn aggregate_entries(source: SourceKind, entries: &[Value]) -> (Vec<Value>, i64)
         acc.output += output;
         acc.cache_read += cache_read;
         acc.cost += cost;
+        acc.ts_min = acc.ts_min.min(ts);
         acc.ts_max = acc.ts_max.max(ts);
     }
 
+    let window_start = map.values().map(|acc| acc.ts_min).min().unwrap_or(0);
     let window_end = map.values().map(|acc| acc.ts_max).max().unwrap_or(0);
     let rows = map
         .into_values()
@@ -373,7 +378,7 @@ fn aggregate_entries(source: SourceKind, entries: &[Value]) -> (Vec<Value>, i64)
             })
         })
         .collect();
-    (rows, window_end)
+    (rows, window_start, window_end)
 }
 
 /// Claude Code: assistant entries with `message.model` + `message.usage`.
@@ -618,8 +623,9 @@ mod tests {
             },
             "timestamp": "2026-07-18T12:34:56Z"
         });
-        let (rows, window_end) = aggregate_entries(SourceKind::ClaudeCode, &[entry]);
+        let (rows, window_start, window_end) = aggregate_entries(SourceKind::ClaudeCode, &[entry]);
         assert_eq!(rows.len(), 1);
+        assert!(window_start > 0);
         assert!(window_end > 0);
         let row = &rows[0];
         // Only closed aggregate fields are emitted.
