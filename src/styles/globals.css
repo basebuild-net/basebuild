@@ -93,6 +93,9 @@
   /* Borders — subtle grey */
   --bb-border: #28282e;
   --bb-border-strong: #38383f;
+  /* Skeleton placeholder — brighter than surface so it reads as occupied
+     space, dimmer than text so it does not compete with real content. */
+  --bb-skeleton: #3a3a44;
 
   /* Interaction — green accent only on primary/CTA */
   --bb-primary: #5b9a66;
@@ -168,6 +171,7 @@
   /* Borders */
   --bb-border: #303632;
   --bb-border-strong: #3a423d;
+  --bb-skeleton: #3a423d;
 
   /* Interaction — green accent */
   --bb-primary: #6ea97a;
@@ -245,6 +249,7 @@
   /* Borders */
   --bb-border: #d4d4d8;
   --bb-border-strong: #a1a1aa;
+  --bb-skeleton: #c4c4cc;
 
   /* Interaction — restrained green accent (deeper for light contrast) */
   --bb-primary: #4a8a55;
@@ -872,9 +877,9 @@ a { color: inherit; text-decoration: none; }
 .bb-skeleton {
   display: block;
   height: 20px;
-  background: var(--bb-surface-high);
+  background: var(--bb-skeleton);
   border-radius: var(--bb-radius-sm);
-  opacity: 0.5;
+  opacity: 0.7;
   animation: bb-skeleton-pulse 1.4s ease-in-out infinite;
 }
 /* Staggered so a stack of rows reads as one loading surface rather than a
@@ -883,12 +888,18 @@ a { color: inherit; text-decoration: none; }
 .bb-skeleton-rows > .bb-skeleton:nth-child(4) { animation-delay: 0.3s; }
 .bb-skeleton-rows > .bb-skeleton:nth-child(5) { animation-delay: 0.45s; }
 .bb-skeleton-inline { display: inline-block; height: 1em; vertical-align: text-bottom; }
-/* Matches the footprint of the checkbox it replaces so the row does not
-   reflow when the real control arrives. */
-.bb-skeleton-control { display: inline-block; height: 14px; flex: 0 0 auto; }
+/* Spinner stand-in for a form control. The `spin` class on the element
+   drives the rotation (and gets disabled by prefers-reduced-motion); this
+   class just colours it like a skeleton and flexes it to the control's
+   footprint so the row does not reflow on arrival. */
+.bb-skeleton-control {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--bb-skeleton);
+}
 @keyframes bb-skeleton-pulse {
-  0%, 100% { opacity: 0.35; }
-  50%      { opacity: 0.6; }
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 0.85; }
 }
 @media (prefers-reduced-motion: reduce) {
   .bb-skeleton { animation: none; }

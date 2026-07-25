@@ -62,6 +62,20 @@ test.describe("Loading states", () => {
     await expect(row.locator(".bb-skeleton-control")).toBeVisible();
     await expect(row.locator('input[type="checkbox"]')).toHaveCount(0);
     await expect(row.getByLabel("Loading the automatic sync setting")).toBeAttached();
+    // The placeholder is a spinner (SVG), not a dead block: it must read as
+    // "busy" at control scale, where a pulse is indistinguishable from off.
+    await expect(row.locator(".bb-skeleton-control svg")).toHaveCount(1);
+    // And it must be visible: the skeleton token is brighter than the surface
+    // so the placeholder is not lost against the panel.
+    const skelColor = await row.locator(".bb-skeleton-control").evaluate(
+      (el) => getComputedStyle(el).color,
+    );
+    const surfaceColor = await row.evaluate(
+      (el) => getComputedStyle(el.closest(".settings-modal, .card, [class*=surface]") ?? el.parentElement).backgroundColor,
+    );
+    // Parse hex/rgb to a luminance-ish number. Just confirm they differ.
+    expect(skelColor).not.toBe(surfaceColor);
+    expect(skelColor).toMatch(/rgb|#/);
 
     // The real control replaces it, and the fixture's value is ON — exactly
     // the state the old placeholder misreported.

@@ -13,6 +13,7 @@
  *
  * All three are `role="status" aria-live="polite"` so screen readers announce
  * the wait instead of silence. */
+import { Loader2 } from "lucide-react";
 import { LogoPulse } from "./LogoPulse";
 
 /** Centred pulse + label. For a panel or section with no known result shape. */
@@ -83,19 +84,20 @@ export function SkeletonText({ width = 8 }: { width?: number }) {
  * automatically", not "Loading". */
 export function SkeletonControl({
   label,
-  width = 14,
+  size = 14,
 }: {
   label: string;
-  /** Pixel width; defaults to a checkbox. Widen for selects and inputs. */
-  width?: number;
+  /** Pixel size; defaults to a checkbox footprint. Match the control it replaces. */
+  size?: number;
 }) {
   return (
     <span
-      className="bb-skeleton bb-skeleton-control"
-      style={{ width: `${width}px` }}
+      className="bb-skeleton-control"
       role="status"
       aria-label={`Loading ${label}`}
       title={`Loading ${label}…`}
-    />
+    >
+      <Loader2 size={size} className="spin" aria-hidden="true" />
+    </span>
   );
 }

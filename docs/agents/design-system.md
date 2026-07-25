@@ -410,10 +410,12 @@ numeric inputs (render "0" or empty), and any text that substitutes a
 placeholder for an unloaded value — use `SkeletonText`. Disabling the control
 is not sufficient: a disabled unchecked box still says "off".
 
-`SkeletonControl` takes the control's *name*, not its state — "Sync usage
-automatically", not "Loading" — so the announced label is
-"Loading the automatic sync setting". `check-ui-invariants` rejects
-`checked={…?.… ?? false}`.
+`SkeletonControl` renders a spinner (the app's `Loader2` + `spin`), not a
+pulsing block: at control scale a pulse is indistinguishable from a dead
+control, and a spinner is the universal "busy" affordance. It takes the
+control's *name*, not its state — "Sync usage automatically", not "Loading" —
+so the announced label is "Loading the automatic sync setting".
+`check-ui-invariants` rejects `checked={…?.… ?? false}`.
 
 ### Hook contract
 
