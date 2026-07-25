@@ -5,6 +5,7 @@ import { useIdeaState } from "../../state/ideas";
 import type { IdeaStatus } from "../../lib/ideas";
 
 import { OptionList, type OptionListOption } from "../layout/OptionList";
+import { SkeletonRows, SkeletonText } from "../layout/Loading";
 const STATUS_LABELS: Record<IdeaStatus, string> = {
   concept: "Concept",
   picked: "Picked",
@@ -32,7 +33,7 @@ type IdeasPanelProps = {
 };
 
 export function IdeasPanel({ sessionId }: IdeasPanelProps) {
-  const { ideas, categories, createIdea, updateIdeaStatus, removeIdea, createCategory, promoteIdeas } = useIdeaState(sessionId);
+  const { ideas, categories, loading, createIdea, updateIdeaStatus, removeIdea, createCategory, promoteIdeas } = useIdeaState(sessionId);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [newIdeaTitle, setNewIdeaTitle] = useState("");
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -122,7 +123,12 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
       </div>
 
       {/* Categories */}
-      {categories.length > 0 ? (
+      {loading ? (
+        <div className="row gap-sm flex-wrap">
+          <SkeletonText width={10} />
+          <SkeletonText width={8} />
+        </div>
+      ) : categories.length > 0 ? (
         <div className="row gap-sm flex-wrap">
           {categories.map((cat) => (
             <span className="idea-category-chip" key={cat.id} title={cat.description}>
@@ -206,7 +212,9 @@ export function IdeasPanel({ sessionId }: IdeasPanelProps) {
         ),
       )}
 
-      {ideas.length === 0 ? (
+      {loading ? (
+        <SkeletonRows rows={3} label="Loading ideas…" />
+      ) : ideas.length === 0 ? (
         <div className="empty-state">
           <Lightbulb size={32} className="text-muted" />
           <h3>No ideas yet</h3>

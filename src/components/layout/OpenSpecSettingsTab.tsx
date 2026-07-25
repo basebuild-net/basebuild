@@ -6,6 +6,7 @@ import {
   openspecRuntimeUpdate,
   type OpenSpecRuntimeStatus,
 } from "../../lib/openspecRuntime";
+import { LoadingBlock } from "./Loading";
 
 type OpenSpecSettingsTabProps = {
   projectPath: string | null;
@@ -13,7 +14,9 @@ type OpenSpecSettingsTabProps = {
 
 export function OpenSpecSettingsTab({ projectPath }: OpenSpecSettingsTabProps) {
   const [status, setStatus] = useState<OpenSpecRuntimeStatus | null>(null);
-  const [loading, setLoading] = useState(false);
+  // True until the mount check settles — the effect below fires after the
+  // first paint, so `false` here would flash a "missing" verdict.
+  const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -58,6 +61,11 @@ export function OpenSpecSettingsTab({ projectPath }: OpenSpecSettingsTabProps) {
   const isMissing = state === "missing";
   const isError = state === "error";
   const isInstalling = state === "installing";
+  // `status ?? "missing"` reads as a definitive verdict, so the very first
+  // check must not render the badge, the details grid, or the manual-install
+  // callout. A re-check keeps the previous status on screen (the Refresh
+  // button already spins) instead of blanking the panel.
+  const initialLoading = loading && status === null;
 
   return (
     <div className="stack">
@@ -74,83 +82,89 @@ export function OpenSpecSettingsTab({ projectPath }: OpenSpecSettingsTabProps) {
         </button>
       </div>
 
-      {/* Status badge */}
-      <div
-        className={`requirement-row ${isReady ? "is-ok" : isError ? "is-warn" : "is-warn"}`}
-        title={`OpenSpec runtime: ${state}`}
-      >
-        <span className={`requirement-badge ${isReady ? "is-ok" : "is-warn"}`}>
-          {isReady ? <Check size={14} /> : isError ? <AlertTriangle size={14} /> : <Wrench size={14} />}
-        </span>
-        <div>
-          <div className="requirement-name">
-            OpenSpec: {state}
-          </div>
-          {status?.message ? (
-            <div className="requirement-detail text-muted text-sm">{status.message}</div>
-          ) : null}
-        </div>
-      </div>
-
-      {/* Details grid */}
-      <div className="update-version-grid">
-        <div className="update-version-cell">
-          <div className="text-muted text-sm">Version</div>
-          <div className="mono">{status?.version ?? "—"}</div>
-        </div>
-        <div className="update-version-cell">
-          <div className="text-muted text-sm">Schema</div>
-          <div className="mono">{status?.schema ?? "—"}</div>
-        </div>
-        <div className="update-version-cell">
-          <div className="text-muted text-sm">Executable</div>
-          <div className="mono text-sm" title={status?.executablePath ?? undefined}>
-            {status?.executablePath ?? "not found"}
-          </div>
-        </div>
-        <div className="update-version-cell">
-          <div className="text-muted text-sm">Project Ready</div>
-          <div className="mono">{status?.projectReady ? "Yes" : "No"}</div>
-        </div>
-      </div>
-
-      {/* Actions */}
-      <div className="row gap-sm">
-        <button
-          className="btn btn-sm"
-          type="button"
-          title="Attempt to install OpenSpec (requires a configured source)"
-          onClick={() => void handleInstall()}
-          disabled={isInstalling || loading}
-        >
-          <Wrench size={12} /> Install
-        </button>
-        <button
-          className="btn btn-sm"
-          type="button"
-          title="Check for OpenSpec updates (requires a configured source)"
-          onClick={() => void handleUpdate()}
-          disabled={isInstalling || loading || isMissing}
-        >
-          <RefreshCw size={12} /> Update
-        </button>
-      </div>
-
-      {/* Manual path guidance */}
-      {isMissing ? (
-        <div className="requirement-row is-warn" title="Manual setup guidance">
-          <span className="requirement-badge is-warn">
-            <Terminal size={14} />
-          </span>
-          <div>
-            <div className="requirement-name">Manual setup</div>
-            <div className="requirement-detail text-muted text-sm">
-              Install OpenSpec on your system and ensure the <code className="mono">openspec</code> command is on your PATH.
-              Then click Refresh. Alternatively, set a manual executable path once path configuration is available.
+      {initialLoading ? (
+        <LoadingBlock label="Checking OpenSpec runtime…" />
+      ) : (
+        <>
+          {/* Status badge */}
+          <div
+            className={`requirement-row ${isReady ? "is-ok" : isError ? "is-warn" : "is-warn"}`}
+            title={`OpenSpec runtime: ${state}`}
+          >
+            <span className={`requirement-badge ${isReady ? "is-ok" : "is-warn"}`}>
+              {isReady ? <Check size={14} /> : isError ? <AlertTriangle size={14} /> : <Wrench size={14} />}
+            </span>
+            <div>
+              <div className="requirement-name">
+                OpenSpec: {state}
+              </div>
+              {status?.message ? (
+                <div className="requirement-detail text-muted text-sm">{status.message}</div>
+              ) : null}
             </div>
           </div>
-        </div>
-      ) : null}
+
+          {/* Details grid */}
+          <div className="update-version-grid">
+            <div className="update-version-cell">
+              <div className="text-muted text-sm">Version</div>
+              <div className="mono">{status?.version ?? "—"}</div>
+            </div>
+            <div className="update-version-cell">
+              <div className="text-muted text-sm">Schema</div>
+              <div className="mono">{status?.schema ?? "—"}</div>
+            </div>
+            <div className="update-version-cell">
+              <div className="text-muted text-sm">Executable</div>
+              <div className="mono text-sm" title={status?.executablePath ?? undefined}>
+                {status?.executablePath ?? "not found"}
+              </div>
+            </div>
+            <div className="update-version-cell">
+              <div className="text-muted text-sm">Project Ready</div>
+              <div className="mono">{status?.projectReady ? "Yes" : "No"}</div>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="row gap-sm">
+            <button
+              className="btn btn-sm"
+              type="button"
+              title="Attempt to install OpenSpec (requires a configured source)"
+              onClick={() => void handleInstall()}
+              disabled={isInstalling || loading}
+            >
+              <Wrench size={12} /> Install
+            </button>
+            <button
+              className="btn btn-sm"
+              type="button"
+              title="Check for OpenSpec updates (requires a configured source)"
+              onClick={() => void handleUpdate()}
+              disabled={isInstalling || loading || isMissing}
+            >
+              <RefreshCw size={12} /> Update
+            </button>
+          </div>
+
+          {/* Manual path guidance */}
+          {isMissing ? (
+            <div className="requirement-row is-warn" title="Manual setup guidance">
+              <span className="requirement-badge is-warn">
+                <Terminal size={14} />
+              </span>
+              <div>
+                <div className="requirement-name">Manual setup</div>
+                <div className="requirement-detail text-muted text-sm">
+                  Install OpenSpec on your system and ensure the <code className="mono">openspec</code> command is on your PATH.
+                  Then click Refresh. Alternatively, set a manual executable path once path configuration is available.
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </>
+      )}
 
       {/* Error display */}
       {actionError ? (

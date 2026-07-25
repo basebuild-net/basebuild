@@ -92,6 +92,30 @@ Non-negotiable and enforced in review. Rationale and how-to in
     Details and class inventory in
     [`docs/agents/design-system.md`](./docs/agents/design-system.md).
 
+18. **Never render nothing while loading.** Waiting is a state and it must be
+    drawn. No surface may render `null`, a false empty state, or a false
+    negative while its data is in flight. Content that pops in from nowhere
+    reads as broken; an empty state shown before its fetch settles ("No
+    changes, working tree is clean", "No projects yet", "OpenSpec: missing")
+    is worse, because the user believes it.
+    - Render order is `error` → `loading` → `empty` → `content`. An empty
+      state renders only after the fetch settled and genuinely returned nothing.
+    - Use the shared primitives in `src/components/layout/Loading.tsx`:
+      `SkeletonRows` for lists and tables (preferred: the layout does not jump
+      when data lands), `LoadingBlock` for a whole panel or section,
+      `SkeletonText` for one inline value, `ModalLoading` for `Suspense`
+      fallbacks. A bare `Loading…` string is not sufficient, and never sits
+      beside the empty list it is supposed to replace.
+    - Any `state/` hook that fetches on mount exposes `loading`, initialised
+      **`true`**. `useState(false)` renders the empty branch on the first
+      commit, before the effect runs.
+    - Refreshing content already on screen keeps the stale content and shows
+      an inline spinner. Only a first load may replace the surface, and polled
+      surfaces show a loading state on the first tick only.
+    `check-ui-invariants` enforces the hook-flag and `Suspense`-fallback
+    halves. Details in
+    [`docs/agents/design-system.md`](./docs/agents/design-system.md#loading-states-non-negotiable).
+
 ## Before you yield
 
 Run the full checklist in

@@ -55,6 +55,14 @@ pub trait UsageSource: Send + Sync {
         self.advance_checkpoint(batch)
     }
 
+    /// Locally recorded usage not yet accepted by the server, when it can be
+    /// answered CHEAPLY — this runs on every status read, so an
+    /// implementation must never re-parse its store. Default `None` means
+    /// "not measurable", which the UI renders as "waiting", not "nothing".
+    fn pending_requests(&self) -> Option<i64> {
+        None
+    }
+
     /// Human-readable diagnostic for status reporting.
     fn diagnostic(&self) -> String;
 }
@@ -412,6 +420,18 @@ impl UsageSource for NativeSource {
         let mut settings = SettingsService::get_usage_sync_settings()?;
         settings.last_envelope_sync_at = Some(batch.window_end);
         SettingsService::set_usage_sync_settings(&settings)
+    }
+
+    fn pending_requests(&self) -> Option<i64> {
+        use crate::services::settings_service::SettingsService;
+        // One indexed COUNT against the cursor. This is the source the user
+        // is looking at when they send a message, so "nothing new" has to be
+        // a measurement, not an assumption.
+        let since = SettingsService::get_usage_sync_settings()
+            .ok()?
+            .last_envelope_sync_at
+            .unwrap_or(0);
+        crate::services::native_chat_service::NativeChatService::metrics_count_since(since).ok()
     }
 
     fn diagnostic(&self) -> String {

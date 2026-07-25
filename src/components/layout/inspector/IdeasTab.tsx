@@ -8,6 +8,7 @@ import { IdeaAssessmentSummary } from "../../planning/IdeaAssessmentSummary";
 import { ActionMenu } from "../../ActionMenu";
 import { formatRelativeTime } from "../../../lib/timing";
 import type { IdeaStateValue } from "../../../state/ideas";
+import { SkeletonRows } from "../Loading";
 
 /** Epoch seconds (Rust) or milliseconds (JS) → milliseconds. */
 const toMs = (ts: number) => (ts < 1_000_000_000_000 ? ts * 1000 : ts);
@@ -188,7 +189,9 @@ export function IdeasTab({
             }}
           />
         ))}
-        {displayedIdeas.length === 0 && ideaHistoryBatches.length === 0 ? (
+        {ideaState.loading && displayedIdeas.length === 0 && ideaHistoryBatches.length === 0 ? (
+          <SkeletonRows rows={3} label="Loading ideas…" />
+        ) : displayedIdeas.length === 0 && ideaHistoryBatches.length === 0 ? (
           <div className="inspector-ideas-empty">
             <p className="text-muted text-sm">No ideas {statusFilter === "all" ? "yet" : `in ${statusFilter}`}.</p>
             {onStartIdeaRound && statusFilter === "all" ? (

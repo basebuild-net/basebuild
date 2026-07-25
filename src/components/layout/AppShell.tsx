@@ -2162,6 +2162,7 @@ export function AppShell({ updates }: AppShellProps) {
           onReopenSurface={handleReopenSurface}
           onDeleteSurfaceFromHistory={handleDeleteSurfaceFromHistory}
           projects={sidebar.projects}
+          projectsReady={sidebar.projectsReady}
           account={account}
           updates={updates}
           onSelectProject={handleSelectProject}

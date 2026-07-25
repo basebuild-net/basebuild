@@ -857,6 +857,42 @@ a { color: inherit; text-decoration: none; }
   50%      { transform: scale(1.15); opacity: 1; }
 }
 
+/* ─── Shared loading affordances (Loading.tsx) ───────────────────────────
+   No surface may render nothing, a false empty state, or a false negative
+   while its data is in flight. See docs/agents/design-system.md. */
+.bb-loading-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--bb-space-2);
+  padding: var(--bb-space-6);
+}
+.bb-loading-block.is-compact { padding: var(--bb-space-2); }
+.bb-skeleton-rows { display: flex; flex-direction: column; gap: var(--bb-space-1); }
+.bb-skeleton {
+  display: block;
+  height: 20px;
+  background: var(--bb-surface-high);
+  border-radius: var(--bb-radius-sm);
+  opacity: 0.5;
+  animation: bb-skeleton-pulse 1.4s ease-in-out infinite;
+}
+/* Staggered so a stack of rows reads as one loading surface rather than a
+   row of synchronised blinking bars. */
+.bb-skeleton-rows > .bb-skeleton:nth-child(3) { animation-delay: 0.15s; }
+.bb-skeleton-rows > .bb-skeleton:nth-child(4) { animation-delay: 0.3s; }
+.bb-skeleton-rows > .bb-skeleton:nth-child(5) { animation-delay: 0.45s; }
+.bb-skeleton-inline { display: inline-block; height: 1em; vertical-align: text-bottom; }
+@keyframes bb-skeleton-pulse {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 0.6; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bb-skeleton { animation: none; }
+  .logo-pulse { animation: none; }
+  .spin, .is-spinning { animation: none; }
+}
+
 /* ─── Primitives ─── */
 .card { padding: var(--bb-space-2) var(--bb-space-3); background: var(--bb-surface); border: 1px solid var(--bb-border); border-radius: var(--bb-radius-md); }
 .card.is-ok { border-color: var(--bb-success-border); }
@@ -2007,7 +2043,6 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 /* Composer header: always-visible provider/model/effort controls */
 .chat-composer-header { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; min-width: 0; width: 100%; overflow: hidden; }
 .chat-composer-header .chat-select-group { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; min-width: 0; }
-.chat-select-skeleton { height: 22px; width: 100px; background: var(--bb-surface-high); opacity: 0.5; }
 .chat-provider-trigger, .chat-model-trigger { min-width: 0; max-width: 34%; overflow: hidden; }
 .chat-provider-trigger.is-warn { color: var(--bb-warning); border-color: var(--bb-warning); }
 .chat-model-trigger { flex: 1 1 120px; justify-content: flex-start; }
@@ -2477,10 +2512,7 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .empty-state-actions { display: flex; gap: 8px; margin-top: 4px; }
 
 /* ─── Project restore boundary ─── */
-.project-restore-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 32px; color: var(--bb-muted); font-size: 12px; flex: 1; }
-.project-restore-spinner { flex-shrink: 0; }
 .project-switching-overlay { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 48px; color: var(--bb-muted); font-size: 13px; flex: 1; }
-.project-switching-spinner { flex-shrink: 0; }
 .project-switching-label { font-weight: 500; }
 .project-restore-error { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 32px; text-align: center; flex: 1; }
 .project-restore-error h3 { margin: 0; font-size: 14px; color: var(--bb-danger, #e5484d); }

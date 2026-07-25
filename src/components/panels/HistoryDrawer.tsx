@@ -7,6 +7,7 @@ import { ModalPortal } from "../ModalPortal";
 import { nativeChatHistory, type NativeChatHistoryEntry } from "../../lib/native-chat";
 import { formatRelativeTime } from "../../lib/timing";
 import { basebuildDataDir, revealInExplorer } from "../../lib/projects";
+import { SkeletonRows } from "../layout/Loading";
 
 const typeIcons: Record<PanelType, LucideIcon> = {
   chat: MessageSquare,
@@ -42,6 +43,9 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
   // Load all chat sessions across projects for the modal.
   const [allChats, setAllChats] = useState<NativeChatHistoryEntry[]>([]);
   const [chatsError, setChatsError] = useState<string | null>(null);
+  // Starts true: the mount fetch below is the only source of `allChats`, and
+  // the first commit otherwise rendered "No history yet."
+  const [chatsLoading, setChatsLoading] = useState(true);
   useEffect(() => {
     let cancelled = false;
     nativeChatHistory(200)
@@ -52,6 +56,9 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
       .catch((err) => {
         if (cancelled) return;
         setChatsError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setChatsLoading(false);
       });
     return () => { cancelled = true; };
   }, []);
@@ -99,7 +106,9 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
         <div className="modal-body history-modal-body">
           <section className="history-modal-section" aria-label="History">
             <span className="history-modal-section-title">History</span>
-            {closedPanels.length === 0 && (chatsError || allChats.length === 0) ? (
+            {chatsLoading && closedPanels.length === 0 ? (
+              <SkeletonRows rows={4} label="Loading history…" />
+            ) : closedPanels.length === 0 && (chatsError || allChats.length === 0) ? (
               <div className="history-modal-empty">
                 {chatsError ? `Failed to load chats: ${chatsError}` : "No history yet."}
               </div>
@@ -139,6 +148,7 @@ export function HistoryDrawer({ activeProjectPath, closedPanels, onReopen, onDel
                     </div>
                   );
                 })}
+                {chatsLoading ? <SkeletonRows rows={2} label="Loading chat history…" /> : null}
                 {/* All chat sessions — merged into the same list */}
                 {allChats.map((entry) => {
                   const fullTs = new Date(entry.updatedAt * 1000).toLocaleString();

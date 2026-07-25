@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { CommitGraph } from "../source/CommitGraph";
+import { SkeletonRows, SkeletonText } from "../layout/Loading";
 import {
   gitAdd,
   gitBranchList,
@@ -365,6 +366,10 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
   const changesCount = status?.unstaged.length ?? 0;
   const untrackedCount = status?.untracked.length ?? 0;
   const totalChanges = stagedCount + changesCount + untrackedCount;
+  // The first fetch has not landed and no error explains the absence, so the
+  // panel knows nothing about the repo yet. Rendering the counts derived from
+  // a null `status` as "Working tree is clean" is an active lie.
+  const initialLoad = !status && !error;
 
   return (
     <div className="source-panel">
@@ -396,6 +401,11 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
               <ArrowUp size={13} />
             </button>
           </div>
+        </div>
+      ) : initialLoad ? (
+        <div className="source-branch-bar">
+          <GitBranchIcon size={13} />
+          <SkeletonText width={16} />
         </div>
       ) : null}
 
@@ -544,8 +554,12 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
             </CollapsibleSection>
           ) : null}
 
+          {/* Loading — must precede the empty state: `totalChanges === 0` is
+              derived from a null `status` before the first fetch lands. */}
+          {initialLoad ? <SkeletonRows rows={4} label="Loading working tree changes…" /> : null}
+
           {/* Empty state */}
-          {totalChanges === 0 && !error ? (
+          {!initialLoad && totalChanges === 0 && !error ? (
             <div className="source-empty">
               <Check size={20} className="text-muted" />
               <p>No changes</p>
@@ -585,6 +599,8 @@ export function SourcePanel({ projectPath }: { projectPath: string | null }) {
             </div>
           ) : null}
         </div>
+      ) : initialLoad ? (
+        <SkeletonRows rows={6} label="Loading commit history…" />
       ) : commits.length === 0 ? (
         <div className="empty-state">
           <h3>No commits yet</h3>

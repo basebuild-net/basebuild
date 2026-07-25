@@ -21,6 +21,7 @@ import { getConcurrencyLimits } from "../../lib/runConcurrency";
 import type { Plan } from "../../lib/plans";
 import { useLogs } from "../../state/log";
 import { nativeChatList, type NativeChatSession } from "../../lib/native-chat";
+import { SkeletonRows, SkeletonText } from "./Loading";
 
 const KIND_LABELS: Record<string, string> = {
   generate_categories: "Generating categories",
@@ -71,6 +72,10 @@ export function BackgroundAgents({
   const [maxConcurrent, setMaxConcurrent] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  // Set once the first fetch for the current session/project settles. The
+  // 5s/10s polls below reuse `refresh`, and they must never flash a skeleton
+  // over rows that are already on screen.
+  const [hasLoaded, setHasLoaded] = useState(false);
   const { addLog } = useLogs();
 
   const refresh = useCallback(async () => {
@@ -78,6 +83,7 @@ export function BackgroundAgents({
       setRuns([]);
       setPlanRuns([]);
       setChatSessions([]);
+      setHasLoaded(true);
       return;
     }
     // Query pipeline runs by project path (not session ID) so runs from
@@ -100,9 +106,11 @@ export function BackgroundAgents({
     setPlanRuns(plan);
     setChatSessions(chats);
     if (limits) setMaxConcurrent(limits.globalMax);
+    setHasLoaded(true);
   }, [sessionId, projectPath]);
 
   useEffect(() => {
+    setHasLoaded(false);
     void refresh();
   }, [refresh]);
   usePlanningEvents(refresh);
@@ -264,9 +272,13 @@ export function BackgroundAgents({
               <div className="bg-agents-heading">
                 <span className="bg-agents-title">Background agents</span>
                 <span className="bg-agents-summary">
-                  {activeCount > 0
-                    ? `${activeCount} active`
-                    : "Nothing running"}
+                  {!hasLoaded ? (
+                    <SkeletonText width={12} />
+                  ) : activeCount > 0 ? (
+                    `${activeCount} active`
+                  ) : (
+                    "Nothing running"
+                  )}
                 </span>
               </div>
               <button className="btn-icon" type="button" title="Close" onClick={() => setOpen(false)}>
@@ -275,7 +287,9 @@ export function BackgroundAgents({
             </div>
             <div className="bg-agents-list">
               {actionError ? <div className="bg-agents-action-error" role="alert">{actionError}</div> : null}
-              {activeCount === 0 && recent.length === 0 && recentPlanRuns.length === 0 ? (
+              {!hasLoaded ? (
+                <SkeletonRows rows={3} label="Loading background agents…" />
+              ) : activeCount === 0 && recent.length === 0 && recentPlanRuns.length === 0 ? (
                 <div className="bg-agents-empty">
                   No background agents yet. Generating ideas, preparing an
                   OpenSpec plan, or running an assigned plan shows up here.

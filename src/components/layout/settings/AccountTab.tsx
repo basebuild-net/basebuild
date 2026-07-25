@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, CheckCircle2, Clock3, LogOut, RefreshCw, RotateCcw, ShieldCheck, User } from "lucide-react";
 import { authStartDeviceFlow, authPollDeviceFlow } from "../../../lib/auth";
 import type { AccountState } from "../../../state/account";
+import { SkeletonRows } from "../Loading";
 import { useUsageSync } from "../../../state/usageSync";
 import {
   usageDetectProviderPlans,
@@ -200,12 +201,22 @@ function sourceState(source: SourceSyncStatus): {
       detail: source.lastError ?? "Queued for the next attempt",
     };
   }
+  // Queued work is the difference between "caught up" and "we just haven't
+  // sent your last message yet" — reporting both as "no new usage" is what
+  // made the panel look stuck right after sending a message.
+  const queued = source.pendingRequests ?? 0;
+  const queuedText = `${queued} request${queued === 1 ? "" : "s"} waiting for the next sync`;
   if (source.lastSuccessAt) {
     return {
       label: "Synced",
       className: "is-ok",
-      detail: formatRelativeTime(source.lastSuccessAt),
+      detail: queued
+        ? `${formatRelativeTime(source.lastSuccessAt)} · ${queuedText}`
+        : formatRelativeTime(source.lastSuccessAt),
     };
+  }
+  if (queued) {
+    return { label: "Queued", className: "is-warning", detail: queuedText };
   }
   return { label: "Waiting", className: "is-muted", detail: "No new usage yet" };
 }
@@ -323,7 +334,9 @@ export function UsageSyncPanel() {
             </p>
           </div>
         </div>
-      ) : null}
+      ) : (
+        <SkeletonRows rows={2} label="Loading usage attribution…" />
+      )}
 
       {offReason ? (
         <p className="usage-sync-off text-sm" title="Why usage sync is currently off">
@@ -369,63 +382,65 @@ export function UsageSyncPanel() {
         ) : null}
       </div>
 
-      {status ? (
-        <section className="usage-source-section" aria-labelledby="usage-source-heading">
-          <div className="row-between">
-            <h4 id="usage-source-heading">Source status</h4>
-            <span
-              className={`usage-sync-outcome is-${status.overallOutcome ?? "idle"}`}
-              title="Result of the most recent coordinated sync"
-            >
-              {outcomeLabel}
-            </span>
-          </div>
-          <p className="text-muted text-sm">
-            Every local tool Basebuild can read usage from. Installed tools are
-            listed first; the rest are shown so you can see what would be picked up.
-          </p>
-          {status.sources.length > 0 ? (
-            <div className="usage-source-list">
-              {[...status.sources]
-                .sort((a, b) =>
-                  a.available !== b.available
-                    ? Number(b.available) - Number(a.available)
-                    : SOURCE_LABELS[a.source].localeCompare(SOURCE_LABELS[b.source]),
-                )
-                .map((source) => {
-                  const state = sourceState(source);
-                  return (
-                    <div
-                      className={`usage-source-row ${source.available ? "" : "is-unavailable"}`}
-                      key={source.source}
-                      title={`${SOURCE_LABELS[source.source]} — ${SOURCE_HINTS[source.source]}. Last accepted upload: ${formatSyncTime(source.lastSuccessAt)}`}
-                    >
-                      <div className="usage-source-name">
-                        {state.className === "is-ok" ? <CheckCircle2 size={14} /> : null}
-                        {state.className === "is-warning" ? <Clock3 size={14} /> : null}
-                        {state.className === "is-error" ? <AlertCircle size={14} /> : null}
-                        {state.className === "is-muted" ? <ShieldCheck size={14} /> : null}
-                        <strong className="text-sm">{SOURCE_LABELS[source.source]}</strong>
-                      </div>
-                      <span className={`usage-source-state ${state.className}`}>{state.label}</span>
-                      <span
-                        className={`usage-source-detail text-sm ${
-                          state.className === "is-warning" || state.className === "is-error"
-                            ? "text-danger"
-                            : "text-muted"
-                        }`}
-                      >
-                        {state.detail}
-                      </span>
+      {/* The section frame renders unconditionally. Hiding the whole thing
+          until `status` arrived is what made it pop in from nowhere. */}
+      <section className="usage-source-section" aria-labelledby="usage-source-heading">
+        <div className="row-between">
+          <h4 id="usage-source-heading">Source status</h4>
+          <span
+            className={`usage-sync-outcome is-${status?.overallOutcome ?? "idle"}`}
+            title="Result of the most recent coordinated sync"
+          >
+            {status ? outcomeLabel : "Checking…"}
+          </span>
+        </div>
+        <p className="text-muted text-sm">
+          Every local tool Basebuild can read usage from. Installed tools are
+          listed first; the rest are shown so you can see what would be picked up.
+        </p>
+        {!status ? (
+          <SkeletonRows rows={5} label="Loading source status…" />
+        ) : status.sources.length > 0 ? (
+          <div className="usage-source-list">
+            {[...status.sources]
+              .sort((a, b) =>
+                a.available !== b.available
+                  ? Number(b.available) - Number(a.available)
+                  : SOURCE_LABELS[a.source].localeCompare(SOURCE_LABELS[b.source]),
+              )
+              .map((source) => {
+                const state = sourceState(source);
+                return (
+                  <div
+                    className={`usage-source-row ${source.available ? "" : "is-unavailable"}`}
+                    key={source.source}
+                    title={`${SOURCE_LABELS[source.source]} — ${SOURCE_HINTS[source.source]}. Last accepted upload: ${formatSyncTime(source.lastSuccessAt)}`}
+                  >
+                    <div className="usage-source-name">
+                      {state.className === "is-ok" ? <CheckCircle2 size={14} /> : null}
+                      {state.className === "is-warning" ? <Clock3 size={14} /> : null}
+                      {state.className === "is-error" ? <AlertCircle size={14} /> : null}
+                      {state.className === "is-muted" ? <ShieldCheck size={14} /> : null}
+                      <strong className="text-sm">{SOURCE_LABELS[source.source]}</strong>
                     </div>
-                  );
-                })}
-            </div>
-          ) : (
-            <p className="text-muted text-sm">Source status will appear after the coordinator starts.</p>
-          )}
-        </section>
-      ) : null}
+                    <span className={`usage-source-state ${state.className}`}>{state.label}</span>
+                    <span
+                      className={`usage-source-detail text-sm ${
+                        state.className === "is-warning" || state.className === "is-error"
+                          ? "text-danger"
+                          : "text-muted"
+                      }`}
+                    >
+                      {state.detail}
+                    </span>
+                  </div>
+                );
+              })}
+          </div>
+        ) : (
+          <p className="text-muted text-sm">Source status will appear after the coordinator starts.</p>
+        )}
+      </section>
 
       {status?.lastError ? (
         <p className="text-danger text-sm" title={status.lastError}>
@@ -439,7 +454,15 @@ export function UsageSyncPanel() {
         </p>
       ) : null}
       {error ? <p className="text-danger text-sm">{error}</p> : null}
-      {loading ? <p className="text-muted text-sm">Loading...</p> : null}
+
+      {/* Account-only cards. While `projected` is in flight the card frame
+          stays put so the panel does not grow by two cards on arrival. */}
+      {status?.attribution === "account" && !projected && !error ? (
+        <div className="card">
+          <h4>Live Utilization</h4>
+          <SkeletonRows rows={3} label="Loading live utilization…" />
+        </div>
+      ) : null}
 
       {liveRows.length > 0 ? (
         <div className="card">
@@ -461,6 +484,13 @@ export function UsageSyncPanel() {
               </div>
             );
           })}
+        </div>
+      ) : null}
+
+      {status?.attribution === "account" && !projected && !error ? (
+        <div className="card">
+          <h4>Per-Model Usage (last 7 days)</h4>
+          <SkeletonRows rows={4} label="Loading per-model usage…" />
         </div>
       ) : null}
 

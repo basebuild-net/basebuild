@@ -9,6 +9,11 @@
  *  3. No non-zero `border-radius` in globals.css.
  *  4. Interactive elements (`<button>`, `<a>`, `<select>`, `<input>`) should have
  *     a `title=` attribute (tooltip).
+ *  5. A `state/` hook that fetches on mount must initialise its loading flag to
+ *     `true`. `useState(false)` renders the empty branch on the first commit,
+ *     before the effect has run — invisible on a fast machine, a visible lie on
+ *     a slow one. See docs/agents/design-system.md#loading-states.
+ *  6. Every `<Suspense>` must carry a non-null `fallback`.
  *
  * Exits 0 if all invariants pass, 1 if any violations are found.
  */
@@ -200,12 +205,73 @@ function checkTooltips() {
   walk(join(SRC, "components"));
 }
 
+/**
+ * 5. Loading flags in `src/state/` must start `true` when the hook fetches on
+ * mount. A `useState(false)` loading flag paired with a mount effect means the
+ * first commit renders the empty state.
+ */
+function checkLoadingFlags() {
+  console.log("Checking state hooks initialise loading flags to true...");
+  const dir = join(SRC, "state");
+  for (const entry of readdirSync(dir)) {
+    if (![".ts", ".tsx"].includes(extname(entry))) continue;
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) continue;
+    const content = readFileSync(full, "utf8");
+    // Only hooks that actually fetch on mount can have this bug.
+    if (!/useEffect\(/.test(content) || !/\bawait\b/.test(content)) continue;
+    const lines = content.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const match = lines[i].match(
+        /const\s*\[\s*(\w*[lL]oading\w*)\s*,\s*set\w+\s*\]\s*=\s*useState(?:<[^>]*>)?\(\s*false\s*\)/,
+      );
+      if (match) {
+        fail(
+          full,
+          i + 1,
+          `Loading flag "${match[1]}" starts false — the first commit renders the empty state. Initialise it true.`,
+        );
+      }
+    }
+  }
+}
+
+/** 6. Every `<Suspense>` must pass a non-null `fallback`. */
+function checkSuspenseFallbacks() {
+  console.log("Checking Suspense boundaries declare a fallback...");
+  function walk(dir) {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) {
+        if (entry !== "test-support") walk(full);
+        continue;
+      }
+      if (extname(entry) !== ".tsx") continue;
+      const content = readFileSync(full, "utf8");
+      const lines = content.split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        if (!/<Suspense\b/.test(lines[i])) continue;
+        // The fallback may wrap onto the next couple of lines.
+        const window = lines.slice(i, i + 3).join(" ");
+        if (!/fallback=/.test(window)) {
+          fail(full, i + 1, "Suspense without a fallback — a blank surface looks broken");
+        } else if (/fallback=\{\s*null\s*\}/.test(window)) {
+          fail(full, i + 1, "Suspense fallback={null} — render a loading state instead");
+        }
+      }
+    }
+  }
+  walk(SRC);
+}
+
 // Run all checks
 console.log("Running UI invariant checks...\n");
 checkStylesheets();
 checkInlineStyles();
 checkBorderRadius();
 checkTooltips();
+checkLoadingFlags();
+checkSuspenseFallbacks();
 
 console.log(`\n${violations === 0 ? "✓ All UI invariants pass" : `✗ ${violations} invariant violation(s) found`}`);
 process.exit(violations === 0 ? 0 : 1);

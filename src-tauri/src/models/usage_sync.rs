@@ -188,6 +188,14 @@ pub struct SourceSyncStatus {
     /// Actionable, privacy-safe source error. Never contains raw paths/content.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
+    /// Local usage recorded but not yet accepted by the server, when the
+    /// source can report it cheaply. `Some(0)` means "checked, nothing owed";
+    /// `None` means "not measurable without re-reading the source".
+    ///
+    /// Without this a caught-up source and a source with a queue both read as
+    /// "no new usage", which is wrong the moment the user sends a message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_requests: Option<i64>,
 }
 
 /// Auto-sync status returned to the UI.
@@ -287,6 +295,7 @@ mod tests {
                 last_success_at: Some(90),
                 last_processed_at: Some(95),
                 last_error: Some("Upload was not acknowledged; retry scheduled.".to_string()),
+                pending_requests: Some(3),
             }],
         };
 

@@ -8,6 +8,7 @@ use crate::{
         },
         run_concurrency::{ConcurrencyLimits, RunConcurrencyEntry, RunConcurrencyLimits},
         runtime::{RuntimeDefaults, RuntimeProfile, RuntimeProfileKind, WorkingDirectoryMode},
+        usage_sync::SourceSyncStatus,
     },
     services::process_helpers::hidden_command,
     services::storage_service::StorageService,
@@ -351,6 +352,35 @@ impl SettingsService {
             "INSERT INTO usage_sync_settings (key, value) VALUES ('settings', ?1)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![serde_json::to_string(settings).map_err(|e| e.to_string())?],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Per-source sync status, persisted so "last synced" survives a restart.
+    /// It lives beside the sync settings rather than in a new table because
+    /// it is the same lifecycle: small, whole-value, rewritten as a unit.
+    /// A parse failure degrades to "no history", never an error.
+    pub fn get_usage_source_status() -> Vec<SourceSyncStatus> {
+        let Ok(conn) = StorageService::connect() else {
+            return Vec::new();
+        };
+        conn.query_row(
+            "SELECT value FROM usage_sync_settings WHERE key = 'source_status'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .and_then(|value| serde_json::from_str(&value).ok())
+        .unwrap_or_default()
+    }
+
+    pub fn set_usage_source_status(sources: &[SourceSyncStatus]) -> DbResult<()> {
+        let conn = StorageService::connect()?;
+        conn.execute(
+            "INSERT INTO usage_sync_settings (key, value) VALUES ('source_status', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![serde_json::to_string(sources).map_err(|e| e.to_string())?],
         )
         .map_err(|e| e.to_string())?;
         Ok(())

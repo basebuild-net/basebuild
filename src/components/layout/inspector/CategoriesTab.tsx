@@ -3,6 +3,7 @@ import { FolderTree, Plus, RefreshCw, Sparkles } from "lucide-react";
 import type { Idea, IdeaCategory } from "../../../lib/ideas";
 import type { IdeaStateValue } from "../../../state/ideas";
 import { Disclosure } from "../../Disclosure";
+import { SkeletonRows } from "../Loading";
 
 type CategoriesTabProps = {
   selectedCategory: IdeaCategory | null;
@@ -119,7 +120,9 @@ export function CategoriesTab({
               <Sparkles size={11} /> Generate categories from project
             </button>
           </div>
-          {ideaState.categories.length === 0 ? (
+          {ideaState.loading ? (
+            <SkeletonRows rows={3} label="Loading categories…" />
+          ) : ideaState.categories.length === 0 ? (
             <div className="empty-state empty-state-compact">
               <FolderTree size={24} />
               <p className="text-muted text-sm">No categories yet.</p>

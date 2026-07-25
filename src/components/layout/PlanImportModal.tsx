@@ -5,6 +5,7 @@ import type { PlanImportCandidate, PlanImportResult } from "../../lib/planImport
 import { planImportApply, planImportDetect } from "../../lib/planImport";
 import { useLogs } from "../../state/log";
 import { ModalPortal } from "../ModalPortal";
+import { SkeletonRows } from "./Loading";
 
 type PlanImportModalProps = {
   projectPath: string | null;
@@ -14,7 +15,9 @@ type PlanImportModalProps = {
 export function PlanImportModal({ projectPath, onClose }: PlanImportModalProps) {
   const [candidates, setCandidates] = useState<PlanImportCandidate[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(false);
+  // Detection starts on mount, so the first paint must not claim "No
+  // importable plans found".
+  const [loading, setLoading] = useState(true);
   const [results, setResults] = useState<PlanImportResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEscapeKey(true, onClose);
@@ -90,7 +93,7 @@ export function PlanImportModal({ projectPath, onClose }: PlanImportModalProps) 
           {!projectPath ? (
             <p className="text-muted text-sm">Open a project to detect importable plans.</p>
           ) : loading && !results ? (
-            <p className="text-muted text-sm">Detecting…</p>
+            <SkeletonRows rows={3} label="Detecting importable plans…" />
           ) : results ? (
             <div className="stack">
               <p className="text-sm">

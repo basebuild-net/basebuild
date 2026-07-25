@@ -29,6 +29,7 @@ import {
 } from "../../lib/projects";
 import { listSessions, type Session } from "../../lib/sessions";
 import { useLogs } from "../../state/log";
+import { SkeletonRows } from "./Loading";
 
 function ProjectMonogram({ name, active, color }: { name: string; active: boolean; color?: ProjectColor }) {
   const letter = name.charAt(0).toUpperCase() || "?";
@@ -48,6 +49,9 @@ type ProjectSidebarProps = {
   activeProjectPath: string | null;
   activeSessionId: string | null;
   projects: RecentProject[];
+  /** False until the authoritative recent-project list has loaded. The
+   *  "No projects yet" empty state below is a lie while it is false. */
+  projectsReady: boolean;
   projectDetection: ProjectDetection | null;
   sessionsByProject: Map<string, Session[]>;
   onSelectProject: (path: string) => void;
@@ -139,6 +143,7 @@ export function ProjectSidebar({
   activeProjectPath,
   activeSessionId,
   projects,
+  projectsReady,
   projectDetection,
   sessionsByProject,
   onSelectProject,
@@ -290,7 +295,9 @@ export function ProjectSidebar({
       </div>
 
       <div className="sidebar-list">
-        {sortedProjects.length === 0 ? (
+        {!projectsReady && sortedProjects.length === 0 ? (
+          <SkeletonRows rows={4} label="Loading projects…" />
+        ) : sortedProjects.length === 0 ? (
           <p className="text-muted text-sm pad sidebar-empty">No projects yet.</p>
         ) : (
           sortedProjects.map((project) => {

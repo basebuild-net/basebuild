@@ -278,6 +278,10 @@ export function ChatPanel({
   }, []);
 
   const [loading, setLoading] = useState(false);
+  // Session hydration, distinct from the send-scoped `loading` above: while
+  // messages/tool events/interactions load, the transcript has nothing to
+  // render and used to sit blank until they landed.
+  const [hydrating, setHydrating] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stuck, setStuck] = useState(false);
   const [interruptedRun, setInterruptedRun] = useState(false);
@@ -624,7 +628,12 @@ export function ChatPanel({
   // never hangs forever in "initializing" — the user sees an actionable
   // error and can retry or close the panel.
   useEffect(() => {
-    if (!nativeMode || (!nativeSessionId && !catalog)) return;
+    if (!nativeMode || (!nativeSessionId && !catalog)) {
+      // Nothing to hydrate is a settled state, not a pending one.
+      setHydrating(false);
+      return;
+    }
+    setHydrating(true);
     let cancelled = false;
     let timer: number | undefined;
     async function loadOrCreate() {
@@ -697,6 +706,7 @@ export function ChatPanel({
         if (!cancelled) setError(msg);
       } finally {
         if (timer) window.clearTimeout(timer);
+        if (!cancelled) setHydrating(false);
       }
     }
     void loadOrCreate();
@@ -2797,6 +2807,7 @@ export function ChatPanel({
         providerId={providerId}
         streaming={streaming}
         loading={loading}
+        hydrating={hydrating}
         renderMessages={renderMessages}
         reasoningText={reasoningText}
         streamText={streamText}

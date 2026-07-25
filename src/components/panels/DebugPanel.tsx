@@ -17,6 +17,7 @@ import {
 } from "../../lib/stability";
 import { OmpPanel } from "./OmpPanel";
 import { useOmpState } from "../../state/omp";
+import { LoadingBlock, SkeletonRows } from "../layout/Loading";
 
 type DebugData = {
   appVersion: string;
@@ -46,11 +47,14 @@ export function DebugPanel() {
   const [data, setData] = useState<DebugData | null>(null);
   const [terminals, setTerminals] = useState<TerminalSession[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [reports, setReports] = useState<StabilityReport[]>([]);
   const [unseenCount, setUnseenCount] = useState(0);
   const [telemetry, setTelemetry] = useState<CommandTelemetryEntry[]>([]);
   const [violations, setViolations] = useState<CommandTelemetryEntry[]>([]);
+  // `loadAll` fires `refreshStability` without awaiting it, so the stability
+  // sections settle after `data` lands and need their own flag.
+  const [stabilityLoading, setStabilityLoading] = useState(true);
   const [selectedReport, setSelectedReport] = useState<StabilityReport | null>(null);
 
   const refreshTerminals = useCallback(async () => {
@@ -75,6 +79,8 @@ export function DebugPanel() {
       setViolations(viols);
     } catch {
       // ignore
+    } finally {
+      setStabilityLoading(false);
     }
   }, []);
 
@@ -114,7 +120,7 @@ export function DebugPanel() {
   const ompState = useOmpState();
 
   if (error) return <p className="text-danger">{error}</p>;
-  if (!data) return <p className="text-muted">Loading…</p>;
+  if (!data) return <LoadingBlock label="Loading debug data…" />;
 
   const stats = data.context?.stats as { overall?: { totalRequests?: number; totalCost?: number; avgTtft?: number; avgTokensPerSecond?: number } } | undefined;
   const overall = stats?.overall;
@@ -155,7 +161,9 @@ export function DebugPanel() {
             <RefreshCw size={13} />
           </button>
         </div>
-        {terminals.length === 0 ? (
+        {loading && terminals.length === 0 ? (
+          <SkeletonRows rows={2} label="Loading terminal sessions…" />
+        ) : terminals.length === 0 ? (
           <p className="text-muted text-sm pad">No active terminals.</p>
         ) : (
           <div className="terminal-debug-list">
@@ -245,7 +253,9 @@ export function DebugPanel() {
           <AlertTriangle size={14} /> Crash & Freeze Reports
           {unseenCount > 0 ? <span className="badge badge-error">{unseenCount} new</span> : null}
         </h3>
-        {reports.length === 0 ? (
+        {stabilityLoading && reports.length === 0 ? (
+          <SkeletonRows rows={2} label="Loading crash and freeze reports…" />
+        ) : reports.length === 0 ? (
           <p className="text-muted text-sm">No crash or freeze reports.</p>
         ) : (
           <div className="stack">
@@ -320,6 +330,8 @@ export function DebugPanel() {
               </div>
             ))}
           </div>
+        ) : stabilityLoading ? (
+          <SkeletonRows rows={3} label="Loading command telemetry…" />
         ) : (
           <p className="text-muted text-sm">No telemetry yet.</p>
         )}

@@ -23,12 +23,16 @@ export function useSessionState(projectPath: string | null, lastActiveSessionId?
   // Kept in-memory so the grid can mutate synchronously (resize/reorder) and
   // AppShell persists it back (debounced) via save_workspace_restore_state.
   const [tabGridStates, setTabGridStates] = useState<Record<string, ChatGrid>>({});
+  // True until the first session list settles. Consumers rendered their
+  // "no sessions" state during the mount fetch without it.
+  const [loading, setLoading] = useState(true);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
 
   const refreshSessions = useCallback(async () => {
     if (!projectPath) {
       setSessions([]);
+      setLoading(false);
       return;
     }
     try {
@@ -41,6 +45,8 @@ export function useSessionState(projectPath: string | null, lastActiveSessionId?
       }
     } catch {
       setSessions([]);
+    } finally {
+      setLoading(false);
     }
   }, [projectPath, lastActiveSessionId]);
 
@@ -166,6 +172,7 @@ export function useSessionState(projectPath: string | null, lastActiveSessionId?
 
   return {
     sessions,
+    loading,
     activeSession,
     activeSessionId,
     tabs,

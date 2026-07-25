@@ -87,6 +87,8 @@ export type SourceSyncStatus = {
   lastSuccessAt?: number;
   lastProcessedAt?: number;
   lastError?: string;
+  /** Locally recorded requests not yet accepted by the server, when known. */
+  pendingRequests?: number;
 };
 
 export type AutoSyncStatus = {

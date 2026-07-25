@@ -11,7 +11,9 @@ export function useProjectSchematic(projectPath: string | null) {
   const [exists, setExists] = useState(false);
   const [content, setContent] = useState<string | null>(null);
   const [report, setReport] = useState<SchematicReport | null>(null);
-  const [loading, setLoading] = useState(false);
+  // True until the mount fetch settles: the false start painted the
+  // "Project description missing / Start wizard" CTA over every load.
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -19,6 +21,7 @@ export function useProjectSchematic(projectPath: string | null) {
       setExists(false);
       setContent(null);
       setReport(null);
+      setLoading(false);
       return;
     }
     setLoading(true);

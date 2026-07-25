@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Play, Zap } from "lucide-react";
 
 import { useOmpState, type OmpController } from "../../state/omp";
+import { LoadingBlock } from "../layout/Loading";
 
 type OmpPanelProps = {
   state: OmpController;
@@ -33,6 +34,19 @@ export function OmpPanel({ state }: OmpPanelProps) {
     });
   }
 
+  // Until the mount fetch settles, `status`/`config` are null and every branch
+  // below would read as a negative: "Not installed", no config, no prompt box.
+  if (state.loading) {
+    return (
+      <div className="stack">
+        <div className="card">
+          <h3>OMP status</h3>
+          <LoadingBlock label="Checking OMP status…" compact />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="stack">
       <div className="card">
@@ -45,7 +59,7 @@ export function OmpPanel({ state }: OmpPanelProps) {
           ) : null}
         </div>
         {state.status === null ? (
-          <p className="text-muted">Loading…</p>
+          <p className="text-muted">OMP status unavailable.</p>
         ) : state.status.installed ? (
           <div className="omp-info">
             <span className="pill is-ok">Installed</span>

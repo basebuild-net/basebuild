@@ -1274,12 +1274,25 @@ pub fn gates_pass() -> bool {
     true
 }
 
+/// Rebuild the per-source rows, carrying forward whatever history we have.
+///
+/// History is seeded from disk when the in-memory table is empty, which is
+/// every fresh launch. Without that, a device that has synced for weeks
+/// reports "no new usage yet" for every source until the next accepted
+/// upload — the status was true only of the current process.
 fn current_source_statuses(previous: &[SourceSyncStatus]) -> Vec<SourceSyncStatus> {
+    let persisted;
+    let history = if previous.is_empty() {
+        persisted = SettingsService::get_usage_source_status();
+        persisted.as_slice()
+    } else {
+        previous
+    };
     crate::services::usage_source_service::registered_sources()
         .into_iter()
         .map(|source| {
             let available = source.available();
-            let old = previous
+            let old = history
                 .iter()
                 .find(|status| status.source == source.kind().as_str());
             SourceSyncStatus {
@@ -1296,25 +1309,31 @@ fn current_source_statuses(previous: &[SourceSyncStatus]) -> Vec<SourceSyncStatu
                 last_success_at: old.and_then(|status| status.last_success_at),
                 last_processed_at: old.and_then(|status| status.last_processed_at),
                 last_error: old.and_then(|status| status.last_error.clone()),
+                pending_requests: available.then(|| source.pending_requests()).flatten(),
             }
         })
         .collect()
 }
 
-/// Apply a mutation to one source's status row under a single lock.
-/// The rows are refreshed first so a source registered since the last read
-/// still gets its update.
+/// Apply a mutation to one source's status row under a single lock, then
+/// persist. The rows are refreshed first so a source registered since the
+/// last read still gets its update.
 fn update_source_status(source: SourceKind, apply: impl FnOnce(&mut SourceSyncStatus)) {
-    let mut status = AUTOSYNC_STATUS.lock();
-    let refreshed = current_source_statuses(&status.sources);
-    status.sources = refreshed;
-    if let Some(entry) = status
-        .sources
-        .iter_mut()
-        .find(|entry| entry.source == source.as_str())
-    {
-        apply(entry);
-    }
+    let snapshot = {
+        let mut status = AUTOSYNC_STATUS.lock();
+        let refreshed = current_source_statuses(&status.sources);
+        status.sources = refreshed;
+        if let Some(entry) = status
+            .sources
+            .iter_mut()
+            .find(|entry| entry.source == source.as_str())
+        {
+            apply(entry);
+        }
+        status.sources.clone()
+    };
+    // Outside the lock: a slow disk must not stall a concurrent status read.
+    let _ = SettingsService::set_usage_source_status(&snapshot);
 }
 
 fn record_source_success(source: SourceKind, accepted_at: i64, processed_at: Option<i64>) {
@@ -2179,6 +2198,64 @@ mod tests {
             (rem % 3600) / 60,
             rem % 60
         )
+    }
+
+    /// The panel said "no new usage yet" for a device that had been syncing
+    /// for weeks, and kept saying it right after the user sent a message.
+    /// Two causes: per-source history lived only in this process, and a
+    /// caught-up source was indistinguishable from one with a queue.
+    #[test]
+    fn source_status_survives_restart_and_counts_queued_usage() {
+        let (_dir, _guard) = crate::test_util::test::isolated_home();
+        let now = now_seconds();
+
+        // A source that synced an hour ago, recorded the way the coordinator
+        // records it.
+        record_source_success(SourceKind::Native, now - 3600, None);
+
+        // Simulate a relaunch: the in-memory table is empty again.
+        AUTOSYNC_STATUS.lock().sources = Vec::new();
+        let native = || {
+            current_source_statuses(&[])
+                .into_iter()
+                .find(|entry| entry.source == "native")
+                .expect("native source is always registered")
+        };
+        assert_eq!(
+            native().last_success_at,
+            Some(now - 3600),
+            "last success must be read back from disk, not forgotten on restart"
+        );
+        assert_eq!(
+            native().pending_requests,
+            Some(0),
+            "a caught-up source reports a measured zero, not 'unknown'"
+        );
+
+        // The user sends a message: one metric lands after the cursor.
+        let conn = StorageService::connect().unwrap();
+        conn.execute(
+            "INSERT INTO native_chat_sessions (id, project_path, title, profile_id, provider_id,
+                 model_id, effort_level, status, run_state, created_at, updated_at)
+             VALUES ('s1', '/test', 'Chat', 'basebuild-native', 'openai', 'gpt-5.1', 'medium',
+                 'ready', 'idle', ?1, ?1)",
+            rusqlite::params![now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO native_request_metrics (id, session_id, provider_id, model_id,
+                 effort_level, started_at, input_tokens, output_tokens, outcome, created_at)
+             VALUES ('m1', 's1', 'openai', 'gpt-5.1', 'medium', ?1, 10, 5, 'success', ?2)",
+            rusqlite::params![now * 1000, now],
+        )
+        .unwrap();
+        drop(conn);
+
+        assert_eq!(
+            native().pending_requests,
+            Some(1),
+            "a message just sent must show as queued, not as 'no new usage'"
+        );
     }
 
     /// Live contract check against basebuild.net. Not part of the default

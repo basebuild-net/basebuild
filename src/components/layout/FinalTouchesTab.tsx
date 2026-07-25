@@ -9,6 +9,7 @@ import {
   type FinalTouchStepKind,
 } from "../../lib/finalTouches";
 import { OptionList, type OptionListOption } from "./OptionList";
+import { SkeletonRows } from "./Loading";
 
 type FinalTouchesTabProps = {
   projectPath: string | null;
@@ -29,6 +30,7 @@ const STEP_KIND_OPTION_ITEMS: OptionListOption<FinalTouchStepKind>[] = [
 
 export function FinalTouchesTab({ projectPath }: FinalTouchesTabProps) {
   const [steps, setSteps] = useState<FinalTouchStep[]>([]);
+  const [loading, setLoading] = useState(true);
   const [newKind, setNewKind] = useState<FinalTouchStepKind>("shell");
   const [newLabel, setNewLabel] = useState("");
   const [newConfig, setNewConfig] = useState("");
@@ -36,16 +38,22 @@ export function FinalTouchesTab({ projectPath }: FinalTouchesTabProps) {
   useEffect(() => {
     if (!projectPath) {
       setSteps([]);
+      setLoading(false);
       return;
     }
+    setLoading(true);
     void loadSteps(projectPath);
   }, [projectPath]);
 
+  // Only the project-scoped load flips `loading`; the reloads after add /
+  // toggle / delete keep the existing rows on screen instead of blanking.
   async function loadSteps(path: string) {
     try {
       setSteps(await listFinalTouchSteps(path));
     } catch {
       setSteps([]);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -98,7 +106,9 @@ export function FinalTouchesTab({ projectPath }: FinalTouchesTabProps) {
       </p>
 
       {/* Existing steps */}
-      {steps.length > 0 ? (
+      {loading ? (
+        <SkeletonRows rows={3} label="Loading final-touch steps…" />
+      ) : steps.length > 0 ? (
         <div className="final-touch-list">
           {steps.map((step) => (
             <div key={step.id} className="final-touch-step">

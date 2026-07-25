@@ -10,6 +10,7 @@ import {
   type ResolvedChatModelDefault,
 } from "../../lib/native-chat";
 import { ModalPortal } from "../ModalPortal";
+import { LoadingBlock } from "./Loading";
 
 export type DestinationChoice =
   | { kind: "existing"; chatSessionId: string; panelId: string; model?: ChatModelDefault | null }
@@ -53,6 +54,7 @@ export function DestinationPicker({
   useEscapeKey(open && !busy, onClose);
   const [selected, setSelected] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
+  const [bootstrapLoading, setBootstrapLoading] = useState(false);
   const [resolvedDefault, setResolvedDefault] = useState<ResolvedChatModelDefault | null>(null);
   const [modelChoice, setModelChoice] = useState<string>(MODEL_AUTO);
   // Current model of the selected existing chat (fetched on selection).
@@ -71,6 +73,7 @@ export function DestinationPicker({
   useEffect(() => {
     if (!open || !projectPath) return;
     let cancelled = false;
+    setBootstrapLoading(true);
     void nativeChatBootstrap(projectPath)
       .then((bootstrap) => {
         if (cancelled) return;
@@ -83,7 +86,8 @@ export function DestinationPicker({
           setCatalog(null);
           setResolvedDefault(null);
         }
-      });
+      })
+      .finally(() => { if (!cancelled) setBootstrapLoading(false); });
     return () => { cancelled = true; };
   }, [open, projectPath]);
 
@@ -228,11 +232,17 @@ export function DestinationPicker({
               </button>
             </li>
           </ul>
+          {/* Nothing to keep on screen yet — a bare "Project default" label
+              over empty optgroups would understate what is actually offered. */}
+          {selected && bootstrapLoading && !catalog ? (
+            <LoadingBlock label="Loading models…" compact />
+          ) : null}
           {catalog && selected ? (
             <div className="destination-picker-model">
               <label className="destination-picker-model-label" htmlFor="destination-picker-model-select">
                 <Cpu size={11} />
                 Model
+                {bootstrapLoading ? <Loader2 size={11} className="is-spinning" /> : null}
               </label>
               <select
                 id="destination-picker-model-select"

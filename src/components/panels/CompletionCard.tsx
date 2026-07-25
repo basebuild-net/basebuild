@@ -3,6 +3,7 @@ import { Check, GitBranch, GitCommit, GitPullRequest, ListChecks, Loader2, Play,
 
 import type { PlanRun, FinishOutcome } from "../../lib/planRuns";
 import { openspecTaskProgress } from "../../lib/openspec";
+import { LoadingBlock } from "../layout/Loading";
 
 type CompletionCardProps = {
   run: PlanRun;
@@ -27,36 +28,52 @@ export function CompletionCard({
   const [busy, setBusy] = useState<"complete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [taskProgress, setTaskProgress] = useState<{ completed: number; total: number } | null>(null);
+  // True while the task-progress fetch below is in flight. Without it the card
+  // asserted "task progress is unavailable" against a not-yet-fetched value.
+  const [progressLoading, setProgressLoading] = useState(Boolean(changeName && projectPath));
 
   const isAwaitingReview = run.status === "awaiting_review";
   const isSucceeded = run.status === "succeeded";
 
   useEffect(() => {
-    if (!changeName || !projectPath) return;
+    if (!changeName || !projectPath) {
+      // Nothing to load is a settled state, not a pending one.
+      setProgressLoading(false);
+      return;
+    }
     let cancelled = false;
+    setProgressLoading(true);
     void openspecTaskProgress(projectPath, changeName)
       .then((progress) => {
         if (!cancelled) setTaskProgress(progress);
       })
       .catch(() => {
         if (!cancelled) setTaskProgress(null);
+      })
+      .finally(() => {
+        if (!cancelled) setProgressLoading(false);
       });
     return () => {
       cancelled = true;
     };
   }, [changeName, projectPath]);
 
+  // Ordering matters: while `progressLoading` is set there is no blocking
+  // reason to report yet, only an unknown one. The action stays disabled via
+  // `progressLoading` instead of via a fabricated reason.
   const completionBlockedReason = !changeName
     ? null
     : !projectPath
       ? "Cannot mark complete: no project is open."
-      : taskProgress === null
-        ? "Cannot mark complete: task progress is unavailable."
-        : taskProgress.total === 0
-          ? "Cannot mark complete: the linked OpenSpec change has no required tasks."
-          : taskProgress.completed < taskProgress.total
-            ? `Cannot mark complete: ${taskProgress.completed}/${taskProgress.total} required OpenSpec tasks are complete.`
-            : null;
+      : progressLoading
+        ? null
+        : taskProgress === null
+          ? "Cannot mark complete: task progress is unavailable."
+          : taskProgress.total === 0
+            ? "Cannot mark complete: the linked OpenSpec change has no required tasks."
+            : taskProgress.completed < taskProgress.total
+              ? `Cannot mark complete: ${taskProgress.completed}/${taskProgress.total} required OpenSpec tasks are complete.`
+              : null;
 
   const handleMarkComplete = async () => {
     setBusy("complete");
@@ -96,7 +113,11 @@ export function CompletionCard({
 
         {isAwaitingReview ? (
           <div className="completion-card-notice">
-            {completionBlockedReason ?? "Checklist complete. Review the work or continue the plan before marking it complete."}
+            {progressLoading ? (
+              <LoadingBlock label="Checking OpenSpec task progress…" compact />
+            ) : (
+              completionBlockedReason ?? "Checklist complete. Review the work or continue the plan before marking it complete."
+            )}
           </div>
         ) : null}
         {finishOutcome ? (
@@ -150,11 +171,11 @@ export function CompletionCard({
             <button
               type="button"
               className="btn btn-sm btn-primary"
-              title={completionBlockedReason ?? "Mark this run as complete"}
-              disabled={busy !== null || completionBlockedReason !== null}
+              title={completionBlockedReason ?? (progressLoading ? "Checking OpenSpec task progress…" : "Mark this run as complete")}
+              disabled={busy !== null || progressLoading || completionBlockedReason !== null}
               onClick={() => void handleMarkComplete()}
             >
-              {busy === "complete" ? <Loader2 size={11} className="bb-spin" /> : <Check size={11} />}
+              {busy === "complete" || progressLoading ? <Loader2 size={11} className="bb-spin" /> : <Check size={11} />}
               Mark complete
             </button>
             </>

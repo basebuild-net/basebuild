@@ -28,11 +28,15 @@ export type PlansState = {
 
 export function usePlans(sessionId: string | null, projectPath?: string | null): PlansState {
   const [plans, setPlans] = useState<Plan[]>([]);
-  const [loading, setLoading] = useState(false);
+  // True until the mount fetch settles, so consumers never paint "No plans
+  // yet" over a load that has not finished.
+  const [loading, setLoading] = useState(true);
 
   const refreshPlans = useCallback(async () => {
     if (!projectPath && !sessionId) {
       setPlans([]);
+      // Nothing to load: this IS the settled state, not a pending one.
+      setLoading(false);
       return;
     }
     setLoading(true);

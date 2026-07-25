@@ -22,6 +22,9 @@ import { usePlanningEvents } from "./planningEvents";
 export type IdeaStateValue = {
   ideas: Idea[];
   categories: IdeaCategory[];
+  /** True until the first fetch settles. Consumers MUST render a loading
+   * state rather than their empty state while this is set. */
+  loading: boolean;
   refresh: () => Promise<void>;
   createIdea: (title: string, description: string, categoryId?: string) => Promise<Idea | null>;
   updateIdea: (id: string, title: string, description: string, categoryId: string | null) => Promise<Idea>;
@@ -37,11 +40,15 @@ export type IdeaStateValue = {
 export function useIdeaState(sessionId: string | null, projectPath?: string | null): IdeaStateValue {
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [categories, setCategories] = useState<IdeaCategory[]>([]);
+  // Starts true: the first render happens before the mount effect resolves,
+  // and consumers rendered "No ideas yet" during it.
+  const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     if (!projectPath && !sessionId) {
       setIdeas([]);
       setCategories([]);
+      setLoading(false);
       return;
     }
     try {
@@ -56,6 +63,8 @@ export function useIdeaState(sessionId: string | null, projectPath?: string | nu
     } catch {
       setIdeas([]);
       setCategories([]);
+    } finally {
+      setLoading(false);
     }
   }, [projectPath, sessionId]);
 
@@ -150,6 +159,7 @@ export function useIdeaState(sessionId: string | null, projectPath?: string | nu
   return {
     ideas,
     categories,
+    loading,
     refresh,
     createIdea,
     updateIdea,

@@ -13,6 +13,7 @@ import {
   type NotificationKind,
 } from "../../lib/notifications";
 import type { ToastKind } from "./AppShell";
+import { SkeletonRows } from "./Loading";
 
 const BAR_DISMISS_MS = 5000;
 const BAR_MAX_VISIBLE = 3;
@@ -61,6 +62,9 @@ export function TaskbarNotifications({ onNavigate, appToasts, onDismissAppToast 
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  // False only until the first list fetch settles — `refresh` also runs on
+  // every notification event, and those must not flash a skeleton.
+  const [listLoaded, setListLoaded] = useState(false);
   const [filter, setFilter] = useState<NotificationKind | "all">("all");
   const [notifToasts, setNotifToasts] = useState<{ id: string; notification: Notification }[]>([]);
   const [attentionToasts, setAttentionToasts] = useState<{ id: string; notification: Notification }[]>([]);
@@ -119,6 +123,8 @@ export function TaskbarNotifications({ onNavigate, appToasts, onDismissAppToast 
       });
     } catch {
       // non-critical
+    } finally {
+      setListLoaded(true);
     }
   }, []);
 
@@ -464,7 +470,9 @@ export function TaskbarNotifications({ onNavigate, appToasts, onDismissAppToast 
               ))}
             </div>
             <div className="taskbar-notif-dropdown-list">
-              {filtered.length === 0 ? (
+              {!listLoaded ? (
+                <SkeletonRows rows={4} label="Loading notifications…" />
+              ) : filtered.length === 0 ? (
                 <div className="taskbar-notif-dropdown-empty">
                   <Bell size={18} />
                   <span>No notifications here</span>

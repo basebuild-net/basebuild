@@ -5,7 +5,12 @@ import { listenOmpEvents, ompConfigList, ompStatus, startOmpStream, type OmpComm
 export type OmpState = {
   status: OmpStatus | null;
   config: OmpCommandResult | null;
+  /** A `runStream` call is in flight. Distinct from `loading`, which covers
+   * only the initial status/config fetch. */
   busy: boolean;
+  /** True until the mount fetch settles. `status: null` alone cannot be
+   * distinguished from "OMP genuinely reported nothing". */
+  loading: boolean;
   error: string | null;
 };
 
@@ -14,7 +19,13 @@ export type OmpController = OmpState & {
 };
 
 export function useOmpState(): OmpController {
-  const [state, setState] = useState<OmpState>({ status: null, config: null, busy: false, error: null });
+  const [state, setState] = useState<OmpState>({
+    status: null,
+    config: null,
+    busy: false,
+    loading: true,
+    error: null,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -23,11 +34,11 @@ export function useOmpState(): OmpController {
       try {
         const [status, config] = await Promise.all([ompStatus(), ompConfigList()]);
         if (!cancelled) {
-          setState((current) => ({ ...current, status, config }));
+          setState((current) => ({ ...current, status, config, loading: false }));
         }
       } catch (error) {
         if (!cancelled) {
-          setState((current) => ({ ...current, error: String(error) }));
+          setState((current) => ({ ...current, error: String(error), loading: false }));
         }
       }
     }

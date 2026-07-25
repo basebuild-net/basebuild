@@ -76,6 +76,7 @@ import { ConcurrencyTab } from "./settings/ConcurrencyTab";
 import { NotificationsTab } from "./settings/NotificationsTab";
 import { SkillsTab } from "./settings/SkillsTab";
 import { AppearanceTab } from "./settings/AppearanceTab";
+import { LoadingBlock, SkeletonRows } from "./Loading";
 
 type SettingsModalProps = {
   open: boolean;
@@ -96,7 +97,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
     if (open && initialTab) setTab(initialTab);
   }, [open, initialTab]);
   const [requirements, setRequirements] = useState<RequirementStatus[]>([]);
-  const [loading, setLoading] = useState(false);
+  // True until the first requirement sweep settles; the Updates tab must not
+  // claim "No requirement checks available." before then.
+  const [loading, setLoading] = useState(true);
   // App version — compiled in at build time. Shows "0.0.0" in dev; the real
   // version in release builds (set by .github/workflows/windows.yml).
   const [version, setVersion] = useState("");
@@ -106,23 +109,32 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([]);
   const [profileValidations, setProfileValidations] = useState<Record<string, ProfileValidation>>({});
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
+  // Cleared once, by the first defaults fetch — later resets keep the form.
+  const [defaultsLoading, setDefaultsLoading] = useState(true);
   // Startup (launch at sign-in) state
   const [startupStatus, setStartupStatus] = useState<StartupRegistrationStatus | null>(null);
   const [startupToggling, setStartupToggling] = useState(false);
+  // Cleared once, by the first status fetch — a failed fetch must fall through
+  // to real content rather than spin forever.
+  const [startupLoading, setStartupLoading] = useState(true);
 
   // Permissions state
   const [permissions, setPermissions] = useState<PermissionRules | null>(null);
+  const [permissionsLoading, setPermissionsLoading] = useState(true);
 
   // Approval gateway state
   const [approvalMode, setApprovalModeState] = useState<ApprovalMode>("auto");
   const [approvalRules, setApprovalRules] = useState<ApprovalRule[]>([]);
   const [auditTrail, setAuditTrail] = useState<AuditEntry[]>([]);
+  // Cleared once, by the first approval fetch — later refreshes keep the rows.
+  const [approvalLoading, setApprovalLoading] = useState(true);
   const [newRuleTool, setNewRuleTool] = useState("");
   const [newRulePrefix, setNewRulePrefix] = useState("");
   const [newRuleDecision, setNewRuleDecision] = useState<PermissionDecision>("ask");
 
   // Analytics state
   const [consent, setConsent] = useState<AnalyticsConsent | null>(null);
+  const [consentLoading, setConsentLoading] = useState(true);
   const [eventCount, setEventCount] = useState(0);
   const [advisorFeedbackConsent, setAdvisorFeedbackConsent] = useState<AdvisorFeedbackConsent | null>(null);
   const [advisorFeedbackCount, setAdvisorFeedbackCount] = useState(0);
@@ -131,6 +143,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
   const [mcpServers, setMcpServers] = useState<McpServerState[]>([]);
   const [mcpErrors, setMcpErrors] = useState<string[]>([]);
   const [mcpLoading, setMcpLoading] = useState(false);
+  // Distinct from `mcpLoading`: false only before the first reload settles, so
+  // a user-triggered Reload keeps the current rows instead of blanking them.
+  const [mcpLoaded, setMcpLoaded] = useState(false);
   const [oauthPollUrl, setOauthPollUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -138,6 +153,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
     void refreshReq();
     void appVersion().then(setVersion).catch(() => {});
     void refreshDefaults();
+    void refreshPermissions();
     void refreshAnalytics();
     void refreshApproval(projectPath);
     if (projectPath) void refreshMcp();
@@ -166,6 +182,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
       // ignore
     } finally {
       setMcpLoading(false);
+      setMcpLoaded(true);
     }
   }
 
@@ -191,6 +208,8 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
       setProfileValidations(validations);
     } catch {
       // ignore
+    } finally {
+      setDefaultsLoading(false);
     }
   }
 
@@ -198,12 +217,17 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
     try {
       setPermissions(await getPermissionRules());
     } catch {
-      // ignore
+      // ignore — the render falls through to the unavailable notice.
+    } finally {
+      setPermissionsLoading(false);
     }
   }
 
   async function refreshApproval(projectPath: string | null) {
-    if (!projectPath) return;
+    if (!projectPath) {
+      setApprovalLoading(false);
+      return;
+    }
     try {
       const [mode, rules, audit] = await Promise.all([
         getApprovalMode(projectPath),
@@ -215,6 +239,8 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
       setAuditTrail(audit);
     } catch {
       // ignore
+    } finally {
+      setApprovalLoading(false);
     }
   }
 
@@ -231,7 +257,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
       setAdvisorFeedbackConsent(feedbackConsent);
       setAdvisorFeedbackCount(feedback.length);
     } catch {
-      // ignore
+      // ignore — the render falls through to the unavailable notice.
+    } finally {
+      setConsentLoading(false);
     }
   }
 
@@ -241,6 +269,8 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
       setStartupStatus(status);
     } catch {
       // ignore — startup status is non-blocking
+    } finally {
+      setStartupLoading(false);
     }
   }
 
@@ -542,7 +572,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                 <div className="settings-section-header settings-section-spacer">
                   <h3>Windows Startup</h3>
                 </div>
-                {startupStatus ? (
+                {startupLoading ? (
+                  <LoadingBlock label="Loading startup status…" compact />
+                ) : startupStatus ? (
                   <div className="stack">
                     {startupStatus.platformSupported ? (
                       <>
@@ -585,7 +617,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                     )}
                   </div>
                 ) : (
-                  <p className="text-muted text-sm">Loading startup status…</p>
+                  <p className="text-muted text-sm">Startup status is unavailable right now.</p>
                 )}
 
                 <div className="settings-section-header settings-section-spacer">
@@ -600,7 +632,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                     <RefreshCw size={13} className={loading ? "spin" : ""} />
                   </button>
                 </div>
-                {requirements.length === 0 ? (
+                {loading && requirements.length === 0 ? (
+                  <SkeletonRows rows={4} label="Loading requirement checks…" />
+                ) : requirements.length === 0 ? (
                   <p className="text-muted">No requirement checks available.</p>
                 ) : (
                   requirements.map((req) => (
@@ -624,7 +658,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                 <h3>Runtime Defaults</h3>
                 <p className="text-muted text-sm">Set default adapters for new chat and terminal tabs. These are local-only.</p>
 
-                {defaults ? (
+                {defaultsLoading ? (
+                  <LoadingBlock label="Loading defaults…" />
+                ) : defaults ? (
                   <>
                     <RuntimeDefaultsFields
                       defaults={defaults}
@@ -715,27 +751,31 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                     </div>
                   </>
                 ) : (
-                  <p className="text-muted">Loading defaults…</p>
+                  <p className="text-muted text-sm">Runtime defaults are unavailable right now.</p>
                 )}
 
                 {/* Profile validation */}
                 <div className="mt-12">
                   <h4 className="text-sm text-muted mb-6">Adapter health</h4>
-                  {profiles.map((p) => {
-                    const v = profileValidations[p.id];
-                    return (
-                      <div key={p.id} className={`requirement-row is-${v?.valid ? "ok" : "attention"} requirement-row-compact`}>
-                        <span className={`requirement-badge is-${v?.valid ? "ok" : "attention"}`}>
-                          {v?.valid ? "✓" : "!"}
-                        </span>
-                        <div>
-                          <div className="requirement-name">{p.label} <span className="text-muted text-sm mono">{p.executable}</span></div>
-                          {v?.version ? <div className="requirement-detail text-muted text-sm">{v.version}</div> : null}
-                          {v?.error ? <div className="requirement-detail text-danger text-sm">{v.error}</div> : null}
+                  {defaultsLoading ? (
+                    <SkeletonRows rows={3} label="Loading adapter health…" />
+                  ) : (
+                    profiles.map((p) => {
+                      const v = profileValidations[p.id];
+                      return (
+                        <div key={p.id} className={`requirement-row is-${v?.valid ? "ok" : "attention"} requirement-row-compact`}>
+                          <span className={`requirement-badge is-${v?.valid ? "ok" : "attention"}`}>
+                            {v?.valid ? "✓" : "!"}
+                          </span>
+                          <div>
+                            <div className="requirement-name">{p.label} <span className="text-muted text-sm mono">{p.executable}</span></div>
+                            {v?.version ? <div className="requirement-detail text-muted text-sm">{v.version}</div> : null}
+                            {v?.error ? <div className="requirement-detail text-danger text-sm">{v.error}</div> : null}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </div>
 
                 <button
@@ -755,7 +795,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                 <h3>Permission Rules</h3>
                 <p className="text-muted text-sm">Control what agent actions require confirmation. These are local-only.</p>
 
-                {permissions ? (
+                {permissionsLoading ? (
+                  <LoadingBlock label="Loading permission rules…" />
+                ) : permissions ? (
                   <>
                     <PermissionSelect
                       label="Command execution"
@@ -777,7 +819,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                     />
                   </>
                 ) : (
-                  <p className="text-muted">Loading permissions…</p>
+                  <p className="text-muted text-sm">
+                    Permission rules are unavailable right now. Reset to defaults to restore them.
+                  </p>
                 )}
 
                 <button
@@ -796,35 +840,43 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                     Controls how the agent loop handles tool calls that need approval.
                   </p>
 
-                  <div className="row gap-sm">
-                    {(["safe", "balanced", "auto"] as ApprovalMode[]).map((m) => (
-                      <button
-                        key={m}
-                        className={`btn btn-sm ${approvalMode === m ? "btn-primary" : ""}`}
-                        type="button"
-                        title={`Set approval mode to ${m}`}
-                        onClick={() => {
-                          setApprovalModeState(m);
-                          if (projectPath) void setApprovalMode(projectPath, m).then(() => void refreshApproval(projectPath));
-                        }}
-                      >
-                        {m === "safe" && <Lock size={12} />}
-                        {m === "balanced" && <Shield size={12} />}
-                        {m === "auto" && <Check size={12} />}
-                        {m.charAt(0).toUpperCase() + m.slice(1)}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-muted text-sm">
-                    {approvalMode === "safe" && "Every tool call prompts for approval. Most secure, most interruptions."}
-                    {approvalMode === "balanced" && "Read-only tools auto-allow; mutating tools prompt."}
-                    {approvalMode === "auto" && "All tools auto-allow within workspace scoping. Fastest; the default."}
-                  </p>
+                  {approvalLoading ? (
+                    <LoadingBlock label="Loading approval mode…" compact />
+                  ) : (
+                    <>
+                      <div className="row gap-sm">
+                        {(["safe", "balanced", "auto"] as ApprovalMode[]).map((m) => (
+                          <button
+                            key={m}
+                            className={`btn btn-sm ${approvalMode === m ? "btn-primary" : ""}`}
+                            type="button"
+                            title={`Set approval mode to ${m}`}
+                            onClick={() => {
+                              setApprovalModeState(m);
+                              if (projectPath) void setApprovalMode(projectPath, m).then(() => void refreshApproval(projectPath));
+                            }}
+                          >
+                            {m === "safe" && <Lock size={12} />}
+                            {m === "balanced" && <Shield size={12} />}
+                            {m === "auto" && <Check size={12} />}
+                            {m.charAt(0).toUpperCase() + m.slice(1)}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-muted text-sm">
+                        {approvalMode === "safe" && "Every tool call prompts for approval. Most secure, most interruptions."}
+                        {approvalMode === "balanced" && "Read-only tools auto-allow; mutating tools prompt."}
+                        {approvalMode === "auto" && "All tools auto-allow within workspace scoping. Fastest; the default."}
+                      </p>
+                    </>
+                  )}
 
                   {/* Custom rules */}
                   <div className="stack mt-8">
                     <h5>Custom Rules</h5>
-                    {approvalRules.length === 0 ? (
+                    {approvalLoading ? (
+                      <SkeletonRows rows={2} label="Loading custom approval rules…" />
+                    ) : approvalRules.length === 0 ? (
                       <p className="text-muted text-sm">No custom rules. Default mode behavior applies.</p>
                     ) : (
                       <div className="stack">
@@ -917,7 +969,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                         <Trash2 size={12} /> Clear
                       </button>
                     </div>
-                    {auditTrail.length === 0 ? (
+                    {approvalLoading ? (
+                      <SkeletonRows rows={3} label="Loading audit trail…" />
+                    ) : auditTrail.length === 0 ? (
                       <p className="text-muted text-sm">No audit entries yet.</p>
                     ) : (
                       <div className="stack scroll-y-200">
@@ -952,7 +1006,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                 <UsageSyncPanel />
 
 
-                {consent ? (
+                {consentLoading ? (
+                  <LoadingBlock label="Loading analytics consent…" />
+                ) : consent ? (
                   <>
                     <label className="row gap-sm mt-4">
                       <input
@@ -1049,7 +1105,7 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                     </div>
                   </>
                 ) : (
-                  <p className="text-muted">Loading analytics consent…</p>
+                  <p className="text-muted text-sm">Analytics settings are unavailable right now.</p>
                 )}
 
                 {consent && !consent.collectionEnabled ? (
@@ -1096,7 +1152,9 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                     ))}
                   </div>
                 ) : null}
-                {mcpServers.length === 0 ? (
+                {projectPath && !mcpLoaded ? (
+                  <SkeletonRows rows={3} label="Loading MCP servers…" />
+                ) : mcpServers.length === 0 ? (
                   <p className="text-muted text-sm">No MCP servers configured.</p>
                 ) : (
                   <div className="stack">

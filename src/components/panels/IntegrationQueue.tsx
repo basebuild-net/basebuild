@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Check, GitBranch, Trash2, ExternalLink } from "lucide-react";
 import { integrationList, integrationCleanup, type IntegrationEntry } from "../../lib/integration";
 import { ConfirmDialog } from "../layout/ConfirmDialog";
+import { SkeletonRows } from "../layout/Loading";
 
 type IntegrationQueueProps = {
   sessionId: string | null;
@@ -12,7 +13,9 @@ type IntegrationQueueProps = {
 /// merged state, and PR state. Confirm-gated cleanup actions.
 export function IntegrationQueue({ sessionId, projectPath }: IntegrationQueueProps) {
   const [entries, setEntries] = useState<IntegrationEntry[]>([]);
-  const [loading, setLoading] = useState(false);
+  // Starts true: the mount effect below fetches, and the first commit
+  // otherwise claimed "No finished runs to integrate."
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{
     runId: string;
@@ -20,7 +23,11 @@ export function IntegrationQueue({ sessionId, projectPath }: IntegrationQueuePro
   } | null>(null);
 
   useEffect(() => {
-    if (!sessionId || !projectPath) return;
+    if (!sessionId || !projectPath) {
+      // Nothing to load is a settled state, not a pending one.
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     async function load() {
       setLoading(true);
@@ -51,8 +58,8 @@ export function IntegrationQueue({ sessionId, projectPath }: IntegrationQueuePro
     }
   }
 
-  if (loading) return <p className="text-muted text-sm">Loading integration queue…</p>;
   if (error) return <p className="text-error text-sm">{error}</p>;
+  if (loading) return <SkeletonRows rows={3} label="Loading integration queue…" />;
   if (entries.length === 0) {
     return <p className="text-muted text-sm">No finished runs to integrate.</p>;
   }
