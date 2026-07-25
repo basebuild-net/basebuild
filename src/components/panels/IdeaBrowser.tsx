@@ -2,10 +2,14 @@ import { useMemo, useState } from "react";
 import { Lightbulb, Send, Sparkles, Trash2 } from "lucide-react";
 
 import type { Idea, IdeaStatus } from "../../lib/ideas";
+import { SkeletonRows } from "../layout/Loading";
 
 type IdeaBrowserProps = {
   ideas: Idea[];
   categories: { id: string; name: string }[];
+  /** True until the first idea fetch settles — the empty state below is a
+   *  false negative while it is set. Pass `useIdeaState().loading`. */
+  loading: boolean;
   onPromote: (ideaId: string) => void;
   onSendToChat: (idea: Idea) => void;
   onGenerate: () => void;
@@ -25,6 +29,7 @@ const STATUS_FILTERS: { value: IdeaStatus | "all"; label: string }[] = [
 export function IdeaBrowser({
   ideas,
   categories,
+  loading,
   onPromote,
   onSendToChat,
   onGenerate,
@@ -122,7 +127,9 @@ export function IdeaBrowser({
         </div>
       ) : null}
 
-      {filteredIdeas.length === 0 ? (
+      {loading ? (
+        <SkeletonRows rows={4} label="Loading ideas…" />
+      ) : filteredIdeas.length === 0 ? (
         <div className="idea-browser-empty">
           <Lightbulb size={20} />
           <p>No ideas {statusFilter === "all" ? "yet" : `in ${statusFilter}`}. Generate some to get started.</p>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronRight, FileCode, Folder, RefreshCw } from "lucide-react";
 import { listFiles, type DirEntry } from "../../lib/files";
+import { SkeletonRows } from "../layout/Loading";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -14,9 +15,13 @@ type FilesPanelProps = {
 };
 
 export function FilesPanel({ projectPath, onOpenFile }: FilesPanelProps) {
-  const [path, setPath] = useState<string | null>(null);
+  // Seeded from the prop so the very first `load` targets the project root.
+  // Deriving it in an effect left one commit with `path === null`, which
+  // settled the loading flag against an empty directory listing.
+  const [path, setPath] = useState<string | null>(projectPath);
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setPath(projectPath);
@@ -25,14 +30,19 @@ export function FilesPanel({ projectPath, onOpenFile }: FilesPanelProps) {
   const load = useCallback(async () => {
     if (!path) {
       setEntries([]);
+      // Nothing to load is a settled state, not a pending one.
+      setLoading(false);
       return;
     }
+    setLoading(true);
     try {
       setEntries(await listFiles(path));
       setError(null);
     } catch (e) {
       setError(String(e));
       setEntries([]);
+    } finally {
+      setLoading(false);
     }
   }, [path]);
 
@@ -58,10 +68,13 @@ export function FilesPanel({ projectPath, onOpenFile }: FilesPanelProps) {
           aria-label="Refresh"
           onClick={() => void load()}
         >
-          <RefreshCw size={12} />
+          <RefreshCw size={12} className={loading ? "spin" : ""} />
         </button>
       </div>
       <div className="files-list">
+        {loading && entries.length === 0 ? (
+          <SkeletonRows rows={6} label="Loading files…" />
+        ) : null}
         {path && path !== projectPath ? (
           <button
             className="files-item"

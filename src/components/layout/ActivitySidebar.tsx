@@ -27,6 +27,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { StatusBar } from "./StatusBar";
 import { UpdateButton } from "./UpdateButton";
 import { RepoIcon } from "./RepoIcon";
+import { SkeletonRows } from "./Loading";
 import { ActionMenu, type ActionMenuItem } from "../ActionMenu";
 import { getRepoIdentity, type RepoIdentity } from "../../lib/repoIdentity";
 import { humanizeChatTitle } from "../../lib/titles";
@@ -172,6 +173,9 @@ export type ActivitySidebarProps = {
   onDeleteSurfaceFromHistory: (surfaceId: string) => void;
   // Project-level props
   projects: RecentProject[];
+  /** False until the authoritative recent-project list has loaded. The
+   *  "No projects yet" empty state below is a lie while it is false. */
+  projectsReady: boolean;
   account: AccountState;
   updates: UpdaterState;
   onSelectProject: (path: string) => void;
@@ -446,6 +450,7 @@ export function ActivitySidebar({
   onReopenSurface,
   onDeleteSurfaceFromHistory,
   projects,
+  projectsReady,
   account,
   updates,
   onSelectProject,
@@ -651,7 +656,9 @@ export function ActivitySidebar({
 
       <div className="activity-sidebar">
         <div className="activity-sidebar-list">
-          {projects.length === 0 ? (
+          {!projectsReady && projects.length === 0 ? (
+            <SkeletonRows rows={4} label="Loading projects…" />
+          ) : projects.length === 0 ? (
             <div className="sidebar-empty text-muted text-sm">
               No projects yet. <button className="chat-link-btn" type="button" title="Add a project folder" onClick={onOpenFolder}>Add a folder</button>.
             </div>

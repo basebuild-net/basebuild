@@ -1,6 +1,7 @@
 import { type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { AlertCircle, Copy, Edit2, Loader2, RefreshCw } from "lucide-react";
 import { LogoPulse } from "../../layout/LogoPulse";
+import { SkeletonRows } from "../../layout/Loading";
 import { MarkdownView } from "../MarkdownView";
 import { QuestionCard } from "../QuestionCard";
 import type { ChatEvent } from "../../../lib/chatTimeline";
@@ -32,6 +33,9 @@ type ChatTranscriptProps = {
   providerId: string;
   streaming: boolean;
   loading: boolean;
+  /** Session hydration is in flight (messages/tool events/interactions).
+   *  Distinct from `loading`, which is scoped to an in-progress send. */
+  hydrating: boolean;
   renderMessages: (NativeChatMessage | LegacyChatMessage)[];
   reasoningText: string;
   streamText: string;
@@ -76,6 +80,7 @@ export function ChatTranscript({
   providerId,
   streaming,
   loading,
+  hydrating,
   renderMessages,
   reasoningText,
   streamText,
@@ -108,6 +113,16 @@ export function ChatTranscript({
 }: ChatTranscriptProps) {
   return (
       <div className="chat-messages" ref={scrollRef}>
+        {hydrating ? (
+          chatTimeline.length === 0 && renderMessages.length === 0 ? (
+            <SkeletonRows rows={3} label="Loading conversation…" />
+          ) : (
+            <div className="chat-loading-row" title="Loading conversation history">
+              <Loader2 size={12} className="is-spinning" />
+              <span className="text-sm text-muted">Loading conversation…</span>
+            </div>
+          )
+        ) : null}
         {nativeMode
           ? (() => {
               // Flat chronological timeline: merge messages + tool events +
@@ -436,8 +451,13 @@ export function ChatTranscript({
           );
         })() : null}
 
-        {loading && !streaming ? (
-          <div className="chat-loading">{nativeMode ? "Working…" : "Agent is typing…"}</div>
+        {/* Native mode already pushes a spinner row into the timeline above,
+            so this covers only the legacy agent path. */}
+        {loading && !streaming && !nativeMode ? (
+          <div className="chat-loading chat-loading-active" title="Waiting for the agent to respond">
+            <Loader2 size={12} className="is-spinning" />
+            <span className="chat-loading-label">Agent is typing…</span>
+          </div>
         ) : null}
         {interruptedRun && !streaming ? (
           <div className="chat-stuck-bar chat-recovery-bar" role="status">

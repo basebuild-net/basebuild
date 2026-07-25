@@ -20,6 +20,7 @@ import {
   openspecToggleTask,
   openspecUnlinkPlanFromChange,
 } from "../../lib/openspec";
+import { SkeletonRows } from "../layout/Loading";
 
 type ChangesPanelProps = {
   projectPath: string | null;
@@ -35,7 +36,9 @@ const POLL_INTERVAL_MS = 5_000;
 
 export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: ChangesPanelProps) {
   const [changes, setChanges] = useState<ChangeCatalogEntry[]>([]);
-  const [loading, setLoading] = useState(false);
+  // Starts true: the mount effect below fetches, and the first commit
+  // otherwise rendered "No changes found." against an unfetched catalog.
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedName, setExpandedName] = useState<string | null>(null);
   const [tasksByChange, setTasksByChange] = useState<Map<string, StructuredTasks>>(new Map());
@@ -53,7 +56,11 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
   } | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!projectPath) return;
+    if (!projectPath) {
+      // Nothing to load is a settled state, not a pending one.
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -294,6 +301,10 @@ export function ChangesPanel({ projectPath, onFocusPlan, linkablePlans }: Change
       </div>
 
       {error && <div className="changes-panel-error">{error}</div>}
+
+      {loading && filteredChanges.length === 0 && (
+        <SkeletonRows rows={4} label="Loading OpenSpec changes…" />
+      )}
 
       {filteredChanges.length === 0 && !loading && (
         <div className="changes-panel-empty">

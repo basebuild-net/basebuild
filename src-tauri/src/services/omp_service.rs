@@ -1,6 +1,8 @@
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
+use std::sync::LazyLock;
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
@@ -10,6 +12,14 @@ use crate::models::omp::{OmpCommandResult, OmpStatus};
 use crate::services::process_helpers::hidden_command;
 
 static STREAM_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Cache of the last OMP install probe. `status()` spawns `omp --version`
+/// (and `omp config path`) which is far too expensive to run on every usage
+/// status read. Hot paths (usage-source availability, sync gates) use
+/// `is_installed_cached()` instead; install state does not change mid-session.
+static INSTALLED_CACHE: LazyLock<parking_lot::Mutex<Option<(bool, Instant)>>> =
+    LazyLock::new(|| parking_lot::Mutex::new(None));
+const INSTALLED_TTL: Duration = Duration::from_secs(300);
 
 #[derive(Debug, Default)]
 pub struct OmpService;
@@ -44,6 +54,22 @@ impl OmpService {
                 message: Some(message),
             },
         }
+    }
+
+    /// Cached `installed` check for hot paths. Probes at most once per
+    /// `INSTALLED_TTL`; never spawns a subprocess on the fast path.
+    pub fn is_installed_cached() -> bool {
+        {
+            let cache = INSTALLED_CACHE.lock();
+            if let Some((installed, at)) = *cache {
+                if at.elapsed() < INSTALLED_TTL {
+                    return installed;
+                }
+            }
+        }
+        let installed = Self::status().installed;
+        *INSTALLED_CACHE.lock() = Some((installed, Instant::now()));
+        installed
     }
 
     pub fn run_json(args: &[&str]) -> Result<OmpCommandResult, String> {

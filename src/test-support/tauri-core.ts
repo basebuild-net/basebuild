@@ -230,7 +230,7 @@ type E2eState = {
   notificationSettings: { overrides: Record<string, string> };
 };
 
-const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState; __BASEBUILD_E2E_FIXTURE__?: string; __BASEBUILD_E2E_PICK_PROJECT_PATH__?: string; __BASEBUILD_E2E_PICKER_DELAY_MS__?: number; __BASEBUILD_E2E_RESTORE_DELAY_MS__?: number; __BASEBUILD_E2E_BOOTSTRAP_DELAY_MS__?: number };
+const globalState = globalThis as typeof globalThis & { __BASEBUILD_E2E_STATE__?: E2eState; __BASEBUILD_E2E_FIXTURE__?: string; __BASEBUILD_E2E_PICK_PROJECT_PATH__?: string; __BASEBUILD_E2E_PICKER_DELAY_MS__?: number; __BASEBUILD_E2E_RESTORE_DELAY_MS__?: number; __BASEBUILD_E2E_BOOTSTRAP_DELAY_MS__?: number; __BASEBUILD_E2E_INVOKE_DELAY_MS__?: number; __BASEBUILD_E2E_SLOW_COMMANDS__?: string[] };
 
 
 function panelGridFor(panelId: string, chatSessionId: string | null = null): string {
@@ -480,6 +480,15 @@ function reconcileMockPlanRunOwners(
 }
 
 export async function invoke<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
+  // Loading states are only observable if the backend is slow. Tests set
+  // `__BASEBUILD_E2E_INVOKE_DELAY_MS__` (all commands) or scope it to a few
+  // via `__BASEBUILD_E2E_SLOW_COMMANDS__`, then assert the skeleton renders
+  // before the data does.
+  const slowOnly = globalState.__BASEBUILD_E2E_SLOW_COMMANDS__;
+  const invokeDelayMs = globalState.__BASEBUILD_E2E_INVOKE_DELAY_MS__ ?? 0;
+  if (invokeDelayMs > 0 && (!slowOnly || slowOnly.includes(command))) {
+    await new Promise<void>((resolve) => setTimeout(resolve, invokeDelayMs));
+  }
   const s = state();
 
   switch (command) {
@@ -2396,7 +2405,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
             {
               source: "omp",
               available: false,
-              availabilityReason: "OMP is not installed",
+              availabilityReason: "Oh My Pi is not installed",
               pendingRetry: false,
             },
             {
@@ -2417,7 +2426,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
             {
               source: "opencode",
               available: false,
-              availabilityReason: "OpenCode usage is not available",
+              availabilityReason: "OpenCode is not installed",
               pendingRetry: false,
             },
           ],

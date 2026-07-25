@@ -16,3 +16,6 @@ artifacts/
 
 # OpenSpec plans are local workspace state, never repository content.
 /openspec/
+
+# Scratch todo/notes files — local only, cleaned via `rm -rf tmp/`.
+/tmp/

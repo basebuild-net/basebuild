@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { OptionList } from "../OptionList";
+import { SkeletonRows } from "../Loading";
 import {
   notificationGetSettings,
   notificationSetSettings,
@@ -34,9 +35,15 @@ const DELIVERY_LABELS: { id: NotificationDelivery; label: string; title: string 
 export function NotificationsTab() {
   const [settings, setSettings] = useState<NotificationSettingsType | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  // A failed read must surface as an error, not as a skeleton that never ends.
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void notificationGetSettings().then(setSettings).catch(() => {});
+    void notificationGetSettings()
+      .then(setSettings)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
   }, []);
 
   const effective = (kind: string, defaultDelivery: NotificationDelivery): NotificationDelivery =>
@@ -61,10 +68,6 @@ export function NotificationsTab() {
     }
   }, [settings]);
 
-  if (!settings) {
-    return <p className="text-muted text-sm">Loading notification settings…</p>;
-  }
-
   return (
     <div className="settings-section">
       <h3 className="settings-section-title">Notification delivery</h3>
@@ -72,7 +75,11 @@ export function NotificationsTab() {
         Control where each event type surfaces. Defaults are conservative (high-signal events toast + center; idea/category events center only).
       </p>
       <div className="settings-list">
-        {NOTIFICATION_KIND_LABELS.map(({ kind, label, defaultDelivery }) => (
+        {error ? (
+          <p className="text-danger text-sm">{error}</p>
+        ) : loading ? (
+          <SkeletonRows rows={6} label="Loading notification settings…" />
+        ) : NOTIFICATION_KIND_LABELS.map(({ kind, label, defaultDelivery }) => (
           <div key={kind} className="settings-row">
             <span className="settings-label" title={`Default: ${defaultDelivery}`}>{label}</span>
             <OptionList

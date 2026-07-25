@@ -13,7 +13,10 @@ export type OpenSpecRuntimeState = {
 
 export function useOpenSpecRuntime(projectPath: string | null): OpenSpecRuntimeState {
   const [status, setStatus] = useState<OpenSpecRuntimeStatus | null>(null);
-  const [loading, setLoading] = useState(false);
+  // True until the mount fetch settles. `status ?? "missing"` rendered a
+  // definitive "OpenSpec: missing" badge plus manual-install instructions
+  // during every normal load.
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {

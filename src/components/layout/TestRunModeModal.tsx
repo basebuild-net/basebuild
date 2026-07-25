@@ -9,6 +9,7 @@ import {
 import { readModelRecency } from "../../lib/modelRecency";
 import { ModalPortal } from "../ModalPortal";
 import { useEscapeKey } from "../../lib/useEscapeKey";
+import { LoadingBlock } from "./Loading";
 
 type TestRunModeModalProps = {
   open: boolean;
@@ -35,6 +36,9 @@ type ModelEntry = {
 
 export function TestRunModeModal({ open, onClose, onRun, onCancel, logs, running }: TestRunModeModalProps) {
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
+  // Starts true and is re-armed on close so the first render after the modal
+  // opens never claims "No providers available" before the fetch runs.
+  const [catalogLoading, setCatalogLoading] = useState(true);
   const [modelChoice, setModelChoice] = useState<string>("");
   const logEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -44,12 +48,16 @@ export function TestRunModeModal({ open, onClose, onRun, onCancel, logs, running
     if (!open) {
       setCatalog(null);
       setModelChoice("");
+      setCatalogLoading(true);
       return;
     }
     // Fetch the provider catalog to populate the model dropdown.
-    void nativeProviderCatalog().then(setCatalog).catch(() => {
-      // Catalog unavailable — user can't run.
-    });
+    void nativeProviderCatalog()
+      .then(setCatalog)
+      .catch(() => {
+        // Catalog unavailable — falls through to the "no providers" notice.
+      })
+      .finally(() => setCatalogLoading(false));
   }, [open]);
 
   /** Flat list of all models across all providers, annotated with
@@ -165,53 +173,51 @@ export function TestRunModeModal({ open, onClose, onRun, onCancel, logs, running
               full plan lifecycle: create idea → promote → openspec → approve → run → finished.
               If the test project already exists, it is reused.
             </p>
-            {catalog ? (
-              hasModels ? (
-                <div className="destination-picker-model">
-                  <label className="form-label text-sm" htmlFor="test-run-model-select">
-                    Provider / Model <span className="text-danger">*</span>
-                  </label>
-                  <select
-                    id="test-run-model-select"
-                    className="input destination-picker-model-select"
-                    value={modelChoice}
-                    title="Pick the provider and model for OpenSpec generation and the plan run. Sorted by recently used, then configured first."
-                    onChange={(e) => setModelChoice(e.target.value)}
-                    disabled={running}
-                  >
-                    {groupedModels.map((group) => (
-                      <optgroup
-                        key={group.providerId}
-                        label={`${group.providerLabel} ${group.configured ? "✓" : "(not authenticated)"}`}
-                      >
-                        {group.models.map((model) => (
-                          <option
-                            key={`${model.providerId}\u0000${model.modelId}`}
-                            value={`${model.providerId}\u0000${model.modelId}`}
-                          >
-                            {model.modelLabel}{model.lastUsed > 0 ? " · recent" : ""}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                  {selectedEntry && !selectedConfigured ? (
-                    <span className="destination-picker-model-note text-danger">
-                      {selectedEntry.providerLabel} is not authenticated. Configure it in Settings before running, or pick a connected provider.
-                    </span>
-                  ) : (
-                    <span className="destination-picker-model-note text-muted">
-                      Sorted by recently used, then configured first. Pick a connected provider (✓).
-                    </span>
-                  )}
-                </div>
-              ) : (
-                <p className="text-danger text-sm pad">
-                  No providers available. Configure a provider in Settings before running Test Run Mode.
-                </p>
-              )
+            {catalogLoading ? (
+              <LoadingBlock label="Loading model catalog…" compact />
+            ) : hasModels ? (
+              <div className="destination-picker-model">
+                <label className="form-label text-sm" htmlFor="test-run-model-select">
+                  Provider / Model <span className="text-danger">*</span>
+                </label>
+                <select
+                  id="test-run-model-select"
+                  className="input destination-picker-model-select"
+                  value={modelChoice}
+                  title="Pick the provider and model for OpenSpec generation and the plan run. Sorted by recently used, then configured first."
+                  onChange={(e) => setModelChoice(e.target.value)}
+                  disabled={running}
+                >
+                  {groupedModels.map((group) => (
+                    <optgroup
+                      key={group.providerId}
+                      label={`${group.providerLabel} ${group.configured ? "✓" : "(not authenticated)"}`}
+                    >
+                      {group.models.map((model) => (
+                        <option
+                          key={`${model.providerId}\u0000${model.modelId}`}
+                          value={`${model.providerId}\u0000${model.modelId}`}
+                        >
+                          {model.modelLabel}{model.lastUsed > 0 ? " · recent" : ""}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                {selectedEntry && !selectedConfigured ? (
+                  <span className="destination-picker-model-note text-danger">
+                    {selectedEntry.providerLabel} is not authenticated. Configure it in Settings before running, or pick a connected provider.
+                  </span>
+                ) : (
+                  <span className="destination-picker-model-note text-muted">
+                    Sorted by recently used, then configured first. Pick a connected provider (✓).
+                  </span>
+                )}
+              </div>
             ) : (
-              <p className="text-muted text-sm">Loading model catalog…</p>
+              <p className="text-danger text-sm pad">
+                No providers available. Configure a provider in Settings before running Test Run Mode.
+              </p>
             )}
 
             {/* Terminal-style progress log — shown once the run starts. */}

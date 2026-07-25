@@ -323,6 +323,31 @@ current is treated as absolute. First collection uses `window_end - 31 days`
 (within the server's 31-day window limit); subsequent collections use
 `window_end - 1 second`.
 
+### Local harness sources
+
+Each harness reader declares `has_usage_store()`, which drives `available()`.
+It MUST mean "there is something here we can actually read", not "the tool
+left a directory behind" — OpenCode reported as available for every install
+while its reader looked at a path that no longer exists, so the row sat at
+"Ready" forever without ever producing a batch.
+
+| Harness | Store | Notes |
+| --- | --- | --- |
+| Claude Code | `~/.claude/projects/**/*.jsonl` | assistant entries; `<synthetic>` model ids are normalized, not dropped |
+| Codex CLI | `~/.codex/sessions/**/*.jsonl` | rollout files |
+| OpenCode | `~/.local/share/opencode/opencode.db` | SQLite `message` table, opened read-only; `storage/message/*.json` is the pre-SQLite fallback |
+
+The OpenCode walk is scoped to `storage/message` and the `message` table —
+never the harness root, which also holds `auth.json` and session diffs.
+
+`aggregate_entries` bounds every collect to ONE server-acceptable window,
+anchored to the oldest reportable entry and capped at the 31-day span. That
+anchoring is the point: a fixed offset chunk that happens to contain no
+entries would never advance, and aggregating a multi-year history into a
+clamped 31-day window would misreport every counter in it. A backlog drains
+one chunk per pass as the checkpoint advances; anything past the 90-day
+horizon is unreportable and the checkpoint skips it.
+
 ### Sync status
 
 `AutoSyncStatus` reports per-source diagnostics: `off_reason`, `attribution`
@@ -330,6 +355,21 @@ current is treated as absolute. First collection uses `window_end - 31 days`
 and a `sources` map with per-source success/error state.
 `coordinated_usage_outcome()` classifies sync results, distinguishing
 "skipped" (OMP not installed) from actual work.
+
+The Analytics tab collapses each source to exactly one state and one detail.
+Keep it that way — `pending_retry` and `last_error` describe the same
+condition, and rendering them as two different labels ("Retry pending" vs
+"Needs attention") was pure noise:
+
+| State | Condition | Detail shown |
+| --- | --- | --- |
+| Not installed | `!available` | `availability_reason`, naming the tool |
+| Retrying | `last_error \|\| pending_retry` | the error text |
+| Synced | `last_success_at` | relative time ("2 minutes ago") |
+| Waiting | available, no data, no error | "No new usage yet" |
+
+Installed sources sort first. `last_processed_at` is server-cron state and is
+deliberately not rendered.
 
 - **Off by default.** Requires sign-in + explicit enable + upload permission.
 - **Cadence**: hourly interval (default 60 min) plus opportunistic triggers —
@@ -1009,13 +1049,91 @@ distinguishes autostart launches from explicit foreground launches.
 
 Scheduling stays in Rust (`sync_service.rs`) because hidden webviews can be
 throttled. The scheduler:
-- Runs hourly (configurable) with a first-tick unconditional push on startup.
-- Uses a single-flight coordinator (`SYNC_IN_FLIGHT`) to coalesce concurrent
-  triggers into at most one in-flight sync.
+- Is native-first: sources sync in order native → OMP → other detected
+  harnesses (`registered_sources`), and the native envelope is the PRIMARY
+  source. OMP raw usage and harnesses are best-effort enrichment: a failure is
+  recorded per-source (Source status row) but never downgrades the overall
+  outcome or raises the coordinator banner (`coordinated_usage_outcome`).
+- Trickles rather than syncing on a rigid hour: a startup push, then a short
+  evaluation cadence (`MANAGED_TRIGGER_EVAL_SECS`, 60s) fires an early sync when
+  usage changes (≥5 new requests or ≥20%), a provider is added, or the device
+  has never synced. A periodic full tick (`autoSyncIntervalMinutes`) is only a
+  backstop. `MIN_INTER_SYNC_GAP_SECS` (60s) debounces the pushes.
+- Runs the network freshness check (`get_my_live_usage.shouldSync`) and the
+  push INSIDE the spawned worker thread, so command-path triggers ("Sync now",
+  retry) return instantly and never block the UI. Managed/usage-change triggers
+  skip freshness (we already know there is new local usage) and push directly.
+- Is fault-isolated end to end. A source that cannot be read, a batch this
+  client cannot encode, and a batch the server refuses each affect only
+  themselves: `assemble_envelope` validates every batch independently and
+  ships the survivors, so one unparsable harness row can never starve the
+  other sources. `EnvelopeSyncReport` reports `accepted`/`skipped`/`retryable`
+  separately, and `Err` means only "nothing reached the server".
+- Never replays a batch that cannot succeed. A locally unrepresentable batch,
+  or a receipt rejected with a permanent code (`rejection_is_permanent`:
+  `invalid_window`, `invalid_row`, `idempotency_conflict`, …), advances its
+  source's cursor via `discard_batch`. Unrecognized codes are treated as
+  transient, so a server-side change never silently drops a user's usage.
+- Mirrors the server's transport limits locally (`usage_envelope.rs`
+  constants: 5 batches, 500 rows/batch, 1000 rows/envelope, 31-day window,
+  90-day horizon). `clamp_window` pulls long backlogs into range and
+  `normalize_identifier` coerces third-party model ids (Claude Code's
+  `<synthetic>`, ids with spaces) into the accepted charset instead of
+  failing the batch that carries them.
+- Emits batches deterministically. The server keys idempotency on a digest of
+  the serialized batch, so every aggregator uses ordered maps or an explicit
+  sort — an arbitrary iteration order makes an identical replay look like a
+  different payload and come back as `idempotency_conflict`.
+- Native metrics are rolled up client-side into aggregated rows before
+  transport (`aggregate_model_usage_rows`), keeping batches under the envelope's
+  500-row cap and sending only aggregate counters.
+- Uses a single-flight coordinator (`SYNC_IN_FLIGHT`, held by an RAII guard so
+  a panicking worker cannot wedge it) to coalesce concurrent triggers into at
+  most one in-flight sync.
 - Applies bounded exponential backoff (30s → 900s max) on transient failures,
-  reset to 30s on success.
+  reset to 30s on success. The window is enforced in `trigger_sync`
+  (`backoff_elapsed`) and surfaced as the `retry_backoff` off-reason with a
+  `retryAfter` timestamp; gates stay open so "Sync now"/"Retry sync" bypass it.
 - Bounds shutdown sync to 10s so exit cannot hang.
-- Clears auth and stops remote scheduling on 401 while preserving local rows.
+- Clears auth and stops remote scheduling on 401 **and** on JSON-RPC `-32001`,
+  which the server returns with HTTP 200 for a revoked or under-scoped bearer.
+
+#### Consent gate and proactive prompt
+
+The "Share anonymous aggregate usage" toggle (`analytics_consent.upload_enabled`)
+is the consent signal. `gates_pass()` requires only the enabled toggle plus
+`auto_sync_usage`; it never blocks on a separate `consented_at` timestamp, so
+installs upgraded from a build that set the toggle without stamping a timestamp
+keep syncing. `set_consent` backfills `consented_at`/`consent_version` the first
+time a toggle is enabled, purely as an audit record. `resolve_off_reason`
+(pure, unit-tested) distinguishes the states: an enabled toggle passes; a
+disabled toggle with no prior choice reports `ConsentRequired` (the only state
+that drives the proactive `UsageSharingBanner`); an explicit opt-out reports
+`UsageSharingDisabled` and is respected without re-prompting. The banner is a
+one-time dismissible strip (`basebuild:usage-consent-dismissed`) that enables
+sharing in one click or links to Settings → Privacy.
+
+All network-bound usage-sync commands (`usage_sync_projected_usage`,
+`usage_{detect,list,declare}_provider_plans`, `sync_raw_usage_native`) are async
+and run on `spawn_blocking`, so opening the Account settings tab never blocks the
+main thread.
+
+#### Rolled-up and raw are two independent streams
+
+basebuild.net needs both shapes, and they land in different tables, so each
+has its own cursor in `UsageSyncSettings`:
+
+| Stream | Tool | Cursor | Principal | Server table |
+| --- | --- | --- | --- | --- |
+| Rolled-up aggregates | `sync_usage_envelope` | `last_envelope_sync_at` | account or guest | `UsageEnvelopeReceipt`/`Row` |
+| Raw per-message rows | `sync_messages` | `last_message_sync_at` | account only | `AppMessageUsage`, `UserUsageSnapshot` |
+| Raw OMP blobs | `sync_raw_usage` | OMP source cursor | account only | `RawUsageBlob` |
+
+They MUST NOT share a cursor: whichever drained first would starve the other.
+`last_envelope_sync_at` is seeded from `last_message_sync_at` on upgrade
+(`get_usage_sync_settings`) so an existing install does not re-send accepted
+windows. Raw message rows carry `ts` in **milliseconds** — `AppMessageUsage.ts`
+is millisecond-based, and sending seconds skews every distribution query.
 
 ### Privacy boundaries
 
@@ -1023,5 +1141,7 @@ The versioned usage envelope (`usage_envelope.rs`) wraps native chat metrics
 in an allowlisted, validated payload. The validator rejects prompts,
 responses, reasoning, source code, terminal output, tool args/results,
 secrets, credentials, environment values, and raw paths before transport.
-Signed-in accounts use `sync_raw_usage`; guest/private installations use the
-closed envelope only. The two paths never mix.
+Signed-in accounts additionally use the raw paths (`sync_raw_usage`,
+`sync_messages`); guest/private installations are restricted by the server to
+the closed envelope and skip the account-only tools locally rather than
+spending a request on a guaranteed `-32001`.

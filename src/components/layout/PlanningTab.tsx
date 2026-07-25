@@ -7,6 +7,7 @@ import {
   type PlanningPromptEntry,
   PLANNING_PROMPT_KEYS,
 } from "../../lib/planningPrompts";
+import { SkeletonRows } from "./Loading";
 
 const PROMPT_META: Record<string, { label: string; description: string }> = {
   [PLANNING_PROMPT_KEYS.chatSystem]: {
@@ -113,51 +114,54 @@ export function PlanningTab({ projectPath: _projectPath }: PlanningTabProps) {
         generation, and category suggestions. Reset to restore defaults.
       </p>
       {error ? <p className="text-danger text-sm">{error}</p> : null}
-      {loading ? <p className="text-muted text-sm">Loading…</p> : null}
-      <div className="stack">
-        {prompts.map((p) => {
-          const meta = PROMPT_META[p.key] ?? { label: p.key, description: "" };
-          const draft = drafts[p.key] ?? p.value;
-          const isModified = draft !== p.default;
-          return (
-            <div key={p.key} className="settings-prompt-card">
-              <div className="settings-prompt-card-header">
-                <Lightbulb size={12} />
-                <span className="settings-prompt-card-title">{meta.label}</span>
-                {isModified ? <span className="settings-prompt-modified">modified</span> : null}
+      {loading && prompts.length === 0 ? (
+        <SkeletonRows rows={4} label="Loading planning prompts…" />
+      ) : (
+        <div className="stack">
+          {prompts.map((p) => {
+            const meta = PROMPT_META[p.key] ?? { label: p.key, description: "" };
+            const draft = drafts[p.key] ?? p.value;
+            const isModified = draft !== p.default;
+            return (
+              <div key={p.key} className="settings-prompt-card">
+                <div className="settings-prompt-card-header">
+                  <Lightbulb size={12} />
+                  <span className="settings-prompt-card-title">{meta.label}</span>
+                  {isModified ? <span className="settings-prompt-modified">modified</span> : null}
+                </div>
+                {meta.description ? <p className="text-muted text-sm">{meta.description}</p> : null}
+                <textarea
+                  className="input settings-prompt-textarea"
+                  value={draft}
+                  onChange={(e) => setDrafts((d) => ({ ...d, [p.key]: e.target.value }))}
+                  rows={6}
+                  title={`Edit ${meta.label}`}
+                />
+                <div className="settings-prompt-actions">
+                  <button
+                    className="btn btn-sm btn-primary"
+                    type="button"
+                    title="Save this prompt"
+                    disabled={savingKey === p.key}
+                    onClick={() => void handleSave(p.key)}
+                  >
+                    <Save size={11} /> {savedKey === p.key ? "Saved" : "Save"}
+                  </button>
+                  <button
+                    className="btn btn-sm"
+                    type="button"
+                    title="Reset to default"
+                    disabled={savingKey === p.key || !isModified}
+                    onClick={() => void handleReset(p.key)}
+                  >
+                    <RefreshCw size={11} /> Reset to default
+                  </button>
+                </div>
               </div>
-              {meta.description ? <p className="text-muted text-sm">{meta.description}</p> : null}
-              <textarea
-                className="input settings-prompt-textarea"
-                value={draft}
-                onChange={(e) => setDrafts((d) => ({ ...d, [p.key]: e.target.value }))}
-                rows={6}
-                title={`Edit ${meta.label}`}
-              />
-              <div className="settings-prompt-actions">
-                <button
-                  className="btn btn-sm btn-primary"
-                  type="button"
-                  title="Save this prompt"
-                  disabled={savingKey === p.key}
-                  onClick={() => void handleSave(p.key)}
-                >
-                  <Save size={11} /> {savedKey === p.key ? "Saved" : "Save"}
-                </button>
-                <button
-                  className="btn btn-sm"
-                  type="button"
-                  title="Reset to default"
-                  disabled={savingKey === p.key || !isModified}
-                  onClick={() => void handleReset(p.key)}
-                >
-                  <RefreshCw size={11} /> Reset to default
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

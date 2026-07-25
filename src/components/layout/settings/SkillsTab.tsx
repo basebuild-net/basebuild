@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { ModalPortal } from "../../ModalPortal";
 import { listResolvedSkills, readResolvedSkill, type ResolvedSkill } from "../../../lib/skillRegistry";
+import { LoadingBlock, SkeletonRows } from "../Loading";
 
 export function SkillsTab() {
   const [skills, setSkills] = useState<ResolvedSkill[] | null>(null);
@@ -56,7 +57,7 @@ export function SkillsTab() {
       {error ? (
         <p className="text-danger text-sm">{error}</p>
       ) : skills === null ? (
-        <p className="text-muted text-sm">Loading skills…</p>
+        <SkeletonRows rows={4} label="Loading skills…" />
       ) : skills.length === 0 ? (
         <p className="text-muted text-sm">No skills resolved. Bundled skills provision on first run.</p>
       ) : (
@@ -97,7 +98,7 @@ export function SkillsTab() {
             </div>
             <div className="modal-body">
               {previewLoading ? (
-                <p className="text-muted text-sm">Loading…</p>
+                <LoadingBlock label="Loading skill…" compact />
               ) : previewError ? (
                 <p className="text-danger text-sm">{previewError}</p>
               ) : (

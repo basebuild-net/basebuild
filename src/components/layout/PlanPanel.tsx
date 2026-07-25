@@ -41,6 +41,7 @@ import {
 } from "../../lib/planDependencies";
 import { PlanQueueSection } from "./PlanQueueSection";
 import { openspecTaskProgress } from "../../lib/openspec";
+import { SkeletonRows } from "./Loading";
 import { useOpenSpecRuntime } from "../../state/useOpenSpecRuntime";
 import { PlanImportModal } from "./PlanImportModal";
 import { OptionList, type OptionListOption } from "./OptionList";
@@ -219,7 +220,7 @@ export function PlanPanel({
         {!sessionId ? (
           <p className="text-muted text-sm pad">Open a project to manage plans.</p>
         ) : loading ? (
-          <p className="text-muted text-sm pad">Loading plans…</p>
+          <SkeletonRows rows={4} label="Loading plans…" />
         ) : plans.length === 0 ? (
           <div className="plan-empty plan-empty-ai">
             <p className="text-muted text-sm">No plans yet.</p>

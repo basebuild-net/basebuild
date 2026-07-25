@@ -360,6 +360,81 @@ Settings → Final Touches tab uses `.final-touch-list`, `.final-touch-step`,
 `.final-touch-toggle`, and `.final-touch-add` classes. All inputs, selects,
 and buttons use radius tokens and `var(--bb-surface)` backgrounds.
 
+## Loading states (non-negotiable)
+
+**No surface may render nothing, a false empty state, or a false negative
+while its data is in flight.** Waiting is a state and it MUST be drawn. A
+panel that blanks out and then snaps in reads as broken; one that says "No
+changes — working tree is clean" before its fetch lands is worse, because the
+user believes it.
+
+### Render order
+
+`error` → `loading` → `empty` → `content`. An empty state renders only once
+the fetch has settled and genuinely returned nothing. This ordering is the
+whole rule; most violations are an `empty` branch that forgot `loading` exists.
+
+### Primitives (`src/components/layout/Loading.tsx`)
+
+| Use | When |
+| --- | --- |
+| `<SkeletonRows rows={n} label="…" />` | The result is a list or table. **Preferred** — placeholder rows keep the layout from jumping when data lands. |
+| `<LoadingBlock label="…" />` | A whole panel or section with no known row shape. |
+| `<LoadingBlock label="…" compact />` | Same, inside an already-small card. |
+| `<SkeletonText width={n} />` | One inline value inside otherwise-real content. |
+| `<SkeletonControl label="…" />` | A form control whose value is still loading. |
+| `<ModalLoading label="…" />` | `Suspense` fallback for a lazy modal body. Never `null`. |
+| `<LogoPulse />` + inline label | Bespoke layouts; the underlying pulse the others build on. |
+
+A bare `Loading…` string is not sufficient on its own, and must never sit
+*beside* an empty list — it replaces the list.
+
+### Controls are not exempt
+
+A form control renders a *value*, and the default it falls back to is a
+claim about that value:
+
+```tsx
+// Wrong. While `status` is null this renders an UNCHECKED box, which the
+// user reads as "automatic sync is off" — and may click to "fix".
+<input type="checkbox" checked={status?.enabled ?? false} />
+
+// Right. Nothing is claimed until the value exists.
+{status
+  ? <input type="checkbox" checked={status.enabled} … />
+  : <SkeletonControl label="the automatic sync setting" />}
+```
+
+The same applies to `<select value={x ?? ""}>` (renders "no selection"),
+numeric inputs (render "0" or empty), and any text that substitutes a
+placeholder for an unloaded value — use `SkeletonText`. Disabling the control
+is not sufficient: a disabled unchecked box still says "off".
+
+`SkeletonControl` renders a spinner (the app's `Loader2` + `spin`), not a
+pulsing block: at control scale a pulse is indistinguishable from a dead
+control, and a spinner is the universal "busy" affordance. It takes the
+control's *name*, not its state — "Sync usage automatically", not "Loading" —
+so the announced label is "Loading the automatic sync setting".
+`check-ui-invariants` rejects `checked={…?.… ?? false}`.
+
+### Hook contract
+
+A `state/` hook that fetches on mount MUST expose `loading`, initialised
+**`true`**. `useState(false)` means the first commit renders the empty branch
+before the effect has even run — the bug is invisible on a fast machine and
+obvious on a slow one. Clear the flag in a `finally`, and clear it on
+early-return paths too: "nothing to load" is a settled state, not a pending one.
+
+`scripts/check-ui-invariants.mjs` enforces both halves of this: hooks with a
+false-initialised loading flag, and `Suspense` without a fallback.
+
+### Refresh versus first load
+
+On a *refresh* of content already on screen, keep the stale content and show
+an inline spinner (`.spin` / `.is-spinning` on the refresh icon). Only a
+*first* load may replace the surface. Polled surfaces show a loading state on
+the first tick only — never on every poll.
+
 ## Semantic visual states
 
 State is communicated with redundant text, icon, and shape cues. Color never

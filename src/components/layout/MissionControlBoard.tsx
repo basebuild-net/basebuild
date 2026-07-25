@@ -7,6 +7,7 @@ import { openspecTaskProgress, type TaskProgress } from "../../lib/openspec";
 import { estimateEta, formatElapsedMs } from "../../lib/runEta";
 import { usePlanningEvents } from "../../state/planningEvents";
 import { usePanelStatus } from "../panels/PanelStatusContext";
+import { SkeletonRows } from "./Loading";
 
 type MissionControlBoardProps = {
   sessionId: string | null;
@@ -46,6 +47,9 @@ const STATE_LABEL: Record<CardState, string> = {
 export function MissionControlBoard({ sessionId, projectPath, plans, chatPanels, onOpenChatSession }: MissionControlBoardProps) {
   const [runs, setRuns] = useState<PlanRun[]>([]);
   const [graph, setGraph] = useState<DependencyGraph | null>(null);
+  // Starts true: `refresh` runs on mount, and the first commit otherwise
+  // claimed "No runs yet" before either fetch had returned.
+  const [loading, setLoading] = useState(true);
   const [progressByRun, setProgressByRun] = useState<Map<string, TaskProgress>>(new Map());
   const [now, setNow] = useState(() => Date.now());
   // Task-completion tick timestamps per run — fed to the ETA estimator when a
@@ -58,10 +62,15 @@ export function MissionControlBoard({ sessionId, projectPath, plans, chatPanels,
     if (!sessionId) {
       setRuns([]);
       setGraph(null);
+      // Nothing to load is a settled state, not a pending one.
+      setLoading(false);
       return;
     }
-    void listPlanRuns(sessionId).then(setRuns).catch(() => setRuns([]));
-    void getDependencyGraph(sessionId).then(setGraph).catch(() => setGraph(null));
+    setLoading(true);
+    void Promise.all([
+      listPlanRuns(sessionId).then(setRuns, () => setRuns([])),
+      getDependencyGraph(sessionId).then(setGraph, () => setGraph(null)),
+    ]).then(() => setLoading(false));
   }, [sessionId]);
 
   useEffect(() => {
@@ -151,7 +160,9 @@ export function MissionControlBoard({ sessionId, projectPath, plans, chatPanels,
 
   return (
     <div className="mission-control" title="Mission control — live run cards">
-      {cards.length === 0 ? (
+      {loading && cards.length === 0 ? (
+        <SkeletonRows rows={3} label="Loading runs…" />
+      ) : cards.length === 0 ? (
         <div className="mission-control-empty text-muted text-sm" title="No runs">
           No runs yet. Launch ready plans into chats to see them here.
         </div>

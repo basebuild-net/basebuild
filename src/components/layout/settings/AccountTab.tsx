@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, CheckCircle2, Clock3, LogOut, RefreshCw, RotateCcw, ShieldCheck, User } from "lucide-react";
 import { authStartDeviceFlow, authPollDeviceFlow } from "../../../lib/auth";
 import type { AccountState } from "../../../state/account";
+import { SkeletonControl, SkeletonRows, SkeletonText } from "../Loading";
 import { useUsageSync } from "../../../state/usageSync";
 import {
   usageDetectProviderPlans,
@@ -129,11 +130,21 @@ export function AccountPanel({ account }: { account: AccountState }) {
 }
 
 const SOURCE_LABELS: Record<UsageSyncSource, string> = {
-  native: "Basebuild",
-  omp: "OMP",
+  native: "Basebuild chat",
+  omp: "Oh My Pi",
   "claude-code": "Claude Code",
-  codex: "Codex",
+  codex: "Codex CLI",
   opencode: "OpenCode",
+};
+
+/// What each source contributes, shown as the row tooltip. "OMP" and
+/// "Basebuild" alone did not say which usage a row actually covers.
+const SOURCE_HINTS: Record<UsageSyncSource, string> = {
+  native: "chats you run inside Basebuild",
+  omp: "usage reported by the Oh My Pi CLI",
+  "claude-code": "usage recorded by Claude Code sessions",
+  codex: "usage recorded by the Codex CLI",
+  opencode: "usage recorded by OpenCode sessions",
 };
 
 const OUTCOME_LABELS: Record<SyncOverallOutcome, string> = {
@@ -144,33 +155,92 @@ const OUTCOME_LABELS: Record<SyncOverallOutcome, string> = {
 };
 
 export function usageSyncOffReasonText(status: AutoSyncStatus): string | null {
+  // The backoff window is the one "off" reason that keeps the gates open:
+  // the schedule is waiting, but Sync now / Retry sync still work.
+  if (status.offReason === "retry_backoff") {
+    const at = status.retryAfter ? formatSyncTime(status.retryAfter) : null;
+    return at
+      ? `A previous attempt failed. The next scheduled retry is at ${at} — or retry now.`
+      : "A previous attempt failed. A retry is waiting for its backoff window.";
+  }
   if (status.gatesPass) return null;
   switch (status.offReason) {
     case "usage_sharing_disabled":
-      return "Usage sharing is off. Enable Usage sharing in Settings > Privacy to sync.";
+      return "Usage sharing is off. Turn on Share anonymous aggregate usage below to sync.";
     case "auto_sync_disabled":
       return "Auto-sync is off. Turn it on to schedule usage sync.";
     case "consent_required":
-      return "Usage consent is incomplete. Finish Privacy setup before syncing.";
+      return "Usage sharing isn't on yet. Turn on Share anonymous aggregate usage below to sync.";
     case "no_sources_available":
       return "No supported local usage sources are currently available.";
-    case "retry_backoff":
-      return "A previous attempt failed. A retry is waiting for its backoff window.";
     default:
-      return "Usage sync is off. Review Usage sharing in Settings > Privacy.";
+      return "Usage sync is off. Review Share anonymous aggregate usage below.";
   }
 }
 
-function sourceState(source: SourceSyncStatus): { label: string; className: string } {
-  if (!source.available) return { label: "Unavailable", className: "is-muted" };
-  if (source.pendingRetry) return { label: "Retry pending", className: "is-warning" };
-  if (source.lastError) return { label: "Needs attention", className: "is-error" };
-  if (source.lastSuccessAt) return { label: "Synced", className: "is-ok" };
-  return { label: "Ready", className: "is-muted" };
+/// One line per source: a state word and a single supporting detail.
+/// Previously `pendingRetry` and `lastError` produced two different labels
+/// ("Retry pending" / "Needs attention") for the same condition, and an
+/// available source with no data yet read as "Ready" forever.
+function sourceState(source: SourceSyncStatus): {
+  label: string;
+  className: string;
+  detail: string;
+} {
+  if (!source.available) {
+    return {
+      label: "Not installed",
+      className: "is-muted",
+      detail: source.availabilityReason ?? "No local usage store found",
+    };
+  }
+  if (source.lastError || source.pendingRetry) {
+    return {
+      label: "Retrying",
+      className: "is-warning",
+      detail: source.lastError ?? "Queued for the next attempt",
+    };
+  }
+  // Queued work is the difference between "caught up" and "we just haven't
+  // sent your last message yet" — reporting both as "no new usage" is what
+  // made the panel look stuck right after sending a message.
+  const queued = source.pendingRequests ?? 0;
+  const queuedText = `${queued} request${queued === 1 ? "" : "s"} waiting for the next sync`;
+  if (source.lastSuccessAt) {
+    return {
+      label: "Synced",
+      className: "is-ok",
+      detail: queued
+        ? `${formatRelativeTime(source.lastSuccessAt)} · ${queuedText}`
+        : formatRelativeTime(source.lastSuccessAt),
+    };
+  }
+  if (queued) {
+    return { label: "Queued", className: "is-warning", detail: queuedText };
+  }
+  return { label: "Waiting", className: "is-muted", detail: "No new usage yet" };
 }
 
 function formatSyncTime(timestamp?: number): string {
   return timestamp ? new Date(timestamp * 1000).toLocaleString() : "Never";
+}
+
+/// "2 minutes ago" reads faster than a locale timestamp in a status list.
+/// The absolute time stays available as the row's tooltip.
+function formatRelativeTime(timestamp: number): string {
+  const seconds = Math.max(0, Math.floor(Date.now() / 1000) - timestamp);
+  if (seconds < 60) return "just now";
+  const units: [number, string][] = [
+    [86400 * 7, "week"],
+    [86400, "day"],
+    [3600, "hour"],
+    [60, "minute"],
+  ];
+  for (const [size, name] of units) {
+    const value = Math.floor(seconds / size);
+    if (value >= 1) return `${value} ${name}${value === 1 ? "" : "s"} ago`;
+  }
+  return "just now";
 }
 
 export function UsageSyncPanel() {
@@ -264,7 +334,9 @@ export function UsageSyncPanel() {
             </p>
           </div>
         </div>
-      ) : null}
+      ) : (
+        <SkeletonRows rows={2} label="Loading usage attribution…" />
+      )}
 
       {offReason ? (
         <p className="usage-sync-off text-sm" title="Why usage sync is currently off">
@@ -274,23 +346,30 @@ export function UsageSyncPanel() {
 
       <div className="row gap-sm flex-wrap">
         <label className="row gap-sm">
-          <input
-            type="checkbox"
-            checked={status?.enabled ?? false}
-            disabled={toggling}
-            onChange={(event) => void toggleAutoSync(event.target.checked)}
-            title="Enable hourly auto-sync to basebuild.net"
-          />
-          <span className="text-sm">Auto-sync every {status?.intervalMinutes ?? 60} min</span>
+          {/* An unchecked box is not a neutral placeholder — it reads as
+              "auto-sync is off". Stand in until the real value arrives. */}
+          {status ? (
+            <input
+              type="checkbox"
+              checked={status.enabled}
+              disabled={toggling}
+              onChange={(event) => void toggleAutoSync(event.target.checked)}
+              title="Sync usage automatically: periodically and shortly after usage changes"
+            />
+          ) : (
+            <SkeletonControl label="the automatic sync setting" />
+          )}
+          <span className="text-sm">Sync usage automatically (periodically &amp; on changes)</span>
         </label>
         <button
           className="btn btn-sm"
           type="button"
-          title="Sync aggregate usage now"
-          disabled={syncing || retrying || !status?.gatesPass}
+          title={status ? "Sync aggregate usage now" : "Loading sync status…"}
+          disabled={!status || syncing || retrying || !status.gatesPass}
           onClick={() => void syncNow()}
         >
-          <RefreshCw size={12} /> {syncing ? "Syncing..." : "Sync now"}
+          <RefreshCw size={12} className={syncing ? "spin" : undefined} />{" "}
+          {syncing ? "Syncing..." : "Sync now"}
         </button>
         {hasRetryableSource ? (
           <button
@@ -300,33 +379,55 @@ export function UsageSyncPanel() {
             disabled={syncing || retrying || !status?.gatesPass}
             onClick={() => void retryNow()}
           >
-            <RotateCcw size={12} /> {retrying ? "Retrying..." : "Retry sync"}
+            <RotateCcw size={12} className={retrying ? "spin" : undefined} />{" "}
+            {retrying ? "Retrying..." : "Retry sync"}
           </button>
         ) : null}
-        {status?.lastSyncAt ? (
+        {!status ? (
+          <span className="text-muted text-sm">
+            Last sync: <SkeletonText width={14} />
+          </span>
+        ) : status.lastSyncAt ? (
           <span className="text-muted text-sm">
             Last sync: {formatSyncTime(status.lastSyncAt)}
           </span>
         ) : null}
       </div>
 
-      {status ? (
-        <section className="usage-source-section" aria-labelledby="usage-source-heading">
-          <div className="row-between">
-            <h4 id="usage-source-heading">Source status</h4>
-            <span
-              className={`usage-sync-outcome is-${status.overallOutcome ?? "idle"}`}
-              title="Result of the most recent coordinated sync"
-            >
-              {outcomeLabel}
-            </span>
-          </div>
-          {status.sources.length > 0 ? (
-            <div className="usage-source-list">
-              {status.sources.map((source) => {
+      {/* The section frame renders unconditionally. Hiding the whole thing
+          until `status` arrived is what made it pop in from nowhere. */}
+      <section className="usage-source-section" aria-labelledby="usage-source-heading">
+        <div className="row-between">
+          <h4 id="usage-source-heading">Source status</h4>
+          <span
+            className={`usage-sync-outcome is-${status?.overallOutcome ?? "idle"}`}
+            title="Result of the most recent coordinated sync"
+          >
+            {status ? outcomeLabel : "Checking…"}
+          </span>
+        </div>
+        <p className="text-muted text-sm">
+          Every local tool Basebuild can read usage from. Installed tools are
+          listed first; the rest are shown so you can see what would be picked up.
+        </p>
+        {!status ? (
+          <SkeletonRows rows={5} label="Loading source status…" />
+        ) : status.sources.length > 0 ? (
+          <div className="usage-source-list">
+            {[...status.sources]
+              .sort((a, b) =>
+                a.available !== b.available
+                  ? Number(b.available) - Number(a.available)
+                  : SOURCE_LABELS[a.source].localeCompare(SOURCE_LABELS[b.source]),
+              )
+              .map((source) => {
                 const state = sourceState(source);
                 return (
-                  <div className="usage-source-row" key={source.source}>
+                  <div
+                    className={`usage-source-row ${source.available ? "" : "is-unavailable"}`}
+                    key={source.source}
+                    title={`${SOURCE_LABELS[source.source]} — ${SOURCE_HINTS[source.source]}. Last accepted upload: ${formatSyncTime(source.lastSuccessAt)}`}
+                  >
                     <div className="usage-source-name">
                       {state.className === "is-ok" ? <CheckCircle2 size={14} /> : null}
                       {state.className === "is-warning" ? <Clock3 size={14} /> : null}
@@ -335,27 +436,23 @@ export function UsageSyncPanel() {
                       <strong className="text-sm">{SOURCE_LABELS[source.source]}</strong>
                     </div>
                     <span className={`usage-source-state ${state.className}`}>{state.label}</span>
-                    <div className="usage-source-detail text-muted text-sm">
-                      <span>Last success: {formatSyncTime(source.lastSuccessAt)}</span>
-                      {source.lastProcessedAt ? (
-                        <span>Processed: {formatSyncTime(source.lastProcessedAt)}</span>
-                      ) : null}
-                      {source.availabilityReason ? <span>{source.availabilityReason}</span> : null}
-                      {source.lastError ? (
-                        <span className="text-danger" title={source.lastError}>
-                          {source.lastError}
-                        </span>
-                      ) : null}
-                    </div>
+                    <span
+                      className={`usage-source-detail text-sm ${
+                        state.className === "is-warning" || state.className === "is-error"
+                          ? "text-danger"
+                          : "text-muted"
+                      }`}
+                    >
+                      {state.detail}
+                    </span>
                   </div>
                 );
               })}
-            </div>
-          ) : (
-            <p className="text-muted text-sm">Source status will appear after the coordinator starts.</p>
-          )}
-        </section>
-      ) : null}
+          </div>
+        ) : (
+          <p className="text-muted text-sm">Source status will appear after the coordinator starts.</p>
+        )}
+      </section>
 
       {status?.lastError ? (
         <p className="text-danger text-sm" title={status.lastError}>
@@ -369,7 +466,15 @@ export function UsageSyncPanel() {
         </p>
       ) : null}
       {error ? <p className="text-danger text-sm">{error}</p> : null}
-      {loading ? <p className="text-muted text-sm">Loading...</p> : null}
+
+      {/* Account-only cards. While `projected` is in flight the card frame
+          stays put so the panel does not grow by two cards on arrival. */}
+      {status?.attribution === "account" && !projected && !error ? (
+        <div className="card">
+          <h4>Live Utilization</h4>
+          <SkeletonRows rows={3} label="Loading live utilization…" />
+        </div>
+      ) : null}
 
       {liveRows.length > 0 ? (
         <div className="card">
@@ -391,6 +496,13 @@ export function UsageSyncPanel() {
               </div>
             );
           })}
+        </div>
+      ) : null}
+
+      {status?.attribution === "account" && !projected && !error ? (
+        <div className="card">
+          <h4>Per-Model Usage (last 7 days)</h4>
+          <SkeletonRows rows={4} label="Loading per-model usage…" />
         </div>
       ) : null}
 
@@ -518,7 +630,7 @@ function ProviderPlansPanel({ gatesPass }: { gatesPass: boolean }) {
       </p>
       {!gatesPass ? (
         <p className="text-muted text-sm">
-          Enable usage upload in Settings → Privacy to sync declared plans.
+          Turn on Share anonymous aggregate usage to sync declared plans.
         </p>
       ) : null}
       {loading ? <p className="text-muted text-sm">Detecting…</p> : null}

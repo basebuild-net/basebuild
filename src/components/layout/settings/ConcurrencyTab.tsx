@@ -13,6 +13,7 @@ import {
   type RunConcurrencyEntry,
   type ConcurrencyLimits,
 } from "../../../lib/runConcurrency";
+import { LoadingBlock } from "../Loading";
 
 export function ConcurrencyTab({ projectPath }: { projectPath: string | null }) {
   const projectPathNonNull = projectPath ?? "";
@@ -83,7 +84,7 @@ export function ConcurrencyTab({ projectPath }: { projectPath: string | null }) 
     return (
       <div className="stack">
         <h3>Run Concurrency</h3>
-        <p className="text-muted text-sm">Loading…</p>
+        <LoadingBlock label="Loading run concurrency…" />
       </div>
     );
   }

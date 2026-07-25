@@ -1906,6 +1906,21 @@ impl NativeChatService {
         .map_err(|error| error.to_string())
     }
 
+    /// How many metrics were recorded strictly after `since_created_at`.
+    ///
+    /// Indexed COUNT rather than `metrics_since(..).len()`: the status panel
+    /// reads this to say "3 requests queued" instead of the misleading "no
+    /// new usage", and must not deserialize the whole ledger to do it.
+    pub fn metrics_count_since(since_created_at: i64) -> DbResult<i64> {
+        StorageService::connect()?
+            .query_row(
+                "SELECT COUNT(*) FROM native_request_metrics WHERE created_at > ?1",
+                params![since_created_at],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())
+    }
+
     /// Metrics created strictly after `since_created_at` (epoch seconds),
     /// oldest-first, for the incremental app→basebuild.net message sync.
     pub fn metrics_since(since_created_at: i64, limit: u32) -> DbResult<Vec<NativeRequestMetric>> {

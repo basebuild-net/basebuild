@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use crate::models::usage_envelope::{SourceKind, UsageBatch};
+use crate::models::usage_envelope::{clamp_window, normalize_identifier, SourceKind, UsageBatch};
 use crate::services::storage_service::StorageService;
 
 /// Result of collecting a usage batch from a source.
@@ -24,6 +24,10 @@ pub struct SourceCollection {
     pub batch: Option<UsageBatch>,
     /// Diagnostic message for status reporting (never contains user content).
     pub diagnostic: String,
+    /// Why this source produced nothing, when the cause was a failure rather
+    /// than an empty window. Typed so the coordinator never has to sniff the
+    /// diagnostic string to tell "no data" from "broken".
+    pub error: Option<String>,
 }
 
 /// return batches but never mutate process state.
@@ -43,6 +47,21 @@ pub trait UsageSource: Send + Sync {
     /// Advance the checkpoint after the server acknowledged the batch.
     /// Only called after a successful push.
     fn advance_checkpoint(&self, batch: &UsageBatch) -> Result<(), String>;
+
+    /// Abandon a batch the server (or the local validator) will never accept,
+    /// advancing past it so the same poison window is not replayed forever.
+    /// Defaults to the accept path, which is correct for cursor-only sources.
+    fn discard_batch(&self, batch: &UsageBatch) -> Result<(), String> {
+        self.advance_checkpoint(batch)
+    }
+
+    /// Locally recorded usage not yet accepted by the server, when it can be
+    /// answered CHEAPLY — this runs on every status read, so an
+    /// implementation must never re-parse its store. Default `None` means
+    /// "not measurable", which the UI renders as "waiting", not "nothing".
+    fn pending_requests(&self) -> Option<i64> {
+        None
+    }
 
     /// Human-readable diagnostic for status reporting.
     fn diagnostic(&self) -> String;
@@ -131,7 +150,7 @@ impl UsageSource for OmpSource {
     }
 
     fn available(&self) -> bool {
-        crate::services::omp_service::OmpService::status().installed
+        crate::services::omp_service::OmpService::is_installed_cached()
     }
 
     fn collect(&self) -> Result<Option<UsageBatch>, String> {
@@ -162,10 +181,14 @@ impl UsageSource for OmpSource {
 
         let window_end = now_seconds();
         let window_start = if previous.is_empty() {
-            window_end.saturating_sub(31 * 24 * 60 * 60)
+            // A first-ever collect reports the whole cumulative counter; the
+            // widest window the server accepts is 31 days.
+            window_end.saturating_sub(crate::models::usage_envelope::MAX_WINDOW_SECS)
         } else {
             window_end.saturating_sub(1)
         };
+        let (window_start, window_end) = clamp_window(window_start, window_end, window_end)
+            .ok_or_else(|| "OMP usage window is outside the accepted range".to_string())?;
         let serialized_rows = serde_json::to_vec(&rows).map_err(|error| error.to_string())?;
         let digest = Sha256::digest(serialized_rows);
         let idempotency_key = format!("omp:v1:{digest:x}");
@@ -178,6 +201,38 @@ impl UsageSource for OmpSource {
         };
         self.persist_pending(&current, &batch)?;
         Ok(Some(batch))
+    }
+
+    /// Clear the pending batch without adopting its counters as the new
+    /// baseline. The delta stays owed and is re-offered on the next collect
+    /// with a fresh window, instead of replaying a window the server refused.
+    fn discard_batch(&self, batch: &UsageBatch) -> Result<(), String> {
+        let conn = StorageService::connect()?;
+        let stored: Option<String> = conn
+            .query_row(
+                "SELECT pending_batch_json FROM usage_source_cursors WHERE source = 'omp'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?
+            .flatten();
+        let Some(stored) = stored else {
+            return Ok(());
+        };
+        let stored: UsageBatch =
+            serde_json::from_str(&stored).map_err(|error| error.to_string())?;
+        if stored.idempotency_key != batch.idempotency_key {
+            return Ok(());
+        }
+        conn.execute(
+            "UPDATE usage_source_cursors
+             SET pending_state_json = NULL, pending_batch_json = NULL, updated_at = ?1
+             WHERE source = 'omp'",
+            params![now_seconds()],
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(())
     }
 
     fn advance_checkpoint(&self, batch: &UsageBatch) -> Result<(), String> {
@@ -244,9 +299,15 @@ fn parse_omp_counters(stats: &Value) -> BTreeMap<String, OmpCounter> {
         else {
             continue;
         };
-        if !safe_identifier(provider) || !safe_identifier(model) {
+        // Coerce to the wire charset rather than discarding the row: OMP
+        // reports whatever the upstream provider called the model, and
+        // dropping it silently lost real usage.
+        let (Some(provider), Some(model)) = (
+            normalize_identifier(provider),
+            normalize_identifier(model),
+        ) else {
             continue;
-        }
+        };
         let requests = row
             .get("requests")
             .or_else(|| row.get("requestCount"))
@@ -257,8 +318,8 @@ fn parse_omp_counters(stats: &Value) -> BTreeMap<String, OmpCounter> {
             continue;
         }
         let counter = OmpCounter {
-            provider: provider.to_string(),
-            model: model.to_string(),
+            provider: provider.clone(),
+            model: model.clone(),
             requests,
             input_tokens: nonnegative_i64(row, "inputTokens"),
             output_tokens: nonnegative_i64(row, "outputTokens"),
@@ -324,16 +385,6 @@ fn nonnegative_i64(row: &Value, key: &str) -> i64 {
     row.get(key).and_then(Value::as_i64).unwrap_or(0).max(0)
 }
 
-fn safe_identifier(value: &str) -> bool {
-    let mut chars = value.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    value.len() <= 128
-        && first.is_ascii_alphanumeric()
-        && chars.all(|ch| ch.is_ascii_alphanumeric() || "._:/+-".contains(ch))
-}
-
 fn now_seconds() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -367,8 +418,20 @@ impl UsageSource for NativeSource {
     fn advance_checkpoint(&self, batch: &UsageBatch) -> Result<(), String> {
         use crate::services::settings_service::SettingsService;
         let mut settings = SettingsService::get_usage_sync_settings()?;
-        settings.last_message_sync_at = Some(batch.window_end);
+        settings.last_envelope_sync_at = Some(batch.window_end);
         SettingsService::set_usage_sync_settings(&settings)
+    }
+
+    fn pending_requests(&self) -> Option<i64> {
+        use crate::services::settings_service::SettingsService;
+        // One indexed COUNT against the cursor. This is the source the user
+        // is looking at when they send a message, so "nothing new" has to be
+        // a measurement, not an assumption.
+        let since = SettingsService::get_usage_sync_settings()
+            .ok()?
+            .last_envelope_sync_at
+            .unwrap_or(0);
+        crate::services::native_chat_service::NativeChatService::metrics_count_since(since).ok()
     }
 
     fn diagnostic(&self) -> String {
@@ -376,13 +439,13 @@ impl UsageSource for NativeSource {
     }
 }
 
-/// The registry of all known usage sources. Order: OMP first (primary),
-/// then native chat, then optional local harnesses (Claude Code, Codex,
-/// OpenCode). A missing harness never blocks the others.
+/// The registry of all known usage sources. Order: native chat first (the
+/// primary first-party source), then OMP, then optional local harnesses
+/// (Claude Code, Codex, OpenCode). A missing harness never blocks the others.
 pub fn registered_sources() -> Vec<Box<dyn UsageSource>> {
     vec![
-        Box::new(OmpSource),
         Box::new(NativeSource),
+        Box::new(OmpSource),
         Box::new(crate::services::harness_usage_service::HarnessSource::claude_code()),
         Box::new(crate::services::harness_usage_service::HarnessSource::codex()),
         Box::new(crate::services::harness_usage_service::HarnessSource::opencode()),
@@ -405,6 +468,7 @@ pub fn collect_all_sources(include_omp: bool) -> Vec<SourceCollection> {
                 source: kind,
                 batch: None,
                 diagnostic: format!("{} unavailable: {}", kind.as_str(), source.diagnostic()),
+                error: None,
             });
             continue;
         }
@@ -413,11 +477,13 @@ pub fn collect_all_sources(include_omp: bool) -> Vec<SourceCollection> {
                 source: kind,
                 batch,
                 diagnostic: source.diagnostic(),
+                error: None,
             }),
             Err(e) => results.push(SourceCollection {
                 source: kind,
                 batch: None,
                 diagnostic: format!("{} error: {e}", kind.as_str()),
+                error: Some(e),
             }),
         }
     }

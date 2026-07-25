@@ -93,6 +93,9 @@
   /* Borders — subtle grey */
   --bb-border: #28282e;
   --bb-border-strong: #38383f;
+  /* Skeleton placeholder — brighter than surface so it reads as occupied
+     space, dimmer than text so it does not compete with real content. */
+  --bb-skeleton: #3a3a44;
 
   /* Interaction — green accent only on primary/CTA */
   --bb-primary: #5b9a66;
@@ -168,6 +171,7 @@
   /* Borders */
   --bb-border: #303632;
   --bb-border-strong: #3a423d;
+  --bb-skeleton: #3a423d;
 
   /* Interaction — green accent */
   --bb-primary: #6ea97a;
@@ -245,6 +249,7 @@
   /* Borders */
   --bb-border: #d4d4d8;
   --bb-border-strong: #a1a1aa;
+  --bb-skeleton: #c4c4cc;
 
   /* Interaction — restrained green accent (deeper for light contrast) */
   --bb-primary: #4a8a55;
@@ -855,6 +860,51 @@ a { color: inherit; text-decoration: none; }
 @keyframes logo-pulse {
   0%, 100% { transform: scale(0.85); opacity: 0.7; }
   50%      { transform: scale(1.15); opacity: 1; }
+}
+
+/* ─── Shared loading affordances (Loading.tsx) ───────────────────────────
+   No surface may render nothing, a false empty state, or a false negative
+   while its data is in flight. See docs/agents/design-system.md. */
+.bb-loading-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--bb-space-2);
+  padding: var(--bb-space-6);
+}
+.bb-loading-block.is-compact { padding: var(--bb-space-2); }
+.bb-skeleton-rows { display: flex; flex-direction: column; gap: var(--bb-space-1); }
+.bb-skeleton {
+  display: block;
+  height: 20px;
+  background: var(--bb-skeleton);
+  border-radius: var(--bb-radius-sm);
+  opacity: 0.7;
+  animation: bb-skeleton-pulse 1.4s ease-in-out infinite;
+}
+/* Staggered so a stack of rows reads as one loading surface rather than a
+   row of synchronised blinking bars. */
+.bb-skeleton-rows > .bb-skeleton:nth-child(3) { animation-delay: 0.15s; }
+.bb-skeleton-rows > .bb-skeleton:nth-child(4) { animation-delay: 0.3s; }
+.bb-skeleton-rows > .bb-skeleton:nth-child(5) { animation-delay: 0.45s; }
+.bb-skeleton-inline { display: inline-block; height: 1em; vertical-align: text-bottom; }
+/* Spinner stand-in for a form control. The `spin` class on the element
+   drives the rotation (and gets disabled by prefers-reduced-motion); this
+   class just colours it like a skeleton and flexes it to the control's
+   footprint so the row does not reflow on arrival. */
+.bb-skeleton-control {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--bb-skeleton);
+}
+@keyframes bb-skeleton-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 0.85; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bb-skeleton { animation: none; }
+  .logo-pulse { animation: none; }
+  .spin, .is-spinning { animation: none; }
 }
 
 /* ─── Primitives ─── */
@@ -2007,7 +2057,6 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 /* Composer header: always-visible provider/model/effort controls */
 .chat-composer-header { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; min-width: 0; width: 100%; overflow: hidden; }
 .chat-composer-header .chat-select-group { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; min-width: 0; }
-.chat-select-skeleton { height: 22px; width: 100px; background: var(--bb-surface-high); opacity: 0.5; }
 .chat-provider-trigger, .chat-model-trigger { min-width: 0; max-width: 34%; overflow: hidden; }
 .chat-provider-trigger.is-warn { color: var(--bb-warning); border-color: var(--bb-warning); }
 .chat-model-trigger { flex: 1 1 120px; justify-content: flex-start; }
@@ -2477,10 +2526,7 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .empty-state-actions { display: flex; gap: 8px; margin-top: 4px; }
 
 /* ─── Project restore boundary ─── */
-.project-restore-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 32px; color: var(--bb-muted); font-size: 12px; flex: 1; }
-.project-restore-spinner { flex-shrink: 0; }
 .project-switching-overlay { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 48px; color: var(--bb-muted); font-size: 13px; flex: 1; }
-.project-switching-spinner { flex-shrink: 0; }
 .project-switching-label { font-weight: 500; }
 .project-restore-error { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 32px; text-align: center; flex: 1; }
 .project-restore-error h3 { margin: 0; font-size: 14px; color: var(--bb-danger, #e5484d); }
@@ -3815,6 +3861,27 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
   color: var(--bb-warning);
 }
 .usage-sync-off > svg { flex: 0 0 auto; }
+/* Proactive usage-sharing notice: accent-tinted strip below the taskbar,
+   shown only when the user has never made a sharing choice. */
+.usage-consent-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--bb-space-2);
+  padding: 6px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--bb-cta) 34%, var(--bb-border));
+  background: color-mix(in srgb, var(--bb-cta) 8%, var(--bb-surface));
+  flex-shrink: 0;
+}
+.usage-consent-banner-icon { flex: 0 0 auto; color: var(--bb-cta); }
+.usage-consent-banner-body { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.usage-consent-banner-actions { display: flex; align-items: center; gap: var(--bb-space-2); flex-shrink: 0; }
+.usage-consent-banner-close {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0;
+  color: var(--bb-muted); background: transparent; border: none;
+  border-radius: var(--bb-radius-sm); cursor: pointer;
+}
+.usage-consent-banner-close:hover { color: var(--bb-text); background: var(--bb-surface-hover); }
 .usage-source-section {
   display: flex;
   flex-direction: column;
@@ -3834,13 +3901,16 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .usage-source-list { display: flex; flex-direction: column; gap: var(--bb-space-xs); }
 .usage-source-row {
   display: grid;
-  grid-template-columns: minmax(120px, 0.75fr) minmax(90px, auto) minmax(180px, 1.75fr);
-  align-items: start;
+  grid-template-columns: minmax(120px, 0.75fr) minmax(90px, auto) minmax(160px, 1.5fr);
+  align-items: center;
   gap: var(--bb-space-sm);
   padding: var(--bb-space-sm) var(--bb-space-md);
   border-radius: var(--bb-radius-sm);
   background: var(--bb-surface);
 }
+/* A not-installed source is context, not a problem: keep it legible but
+   clearly secondary to the tools actually reporting usage. */
+.usage-source-row.is-unavailable { opacity: 0.72; }
 .usage-source-name { display: flex; align-items: center; gap: 6px; }
 .usage-source-name > svg { flex: 0 0 auto; color: var(--bb-muted); }
 .usage-source-state { font-size: 11px; font-weight: 600; }
@@ -3848,11 +3918,14 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .usage-source-state.is-warning { color: var(--bb-warning); }
 .usage-source-state.is-error { color: var(--bb-negative); }
 .usage-source-state.is-muted { color: var(--bb-muted); }
-.usage-source-detail { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 12px; }
+.usage-source-detail {
+  text-align: right;
+  overflow-wrap: anywhere;
+}
 @media (max-width: 720px) {
   .usage-sharing-summary { grid-template-columns: 1fr; }
   .usage-source-row { grid-template-columns: 1fr auto; }
-  .usage-source-detail { grid-column: 1 / -1; justify-content: flex-start; }
+  .usage-source-detail { grid-column: 1 / -1; text-align: left; }
 }
 
 .usage-window-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }

@@ -18,6 +18,7 @@ import {
   type PlanRun,
 } from "../../lib/planRuns";
 import { getLaunchProfile, type WorkspacePolicy } from "../../lib/planDependencies";
+import { SkeletonText } from "./Loading";
 
 type PlanQueueSectionProps = {
   sessionId: string | null;
@@ -46,6 +47,9 @@ export function PlanQueueSection({
   const [runs, setRuns] = useState<PlanRun[]>([]);
   const [profile, setProfile] = useState<ExecutionProfile>(DEFAULT_PROFILE);
   const [workspacePolicy, setWorkspacePolicy] = useState<WorkspacePolicy>("isolated_worktrees");
+  // DEFAULT_PROFILE reads as "project default / model default", which is a
+  // real routing answer — don't show it before the saved profile arrives.
+  const [profileLoading, setProfileLoading] = useState(true);
 
   // Queue entries belong to the session; the coding profile belongs to the project.
   useEffect(() => {
@@ -61,8 +65,10 @@ export function PlanQueueSection({
   useEffect(() => {
     if (!projectPath) {
       setProfile(DEFAULT_PROFILE);
+      setProfileLoading(false);
       return;
     }
+    setProfileLoading(true);
     void getLaunchProfile(projectPath)
       .then((saved) => {
         if (!saved) return;
@@ -76,7 +82,8 @@ export function PlanQueueSection({
       })
       .catch((error) => {
         onShowToast?.("Could not load queue profile", error instanceof Error ? error.message : String(error), "error");
-      });
+      })
+      .finally(() => setProfileLoading(false));
   }, [projectPath, onShowToast]);
 
   // Listen for plan_run:// events to refresh runs.
@@ -229,10 +236,28 @@ export function PlanQueueSection({
         </label>
         <div
           className="plan-queue-routing"
-          title={`Coding route: ${profile.providerId || "project default"} / ${profile.modelId || "project default"} · ${workspacePolicy === "isolated_worktrees" ? "isolated worktrees" : "primary worktree"}`}
+          title={
+            profileLoading
+              ? "Loading the coding route for this project…"
+              : `Coding route: ${profile.providerId || "project default"} / ${profile.modelId || "project default"} · ${workspacePolicy === "isolated_worktrees" ? "isolated worktrees" : "primary worktree"}`
+          }
         >
-          <span>{profile.providerId || "project default"} / {profile.modelId || "model default"}</span>
-          <span>{workspacePolicy === "isolated_worktrees" ? "worktrees" : "primary"}</span>
+          <span>
+            {profileLoading ? (
+              <SkeletonText width={22} />
+            ) : (
+              `${profile.providerId || "project default"} / ${profile.modelId || "model default"}`
+            )}
+          </span>
+          <span>
+            {profileLoading ? (
+              <SkeletonText width={9} />
+            ) : workspacePolicy === "isolated_worktrees" ? (
+              "worktrees"
+            ) : (
+              "primary"
+            )}
+          </span>
         </div>
         <button
           className="btn btn-sm btn-primary plan-queue-start"

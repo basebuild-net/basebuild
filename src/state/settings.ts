@@ -26,7 +26,9 @@ export function useSettings(): SettingsState {
   const [defaults, setDefaults] = useState<RuntimeDefaults | null>(null);
   const [permissions, setPermissions] = useState<PermissionRules | null>(null);
   const [analyticsConsent, setAnalyticsConsent] = useState<AnalyticsConsent | null>(null);
-  const [loading, setLoading] = useState(false);
+  // True until the mount fetch settles; consumers render "Loading defaults…"
+  // rather than an empty form.
+  const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     setLoading(true);

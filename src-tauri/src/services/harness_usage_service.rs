@@ -21,7 +21,10 @@ use std::time::SystemTime;
 use rusqlite::params;
 use serde_json::{json, Value};
 
-use crate::models::usage_envelope::{SourceKind, UsageBatch};
+use crate::models::usage_envelope::{
+    clamp_window, normalize_identifier, SourceKind, UsageBatch, MAX_FUTURE_SKEW_SECS,
+    MAX_ROWS_PER_BATCH, MAX_WINDOW_AGE_SECS, MAX_WINDOW_SECS,
+};
 use crate::services::storage_service::StorageService;
 
 /// Maximum lines parsed per collect call — bounds startup cost on large
@@ -41,6 +44,12 @@ trait HarnessReader: Send + Sync {
     /// parsed JSON values (one per entry). Implementations parse leniently
     /// and skip malformed entries.
     fn read_entries(&self, since: i64) -> Vec<Value>;
+    /// Whether a readable usage store exists — not merely that the harness
+    /// left a directory behind. Reporting a source as available when nothing
+    /// in it can ever be read is what made OpenCode sit at "Ready" forever.
+    fn has_usage_store(&self) -> bool {
+        self.data_dir().is_some_and(|dir| dir.exists())
+    }
 }
 
 /// Claude Code reader. Provider = "anthropic".
@@ -169,6 +178,11 @@ impl HarnessReader for CodexReader {
 }
 
 /// OpenCode reader. Provider from `providerID`.
+///
+/// Current OpenCode keeps messages in `opencode.db`; only pre-SQLite installs
+/// use `storage/message/*.json`. Reading just the JSON path meant every
+/// modern install reported the source as present and then produced nothing,
+/// forever.
 struct OpenCodeReader {
     dir: Option<PathBuf>,
 }
@@ -178,6 +192,55 @@ impl OpenCodeReader {
         Self {
             dir: home_dir().map(|h| h.join(".local").join("share").join("opencode")),
         }
+    }
+
+    fn database(&self) -> Option<PathBuf> {
+        self.dir
+            .as_ref()
+            .map(|dir| dir.join("opencode.db"))
+            .filter(|path| path.exists())
+    }
+
+    fn legacy_messages(&self) -> Option<PathBuf> {
+        self.dir
+            .as_ref()
+            .map(|dir| dir.join("storage").join("message"))
+            .filter(|path| path.exists())
+    }
+
+    /// Pull assistant messages newer than `since` out of `opencode.db`.
+    ///
+    /// Opened read-only through a URI so a live OpenCode session is never
+    /// disturbed, and every failure degrades to "no entries" — a harness we
+    /// do not own must never be able to fail our sync.
+    fn read_database(path: &Path, since: i64) -> Vec<Value> {
+        let uri = format!("file:{}?mode=ro", path.to_string_lossy().replace('?', "%3f"));
+        let Ok(conn) = rusqlite::Connection::open_with_flags(
+            uri,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        ) else {
+            return Vec::new();
+        };
+        // `time_created` is epoch milliseconds; the payload lives in `data`.
+        let Ok(mut statement) = conn.prepare(
+            "SELECT data FROM message
+             WHERE time_created > ?1 AND json_extract(data, '$.role') = 'assistant'
+             ORDER BY time_created ASC
+             LIMIT ?2",
+        ) else {
+            return Vec::new();
+        };
+        let rows = statement.query_map(
+            params![since.saturating_mul(1000), MAX_LINES_PER_COLLECT as i64],
+            |row| row.get::<_, String>(0),
+        );
+        let Ok(rows) = rows else {
+            return Vec::new();
+        };
+        rows.filter_map(|row| row.ok())
+            .filter_map(|data| serde_json::from_str::<Value>(&data).ok())
+            .filter(|entry| entry.get("tokens").is_some())
+            .collect()
     }
 }
 
@@ -191,12 +254,21 @@ impl HarnessReader for OpenCodeReader {
     fn data_dir(&self) -> Option<PathBuf> {
         self.dir.clone()
     }
+    fn has_usage_store(&self) -> bool {
+        self.database().is_some() || self.legacy_messages().is_some()
+    }
     fn read_entries(&self, since: i64) -> Vec<Value> {
-        let Some(root) = &self.dir else {
+        if let Some(database) = self.database() {
+            let entries = Self::read_database(&database, since);
+            if !entries.is_empty() {
+                return entries;
+            }
+        }
+        // Pre-SQLite layout. Scoped to storage/message so the walk never
+        // touches auth.json or the session diffs alongside it.
+        let Some(msg_root) = self.legacy_messages() else {
             return Vec::new();
         };
-        // OpenCode stores message entries as JSON files under storage/message.
-        let msg_root = root.join("storage").join("message");
         let mut out = Vec::new();
         let mut files_seen = 0usize;
         walk_json_files(&msg_root, since, &mut |text| {
@@ -274,7 +346,7 @@ impl crate::services::usage_source_service::UsageSource for HarnessSource {
     }
 
     fn available(&self) -> bool {
-        self.reader.data_dir().map(|d| d.exists()).unwrap_or(false)
+        self.reader.has_usage_store()
     }
 
     fn collect(&self) -> Result<Option<UsageBatch>, String> {
@@ -283,14 +355,38 @@ impl crate::services::usage_source_service::UsageSource for HarnessSource {
         if entries.is_empty() {
             return Ok(None);
         }
-        let (rows, window_end) = aggregate_entries(self.kind(), &entries);
+        // `read_entries` filters whole FILES by mtime, so an appended session
+        // file re-yields every entry it ever held. `aggregate_entries` bounds
+        // by entry timestamp — that is what makes a collect incremental, and
+        // what keeps a multi-year backlog draining one acceptable window per
+        // pass instead of being crammed into a single mis-stated batch.
+        let now = now_seconds();
+        let (rows, window_start, window_end) =
+            aggregate_entries(self.kind(), &entries, since, now);
         if rows.is_empty() {
+            // Everything readable is already synced or predates the server's
+            // retention horizon. Bank the horizon so the unreportable tail is
+            // never offered again.
+            let horizon = now - MAX_WINDOW_AGE_SECS + 60;
+            if horizon > since {
+                self.set_checkpoint(horizon)?;
+            }
             return Ok(None);
         }
+        // Belt and braces: the chunk bounds already satisfy the server, but a
+        // clock change between collect and transport must not ship a window
+        // that can only come back as `invalid_window`.
+        let Some((window_start, window_end)) = clamp_window(window_start, window_end, now) else {
+            self.set_checkpoint(window_end)?;
+            return Ok(None);
+        };
         Ok(Some(UsageBatch {
             source: self.kind(),
-            idempotency_key: format!("harness:{}:{since}:{window_end}:v1", self.kind().as_str()),
-            window_start: since,
+            idempotency_key: format!(
+                "harness:{}:{window_start}:{window_end}:v1",
+                self.kind().as_str()
+            ),
+            window_start,
             window_end,
             rows,
         }))
@@ -308,8 +404,26 @@ impl crate::services::usage_source_service::UsageSource for HarnessSource {
     }
 }
 
-/// Aggregate parsed entries into schema-safe per-(provider, model, hour) rows.
-fn aggregate_entries(source: SourceKind, entries: &[Value]) -> (Vec<Value>, i64) {
+/// Aggregate parsed entries into schema-safe per-(provider, model, hour) rows,
+/// bounded to ONE server-acceptable window.
+///
+/// Entries at or before `since`, older than the server's retention horizon,
+/// or beyond its clock-skew tolerance are excluded. The window is then
+/// anchored to the OLDEST surviving entry and capped at the maximum span, so
+/// the returned counters always match the window they will be reported under
+/// and a multi-year backlog drains one chunk per pass. Anchoring to the data
+/// rather than to a fixed offset matters: a fixed chunk that happens to
+/// contain no entries would never advance.
+///
+/// Identifiers are normalized to the wire charset and rows are capped at the
+/// server's per-batch limit: an entry the schema cannot express is coarsened
+/// or dropped, never allowed to fail the batch it rides in.
+fn aggregate_entries(
+    source: SourceKind,
+    entries: &[Value],
+    since: i64,
+    now: i64,
+) -> (Vec<Value>, i64, i64) {
     use std::collections::HashMap;
 
     #[derive(Default)]
@@ -321,10 +435,24 @@ fn aggregate_entries(source: SourceKind, entries: &[Value]) -> (Vec<Value>, i64)
         output: i64,
         cache_read: i64,
         cost: f64,
+        ts_min: i64,
         ts_max: i64,
     }
 
-    let mut map: HashMap<(String, String, i64), Acc> = HashMap::new();
+    // Extract once; the chunk bounds are not knowable until the whole set has
+    // been scanned for its oldest reportable entry.
+    struct Extracted {
+        provider: String,
+        model: String,
+        input: i64,
+        output: i64,
+        cache_read: i64,
+        cost: f64,
+        ts: i64,
+    }
+    let horizon = now - MAX_WINDOW_AGE_SECS + 60;
+    let newest_allowed = now + MAX_FUTURE_SKEW_SECS;
+    let mut extracted: Vec<Extracted> = Vec::new();
     for entry in entries {
         let (provider, model, input, output, cache_read, cost, ts) = match source {
             SourceKind::ClaudeCode => extract_claude_code(entry),
@@ -332,28 +460,104 @@ fn aggregate_entries(source: SourceKind, entries: &[Value]) -> (Vec<Value>, i64)
             SourceKind::OpenCode => extract_opencode(entry),
             _ => continue,
         };
-        if model == "unknown" || ts == 0 {
+        if model == "unknown" || ts == 0 || ts <= since || ts < horizon || ts > newest_allowed {
             continue;
         }
-        let hour = ts - (ts % 3600);
+        // Harness ids are third-party strings (Claude Code writes
+        // `<synthetic>`; others use spaces or parentheses). Coerce them into
+        // the wire charset and skip only what is unsalvageable.
+        let (Some(provider), Some(model)) = (
+            normalize_identifier(&provider),
+            normalize_identifier(&model),
+        ) else {
+            continue;
+        };
+        extracted.push(Extracted {
+            provider,
+            model,
+            input,
+            output,
+            cache_read,
+            cost,
+            ts,
+        });
+    }
+
+    let Some(anchor) = extracted.iter().map(|item| item.ts).min() else {
+        return (Vec::new(), 0, 0);
+    };
+    let ceiling = anchor.saturating_add(MAX_WINDOW_SECS);
+
+    let mut map: HashMap<(String, String, i64), Acc> = HashMap::new();
+    for item in extracted.into_iter().filter(|item| item.ts <= ceiling) {
+        let hour = item.ts - (item.ts % 3600);
         let acc = map
-            .entry((provider.clone(), model.clone(), hour))
+            .entry((item.provider.clone(), item.model.clone(), hour))
             .or_insert_with(|| Acc {
-                provider: provider.clone(),
-                model: model.clone(),
+                provider: item.provider,
+                model: item.model,
+                ts_min: item.ts,
+                ts_max: item.ts,
                 ..Default::default()
             });
         acc.requests += 1;
-        acc.input += input;
-        acc.output += output;
-        acc.cache_read += cache_read;
-        acc.cost += cost;
-        acc.ts_max = acc.ts_max.max(ts);
+        acc.input += item.input;
+        acc.output += item.output;
+        acc.cache_read += item.cache_read;
+        acc.cost += item.cost;
+        acc.ts_min = acc.ts_min.min(item.ts);
+        acc.ts_max = acc.ts_max.max(item.ts);
     }
 
+    let window_start = map.values().map(|acc| acc.ts_min).min().unwrap_or(0);
     let window_end = map.values().map(|acc| acc.ts_max).max().unwrap_or(0);
-    let rows = map
-        .into_values()
+
+    let mut accs: Vec<Acc> = if map.len() > MAX_ROWS_PER_BATCH {
+        // Too many hourly buckets for one batch. Coarsen to per-(provider,
+        // model) totals rather than dropping usage — the batch window already
+        // carries the time bounds.
+        let mut coarse: HashMap<(String, String), Acc> = HashMap::new();
+        for acc in map.into_values() {
+            let entry = coarse
+                .entry((acc.provider.clone(), acc.model.clone()))
+                .or_insert_with(|| Acc {
+                    provider: acc.provider.clone(),
+                    model: acc.model.clone(),
+                    ts_min: acc.ts_min,
+                    ts_max: acc.ts_max,
+                    ..Default::default()
+                });
+            entry.requests += acc.requests;
+            entry.input += acc.input;
+            entry.output += acc.output;
+            entry.cache_read += acc.cache_read;
+            entry.cost += acc.cost;
+            entry.ts_min = entry.ts_min.min(acc.ts_min);
+            entry.ts_max = entry.ts_max.max(acc.ts_max);
+        }
+        coarse.into_values().collect()
+    } else {
+        map.into_values().collect()
+    };
+    if accs.len() > MAX_ROWS_PER_BATCH {
+        // Still over budget (a harness with hundreds of distinct models):
+        // keep the heaviest rows, which carry nearly all the signal.
+        accs.sort_unstable_by(|a, b| b.requests.cmp(&a.requests).then(a.model.cmp(&b.model)));
+        accs.truncate(MAX_ROWS_PER_BATCH);
+    }
+    // Deterministic order is load-bearing, not cosmetic: the server keys
+    // idempotency on a digest of the serialized batch, so a HashMap's
+    // arbitrary iteration order made an identical replay look like a
+    // different payload and come back as `idempotency_conflict`.
+    accs.sort_unstable_by(|a, b| {
+        a.provider
+            .cmp(&b.provider)
+            .then(a.model.cmp(&b.model))
+            .then(a.ts_min.cmp(&b.ts_min))
+    });
+
+    let rows = accs
+        .into_iter()
         .map(|a| {
             json!({
                 "kind": "model_usage",
@@ -373,7 +577,25 @@ fn aggregate_entries(source: SourceKind, entries: &[Value]) -> (Vec<Value>, i64)
             })
         })
         .collect();
-    (rows, window_end)
+    (rows, window_start, window_end)
+}
+
+/// Harness timestamps arrive in seconds or milliseconds depending on the
+/// tool. Anything past year 5138 in seconds is milliseconds.
+fn normalize_epoch_seconds(value: i64) -> i64 {
+    if value > 100_000_000_000 {
+        value / 1000
+    } else {
+        value
+    }
+}
+
+/// Current time in epoch seconds.
+fn now_seconds() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or_default()
 }
 
 /// Claude Code: assistant entries with `message.model` + `message.usage`.
@@ -441,16 +663,29 @@ fn extract_opencode(entry: &Value) -> (String, String, i64, i64, i64, f64, i64) 
         .and_then(|t| t.get("output"))
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
-    let cache_read = tokens
-        .and_then(|t| t.get("cache"))
-        .and_then(|v| v.as_i64())
+    // `cache` is an object (`{read, write}`) in the SQLite layout and a plain
+    // number in the oldest JSON one. Reading only the number shape silently
+    // zeroed cache hits, which for a heavy user is most of the token volume.
+    let cache = tokens.and_then(|t| t.get("cache"));
+    let cache_read = cache
+        .and_then(|c| c.get("read").and_then(Value::as_i64).or_else(|| c.as_i64()))
         .unwrap_or(0);
+    let cost = entry
+        .get("cost")
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .unwrap_or(0.0);
+    // `time.created` in the SQLite layout, flat `createdAt` in the JSON one.
+    // Both are milliseconds; older builds used seconds.
     let ts = entry
-        .get("createdAt")
-        .and_then(|v| v.as_i64())
-        .or_else(|| entry.get("completedAt").and_then(|v| v.as_i64()))
+        .get("time")
+        .and_then(|t| t.get("created"))
+        .and_then(Value::as_i64)
+        .or_else(|| entry.get("createdAt").and_then(Value::as_i64))
+        .or_else(|| entry.get("completedAt").and_then(Value::as_i64))
+        .map(normalize_epoch_seconds)
         .unwrap_or(0);
-    (provider, model, input, output, cache_read, 0.0, ts)
+    (provider, model, input, output, cache_read, cost, ts)
 }
 
 /// Resolve the user's home directory.
@@ -576,6 +811,10 @@ mod tests {
     use super::*;
     use crate::services::usage_source_service::UsageSource;
 
+    /// "Now" for fixtures dated 2026-07-18, so their entries sit inside the
+    /// server's 90-day retention horizon.
+    const FIXTURE_NOW: i64 = 1_784_381_696;
+
     #[test]
     fn claude_code_extract_happy_path() {
         let entry = json!({
@@ -618,8 +857,10 @@ mod tests {
             },
             "timestamp": "2026-07-18T12:34:56Z"
         });
-        let (rows, window_end) = aggregate_entries(SourceKind::ClaudeCode, &[entry]);
+        let (rows, window_start, window_end) =
+            aggregate_entries(SourceKind::ClaudeCode, &[entry], 0, FIXTURE_NOW);
         assert_eq!(rows.len(), 1);
+        assert!(window_start > 0);
         assert!(window_end > 0);
         let row = &rows[0];
         // Only closed aggregate fields are emitted.
@@ -628,6 +869,208 @@ mod tests {
         assert!(row.get("message").is_none());
         assert!(row.get("model").is_some());
         assert!(row.get("inputTokens").is_some());
+    }
+
+    #[test]
+    fn synthetic_model_ids_are_normalized_not_dropped_onto_the_wire() {
+        // Claude Code writes `<synthetic>` for internally generated turns.
+        // Emitting it verbatim failed local envelope validation, which took
+        // down every other source with it — sync never succeeded again.
+        let entries = vec![
+            json!({
+                "message": {"model": "<synthetic>", "usage": {"input_tokens": 10, "output_tokens": 5}},
+                "timestamp": "2026-07-18T12:34:56Z"
+            }),
+            json!({
+                "message": {"model": "claude-opus-4-8", "usage": {"input_tokens": 20, "output_tokens": 7}},
+                "timestamp": "2026-07-18T12:34:57Z"
+            }),
+        ];
+        let (rows, _start, _end) =
+            aggregate_entries(SourceKind::ClaudeCode, &entries, 0, FIXTURE_NOW);
+        assert_eq!(rows.len(), 2);
+        for row in &rows {
+            crate::models::usage_envelope::validate_row(row)
+                .expect("every harness row must be shippable");
+        }
+        let models: Vec<&str> = rows
+            .iter()
+            .filter_map(|row| row.get("model").and_then(|m| m.as_str()))
+            .collect();
+        assert!(models.contains(&"synthetic"), "got {models:?}");
+        assert!(models.contains(&"claude-opus-4-8"), "got {models:?}");
+    }
+
+    #[test]
+    fn aggregation_is_incremental_and_byte_stable() {
+        // Two independent failures the server surfaced as `idempotency_conflict`:
+        // re-reading an appended file re-emitted the whole history, and HashMap
+        // iteration order made an identical replay serialize differently, so the
+        // digest never matched the receipt already on file.
+        let base = 1_784_000_000i64;
+        let entries: Vec<Value> = ["alpha-1", "beta-2", "gamma-3", "delta-4"]
+            .iter()
+            .enumerate()
+            .map(|(i, model)| {
+                json!({
+                    "providerID": "anthropic",
+                    "modelID": model,
+                    "tokens": {"input": 1, "output": 1},
+                    "createdAt": base + i as i64 * 7200
+                })
+            })
+            .collect();
+
+        let now = base + 86_400;
+        let (first, _s, first_end) = aggregate_entries(SourceKind::OpenCode, &entries, 0, now);
+        let (again, _s, _e) = aggregate_entries(SourceKind::OpenCode, &entries, 0, now);
+        assert_eq!(
+            serde_json::to_string(&first).unwrap(),
+            serde_json::to_string(&again).unwrap(),
+            "identical input must serialize identically or the server sees a conflict"
+        );
+
+        // A second pass after the checkpoint has nothing left to send.
+        let (drained, _s, _e) =
+            aggregate_entries(SourceKind::OpenCode, &entries, first_end, now);
+        assert!(drained.is_empty(), "already-synced entries must not re-send");
+
+        // …but a newly appended entry does.
+        let mut appended = entries.clone();
+        appended.push(json!({
+            "providerID": "anthropic",
+            "modelID": "epsilon-5",
+            "tokens": {"input": 1, "output": 1},
+            "createdAt": first_end + 3600
+        }));
+        let (fresh, _s, _e) =
+            aggregate_entries(SourceKind::OpenCode, &appended, first_end, first_end + 7200);
+        assert_eq!(fresh.len(), 1);
+        assert_eq!(fresh[0]["model"], "epsilon-5");
+    }
+
+    #[test]
+    fn aggregate_stays_within_the_server_row_budget() {
+        // A long harness history produces one bucket per (model, hour); the
+        // server refuses a batch over 500 rows, so aggregation must coarsen
+        // rather than emit a batch that can only be rejected. 600 hourly
+        // buckets clear the cap while still fitting the 31-day window, so
+        // this exercises coarsening and not the chunk boundary.
+        let count = MAX_ROWS_PER_BATCH as i64 + 100;
+        let base = 1_784_000_000i64;
+        let entries: Vec<Value> = (0..count)
+            .map(|i| {
+                json!({
+                    "providerID": "anthropic",
+                    "modelID": "claude-sonnet-4",
+                    "tokens": {"input": 1, "output": 1},
+                    "createdAt": base + i * 3600
+                })
+            })
+            .collect();
+        let (rows, _start, _end) =
+            aggregate_entries(SourceKind::OpenCode, &entries, 0, base + count * 3600);
+        assert!(rows.len() <= MAX_ROWS_PER_BATCH, "got {} rows", rows.len());
+        // Coarsening preserves the totals rather than discarding usage.
+        let requests: i64 = rows
+            .iter()
+            .filter_map(|row| row.get("requests").and_then(Value::as_i64))
+            .sum();
+        assert_eq!(requests, count);
+    }
+
+    #[test]
+    fn opencode_millisecond_timestamps_are_read_as_seconds() {
+        // OpenCode records `createdAt` in milliseconds; taking it verbatim
+        // put every row ~53,000 years in the future, past the server's skew
+        // tolerance, so the batch could never be accepted.
+        let entry = json!({
+            "providerID": "anthropic",
+            "modelID": "claude-sonnet-4",
+            "tokens": {"input": 1, "output": 1},
+            "createdAt": 1_784_378_096_000i64
+        });
+        let (_p, _m, _i, _o, _c, _cost, ts) = extract_opencode(&entry);
+        assert_eq!(ts, 1_784_378_096);
+    }
+
+    #[test]
+    fn opencode_sqlite_message_shape_is_read_in_full() {
+        // The shape OpenCode actually stores in `opencode.db`: nested
+        // `time.created` (ms), nested `tokens.cache.read`, and a `cost`.
+        // Reading only the flat/legacy shape zeroed cache hits and cost —
+        // for a heavy user, most of the token volume.
+        let entry = json!({
+            "role": "assistant",
+            "providerID": "deepseek",
+            "modelID": "deepseek-v4-pro",
+            "tokens": {
+                "total": 12509, "input": 79, "output": 25, "reasoning": 117,
+                "cache": {"write": 0, "read": 12288}
+            },
+            "cost": 0.00241338,
+            "time": {"created": 1_777_462_677_194i64, "completed": 1_777_462_685_560i64}
+        });
+        let (provider, model, input, output, cache, cost, ts) = extract_opencode(&entry);
+        assert_eq!(provider, "deepseek");
+        assert_eq!(model, "deepseek-v4-pro");
+        assert_eq!(input, 79);
+        assert_eq!(output, 25);
+        assert_eq!(cache, 12288);
+        assert!((cost - 0.00241338).abs() < f64::EPSILON);
+        assert_eq!(ts, 1_777_462_677);
+    }
+
+    #[test]
+    fn aggregation_reports_only_the_window_it_claims_and_drains_the_backlog() {
+        // A first-ever collect can span years. Counters must match the window
+        // they ride in — aggregating everything and clamping the window
+        // afterwards would report years of usage as one 31-day batch — and
+        // the chunk must anchor to the DATA, or a gap stalls it forever.
+        let now = 1_784_000_000i64;
+        let entry = |offset_days: i64| {
+            json!({
+                "providerID": "anthropic",
+                "modelID": "claude-sonnet-4",
+                "tokens": {"input": 1, "output": 1},
+                "createdAt": now - offset_days * 86_400
+            })
+        };
+        // 200d and 120d are past the 90-day horizon and unreportable. 80d
+        // anchors the first chunk; 60d rides with it (20 days later); 20d and
+        // 1d are beyond that chunk's 31-day span and follow on later passes.
+        let entries = vec![
+            entry(200),
+            entry(120),
+            entry(80),
+            entry(60),
+            entry(20),
+            entry(1),
+        ];
+
+        let (rows, window_start, window_end) =
+            aggregate_entries(SourceKind::OpenCode, &entries, 0, now);
+        let counted = |rows: &[Value]| -> i64 {
+            rows.iter()
+                .filter_map(|row| row.get("requests").and_then(Value::as_i64))
+                .sum()
+        };
+        assert_eq!(counted(&rows), 2, "only in-window entries may be counted");
+        assert_eq!(window_start, now - 80 * 86_400);
+        assert_eq!(window_end, now - 60 * 86_400);
+        assert!(window_end - window_start <= MAX_WINDOW_SECS);
+
+        // The next pass resumes from the accepted cursor and drains the rest,
+        // rather than dropping it or re-offering the same window.
+        let (rest, rest_start, rest_end) =
+            aggregate_entries(SourceKind::OpenCode, &entries, window_end, now);
+        assert_eq!(counted(&rest), 2, "the remaining entries must follow");
+        assert_eq!(rest_start, now - 20 * 86_400);
+        assert_eq!(rest_end, now - 86_400);
+
+        // And once drained, nothing is left owing.
+        let (done, _s, _e) = aggregate_entries(SourceKind::OpenCode, &entries, rest_end, now);
+        assert!(done.is_empty(), "a drained backlog must stay drained");
     }
 
     #[test]

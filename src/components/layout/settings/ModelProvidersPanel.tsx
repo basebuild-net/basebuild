@@ -18,6 +18,7 @@ import {
   type NativeProviderLoginState,
   type ProviderAccountStrategy,
 } from "../../../lib/native-chat";
+import { LoadingBlock, SkeletonRows } from "../Loading";
 
 function waitForProviderLoginPoll(): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -27,6 +28,7 @@ function waitForProviderLoginPoll(): Promise<void> {
 
 export function ModelProvidersPanel() {
   const [catalog, setCatalog] = useState<NativeProviderCatalog | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -36,14 +38,16 @@ export function ModelProvidersPanel() {
   const [logoutTarget, setLogoutTarget] = useState<{ id: string; label: string } | null>(null);
   const [loginStates, setLoginStates] = useState<Record<string, NativeProviderLoginState>>({});
   const [loginDrafts, setLoginDrafts] = useState<Record<string, string>>({});
-  const [strategy, setStrategy] = useState<ProviderAccountStrategy>("round_robin");
+  // `null` until the mount fetch settles — rendering the picker on the
+  // "round_robin" default would assert a strategy the user may not have.
+  const [strategy, setStrategy] = useState<ProviderAccountStrategy | null>(null);
   const [strategyLoading, setStrategyLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     void nativeProviderAccountStrategy(null)
       .then((s) => { if (!cancelled) setStrategy(s); })
-      .catch(() => { /* leave default on error */ });
+      .catch(() => { if (!cancelled) setStrategy("round_robin"); });
     return () => { cancelled = true; };
   }, []);
 
@@ -74,7 +78,8 @@ export function ModelProvidersPanel() {
   useEffect(() => {
     void nativeProviderCatalog()
       .then(setCatalog)
-      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : String(loadError)));
+      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : String(loadError)))
+      .finally(() => setCatalogLoading(false));
   }, []);
 
 
@@ -235,17 +240,21 @@ export function ModelProvidersPanel() {
       </p>
       <div className="stack-sm provider-strategy-picker" title="How Basebuild splits usage across multiple accounts on the same provider. Per-provider overrides can be set in the chat Manage dialog.">
         <span className="text-sm">Split usage across accounts</span>
-        <OptionList<ProviderAccountStrategy>
-          value={strategy}
-          disabled={strategyLoading}
-          label="Split usage across accounts"
-          onChange={(next) => void updateStrategy(next)}
-          options={[
-            { id: "round_robin", label: "Round-robin", title: "Rotate requests evenly across every connected account" },
-            { id: "sticky_session", label: "Sticky per chat", title: "Each chat session keeps using the same account" },
-            { id: "fill_first", label: "Fill first", title: "Drain the first account before touching the next" },
-          ]}
-        />
+        {strategy === null ? (
+          <LoadingBlock label="Loading account strategy…" compact />
+        ) : (
+          <OptionList<ProviderAccountStrategy>
+            value={strategy}
+            disabled={strategyLoading}
+            label="Split usage across accounts"
+            onChange={(next) => void updateStrategy(next)}
+            options={[
+              { id: "round_robin", label: "Round-robin", title: "Rotate requests evenly across every connected account" },
+              { id: "sticky_session", label: "Sticky per chat", title: "Each chat session keeps using the same account" },
+              { id: "fill_first", label: "Fill first", title: "Drain the first account before touching the next" },
+            ]}
+          />
+        )}
       </div>
       <label className="stack-sm" htmlFor="provider-model-search">
         <span className="text-sm">Search providers and models</span>
@@ -283,6 +292,7 @@ export function ModelProvidersPanel() {
         </p>
       </details>
 
+      {catalogLoading ? <SkeletonRows rows={5} label="Loading providers…" /> : null}
       {groups.map((group) =>
         group.providers.length > 0 ? (
           <Fragment key={group.label}>
@@ -544,7 +554,7 @@ export function ModelProvidersPanel() {
           </Fragment>
         ) : null,
       )}
-      {visibleProviders.length === 0 ? (
+      {!catalogLoading && catalog !== null && visibleProviders.length === 0 ? (
         <p className="text-muted text-sm">No providers or models match your search.</p>
       ) : null}
       {error ? <p className="text-danger text-sm">{error}</p> : null}

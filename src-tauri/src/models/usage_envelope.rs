@@ -14,6 +14,19 @@ use serde_json::{Map, Value};
 /// server rollout that preserves compatibility with older clients.
 pub const ENVELOPE_VERSION: u32 = 1;
 
+/// Server-enforced transport limits, mirrored locally so a batch is never
+/// shipped only to be rejected. These MUST stay in sync with
+/// `USAGE_ENVELOPE_LIMITS` in basebuild-dotnet (`src/lib/usage-envelope.ts`).
+pub const MAX_BATCHES_PER_ENVELOPE: usize = 5;
+pub const MAX_ROWS_PER_BATCH: usize = 500;
+pub const MAX_ROWS_PER_ENVELOPE: usize = 1000;
+/// Widest window the server accepts in a single batch: 31 days.
+pub const MAX_WINDOW_SECS: i64 = 2_678_400;
+/// Oldest `windowStart` the server accepts: 90 days back.
+pub const MAX_WINDOW_AGE_SECS: i64 = 7_776_000;
+/// Clock skew the server tolerates on future timestamps.
+pub const MAX_FUTURE_SKEW_SECS: i64 = 300;
+
 /// Identifies which source produced a usage batch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SourceKind {
@@ -177,6 +190,59 @@ const PLAN_UTILIZATION_FIELDS: &[&str] = &[
     "resetsAt",
 ];
 
+/// Coerce an arbitrary provider/model string into the identifier shape the
+/// server accepts (`/^[A-Za-z0-9][A-Za-z0-9._:/+\-]{0,127}$/`).
+///
+/// Harnesses emit ids we do not control — Claude Code writes `<synthetic>`
+/// for internally generated turns, and other tools use spaces, parentheses,
+/// or leading punctuation. An unrepresentable id used to fail the whole
+/// envelope, which starved every other source; normalizing keeps the usage
+/// attributable instead. Disallowed characters collapse to `-`, and a
+/// non-alphanumeric first character is dropped. Returns `None` only when
+/// nothing usable survives, in which case the caller must skip the row.
+pub fn normalize_identifier(value: &str) -> Option<String> {
+    let mut out = String::with_capacity(value.len().min(128));
+    for ch in value.chars() {
+        if out.len() == 128 {
+            break;
+        }
+        let mapped = if ch.is_ascii_alphanumeric() || "._:/+-".contains(ch) {
+            ch
+        } else {
+            '-'
+        };
+        // The first character must be alphanumeric; skip leading punctuation
+        // rather than emitting a leading `-` the server would reject.
+        if out.is_empty() && !mapped.is_ascii_alphanumeric() {
+            continue;
+        }
+        out.push(mapped);
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+/// Clamp a batch window into the range the server accepts, given `now` in
+/// epoch seconds. Returns `None` when the window cannot be represented at
+/// all (its end is already older than the 90-day retention horizon), which
+/// tells the caller to drop the batch and advance past it.
+///
+/// The clamp is deliberately end-anchored: usage at the recent end of a long
+/// backlog is what matters, and the caller re-collects the remainder on the
+/// next pass once its cursor advances.
+pub fn clamp_window(start: i64, end: i64, now: i64) -> Option<(i64, i64)> {
+    let oldest = now - MAX_WINDOW_AGE_SECS + 60;
+    let newest = now + MAX_FUTURE_SKEW_SECS;
+    let end = end.min(newest);
+    if end < oldest {
+        return None;
+    }
+    let start = start.clamp(oldest, end).max(end - MAX_WINDOW_SECS);
+    Some((start.min(end), end))
+}
+
 fn bounded_identifier(value: Option<&Value>) -> bool {
     let Some(value) = value.and_then(Value::as_str) else {
         return false;
@@ -321,7 +387,10 @@ pub fn validate_row(row: &Value) -> Result<(), String> {
 }
 
 /// Validate an entire batch. Checks every row and the batch metadata.
-pub fn validate_batch(batch: &UsageBatch) -> Result<(), String> {
+///
+/// `now` is epoch seconds; the window bounds mirror the server's so a batch
+/// is never shipped only to come back as `invalid_window`.
+pub fn validate_batch(batch: &UsageBatch, now: i64) -> Result<(), String> {
     let key_is_safe = (8..=128).contains(&batch.idempotency_key.len())
         && batch
             .idempotency_key
@@ -333,8 +402,19 @@ pub fn validate_batch(batch: &UsageBatch) -> Result<(), String> {
     if batch.window_start < 0 || batch.window_end < batch.window_start {
         return Err("batch window is invalid".to_string());
     }
-    if batch.rows.is_empty() || batch.rows.len() > 500 {
-        return Err("batch must contain between 1 and 500 rows".to_string());
+    if batch.window_end > now + MAX_FUTURE_SKEW_SECS {
+        return Err("batch window ends in the future".to_string());
+    }
+    if batch.window_start < now - MAX_WINDOW_AGE_SECS {
+        return Err("batch window starts beyond the retention horizon".to_string());
+    }
+    if batch.window_end - batch.window_start > MAX_WINDOW_SECS {
+        return Err("batch window is longer than 31 days".to_string());
+    }
+    if batch.rows.is_empty() || batch.rows.len() > MAX_ROWS_PER_BATCH {
+        return Err(format!(
+            "batch must contain between 1 and {MAX_ROWS_PER_BATCH} rows"
+        ));
     }
     for (index, row) in batch.rows.iter().enumerate() {
         validate_row(row).map_err(|error| format!("batch row {index}: {error}"))?;
@@ -353,38 +433,102 @@ pub fn validate_envelope(envelope: &UsageEnvelope) -> Result<(), String> {
     if envelope.generated_at < 0 {
         return Err("envelope generated_at must be non-negative".to_string());
     }
-    if envelope.batches.is_empty() || envelope.batches.len() > 5 {
-        return Err("envelope must contain between 1 and 5 batches".to_string());
+    if envelope.batches.is_empty() || envelope.batches.len() > MAX_BATCHES_PER_ENVELOPE {
+        return Err(format!(
+            "envelope must contain between 1 and {MAX_BATCHES_PER_ENVELOPE} batches"
+        ));
+    }
+    let mut seen = Vec::with_capacity(envelope.batches.len());
+    for batch in &envelope.batches {
+        if seen.contains(&batch.source) {
+            return Err(format!(
+                "envelope repeats the {} source",
+                batch.source.as_str()
+            ));
+        }
+        seen.push(batch.source);
     }
     if envelope
         .batches
         .iter()
         .map(|batch| batch.rows.len())
         .sum::<usize>()
-        > 1000
+        > MAX_ROWS_PER_ENVELOPE
     {
-        return Err("envelope exceeds the 1000-row limit".to_string());
+        return Err(format!(
+            "envelope exceeds the {MAX_ROWS_PER_ENVELOPE}-row limit"
+        ));
     }
     for (index, batch) in envelope.batches.iter().enumerate() {
-        validate_batch(batch).map_err(|error| format!("envelope batch {index}: {error}"))?;
+        validate_batch(batch, envelope.generated_at)
+            .map_err(|error| format!("envelope batch {index}: {error}"))?;
     }
     Ok(())
 }
 
-/// Build an envelope from validated batches. The builder validates before
-/// returning, so a successful return guarantees the envelope is safe to
-/// transport.
-pub fn build_envelope(
+/// A batch that could not be shipped, paired with the reason. The batch
+/// travels with it so the caller can hand it back to the owning source's
+/// checkpoint logic instead of reconstructing it.
+#[derive(Debug, Clone)]
+pub struct RejectedBatch {
+    pub batch: UsageBatch,
+    pub reason: String,
+    /// True when the batch is merely postponed (envelope budget) rather than
+    /// unrepresentable. Deferred batches must be retried, never discarded.
+    pub deferred: bool,
+}
+
+/// Assemble the widest envelope that is guaranteed to pass server validation,
+/// isolating faults to the batch that caused them.
+///
+/// One malformed batch used to fail `build_envelope` outright, which meant a
+/// single unparsable harness row silently blocked every other source forever.
+/// Here each batch is validated on its own: the good ones ship, the bad ones
+/// come back as `RejectedBatch` for the caller to record and skip.
+///
+/// Returns `(None, rejected)` when nothing shippable remains.
+pub fn assemble_envelope(
     batches: Vec<UsageBatch>,
     generated_at: i64,
-) -> Result<UsageEnvelope, String> {
-    let envelope = UsageEnvelope {
-        version: ENVELOPE_VERSION,
-        generated_at,
-        batches,
-    };
-    validate_envelope(&envelope)?;
-    Ok(envelope)
+) -> (Option<UsageEnvelope>, Vec<RejectedBatch>) {
+    let mut accepted: Vec<UsageBatch> = Vec::with_capacity(batches.len());
+    let mut rejected = Vec::new();
+    let mut rows_used = 0usize;
+
+    for batch in batches {
+        let (reason, deferred) = if accepted.len() >= MAX_BATCHES_PER_ENVELOPE {
+            (Some("envelope batch limit reached".to_string()), true)
+        } else if accepted.iter().any(|kept| kept.source == batch.source) {
+            (Some(format!("duplicate {} batch", batch.source.as_str())), false)
+        } else if rows_used + batch.rows.len() > MAX_ROWS_PER_ENVELOPE {
+            (Some("envelope row limit reached".to_string()), true)
+        } else {
+            (validate_batch(&batch, generated_at).err(), false)
+        };
+        match reason {
+            Some(reason) => rejected.push(RejectedBatch {
+                batch,
+                reason,
+                deferred,
+            }),
+            None => {
+                rows_used += batch.rows.len();
+                accepted.push(batch);
+            }
+        }
+    }
+
+    if accepted.is_empty() {
+        return (None, rejected);
+    }
+    (
+        Some(UsageEnvelope {
+            version: ENVELOPE_VERSION,
+            generated_at,
+            batches: accepted,
+        }),
+        rejected,
+    )
 }
 
 /// Sanitize a row by removing any non-allowlisted keys. This is a last-resort
@@ -431,12 +575,15 @@ mod tests {
         })
     }
 
+    /// Anchored near the fixture epoch so window checks have a stable `now`.
+    const NOW: i64 = 1784678400;
+
     fn batch(rows: Vec<Value>) -> UsageBatch {
         UsageBatch {
             source: SourceKind::Native,
-            idempotency_key: "native:1700000000:v1".to_string(),
-            window_start: 1700000000,
-            window_end: 1700003600,
+            idempotency_key: "native:1784592000:v1".to_string(),
+            window_start: NOW - 3600,
+            window_end: NOW,
             rows,
         }
     }
@@ -499,14 +646,77 @@ mod tests {
     fn batch_validation_checks_metadata() {
         let mut b = batch(vec![safe_row()]);
         b.idempotency_key = "".to_string();
-        assert!(validate_batch(&b).is_err());
+        assert!(validate_batch(&b, NOW).is_err());
     }
 
     #[test]
     fn batch_validation_checks_window_order() {
         let mut b = batch(vec![safe_row()]);
         b.window_end = b.window_start - 1;
-        assert!(validate_batch(&b).is_err());
+        assert!(validate_batch(&b, NOW).is_err());
+    }
+
+    #[test]
+    fn batch_validation_rejects_windows_the_server_would_reject() {
+        // Longer than the server's 31-day cap.
+        let mut wide = batch(vec![safe_row()]);
+        wide.window_start = NOW - MAX_WINDOW_SECS - 1;
+        assert!(validate_batch(&wide, NOW).is_err());
+
+        // Older than the server's 90-day retention horizon.
+        let mut ancient = batch(vec![safe_row()]);
+        ancient.window_start = NOW - MAX_WINDOW_AGE_SECS - 1;
+        ancient.window_end = ancient.window_start + 60;
+        assert!(validate_batch(&ancient, NOW).is_err());
+
+        // Beyond the server's tolerated clock skew.
+        let mut future = batch(vec![safe_row()]);
+        future.window_end = NOW + MAX_FUTURE_SKEW_SECS + 1;
+        assert!(validate_batch(&future, NOW).is_err());
+    }
+
+    #[test]
+    fn clamp_window_pulls_long_backlogs_into_range() {
+        let (start, end) = clamp_window(NOW - MAX_WINDOW_AGE_SECS * 2, NOW, NOW).unwrap();
+        assert_eq!(end, NOW);
+        assert_eq!(end - start, MAX_WINDOW_SECS);
+        assert!(validate_batch(
+            &UsageBatch {
+                source: SourceKind::Native,
+                idempotency_key: "native:clamped:v1".to_string(),
+                window_start: start,
+                window_end: end,
+                rows: vec![safe_row()],
+            },
+            NOW
+        )
+        .is_ok());
+
+        // A window whose end predates retention cannot be represented at all.
+        assert!(clamp_window(
+            NOW - MAX_WINDOW_AGE_SECS * 2,
+            NOW - MAX_WINDOW_AGE_SECS - 1,
+            NOW
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn normalize_identifier_rescues_harness_model_ids() {
+        // Claude Code's internally generated turns, which used to fail the
+        // whole envelope and starve every other source.
+        assert_eq!(normalize_identifier("<synthetic>").as_deref(), Some("synthetic"));
+        assert_eq!(
+            normalize_identifier("lmstudio:google/gemma-4-e4b").as_deref(),
+            Some("lmstudio:google/gemma-4-e4b")
+        );
+        assert_eq!(
+            normalize_identifier("GPT 4 (preview)").as_deref(),
+            Some("GPT-4--preview")
+        );
+        assert_eq!(normalize_identifier("<<>>"), None);
+        assert_eq!(normalize_identifier(""), None);
+        assert_eq!(normalize_identifier(&"a".repeat(400)).unwrap().len(), 128);
     }
 
     #[test]
@@ -530,9 +740,79 @@ mod tests {
     }
 
     #[test]
-    fn build_envelope_validates() {
-        let b = batch(vec![safe_row()]);
-        assert!(build_envelope(vec![b], 1700000000).is_ok());
+    fn assemble_envelope_ships_valid_batches() {
+        let (envelope, rejected) = assemble_envelope(vec![batch(vec![safe_row()])], NOW);
+        assert!(rejected.is_empty());
+        assert_eq!(envelope.unwrap().batches.len(), 1);
+    }
+
+    #[test]
+    fn assemble_envelope_isolates_a_bad_batch_from_the_good_ones() {
+        // The regression that broke usage sync entirely: one harness batch
+        // carrying an unrepresentable model id used to fail the whole
+        // envelope, so native usage never left the device.
+        let mut poisoned = batch(vec![json!({
+            "kind": "model_usage",
+            "provider": "anthropic",
+            "model": "<synthetic>",
+            "requests": 1,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "costTotal": 0.0,
+            "durationMs": 0,
+            "durationCount": 0,
+            "ttftMs": 0,
+            "ttftCount": 0,
+            "errors": 0
+        })]);
+        poisoned.source = SourceKind::ClaudeCode;
+        poisoned.idempotency_key = "claude-code:1784592000:v1".to_string();
+
+        let (envelope, rejected) =
+            assemble_envelope(vec![batch(vec![safe_row()]), poisoned], NOW);
+        let envelope = envelope.expect("native batch must still ship");
+        assert_eq!(envelope.batches.len(), 1);
+        assert_eq!(envelope.batches[0].source, SourceKind::Native);
+        assert_eq!(rejected.len(), 1);
+        assert_eq!(rejected[0].batch.source, SourceKind::ClaudeCode);
+        assert_eq!(rejected[0].batch.window_end, NOW);
+        assert!(!rejected[0].deferred);
+        validate_envelope(&envelope).unwrap();
+    }
+
+    #[test]
+    fn assemble_envelope_defers_past_the_server_row_budget() {
+        let big = |source: SourceKind, key: &str| UsageBatch {
+            source,
+            idempotency_key: key.to_string(),
+            window_start: NOW - 3600,
+            window_end: NOW,
+            rows: vec![safe_row(); MAX_ROWS_PER_BATCH],
+        };
+        let (envelope, rejected) = assemble_envelope(
+            vec![
+                big(SourceKind::Native, "native:budget:v1"),
+                big(SourceKind::Omp, "omp:budget:v1"),
+                big(SourceKind::ClaudeCode, "claude-code:budget:v1"),
+            ],
+            NOW,
+        );
+        let envelope = envelope.unwrap();
+        assert_eq!(envelope.batches.len(), 2);
+        assert_eq!(rejected.len(), 1);
+        assert!(rejected[0].deferred);
+        validate_envelope(&envelope).unwrap();
+    }
+
+    #[test]
+    fn assemble_envelope_returns_none_when_nothing_is_shippable() {
+        let mut bad = batch(vec![safe_row()]);
+        bad.idempotency_key = "!".to_string();
+        let (envelope, rejected) = assemble_envelope(vec![bad], NOW);
+        assert!(envelope.is_none());
+        assert_eq!(rejected.len(), 1);
     }
 
     #[test]

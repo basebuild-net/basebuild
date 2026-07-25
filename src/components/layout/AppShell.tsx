@@ -54,6 +54,7 @@ import {
 import { panelGridToWorkspaceState, surfaceIdToPanelId } from "../../lib/workspaceBridge";
 import { buildDisplayTitles } from "./ActivitySidebar";
 import { FirstRunModal } from "./FirstRunModal";
+import { UsageSharingBanner } from "./UsageSharingBanner";
 import { useFirstRun } from "../../state/first-run";
 import { getLastGrounding } from "../../state/grounding";
 import { createTerminal } from "../../lib/terminal";
@@ -157,6 +158,7 @@ export function AppShell({ updates }: AppShellProps) {
   const [plansModalTab, setPlansModalTab] = useState<PlanningTab>("plans");
   const [schematicModalOpen, setSchematicModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<"analytics" | undefined>(undefined);
   const [logPanelOpen, setLogPanelOpen] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
   const [testRunModalOpen, setTestRunModalOpen] = useState(false);
@@ -2137,6 +2139,12 @@ export function AppShell({ updates }: AppShellProps) {
           <WindowControls />
         </div>
 </div>
+      <UsageSharingBanner
+        onOpenPrivacy={() => {
+          setSettingsInitialTab("analytics");
+          setSettingsOpen(true);
+        }}
+      />
       <main
         className="app-shell app-shell-chat-first"
         data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}
@@ -2154,6 +2162,7 @@ export function AppShell({ updates }: AppShellProps) {
           onReopenSurface={handleReopenSurface}
           onDeleteSurfaceFromHistory={handleDeleteSurfaceFromHistory}
           projects={sidebar.projects}
+          projectsReady={sidebar.projectsReady}
           account={account}
           updates={updates}
           onSelectProject={handleSelectProject}
@@ -2171,7 +2180,7 @@ export function AppShell({ updates }: AppShellProps) {
           onOpenLogPanel={() => setLogPanelOpen(true)}
           onClearChats={handleClearChats}
           onOpenHistory={() => setHistoryDrawerOpen(true)}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={() => { setSettingsInitialTab(undefined); setSettingsOpen(true); }}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         />
@@ -2441,7 +2450,7 @@ export function AppShell({ updates }: AppShellProps) {
         running={testRunRunning}
       />
       <Suspense fallback={<ModalLoading />}>
-        <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} account={account} updates={updates} />
+        <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} projectPath={activeProjectPath} account={account} updates={updates} initialTab={settingsInitialTab} />
       </Suspense>
       <Suspense fallback={<ModalLoading />}>
         <EditPlanModal

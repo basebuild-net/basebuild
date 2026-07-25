@@ -84,13 +84,25 @@ impl AnalyticsService {
     }
 
     pub fn set_consent(consent: &AnalyticsConsent) -> DbResult<()> {
+        // Stamp an audit timestamp/version the first time either analytics
+        // toggle is enabled. The toggle itself is the consent signal; this
+        // record only preserves when, and under which version, it was given.
+        let mut consent = consent.clone();
+        if (consent.collection_enabled || consent.upload_enabled)
+            && consent.consented_at.is_none()
+        {
+            consent.consented_at = Some(now());
+            if consent.consent_version.is_none() {
+                consent.consent_version = Some("usage-sharing-v1".to_string());
+            }
+        }
         let conn = StorageService::connect()?;
         conn.execute(
             "INSERT INTO app_defaults (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![
                 CONSENT_KEY,
-                serde_json::to_string(consent).map_err(|e| e.to_string())?
+                serde_json::to_string(&consent).map_err(|e| e.to_string())?
             ],
         )
         .map_err(|e| e.to_string())?;
@@ -206,6 +218,26 @@ mod tests {
             consent.consented_at.is_none(),
             "consented_at must be None by default"
         );
+    }
+
+    #[test]
+    fn set_consent_backfills_timestamp_when_toggle_enabled() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let _g = crate::test_util::test::lock_db(&dir);
+        let consent = AnalyticsConsent {
+            collection_enabled: false,
+            upload_enabled: true,
+            consent_version: None,
+            consented_at: None,
+        };
+        AnalyticsService::set_consent(&consent).unwrap();
+        let stored = AnalyticsService::get_consent().unwrap();
+        assert!(stored.upload_enabled);
+        assert!(
+            stored.consented_at.is_some(),
+            "enabling a toggle must stamp an audit timestamp"
+        );
+        assert_eq!(stored.consent_version.as_deref(), Some("usage-sharing-v1"));
     }
 
     #[test]
