@@ -2396,7 +2396,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
             {
               source: "omp",
               available: false,
-              availabilityReason: "OMP is not installed",
+              availabilityReason: "Oh My Pi is not installed",
               pendingRetry: false,
             },
             {
@@ -2417,7 +2417,7 @@ export async function invoke<T>(command: string, args: Record<string, unknown> =
             {
               source: "opencode",
               available: false,
-              availabilityReason: "OpenCode usage is not available",
+              availabilityReason: "OpenCode is not installed",
               pendingRetry: false,
             },
           ],

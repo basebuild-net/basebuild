@@ -129,11 +129,21 @@ export function AccountPanel({ account }: { account: AccountState }) {
 }
 
 const SOURCE_LABELS: Record<UsageSyncSource, string> = {
-  native: "Basebuild",
-  omp: "OMP",
+  native: "Basebuild chat",
+  omp: "Oh My Pi",
   "claude-code": "Claude Code",
-  codex: "Codex",
+  codex: "Codex CLI",
   opencode: "OpenCode",
+};
+
+/// What each source contributes, shown as the row tooltip. "OMP" and
+/// "Basebuild" alone did not say which usage a row actually covers.
+const SOURCE_HINTS: Record<UsageSyncSource, string> = {
+  native: "chats you run inside Basebuild",
+  omp: "usage reported by the Oh My Pi CLI",
+  "claude-code": "usage recorded by Claude Code sessions",
+  codex: "usage recorded by the Codex CLI",
+  opencode: "usage recorded by OpenCode sessions",
 };
 
 const OUTCOME_LABELS: Record<SyncOverallOutcome, string> = {
@@ -167,16 +177,59 @@ export function usageSyncOffReasonText(status: AutoSyncStatus): string | null {
   }
 }
 
-function sourceState(source: SourceSyncStatus): { label: string; className: string } {
-  if (!source.available) return { label: "Unavailable", className: "is-muted" };
-  if (source.pendingRetry) return { label: "Retry pending", className: "is-warning" };
-  if (source.lastError) return { label: "Needs attention", className: "is-error" };
-  if (source.lastSuccessAt) return { label: "Synced", className: "is-ok" };
-  return { label: "Ready", className: "is-muted" };
+/// One line per source: a state word and a single supporting detail.
+/// Previously `pendingRetry` and `lastError` produced two different labels
+/// ("Retry pending" / "Needs attention") for the same condition, and an
+/// available source with no data yet read as "Ready" forever.
+function sourceState(source: SourceSyncStatus): {
+  label: string;
+  className: string;
+  detail: string;
+} {
+  if (!source.available) {
+    return {
+      label: "Not installed",
+      className: "is-muted",
+      detail: source.availabilityReason ?? "No local usage store found",
+    };
+  }
+  if (source.lastError || source.pendingRetry) {
+    return {
+      label: "Retrying",
+      className: "is-warning",
+      detail: source.lastError ?? "Queued for the next attempt",
+    };
+  }
+  if (source.lastSuccessAt) {
+    return {
+      label: "Synced",
+      className: "is-ok",
+      detail: formatRelativeTime(source.lastSuccessAt),
+    };
+  }
+  return { label: "Waiting", className: "is-muted", detail: "No new usage yet" };
 }
 
 function formatSyncTime(timestamp?: number): string {
   return timestamp ? new Date(timestamp * 1000).toLocaleString() : "Never";
+}
+
+/// "2 minutes ago" reads faster than a locale timestamp in a status list.
+/// The absolute time stays available as the row's tooltip.
+function formatRelativeTime(timestamp: number): string {
+  const seconds = Math.max(0, Math.floor(Date.now() / 1000) - timestamp);
+  if (seconds < 60) return "just now";
+  const units: [number, string][] = [
+    [86400 * 7, "week"],
+    [86400, "day"],
+    [3600, "hour"],
+    [60, "minute"],
+  ];
+  for (const [size, name] of units) {
+    const value = Math.floor(seconds / size);
+    if (value >= 1) return `${value} ${name}${value === 1 ? "" : "s"} ago`;
+  }
+  return "just now";
 }
 
 export function UsageSyncPanel() {
@@ -327,35 +380,46 @@ export function UsageSyncPanel() {
               {outcomeLabel}
             </span>
           </div>
+          <p className="text-muted text-sm">
+            Every local tool Basebuild can read usage from. Installed tools are
+            listed first; the rest are shown so you can see what would be picked up.
+          </p>
           {status.sources.length > 0 ? (
             <div className="usage-source-list">
-              {status.sources.map((source) => {
-                const state = sourceState(source);
-                return (
-                  <div className="usage-source-row" key={source.source}>
-                    <div className="usage-source-name">
-                      {state.className === "is-ok" ? <CheckCircle2 size={14} /> : null}
-                      {state.className === "is-warning" ? <Clock3 size={14} /> : null}
-                      {state.className === "is-error" ? <AlertCircle size={14} /> : null}
-                      {state.className === "is-muted" ? <ShieldCheck size={14} /> : null}
-                      <strong className="text-sm">{SOURCE_LABELS[source.source]}</strong>
+              {[...status.sources]
+                .sort((a, b) =>
+                  a.available !== b.available
+                    ? Number(b.available) - Number(a.available)
+                    : SOURCE_LABELS[a.source].localeCompare(SOURCE_LABELS[b.source]),
+                )
+                .map((source) => {
+                  const state = sourceState(source);
+                  return (
+                    <div
+                      className={`usage-source-row ${source.available ? "" : "is-unavailable"}`}
+                      key={source.source}
+                      title={`${SOURCE_LABELS[source.source]} — ${SOURCE_HINTS[source.source]}. Last accepted upload: ${formatSyncTime(source.lastSuccessAt)}`}
+                    >
+                      <div className="usage-source-name">
+                        {state.className === "is-ok" ? <CheckCircle2 size={14} /> : null}
+                        {state.className === "is-warning" ? <Clock3 size={14} /> : null}
+                        {state.className === "is-error" ? <AlertCircle size={14} /> : null}
+                        {state.className === "is-muted" ? <ShieldCheck size={14} /> : null}
+                        <strong className="text-sm">{SOURCE_LABELS[source.source]}</strong>
+                      </div>
+                      <span className={`usage-source-state ${state.className}`}>{state.label}</span>
+                      <span
+                        className={`usage-source-detail text-sm ${
+                          state.className === "is-warning" || state.className === "is-error"
+                            ? "text-danger"
+                            : "text-muted"
+                        }`}
+                      >
+                        {state.detail}
+                      </span>
                     </div>
-                    <span className={`usage-source-state ${state.className}`}>{state.label}</span>
-                    <div className="usage-source-detail text-muted text-sm">
-                      <span>Last success: {formatSyncTime(source.lastSuccessAt)}</span>
-                      {source.lastProcessedAt ? (
-                        <span>Processed: {formatSyncTime(source.lastProcessedAt)}</span>
-                      ) : null}
-                      {source.availabilityReason ? <span>{source.availabilityReason}</span> : null}
-                      {source.lastError ? (
-                        <span className="text-danger" title={source.lastError}>
-                          {source.lastError}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           ) : (
             <p className="text-muted text-sm">Source status will appear after the coordinator starts.</p>

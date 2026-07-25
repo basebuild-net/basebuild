@@ -1288,7 +1288,9 @@ fn current_source_statuses(previous: &[SourceSyncStatus]) -> Vec<SourceSyncStatu
                 availability_reason: (!available).then(|| match source.kind() {
                     SourceKind::Omp => "Oh My Pi is not installed".to_string(),
                     SourceKind::Native => "Native usage ledger is unavailable".to_string(),
-                    _ => "No local aggregate history was detected".to_string(),
+                    SourceKind::ClaudeCode => "Claude Code is not installed".to_string(),
+                    SourceKind::Codex => "Codex CLI is not installed".to_string(),
+                    SourceKind::OpenCode => "OpenCode is not installed".to_string(),
                 }),
                 pending_retry: old.is_some_and(|status| status.pending_retry),
                 last_success_at: old.and_then(|status| status.last_success_at),

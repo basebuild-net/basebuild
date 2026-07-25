@@ -323,6 +323,31 @@ current is treated as absolute. First collection uses `window_end - 31 days`
 (within the server's 31-day window limit); subsequent collections use
 `window_end - 1 second`.
 
+### Local harness sources
+
+Each harness reader declares `has_usage_store()`, which drives `available()`.
+It MUST mean "there is something here we can actually read", not "the tool
+left a directory behind" — OpenCode reported as available for every install
+while its reader looked at a path that no longer exists, so the row sat at
+"Ready" forever without ever producing a batch.
+
+| Harness | Store | Notes |
+| --- | --- | --- |
+| Claude Code | `~/.claude/projects/**/*.jsonl` | assistant entries; `<synthetic>` model ids are normalized, not dropped |
+| Codex CLI | `~/.codex/sessions/**/*.jsonl` | rollout files |
+| OpenCode | `~/.local/share/opencode/opencode.db` | SQLite `message` table, opened read-only; `storage/message/*.json` is the pre-SQLite fallback |
+
+The OpenCode walk is scoped to `storage/message` and the `message` table —
+never the harness root, which also holds `auth.json` and session diffs.
+
+`aggregate_entries` bounds every collect to ONE server-acceptable window,
+anchored to the oldest reportable entry and capped at the 31-day span. That
+anchoring is the point: a fixed offset chunk that happens to contain no
+entries would never advance, and aggregating a multi-year history into a
+clamped 31-day window would misreport every counter in it. A backlog drains
+one chunk per pass as the checkpoint advances; anything past the 90-day
+horizon is unreportable and the checkpoint skips it.
+
 ### Sync status
 
 `AutoSyncStatus` reports per-source diagnostics: `off_reason`, `attribution`
@@ -330,6 +355,21 @@ current is treated as absolute. First collection uses `window_end - 31 days`
 and a `sources` map with per-source success/error state.
 `coordinated_usage_outcome()` classifies sync results, distinguishing
 "skipped" (OMP not installed) from actual work.
+
+The Analytics tab collapses each source to exactly one state and one detail.
+Keep it that way — `pending_retry` and `last_error` describe the same
+condition, and rendering them as two different labels ("Retry pending" vs
+"Needs attention") was pure noise:
+
+| State | Condition | Detail shown |
+| --- | --- | --- |
+| Not installed | `!available` | `availability_reason`, naming the tool |
+| Retrying | `last_error \|\| pending_retry` | the error text |
+| Synced | `last_success_at` | relative time ("2 minutes ago") |
+| Waiting | available, no data, no error | "No new usage yet" |
+
+Installed sources sort first. `last_processed_at` is server-cron state and is
+deliberately not rendered.
 
 - **Off by default.** Requires sign-in + explicit enable + upload permission.
 - **Cadence**: hourly interval (default 60 min) plus opportunistic triggers —

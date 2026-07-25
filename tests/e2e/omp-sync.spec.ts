@@ -60,8 +60,18 @@ test.describe("OMP <-> Basebuild IDE sync", () => {
 
     const sourceRows = page.locator(".usage-source-row");
     await expect(sourceRows).toHaveCount(5);
-    await expect(sourceRows.filter({ hasText: "Claude Code" })).toContainText("Retry pending");
-    await expect(sourceRows.filter({ hasText: "OMP" })).toContainText("Unavailable");
+    // Installed sources sort first, so a not-installed one never sits above a
+    // tool that is actively reporting usage.
+    await expect(sourceRows.last()).toContainText("Not installed");
+    await expect(sourceRows.filter({ hasText: "Claude Code" })).toContainText("Retrying");
+    await expect(sourceRows.filter({ hasText: "Claude Code" })).toContainText(
+      "Upload was not acknowledged. Retry is pending.",
+    );
+    await expect(sourceRows.filter({ hasText: "Oh My Pi" })).toContainText("Not installed");
+    await expect(sourceRows.filter({ hasText: "Oh My Pi" })).toContainText("Oh My Pi is not installed");
+    // A synced source reports how long ago, not a raw timestamp.
+    await expect(sourceRows.filter({ hasText: "Codex CLI" })).toContainText("Synced");
+    await expect(sourceRows.filter({ hasText: "Codex CLI" })).toContainText("minutes ago");
     await expect(page.getByTitle("Retry pending usage sources now")).toBeVisible();
     await attachScreenshot(page, "usage-sync-source-status.png");
 

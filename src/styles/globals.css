@@ -3855,13 +3855,16 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .usage-source-list { display: flex; flex-direction: column; gap: var(--bb-space-xs); }
 .usage-source-row {
   display: grid;
-  grid-template-columns: minmax(120px, 0.75fr) minmax(90px, auto) minmax(180px, 1.75fr);
-  align-items: start;
+  grid-template-columns: minmax(120px, 0.75fr) minmax(90px, auto) minmax(160px, 1.5fr);
+  align-items: center;
   gap: var(--bb-space-sm);
   padding: var(--bb-space-sm) var(--bb-space-md);
   border-radius: var(--bb-radius-sm);
   background: var(--bb-surface);
 }
+/* A not-installed source is context, not a problem: keep it legible but
+   clearly secondary to the tools actually reporting usage. */
+.usage-source-row.is-unavailable { opacity: 0.72; }
 .usage-source-name { display: flex; align-items: center; gap: 6px; }
 .usage-source-name > svg { flex: 0 0 auto; color: var(--bb-muted); }
 .usage-source-state { font-size: 11px; font-weight: 600; }
@@ -3869,11 +3872,14 @@ mark.chat-search-highlight-active { background: var(--bb-warning); color: var(--
 .usage-source-state.is-warning { color: var(--bb-warning); }
 .usage-source-state.is-error { color: var(--bb-negative); }
 .usage-source-state.is-muted { color: var(--bb-muted); }
-.usage-source-detail { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 12px; }
+.usage-source-detail {
+  text-align: right;
+  overflow-wrap: anywhere;
+}
 @media (max-width: 720px) {
   .usage-sharing-summary { grid-template-columns: 1fr; }
   .usage-source-row { grid-template-columns: 1fr auto; }
-  .usage-source-detail { grid-column: 1 / -1; justify-content: flex-start; }
+  .usage-source-detail { grid-column: 1 / -1; text-align: left; }
 }
 
 .usage-window-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }

@@ -22,7 +22,8 @@ use rusqlite::params;
 use serde_json::{json, Value};
 
 use crate::models::usage_envelope::{
-    clamp_window, normalize_identifier, SourceKind, UsageBatch, MAX_ROWS_PER_BATCH,
+    clamp_window, normalize_identifier, SourceKind, UsageBatch, MAX_FUTURE_SKEW_SECS,
+    MAX_ROWS_PER_BATCH, MAX_WINDOW_AGE_SECS, MAX_WINDOW_SECS,
 };
 use crate::services::storage_service::StorageService;
 
@@ -43,6 +44,12 @@ trait HarnessReader: Send + Sync {
     /// parsed JSON values (one per entry). Implementations parse leniently
     /// and skip malformed entries.
     fn read_entries(&self, since: i64) -> Vec<Value>;
+    /// Whether a readable usage store exists — not merely that the harness
+    /// left a directory behind. Reporting a source as available when nothing
+    /// in it can ever be read is what made OpenCode sit at "Ready" forever.
+    fn has_usage_store(&self) -> bool {
+        self.data_dir().is_some_and(|dir| dir.exists())
+    }
 }
 
 /// Claude Code reader. Provider = "anthropic".
@@ -171,6 +178,11 @@ impl HarnessReader for CodexReader {
 }
 
 /// OpenCode reader. Provider from `providerID`.
+///
+/// Current OpenCode keeps messages in `opencode.db`; only pre-SQLite installs
+/// use `storage/message/*.json`. Reading just the JSON path meant every
+/// modern install reported the source as present and then produced nothing,
+/// forever.
 struct OpenCodeReader {
     dir: Option<PathBuf>,
 }
@@ -180,6 +192,55 @@ impl OpenCodeReader {
         Self {
             dir: home_dir().map(|h| h.join(".local").join("share").join("opencode")),
         }
+    }
+
+    fn database(&self) -> Option<PathBuf> {
+        self.dir
+            .as_ref()
+            .map(|dir| dir.join("opencode.db"))
+            .filter(|path| path.exists())
+    }
+
+    fn legacy_messages(&self) -> Option<PathBuf> {
+        self.dir
+            .as_ref()
+            .map(|dir| dir.join("storage").join("message"))
+            .filter(|path| path.exists())
+    }
+
+    /// Pull assistant messages newer than `since` out of `opencode.db`.
+    ///
+    /// Opened read-only through a URI so a live OpenCode session is never
+    /// disturbed, and every failure degrades to "no entries" — a harness we
+    /// do not own must never be able to fail our sync.
+    fn read_database(path: &Path, since: i64) -> Vec<Value> {
+        let uri = format!("file:{}?mode=ro", path.to_string_lossy().replace('?', "%3f"));
+        let Ok(conn) = rusqlite::Connection::open_with_flags(
+            uri,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        ) else {
+            return Vec::new();
+        };
+        // `time_created` is epoch milliseconds; the payload lives in `data`.
+        let Ok(mut statement) = conn.prepare(
+            "SELECT data FROM message
+             WHERE time_created > ?1 AND json_extract(data, '$.role') = 'assistant'
+             ORDER BY time_created ASC
+             LIMIT ?2",
+        ) else {
+            return Vec::new();
+        };
+        let rows = statement.query_map(
+            params![since.saturating_mul(1000), MAX_LINES_PER_COLLECT as i64],
+            |row| row.get::<_, String>(0),
+        );
+        let Ok(rows) = rows else {
+            return Vec::new();
+        };
+        rows.filter_map(|row| row.ok())
+            .filter_map(|data| serde_json::from_str::<Value>(&data).ok())
+            .filter(|entry| entry.get("tokens").is_some())
+            .collect()
     }
 }
 
@@ -193,12 +254,21 @@ impl HarnessReader for OpenCodeReader {
     fn data_dir(&self) -> Option<PathBuf> {
         self.dir.clone()
     }
+    fn has_usage_store(&self) -> bool {
+        self.database().is_some() || self.legacy_messages().is_some()
+    }
     fn read_entries(&self, since: i64) -> Vec<Value> {
-        let Some(root) = &self.dir else {
+        if let Some(database) = self.database() {
+            let entries = Self::read_database(&database, since);
+            if !entries.is_empty() {
+                return entries;
+            }
+        }
+        // Pre-SQLite layout. Scoped to storage/message so the walk never
+        // touches auth.json or the session diffs alongside it.
+        let Some(msg_root) = self.legacy_messages() else {
             return Vec::new();
         };
-        // OpenCode stores message entries as JSON files under storage/message.
-        let msg_root = root.join("storage").join("message");
         let mut out = Vec::new();
         let mut files_seen = 0usize;
         walk_json_files(&msg_root, since, &mut |text| {
@@ -276,7 +346,7 @@ impl crate::services::usage_source_service::UsageSource for HarnessSource {
     }
 
     fn available(&self) -> bool {
-        self.reader.data_dir().map(|d| d.exists()).unwrap_or(false)
+        self.reader.has_usage_store()
     }
 
     fn collect(&self) -> Result<Option<UsageBatch>, String> {
@@ -286,22 +356,27 @@ impl crate::services::usage_source_service::UsageSource for HarnessSource {
             return Ok(None);
         }
         // `read_entries` filters whole FILES by mtime, so an appended session
-        // file re-yields every entry it ever held. Filtering by entry
-        // timestamp here is what makes a collect incremental: without it each
-        // pass re-parses and re-uploads the entire history under a colliding
-        // idempotency key.
-        let (rows, window_start, window_end) = aggregate_entries(self.kind(), &entries, since);
+        // file re-yields every entry it ever held. `aggregate_entries` bounds
+        // by entry timestamp — that is what makes a collect incremental, and
+        // what keeps a multi-year backlog draining one acceptable window per
+        // pass instead of being crammed into a single mis-stated batch.
+        let now = now_seconds();
+        let (rows, window_start, window_end) =
+            aggregate_entries(self.kind(), &entries, since, now);
         if rows.is_empty() {
+            // Everything readable is already synced or predates the server's
+            // retention horizon. Bank the horizon so the unreportable tail is
+            // never offered again.
+            let horizon = now - MAX_WINDOW_AGE_SECS + 60;
+            if horizon > since {
+                self.set_checkpoint(horizon)?;
+            }
             return Ok(None);
         }
-        // Harness histories routinely predate the server's 90-day retention
-        // horizon and span more than its 31-day window cap. Clamping here
-        // keeps a first-ever collect from producing a batch that could only
-        // ever be rejected; the trailing history is dropped rather than
-        // retried forever.
-        let Some((window_start, window_end)) = clamp_window(window_start, window_end, now_seconds())
-        else {
-            // Nothing in range: bank the checkpoint so we never re-read it.
+        // Belt and braces: the chunk bounds already satisfy the server, but a
+        // clock change between collect and transport must not ship a window
+        // that can only come back as `invalid_window`.
+        let Some((window_start, window_end)) = clamp_window(window_start, window_end, now) else {
             self.set_checkpoint(window_end)?;
             return Ok(None);
         };
@@ -329,14 +404,26 @@ impl crate::services::usage_source_service::UsageSource for HarnessSource {
     }
 }
 
-/// Aggregate parsed entries into schema-safe per-(provider, model, hour) rows.
+/// Aggregate parsed entries into schema-safe per-(provider, model, hour) rows,
+/// bounded to ONE server-acceptable window.
 ///
-/// Entries at or before `since` are skipped, so a re-read of an appended
-/// session file yields only what is new. Identifiers are normalized to the
-/// wire charset and rows are capped at the server's per-batch limit: an entry
-/// the schema cannot express is coarsened or dropped, never allowed to fail
-/// the batch it rides in.
-fn aggregate_entries(source: SourceKind, entries: &[Value], since: i64) -> (Vec<Value>, i64, i64) {
+/// Entries at or before `since`, older than the server's retention horizon,
+/// or beyond its clock-skew tolerance are excluded. The window is then
+/// anchored to the OLDEST surviving entry and capped at the maximum span, so
+/// the returned counters always match the window they will be reported under
+/// and a multi-year backlog drains one chunk per pass. Anchoring to the data
+/// rather than to a fixed offset matters: a fixed chunk that happens to
+/// contain no entries would never advance.
+///
+/// Identifiers are normalized to the wire charset and rows are capped at the
+/// server's per-batch limit: an entry the schema cannot express is coarsened
+/// or dropped, never allowed to fail the batch it rides in.
+fn aggregate_entries(
+    source: SourceKind,
+    entries: &[Value],
+    since: i64,
+    now: i64,
+) -> (Vec<Value>, i64, i64) {
     use std::collections::HashMap;
 
     #[derive(Default)]
@@ -352,7 +439,20 @@ fn aggregate_entries(source: SourceKind, entries: &[Value], since: i64) -> (Vec<
         ts_max: i64,
     }
 
-    let mut map: HashMap<(String, String, i64), Acc> = HashMap::new();
+    // Extract once; the chunk bounds are not knowable until the whole set has
+    // been scanned for its oldest reportable entry.
+    struct Extracted {
+        provider: String,
+        model: String,
+        input: i64,
+        output: i64,
+        cache_read: i64,
+        cost: f64,
+        ts: i64,
+    }
+    let horizon = now - MAX_WINDOW_AGE_SECS + 60;
+    let newest_allowed = now + MAX_FUTURE_SKEW_SECS;
+    let mut extracted: Vec<Extracted> = Vec::new();
     for entry in entries {
         let (provider, model, input, output, cache_read, cost, ts) = match source {
             SourceKind::ClaudeCode => extract_claude_code(entry),
@@ -360,7 +460,7 @@ fn aggregate_entries(source: SourceKind, entries: &[Value], since: i64) -> (Vec<
             SourceKind::OpenCode => extract_opencode(entry),
             _ => continue,
         };
-        if model == "unknown" || ts == 0 || ts <= since {
+        if model == "unknown" || ts == 0 || ts <= since || ts < horizon || ts > newest_allowed {
             continue;
         }
         // Harness ids are third-party strings (Claude Code writes
@@ -372,23 +472,41 @@ fn aggregate_entries(source: SourceKind, entries: &[Value], since: i64) -> (Vec<
         ) else {
             continue;
         };
-        let hour = ts - (ts % 3600);
+        extracted.push(Extracted {
+            provider,
+            model,
+            input,
+            output,
+            cache_read,
+            cost,
+            ts,
+        });
+    }
+
+    let Some(anchor) = extracted.iter().map(|item| item.ts).min() else {
+        return (Vec::new(), 0, 0);
+    };
+    let ceiling = anchor.saturating_add(MAX_WINDOW_SECS);
+
+    let mut map: HashMap<(String, String, i64), Acc> = HashMap::new();
+    for item in extracted.into_iter().filter(|item| item.ts <= ceiling) {
+        let hour = item.ts - (item.ts % 3600);
         let acc = map
-            .entry((provider.clone(), model.clone(), hour))
+            .entry((item.provider.clone(), item.model.clone(), hour))
             .or_insert_with(|| Acc {
-                provider,
-                model,
-                ts_min: ts,
-                ts_max: ts,
+                provider: item.provider,
+                model: item.model,
+                ts_min: item.ts,
+                ts_max: item.ts,
                 ..Default::default()
             });
         acc.requests += 1;
-        acc.input += input;
-        acc.output += output;
-        acc.cache_read += cache_read;
-        acc.cost += cost;
-        acc.ts_min = acc.ts_min.min(ts);
-        acc.ts_max = acc.ts_max.max(ts);
+        acc.input += item.input;
+        acc.output += item.output;
+        acc.cache_read += item.cache_read;
+        acc.cost += item.cost;
+        acc.ts_min = acc.ts_min.min(item.ts);
+        acc.ts_max = acc.ts_max.max(item.ts);
     }
 
     let window_start = map.values().map(|acc| acc.ts_min).min().unwrap_or(0);
@@ -545,18 +663,29 @@ fn extract_opencode(entry: &Value) -> (String, String, i64, i64, i64, f64, i64) 
         .and_then(|t| t.get("output"))
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
-    let cache_read = tokens
-        .and_then(|t| t.get("cache"))
-        .and_then(|v| v.as_i64())
+    // `cache` is an object (`{read, write}`) in the SQLite layout and a plain
+    // number in the oldest JSON one. Reading only the number shape silently
+    // zeroed cache hits, which for a heavy user is most of the token volume.
+    let cache = tokens.and_then(|t| t.get("cache"));
+    let cache_read = cache
+        .and_then(|c| c.get("read").and_then(Value::as_i64).or_else(|| c.as_i64()))
         .unwrap_or(0);
-    // OpenCode records these in milliseconds; older builds used seconds.
+    let cost = entry
+        .get("cost")
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .unwrap_or(0.0);
+    // `time.created` in the SQLite layout, flat `createdAt` in the JSON one.
+    // Both are milliseconds; older builds used seconds.
     let ts = entry
-        .get("createdAt")
-        .and_then(|v| v.as_i64())
-        .or_else(|| entry.get("completedAt").and_then(|v| v.as_i64()))
+        .get("time")
+        .and_then(|t| t.get("created"))
+        .and_then(Value::as_i64)
+        .or_else(|| entry.get("createdAt").and_then(Value::as_i64))
+        .or_else(|| entry.get("completedAt").and_then(Value::as_i64))
         .map(normalize_epoch_seconds)
         .unwrap_or(0);
-    (provider, model, input, output, cache_read, 0.0, ts)
+    (provider, model, input, output, cache_read, cost, ts)
 }
 
 /// Resolve the user's home directory.
@@ -682,6 +811,10 @@ mod tests {
     use super::*;
     use crate::services::usage_source_service::UsageSource;
 
+    /// "Now" for fixtures dated 2026-07-18, so their entries sit inside the
+    /// server's 90-day retention horizon.
+    const FIXTURE_NOW: i64 = 1_784_381_696;
+
     #[test]
     fn claude_code_extract_happy_path() {
         let entry = json!({
@@ -725,7 +858,7 @@ mod tests {
             "timestamp": "2026-07-18T12:34:56Z"
         });
         let (rows, window_start, window_end) =
-            aggregate_entries(SourceKind::ClaudeCode, &[entry], 0);
+            aggregate_entries(SourceKind::ClaudeCode, &[entry], 0, FIXTURE_NOW);
         assert_eq!(rows.len(), 1);
         assert!(window_start > 0);
         assert!(window_end > 0);
@@ -753,7 +886,8 @@ mod tests {
                 "timestamp": "2026-07-18T12:34:57Z"
             }),
         ];
-        let (rows, _start, _end) = aggregate_entries(SourceKind::ClaudeCode, &entries, 0);
+        let (rows, _start, _end) =
+            aggregate_entries(SourceKind::ClaudeCode, &entries, 0, FIXTURE_NOW);
         assert_eq!(rows.len(), 2);
         for row in &rows {
             crate::models::usage_envelope::validate_row(row)
@@ -787,8 +921,9 @@ mod tests {
             })
             .collect();
 
-        let (first, _s, first_end) = aggregate_entries(SourceKind::OpenCode, &entries, 0);
-        let (again, _s, _e) = aggregate_entries(SourceKind::OpenCode, &entries, 0);
+        let now = base + 86_400;
+        let (first, _s, first_end) = aggregate_entries(SourceKind::OpenCode, &entries, 0, now);
+        let (again, _s, _e) = aggregate_entries(SourceKind::OpenCode, &entries, 0, now);
         assert_eq!(
             serde_json::to_string(&first).unwrap(),
             serde_json::to_string(&again).unwrap(),
@@ -796,7 +931,8 @@ mod tests {
         );
 
         // A second pass after the checkpoint has nothing left to send.
-        let (drained, _s, _e) = aggregate_entries(SourceKind::OpenCode, &entries, first_end);
+        let (drained, _s, _e) =
+            aggregate_entries(SourceKind::OpenCode, &entries, first_end, now);
         assert!(drained.is_empty(), "already-synced entries must not re-send");
 
         // …but a newly appended entry does.
@@ -807,7 +943,8 @@ mod tests {
             "tokens": {"input": 1, "output": 1},
             "createdAt": first_end + 3600
         }));
-        let (fresh, _s, _e) = aggregate_entries(SourceKind::OpenCode, &appended, first_end);
+        let (fresh, _s, _e) =
+            aggregate_entries(SourceKind::OpenCode, &appended, first_end, first_end + 7200);
         assert_eq!(fresh.len(), 1);
         assert_eq!(fresh[0]["model"], "epsilon-5");
     }
@@ -816,9 +953,12 @@ mod tests {
     fn aggregate_stays_within_the_server_row_budget() {
         // A long harness history produces one bucket per (model, hour); the
         // server refuses a batch over 500 rows, so aggregation must coarsen
-        // rather than emit a batch that can only be rejected.
+        // rather than emit a batch that can only be rejected. 600 hourly
+        // buckets clear the cap while still fitting the 31-day window, so
+        // this exercises coarsening and not the chunk boundary.
+        let count = MAX_ROWS_PER_BATCH as i64 + 100;
         let base = 1_784_000_000i64;
-        let entries: Vec<Value> = (0..(MAX_ROWS_PER_BATCH as i64 + 250))
+        let entries: Vec<Value> = (0..count)
             .map(|i| {
                 json!({
                     "providerID": "anthropic",
@@ -828,14 +968,15 @@ mod tests {
                 })
             })
             .collect();
-        let (rows, _start, _end) = aggregate_entries(SourceKind::OpenCode, &entries, 0);
+        let (rows, _start, _end) =
+            aggregate_entries(SourceKind::OpenCode, &entries, 0, base + count * 3600);
         assert!(rows.len() <= MAX_ROWS_PER_BATCH, "got {} rows", rows.len());
         // Coarsening preserves the totals rather than discarding usage.
         let requests: i64 = rows
             .iter()
             .filter_map(|row| row.get("requests").and_then(Value::as_i64))
             .sum();
-        assert_eq!(requests, MAX_ROWS_PER_BATCH as i64 + 250);
+        assert_eq!(requests, count);
     }
 
     #[test]
@@ -851,6 +992,85 @@ mod tests {
         });
         let (_p, _m, _i, _o, _c, _cost, ts) = extract_opencode(&entry);
         assert_eq!(ts, 1_784_378_096);
+    }
+
+    #[test]
+    fn opencode_sqlite_message_shape_is_read_in_full() {
+        // The shape OpenCode actually stores in `opencode.db`: nested
+        // `time.created` (ms), nested `tokens.cache.read`, and a `cost`.
+        // Reading only the flat/legacy shape zeroed cache hits and cost —
+        // for a heavy user, most of the token volume.
+        let entry = json!({
+            "role": "assistant",
+            "providerID": "deepseek",
+            "modelID": "deepseek-v4-pro",
+            "tokens": {
+                "total": 12509, "input": 79, "output": 25, "reasoning": 117,
+                "cache": {"write": 0, "read": 12288}
+            },
+            "cost": 0.00241338,
+            "time": {"created": 1_777_462_677_194i64, "completed": 1_777_462_685_560i64}
+        });
+        let (provider, model, input, output, cache, cost, ts) = extract_opencode(&entry);
+        assert_eq!(provider, "deepseek");
+        assert_eq!(model, "deepseek-v4-pro");
+        assert_eq!(input, 79);
+        assert_eq!(output, 25);
+        assert_eq!(cache, 12288);
+        assert!((cost - 0.00241338).abs() < f64::EPSILON);
+        assert_eq!(ts, 1_777_462_677);
+    }
+
+    #[test]
+    fn aggregation_reports_only_the_window_it_claims_and_drains_the_backlog() {
+        // A first-ever collect can span years. Counters must match the window
+        // they ride in — aggregating everything and clamping the window
+        // afterwards would report years of usage as one 31-day batch — and
+        // the chunk must anchor to the DATA, or a gap stalls it forever.
+        let now = 1_784_000_000i64;
+        let entry = |offset_days: i64| {
+            json!({
+                "providerID": "anthropic",
+                "modelID": "claude-sonnet-4",
+                "tokens": {"input": 1, "output": 1},
+                "createdAt": now - offset_days * 86_400
+            })
+        };
+        // 200d and 120d are past the 90-day horizon and unreportable. 80d
+        // anchors the first chunk; 60d rides with it (20 days later); 20d and
+        // 1d are beyond that chunk's 31-day span and follow on later passes.
+        let entries = vec![
+            entry(200),
+            entry(120),
+            entry(80),
+            entry(60),
+            entry(20),
+            entry(1),
+        ];
+
+        let (rows, window_start, window_end) =
+            aggregate_entries(SourceKind::OpenCode, &entries, 0, now);
+        let counted = |rows: &[Value]| -> i64 {
+            rows.iter()
+                .filter_map(|row| row.get("requests").and_then(Value::as_i64))
+                .sum()
+        };
+        assert_eq!(counted(&rows), 2, "only in-window entries may be counted");
+        assert_eq!(window_start, now - 80 * 86_400);
+        assert_eq!(window_end, now - 60 * 86_400);
+        assert!(window_end - window_start <= MAX_WINDOW_SECS);
+
+        // The next pass resumes from the accepted cursor and drains the rest,
+        // rather than dropping it or re-offering the same window.
+        let (rest, rest_start, rest_end) =
+            aggregate_entries(SourceKind::OpenCode, &entries, window_end, now);
+        assert_eq!(counted(&rest), 2, "the remaining entries must follow");
+        assert_eq!(rest_start, now - 20 * 86_400);
+        assert_eq!(rest_end, now - 86_400);
+
+        // And once drained, nothing is left owing.
+        let (done, _s, _e) = aggregate_entries(SourceKind::OpenCode, &entries, rest_end, now);
+        assert!(done.is_empty(), "a drained backlog must stay drained");
     }
 
     #[test]
