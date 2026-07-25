@@ -883,6 +883,9 @@ a { color: inherit; text-decoration: none; }
 .bb-skeleton-rows > .bb-skeleton:nth-child(4) { animation-delay: 0.3s; }
 .bb-skeleton-rows > .bb-skeleton:nth-child(5) { animation-delay: 0.45s; }
 .bb-skeleton-inline { display: inline-block; height: 1em; vertical-align: text-bottom; }
+/* Matches the footprint of the checkbox it replaces so the row does not
+   reflow when the real control arrives. */
+.bb-skeleton-control { display: inline-block; height: 14px; flex: 0 0 auto; }
 @keyframes bb-skeleton-pulse {
   0%, 100% { opacity: 0.35; }
   50%      { opacity: 0.6; }

@@ -14,6 +14,8 @@
  *     before the effect has run — invisible on a fast machine, a visible lie on
  *     a slow one. See docs/agents/design-system.md#loading-states.
  *  6. Every `<Suspense>` must carry a non-null `fallback`.
+ *  7. A checkbox must not derive `checked` from an optional chain with a
+ *     `?? false` fallback — that renders "off" while the value loads.
  *
  * Exits 0 if all invariants pass, 1 if any violations are found.
  */
@@ -264,6 +266,38 @@ function checkSuspenseFallbacks() {
   walk(SRC);
 }
 
+/**
+ * 7. A checkbox whose `checked` falls back through an optional chain renders
+ * *unchecked* while its data loads — a setting the user reads as "off" and may
+ * act on. Render a `SkeletonControl` until the real value exists.
+ */
+function checkControlDefaults() {
+  console.log("Checking controls do not default to a false value while loading...");
+  function walk(dir) {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) {
+        if (entry !== "test-support") walk(full);
+        continue;
+      }
+      if (extname(entry) !== ".tsx") continue;
+      const lines = readFileSync(full, "utf8").split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        // `checked={foo?.bar ?? false}` — optional chain means the source can
+        // be absent, and `?? false` turns absent into a definite "off".
+        if (/checked=\{[^}]*\?\.[^}]*\?\?\s*false\s*\}/.test(lines[i])) {
+          fail(
+            full,
+            i + 1,
+            "checked={…?.… ?? false} renders 'off' while loading — use SkeletonControl until the value exists",
+          );
+        }
+      }
+    }
+  }
+  walk(SRC);
+}
+
 // Run all checks
 console.log("Running UI invariant checks...\n");
 checkStylesheets();
@@ -272,6 +306,7 @@ checkBorderRadius();
 checkTooltips();
 checkLoadingFlags();
 checkSuspenseFallbacks();
+checkControlDefaults();
 
 console.log(`\n${violations === 0 ? "✓ All UI invariants pass" : `✗ ${violations} invariant violation(s) found`}`);
 process.exit(violations === 0 ? 0 : 1);

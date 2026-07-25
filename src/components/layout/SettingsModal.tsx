@@ -76,7 +76,7 @@ import { ConcurrencyTab } from "./settings/ConcurrencyTab";
 import { NotificationsTab } from "./settings/NotificationsTab";
 import { SkillsTab } from "./settings/SkillsTab";
 import { AppearanceTab } from "./settings/AppearanceTab";
-import { LoadingBlock, SkeletonRows } from "./Loading";
+import { LoadingBlock, SkeletonControl, SkeletonRows } from "./Loading";
 
 type SettingsModalProps = {
   open: boolean;
@@ -1064,13 +1064,19 @@ export function SettingsModal({ open, onClose, projectPath, account, updates, in
                     <div className="mt-8">
                       <h4 className="text-sm text-muted mb-6">Execution recommendation feedback</h4>
                       <label className="row gap-sm">
-                        <input
-                          type="checkbox"
-                          title="Separately opt in to fixed-field execution recommendation feedback"
-                          checked={advisorFeedbackConsent?.enabled ?? false}
-                          disabled={!advisorFeedbackConsent}
-                          onChange={(event) => void saveAdvisorFeedbackConsent(event.target.checked)}
-                        />
+                        {/* Its own fetch, independent of the consent block
+                            above. Unchecked-and-disabled reads as "opted
+                            out", which is a decision the user did not make. */}
+                        {advisorFeedbackConsent ? (
+                          <input
+                            type="checkbox"
+                            title="Separately opt in to fixed-field execution recommendation feedback"
+                            checked={advisorFeedbackConsent.enabled}
+                            onChange={(event) => void saveAdvisorFeedbackConsent(event.target.checked)}
+                          />
+                        ) : (
+                          <SkeletonControl label="the recommendation feedback setting" />
+                        )}
                         <span className="text-sm">Collect recommendation choices</span>
                       </label>
                       <p className="text-muted text-sm mt-n4">

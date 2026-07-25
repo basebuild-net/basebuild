@@ -52,6 +52,23 @@ test.describe("Loading states", () => {
     await expect(page.locator(".bb-skeleton")).toHaveCount(0);
   });
 
+  test("a setting's checkbox never renders 'off' before its value loads", async ({ page }) => {
+    await openSettingsWithSlowCommands(page, ["usage_sync_status"]);
+    await page.getByRole("button", { name: "Analytics", exact: true }).click();
+
+    const row = page.locator("label").filter({ hasText: "Sync usage automatically" });
+    // The control is absent, not unchecked: an unchecked box is a claim that
+    // the setting is off, and the user can act on it.
+    await expect(row.locator(".bb-skeleton-control")).toBeVisible();
+    await expect(row.locator('input[type="checkbox"]')).toHaveCount(0);
+    await expect(row.getByLabel("Loading the automatic sync setting")).toBeAttached();
+
+    // The real control replaces it, and the fixture's value is ON — exactly
+    // the state the old placeholder misreported.
+    await expect(row.locator('input[type="checkbox"]')).toBeChecked({ timeout: SETTLE_MS });
+    await expect(row.locator(".bb-skeleton-control")).toHaveCount(0);
+  });
+
   test("settings sections never assert 'none configured' before their fetch lands", async ({
     page,
   }) => {

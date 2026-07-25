@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, CheckCircle2, Clock3, LogOut, RefreshCw, RotateCcw, ShieldCheck, User } from "lucide-react";
 import { authStartDeviceFlow, authPollDeviceFlow } from "../../../lib/auth";
 import type { AccountState } from "../../../state/account";
-import { SkeletonRows } from "../Loading";
+import { SkeletonControl, SkeletonRows, SkeletonText } from "../Loading";
 import { useUsageSync } from "../../../state/usageSync";
 import {
   usageDetectProviderPlans,
@@ -346,23 +346,30 @@ export function UsageSyncPanel() {
 
       <div className="row gap-sm flex-wrap">
         <label className="row gap-sm">
-          <input
-            type="checkbox"
-            checked={status?.enabled ?? false}
-            disabled={toggling}
-            onChange={(event) => void toggleAutoSync(event.target.checked)}
-            title="Sync usage automatically: periodically and shortly after usage changes"
-          />
+          {/* An unchecked box is not a neutral placeholder — it reads as
+              "auto-sync is off". Stand in until the real value arrives. */}
+          {status ? (
+            <input
+              type="checkbox"
+              checked={status.enabled}
+              disabled={toggling}
+              onChange={(event) => void toggleAutoSync(event.target.checked)}
+              title="Sync usage automatically: periodically and shortly after usage changes"
+            />
+          ) : (
+            <SkeletonControl label="the automatic sync setting" />
+          )}
           <span className="text-sm">Sync usage automatically (periodically &amp; on changes)</span>
         </label>
         <button
           className="btn btn-sm"
           type="button"
-          title="Sync aggregate usage now"
-          disabled={syncing || retrying || !status?.gatesPass}
+          title={status ? "Sync aggregate usage now" : "Loading sync status…"}
+          disabled={!status || syncing || retrying || !status.gatesPass}
           onClick={() => void syncNow()}
         >
-          <RefreshCw size={12} /> {syncing ? "Syncing..." : "Sync now"}
+          <RefreshCw size={12} className={syncing ? "spin" : undefined} />{" "}
+          {syncing ? "Syncing..." : "Sync now"}
         </button>
         {hasRetryableSource ? (
           <button
@@ -372,10 +379,15 @@ export function UsageSyncPanel() {
             disabled={syncing || retrying || !status?.gatesPass}
             onClick={() => void retryNow()}
           >
-            <RotateCcw size={12} /> {retrying ? "Retrying..." : "Retry sync"}
+            <RotateCcw size={12} className={retrying ? "spin" : undefined} />{" "}
+            {retrying ? "Retrying..." : "Retry sync"}
           </button>
         ) : null}
-        {status?.lastSyncAt ? (
+        {!status ? (
+          <span className="text-muted text-sm">
+            Last sync: <SkeletonText width={14} />
+          </span>
+        ) : status.lastSyncAt ? (
           <span className="text-muted text-sm">
             Last sync: {formatSyncTime(status.lastSyncAt)}
           </span>

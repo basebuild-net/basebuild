@@ -71,3 +71,31 @@ export function SkeletonText({ width = 8 }: { width?: number }) {
     />
   );
 }
+
+/** Stands in for a form control whose value is still loading.
+ *
+ * A checkbox bound to `state?.enabled ?? false` is not neutral while it
+ * loads — it renders *unchecked*, which reads as "this setting is off". The
+ * user can act on that before the real value arrives. Render this instead,
+ * sized to the control it replaces so the row does not reflow.
+ *
+ * `label` is what the control is, not what it is doing: "Sync usage
+ * automatically", not "Loading". */
+export function SkeletonControl({
+  label,
+  width = 14,
+}: {
+  label: string;
+  /** Pixel width; defaults to a checkbox. Widen for selects and inputs. */
+  width?: number;
+}) {
+  return (
+    <span
+      className="bb-skeleton bb-skeleton-control"
+      style={{ width: `${width}px` }}
+      role="status"
+      aria-label={`Loading ${label}`}
+      title={`Loading ${label}…`}
+    />
+  );
+}

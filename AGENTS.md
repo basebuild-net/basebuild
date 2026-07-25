@@ -103,17 +103,25 @@ Non-negotiable and enforced in review. Rationale and how-to in
     - Use the shared primitives in `src/components/layout/Loading.tsx`:
       `SkeletonRows` for lists and tables (preferred: the layout does not jump
       when data lands), `LoadingBlock` for a whole panel or section,
-      `SkeletonText` for one inline value, `ModalLoading` for `Suspense`
-      fallbacks. A bare `Loading…` string is not sufficient, and never sits
-      beside the empty list it is supposed to replace.
+      `SkeletonText` for one inline value, `SkeletonControl` for a form
+      control, `ModalLoading` for `Suspense` fallbacks. A bare `Loading…`
+      string is not sufficient, and never sits beside the empty list it is
+      supposed to replace.
+    - **Controls are not exempt.** A control renders a value, and its
+      fallback is a claim about that value. `checked={status?.enabled ?? false}`
+      renders an unchecked box that reads as "this setting is off", and the
+      user may click to "fix" it. Render `SkeletonControl` until the value
+      exists. Disabling is not sufficient: a disabled unchecked box still
+      says "off". Same for `<select value={x ?? ""}>` and any placeholder
+      text standing in for an unloaded value.
     - Any `state/` hook that fetches on mount exposes `loading`, initialised
       **`true`**. `useState(false)` renders the empty branch on the first
       commit, before the effect runs.
     - Refreshing content already on screen keeps the stale content and shows
       an inline spinner. Only a first load may replace the surface, and polled
       surfaces show a loading state on the first tick only.
-    `check-ui-invariants` enforces the hook-flag and `Suspense`-fallback
-    halves. Details in
+    `check-ui-invariants` enforces the hook-flag, `Suspense`-fallback and
+    control-default halves. Details in
     [`docs/agents/design-system.md`](./docs/agents/design-system.md#loading-states-non-negotiable).
 
 ## Before you yield

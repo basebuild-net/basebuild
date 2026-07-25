@@ -382,11 +382,38 @@ whole rule; most violations are an `empty` branch that forgot `loading` exists.
 | `<LoadingBlock label="…" />` | A whole panel or section with no known row shape. |
 | `<LoadingBlock label="…" compact />` | Same, inside an already-small card. |
 | `<SkeletonText width={n} />` | One inline value inside otherwise-real content. |
+| `<SkeletonControl label="…" />` | A form control whose value is still loading. |
 | `<ModalLoading label="…" />` | `Suspense` fallback for a lazy modal body. Never `null`. |
 | `<LogoPulse />` + inline label | Bespoke layouts; the underlying pulse the others build on. |
 
 A bare `Loading…` string is not sufficient on its own, and must never sit
 *beside* an empty list — it replaces the list.
+
+### Controls are not exempt
+
+A form control renders a *value*, and the default it falls back to is a
+claim about that value:
+
+```tsx
+// Wrong. While `status` is null this renders an UNCHECKED box, which the
+// user reads as "automatic sync is off" — and may click to "fix".
+<input type="checkbox" checked={status?.enabled ?? false} />
+
+// Right. Nothing is claimed until the value exists.
+{status
+  ? <input type="checkbox" checked={status.enabled} … />
+  : <SkeletonControl label="the automatic sync setting" />}
+```
+
+The same applies to `<select value={x ?? ""}>` (renders "no selection"),
+numeric inputs (render "0" or empty), and any text that substitutes a
+placeholder for an unloaded value — use `SkeletonText`. Disabling the control
+is not sufficient: a disabled unchecked box still says "off".
+
+`SkeletonControl` takes the control's *name*, not its state — "Sync usage
+automatically", not "Loading" — so the announced label is
+"Loading the automatic sync setting". `check-ui-invariants` rejects
+`checked={…?.… ?? false}`.
 
 ### Hook contract
 
